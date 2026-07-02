@@ -223,13 +223,15 @@ pub fn summary_blob_round_trips_test() {
     )
     |> json.to_string
   let assert Ok(blob) = wire.decode_summary_blob(encoded)
-  blob.address |> expect.to_equal("root")
   blob.sequence_number |> expect.to_equal(7)
+  let assert [channel] = blob.channels
+  channel.address |> expect.to_equal("root")
+  channel.channel_type |> expect.to_equal(wire.channel_type_map)
   // Values compare structurally by re-encoding through the same codec.
   let normalize = fn(pairs: List(#(String, json.Json))) {
     list.map(pairs, fn(pair) { #(pair.0, json.to_string(pair.1)) })
   }
-  normalize(blob.entries) |> expect.to_equal(normalize(entries))
+  normalize(channel.entries) |> expect.to_equal(normalize(entries))
 }
 
 pub fn summary_blob_rejects_unknown_version_test() {
@@ -509,4 +511,122 @@ fn string_contains(haystack: String, needle: String) -> Bool {
 
 fn list_each(items: List(a), run: fn(a) -> b) -> Nil {
   list.each(items, run)
+}
+
+// New tests for attach ops and summary v2
+
+pub fn attach_codec_round_trip_test() {
+  let snapshot = [#("k", json.int(1)), #("s", json.string("v"))]
+  let encoded =
+    wire.encode_attach("root", wire.channel_type_map, snapshot)
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case wire.decode_op_contents(dynamic) {
+    Ok(attach) -> {
+      let assert wire.AttachOp(address, channel_type, entries) = attach
+      address |> expect.to_equal("root")
+      channel_type |> expect.to_equal(wire.channel_type_map)
+      entries |> expect.to_equal(snapshot)
+    }
+    Error(_) -> panic as "attach decode failed"
+  }
+}
+
+pub fn decode_op_contents_discrimination_test() {
+  // Map envelope should decode as ChannelOp
+  let map_json =
+    "{\"address\": \"root\", \"contents\": {\"type\": \"set\", \"key\": \"k\", \"value\": {\"type\": \"Plain\", \"value\": 4}}}"
+  let dynamic = parse(map_json, decode.dynamic)
+  case wire.decode_op_contents(dynamic) {
+    Ok(channel) -> {
+      let assert wire.ChannelOp(address, op) = channel
+      address |> expect.to_equal("root")
+      let assert Set(k, _) = op
+      k |> expect.to_equal("k")
+    }
+    Error(_) -> panic as "channel op decode failed"
+  }
+}
+
+pub fn decode_op_contents_rejects_bad_attach_test() {
+  // An explicit "attach" with an unknown channel type must be rejected.
+  let bad =
+    "{\"type\": \"attach\", \"address\": \"root\", \"channelType\": \"weird\", \"snapshot\": [{\"key\": \"k\", \"value\": 1}]}"
+  let dynamic = parse(bad, decode.dynamic)
+  case wire.decode_op_contents(dynamic) {
+    Error(_) -> Nil
+    Ok(_) ->
+      panic as "expected bad attach to be rejected, not decoded as channel op"
+  }
+}
+
+pub fn summary_blob_v1_fallback_to_one_map_channel_test() {
+  let raw =
+    "{\"watershedSummaryVersion\": 1, \"address\": \"legacy\", \"sequenceNumber\": 1, \"entries\": []}"
+  case wire.decode_summary_blob(raw) {
+    Ok(blob) -> {
+      blob.sequence_number |> expect.to_equal(1)
+      let assert [channel] = blob.channels
+      channel.channel_type |> expect.to_equal(wire.channel_type_map)
+      channel.address |> expect.to_equal("root")
+    }
+    Error(_) -> panic as "v1 fallback failed"
+  }
+}
+
+pub fn summary_blob_v2_round_trips_test() {
+  let entries = [#("a", json.int(1))]
+  let channel =
+    json.object([
+      #("address", json.string("root")),
+      #("type", json.string(wire.channel_type_map)),
+      #(
+        "entries",
+        json.array(entries, fn(e) {
+          json.object([#("key", json.string(e.0)), #("value", e.1)])
+        }),
+      ),
+    ])
+  let raw =
+    json.object([
+      #("watershedSummaryVersion", json.int(2)),
+      #("sequenceNumber", json.int(5)),
+      #("channels", json.array([channel], fn(c) { c })),
+    ])
+    |> json.to_string
+  case wire.decode_summary_blob(raw) {
+    Ok(blob) -> {
+      blob.sequence_number |> expect.to_equal(5)
+      let assert [ch] = blob.channels
+      ch.address |> expect.to_equal("root")
+      ch.channel_type |> expect.to_equal(wire.channel_type_map)
+    }
+    Error(_) -> panic as "v2 decode failed"
+  }
+}
+
+pub fn summary_blob_unknown_channel_type_rejected_test() {
+  let entries = [#("a", json.int(1))]
+  let channel =
+    json.object([
+      #("address", json.string("root")),
+      #("type", json.string("weird")),
+      #(
+        "entries",
+        json.array(entries, fn(e) {
+          json.object([#("key", json.string(e.0)), #("value", e.1)])
+        }),
+      ),
+    ])
+  let raw =
+    json.object([
+      #("watershedSummaryVersion", json.int(2)),
+      #("sequenceNumber", json.int(5)),
+      #("channels", json.array([channel], fn(c) { c })),
+    ])
+    |> json.to_string
+  case wire.decode_summary_blob(raw) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected unknown channel type to be rejected"
+  }
 }

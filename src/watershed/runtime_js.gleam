@@ -133,37 +133,37 @@ pub fn start(
 
 @target(javascript)
 pub fn set(runtime: Runtime, key: String, value: Json) -> Nil {
-  edit(runtime.cell, fn(core) { runtime_core.set(core, key, value) })
+  edit(runtime.cell, fn(core) { runtime_core.set(core, address, key, value) })
 }
 
 @target(javascript)
 pub fn delete(runtime: Runtime, key: String) -> Nil {
-  edit(runtime.cell, fn(core) { runtime_core.delete(core, key) })
+  edit(runtime.cell, fn(core) { runtime_core.delete(core, address, key) })
 }
 
 @target(javascript)
 pub fn clear(runtime: Runtime) -> Nil {
-  edit(runtime.cell, runtime_core.clear)
+  edit(runtime.cell, fn(core) { runtime_core.clear(core, address) })
 }
 
 @target(javascript)
 pub fn get(runtime: Runtime, key: String) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.get(_, key))
+  read(runtime.cell, None, runtime_core.get(_, address, key))
 }
 
 @target(javascript)
 pub fn entries(runtime: Runtime) -> List(#(String, Json)) {
-  read(runtime.cell, [], runtime_core.entries)
+  read(runtime.cell, [], runtime_core.entries(_, address))
 }
 
 @target(javascript)
 pub fn keys(runtime: Runtime) -> List(String) {
-  read(runtime.cell, [], runtime_core.keys)
+  read(runtime.cell, [], runtime_core.keys(_, address))
 }
 
 @target(javascript)
 pub fn size(runtime: Runtime) -> Int {
-  read(runtime.cell, 0, runtime_core.size)
+  read(runtime.cell, 0, runtime_core.size(_, address))
 }
 
 @target(javascript)
@@ -238,9 +238,8 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
                 base_url: state.http_base_url,
                 tenant: state.connect_message.tenant_id,
                 token: token,
-                address: address,
                 sequence_number: core.last_seen_sn,
-                entries: runtime_core.summary_entries(core),
+                channels: runtime_core.summary_channels(core),
               )
               |> promise.map(fn(result) {
                 case result {
@@ -443,7 +442,9 @@ fn load_summary_then_bootstrap(
                 // authoritative load point is the server's summaryContext.
                 Some(runtime_core.Summary(
                   sequence_number: ctx.sequence_number,
-                  entries: blob.entries,
+                  channels: list.map(blob.channels, fn(ch) {
+                    #(ch.address, ch.entries)
+                  }),
                 )),
               )
           }
@@ -460,7 +461,7 @@ fn finish_bootstrap(
   connected: ConnectedMessage,
   summary: Option(runtime_core.Summary),
 ) -> Nil {
-  case runtime_core.bootstrap(connected, address: address, summary: summary) {
+  case runtime_core.bootstrap(connected, summary: summary) {
     Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
     Error(err) -> fail(cell, "bootstrap failed: " <> string.inspect(err))
   }
@@ -534,16 +535,26 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
     Ready(core, resubmit_at) ->
       case decode.run(payload, wire.op_message_decoder()) {
         Error(_) -> fail(cell, "malformed op payload")
-        Ok(message) -> {
-          let #(core, events, request_from) = apply_ops(core, message.ops)
-          fan_out(state.subscribers, events)
-          maybe_request_ops(state.channel, request_from)
-          case resubmit_at {
-            Some(checkpoint) -> settle_reconnect(cell, core, checkpoint)
-            None ->
-              cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
+        Ok(message) ->
+          case apply_ops(core, message.ops) {
+            Ok(#(core, events, request_from)) -> {
+              fan_out(state.subscribers, events)
+              maybe_request_ops(state.channel, request_from)
+              case resubmit_at {
+                Some(checkpoint) -> settle_reconnect(cell, core, checkpoint)
+                None ->
+                  cell_set(
+                    cell,
+                    State(..cell_get(cell), phase: Ready(core, None)),
+                  )
+              }
+            }
+            Error(core_error) ->
+              fail(
+                cell,
+                "sequenced op processing failed: " <> string.inspect(core_error),
+              )
           }
-        }
       }
     // Ops before a connected session (or while reconnecting) carry no state
     // we can trust; ignore them.
@@ -598,7 +609,10 @@ fn settle_reconnect(
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
+) -> Result(
+  #(runtime_core.Core, List(MapEvent), Option(Int)),
+  runtime_core.CoreError,
+) {
   do_apply_ops(core, ops, [], None)
 }
 
@@ -608,21 +622,22 @@ fn do_apply_ops(
   ops: List(SequencedDocumentMessage),
   events: List(List(MapEvent)),
   request_from: Option(Int),
-) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
+) -> Result(
+  #(runtime_core.Core, List(MapEvent), Option(Int)),
+  runtime_core.CoreError,
+) {
   case ops {
-    [] -> #(core, list.reverse(events) |> list.flatten, request_from)
+    [] -> Ok(#(core, list.reverse(events) |> list.flatten, request_from))
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
         Ok(#(core, ingested)) ->
           do_apply_ops(
             core,
             rest,
-            [ingested.events, ..events],
+            [root_events(ingested.events), ..events],
             option.or(request_from, ingested.request_ops_from),
           )
-        // A decode/ack failure here means divergence; stop applying and keep
-        // what we had rather than corrupting state silently.
-        Error(_) -> #(core, list.reverse(events) |> list.flatten, request_from)
+        Error(core_error) -> Error(core_error)
       }
   }
 }
@@ -631,31 +646,37 @@ fn do_apply_ops(
 fn edit(
   cell: Cell(State),
   operate: fn(runtime_core.Core) ->
-    #(runtime_core.Core, List(MapEvent), wire.OutboundOp),
+    Result(
+      #(runtime_core.Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
 ) -> Nil {
   let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let #(core, events, outbound) = operate(core)
-      // Push immediately only when fully synced with a live channel; otherwise
-      // the op stays in-flight and `resubmit` sends it once, so a reconnect
-      // can't drop or duplicate it.
-      case resubmit_at, state.channel {
-        None, Some(channel) ->
-          push_json(
-            channel,
-            "submitOp",
-            wire.encode_submit_op(core.client_id, [[outbound]]),
-          )
-        _, _ -> Nil
+      case operate(core) {
+        Error(_) -> Nil
+        Ok(#(core, events, outbound)) -> {
+          // Push immediately only when fully synced with a live channel;
+          // otherwise the op stays in-flight and `resubmit` sends it once, so a
+          // reconnect can't drop or duplicate it.
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
+          }
+          fan_out(state.subscribers, root_events(events))
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+        }
       }
-      fan_out(state.subscribers, events)
-      cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
     }
     Reconnecting(core) -> {
-      let #(core, events, _outbound) = operate(core)
-      fan_out(state.subscribers, events)
-      cell_set(cell, State(..state, phase: Reconnecting(core)))
+      case operate(core) {
+        Error(_) -> Nil
+        Ok(#(core, events, _outbound)) -> {
+          fan_out(state.subscribers, root_events(events))
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+        }
+      }
     }
     // Edits before ready are dropped (the demo gates edits behind on_ready).
     _ -> Nil
@@ -767,6 +788,16 @@ fn fan_out(
 ) -> Nil {
   list.each(events, fn(event) {
     list.each(subscribers, fn(subscriber) { subscriber(event) })
+  })
+}
+
+@target(javascript)
+fn root_events(events: List(#(String, MapEvent))) -> List(MapEvent) {
+  list.filter_map(events, fn(entry) {
+    case entry.0 == address {
+      True -> Ok(entry.1)
+      False -> Error(Nil)
+    }
   })
 }
 

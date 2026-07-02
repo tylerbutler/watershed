@@ -151,13 +151,15 @@ fn run_versions_test() -> Nil {
   // Historical snapshot reads by handle: each version returns exactly the
   // confirmed state it captured, without affecting the live document.
   let assert Ok(blob_1) = watershed.load_version(doc, handle: handle_1)
-  blob_1.entries
+  let entries_1 = list.flatten(list.map(blob_1.channels, fn(ch) { ch.entries }))
+  entries_1
   |> expect.to_equal([
     #("die", json.int(4)),
     #("color", json.string("blue")),
   ])
   let assert Ok(blob_2) = watershed.load_version(doc, handle: handle_2)
-  blob_2.entries
+  let entries_2 = list.flatten(list.map(blob_2.channels, fn(ch) { ch.entries }))
+  entries_2
   |> expect.to_equal([
     #("die", json.int(4)),
     #("color", json.string("green")),

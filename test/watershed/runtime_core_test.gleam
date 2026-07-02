@@ -17,8 +17,9 @@ import startest/expect
 import spillway/message
 import spillway/types
 
+import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
-import watershed/runtime_core.{type Core, InFlight}
+import watershed/runtime_core.{type Core}
 import watershed/wire
 
 const our_client_id = "default_dice_2"
@@ -44,12 +45,48 @@ fn map_op_message(
   csn csn: Int,
   op op: map_kernel.MapOp,
 ) -> types.SequencedDocumentMessage {
+  channel_op_message(
+    address: "root",
+    client_id: client_id,
+    sn: sn,
+    csn: csn,
+    op: op,
+  )
+}
+
+fn channel_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: map_kernel.MapOp,
+) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
     sn: sn,
     csn: csn,
     message_type: "op",
-    contents: to_dynamic(wire.encode_map_envelope("root", op)),
+    contents: to_dynamic(wire.encode_map_envelope(address, op)),
+  )
+}
+
+fn attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  snapshot snapshot: List(#(String, Json)),
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(wire.encode_attach(
+      address,
+      wire.channel_type_map,
+      snapshot,
+    )),
   )
 }
 
@@ -136,7 +173,6 @@ fn bootstrap(
   case
     runtime_core.bootstrap(
       connected_message(initial_messages, checkpoint),
-      address: "root",
       summary: None,
     )
   {
@@ -162,6 +198,16 @@ fn apply(
   msg: types.SequencedDocumentMessage,
 ) -> #(Core, List(map_kernel.MapEvent)) {
   case runtime_core.handle_sequenced(core, msg) {
+    Ok(#(core, ingested)) -> #(core, root_events(ingested.events))
+    Error(_) -> panic as "expected handle_sequenced to succeed"
+  }
+}
+
+fn apply_tagged(
+  core: Core,
+  msg: types.SequencedDocumentMessage,
+) -> #(Core, List(#(String, map_kernel.MapEvent))) {
+  case runtime_core.handle_sequenced(core, msg) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
@@ -170,10 +216,84 @@ fn apply(
 fn ingest(
   core: Core,
   msg: types.SequencedDocumentMessage,
-) -> #(Core, runtime_core.Ingested) {
+) -> #(Core, List(map_kernel.MapEvent), option.Option(Int)) {
   case runtime_core.handle_sequenced(core, msg) {
-    Ok(outcome) -> outcome
+    Ok(#(core, ingested)) -> #(
+      core,
+      root_events(ingested.events),
+      ingested.request_ops_from,
+    )
     Error(_) -> panic as "expected handle_sequenced to succeed"
+  }
+}
+
+fn root_events(
+  events: List(#(String, map_kernel.MapEvent)),
+) -> List(map_kernel.MapEvent) {
+  list.filter_map(events, fn(entry) {
+    case entry.0 == "root" {
+      True -> Ok(entry.1)
+      False -> Error(Nil)
+    }
+  })
+}
+
+fn root_summary(
+  sequence_number: Int,
+  entries: List(#(String, Json)),
+) -> runtime_core.Summary {
+  runtime_core.Summary(sequence_number: sequence_number, channels: [
+    #("root", entries),
+  ])
+}
+
+fn root_get(core: Core, key: String) -> option.Option(Json) {
+  runtime_core.get(core, "root", key)
+}
+
+fn root_has(core: Core, key: String) -> Bool {
+  runtime_core.has(core, "root", key)
+}
+
+fn root_size(core: Core) -> Int {
+  runtime_core.size(core, "root")
+}
+
+fn root_entries(core: Core) -> List(#(String, Json)) {
+  runtime_core.entries(core, "root")
+}
+
+fn root_set(
+  core: Core,
+  key: String,
+  value: Json,
+) -> #(Core, List(map_kernel.MapEvent), wire.OutboundOp) {
+  case runtime_core.set(core, "root", key, value) {
+    Ok(#(core, events, [outbound])) -> #(core, root_events(events), outbound)
+    Ok(_) -> panic as "expected exactly one outbound op"
+    Error(_) -> panic as "expected root set to succeed"
+  }
+}
+
+fn root_delete(
+  core: Core,
+  key: String,
+) -> #(Core, List(map_kernel.MapEvent), wire.OutboundOp) {
+  case runtime_core.delete(core, "root", key) {
+    Ok(#(core, events, [outbound])) -> #(core, root_events(events), outbound)
+    Ok(_) -> panic as "expected exactly one outbound op"
+    Error(_) -> panic as "expected root delete to succeed"
+  }
+}
+
+fn decode_outbound_contents(op: wire.OutboundOp) -> wire.OpContents {
+  case json.parse(json.to_string(op.contents), decode.dynamic) {
+    Error(_) -> panic as "failed to re-parse outbound contents"
+    Ok(dynamic_value) ->
+      case wire.decode_op_contents(dynamic_value) {
+        Ok(contents) -> contents
+        Error(_) -> panic as "failed to decode outbound contents"
+      }
   }
 }
 
@@ -202,7 +322,7 @@ pub fn bootstrap_empty_document_test() {
   core.client_id |> expect.to_equal(our_client_id)
   core.last_seen_sn |> expect.to_equal(1)
   core.next_csn |> expect.to_equal(1)
-  runtime_core.entries(core) |> expect.to_equal([])
+  root_entries(core) |> expect.to_equal([])
 }
 
 pub fn bootstrap_replays_initial_messages_test() {
@@ -229,8 +349,8 @@ pub fn bootstrap_replays_initial_messages_test() {
   ]
   let core = bootstrap(initial_messages: history, checkpoint: 5)
 
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
-  runtime_core.has(core, "count") |> expect.to_be_false()
+  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_has(core, "count") |> expect.to_be_false()
   core.last_seen_sn |> expect.to_equal(5)
 }
 
@@ -254,11 +374,7 @@ pub fn bootstrap_truncated_history_requests_prefix_test() {
   ]
 
   let #(core, checkpoint) = case
-    runtime_core.bootstrap(
-      connected_message(truncated, 5),
-      address: "root",
-      summary: None,
-    )
+    runtime_core.bootstrap(connected_message(truncated, 5), summary: None)
   {
     Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
       // Nothing replayed yet, so the fetch range is the full missing prefix
@@ -288,8 +404,8 @@ pub fn bootstrap_truncated_history_requests_prefix_test() {
   {
     Ok(runtime_core.Complete(core)) -> {
       core.last_seen_sn |> expect.to_equal(5)
-      runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
-      runtime_core.get(core, "count") |> expect.to_equal(Some(json.int(9)))
+      root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+      root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
     }
     _ -> panic as "expected resume_bootstrap to complete"
   }
@@ -307,11 +423,7 @@ pub fn resume_bootstrap_pages_large_gaps_test() {
     ),
   ]
   let #(core, checkpoint) = case
-    runtime_core.bootstrap(
-      connected_message(tail, 7),
-      address: "root",
-      summary: None,
-    )
+    runtime_core.bootstrap(connected_message(tail, 7), summary: None)
   {
     Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
       from |> expect.to_equal(0)
@@ -365,9 +477,9 @@ pub fn resume_bootstrap_pages_large_gaps_test() {
   {
     Ok(runtime_core.Complete(core)) -> {
       core.last_seen_sn |> expect.to_equal(7)
-      runtime_core.get(core, "last") |> expect.to_equal(Some(json.int(6)))
-      runtime_core.get(core, "k4") |> expect.to_equal(Some(json.int(4)))
-      runtime_core.size(core) |> expect.to_equal(6)
+      root_get(core, "last") |> expect.to_equal(Some(json.int(6)))
+      root_get(core, "k4") |> expect.to_equal(Some(json.int(4)))
+      root_size(core) |> expect.to_equal(6)
     }
     _ -> panic as "expected resume_bootstrap to complete after paging"
   }
@@ -385,11 +497,7 @@ pub fn resume_bootstrap_without_progress_is_fatal_test() {
     ),
   ]
   let #(core, checkpoint) = case
-    runtime_core.bootstrap(
-      connected_message(tail, 5),
-      address: "root",
-      summary: None,
-    )
+    runtime_core.bootstrap(connected_message(tail, 5), summary: None)
   {
     Ok(runtime_core.MissingPrefix(core, checkpoint, _, _)) -> #(
       core,
@@ -409,8 +517,7 @@ pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
   // A summarized document whose post-summary history outgrew the in-band
   // window: the summary seeds SN 100, but the served deltas start at 105, so
   // the fetch range must start at the summary's sequence number.
-  let summary =
-    runtime_core.Summary(sequence_number: 100, entries: [#("die", json.int(4))])
+  let summary = root_summary(100, [#("die", json.int(4))])
   let tail = [
     map_op_message(
       client_id: other_client_id,
@@ -420,11 +527,7 @@ pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
     ),
   ]
   case
-    runtime_core.bootstrap(
-      connected_message(tail, 106),
-      address: "root",
-      summary: Some(summary),
-    )
+    runtime_core.bootstrap(connected_message(tail, 106), summary: Some(summary))
   {
     Ok(runtime_core.MissingPrefix(_, checkpoint, from, to)) -> {
       from |> expect.to_equal(100)
@@ -439,8 +542,7 @@ pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
   // A summarized document: the summary captures {die: 4} as of SN 5, and the
   // post-summary deltas (initialMessages) start at SN 6. Bootstrap must seed
   // the kernel from the summary and replay only the deltas on top — no gap.
-  let summary =
-    runtime_core.Summary(sequence_number: 5, entries: [#("die", json.int(4))])
+  let summary = root_summary(5, [#("die", json.int(4))])
   let deltas = [
     map_op_message(
       client_id: other_client_id,
@@ -451,19 +553,15 @@ pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
     map_op_message(client_id: other_client_id, sn: 7, csn: 2, op: Delete("die")),
   ]
   let core = case
-    runtime_core.bootstrap(
-      connected_message(deltas, 8),
-      address: "root",
-      summary: Some(summary),
-    )
+    runtime_core.bootstrap(connected_message(deltas, 8), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
     _ -> panic as "expected summary bootstrap to succeed"
   }
 
   // Seeded from the summary, then the deltas applied: die deleted, count added.
-  runtime_core.has(core, "die") |> expect.to_be_false()
-  runtime_core.get(core, "count") |> expect.to_equal(Some(json.int(9)))
+  root_has(core, "die") |> expect.to_be_false()
+  root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
   core.last_seen_sn |> expect.to_equal(8)
 }
 
@@ -471,22 +569,18 @@ pub fn bootstrap_from_summary_no_deltas_test() {
   // A freshly summarized document with no post-summary ops: the state is
   // exactly the summary, seen as of the summary's sequence number.
   let summary =
-    runtime_core.Summary(sequence_number: 5, entries: [
+    root_summary(5, [
       #("a", json.int(1)),
       #("b", json.int(2)),
     ])
   let core = case
-    runtime_core.bootstrap(
-      connected_message([], 5),
-      address: "root",
-      summary: Some(summary),
-    )
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
     _ -> panic as "expected summary bootstrap to succeed"
   }
 
-  runtime_core.entries(core)
+  root_entries(core)
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
   core.last_seen_sn |> expect.to_equal(5)
   // The confirmed entries a fresh summarize would capture round-trip exactly.
@@ -515,7 +609,7 @@ pub fn bootstrap_dedupes_own_join_push_test() {
         op: Set("die", json.int(6)),
       ),
     )
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -547,7 +641,7 @@ pub fn already_seen_ops_are_dropped_test() {
       ),
     )
   events |> expect.to_equal([])
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
 }
 
 pub fn sequence_gap_buffers_and_requests_catch_up_test() {
@@ -555,7 +649,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
 
   // An op past the next expected SN is buffered, not applied, and the first
   // such op asks the runtime to requestOps from the last contiguous SN.
-  let #(core, ingested) =
+  let #(core, events, request_ops_from) =
     ingest(
       core,
       map_op_message(
@@ -565,13 +659,13 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
         op: Set("die", json.int(4)),
       ),
     )
-  ingested.events |> expect.to_equal([])
-  ingested.request_ops_from |> expect.to_equal(Some(1))
-  runtime_core.has(core, "die") |> expect.to_be_false()
+  events |> expect.to_equal([])
+  request_ops_from |> expect.to_equal(Some(1))
+  root_has(core, "die") |> expect.to_be_false()
   core.last_seen_sn |> expect.to_equal(1)
 
   // A further out-of-order op extends the buffer without re-requesting.
-  let #(core, ingested) =
+  let #(core, _, request_ops_from) =
     ingest(
       core,
       map_op_message(
@@ -581,12 +675,12 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
         op: Set("count", json.int(9)),
       ),
     )
-  ingested.request_ops_from |> expect.to_equal(None)
+  request_ops_from |> expect.to_equal(None)
   core.last_seen_sn |> expect.to_equal(1)
 
   // The missing ops (SN 2, 3) arrive; the buffer drains contiguously and the
   // catch-up completes with events for every applied op.
-  let #(core, ingested) =
+  let #(core, _, request_ops_from) =
     ingest(
       core,
       map_op_message(
@@ -596,10 +690,10 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
         op: Set("a", json.int(1)),
       ),
     )
-  ingested.request_ops_from |> expect.to_equal(None)
+  request_ops_from |> expect.to_equal(None)
   core.last_seen_sn |> expect.to_equal(2)
 
-  let #(core, ingested) =
+  let #(core, _, request_ops_from) =
     ingest(
       core,
       map_op_message(
@@ -611,11 +705,11 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
     )
   // SN 3 applies, then buffered SN 4 and SN 5 drain in one go.
   core.last_seen_sn |> expect.to_equal(5)
-  ingested.request_ops_from |> expect.to_equal(None)
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
-  runtime_core.get(core, "count") |> expect.to_equal(Some(json.int(9)))
-  runtime_core.get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  runtime_core.get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  request_ops_from |> expect.to_equal(None)
+  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
+  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
 }
 
 pub fn system_messages_only_advance_sn_test() {
@@ -628,7 +722,7 @@ pub fn system_messages_only_advance_sn_test() {
   core.last_seen_sn |> expect.to_equal(2)
 }
 
-pub fn foreign_address_ops_are_skipped_test() {
+pub fn unknown_address_ops_are_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let foreign =
@@ -642,10 +736,11 @@ pub fn foreign_address_ops_are_skipped_test() {
         Set("die", json.int(4)),
       )),
     )
-  let #(core, events) = apply(core, foreign)
-  events |> expect.to_equal([])
-  runtime_core.has(core, "die") |> expect.to_be_false()
-  core.last_seen_sn |> expect.to_equal(2)
+  runtime_core.handle_sequenced(core, foreign)
+  |> expect_error(fn(core_error) {
+    core_error
+    == runtime_core.UnknownChannel(address: "other-map", sequence_number: 2)
+  })
 }
 
 pub fn undecodable_op_contents_are_fatal_test() {
@@ -672,8 +767,8 @@ pub fn undecodable_op_contents_are_fatal_test() {
 pub fn local_ops_stamp_csn_and_rsn_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 7)
 
-  let #(core, events, first) = runtime_core.set(core, "die", json.int(4))
-  let #(core, _, second) = runtime_core.delete(core, "missing")
+  let #(core, events, first) = root_set(core, "die", json.int(4))
+  let #(core, _, second) = root_delete(core, "missing")
 
   events
   |> expect.to_equal([
@@ -683,12 +778,12 @@ pub fn local_ops_stamp_csn_and_rsn_test() {
   first.reference_sequence_number |> expect.to_equal(7)
   second.client_sequence_number |> expect.to_equal(2)
   core.next_csn |> expect.to_equal(3)
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
 }
 
 pub fn ack_commits_pending_without_events_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "die", json.int(4))
+  let #(core, _, _) = root_set(core, "die", json.int(4))
 
   // Server sequences our op and echoes it back with our client_id + csn.
   let #(core, events) =
@@ -704,14 +799,14 @@ pub fn ack_commits_pending_without_events_test() {
 
   // Ack transparency: no events, view unchanged, queue drained.
   events |> expect.to_equal([])
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
   core.in_flight |> expect.to_equal([])
 }
 
 pub fn acks_match_fifo_across_multiple_ops_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "a", json.int(1))
-  let #(core, _, _) = runtime_core.set(core, "b", json.int(2))
+  let #(core, _, _) = root_set(core, "a", json.int(1))
+  let #(core, _, _) = root_set(core, "b", json.int(2))
 
   let #(core, _) =
     apply(
@@ -725,7 +820,12 @@ pub fn acks_match_fifo_across_multiple_ops_test() {
     )
   core.in_flight
   |> expect.to_equal([
-    InFlight(client_id: our_client_id, csn: 2, op: Set("b", json.int(2))),
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 2,
+      address: "root",
+      op: Set("b", json.int(2)),
+    ),
   ])
 
   let #(core, _) =
@@ -743,7 +843,7 @@ pub fn acks_match_fifo_across_multiple_ops_test() {
 
 pub fn ack_with_wrong_csn_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "die", json.int(4))
+  let #(core, _, _) = root_set(core, "die", json.int(4))
 
   runtime_core.handle_sequenced(
     core,
@@ -784,7 +884,7 @@ pub fn ack_with_empty_in_flight_is_fatal_test() {
 
 pub fn ack_with_wrong_shape_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "die", json.int(4))
+  let #(core, _, _) = root_set(core, "die", json.int(4))
 
   runtime_core.handle_sequenced(
     core,
@@ -804,7 +904,7 @@ pub fn ack_with_wrong_shape_is_fatal_test() {
 
 pub fn pending_local_set_masks_remote_then_converges_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "die", json.int(6))
+  let #(core, _, _) = root_set(core, "die", json.int(6))
 
   // Remote write raced ahead of ours; it is masked by our pending set.
   let #(core, events) =
@@ -818,7 +918,7 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
       ),
     )
   events |> expect.to_equal([])
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
 
   // Our op sequences after it (LWW): converged view keeps our value.
   let #(core, _) =
@@ -831,7 +931,7 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
         op: Set("die", json.int(6)),
       ),
     )
-  runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
   core.in_flight |> expect.to_equal([])
 }
 
@@ -842,8 +942,8 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
 pub fn reconnect_reconciles_then_resubmits_test() {
   // Two local ops are in flight when the connection drops.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "a", json.int(1))
-  let #(core, _, _) = runtime_core.set(core, "b", json.int(2))
+  let #(core, _, _) = root_set(core, "a", json.int(1))
+  let #(core, _, _) = root_set(core, "b", json.int(2))
 
   // Reconnect: fresh client_id, and the server assigned SN 2 to op "a" under
   // the OLD id while we were disconnected, so the new join lands at SN 3.
@@ -858,7 +958,7 @@ pub fn reconnect_reconciles_then_resubmits_test() {
 
   // Catch-up replays op "a" under the OLD client id: it reconciles (acks the
   // head) rather than double-applying, and emits no events.
-  let #(core, ingested) =
+  let #(core, events, request_ops_from) =
     ingest(
       core,
       map_op_message(
@@ -868,10 +968,17 @@ pub fn reconnect_reconciles_then_resubmits_test() {
         op: Set("a", json.int(1)),
       ),
     )
-  ingested.events |> expect.to_equal([])
-  ingested.request_ops_from |> expect.to_equal(None)
+  events |> expect.to_equal([])
+  request_ops_from |> expect.to_equal(None)
   core.in_flight
-  |> expect.to_equal([InFlight(our_client_id, 2, Set("b", json.int(2)))])
+  |> expect.to_equal([
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 2,
+      address: "root",
+      op: Set("b", json.int(2)),
+    ),
+  ])
 
   // Our own new join advances last_seen to the checkpoint.
   let #(core, _) =
@@ -881,7 +988,14 @@ pub fn reconnect_reconciles_then_resubmits_test() {
   // Resubmit the survivor with a fresh CSN under the new client id.
   let #(core, outbound) = runtime_core.resubmit(core)
   core.in_flight
-  |> expect.to_equal([InFlight(reconnect_client_id, 3, Set("b", json.int(2)))])
+  |> expect.to_equal([
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 3,
+      address: "root",
+      op: Set("b", json.int(2)),
+    ),
+  ])
   core.next_csn |> expect.to_equal(4)
   case outbound {
     [op] -> {
@@ -904,16 +1018,16 @@ pub fn reconnect_reconciles_then_resubmits_test() {
       ),
     )
   core.in_flight |> expect.to_equal([])
-  runtime_core.get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  runtime_core.get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
 }
 
 pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
   // The whole in-flight batch was sequenced-but-not-broadcast before the drop
   // (the nack-prefix hazard); catch-up must ack all of it, resubmit none.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let #(core, _, _) = runtime_core.set(core, "a", json.int(1))
-  let #(core, _, _) = runtime_core.set(core, "b", json.int(2))
+  let #(core, _, _) = root_set(core, "a", json.int(1))
+  let #(core, _, _) = root_set(core, "b", json.int(2))
 
   let core =
     runtime_core.adopt_reconnect(
@@ -921,7 +1035,7 @@ pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 4),
     )
 
-  let #(core, _) =
+  let #(core, _, _) =
     ingest(
       core,
       map_op_message(
@@ -931,7 +1045,7 @@ pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
         op: Set("a", json.int(1)),
       ),
     )
-  let #(core, _) =
+  let #(core, _, _) =
     ingest(
       core,
       map_op_message(
@@ -948,8 +1062,8 @@ pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
   let #(core, outbound) = runtime_core.resubmit(core)
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  runtime_core.get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
 }
 
 pub fn reconnect_applies_missed_delta_from_others_test() {
@@ -961,7 +1075,7 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
     )
 
-  let #(core, ingested) =
+  let #(core, events, _) =
     ingest(
       core,
       map_op_message(
@@ -971,11 +1085,11 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
         op: Set("x", json.string("y")),
       ),
     )
-  ingested.events
+  events
   |> expect.to_equal([
     ValueChanged(key: "x", previous_value: None, local: False),
   ])
-  runtime_core.get(core, "x") |> expect.to_equal(Some(json.string("y")))
+  root_get(core, "x") |> expect.to_equal(Some(json.string("y")))
 
   let #(core, _) =
     apply(core, join_message(sn: 3, joining: reconnect_client_id))
@@ -985,9 +1099,9 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
 
 pub fn resubmit_restamps_in_flight_in_order_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 5)
-  let #(core, _, _) = runtime_core.set(core, "a", json.int(1))
-  let #(core, _, _) = runtime_core.set(core, "b", json.int(2))
-  let #(core, _, _) = runtime_core.delete(core, "a")
+  let #(core, _, _) = root_set(core, "a", json.int(1))
+  let #(core, _, _) = root_set(core, "b", json.int(2))
+  let #(core, _, _) = root_delete(core, "a")
 
   let core =
     runtime_core.adopt_reconnect(
@@ -1000,9 +1114,24 @@ pub fn resubmit_restamps_in_flight_in_order_test() {
   core.next_csn |> expect.to_equal(7)
   core.in_flight
   |> expect.to_equal([
-    InFlight(reconnect_client_id, 4, Set("a", json.int(1))),
-    InFlight(reconnect_client_id, 5, Set("b", json.int(2))),
-    InFlight(reconnect_client_id, 6, Delete("a")),
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 4,
+      address: "root",
+      op: Set("a", json.int(1)),
+    ),
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 5,
+      address: "root",
+      op: Set("b", json.int(2)),
+    ),
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 6,
+      address: "root",
+      op: Delete("a"),
+    ),
   ])
   list.length(outbound) |> expect.to_equal(3)
   case outbound {
@@ -1011,5 +1140,468 @@ pub fn resubmit_restamps_in_flight_in_order_test() {
       first.reference_sequence_number |> expect.to_equal(5)
     }
     [] -> panic as "expected resubmitted ops"
+  }
+}
+
+pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  let child_snapshot = [#("a", json.int(1))]
+  let #(core, attach_events) =
+    apply_tagged(
+      core,
+      attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "child",
+        snapshot: child_snapshot,
+      ),
+    )
+  attach_events |> expect.to_equal([])
+  runtime_core.entries(core, "child") |> expect.to_equal(child_snapshot)
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "child",
+        client_id: other_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("b", json.int(2)),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #("child", ValueChanged(key: "b", previous_value: None, local: False)),
+  ])
+  runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
+}
+
+pub fn duplicate_attach_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "child",
+        snapshot: [],
+      ),
+    )
+
+  runtime_core.handle_sequenced(
+    core,
+    attach_message(
+      client_id: other_client_id,
+      sn: 3,
+      csn: 2,
+      address: "child",
+      snapshot: [],
+    ),
+  )
+  |> expect_error(fn(core_error) {
+    core_error
+    == runtime_core.DuplicateAttach(address: "child", sequence_number: 3)
+  })
+}
+
+pub fn detached_edits_produce_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+
+  case runtime_core.set(core, "child", "a", json.int(1)) {
+    Ok(#(core, events, outbound)) -> {
+      events
+      |> expect.to_equal([
+        #("child", ValueChanged(key: "a", previous_value: None, local: True)),
+      ])
+      outbound |> expect.to_equal([])
+      core.in_flight |> expect.to_equal([])
+      runtime_core.get(core, "child", "a")
+      |> expect.to_equal(Some(json.int(1)))
+    }
+    Error(_) -> panic as "expected detached edit to succeed"
+  }
+}
+
+pub fn handle_set_emits_recursive_attach_post_order_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "grand")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "grand", "g", json.int(1))
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "ref", handle.encode_handle("grand"))
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.set(core, "root", "child", handle.encode_handle("child"))
+
+  events
+  |> expect.to_equal([
+    #("root", ValueChanged(key: "child", previous_value: None, local: True)),
+  ])
+  list.map(outbound, decode_outbound_contents)
+  |> expect.to_equal([
+    wire.AttachOp(
+      address: "grand",
+      channel_type: wire.channel_type_map,
+      snapshot: [#("g", json.int(1))],
+    ),
+    wire.AttachOp(
+      address: "child",
+      channel_type: wire.channel_type_map,
+      snapshot: [#("ref", handle.encode_handle("grand"))],
+    ),
+    wire.ChannelOp(
+      address: "root",
+      op: Set("child", handle.encode_handle("child")),
+    ),
+  ])
+  runtime_core.has_channel(core, "child") |> expect.to_be_true()
+  runtime_core.has_channel(core, "grand") |> expect.to_be_true()
+}
+
+pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "a")
+  let core = runtime_core.create_detached(core, "b")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "a", "peer", handle.encode_handle("b"))
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "b", "peer", handle.encode_handle("a"))
+
+  let assert Ok(#(_, _, outbound)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("a"))
+
+  list.map(outbound, decode_outbound_contents)
+  |> expect.to_equal([
+    wire.AttachOp(address: "b", channel_type: wire.channel_type_map, snapshot: [
+      #("peer", handle.encode_handle("a")),
+    ]),
+    wire.AttachOp(address: "a", channel_type: wire.channel_type_map, snapshot: [
+      #("peer", handle.encode_handle("b")),
+    ]),
+    wire.ChannelOp(address: "root", op: Set("ref", handle.encode_handle("a"))),
+  ])
+}
+
+pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "a", json.int(1))
+  let assert Ok(#(core, _, initial_outbound)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+  list.length(initial_outbound) |> expect.to_equal(2)
+
+  let assert Ok(#(core, events, [child_outbound])) =
+    runtime_core.set(core, "child", "a", json.int(2))
+  events
+  |> expect.to_equal([
+    #(
+      "child",
+      ValueChanged(key: "a", previous_value: Some(json.int(1)), local: True),
+    ),
+  ])
+  decode_outbound_contents(child_outbound)
+  |> expect.to_equal(wire.ChannelOp(address: "child", op: Set("a", json.int(2))))
+  core.in_flight
+  |> expect.to_equal([
+    runtime_core.InFlightAttach(
+      client_id: our_client_id,
+      csn: 1,
+      address: "child",
+      snapshot: [#("a", json.int(1))],
+    ),
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 2,
+      address: "root",
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 3,
+      address: "child",
+      op: Set("a", json.int(2)),
+    ),
+  ])
+
+  let #(core, attach_events) =
+    apply_tagged(
+      core,
+      attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "child",
+        snapshot: [#("a", json.int(1))],
+      ),
+    )
+  attach_events |> expect.to_equal([])
+
+  let #(core, root_events_) =
+    apply(
+      core,
+      map_op_message(
+        client_id: our_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("ref", handle.encode_handle("child")),
+      ),
+    )
+  root_events_ |> expect.to_equal([])
+
+  let #(core, child_events) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "child",
+        client_id: our_client_id,
+        sn: 4,
+        csn: 3,
+        op: Set("a", json.int(2)),
+      ),
+    )
+  child_events |> expect.to_equal([])
+  runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(2)))
+  core.in_flight |> expect.to_equal([])
+}
+
+pub fn attach_ack_pops_with_no_events_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "a", json.int(1))
+  let assert Ok(#(core, _, outbound)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+  outbound
+  |> expect.to_equal([
+    wire.outbound_attach_op(
+      address: "child",
+      client_sequence_number: 1,
+      reference_sequence_number: 1,
+      snapshot: [#("a", json.int(1))],
+    ),
+    wire.outbound_map_op(
+      address: "root",
+      client_sequence_number: 2,
+      reference_sequence_number: 1,
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+  ])
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "child",
+        snapshot: [#("a", json.int(1))],
+      ),
+    )
+  events |> expect.to_equal([])
+  runtime_core.entries(core, "child") |> expect.to_equal([#("a", json.int(1))])
+  core.in_flight
+  |> expect.to_equal([
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 2,
+      address: "root",
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+  ])
+}
+
+pub fn attach_ack_mismatch_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "a", json.int(1))
+  let assert Ok(#(core, _, _)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+
+  runtime_core.handle_sequenced(
+    core,
+    attach_message(
+      client_id: our_client_id,
+      sn: 2,
+      csn: 1,
+      address: "child",
+      snapshot: [#("wrong", json.int(1))],
+    ),
+  )
+  |> expect_error(fn(core_error) {
+    case core_error {
+      runtime_core.AckMismatch(_) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn attach_ack_value_mismatch_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "a", json.int(1))
+  let assert Ok(#(core, _, _)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+
+  runtime_core.handle_sequenced(
+    core,
+    attach_message(
+      client_id: our_client_id,
+      sn: 2,
+      csn: 1,
+      address: "child",
+      snapshot: [#("a", json.int(2))],
+    ),
+  )
+  |> expect_error(fn(core_error) {
+    case core_error {
+      runtime_core.AckMismatch(_) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "child")
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "a", json.int(1))
+  let assert Ok(#(core, _, _)) =
+    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+  let assert Ok(#(core, _, _)) =
+    runtime_core.set(core, "child", "a", json.int(2))
+
+  let core =
+    runtime_core.adopt_reconnect(
+      core,
+      reconnect_connected(client_id: reconnect_client_id, checkpoint: 5),
+    )
+  let #(core, outbound) = runtime_core.resubmit(core)
+
+  core.in_flight
+  |> expect.to_equal([
+    runtime_core.InFlightAttach(
+      client_id: reconnect_client_id,
+      csn: 4,
+      address: "child",
+      snapshot: [#("a", json.int(1))],
+    ),
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 5,
+      address: "root",
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+    runtime_core.InFlightOp(
+      client_id: reconnect_client_id,
+      csn: 6,
+      address: "child",
+      op: Set("a", json.int(2)),
+    ),
+  ])
+  list.map(outbound, decode_outbound_contents)
+  |> expect.to_equal([
+    wire.AttachOp(
+      address: "child",
+      channel_type: wire.channel_type_map,
+      snapshot: [#("a", json.int(1))],
+    ),
+    wire.ChannelOp(
+      address: "root",
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+    wire.ChannelOp(address: "child", op: Set("a", json.int(2))),
+  ])
+}
+
+pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
+  let summary =
+    runtime_core.Summary(sequence_number: 5, channels: [
+      #("root", [#("die", json.int(4))]),
+      #("child", [#("a", json.int(1))]),
+    ])
+  let deltas = [
+    attach_message(
+      client_id: other_client_id,
+      sn: 6,
+      csn: 1,
+      address: "grand",
+      snapshot: [#("g", json.int(9))],
+    ),
+    channel_op_message(
+      address: "child",
+      client_id: other_client_id,
+      sn: 7,
+      csn: 2,
+      op: Set("b", json.int(2)),
+    ),
+  ]
+
+  case
+    runtime_core.bootstrap(connected_message(deltas, 8), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> {
+      root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+      runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(1)))
+      runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
+      runtime_core.get(core, "grand", "g") |> expect.to_equal(Some(json.int(9)))
+      runtime_core.summary_channels(core)
+      |> expect.to_equal([
+        #("root", [#("die", json.int(4))]),
+        #("child", [#("a", json.int(1)), #("b", json.int(2))]),
+        #("grand", [#("g", json.int(9))]),
+      ])
+    }
+    _ -> panic as "expected multi-channel summary bootstrap to succeed"
+  }
+}
+
+pub fn bootstrap_from_bare_attach_history_test() {
+  let history = [
+    attach_message(
+      client_id: other_client_id,
+      sn: 1,
+      csn: 1,
+      address: "child",
+      snapshot: [#("a", json.int(1))],
+    ),
+    channel_op_message(
+      address: "child",
+      client_id: other_client_id,
+      sn: 2,
+      csn: 2,
+      op: Set("b", json.int(2)),
+    ),
+    map_op_message(
+      client_id: other_client_id,
+      sn: 3,
+      csn: 3,
+      op: Set("ref", handle.encode_handle("child")),
+    ),
+  ]
+
+  case runtime_core.bootstrap(connected_message(history, 4), summary: None) {
+    Ok(runtime_core.Complete(core)) -> {
+      runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(1)))
+      runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
+      root_get(core, "ref")
+      |> expect.to_equal(Some(handle.encode_handle("child")))
+      runtime_core.summary_channels(core)
+      |> expect.to_equal([
+        #("root", [#("ref", handle.encode_handle("child"))]),
+        #("child", [#("a", json.int(1)), #("b", json.int(2))]),
+      ])
+    }
+    _ -> panic as "expected attach history bootstrap to succeed"
   }
 }

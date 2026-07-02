@@ -354,9 +354,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     Inbound(incoming) -> handle_inbound(state, incoming)
 
     Put(key, value) ->
-      edit(state, fn(core) { runtime_core.set(core, key, value) })
-    Remove(key) -> edit(state, fn(core) { runtime_core.delete(core, key) })
-    RemoveAll -> edit(state, runtime_core.clear)
+      edit(state, fn(core) { runtime_core.set(core, address, key, value) })
+    Remove(key) ->
+      edit(state, fn(core) { runtime_core.delete(core, address, key) })
+    RemoveAll -> edit(state, fn(core) { runtime_core.clear(core, address) })
 
     Summarize(reply) -> handle_summarize(state, reply)
 
@@ -370,19 +371,19 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
 
     GetValue(key, reply) -> {
-      process.send(reply, read(state, None, runtime_core.get(_, key)))
+      process.send(reply, read(state, None, runtime_core.get(_, address, key)))
       actor.continue(state)
     }
     GetEntries(reply) -> {
-      process.send(reply, read(state, [], runtime_core.entries))
+      process.send(reply, read(state, [], runtime_core.entries(_, address)))
       actor.continue(state)
     }
     GetKeys(reply) -> {
-      process.send(reply, read(state, [], runtime_core.keys))
+      process.send(reply, read(state, [], runtime_core.keys(_, address)))
       actor.continue(state)
     }
     GetSize(reply) -> {
-      process.send(reply, read(state, 0, runtime_core.size))
+      process.send(reply, read(state, 0, runtime_core.size(_, address)))
       actor.continue(state)
     }
     IsSynced(reply) -> {
@@ -455,13 +456,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
                 Error(reason) -> panic as { "summary load failed: " <> reason }
               }
           }
-          case
-            runtime_core.bootstrap(
-              connected,
-              address: address,
-              summary: summary,
-            )
-          {
+          case runtime_core.bootstrap(connected, summary: summary) {
             Ok(bootstrapped) -> {
               let core = complete_bootstrap(state, bootstrapped)
               notify_waiters(state.phase, Ok(Nil))
@@ -588,7 +583,7 @@ fn do_apply_ops(
           do_apply_ops(
             core,
             rest,
-            [ingested.events, ..events],
+            [root_events(ingested.events), ..events],
             option.or(request_from, ingested.request_ops_from),
           )
         Error(core_error) ->
@@ -603,30 +598,39 @@ fn do_apply_ops(
 fn edit(
   state: State,
   operate: fn(runtime_core.Core) ->
-    #(runtime_core.Core, List(MapEvent), wire.OutboundOp),
+    Result(
+      #(runtime_core.Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let #(core, events, outbound) = operate(core)
-      // Push immediately only when fully synced with a live channel;
-      // otherwise the op stays in-flight and `resubmit` sends it once, so a
-      // reconnect can't drop or duplicate it.
-      case resubmit_at, state.channel {
-        None, Some(channel) ->
-          push(
-            channel,
-            "submitOp",
-            wire.encode_submit_op(core.client_id, [[outbound]]),
-          )
-        _, _ -> Nil
+      case operate(core) {
+        Error(core_error) ->
+          panic as { "local edit failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound)) -> {
+          // Push immediately only when fully synced with a live channel;
+          // otherwise the op stays in-flight and `resubmit` sends it once, so a
+          // reconnect can't drop or duplicate it.
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, root_events(events))
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
       }
-      fan_out(state.subscribers, events)
-      actor.continue(State(..state, phase: Ready(core, resubmit_at)))
     }
     Reconnecting(core) -> {
-      let #(core, events, _outbound) = operate(core)
-      fan_out(state.subscribers, events)
-      actor.continue(State(..state, phase: Reconnecting(core)))
+      case operate(core) {
+        Error(core_error) ->
+          panic as { "local edit failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound)) -> {
+          fan_out(state.subscribers, root_events(events))
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+      }
     }
     // Edits are only reachable through handles returned after await_ready,
     // so this is either a race with a failure or API misuse.
@@ -725,15 +729,14 @@ fn handle_summarize(
               actor.continue(state)
             }
             True -> {
-              let entries = runtime_core.summary_entries(core)
+              let channels = runtime_core.summary_channels(core)
               case
                 git_storage.upload_summary(
                   base_url: http_base_url(state),
                   tenant: state.connect_message.tenant_id,
                   token: token,
-                  address: address,
                   sequence_number: core.last_seen_sn,
-                  entries: entries,
+                  channels: channels,
                 )
               {
                 Error(reason) -> {
@@ -874,9 +877,11 @@ fn fetch_summary(
       |> result.map(fn(blob) {
         // The summary blob records the SN it was captured at, but the
         // authoritative load point is the server's summaryContext.
+        let channels =
+          list.map(blob.channels, fn(ch) { #(ch.address, ch.entries) })
         runtime_core.Summary(
           sequence_number: ctx.sequence_number,
-          entries: blob.entries,
+          channels: channels,
         )
       })
   }
@@ -920,6 +925,16 @@ fn fan_out(
   events: List(MapEvent),
 ) -> Nil {
   list.each(events, fn(event) { list.each(subscribers, process.send(_, event)) })
+}
+
+@target(erlang)
+fn root_events(events: List(#(String, MapEvent))) -> List(MapEvent) {
+  list.filter_map(events, fn(entry) {
+    case entry.0 == address {
+      True -> Ok(entry.1)
+      False -> Error(Nil)
+    }
+  })
 }
 
 @target(erlang)

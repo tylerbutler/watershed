@@ -84,21 +84,20 @@ pub fn fetch_summary(
 }
 
 @target(erlang)
-/// Serialize the given map state as a summary blob, upload it as a git blob
-/// wrapped in a one-entry tree, and return the tree SHA (used as both the
+/// Serialize the given channel state as a summary blob, upload it as a git
+/// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
 /// summarize op's `head` and `handle`).
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
-  address address: String,
   sequence_number sequence_number: Int,
-  entries entries: List(#(String, json.Json)),
+  channels channels: List(#(String, List(#(String, json.Json)))),
 ) -> Result(String, String) {
   use blob_sha <- result.try(post_json(
     blobs_url(base_url, tenant),
     token,
-    blob_body(address, sequence_number, entries),
+    blob_body(sequence_number, channels),
     sha_decoder(),
   ))
   post_json(
@@ -173,21 +172,20 @@ pub fn fetch_summary(
 }
 
 @target(javascript)
-/// Serialize the given map state as a summary blob, upload it as a git blob
-/// wrapped in a one-entry tree, and return the tree SHA (used as both the
+/// Serialize the given channel state as a summary blob, upload it as a git
+/// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
 /// summarize op's `head` and `handle`).
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
-  address address: String,
   sequence_number sequence_number: Int,
-  entries entries: List(#(String, json.Json)),
+  channels channels: List(#(String, List(#(String, json.Json)))),
 ) -> Promise(Result(String, String)) {
   use blob_sha <- promise.try_await(post_json(
     blobs_url(base_url, tenant),
     token,
-    blob_body(address, sequence_number, entries),
+    blob_body(sequence_number, channels),
     sha_decoder(),
   ))
   post_json(
@@ -295,16 +293,11 @@ fn versions_url(
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn blob_body(
-  address: String,
   sequence_number: Int,
-  entries: List(#(String, json.Json)),
+  channels: List(#(String, List(#(String, json.Json)))),
 ) -> String {
   let blob_json =
-    wire.encode_summary_blob(
-      address: address,
-      sequence_number: sequence_number,
-      entries: entries,
-    )
+    wire.encode_summary_blob_channels(sequence_number, channels)
     |> json.to_string
   let content = bit_array.base64_encode(<<blob_json:utf8>>, True)
   json.object([

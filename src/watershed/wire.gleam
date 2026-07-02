@@ -59,6 +59,17 @@ pub type OutboundOp {
   )
 }
 
+// New op contents shape for M7a: either a kernel Channel op or an Attach
+// envelope carrying a channel snapshot.
+pub type OpContents {
+  ChannelOp(address: String, op: MapOp)
+  AttachOp(
+    address: String,
+    channel_type: String,
+    snapshot: List(#(String, Json)),
+  )
+}
+
 /// Wrap a kernel op in the document envelope as an outbound `"op"` message.
 pub fn outbound_map_op(
   address address: String,
@@ -71,6 +82,43 @@ pub fn outbound_map_op(
     reference_sequence_number: reference_sequence_number,
     op_type: "op",
     contents: encode_map_envelope(address, op),
+    metadata: None,
+  )
+}
+
+/// Attach op encoder and outbound helper. Attach envelopes carry the full
+/// channel snapshot as `{type:"attach", address, channelType, snapshot}`.
+pub const channel_type_map = "map"
+
+pub fn encode_attach(
+  address: String,
+  channel_type: String,
+  snapshot: List(#(String, Json)),
+) -> Json {
+  json.object([
+    #("type", json.string("attach")),
+    #("address", json.string(address)),
+    #("channelType", json.string(channel_type)),
+    #(
+      "snapshot",
+      json.array(snapshot, fn(entry) {
+        json.object([#("key", json.string(entry.0)), #("value", entry.1)])
+      }),
+    ),
+  ])
+}
+
+pub fn outbound_attach_op(
+  address address: String,
+  client_sequence_number client_sequence_number: Int,
+  reference_sequence_number reference_sequence_number: Int,
+  snapshot snapshot: List(#(String, Json)),
+) -> OutboundOp {
+  OutboundOp(
+    client_sequence_number: client_sequence_number,
+    reference_sequence_number: reference_sequence_number,
+    op_type: "op",
+    contents: encode_attach(address, channel_type_map, snapshot),
     metadata: None,
   )
 }
@@ -762,13 +810,92 @@ pub fn map_op_decoder() -> Decoder(MapOp) {
   }
 }
 
-/// Only `Plain` values are supported — `Shared` (handle) values belong to
-/// the full Fluid runtime, which is out of scope.
+/// `Plain` values carry an opaque kernel `Json` payload. Handle-like markers
+/// (e.g., `{"type":"Shared", ...}`) are not interpreted here — they must be
+/// materialized by the full runtime. We only accept `Plain` markers.
 fn plain_value_decoder() -> Decoder(Json) {
   use value_type <- decode.field("type", decode.string)
   case value_type {
     "Plain" -> decode.field("value", json_value_decoder(), decode.success)
     _ -> decode.failure(json.null(), "PlainValue")
+  }
+}
+
+pub fn attach_envelope_decoder() -> Decoder(OpContents) {
+  use t <- decode.field("type", decode.string)
+  case t {
+    "attach" -> {
+      use address <- decode.field("address", decode.string)
+      use channel_type <- decode.field("channelType", decode.string)
+      case channel_type == channel_type_map {
+        True -> {
+          use snapshot <- decode.field(
+            "snapshot",
+            decode.list(summary_entry_decoder()),
+          )
+          decode.success(AttachOp(
+            address: address,
+            channel_type: channel_type,
+            snapshot: snapshot,
+          ))
+        }
+        False ->
+          decode.failure(
+            AttachOp(address: "", channel_type: "", snapshot: []),
+            "ChannelType",
+          )
+      }
+    }
+    _ ->
+      decode.failure(
+        AttachOp(address: "", channel_type: "", snapshot: []),
+        "AttachEnvelope",
+      )
+  }
+}
+
+pub fn decode_op_contents(
+  contents: Dynamic,
+) -> Result(OpContents, List(decode.DecodeError)) {
+  // If the incoming object explicitly declares a top-level `type` we must
+  // honour that intent. If `type == "attach"` require the attach envelope
+  // to decode successfully; otherwise decode the legacy map envelope.
+  case decode.run(contents, decode.dict(decode.string, decode.dynamic)) {
+    Ok(map) -> {
+      case dict.get(map, "type") {
+        Ok(type_dynamic) ->
+          case decode.run(type_dynamic, decode.string) {
+            Ok(t) ->
+              case t == "attach" {
+                True ->
+                  case decode.run(contents, attach_envelope_decoder()) {
+                    Ok(attach) -> Ok(attach)
+                    Error(errs) -> Error(errs)
+                  }
+                False ->
+                  case decode.run(contents, map_envelope_decoder()) {
+                    Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
+                    Error(errs) -> Error(errs)
+                  }
+              }
+            Error(_) ->
+              case decode.run(contents, map_envelope_decoder()) {
+                Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
+                Error(errs) -> Error(errs)
+              }
+          }
+        Error(_) ->
+          case decode.run(contents, map_envelope_decoder()) {
+            Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
+            Error(errs) -> Error(errs)
+          }
+      }
+    }
+    Error(_) ->
+      case decode.run(contents, map_envelope_decoder()) {
+        Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
+        Error(errs) -> Error(errs)
+      }
   }
 }
 
@@ -806,51 +933,70 @@ fn dynamic_to_json(value: Dynamic) -> Json {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Summary snapshot blob
+// Summary snapshot blob (v2)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Current on-disk format version for a watershed summary blob. Loaders reject
 /// anything they don't recognise rather than misread a foreign snapshot.
-pub const summary_blob_version = 1
+pub const summary_blob_version = 2
 
-/// Serialize a map's confirmed (sequenced) state as a summary blob. `entries`
-/// are in insertion order; `value`s are the raw kernel `Json` (already
-/// unwrapped from the `{type: "Plain", value}` op envelope). `sequence_number`
-/// is informational — the authoritative load SN comes from `summaryContext`.
+/// Encode the legacy single-map summary as the new v2 channel-oriented blob.
+/// We keep the existing `address, sequence_number, entries` convenience
+/// signature used by older callers and emit the v2 shape with one `map`
+/// channel.
 pub fn encode_summary_blob(
   address address: String,
   sequence_number sequence_number: Int,
   entries entries: List(#(String, Json)),
 ) -> Json {
+  encode_summary_blob_channels(sequence_number, [#(address, entries)])
+}
+
+pub fn encode_summary_blob_channels(
+  sequence_number: Int,
+  channels: List(#(String, List(#(String, Json)))),
+) -> Json {
   json.object([
     #("watershedSummaryVersion", json.int(summary_blob_version)),
-    #("address", json.string(address)),
     #("sequenceNumber", json.int(sequence_number)),
     #(
-      "entries",
-      json.array(entries, fn(entry) {
+      "channels",
+      json.array(channels, fn(channel) {
+        let #(address, entries) = channel
         json.object([
-          #("key", json.string(entry.0)),
-          #("value", entry.1),
+          #("address", json.string(address)),
+          #("type", json.string(channel_type_map)),
+          #(
+            "entries",
+            json.array(entries, fn(entry) {
+              json.object([
+                #("key", json.string(entry.0)),
+                #("value", entry.1),
+              ])
+            }),
+          ),
         ])
       }),
     ),
   ])
 }
 
-/// Decoded summary blob: the captured sequence number and the sequenced
-/// entries in insertion order.
 pub type SummaryBlob {
-  SummaryBlob(
+  SummaryBlob(sequence_number: Int, channels: List(ChannelSnapshot))
+}
+
+pub type ChannelSnapshot {
+  ChannelSnapshot(
     address: String,
-    sequence_number: Int,
+    channel_type: String,
     entries: List(#(String, Json)),
   )
 }
 
-/// Decode a summary blob produced by `encode_summary_blob`. Fails on an
-/// unknown version so a loader never silently misreads a snapshot format it
-/// doesn't understand.
+/// Decode a summary blob produced by `encode_summary_blob`. Accept both v2
+/// channel-oriented blobs and legacy v1 single-map blobs (which we convert
+/// into a one-entry `map` channel). Reject unknown versions and unknown
+/// channel types.
 pub fn decode_summary_blob(
   raw: String,
 ) -> Result(SummaryBlob, json.DecodeError) {
@@ -860,24 +1006,68 @@ pub fn decode_summary_blob(
 pub fn summary_blob_decoder() -> Decoder(SummaryBlob) {
   use version <- decode.field("watershedSummaryVersion", decode.int)
   case version == summary_blob_version {
-    False ->
-      decode.failure(
-        SummaryBlob(address: "", sequence_number: 0, entries: []),
-        "watershedSummaryVersion " <> int.to_string(summary_blob_version),
-      )
     True -> {
-      use address <- decode.field("address", decode.string)
       use sequence_number <- decode.field("sequenceNumber", decode.int)
+      use channels <- decode.field(
+        "channels",
+        decode.list(channel_snapshot_decoder()),
+      )
+      decode.success(SummaryBlob(
+        sequence_number: sequence_number,
+        channels: channels,
+      ))
+    }
+    False -> {
+      case version {
+        1 -> {
+          // Legacy single-map blob: convert to a single `map` channel.
+          use _address <- decode.field("address", decode.string)
+          use sequence_number <- decode.field("sequenceNumber", decode.int)
+          use entries <- decode.field(
+            "entries",
+            decode.list(summary_entry_decoder()),
+          )
+          let channel =
+            ChannelSnapshot(
+              address: "root",
+              channel_type: channel_type_map,
+              entries: entries,
+            )
+          decode.success(
+            SummaryBlob(sequence_number: sequence_number, channels: [channel]),
+          )
+        }
+        _ ->
+          decode.failure(
+            SummaryBlob(sequence_number: 0, channels: []),
+            "watershedSummaryVersion " <> int.to_string(summary_blob_version),
+          )
+      }
+    }
+  }
+}
+
+fn channel_snapshot_decoder() -> Decoder(ChannelSnapshot) {
+  use address <- decode.field("address", decode.string)
+  use channel_type <- decode.field("type", decode.string)
+  // Only recognize known channel types.
+  case channel_type == channel_type_map {
+    True -> {
       use entries <- decode.field(
         "entries",
         decode.list(summary_entry_decoder()),
       )
-      decode.success(SummaryBlob(
+      decode.success(ChannelSnapshot(
         address: address,
-        sequence_number: sequence_number,
+        channel_type: channel_type,
         entries: entries,
       ))
     }
+    False ->
+      decode.failure(
+        ChannelSnapshot(address: "", channel_type: "", entries: []),
+        "ChannelType",
+      )
   }
 }
 

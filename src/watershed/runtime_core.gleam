@@ -1,17 +1,11 @@
 //// Pure per-connection state machine, driven by the runtime actor.
 ////
 //// Owns the client half of spillway's sequencing discipline: CSN strictly
-//// increasing per connection (stamped here), RSN = last seen sequence
-//// number, dedupe by SN as a general invariant (`initialMessages` and
-//// catch-up pushes overlap by design), and FIFO ack matching by
-//// `(client_id, csn)` against the in-flight queue.
-////
-//// Every error variant is a divergence risk the caller must treat as fatal
-//// (crash the actor, let the supervisor re-sync) rather than continue with
-//// possibly-wrong state. Sequence gaps are *not* fatal: out-of-order ops are
-//// buffered and the caller is told to `requestOps` to fill the gap, then the
-//// buffer drains once the missing ops arrive.
+//// increasing per connection, RSN = last seen sequence number, dedupe by SN,
+//// FIFO ack matching, and optimistic local state for attached and detached
+//// map channels.
 
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -22,128 +16,91 @@ import gleam/result
 import spillway/message.{type ConnectedMessage}
 import spillway/types.{type SequencedDocumentMessage}
 
+import watershed/handle
 import watershed/map_kernel.{type MapEvent, type MapOp}
 import watershed/wire
 
+const root_address = "root"
+
 pub type Core {
   Core(
-    /// Server-assigned identity for this connection.
     client_id: String,
-    /// Channel address of the map this connection edits (v1: "root").
-    address: String,
-    kernel: map_kernel.MapState,
-    /// Next client sequence number to stamp on an outbound op.
+    channels: Dict(String, map_kernel.MapState),
+    channel_order: List(String),
+    detached: Dict(String, map_kernel.MapState),
     next_csn: Int,
-    /// Highest sequence number processed (or marked seen at bootstrap).
     last_seen_sn: Int,
-    /// Ops submitted but not yet sequenced, oldest first. Each entry carries
-    /// the client_id it was authored under so acks match by the head's own
-    /// identity — this unifies normal acks with reconnect reconciliation,
-    /// where old-client-id ops are still in flight under a new connection.
     in_flight: List(InFlight),
-    /// Sequenced messages that arrived past a gap, buffered ascending by SN
-    /// (deduped) until the missing ops fill in and they can be drained.
     out_of_order: List(SequencedDocumentMessage),
   )
 }
 
-/// One op submitted but not yet sequenced.
 pub type InFlight {
-  InFlight(client_id: String, csn: Int, op: MapOp)
+  InFlightOp(client_id: String, csn: Int, address: String, op: MapOp)
+  InFlightAttach(
+    client_id: String,
+    csn: Int,
+    address: String,
+    snapshot: List(#(String, Json)),
+  )
 }
 
 pub type CoreError {
-  /// Our own sequenced op did not match the head of the in-flight queue.
   AckMismatch(detail: String)
-  /// A sequenced `"op"` message carried contents we could not decode. With
-  /// only map channels in v1 this signals corruption, not a foreign DDS.
   BadOpContents(sequence_number: Int)
-  /// Bootstrap could not close the gap between its seed point and the
-  /// earliest replayable op: a `resume_bootstrap` round made no progress, so
-  /// the deltas endpoint itself is missing the range. The state we would
-  /// build is missing its prefix, so we fail loudly rather than diverge
-  /// silently.
   HistoryGap(detail: String)
+  UnknownChannel(address: String, sequence_number: Int)
+  DuplicateAttach(address: String, sequence_number: Int)
 }
 
-/// Outcome of (a step of) bootstrapping.
-///
-/// `initialMessages` is served from the server's bounded in-memory history
-/// window, so a document with more ops than the window arrives missing its
-/// prefix. `MissingPrefix` asks the caller to fetch the sequenced ops in
-/// `(from, to]` out of band (`GET /deltas/:tenant_id/:id?from=&to=` — `from`
-/// exclusive, `to` inclusive, response capped server-side) and feed them to
-/// `resume_bootstrap`, repeating until `Complete`.
 pub type Bootstrapped {
   Complete(core: Core)
   MissingPrefix(core: Core, checkpoint: Int, from: Int, to: Int)
 }
 
-/// Outcome of ingesting a sequenced message: events to fan out to subscribers
-/// plus, when a gap was just opened, the `from` argument for a `requestOps`
-/// catch-up the runtime should send. `request_ops_from` is only `Some` on the
-/// first op of a new gap, so the runtime never spams duplicate requests.
 pub type Ingested {
-  Ingested(events: List(MapEvent), request_ops_from: Option(Int))
+  Ingested(events: List(#(String, MapEvent)), request_ops_from: Option(Int))
 }
 
-/// A loaded summary: the confirmed map entries (insertion order) and the
-/// sequence number they are current as of (from `summaryContext`). The runtime
-/// fetches and decodes the summary blob out of band and passes this to
-/// `bootstrap`.
 pub type Summary {
-  Summary(sequence_number: Int, entries: List(#(String, Json)))
+  Summary(
+    sequence_number: Int,
+    channels: List(#(String, List(#(String, Json)))),
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the initial state from `connect_document_success`.
-///
-/// When `summary` is `Some`, seed the kernel from the summary's confirmed
-/// entries and mark its `sequence_number` as already seen, then replay
-/// `initialMessages` — which are the *post-summary* deltas — on top. When
-/// `None`, replay `initialMessages` as a full history from SN 1.
-///
-/// `checkpointSequenceNumber` equals the SN of our own join message, which
-/// arrives as a separate `op` push right after the success event and is not
-/// in `initialMessages` — marking the checkpoint as already seen makes that
-/// push dedupe cleanly without skipping anything that came before it.
 pub fn bootstrap(
   connected: ConnectedMessage,
-  address address: String,
   summary summary: Option(Summary),
 ) -> Result(Bootstrapped, CoreError) {
-  let #(kernel, last_seen) = case summary {
-    Some(Summary(sequence_number: sn, entries: entries)) -> #(
-      map_kernel.from_sequenced(entries),
-      sn,
-    )
-    None -> #(map_kernel.new(), 0)
+  let #(channels, channel_order, last_seen) = case summary {
+    Some(Summary(sequence_number: sn, channels: summary_channels)) ->
+      seed_channels(summary_channels, sn)
+    None -> seed_channels([], 0)
   }
+
   let core =
     Core(
       client_id: connected.client_id,
-      address: address,
-      kernel: kernel,
+      channels: channels,
+      channel_order: channel_order,
+      detached: dict.new(),
       next_csn: 1,
       last_seen_sn: last_seen,
       in_flight: [],
       out_of_order: [],
     )
+
   use core <- result.try(replay(core, connected.initial_messages))
   let checkpoint =
     option.unwrap(connected.checkpoint_sequence_number, core.last_seen_sn)
   Ok(settle_bootstrap(core, checkpoint))
 }
 
-/// Continue a bootstrap that came back `MissingPrefix`: replay the deltas the
-/// caller fetched for `(from, to]` and re-check contiguity. The server caps
-/// each deltas response, so a large gap closes over several rounds; a round
-/// that advances nothing means the requested range is genuinely gone and the
-/// state we would build is missing its prefix, so we fail loudly rather than
-/// diverge silently.
 pub fn resume_bootstrap(
   core: Core,
   checkpoint checkpoint: Int,
@@ -162,9 +119,6 @@ pub fn resume_bootstrap(
   }
 }
 
-/// Replay sequenced messages during bootstrap, discarding events (subscribers
-/// only attach once the document is ready) and catch-up requests (bootstrap
-/// gaps are filled via the deltas endpoint, not in-band `requestOps`).
 fn replay(
   core: Core,
   messages: List(SequencedDocumentMessage),
@@ -175,12 +129,6 @@ fn replay(
   })
 }
 
-/// A complete history replays contiguously from the seed point (SN 1 with no
-/// snapshot, or the snapshot's sequence number), leaving nothing buffered —
-/// then the checkpoint is marked seen and the core is ready. Anything still
-/// in `out_of_order` means the earliest replayable op sits above a gap the
-/// caller must fill from the deltas endpoint before the checkpoint (which is
-/// past every buffered op) may be applied.
 fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   case core.out_of_order {
     [] ->
@@ -197,25 +145,26 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   }
 }
 
-/// The confirmed (sequenced) map entries in insertion order — the state a
-/// summary captures. Excludes pending un-acked local edits.
 pub fn summary_entries(core: Core) -> List(#(String, Json)) {
-  map_kernel.sequenced_entries(core.kernel)
+  case dict.get(core.channels, root_address) {
+    Ok(kernel) -> map_kernel.sequenced_entries(kernel)
+    Error(_) -> []
+  }
 }
 
-/// Whether the client is caught up: every local edit has been acknowledged by
-/// the server, so the confirmed state a summary captures is complete. v1
-/// summaries require this — ops still in flight would fall in the uncovered gap
-/// between the captured `last_seen_sn` and the summarize op's assigned SN.
+pub fn summary_channels(core: Core) -> List(#(String, List(#(String, Json)))) {
+  list.filter_map(core.channel_order, fn(address) {
+    case dict.get(core.channels, address) {
+      Ok(kernel) -> Ok(#(address, map_kernel.sequenced_entries(kernel)))
+      Error(_) -> Error(Nil)
+    }
+  })
+}
+
 pub fn is_synced(core: Core) -> Bool {
   core.in_flight == []
 }
 
-/// Stamp a `"summarize"` op referencing an already-uploaded snapshot tree,
-/// consuming a client sequence number so subsequent map ops stay strictly
-/// increasing. A summarize op carries no map mutation, so it neither changes
-/// the kernel nor joins the in-flight queue (its ack is a `summaryAck` the
-/// runtime treats as a system message).
 pub fn build_summarize(
   core: Core,
   handle handle: String,
@@ -235,65 +184,95 @@ pub fn build_summarize(
   #(Core(..core, next_csn: csn + 1), outbound)
 }
 
+fn seed_channels(
+  seeded: List(#(String, List(#(String, Json)))),
+  last_seen: Int,
+) -> #(Dict(String, map_kernel.MapState), List(String), Int) {
+  let #(channels, channel_order) =
+    list.fold(seeded, #(dict.new(), []), fn(acc, entry) {
+      let #(channels, channel_order) = acc
+      let #(address, entries) = entry
+      case dict.has_key(channels, address) {
+        True -> #(
+          dict.insert(channels, address, map_kernel.from_sequenced(entries)),
+          channel_order,
+        )
+        False -> #(
+          dict.insert(channels, address, map_kernel.from_sequenced(entries)),
+          list.append(channel_order, [address]),
+        )
+      }
+    })
+
+  case dict.has_key(channels, root_address) {
+    True -> #(channels, channel_order, last_seen)
+    False -> #(
+      dict.insert(channels, root_address, map_kernel.new()),
+      [root_address, ..channel_order],
+      last_seen,
+    )
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Adopt a fresh connection after a reconnect: swap in the new
-/// server-assigned `client_id` while keeping the kernel, pending edits,
-/// in-flight queue, `next_csn`, and `last_seen_sn` intact.
-///
-/// The client-side sequenced state stays valid across a reconnect — only the
-/// socket dropped — so we do *not* replay history. Passing
-/// `lastSeenSequenceNumber` in `connect_document` makes the server push just
-/// the delta we missed, which arrives as ordinary `op` events (SN-deduped
-/// against anything we already have). In-flight ops keep their *old*
-/// client_id so old-client-id ops replayed by the catch-up stream ack their
-/// heads (reconciliation); whatever remains is resubmitted with `resubmit`.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   Core(..core, client_id: connected.client_id)
 }
 
-/// Re-stamp every in-flight op with a fresh CSN under the current
-/// `client_id` and return the outbound ops for the runtime to send. Called
-/// once catch-up has reconciled the reconnect checkpoint, so only ops that
-/// never landed remain. In-flight entries adopt the new client_id + CSN so
-/// their eventual acks still match by the head's identity.
 pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOp)) {
   let #(next_csn, new_in_flight, outbound) =
     list.fold(core.in_flight, #(core.next_csn, [], []), fn(acc, entry) {
       let #(csn, entries, outbounds) = acc
-      let outbound =
-        wire.outbound_map_op(
-          address: core.address,
-          client_sequence_number: csn,
-          reference_sequence_number: core.last_seen_sn,
-          op: entry.op,
-        )
+      let #(restamped, outbound) = restamp_in_flight(core, entry, csn)
       #(
         csn + 1,
-        [InFlight(client_id: core.client_id, csn: csn, op: entry.op), ..entries],
-        [outbound, ..outbounds],
+        list.append(entries, [restamped]),
+        list.append(outbounds, [outbound]),
       )
     })
-  #(
-    Core(..core, next_csn: next_csn, in_flight: list.reverse(new_in_flight)),
-    list.reverse(outbound),
-  )
+
+  #(Core(..core, next_csn: next_csn, in_flight: new_in_flight), outbound)
+}
+
+fn restamp_in_flight(
+  core: Core,
+  entry: InFlight,
+  csn: Int,
+) -> #(InFlight, wire.OutboundOp) {
+  case entry {
+    InFlightOp(address: address, op: op, ..) -> #(
+      InFlightOp(client_id: core.client_id, csn: csn, address: address, op: op),
+      wire.outbound_map_op(
+        address: address,
+        client_sequence_number: csn,
+        reference_sequence_number: core.last_seen_sn,
+        op: op,
+      ),
+    )
+    InFlightAttach(address: address, snapshot: snapshot, ..) -> #(
+      InFlightAttach(
+        client_id: core.client_id,
+        csn: csn,
+        address: address,
+        snapshot: snapshot,
+      ),
+      wire.outbound_attach_op(
+        address: address,
+        client_sequence_number: csn,
+        reference_sequence_number: core.last_seen_sn,
+        snapshot: snapshot,
+      ),
+    )
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inbound
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Process one sequenced message from the server.
-///
-/// Already-seen SNs are dropped silently. Ops past the next expected SN are
-/// buffered (ascending, deduped) and — on the first op of a new gap — the
-/// returned `request_ops_from` tells the runtime to `requestOps` a catch-up.
-/// Contiguous ops apply immediately and then drain any buffered successors.
-/// System message types (join, leave, noop, summarize, ...) only advance
-/// `last_seen_sn`.
 pub fn handle_sequenced(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -302,8 +281,6 @@ pub fn handle_sequenced(
   case msg.sequence_number {
     sn if sn < next -> Ok(#(core, Ingested([], None)))
     sn if sn > next -> {
-      // A new gap only if nothing was buffered yet; otherwise the runtime has
-      // already been asked to catch up and we just extend the buffer.
       let request = case core.out_of_order {
         [] -> Some(core.last_seen_sn)
         _ -> None
@@ -320,12 +297,10 @@ pub fn handle_sequenced(
   }
 }
 
-/// Apply a contiguous message (its SN is exactly `last_seen_sn + 1`),
-/// advancing `last_seen_sn` and routing by message type.
 fn apply_one(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(MapEvent)), CoreError) {
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_op(core, msg)
@@ -333,11 +308,11 @@ fn apply_one(
   }
 }
 
-/// Drain buffered ops that have become contiguous, accumulating their events.
-fn drain_buffer(core: Core) -> Result(#(Core, List(MapEvent)), CoreError) {
+fn drain_buffer(
+  core: Core,
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
   case core.out_of_order {
     [head, ..rest] if head.sequence_number <= core.last_seen_sn ->
-      // A stale duplicate from an overlapping catch-up; drop and continue.
       drain_buffer(Core(..core, out_of_order: rest))
     [head, ..rest] if head.sequence_number == core.last_seen_sn + 1 -> {
       use #(core, events) <- result.try(apply_one(
@@ -347,13 +322,10 @@ fn drain_buffer(core: Core) -> Result(#(Core, List(MapEvent)), CoreError) {
       use #(core, more) <- result.try(drain_buffer(core))
       Ok(#(core, list.append(events, more)))
     }
-    // Head is still past the gap, or the buffer is empty.
     _ -> Ok(#(core, []))
   }
 }
 
-/// Insert a message into the buffer keeping ascending SN order, skipping any
-/// SN already present.
 fn buffer_insert(
   buffer: List(SequencedDocumentMessage),
   msg: SequencedDocumentMessage,
@@ -372,49 +344,155 @@ fn buffer_insert(
 fn handle_op(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(MapEvent)), CoreError) {
-  case wire.decode_map_envelope(msg.contents) {
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  case wire.decode_op_contents(msg.contents) {
     Error(_) -> Error(BadOpContents(msg.sequence_number))
-    Ok(#(address, op)) ->
-      case address == core.address {
-        False -> Ok(#(core, []))
+    Ok(wire.AttachOp(address, channel_type, snapshot)) -> {
+      case channel_type == wire.channel_type_map {
+        False -> Error(BadOpContents(msg.sequence_number))
         True ->
           case is_own_op(core, msg.client_id) {
-            True -> ack_own(core, msg.client_id, msg.client_sequence_number, op)
-            False -> {
-              let #(kernel, events) = map_kernel.apply_remote(core.kernel, op)
-              Ok(#(Core(..core, kernel: kernel), events))
-            }
+            True ->
+              ack_own_attach(
+                core,
+                msg.client_id,
+                msg.client_sequence_number,
+                address,
+                snapshot,
+              )
+            False -> remote_attach(core, msg.sequence_number, address, snapshot)
           }
+      }
+    }
+    Ok(wire.ChannelOp(address, op)) ->
+      case is_own_op(core, msg.client_id) {
+        True ->
+          ack_own_op(
+            core,
+            msg.client_id,
+            msg.client_sequence_number,
+            address,
+            op,
+          )
+        False -> apply_remote_channel(core, msg.sequence_number, address, op)
       }
   }
 }
 
-/// An op is ours when it was authored by our current connection or by the
-/// client_id of the current in-flight head (the latter covers reconnect
-/// reconciliation, where old-client-id ops are still awaiting their acks).
 fn is_own_op(core: Core, message_client_id: Option(String)) -> Bool {
   case message_client_id {
     None -> False
     Some(cid) ->
       cid == core.client_id
       || case core.in_flight {
-        [head, ..] -> head.client_id == cid
+        [head, ..] -> in_flight_client_id(head) == cid
         [] -> False
       }
   }
 }
 
-/// Commit the head in-flight op after the server sequenced it. The echoed
-/// client_id and CSN must match the head exactly (submission order is FIFO);
-/// the op shape is cross-checked too, though values are compared only by key
-/// since JSON object key order does not survive the wire.
-fn ack_own(
+fn in_flight_client_id(entry: InFlight) -> String {
+  case entry {
+    InFlightOp(client_id: client_id, ..) -> client_id
+    InFlightAttach(client_id: client_id, ..) -> client_id
+  }
+}
+
+fn remote_attach(
+  core: Core,
+  sequence_number: Int,
+  address: String,
+  snapshot: List(#(String, Json)),
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  case has_channel(core, address) {
+    True -> Error(DuplicateAttach(address, sequence_number))
+    False ->
+      Ok(
+        #(
+          add_attached_channel(
+            core,
+            address,
+            map_kernel.from_sequenced(snapshot),
+          ),
+          [],
+        ),
+      )
+  }
+}
+
+fn apply_remote_channel(
+  core: Core,
+  sequence_number: Int,
+  address: String,
+  op: MapOp,
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  case dict.get(core.channels, address) {
+    Error(_) -> Error(UnknownChannel(address, sequence_number))
+    Ok(kernel) -> {
+      let #(kernel, events) = map_kernel.apply_remote(kernel, op)
+      Ok(#(
+        put_attached_channel(core, address, kernel),
+        tag_events(address, events),
+      ))
+    }
+  }
+}
+
+fn ack_own_attach(
   core: Core,
   message_client_id: Option(String),
   csn: Int,
+  address: String,
+  echoed: List(#(String, Json)),
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  case core.in_flight {
+    [] ->
+      Error(AckMismatch(
+        "own attach sequenced with csn "
+        <> int.to_string(csn)
+        <> " but in-flight queue is empty",
+      ))
+    [head, ..rest] ->
+      case head {
+        InFlightAttach(
+          client_id: client_id,
+          csn: head_csn,
+          address: head_address,
+          snapshot: snapshot,
+        ) ->
+          case
+            Some(client_id) == message_client_id
+            && head_csn == csn
+            && head_address == address
+            && same_attach_shape(snapshot, echoed)
+          {
+            True -> Ok(#(Core(..core, in_flight: rest), []))
+            False ->
+              Error(AckMismatch(
+                "expected attach ack for csn "
+                <> int.to_string(head_csn)
+                <> ", got csn "
+                <> int.to_string(csn),
+              ))
+          }
+        InFlightOp(csn: head_csn, ..) ->
+          Error(AckMismatch(
+            "expected channel op ack for csn "
+            <> int.to_string(head_csn)
+            <> ", got attach ack for csn "
+            <> int.to_string(csn),
+          ))
+      }
+  }
+}
+
+fn ack_own_op(
+  core: Core,
+  message_client_id: Option(String),
+  csn: Int,
+  address: String,
   echoed: MapOp,
-) -> Result(#(Core, List(MapEvent)), CoreError) {
+) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
   case core.in_flight {
     [] ->
       Error(AckMismatch(
@@ -423,25 +501,58 @@ fn ack_own(
         <> " but in-flight queue is empty",
       ))
     [head, ..rest] ->
-      case
-        Some(head.client_id) == message_client_id
-        && head.csn == csn
-        && same_shape(head.op, echoed)
-      {
-        False ->
+      case head {
+        InFlightOp(
+          client_id: client_id,
+          csn: head_csn,
+          address: head_address,
+          op: op,
+        ) ->
+          case
+            Some(client_id) == message_client_id
+            && head_csn == csn
+            && head_address == address
+            && same_shape(op, echoed)
+          {
+            False ->
+              Error(AckMismatch(
+                "expected ack for csn "
+                <> int.to_string(head_csn)
+                <> ", got csn "
+                <> int.to_string(csn),
+              ))
+            True ->
+              case dict.get(core.channels, address) {
+                Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
+                Ok(kernel) ->
+                  case map_kernel.ack_local(kernel, op) {
+                    Ok(kernel) ->
+                      Ok(
+                        #(
+                          Core(
+                            ..core,
+                            channels: dict.insert(
+                              core.channels,
+                              address,
+                              kernel,
+                            ),
+                            in_flight: rest,
+                          ),
+                          [],
+                        ),
+                      )
+                    Error(map_kernel.UnexpectedAck(_, detail)) ->
+                      Error(AckMismatch(detail))
+                  }
+              }
+          }
+        InFlightAttach(csn: head_csn, ..) ->
           Error(AckMismatch(
-            "expected ack for csn "
-            <> int.to_string(head.csn)
-            <> ", got csn "
+            "expected attach ack for csn "
+            <> int.to_string(head_csn)
+            <> ", got channel op ack for csn "
             <> int.to_string(csn),
           ))
-        True ->
-          case map_kernel.ack_local(core.kernel, head.op) {
-            Ok(kernel) ->
-              Ok(#(Core(..core, kernel: kernel, in_flight: rest), []))
-            Error(map_kernel.UnexpectedAck(_, detail)) ->
-              Error(AckMismatch(detail))
-          }
       }
   }
 }
@@ -457,42 +568,254 @@ fn same_shape(ours: MapOp, echoed: MapOp) -> Bool {
   }
 }
 
+fn same_attach_shape(
+  ours: List(#(String, Json)),
+  echoed: List(#(String, Json)),
+) -> Bool {
+  case ours, echoed {
+    [], [] -> True
+    [our, ..our_rest], [echoed, ..echoed_rest] ->
+      our.0 == echoed.0
+      && same_json_value(our.1, echoed.1)
+      && same_attach_shape(our_rest, echoed_rest)
+    _, _ -> False
+  }
+}
+
+fn same_json_value(ours: Json, echoed: Json) -> Bool {
+  case json.parse(json.to_string(ours), wire.json_value_decoder()) {
+    Ok(normalized_ours) ->
+      case json.parse(json.to_string(echoed), wire.json_value_decoder()) {
+        Ok(normalized_echoed) -> normalized_ours == normalized_echoed
+        Error(_) -> False
+      }
+    Error(_) -> False
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Outbound
 // ─────────────────────────────────────────────────────────────────────────────
 
+pub fn create_detached(core: Core, address: String) -> Core {
+  case address == root_address || has_channel(core, address) {
+    True -> core
+    False ->
+      Core(
+        ..core,
+        detached: dict.insert(core.detached, address, map_kernel.new()),
+      )
+  }
+}
+
+pub fn has_channel(core: Core, address: String) -> Bool {
+  dict.has_key(core.channels, address) || dict.has_key(core.detached, address)
+}
+
 pub fn set(
   core: Core,
+  address: String,
   key: String,
   value: Json,
-) -> #(Core, List(MapEvent), wire.OutboundOp) {
-  let #(kernel, events, op) = map_kernel.set(core.kernel, key, value)
-  stamp(core, kernel, events, op)
+) -> Result(
+  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case dict.get(core.detached, address) {
+    Ok(kernel) -> {
+      let #(kernel, events, _op) = map_kernel.set(kernel, key, value)
+      Ok(
+        #(
+          Core(..core, detached: dict.insert(core.detached, address, kernel)),
+          tag_events(address, events),
+          [],
+        ),
+      )
+    }
+    Error(_) ->
+      case dict.get(core.channels, address) {
+        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
+        Ok(_kernel) -> {
+          let #(core, attach_outbound) = attach_dependencies(core, value)
+          let assert Ok(kernel) = dict.get(core.channels, address)
+          let #(kernel, events, op) = map_kernel.set(kernel, key, value)
+          let #(core, events, outbound) =
+            stamp_attached(core, address, kernel, events, op)
+          Ok(#(core, events, list.append(attach_outbound, outbound)))
+        }
+      }
+  }
 }
 
 pub fn delete(
   core: Core,
+  address: String,
   key: String,
-) -> #(Core, List(MapEvent), wire.OutboundOp) {
-  let #(kernel, events, op) = map_kernel.delete(core.kernel, key)
-  stamp(core, kernel, events, op)
+) -> Result(
+  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case dict.get(core.detached, address) {
+    Ok(kernel) -> {
+      let #(kernel, events, _op) = map_kernel.delete(kernel, key)
+      Ok(
+        #(
+          Core(..core, detached: dict.insert(core.detached, address, kernel)),
+          tag_events(address, events),
+          [],
+        ),
+      )
+    }
+    Error(_) ->
+      case dict.get(core.channels, address) {
+        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
+        Ok(kernel) -> {
+          let #(kernel, events, op) = map_kernel.delete(kernel, key)
+          Ok(stamp_attached(core, address, kernel, events, op))
+        }
+      }
+  }
 }
 
-pub fn clear(core: Core) -> #(Core, List(MapEvent), wire.OutboundOp) {
-  let #(kernel, events, op) = map_kernel.clear(core.kernel)
-  stamp(core, kernel, events, op)
-}
-
-fn stamp(
+pub fn clear(
   core: Core,
+  address: String,
+) -> Result(
+  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case dict.get(core.detached, address) {
+    Ok(kernel) -> {
+      let #(kernel, events, _op) = map_kernel.clear(kernel)
+      Ok(
+        #(
+          Core(..core, detached: dict.insert(core.detached, address, kernel)),
+          tag_events(address, events),
+          [],
+        ),
+      )
+    }
+    Error(_) ->
+      case dict.get(core.channels, address) {
+        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
+        Ok(kernel) -> {
+          let #(kernel, events, op) = map_kernel.clear(kernel)
+          Ok(stamp_attached(core, address, kernel, events, op))
+        }
+      }
+  }
+}
+
+fn attach_dependencies(
+  core: Core,
+  value: Json,
+) -> #(Core, List(wire.OutboundOp)) {
+  let #(order, _) =
+    collect_attach_order(core, handle.collect_handle_addresses(value), [])
+  submit_attaches(core, order)
+}
+
+fn collect_attach_order(
+  core: Core,
+  addresses: List(String),
+  visited: List(String),
+) -> #(List(String), List(String)) {
+  list.fold(addresses, #([], visited), fn(acc, address) {
+    let #(order, visited) = acc
+    let #(next, visited) = collect_attach_for(core, address, visited)
+    #(list.append(order, next), visited)
+  })
+}
+
+fn collect_attach_for(
+  core: Core,
+  address: String,
+  visited: List(String),
+) -> #(List(String), List(String)) {
+  case list.any(visited, fn(seen) { seen == address }) {
+    True -> #([], visited)
+    False -> {
+      let visited = [address, ..visited]
+      case dict.get(core.detached, address) {
+        Error(_) -> #([], visited)
+        Ok(kernel) -> {
+          let deps = detached_handle_dependencies(kernel)
+          let #(order, visited) = collect_attach_order(core, deps, visited)
+          #(list.append(order, [address]), visited)
+        }
+      }
+    }
+  }
+}
+
+fn detached_handle_dependencies(kernel: map_kernel.MapState) -> List(String) {
+  list.fold(map_kernel.entries(kernel), [], fn(acc, entry) {
+    list.fold(handle.collect_handle_addresses(entry.1), acc, append_unique)
+  })
+}
+
+fn append_unique(addresses: List(String), address: String) -> List(String) {
+  case list.any(addresses, fn(existing) { existing == address }) {
+    True -> addresses
+    False -> list.append(addresses, [address])
+  }
+}
+
+fn submit_attaches(
+  core: Core,
+  addresses: List(String),
+) -> #(Core, List(wire.OutboundOp)) {
+  list.fold(addresses, #(core, []), fn(acc, address) {
+    let #(core, outbound) = acc
+    case dict.get(core.detached, address) {
+      Error(_) -> #(core, outbound)
+      Ok(kernel) -> {
+        let snapshot = map_kernel.entries(kernel)
+        let csn = core.next_csn
+        let outbound_op =
+          wire.outbound_attach_op(
+            address: address,
+            client_sequence_number: csn,
+            reference_sequence_number: core.last_seen_sn,
+            snapshot: snapshot,
+          )
+        let core =
+          Core(
+            ..core,
+            channels: dict.insert(
+              core.channels,
+              address,
+              map_kernel.from_sequenced(snapshot),
+            ),
+            channel_order: append_unique(core.channel_order, address),
+            detached: dict.delete(core.detached, address),
+            next_csn: csn + 1,
+            in_flight: list.append(core.in_flight, [
+              InFlightAttach(
+                client_id: core.client_id,
+                csn: csn,
+                address: address,
+                snapshot: snapshot,
+              ),
+            ]),
+          )
+        #(core, list.append(outbound, [outbound_op]))
+      }
+    }
+  })
+}
+
+fn stamp_attached(
+  core: Core,
+  address: String,
   kernel: map_kernel.MapState,
   events: List(MapEvent),
   op: MapOp,
-) -> #(Core, List(MapEvent), wire.OutboundOp) {
+) -> #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)) {
   let csn = core.next_csn
   let outbound =
     wire.outbound_map_op(
-      address: core.address,
+      address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
       op: op,
@@ -500,35 +823,90 @@ fn stamp(
   let core =
     Core(
       ..core,
-      kernel: kernel,
+      channels: dict.insert(core.channels, address, kernel),
       next_csn: csn + 1,
       in_flight: list.append(core.in_flight, [
-        InFlight(client_id: core.client_id, csn: csn, op: op),
+        InFlightOp(
+          client_id: core.client_id,
+          csn: csn,
+          address: address,
+          op: op,
+        ),
       ]),
     )
-  #(core, events, outbound)
+  #(core, tag_events(address, events), [outbound])
+}
+
+fn tag_events(
+  address: String,
+  events: List(MapEvent),
+) -> List(#(String, MapEvent)) {
+  list.map(events, fn(event) { #(address, event) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Reads (optimistic, delegated to the kernel)
+// Reads
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn get(core: Core, key: String) -> Option(Json) {
-  map_kernel.get(core.kernel, key)
+pub fn get(core: Core, address: String, key: String) -> Option(Json) {
+  case find_channel(core, address) {
+    Some(kernel) -> map_kernel.get(kernel, key)
+    None -> None
+  }
 }
 
-pub fn has(core: Core, key: String) -> Bool {
-  map_kernel.has(core.kernel, key)
+pub fn has(core: Core, address: String, key: String) -> Bool {
+  get(core, address, key) != None
 }
 
-pub fn size(core: Core) -> Int {
-  map_kernel.size(core.kernel)
+pub fn size(core: Core, address: String) -> Int {
+  case find_channel(core, address) {
+    Some(kernel) -> map_kernel.size(kernel)
+    None -> 0
+  }
 }
 
-pub fn keys(core: Core) -> List(String) {
-  map_kernel.keys(core.kernel)
+pub fn keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(kernel) -> map_kernel.keys(kernel)
+    None -> []
+  }
 }
 
-pub fn entries(core: Core) -> List(#(String, Json)) {
-  map_kernel.entries(core.kernel)
+pub fn entries(core: Core, address: String) -> List(#(String, Json)) {
+  case find_channel(core, address) {
+    Some(kernel) -> map_kernel.entries(kernel)
+    None -> []
+  }
+}
+
+fn find_channel(core: Core, address: String) -> Option(map_kernel.MapState) {
+  case dict.get(core.channels, address) {
+    Ok(kernel) -> Some(kernel)
+    Error(_) ->
+      case dict.get(core.detached, address) {
+        Ok(kernel) -> Some(kernel)
+        Error(_) -> None
+      }
+  }
+}
+
+fn put_attached_channel(
+  core: Core,
+  address: String,
+  kernel: map_kernel.MapState,
+) -> Core {
+  Core(..core, channels: dict.insert(core.channels, address, kernel))
+}
+
+fn add_attached_channel(
+  core: Core,
+  address: String,
+  kernel: map_kernel.MapState,
+) -> Core {
+  Core(
+    ..core,
+    channels: dict.insert(core.channels, address, kernel),
+    channel_order: append_unique(core.channel_order, address),
+  )
 }
