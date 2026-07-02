@@ -34,6 +34,32 @@ clients converge on concurrent edits incl. a same-key LWW race, and a
 third client bootstraps from history — verified against the levee dev
 server. Nack/gap/close-while-connected all crash loudly per the M3
 policy; M4 replaces those paths with reconnect/reconcile.
+**M4 complete** (2026-07-01): resilience landed in the pure core + actor.
+`runtime_core` now buffers out-of-order ops (ascending, deduped) instead of
+crashing on gaps, returning `Ingested(events, request_ops_from)` so the
+runtime sends an in-band `requestOps` on the first op of a new gap and the
+buffer drains as it fills. In-flight entries became
+`InFlight(client_id, csn, op)`, so ack-matching by the head's own identity
+unifies normal acks with reconnect reconciliation; `adopt_reconnect` swaps in
+the fresh client_id while keeping kernel/pending/in-flight/last_seen intact
+(sequenced state survives a reconnect — `lastSeenSequenceNumber` pushes only
+the delta), and `resubmit` re-stamps survivors with fresh CSNs. The
+`watershed/runtime` actor gained a `Reconnecting`/`Ready(core, resubmit_at)`
+phase machine: a mid-session close (or retryable nack) respawns the receiver,
+re-handshakes, reconciles old-client-id acks from the catch-up stream, then
+resubmits leftovers once `last_seen` reaches the reconnect checkpoint; edits
+made while (re)connecting apply optimistically and defer their push to that
+resubmit, so nothing is lost or duplicated. Fatal nacks (scope/size/hard
+limit) still crash; a self-scheduled `noop` heartbeat advances the server MSN.
+93 tests (4 new pure reconnect tests: reconcile-then-resubmit,
+all-reconciled, missed-delta events, ordered restamp) plus the rewritten gap
+test (buffer + single requestOps + contiguous drain). A gated live
+integration test (`reconnect_converges_test`) drops a client's channel
+mid-burst via the `watershed.force_reconnect` fault-injection hook, then edits
+during reconnect and from a peer, and asserts both clients (and a fresh
+history-bootstrapping third) converge with no lost/duplicated ops — verified
+green against `just server` (94 tests total, stable across repeated runs).
+
 
 ## Goal
 

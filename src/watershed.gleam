@@ -113,6 +113,13 @@ pub fn close(document: Document) -> Nil {
   process.send(document.runtime, runtime.Shutdown)
 }
 
+/// Fault-injection hook (primarily for tests): drop the current transport
+/// channel, forcing the runtime through its reconnect/reconcile path. Pending
+/// and in-flight edits are preserved and resubmitted after the reconnect.
+pub fn force_reconnect(document: Document) -> Nil {
+  process.send(document.runtime, runtime.DropChannel)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Edits (optimistic: applied locally immediately, sequenced by the server)
 // ─────────────────────────────────────────────────────────────────────────────

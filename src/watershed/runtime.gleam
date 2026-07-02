@@ -6,10 +6,20 @@
 //// forwards every inbound frame to this actor, while pushes are safe from
 //// the actor itself.
 ////
-//// Failure policy (M3): any protocol divergence — nack, sequence gap, ack
-//// mismatch, undecodable frame — crashes the actor loudly rather than
-//// continuing with possibly-divergent state. M4 replaces the crash paths
-//// with the reconnect/reconcile state machine.
+//// Resilience (M4):
+////
+//// - **Gaps** — out-of-order ops are buffered by `runtime_core`, which asks
+////   us to `requestOps` an in-band catch-up; the buffer drains as it fills.
+//// - **Reconnect** — a mid-session channel close (or a retryable nack)
+////   rejoins and re-handshakes with a fresh client_id, passing
+////   `lastSeenSequenceNumber` so the server pushes just the delta. Old ops
+////   still in flight are reconciled against the catch-up stream and the
+////   remainder resubmitted with fresh CSNs once we reach the reconnect
+////   checkpoint. Edits made while (re)connecting are applied optimistically
+////   and their push is deferred to that resubmit.
+//// - **Nacks** — fatal ones (bad scope, size, hard limit) crash the actor;
+////   everything else reconnects and reconciles.
+//// - **Heartbeat** — a periodic `noop` advances the server's MSN while idle.
 
 import gleam/dynamic/decode
 import gleam/erlang/process.{type Subject}
@@ -25,6 +35,7 @@ import aquamarine/codec.{type Incoming}
 import aquamarine/phoenix
 
 import spillway/message.{type ConnectMessage}
+import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 import watershed/map_kernel.{type MapEvent}
@@ -33,7 +44,17 @@ import watershed/wire
 
 const connect_timeout_ms = 10_000
 
+const heartbeat_interval_ms = 30_000
+
+const address = "root"
+
+/// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
+const max_ops_per_submission = 100
+
 pub type Msg {
+  // Actor bootstrap: learn our own subject so we can schedule heartbeats.
+  Register(self: Subject(Msg))
+  Heartbeat
   // Receiver-process lifecycle
   ChannelReady(Channel)
   ChannelFailed(String)
@@ -51,21 +72,36 @@ pub type Msg {
   // Lifecycle
   Subscribe(Subject(MapEvent))
   AwaitReady(reply: Subject(Result(Nil, String)))
+  /// Fault-injection hook (tests): drop the live channel to force the
+  /// runtime through its reconnect/reconcile path.
+  DropChannel
   Shutdown
 }
 
 type Phase {
   Connecting(waiters: List(Subject(Result(Nil, String))))
-  Ready(core: runtime_core.Core)
+  /// Socket down and re-handshaking; holds the pre-reconnect core so its
+  /// kernel/pending/in-flight survive the round trip.
+  Reconnecting(core: runtime_core.Core)
+  /// Connected. `resubmit_at` is `Some(checkpoint)` while a reconnect is
+  /// still catching up to the point where un-acked ops can be resubmitted,
+  /// and `None` once fully synced.
+  Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
 
 type State {
   State(
+    host: String,
+    port: Int,
+    path: String,
+    topic: String,
+    join_payload: Json,
+    connect_message: ConnectMessage,
     channel: Option(Channel),
-    connect_payload: Json,
     phase: Phase,
     subscribers: List(Subject(MapEvent)),
+    self: Option(Subject(Msg)),
   )
 }
 
@@ -80,26 +116,30 @@ pub fn start(
   document document: String,
   connect_message connect_message: ConnectMessage,
 ) -> Result(Subject(Msg), actor.StartError) {
-  let connect_payload = wire.encode_connect_document(connect_message, None)
+  let topic = "document:" <> tenant <> ":" <> document
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
   let state =
     State(
+      host: host,
+      port: port,
+      path: path,
+      topic: topic,
+      join_payload: join_payload,
+      connect_message: connect_message,
       channel: None,
-      connect_payload: connect_payload,
       phase: Connecting([]),
       subscribers: [],
+      self: None,
     )
   case actor.new(state) |> actor.on_message(handle) |> actor.start {
     Error(err) -> Error(err)
     Ok(started) -> {
       let runtime = started.data
-      let topic = "document:" <> tenant <> ":" <> document
-      let join_payload = case connect_message.token {
-        Some(token) -> json.object([#("token", json.string(token))])
-        None -> json.object([])
-      }
-      process.spawn_unlinked(fn() {
-        receiver_main(host, port, path, topic, join_payload, runtime)
-      })
+      process.send(runtime, Register(runtime))
+      spawn_receiver(state, runtime)
       Ok(runtime)
     }
   }
@@ -113,6 +153,21 @@ pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Receiver process
 // ─────────────────────────────────────────────────────────────────────────────
+
+fn spawn_receiver(state: State, runtime: Subject(Msg)) -> Nil {
+  let _ =
+    process.spawn_unlinked(fn() {
+      receiver_main(
+        state.host,
+        state.port,
+        state.path,
+        state.topic,
+        state.join_payload,
+        runtime,
+      )
+    })
+  Nil
+}
 
 fn receiver_main(
   host: String,
@@ -156,8 +211,44 @@ fn receive_loop(channel: Channel, runtime: Subject(Msg)) -> Nil {
 
 fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
+    Register(self) -> {
+      let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
+      actor.continue(State(..state, self: Some(self)))
+    }
+
+    Heartbeat -> {
+      case state.self {
+        Some(self) -> {
+          let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
+          Nil
+        }
+        None -> Nil
+      }
+      case state.phase, state.channel {
+        Ready(core, None), Some(channel) ->
+          push(
+            channel,
+            "noop",
+            wire.encode_noop(
+              core.client_id,
+              reference_sequence_number: core.last_seen_sn,
+            ),
+          )
+        _, _ -> Nil
+      }
+      actor.continue(state)
+    }
+
     ChannelReady(channel) -> {
-      push(channel, "connect_document", state.connect_payload)
+      let last_seen = case state.phase {
+        Reconnecting(core) -> Some(core.last_seen_sn)
+        _ -> None
+      }
+      push(
+        channel,
+        "connect_document",
+        wire.encode_connect_document(state.connect_message, last_seen),
+      )
       actor.continue(State(..state, channel: Some(channel)))
     }
 
@@ -166,8 +257,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     ChannelClosed(reason) ->
       case state.phase {
-        // M4 adds reconnect; for now a mid-session close is fatal.
-        Ready(_) -> panic as { "channel closed while connected: " <> reason }
+        Ready(core, _) -> actor.continue(begin_reconnect(state, core))
+        Reconnecting(core) -> actor.continue(begin_reconnect(state, core))
         _ -> actor.continue(fail(state, "channel closed: " <> reason))
       }
 
@@ -202,7 +293,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     AwaitReady(reply) ->
       case state.phase {
-        Ready(_) -> {
+        Ready(_, _) -> {
           process.send(reply, Ok(Nil))
           actor.continue(state)
         }
@@ -212,6 +303,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         }
         Connecting(waiters) ->
           actor.continue(State(..state, phase: Connecting([reply, ..waiters])))
+        // A reconnect can only start after we were Ready, i.e. after
+        // await_ready already returned; treat as ready.
+        Reconnecting(_) -> {
+          process.send(reply, Ok(Nil))
+          actor.continue(state)
+        }
+      }
+
+    DropChannel ->
+      case state.phase {
+        // Reuse the retryable-nack path: close the channel and enter the
+        // reconnecting phase; the receiver's ChannelClosed drives the rejoin.
+        Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
+        _ -> actor.continue(state)
       }
 
     Shutdown -> {
@@ -235,13 +340,27 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
           decode.run(incoming.payload, wire.connected_message_decoder()),
           "connect_document_success payload",
         )
-      case runtime_core.bootstrap(connected, address: "root") {
-        Ok(core) -> {
-          notify_waiters(state.phase, Ok(Nil))
-          actor.continue(State(..state, phase: Ready(core)))
+      case state.phase {
+        Connecting(_) ->
+          case runtime_core.bootstrap(connected, address: address) {
+            Ok(core) -> {
+              notify_waiters(state.phase, Ok(Nil))
+              actor.continue(State(..state, phase: Ready(core, None)))
+            }
+            Error(core_error) ->
+              panic as { "bootstrap failed: " <> string.inspect(core_error) }
+          }
+        Reconnecting(core) -> {
+          let core = runtime_core.adopt_reconnect(core, connected)
+          let checkpoint =
+            option.unwrap(
+              connected.checkpoint_sequence_number,
+              core.last_seen_sn,
+            )
+          settle_reconnect(state, core, checkpoint)
         }
-        Error(core_error) ->
-          panic as { "bootstrap failed: " <> string.inspect(core_error) }
+        // A late duplicate success; nothing to do.
+        _ -> actor.continue(state)
       }
     }
 
@@ -254,43 +373,99 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
       actor.continue(fail(state, connect_error.message))
     }
 
-    "op" -> {
-      let op_message =
-        require(
-          decode.run(incoming.payload, wire.op_message_decoder()),
-          "op payload",
-        )
+    "op" ->
       case state.phase {
-        Ready(core) -> {
-          let #(core, events) = apply_ops(core, op_message.ops, [])
+        Ready(core, resubmit_at) -> {
+          let #(core, events, request_from) =
+            apply_ops(core, op_message(incoming))
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core)))
+          maybe_request_ops(state.channel, request_from)
+          case resubmit_at {
+            Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
+            None -> actor.continue(State(..state, phase: Ready(core, None)))
+          }
         }
-        // Ops can only arrive after connect_document_success on this
-        // channel; anything earlier is a protocol violation.
-        _ -> panic as "op event before connect_document_success"
+        // Ops before/without a connected session (or while reconnecting)
+        // carry no state we can trust; ignore them.
+        _ -> actor.continue(state)
+      }
+
+    "nack" -> {
+      let nacks =
+        require(
+          decode.run(incoming.payload, wire.nacks_decoder()),
+          "nack payload",
+        )
+      case list.any(nacks, nack_is_fatal) {
+        True ->
+          panic as {
+            "fatal nack from server: " <> string.inspect(incoming.payload)
+          }
+        False ->
+          case state.phase {
+            Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
+            // Already tearing the channel down; the pending reconnect covers it.
+            _ -> actor.continue(state)
+          }
       }
     }
-
-    "nack" ->
-      // M3 policy: nacks are fatal (v1 reconnect+reconcile lands in M4).
-      panic as { "op nacked by server: " <> string.inspect(incoming.payload) }
 
     // Signals, summary events, pongs: not part of the v1 surface.
     _ -> actor.continue(state)
   }
 }
 
+/// Resubmit un-acked ops once catch-up has reached the reconnect checkpoint;
+/// otherwise stay in the catching-up state until more ops arrive.
+fn settle_reconnect(
+  state: State,
+  core: runtime_core.Core,
+  checkpoint: Int,
+) -> actor.Next(State, Msg) {
+  case core.last_seen_sn >= checkpoint {
+    True -> {
+      let #(core, outbound) = runtime_core.resubmit(core)
+      send_outbound(state.channel, core.client_id, outbound)
+      actor.continue(State(..state, phase: Ready(core, None)))
+    }
+    False ->
+      actor.continue(State(..state, phase: Ready(core, Some(checkpoint))))
+  }
+}
+
+fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
+  let message =
+    require(
+      decode.run(incoming.payload, wire.op_message_decoder()),
+      "op payload",
+    )
+  message.ops
+}
+
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
+) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
+  do_apply_ops(core, ops, [], None)
+}
+
+fn do_apply_ops(
+  core: runtime_core.Core,
+  ops: List(SequencedDocumentMessage),
   events: List(List(MapEvent)),
-) -> #(runtime_core.Core, List(MapEvent)) {
+  request_from: Option(Int),
+) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
   case ops {
-    [] -> #(core, list.reverse(events) |> list.flatten)
+    [] -> #(core, list.reverse(events) |> list.flatten, request_from)
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
-        Ok(#(core, new_events)) -> apply_ops(core, rest, [new_events, ..events])
+        Ok(#(core, ingested)) ->
+          do_apply_ops(
+            core,
+            rest,
+            [ingested.events, ..events],
+            option.or(request_from, ingested.request_ops_from),
+          )
         Error(core_error) ->
           panic as {
             "sequenced op processing failed: " <> string.inspect(core_error)
@@ -304,27 +479,102 @@ fn edit(
   operate: fn(runtime_core.Core) ->
     #(runtime_core.Core, List(MapEvent), wire.OutboundOp),
 ) -> actor.Next(State, Msg) {
-  case state.phase, state.channel {
-    Ready(core), Some(channel) -> {
+  case state.phase {
+    Ready(core, resubmit_at) -> {
       let #(core, events, outbound) = operate(core)
-      push(
-        channel,
-        "submitOp",
-        wire.encode_submit_op(core.client_id, [[outbound]]),
-      )
+      // Push immediately only when fully synced with a live channel;
+      // otherwise the op stays in-flight and `resubmit` sends it once, so a
+      // reconnect can't drop or duplicate it.
+      case resubmit_at, state.channel {
+        None, Some(channel) ->
+          push(
+            channel,
+            "submitOp",
+            wire.encode_submit_op(core.client_id, [[outbound]]),
+          )
+        _, _ -> Nil
+      }
       fan_out(state.subscribers, events)
-      actor.continue(State(..state, phase: Ready(core)))
+      actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+    }
+    Reconnecting(core) -> {
+      let #(core, events, _outbound) = operate(core)
+      fan_out(state.subscribers, events)
+      actor.continue(State(..state, phase: Reconnecting(core)))
     }
     // Edits are only reachable through handles returned after await_ready,
     // so this is either a race with a failure or API misuse.
-    _, _ -> panic as "edit before the document connection is ready"
+    _ -> panic as "edit before the document connection is ready"
   }
 }
 
 fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
   case state.phase {
-    Ready(core) -> extract(core)
+    Ready(core, _) -> extract(core)
+    Reconnecting(core) -> extract(core)
     _ -> default
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconnect helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Enter the reconnecting phase after a channel close: drop the dead channel
+/// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
+fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
+  case state.self {
+    Some(self) -> spawn_receiver(state, self)
+    None -> Nil
+  }
+  State(..state, channel: None, phase: Reconnecting(core))
+}
+
+/// Retryable nack: close the channel and enter the reconnecting phase. The
+/// receiver's resulting `ChannelClosed` drives the actual reconnect, so we
+/// don't spawn a second receiver here.
+fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
+  case state.channel {
+    Some(channel) -> {
+      let _ = aquamarine.close(channel)
+      Nil
+    }
+    None -> Nil
+  }
+  State(..state, channel: None, phase: Reconnecting(core))
+}
+
+fn nack_is_fatal(item: Nack) -> Bool {
+  case item.content.error_type {
+    nack.InvalidScopeError -> True
+    nack.LimitExceededError -> True
+    _ -> item.content.code == 413
+  }
+}
+
+fn maybe_request_ops(
+  channel: Option(Channel),
+  request_from: Option(Int),
+) -> Nil {
+  case channel, request_from {
+    Some(channel), Some(from) ->
+      push(channel, "requestOps", wire.encode_request_ops(from: from))
+    _, _ -> Nil
+  }
+}
+
+fn send_outbound(
+  channel: Option(Channel),
+  client_id: String,
+  outbound: List(wire.OutboundOp),
+) -> Nil {
+  case channel, outbound {
+    _, [] -> Nil
+    Some(channel), _ ->
+      list.each(list.sized_chunk(outbound, max_ops_per_submission), fn(chunk) {
+        push(channel, "submitOp", wire.encode_submit_op(client_id, [chunk]))
+      })
+    None, _ -> Nil
   }
 }
 

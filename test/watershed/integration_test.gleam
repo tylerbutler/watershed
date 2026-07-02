@@ -16,7 +16,7 @@ import gleam/erlang/process
 import gleam/int
 import gleam/io
 import gleam/json.{type Json}
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import startest/expect
 
 import watershed
@@ -34,6 +34,77 @@ pub fn two_clients_converge_test() {
     Ok("1") -> run_convergence_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
+}
+
+/// M4 exit criterion: drop a client's channel mid-burst and assert both
+/// clients still converge with no lost or duplicated ops.
+pub fn reconnect_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_reconnect_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+fn run_reconnect_test() -> Nil {
+  let document = "watershed-rc-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Establish the session and confirm both sides are live.
+  watershed.set(map_a, "k1", json.int(1))
+  wait_until(50, fn() { watershed.get(map_b, "k1") == Some(json.int(1)) })
+  |> expect.to_be_true()
+
+  // Burst several edits from A, then yank its channel mid-flight so some ops
+  // are in flight (possibly sequenced-but-unacked) when the socket drops.
+  watershed.set(map_a, "k2", json.int(2))
+  watershed.set(map_a, "k3", json.int(3))
+  watershed.set(map_a, "k4", json.int(4))
+  watershed.set(map_a, "k5", json.int(5))
+  watershed.force_reconnect(doc_a)
+
+  // Edits issued while A is reconnecting must be preserved and resubmitted.
+  watershed.set(map_a, "k6", json.string("after-drop"))
+  watershed.delete(map_a, "k2")
+
+  // Meanwhile B keeps editing so the reconnect must also merge the delta A
+  // missed while offline.
+  watershed.set(map_b, "from-b", json.bool(True))
+
+  let expected_a = Some(json.string("after-drop"))
+  let converged =
+    wait_until(100, fn() {
+      let entries_a = watershed.entries(map_a)
+      let entries_b = watershed.entries(map_b)
+      entries_a != []
+      && same_entries(entries_a, entries_b)
+      && watershed.get(map_a, "k6") == expected_a
+      && watershed.get(map_a, "from-b") == Some(json.bool(True))
+      && watershed.get(map_a, "k2") == None
+    })
+  converged |> expect.to_be_true()
+
+  // No op was lost: every surviving key made it across the reconnect.
+  watershed.get(map_b, "k3") |> expect.to_equal(Some(json.int(3)))
+  watershed.get(map_b, "k5") |> expect.to_equal(Some(json.int(5)))
+  watershed.get(map_b, "k6") |> expect.to_equal(expected_a)
+  // The delete issued during reconnect converged too (no duplicate re-add).
+  watershed.get(map_b, "k2") |> expect.to_equal(None)
+
+  // A fresh client bootstrapping from history sees the identical converged map.
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  wait_until(50, fn() {
+    same_entries(watershed.entries(map_c), watershed.entries(map_a))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+  watershed.close(doc_c)
 }
 
 fn run_convergence_test() -> Nil {

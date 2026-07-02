@@ -8,13 +8,15 @@
 ////
 //// Every error variant is a divergence risk the caller must treat as fatal
 //// (crash the actor, let the supervisor re-sync) rather than continue with
-//// possibly-wrong state. Sequence gaps are also fatal for now; M4 replaces
-//// that with buffering + `requestOps` catch-up.
+//// possibly-wrong state. Sequence gaps are *not* fatal: out-of-order ops are
+//// buffered and the caller is told to `requestOps` to fill the gap, then the
+//// buffer drains once the missing ops arrive.
 
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 
 import spillway/message.{type ConnectedMessage}
@@ -34,20 +36,36 @@ pub type Core {
     next_csn: Int,
     /// Highest sequence number processed (or marked seen at bootstrap).
     last_seen_sn: Int,
-    /// Ops submitted but not yet sequenced, oldest first.
-    in_flight: List(#(Int, MapOp)),
+    /// Ops submitted but not yet sequenced, oldest first. Each entry carries
+    /// the client_id it was authored under so acks match by the head's own
+    /// identity — this unifies normal acks with reconnect reconciliation,
+    /// where old-client-id ops are still in flight under a new connection.
+    in_flight: List(InFlight),
+    /// Sequenced messages that arrived past a gap, buffered ascending by SN
+    /// (deduped) until the missing ops fill in and they can be drained.
+    out_of_order: List(SequencedDocumentMessage),
   )
 }
 
+/// One op submitted but not yet sequenced.
+pub type InFlight {
+  InFlight(client_id: String, csn: Int, op: MapOp)
+}
+
 pub type CoreError {
-  /// An op arrived beyond the next expected sequence number. M3 treats this
-  /// as fatal; M4 adds buffering + requestOps.
-  SequenceGap(expected: Int, got: Int)
   /// Our own sequenced op did not match the head of the in-flight queue.
   AckMismatch(detail: String)
   /// A sequenced `"op"` message carried contents we could not decode. With
   /// only map channels in v1 this signals corruption, not a foreign DDS.
   BadOpContents(sequence_number: Int)
+}
+
+/// Outcome of ingesting a sequenced message: events to fan out to subscribers
+/// plus, when a gap was just opened, the `from` argument for a `requestOps`
+/// catch-up the runtime should send. `request_ops_from` is only `Some` on the
+/// first op of a new gap, so the runtime never spams duplicate requests.
+pub type Ingested {
+  Ingested(events: List(MapEvent), request_ops_from: Option(Int))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +91,7 @@ pub fn bootstrap(
       next_csn: 1,
       last_seen_sn: 0,
       in_flight: [],
+      out_of_order: [],
     )
   use core <- result.try(
     list.try_fold(connected.initial_messages, core, fn(core, msg) {
@@ -86,29 +105,136 @@ pub fn bootstrap(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Reconnect
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Adopt a fresh connection after a reconnect: swap in the new
+/// server-assigned `client_id` while keeping the kernel, pending edits,
+/// in-flight queue, `next_csn`, and `last_seen_sn` intact.
+///
+/// The client-side sequenced state stays valid across a reconnect — only the
+/// socket dropped — so we do *not* replay history. Passing
+/// `lastSeenSequenceNumber` in `connect_document` makes the server push just
+/// the delta we missed, which arrives as ordinary `op` events (SN-deduped
+/// against anything we already have). In-flight ops keep their *old*
+/// client_id so old-client-id ops replayed by the catch-up stream ack their
+/// heads (reconciliation); whatever remains is resubmitted with `resubmit`.
+pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
+  Core(..core, client_id: connected.client_id)
+}
+
+/// Re-stamp every in-flight op with a fresh CSN under the current
+/// `client_id` and return the outbound ops for the runtime to send. Called
+/// once catch-up has reconciled the reconnect checkpoint, so only ops that
+/// never landed remain. In-flight entries adopt the new client_id + CSN so
+/// their eventual acks still match by the head's identity.
+pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOp)) {
+  let #(next_csn, new_in_flight, outbound) =
+    list.fold(core.in_flight, #(core.next_csn, [], []), fn(acc, entry) {
+      let #(csn, entries, outbounds) = acc
+      let outbound =
+        wire.outbound_map_op(
+          address: core.address,
+          client_sequence_number: csn,
+          reference_sequence_number: core.last_seen_sn,
+          op: entry.op,
+        )
+      #(
+        csn + 1,
+        [InFlight(client_id: core.client_id, csn: csn, op: entry.op), ..entries],
+        [outbound, ..outbounds],
+      )
+    })
+  #(
+    Core(..core, next_csn: next_csn, in_flight: list.reverse(new_in_flight)),
+    list.reverse(outbound),
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Inbound
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Process one sequenced message from the server, in arrival order.
+/// Process one sequenced message from the server.
 ///
-/// Already-seen SNs are dropped silently; system message types (join, leave,
-/// noop, summarize, ...) only advance `last_seen_sn`. Returned events are
-/// ready for subscriber fan-out.
+/// Already-seen SNs are dropped silently. Ops past the next expected SN are
+/// buffered (ascending, deduped) and — on the first op of a new gap — the
+/// returned `request_ops_from` tells the runtime to `requestOps` a catch-up.
+/// Contiguous ops apply immediately and then drain any buffered successors.
+/// System message types (join, leave, noop, summarize, ...) only advance
+/// `last_seen_sn`.
 pub fn handle_sequenced(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(MapEvent)), CoreError) {
+) -> Result(#(Core, Ingested), CoreError) {
   let next = core.last_seen_sn + 1
   case msg.sequence_number {
-    sn if sn < next -> Ok(#(core, []))
-    sn if sn > next -> Error(SequenceGap(expected: next, got: sn))
-    sn -> {
-      let core = Core(..core, last_seen_sn: sn)
-      case msg.message_type {
-        "op" -> handle_op(core, msg)
-        _ -> Ok(#(core, []))
+    sn if sn < next -> Ok(#(core, Ingested([], None)))
+    sn if sn > next -> {
+      // A new gap only if nothing was buffered yet; otherwise the runtime has
+      // already been asked to catch up and we just extend the buffer.
+      let request = case core.out_of_order {
+        [] -> Some(core.last_seen_sn)
+        _ -> None
       }
+      let core =
+        Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
+      Ok(#(core, Ingested([], request)))
     }
+    _ -> {
+      use #(core, events) <- result.try(apply_one(core, msg))
+      use #(core, drained) <- result.try(drain_buffer(core))
+      Ok(#(core, Ingested(list.append(events, drained), None)))
+    }
+  }
+}
+
+/// Apply a contiguous message (its SN is exactly `last_seen_sn + 1`),
+/// advancing `last_seen_sn` and routing by message type.
+fn apply_one(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(#(Core, List(MapEvent)), CoreError) {
+  let core = Core(..core, last_seen_sn: msg.sequence_number)
+  case msg.message_type {
+    "op" -> handle_op(core, msg)
+    _ -> Ok(#(core, []))
+  }
+}
+
+/// Drain buffered ops that have become contiguous, accumulating their events.
+fn drain_buffer(core: Core) -> Result(#(Core, List(MapEvent)), CoreError) {
+  case core.out_of_order {
+    [head, ..rest] if head.sequence_number <= core.last_seen_sn ->
+      // A stale duplicate from an overlapping catch-up; drop and continue.
+      drain_buffer(Core(..core, out_of_order: rest))
+    [head, ..rest] if head.sequence_number == core.last_seen_sn + 1 -> {
+      use #(core, events) <- result.try(apply_one(
+        Core(..core, out_of_order: rest),
+        head,
+      ))
+      use #(core, more) <- result.try(drain_buffer(core))
+      Ok(#(core, list.append(events, more)))
+    }
+    // Head is still past the gap, or the buffer is empty.
+    _ -> Ok(#(core, []))
+  }
+}
+
+/// Insert a message into the buffer keeping ascending SN order, skipping any
+/// SN already present.
+fn buffer_insert(
+  buffer: List(SequencedDocumentMessage),
+  msg: SequencedDocumentMessage,
+) -> List(SequencedDocumentMessage) {
+  case buffer {
+    [] -> [msg]
+    [head, ..rest] ->
+      case int.compare(msg.sequence_number, head.sequence_number) {
+        order.Lt -> [msg, ..buffer]
+        order.Eq -> buffer
+        order.Gt -> [head, ..buffer_insert(rest, msg)]
+      }
   }
 }
 
@@ -122,8 +248,8 @@ fn handle_op(
       case address == core.address {
         False -> Ok(#(core, []))
         True ->
-          case msg.client_id == Some(core.client_id) {
-            True -> ack_own(core, msg.client_sequence_number, op)
+          case is_own_op(core, msg.client_id) {
+            True -> ack_own(core, msg.client_id, msg.client_sequence_number, op)
             False -> {
               let #(kernel, events) = map_kernel.apply_remote(core.kernel, op)
               Ok(#(Core(..core, kernel: kernel), events))
@@ -133,12 +259,28 @@ fn handle_op(
   }
 }
 
+/// An op is ours when it was authored by our current connection or by the
+/// client_id of the current in-flight head (the latter covers reconnect
+/// reconciliation, where old-client-id ops are still awaiting their acks).
+fn is_own_op(core: Core, message_client_id: Option(String)) -> Bool {
+  case message_client_id {
+    None -> False
+    Some(cid) ->
+      cid == core.client_id
+      || case core.in_flight {
+        [head, ..] -> head.client_id == cid
+        [] -> False
+      }
+  }
+}
+
 /// Commit the head in-flight op after the server sequenced it. The echoed
-/// CSN must match the head exactly (submission order is FIFO); the op shape
-/// is cross-checked too, though values are compared only by key since JSON
-/// object key order does not survive the wire.
+/// client_id and CSN must match the head exactly (submission order is FIFO);
+/// the op shape is cross-checked too, though values are compared only by key
+/// since JSON object key order does not survive the wire.
 fn ack_own(
   core: Core,
+  message_client_id: Option(String),
   csn: Int,
   echoed: MapOp,
 ) -> Result(#(Core, List(MapEvent)), CoreError) {
@@ -149,17 +291,21 @@ fn ack_own(
         <> int.to_string(csn)
         <> " but in-flight queue is empty",
       ))
-    [#(head_csn, head_op), ..rest] ->
-      case head_csn == csn && same_shape(head_op, echoed) {
+    [head, ..rest] ->
+      case
+        Some(head.client_id) == message_client_id
+        && head.csn == csn
+        && same_shape(head.op, echoed)
+      {
         False ->
           Error(AckMismatch(
             "expected ack for csn "
-            <> int.to_string(head_csn)
+            <> int.to_string(head.csn)
             <> ", got csn "
             <> int.to_string(csn),
           ))
         True ->
-          case map_kernel.ack_local(core.kernel, head_op) {
+          case map_kernel.ack_local(core.kernel, head.op) {
             Ok(kernel) ->
               Ok(#(Core(..core, kernel: kernel, in_flight: rest), []))
             Error(map_kernel.UnexpectedAck(_, detail)) ->
@@ -225,7 +371,9 @@ fn stamp(
       ..core,
       kernel: kernel,
       next_csn: csn + 1,
-      in_flight: list.append(core.in_flight, [#(csn, op)]),
+      in_flight: list.append(core.in_flight, [
+        InFlight(client_id: core.client_id, csn: csn, op: op),
+      ]),
     )
   #(core, events, outbound)
 }
