@@ -60,6 +60,41 @@ pub fn new() -> MapState {
   MapState(sequenced: dict.new(), insertion_order: [], pending: [])
 }
 
+/// Build a sequenced-only state from summary snapshot entries, preserving the
+/// given insertion order. Used to bootstrap a connection from a stored summary
+/// before replaying post-summary deltas. There are no pending local edits in a
+/// freshly loaded snapshot.
+pub fn from_sequenced(entries: List(#(String, Json))) -> MapState {
+  let #(sequenced, order) =
+    list.fold(entries, #(dict.new(), []), fn(acc, entry) {
+      let #(sequenced, order) = acc
+      let #(key, value) = entry
+      // Guard against duplicate keys in a snapshot: keep the last value but the
+      // first-seen position, matching JS-Map insertion semantics.
+      let order = case dict.has_key(sequenced, key) {
+        True -> order
+        False -> [key, ..order]
+      }
+      #(dict.insert(sequenced, key, value), order)
+    })
+  MapState(
+    sequenced: sequenced,
+    insertion_order: list.reverse(order),
+    pending: [],
+  )
+}
+
+/// The sequenced entries in insertion order, ignoring pending local edits.
+/// This is the confirmed state a summary snapshot captures.
+pub fn sequenced_entries(state: MapState) -> List(#(String, Json)) {
+  list.filter_map(state.insertion_order, fn(key) {
+    case dict.get(state.sequenced, key) {
+      Ok(value) -> Ok(#(key, value))
+      Error(_) -> Error(Nil)
+    }
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────

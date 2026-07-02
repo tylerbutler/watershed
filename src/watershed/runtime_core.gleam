@@ -58,12 +58,25 @@ pub type CoreError {
   /// A sequenced `"op"` message carried contents we could not decode. With
   /// only map channels in v1 this signals corruption, not a foreign DDS.
   BadOpContents(sequence_number: Int)
-  /// Bootstrap replayed an op history that is not contiguous from SN 1: the
-  /// earliest replayable op sits above the gap because the server dropped ops
-  /// past its retention window. The state we would build is missing its
-  /// prefix, so we fail loudly rather than diverge silently. Older deltas must
-  /// be fetched out of band (`GET /deltas/:tenant_id/:id`).
+  /// Bootstrap could not close the gap between its seed point and the
+  /// earliest replayable op: a `resume_bootstrap` round made no progress, so
+  /// the deltas endpoint itself is missing the range. The state we would
+  /// build is missing its prefix, so we fail loudly rather than diverge
+  /// silently.
   HistoryGap(detail: String)
+}
+
+/// Outcome of (a step of) bootstrapping.
+///
+/// `initialMessages` is served from the server's bounded in-memory history
+/// window, so a document with more ops than the window arrives missing its
+/// prefix. `MissingPrefix` asks the caller to fetch the sequenced ops in
+/// `(from, to]` out of band (`GET /deltas/:tenant_id/:id?from=&to=` — `from`
+/// exclusive, `to` inclusive, response capped server-side) and feed them to
+/// `resume_bootstrap`, repeating until `Complete`.
+pub type Bootstrapped {
+  Complete(core: Core)
+  MissingPrefix(core: Core, checkpoint: Int, from: Int, to: Int)
 }
 
 /// Outcome of ingesting a sequenced message: events to fan out to subscribers
@@ -74,12 +87,24 @@ pub type Ingested {
   Ingested(events: List(MapEvent), request_ops_from: Option(Int))
 }
 
+/// A loaded summary: the confirmed map entries (insertion order) and the
+/// sequence number they are current as of (from `summaryContext`). The runtime
+/// fetches and decodes the summary blob out of band and passes this to
+/// `bootstrap`.
+pub type Summary {
+  Summary(sequence_number: Int, entries: List(#(String, Json)))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the initial state from `connect_document_success`, replaying
-/// `initialMessages` (full history, chronological).
+/// Build the initial state from `connect_document_success`.
+///
+/// When `summary` is `Some`, seed the kernel from the summary's confirmed
+/// entries and mark its `sequence_number` as already seen, then replay
+/// `initialMessages` — which are the *post-summary* deltas — on top. When
+/// `None`, replay `initialMessages` as a full history from SN 1.
 ///
 /// `checkpointSequenceNumber` equals the SN of our own join message, which
 /// arrives as a separate `op` push right after the success event and is not
@@ -88,40 +113,126 @@ pub type Ingested {
 pub fn bootstrap(
   connected: ConnectedMessage,
   address address: String,
-) -> Result(Core, CoreError) {
+  summary summary: Option(Summary),
+) -> Result(Bootstrapped, CoreError) {
+  let #(kernel, last_seen) = case summary {
+    Some(Summary(sequence_number: sn, entries: entries)) -> #(
+      map_kernel.from_sequenced(entries),
+      sn,
+    )
+    None -> #(map_kernel.new(), 0)
+  }
   let core =
     Core(
       client_id: connected.client_id,
       address: address,
-      kernel: map_kernel.new(),
+      kernel: kernel,
       next_csn: 1,
-      last_seen_sn: 0,
+      last_seen_sn: last_seen,
       in_flight: [],
       out_of_order: [],
     )
-  use core <- result.try(
-    list.try_fold(connected.initial_messages, core, fn(core, msg) {
-      handle_sequenced(core, msg)
-      |> result.map(fn(outcome) { outcome.0 })
-    }),
-  )
-  // A complete history replays contiguously from SN 1, leaving nothing
-  // buffered. Anything still in `out_of_order` means the earliest replayable
-  // op sits above the gap: the server dropped ops past its retention window,
-  // so the state we just built is missing its prefix. Fail loudly.
-  use _ <- result.try(case core.out_of_order {
-    [] -> Ok(Nil)
-    [head, ..] ->
-      Error(HistoryGap(
-        "bootstrap history is not contiguous from sequence number 1; earliest "
-        <> "replayable op is "
-        <> int.to_string(head.sequence_number)
-        <> " (server op history truncated past its retention window)",
-      ))
-  })
+  use core <- result.try(replay(core, connected.initial_messages))
   let checkpoint =
     option.unwrap(connected.checkpoint_sequence_number, core.last_seen_sn)
-  Ok(Core(..core, last_seen_sn: int.max(core.last_seen_sn, checkpoint)))
+  Ok(settle_bootstrap(core, checkpoint))
+}
+
+/// Continue a bootstrap that came back `MissingPrefix`: replay the deltas the
+/// caller fetched for `(from, to]` and re-check contiguity. The server caps
+/// each deltas response, so a large gap closes over several rounds; a round
+/// that advances nothing means the requested range is genuinely gone and the
+/// state we would build is missing its prefix, so we fail loudly rather than
+/// diverge silently.
+pub fn resume_bootstrap(
+  core: Core,
+  checkpoint checkpoint: Int,
+  deltas deltas: List(SequencedDocumentMessage),
+) -> Result(Bootstrapped, CoreError) {
+  let before = core.last_seen_sn
+  use core <- result.try(replay(core, deltas))
+  case core.out_of_order != [] && core.last_seen_sn == before {
+    True ->
+      Error(HistoryGap(
+        "history catch-up made no progress past sequence number "
+        <> int.to_string(before)
+        <> " (server storage is missing the range)",
+      ))
+    False -> Ok(settle_bootstrap(core, checkpoint))
+  }
+}
+
+/// Replay sequenced messages during bootstrap, discarding events (subscribers
+/// only attach once the document is ready) and catch-up requests (bootstrap
+/// gaps are filled via the deltas endpoint, not in-band `requestOps`).
+fn replay(
+  core: Core,
+  messages: List(SequencedDocumentMessage),
+) -> Result(Core, CoreError) {
+  list.try_fold(messages, core, fn(core, msg) {
+    handle_sequenced(core, msg)
+    |> result.map(fn(outcome) { outcome.0 })
+  })
+}
+
+/// A complete history replays contiguously from the seed point (SN 1 with no
+/// snapshot, or the snapshot's sequence number), leaving nothing buffered —
+/// then the checkpoint is marked seen and the core is ready. Anything still
+/// in `out_of_order` means the earliest replayable op sits above a gap the
+/// caller must fill from the deltas endpoint before the checkpoint (which is
+/// past every buffered op) may be applied.
+fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
+  case core.out_of_order {
+    [] ->
+      Complete(
+        Core(..core, last_seen_sn: int.max(core.last_seen_sn, checkpoint)),
+      )
+    [head, ..] ->
+      MissingPrefix(
+        core: core,
+        checkpoint: checkpoint,
+        from: core.last_seen_sn,
+        to: head.sequence_number - 1,
+      )
+  }
+}
+
+/// The confirmed (sequenced) map entries in insertion order — the state a
+/// summary captures. Excludes pending un-acked local edits.
+pub fn summary_entries(core: Core) -> List(#(String, Json)) {
+  map_kernel.sequenced_entries(core.kernel)
+}
+
+/// Whether the client is caught up: every local edit has been acknowledged by
+/// the server, so the confirmed state a summary captures is complete. v1
+/// summaries require this — ops still in flight would fall in the uncovered gap
+/// between the captured `last_seen_sn` and the summarize op's assigned SN.
+pub fn is_synced(core: Core) -> Bool {
+  core.in_flight == []
+}
+
+/// Stamp a `"summarize"` op referencing an already-uploaded snapshot tree,
+/// consuming a client sequence number so subsequent map ops stay strictly
+/// increasing. A summarize op carries no map mutation, so it neither changes
+/// the kernel nor joins the in-flight queue (its ack is a `summaryAck` the
+/// runtime treats as a system message).
+pub fn build_summarize(
+  core: Core,
+  handle handle: String,
+  message message: String,
+  head head: String,
+) -> #(Core, wire.OutboundOp) {
+  let csn = core.next_csn
+  let outbound =
+    wire.outbound_summarize_op(
+      client_sequence_number: csn,
+      reference_sequence_number: core.last_seen_sn,
+      handle: handle,
+      message: message,
+      parents: [],
+      head: head,
+    )
+  #(Core(..core, next_csn: csn + 1), outbound)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

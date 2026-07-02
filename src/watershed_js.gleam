@@ -28,6 +28,8 @@
 @target(javascript)
 import gleam/dict
 @target(javascript)
+import gleam/javascript/promise.{type Promise}
+@target(javascript)
 import gleam/json.{type Json}
 @target(javascript)
 import gleam/option.{type Option, None, Some}
@@ -40,11 +42,15 @@ import spillway/types.{
 }
 
 @target(javascript)
+import watershed/git_storage.{type SummaryVersion}
+@target(javascript)
 import watershed/map_kernel.{type MapEvent}
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
 import watershed/transport_js
+@target(javascript)
+import watershed/wire.{type SummaryBlob}
 
 @target(javascript)
 /// Connection parameters for `connect`.
@@ -95,7 +101,7 @@ pub fn connect(
         ),
         permission: [],
         user: User(id: config.user_id, properties: dict.new()),
-        scopes: ["doc:read", "doc:write"],
+        scopes: ["doc:read", "doc:write", "summary:write"],
         timestamp: None,
       ),
       versions: ["^0.1.0"],
@@ -133,6 +139,48 @@ pub fn close(document: Document) -> Nil {
 /// reconnect/reconcile path. Pending and in-flight edits are preserved.
 pub fn force_reconnect(document: Document) -> Nil {
   runtime_js.force_reconnect(document.runtime)
+}
+
+@target(javascript)
+/// Whether the document is fully caught up: every local edit has been
+/// acknowledged by the server, so the confirmed state is complete and stable.
+/// Useful to wait for quiescence before summarizing.
+pub fn is_synced(document: Document) -> Bool {
+  runtime_js.is_synced(document.runtime)
+}
+
+@target(javascript)
+/// Summarize the document's current confirmed state to levee storage so future
+/// clients can bootstrap from the snapshot instead of replaying the full op
+/// history. Resolves with the summary handle (git tree SHA). Requires the
+/// connection to be fully synced and the token to carry `summary:write`.
+pub fn summarize(document: Document) -> Promise(Result(String, String)) {
+  runtime_js.summarize(document.runtime)
+}
+
+@target(javascript)
+/// List the document's stored summary versions, newest first — the client
+/// half of Fluid's `getVersions`. Each `summarize` call stores one version;
+/// the newest is what a fresh connection bootstraps from. Requires the token
+/// to carry `doc:read`.
+pub fn get_versions(
+  document: Document,
+  count count: Int,
+) -> Promise(Result(List(SummaryVersion), String)) {
+  runtime_js.get_versions(document.runtime, count)
+}
+
+@target(javascript)
+/// Read the historical confirmed state a summary version captured, by its
+/// handle (from `get_versions` or a `summarize` resolution). Returns the
+/// stored snapshot blob — entries in insertion order plus the sequence number
+/// they were captured at. A point-in-time read: the live document is
+/// unaffected.
+pub fn load_version(
+  document: Document,
+  handle handle: String,
+) -> Promise(Result(SummaryBlob, String)) {
+  runtime_js.load_version(document.runtime, handle)
 }
 
 // ── Edits (optimistic) ───────────────────────────────────────────────────────

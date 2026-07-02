@@ -24,12 +24,16 @@ import gleam/io
 @target(erlang)
 import gleam/json.{type Json}
 @target(erlang)
+import gleam/list
+@target(erlang)
 import gleam/option.{None, Some}
 @target(erlang)
 import startest/expect
 
 @target(erlang)
 import watershed
+@target(erlang)
+import watershed/git_storage
 
 @target(erlang)
 const tenant = "dev-tenant"
@@ -37,8 +41,12 @@ const tenant = "dev-tenant"
 @target(erlang)
 const tenant_secret = "levee-dev-secret-change-in-production"
 
+// Use the IPv4 loopback literal, not "localhost". Erlang's inet resolver
+// (httpc/gun default to the `inet6fb4` family) stalls ~8s resolving AAAA for
+// "localhost" before falling back to IPv4, which would block the runtime actor
+// long enough for levee to drop the socket as idle.
 @target(erlang)
-const host = "localhost"
+const host = "127.0.0.1"
 
 @target(erlang)
 const port = 4000
@@ -59,6 +67,208 @@ pub fn reconnect_converges_test() {
     Ok("1") -> run_reconnect_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
+}
+
+@target(erlang)
+/// Summaries exit criterion: a client summarizes the map, then a fresh client
+/// bootstraps from the summary (its history starts above SN 1) and converges.
+pub fn summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Pagination exit criterion: a document with more ops than the server's
+/// in-band history window (1000 messages) serves `initialMessages` missing
+/// its prefix, so a fresh client must page the gap from the deltas REST
+/// endpoint during bootstrap.
+pub fn large_history_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_large_history_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// getVersions exit criterion: every summarize stores a version; the client
+/// lists them newest first and reads any historical snapshot back by handle.
+pub fn summary_versions_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_versions_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_versions_test() -> Nil {
+  let document = "watershed-ver-" <> int.to_string(system_time(Second))
+
+  let doc = connect_or_panic(document, "user-a")
+  let map = watershed.root(doc)
+
+  // A document with no summaries yet lists no versions.
+  watershed.get_versions(doc, count: 10) |> expect.to_equal(Ok([]))
+
+  // First snapshot: {die: 4, color: blue}.
+  watershed.set(map, "die", json.int(4))
+  watershed.set(map, "color", json.string("blue"))
+  wait_until(50, fn() { watershed.is_synced(doc) }) |> expect.to_be_true()
+  let handle_1 = case wait_until_ok(50, fn() { watershed.summarize(doc) }) {
+    Ok(handle) -> handle
+    Error(reason) -> panic as { "first summarize failed: " <> reason }
+  }
+
+  // Second snapshot: color changed and a key added.
+  watershed.set(map, "color", json.string("green"))
+  watershed.set(map, "post", json.bool(True))
+  wait_until(50, fn() { watershed.is_synced(doc) }) |> expect.to_be_true()
+  let handle_2 = case wait_until_ok(50, fn() { watershed.summarize(doc) }) {
+    Ok(handle) -> handle
+    Error(reason) -> panic as { "second summarize failed: " <> reason }
+  }
+
+  // The server registers a version per summarize op (async relative to the
+  // summarize reply), newest first.
+  wait_until(50, fn() {
+    case watershed.get_versions(doc, count: 10) {
+      Ok(versions) ->
+        list.map(versions, fn(v: git_storage.SummaryVersion) { v.handle })
+        == [handle_2, handle_1]
+      Error(_) -> False
+    }
+  })
+  |> expect.to_be_true()
+
+  let assert Ok([latest, previous]) = watershed.get_versions(doc, count: 10)
+  { latest.sequence_number > previous.sequence_number } |> expect.to_be_true()
+
+  // `count` keeps only the newest versions.
+  let assert Ok([only]) = watershed.get_versions(doc, count: 1)
+  only.handle |> expect.to_equal(handle_2)
+
+  // Historical snapshot reads by handle: each version returns exactly the
+  // confirmed state it captured, without affecting the live document.
+  let assert Ok(blob_1) = watershed.load_version(doc, handle: handle_1)
+  blob_1.entries
+  |> expect.to_equal([
+    #("die", json.int(4)),
+    #("color", json.string("blue")),
+  ])
+  let assert Ok(blob_2) = watershed.load_version(doc, handle: handle_2)
+  blob_2.entries
+  |> expect.to_equal([
+    #("die", json.int(4)),
+    #("color", json.string("green")),
+    #("post", json.bool(True)),
+  ])
+  { blob_2.sequence_number > blob_1.sequence_number } |> expect.to_be_true()
+
+  // The live document still reflects the latest state.
+  watershed.get(map, "color") |> expect.to_equal(Some(json.string("green")))
+
+  watershed.close(doc)
+}
+
+@target(erlang)
+fn run_large_history_test() -> Nil {
+  let document = "watershed-lh-" <> int.to_string(system_time(Second))
+  let op_count = 1050
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  // Write more distinct keys than the history window holds. The earliest
+  // sets (k1, k2, ...) age out of the server's in-memory op history, so a
+  // later bootstrap can only recover them via the deltas REST endpoint.
+  write_keys(map_a, 1, op_count)
+  wait_until(600, fn() { watershed.is_synced(doc_a) })
+  |> expect.to_be_true()
+
+  // A fresh client's initialMessages are missing the prefix; bootstrap must
+  // page it in and converge on the full map.
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_b = watershed.root(doc_b)
+  wait_until(100, fn() {
+    watershed.size(map_b) == op_count
+    && same_entries(watershed.entries(map_b), watershed.entries(map_a))
+  })
+  |> expect.to_be_true()
+
+  // Spot-check keys that only exist in the aged-out prefix.
+  watershed.get(map_b, "k1") |> expect.to_equal(Some(json.int(1)))
+  watershed.get(map_b, "k25") |> expect.to_equal(Some(json.int(25)))
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn write_keys(map: watershed.SharedMap, from: Int, to: Int) -> Nil {
+  case from > to {
+    True -> Nil
+    False -> {
+      watershed.set(map, "k" <> int.to_string(from), json.int(from))
+      write_keys(map, from + 1, to)
+    }
+  }
+}
+
+@target(erlang)
+fn run_summary_test() -> Nil {
+  let document = "watershed-sum-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  // Build up some confirmed state.
+  watershed.set(map_a, "die", json.int(4))
+  watershed.set(map_a, "color", json.string("blue"))
+  watershed.set(map_a, "count", json.int(9))
+  watershed.delete(map_a, "count")
+  // Wait until every edit is acknowledged (in-flight drained) so the summary
+  // captures the complete confirmed state.
+  wait_until(50, fn() { watershed.is_synced(doc_a) })
+  |> expect.to_be_true()
+
+  // Summarize once the client is caught up. Retrying is safe: attempts made
+  // before the client is synced reply Error and submit nothing; only the
+  // successful attempt uploads and submits the summarize op.
+  let handle = case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(handle) -> handle
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+  { handle != "" } |> expect.to_be_true()
+
+  // Make a post-summary edit so the fresh client must replay a delta on top of
+  // the summary (history above SN 1), and wait until it too is sequenced so it
+  // is guaranteed to appear in the fresh client's post-summary history.
+  watershed.set(map_a, "post", json.string("after-summary"))
+  wait_until(50, fn() { watershed.is_synced(doc_a) })
+  |> expect.to_be_true()
+
+  // A fresh client connects; the server serves the summaryContext + only the
+  // post-summary deltas, so watershed must load the summary and apply the
+  // delta rather than fail with a HistoryGap.
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_b = watershed.root(doc_b)
+  let converged =
+    wait_until(50, fn() {
+      same_entries(watershed.entries(map_b), watershed.entries(map_a))
+    })
+  converged
+  |> expect.to_be_true()
+
+  // The summarized keys and the post-summary delta all made it across.
+  watershed.get(map_b, "die") |> expect.to_equal(Some(json.int(4)))
+  watershed.get(map_b, "color") |> expect.to_equal(Some(json.string("blue")))
+  watershed.get(map_b, "count") |> expect.to_equal(None)
+  watershed.get(map_b, "post")
+  |> expect.to_equal(Some(json.string("after-summary")))
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
 }
 
 @target(erlang)
@@ -211,6 +421,23 @@ fn wait_until(attempts: Int, check: fn() -> Bool) -> Bool {
   }
 }
 
+@target(erlang)
+/// Retry `check` until it returns `Ok`, polling every 100ms. Returns the last
+/// result (the successful `Ok`, or the final `Error` once attempts run out).
+fn wait_until_ok(attempts: Int, check: fn() -> Result(a, b)) -> Result(a, b) {
+  case check() {
+    Ok(value) -> Ok(value)
+    Error(err) ->
+      case attempts {
+        0 -> Error(err)
+        _ -> {
+          process.sleep(100)
+          wait_until_ok(attempts - 1, check)
+        }
+      }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dev JWT minting (HS256, matching levee's JOSE verification)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,7 +454,10 @@ fn mint_token(tenant: String, document: String, user_id: String) -> String {
     json.object([
       #("documentId", json.string(document)),
       #("tenantId", json.string(tenant)),
-      #("scopes", json.array(["doc:read", "doc:write"], json.string)),
+      #(
+        "scopes",
+        json.array(["doc:read", "doc:write", "summary:write"], json.string),
+      ),
       #("user", json.object([#("id", json.string(user_id))])),
       #("iat", json.int(now)),
       #("exp", json.int(now + 3600)),

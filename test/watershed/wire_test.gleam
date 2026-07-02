@@ -179,6 +179,86 @@ pub fn decode_connected_message_test() {
   let assert [initial_op] = connected.initial_messages
   initial_op.sequence_number |> expect.to_equal(1)
   initial_op.client_id |> expect.to_equal(Some("default_dice_0"))
+
+  // A never-summarized document carries no summaryContext.
+  connected.summary_context |> expect.to_equal(None)
+}
+
+pub fn decode_connected_message_with_summary_context_test() {
+  let fixture =
+    "{
+      \"claims\": {\"documentId\": \"dice\", \"scopes\": [], \"tenantId\": \"default\",
+                   \"user\": {\"id\": \"u\"}, \"iat\": 0, \"exp\": 0, \"ver\": \"1.0\"},
+      \"clientId\": \"default_dice_2\",
+      \"maxMessageSize\": 16000,
+      \"mode\": \"write\",
+      \"serviceConfiguration\": {\"blockSize\": 65536, \"maxMessageSize\": 16000},
+      \"initialMessages\": [],
+      \"version\": \"^0.1.0\",
+      \"checkpointSequenceNumber\": 42,
+      \"summaryContext\": {\"handle\": \"tree-abc\", \"sequenceNumber\": 40}
+    }"
+  let connected = parse(fixture, wire.connected_message_decoder())
+  connected.summary_context
+  |> expect.to_equal(
+    Some(message.SummaryContext(handle: "tree-abc", sequence_number: 40)),
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// summary blob codec
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn summary_blob_round_trips_test() {
+  let entries = [
+    #("die", json.int(4)),
+    #("label", json.string("hello")),
+    #("nested", json.object([#("a", json.array([1, 2], json.int))])),
+  ]
+  let encoded =
+    wire.encode_summary_blob(
+      address: "root",
+      sequence_number: 7,
+      entries: entries,
+    )
+    |> json.to_string
+  let assert Ok(blob) = wire.decode_summary_blob(encoded)
+  blob.address |> expect.to_equal("root")
+  blob.sequence_number |> expect.to_equal(7)
+  // Values compare structurally by re-encoding through the same codec.
+  let normalize = fn(pairs: List(#(String, json.Json))) {
+    list.map(pairs, fn(pair) { #(pair.0, json.to_string(pair.1)) })
+  }
+  normalize(blob.entries) |> expect.to_equal(normalize(entries))
+}
+
+pub fn summary_blob_rejects_unknown_version_test() {
+  let raw =
+    "{\"watershedSummaryVersion\": 999, \"address\": \"root\","
+    <> " \"sequenceNumber\": 1, \"entries\": []}"
+  case wire.decode_summary_blob(raw) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected unknown summary version to be rejected"
+  }
+}
+
+pub fn encode_summarize_op_test() {
+  let op =
+    wire.outbound_summarize_op(
+      client_sequence_number: 3,
+      reference_sequence_number: 9,
+      handle: "tree-abc",
+      message: "watershed summary",
+      parents: [],
+      head: "tree-abc",
+    )
+  let encoded =
+    wire.encode_submit_op("default_dice_1", [[op]]) |> json.to_string
+  string_contains(encoded, "\"type\":\"summarize\"") |> expect.to_be_true()
+  string_contains(encoded, "\"handle\":\"tree-abc\"") |> expect.to_be_true()
+  string_contains(encoded, "\"head\":\"tree-abc\"") |> expect.to_be_true()
+  string_contains(encoded, "\"parents\":[]") |> expect.to_be_true()
+  string_contains(encoded, "\"clientSequenceNumber\":3") |> expect.to_be_true()
 }
 
 pub fn decode_connect_error_test() {

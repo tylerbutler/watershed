@@ -34,9 +34,13 @@ import spillway/types.{
 }
 
 @target(erlang)
+import watershed/git_storage.{type SummaryVersion}
+@target(erlang)
 import watershed/map_kernel.{type MapEvent}
 @target(erlang)
 import watershed/runtime
+@target(erlang)
+import watershed/wire.{type SummaryBlob}
 
 @target(erlang)
 /// The default Phoenix websocket mount for levee. `vsn=2.0.0` selects the
@@ -82,7 +86,7 @@ pub fn connect(
         ),
         permission: [],
         user: User(id: user_id, properties: dict.new()),
-        scopes: ["doc:read", "doc:write"],
+        scopes: ["doc:read", "doc:write", "summary:write"],
         timestamp: None,
       ),
       versions: ["^0.1.0"],
@@ -134,6 +138,47 @@ pub fn close(document: Document) -> Nil {
 /// and in-flight edits are preserved and resubmitted after the reconnect.
 pub fn force_reconnect(document: Document) -> Nil {
   process.send(document.runtime, runtime.DropChannel)
+}
+
+@target(erlang)
+/// Summarize the document's current confirmed state to levee storage so future
+/// clients can bootstrap from the snapshot instead of replaying the full op
+/// history. Returns the summary handle (git tree SHA). Requires the connection
+/// to be fully synced and the token to carry the `summary:write` scope.
+pub fn summarize(document: Document) -> Result(String, String) {
+  runtime.summarize(document.runtime)
+}
+
+@target(erlang)
+/// Whether the document is fully caught up: every local edit has been
+/// acknowledged by the server, so the confirmed state is complete and stable.
+/// Useful to wait for quiescence before summarizing or handing off.
+pub fn is_synced(document: Document) -> Bool {
+  runtime.is_synced(document.runtime)
+}
+
+@target(erlang)
+/// List the document's stored summary versions, newest first — the client
+/// half of Fluid's `getVersions`. Each `summarize` call stores one version;
+/// the newest is what a fresh connection bootstraps from. Requires the token
+/// to carry `doc:read`.
+pub fn get_versions(
+  document: Document,
+  count count: Int,
+) -> Result(List(SummaryVersion), String) {
+  runtime.get_versions(document.runtime, count)
+}
+
+@target(erlang)
+/// Read the historical confirmed state a summary version captured, by its
+/// handle (from `get_versions` or a `summarize` return). Returns the stored
+/// snapshot blob — entries in insertion order plus the sequence number they
+/// were captured at. A point-in-time read: the live document is unaffected.
+pub fn load_version(
+  document: Document,
+  handle handle: String,
+) -> Result(SummaryBlob, String) {
+  runtime.load_version(document.runtime, handle)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

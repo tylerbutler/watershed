@@ -13,6 +13,10 @@ import gleam/dynamic.{type Dynamic}
 @target(javascript)
 import gleam/dynamic/decode
 @target(javascript)
+import gleam/int
+@target(javascript)
+import gleam/javascript/promise.{type Promise}
+@target(javascript)
 import gleam/json.{type Json}
 @target(javascript)
 import gleam/list
@@ -20,14 +24,20 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 @target(javascript)
 import gleam/string
+@target(javascript)
+import gleam/uri
 
 @target(javascript)
-import spillway/message.{type ConnectMessage}
+import spillway/message.{
+  type ConnectMessage, type ConnectedMessage, type SummaryContext,
+}
 @target(javascript)
 import spillway/nack.{type Nack}
 @target(javascript)
 import spillway/types.{type SequencedDocumentMessage}
 
+@target(javascript)
+import watershed/git_storage
 @target(javascript)
 import watershed/map_kernel.{type MapEvent}
 @target(javascript)
@@ -59,6 +69,10 @@ type Phase {
 type State {
   State(
     connect_message: ConnectMessage,
+    /// HTTP(S) base URL for git-storage (summary) calls, derived from the
+    /// Phoenix socket URL. levee serves both the socket and REST from one
+    /// origin.
+    http_base_url: String,
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(fn(MapEvent) -> Nil),
@@ -86,6 +100,7 @@ pub fn start(
   let cell =
     transport_js.new_cell(State(
       connect_message: connect_message,
+      http_base_url: http_base_from_socket_url(url),
       channel: None,
       phase: Connecting,
       subscribers: [],
@@ -187,6 +202,134 @@ pub fn close(runtime: Runtime) -> Nil {
   }
 }
 
+@target(javascript)
+/// Whether the document is fully caught up: every local edit has been
+/// acknowledged by the server, so the confirmed state is complete and stable.
+pub fn is_synced(runtime: Runtime) -> Bool {
+  read(runtime.cell, False, runtime_core.is_synced)
+}
+
+@target(javascript)
+/// Summarize the document's current confirmed state to levee storage so future
+/// clients can bootstrap from the snapshot instead of replaying the full op
+/// history. Resolves with the summary handle (git tree SHA). Requires the
+/// connection to be fully synced and the token to carry `summary:write`.
+///
+/// Uploading is asynchronous, so the returned Promise settles once the blob is
+/// stored and the summarize op has been pushed. The summarize op's sequence
+/// number is drawn from the live core at push time (not at upload start) so a
+/// concurrent local edit can't collide with it.
+pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.channel {
+    Ready(core, None), Some(_) ->
+      case state.connect_message.token {
+        None -> promise.resolve(Error("summarize requires an auth token"))
+        Some(token) ->
+          case runtime_core.is_synced(core) {
+            False ->
+              promise.resolve(Error(
+                "summarize requires the client to be caught up; retry once "
+                <> "in-flight edits have been acknowledged",
+              ))
+            True ->
+              git_storage.upload_summary(
+                base_url: state.http_base_url,
+                tenant: state.connect_message.tenant_id,
+                token: token,
+                address: address,
+                sequence_number: core.last_seen_sn,
+                entries: runtime_core.summary_entries(core),
+              )
+              |> promise.map(fn(result) {
+                case result {
+                  Error(reason) -> Error(reason)
+                  Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+                }
+              })
+          }
+      }
+    _, _ ->
+      promise.resolve(Error(
+        "summarize is only available once the connection is fully synced",
+      ))
+  }
+}
+
+@target(javascript)
+/// List the document's stored summary versions, newest first (the client half
+/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
+pub fn get_versions(
+  runtime: Runtime,
+  count: Int,
+) -> Promise(Result(List(git_storage.SummaryVersion), String)) {
+  let state = cell_get(runtime.cell)
+  case state.connect_message.token {
+    None -> promise.resolve(Error("listing versions requires an auth token"))
+    Some(token) ->
+      git_storage.fetch_versions(
+        base_url: state.http_base_url,
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        document: state.connect_message.document_id,
+        count: count,
+      )
+  }
+}
+
+@target(javascript)
+/// Read the historical snapshot a summary version captured, by its handle
+/// (from `get_versions` or a `summarize` resolution). The live document is
+/// unaffected — this is a point-in-time read of the stored blob.
+pub fn load_version(
+  runtime: Runtime,
+  handle: String,
+) -> Promise(Result(wire.SummaryBlob, String)) {
+  let state = cell_get(runtime.cell)
+  case state.connect_message.token {
+    None -> promise.resolve(Error("loading a version requires an auth token"))
+    Some(token) ->
+      git_storage.fetch_summary(
+        base_url: state.http_base_url,
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        handle: handle,
+      )
+  }
+}
+
+@target(javascript)
+/// Stamp the summarize op referencing the uploaded snapshot tree and push it.
+/// Re-reads the live state so the op is built from the current core, keeping
+/// its client sequence number strictly increasing past any edits that landed
+/// during the async upload.
+fn finish_summarize(
+  cell: Cell(State),
+  tree_sha: String,
+) -> Result(String, String) {
+  let state = cell_get(cell)
+  case state.phase, state.channel {
+    Ready(core, None), Some(channel) -> {
+      let #(core, outbound) =
+        runtime_core.build_summarize(
+          core,
+          handle: tree_sha,
+          message: "watershed summary",
+          head: tree_sha,
+        )
+      push_json(
+        channel,
+        "submitOp",
+        wire.encode_submit_op(core.client_id, [[outbound]]),
+      )
+      cell_set(cell, State(..state, phase: Ready(core, None)))
+      Ok(tree_sha)
+    }
+    _, _ -> Error("connection changed during summarize; retry")
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Transport callbacks
 // ─────────────────────────────────────────────────────────────────────────────
@@ -245,13 +388,13 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
       let state = cell_get(cell)
       case state.phase {
         Connecting ->
-          case runtime_core.bootstrap(connected, address: address) {
-            Ok(core) -> {
-              cell_set(cell, State(..state, phase: Ready(core, None)))
-              fire_ready(cell, Ok(Nil))
-            }
-            Error(err) ->
-              fail(cell, "bootstrap failed: " <> string.inspect(err))
+          // A never-summarized document bootstraps synchronously from
+          // `initialMessages`. A summarized document first fetches its summary
+          // blob over HTTP (async), then bootstraps seeded from that state.
+          case connected.summary_context {
+            None -> finish_bootstrap(cell, connected, None)
+            Some(ctx) ->
+              load_summary_then_bootstrap(cell, state, connected, ctx)
           }
         Reconnecting(core) -> {
           let core = runtime_core.adopt_reconnect(core, connected)
@@ -263,6 +406,114 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
           settle_reconnect(cell, core, checkpoint)
         }
         _ -> Nil
+      }
+    }
+  }
+}
+
+@target(javascript)
+/// Fetch the summary blob referenced by `ctx`, then bootstrap the core seeded
+/// from it. Real-time ops that arrive during the async fetch are dropped while
+/// still `Connecting`, but the gap they create is self-healing: the first op
+/// after bootstrap that is non-contiguous triggers a `requestOps` catch-up.
+fn load_summary_then_bootstrap(
+  cell: Cell(State),
+  state: State,
+  connected: ConnectedMessage,
+  ctx: SummaryContext,
+) -> Nil {
+  case state.connect_message.token {
+    None -> fail(cell, "loading a summarized document requires an auth token")
+    Some(token) -> {
+      let _ =
+        git_storage.fetch_summary(
+          base_url: state.http_base_url,
+          tenant: state.connect_message.tenant_id,
+          token: token,
+          handle: ctx.handle,
+        )
+        |> promise.map(fn(result) {
+          case result {
+            Error(reason) -> fail(cell, "summary load failed: " <> reason)
+            Ok(blob) ->
+              finish_bootstrap(
+                cell,
+                connected,
+                // The blob records the SN it was captured at, but the
+                // authoritative load point is the server's summaryContext.
+                Some(runtime_core.Summary(
+                  sequence_number: ctx.sequence_number,
+                  entries: blob.entries,
+                )),
+              )
+          }
+        })
+      Nil
+    }
+  }
+}
+
+@target(javascript)
+/// Bootstrap the core (optionally seeded from a summary) and fire `on_ready`.
+fn finish_bootstrap(
+  cell: Cell(State),
+  connected: ConnectedMessage,
+  summary: Option(runtime_core.Summary),
+) -> Nil {
+  case runtime_core.bootstrap(connected, address: address, summary: summary) {
+    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
+    Error(err) -> fail(cell, "bootstrap failed: " <> string.inspect(err))
+  }
+}
+
+@target(javascript)
+/// Complete a bootstrap step: ready the document, or page the missing history
+/// prefix from the deltas REST endpoint (async, possibly several rounds) and
+/// resume. Bootstrap must not complete on a gapped history, so any failure
+/// here drives the cell to `Failed`.
+fn continue_bootstrap(
+  cell: Cell(State),
+  bootstrapped: runtime_core.Bootstrapped,
+) -> Nil {
+  case bootstrapped {
+    runtime_core.Complete(core) -> {
+      cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
+      fire_ready(cell, Ok(Nil))
+    }
+    runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
+      let state = cell_get(cell)
+      case state.connect_message.token {
+        None -> fail(cell, "history catch-up requires an auth token")
+        Some(token) -> {
+          let _ =
+            git_storage.fetch_deltas(
+              base_url: state.http_base_url,
+              tenant: state.connect_message.tenant_id,
+              token: token,
+              document: state.connect_message.document_id,
+              from: from,
+              to: to,
+            )
+            |> promise.map(fn(result) {
+              case result {
+                Error(reason) ->
+                  fail(cell, "history catch-up failed: " <> reason)
+                Ok(deltas) ->
+                  case
+                    runtime_core.resume_bootstrap(
+                      core,
+                      checkpoint: checkpoint,
+                      deltas: deltas,
+                    )
+                  {
+                    Ok(next) -> continue_bootstrap(cell, next)
+                    Error(err) ->
+                      fail(cell, "bootstrap failed: " <> string.inspect(err))
+                  }
+              }
+            })
+          Nil
+        }
       }
     }
   }
@@ -485,6 +736,28 @@ fn send_outbound(
 @target(javascript)
 fn push_json(channel: Channel, event: String, payload: Json) -> Nil {
   transport_js.push(channel, event, json.to_string(payload))
+}
+
+@target(javascript)
+/// Derive the HTTP(S) base URL for git-storage calls from the Phoenix socket
+/// URL, e.g. `ws://localhost:4000/socket/websocket?vsn=2.0.0` →
+/// `http://localhost:4000`. `wss` maps to `https`; everything else to `http`.
+fn http_base_from_socket_url(url: String) -> String {
+  case uri.parse(url) {
+    Ok(parsed) -> {
+      let scheme = case parsed.scheme {
+        Some("wss") | Some("https") -> "https"
+        _ -> "http"
+      }
+      let host = option.unwrap(parsed.host, "localhost")
+      let port = case parsed.port {
+        Some(p) -> ":" <> int.to_string(p)
+        None -> ""
+      }
+      scheme <> "://" <> host <> port
+    }
+    Error(_) -> url
+  }
 }
 
 @target(javascript)

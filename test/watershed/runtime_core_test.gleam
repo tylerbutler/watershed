@@ -8,6 +8,7 @@
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
@@ -124,6 +125,7 @@ fn connected_message(
     checkpoint_sequence_number: Some(checkpoint),
     epoch: None,
     relay_service_agent: None,
+    summary_context: None,
   )
 }
 
@@ -135,9 +137,12 @@ fn bootstrap(
     runtime_core.bootstrap(
       connected_message(initial_messages, checkpoint),
       address: "root",
+      summary: None,
     )
   {
-    Ok(core) -> core
+    Ok(runtime_core.Complete(core)) -> core
+    Ok(runtime_core.MissingPrefix(..)) ->
+      panic as "expected bootstrap to complete without catch-up"
     Error(_) -> panic as "expected bootstrap to succeed"
   }
 }
@@ -229,11 +234,10 @@ pub fn bootstrap_replays_initial_messages_test() {
   core.last_seen_sn |> expect.to_equal(5)
 }
 
-pub fn bootstrap_truncated_history_is_fatal_test() {
-  // A document with more ops than the server retains: `initialMessages` starts
-  // above SN 1, so the prefix (SN 1..2) is gone. Replaying it would silently
-  // build a state missing its early data, so bootstrap must fail loudly with a
-  // HistoryGap rather than diverge.
+pub fn bootstrap_truncated_history_requests_prefix_test() {
+  // A document with more ops than the server's in-band history window:
+  // `initialMessages` starts above SN 1, so the prefix (SN 1..2) must be
+  // fetched from the deltas REST endpoint before bootstrap can complete.
   let truncated = [
     map_op_message(
       client_id: other_client_id,
@@ -249,17 +253,245 @@ pub fn bootstrap_truncated_history_is_fatal_test() {
     ),
   ]
 
-  runtime_core.bootstrap(
-    connected_message(truncated, 5),
-    address: "root",
-  )
-  |> fn(result) {
-    case result {
-      Error(runtime_core.HistoryGap(_)) -> Nil
-      Error(_) -> panic as "expected HistoryGap, got another CoreError"
-      Ok(_) -> panic as "expected bootstrap to fail on truncated history"
+  let #(core, checkpoint) = case
+    runtime_core.bootstrap(
+      connected_message(truncated, 5),
+      address: "root",
+      summary: None,
+    )
+  {
+    Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
+      // Nothing replayed yet, so the fetch range is the full missing prefix
+      // (from exclusive, to inclusive) and the checkpoint is deferred.
+      from |> expect.to_equal(0)
+      to |> expect.to_equal(2)
+      checkpoint |> expect.to_equal(5)
+      core.last_seen_sn |> expect.to_equal(0)
+      #(core, checkpoint)
     }
+    _ -> panic as "expected bootstrap to request the missing prefix"
   }
+
+  // Resuming with the fetched prefix drains the buffered suffix, applies the
+  // checkpoint, and completes with the full history's state.
+  let prefix = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 1,
+      csn: 1,
+      op: Set("count", json.int(1)),
+    ),
+    join_message(sn: 2, joining: other_client_id),
+  ]
+  case
+    runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: prefix)
+  {
+    Ok(runtime_core.Complete(core)) -> {
+      core.last_seen_sn |> expect.to_equal(5)
+      runtime_core.get(core, "die") |> expect.to_equal(Some(json.int(4)))
+      runtime_core.get(core, "count") |> expect.to_equal(Some(json.int(9)))
+    }
+    _ -> panic as "expected resume_bootstrap to complete"
+  }
+}
+
+pub fn resume_bootstrap_pages_large_gaps_test() {
+  // The deltas endpoint caps each response, so a wide gap closes over several
+  // rounds: each partial page must advance `from` and re-request the rest.
+  let tail = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 6,
+      csn: 3,
+      op: Set("last", json.int(6)),
+    ),
+  ]
+  let #(core, checkpoint) = case
+    runtime_core.bootstrap(
+      connected_message(tail, 7),
+      address: "root",
+      summary: None,
+    )
+  {
+    Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
+      from |> expect.to_equal(0)
+      to |> expect.to_equal(5)
+      #(core, checkpoint)
+    }
+    _ -> panic as "expected bootstrap to request the missing prefix"
+  }
+
+  // First page covers only SN 1..3 of the requested 1..5.
+  let first_page =
+    list.map([1, 2, 3], fn(sn) {
+      map_op_message(
+        client_id: other_client_id,
+        sn: sn,
+        csn: sn,
+        op: Set("k" <> int.to_string(sn), json.int(sn)),
+      )
+    })
+  let #(core, checkpoint) = case
+    runtime_core.resume_bootstrap(
+      core,
+      checkpoint: checkpoint,
+      deltas: first_page,
+    )
+  {
+    Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
+      // Progress recorded: the next round asks for just the remainder.
+      from |> expect.to_equal(3)
+      to |> expect.to_equal(5)
+      #(core, checkpoint)
+    }
+    _ -> panic as "expected a second catch-up round"
+  }
+
+  let second_page =
+    list.map([4, 5], fn(sn) {
+      map_op_message(
+        client_id: other_client_id,
+        sn: sn,
+        csn: sn,
+        op: Set("k" <> int.to_string(sn), json.int(sn)),
+      )
+    })
+  case
+    runtime_core.resume_bootstrap(
+      core,
+      checkpoint: checkpoint,
+      deltas: second_page,
+    )
+  {
+    Ok(runtime_core.Complete(core)) -> {
+      core.last_seen_sn |> expect.to_equal(7)
+      runtime_core.get(core, "last") |> expect.to_equal(Some(json.int(6)))
+      runtime_core.get(core, "k4") |> expect.to_equal(Some(json.int(4)))
+      runtime_core.size(core) |> expect.to_equal(6)
+    }
+    _ -> panic as "expected resume_bootstrap to complete after paging"
+  }
+}
+
+pub fn resume_bootstrap_without_progress_is_fatal_test() {
+  // A catch-up round that advances nothing means the server's storage is
+  // genuinely missing the range: fail loudly rather than diverge or spin.
+  let tail = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 4,
+      csn: 1,
+      op: Set("die", json.int(4)),
+    ),
+  ]
+  let #(core, checkpoint) = case
+    runtime_core.bootstrap(
+      connected_message(tail, 5),
+      address: "root",
+      summary: None,
+    )
+  {
+    Ok(runtime_core.MissingPrefix(core, checkpoint, _, _)) -> #(
+      core,
+      checkpoint,
+    )
+    _ -> panic as "expected bootstrap to request the missing prefix"
+  }
+
+  case runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: []) {
+    Error(runtime_core.HistoryGap(_)) -> Nil
+    Error(_) -> panic as "expected HistoryGap, got another CoreError"
+    Ok(_) -> panic as "expected an empty catch-up round to be fatal"
+  }
+}
+
+pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
+  // A summarized document whose post-summary history outgrew the in-band
+  // window: the summary seeds SN 100, but the served deltas start at 105, so
+  // the fetch range must start at the summary's sequence number.
+  let summary =
+    runtime_core.Summary(sequence_number: 100, entries: [#("die", json.int(4))])
+  let tail = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 105,
+      csn: 9,
+      op: Set("post", json.int(1)),
+    ),
+  ]
+  case
+    runtime_core.bootstrap(
+      connected_message(tail, 106),
+      address: "root",
+      summary: Some(summary),
+    )
+  {
+    Ok(runtime_core.MissingPrefix(_, checkpoint, from, to)) -> {
+      from |> expect.to_equal(100)
+      to |> expect.to_equal(104)
+      checkpoint |> expect.to_equal(106)
+    }
+    _ -> panic as "expected summary bootstrap to request the missing prefix"
+  }
+}
+
+pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
+  // A summarized document: the summary captures {die: 4} as of SN 5, and the
+  // post-summary deltas (initialMessages) start at SN 6. Bootstrap must seed
+  // the kernel from the summary and replay only the deltas on top — no gap.
+  let summary =
+    runtime_core.Summary(sequence_number: 5, entries: [#("die", json.int(4))])
+  let deltas = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 6,
+      csn: 1,
+      op: Set("count", json.int(9)),
+    ),
+    map_op_message(client_id: other_client_id, sn: 7, csn: 2, op: Delete("die")),
+  ]
+  let core = case
+    runtime_core.bootstrap(
+      connected_message(deltas, 8),
+      address: "root",
+      summary: Some(summary),
+    )
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to succeed"
+  }
+
+  // Seeded from the summary, then the deltas applied: die deleted, count added.
+  runtime_core.has(core, "die") |> expect.to_be_false()
+  runtime_core.get(core, "count") |> expect.to_equal(Some(json.int(9)))
+  core.last_seen_sn |> expect.to_equal(8)
+}
+
+pub fn bootstrap_from_summary_no_deltas_test() {
+  // A freshly summarized document with no post-summary ops: the state is
+  // exactly the summary, seen as of the summary's sequence number.
+  let summary =
+    runtime_core.Summary(sequence_number: 5, entries: [
+      #("a", json.int(1)),
+      #("b", json.int(2)),
+    ])
+  let core = case
+    runtime_core.bootstrap(
+      connected_message([], 5),
+      address: "root",
+      summary: Some(summary),
+    )
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to succeed"
+  }
+
+  runtime_core.entries(core)
+  |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
+  core.last_seen_sn |> expect.to_equal(5)
+  // The confirmed entries a fresh summarize would capture round-trip exactly.
+  runtime_core.summary_entries(core)
+  |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
 }
 
 pub fn bootstrap_dedupes_own_join_push_test() {

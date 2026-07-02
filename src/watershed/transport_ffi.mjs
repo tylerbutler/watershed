@@ -90,7 +90,7 @@ export function mintDevToken(secret, tenant, document, userId) {
   const payload = {
     documentId: document,
     tenantId: tenant,
-    scopes: ["doc:read", "doc:write"],
+    scopes: ["doc:read", "doc:write", "summary:write"],
     user: { id: userId },
     iat: now,
     exp: now + 3600,

@@ -26,6 +26,8 @@ import gleam/dynamic/decode
 @target(erlang)
 import gleam/erlang/process.{type Subject}
 @target(erlang)
+import gleam/int
+@target(erlang)
 import gleam/json.{type Json}
 @target(erlang)
 import gleam/list
@@ -33,6 +35,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 @target(erlang)
 import gleam/otp/actor
+@target(erlang)
+import gleam/result
 @target(erlang)
 import gleam/string
 
@@ -46,12 +50,14 @@ import aquamarine/codec.{type Incoming}
 import aquamarine/phoenix
 
 @target(erlang)
-import spillway/message.{type ConnectMessage}
+import spillway/message.{type ConnectMessage, type SummaryContext}
 @target(erlang)
 import spillway/nack.{type Nack}
 @target(erlang)
 import spillway/types.{type SequencedDocumentMessage}
 
+@target(erlang)
+import watershed/git_storage
 @target(erlang)
 import watershed/map_kernel.{type MapEvent}
 @target(erlang)
@@ -86,11 +92,24 @@ pub type Msg {
   Put(key: String, value: Json)
   Remove(key: String)
   RemoveAll
+  /// Summarize the current confirmed state to levee storage, replying with the
+  /// summary handle (git tree SHA) on success.
+  Summarize(reply: Subject(Result(String, String)))
+  /// List the document's stored summary versions, newest first.
+  GetVersions(
+    count: Int,
+    reply: Subject(Result(List(git_storage.SummaryVersion), String)),
+  )
+  /// Read the historical snapshot a summary version captured, by its handle.
+  LoadVersion(handle: String, reply: Subject(Result(wire.SummaryBlob, String)))
   // Reads
   GetValue(key: String, reply: Subject(Option(Json)))
   GetEntries(reply: Subject(List(#(String, Json))))
   GetKeys(reply: Subject(List(String)))
   GetSize(reply: Subject(Int))
+  /// Whether every local edit has been acknowledged (in-flight queue empty),
+  /// so the confirmed state is complete and stable.
+  IsSynced(reply: Subject(Bool))
   // Lifecycle
   Subscribe(Subject(MapEvent))
   AwaitReady(reply: Subject(Result(Nil, String)))
@@ -174,6 +193,46 @@ pub fn start(
 /// Block until the handshake completes (or fails).
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
+}
+
+@target(erlang)
+/// Summarize the current confirmed state to levee storage. Returns the summary
+/// handle (git tree SHA) on success. Requires the connection to be fully synced
+/// and the token to carry the `summary:write` scope.
+pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: Summarize)
+}
+
+@target(erlang)
+/// Whether the client is caught up: every local edit has been acknowledged by
+/// the server, so the confirmed state is complete and stable.
+pub fn is_synced(runtime: Subject(Msg)) -> Bool {
+  process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
+}
+
+@target(erlang)
+/// List the document's stored summary versions, newest first (the client half
+/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
+pub fn get_versions(
+  runtime: Subject(Msg),
+  count: Int,
+) -> Result(List(git_storage.SummaryVersion), String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    GetVersions(count, reply)
+  })
+}
+
+@target(erlang)
+/// Read the historical snapshot a summary version captured, by its handle
+/// (from `get_versions` or a `summarize` return). The live document is
+/// unaffected — this is a point-in-time read of the stored blob.
+pub fn load_version(
+  runtime: Subject(Msg),
+  handle: String,
+) -> Result(wire.SummaryBlob, String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    LoadVersion(handle, reply)
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +358,17 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     Remove(key) -> edit(state, fn(core) { runtime_core.delete(core, key) })
     RemoveAll -> edit(state, runtime_core.clear)
 
+    Summarize(reply) -> handle_summarize(state, reply)
+
+    GetVersions(count, reply) -> {
+      process.send(reply, fetch_document_versions(state, count))
+      actor.continue(state)
+    }
+    LoadVersion(handle, reply) -> {
+      process.send(reply, fetch_version_blob(state, handle))
+      actor.continue(state)
+    }
+
     GetValue(key, reply) -> {
       process.send(reply, read(state, None, runtime_core.get(_, key)))
       actor.continue(state)
@@ -313,6 +383,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
     GetSize(reply) -> {
       process.send(reply, read(state, 0, runtime_core.size))
+      actor.continue(state)
+    }
+    IsSynced(reply) -> {
+      process.send(reply, read(state, False, runtime_core.is_synced))
       actor.continue(state)
     }
 
@@ -372,15 +446,31 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
           "connect_document_success payload",
         )
       case state.phase {
-        Connecting(_) ->
-          case runtime_core.bootstrap(connected, address: address) {
-            Ok(core) -> {
+        Connecting(_) -> {
+          let summary = case connected.summary_context {
+            None -> None
+            Some(ctx) ->
+              case fetch_summary(state, ctx) {
+                Ok(summary) -> Some(summary)
+                Error(reason) -> panic as { "summary load failed: " <> reason }
+              }
+          }
+          case
+            runtime_core.bootstrap(
+              connected,
+              address: address,
+              summary: summary,
+            )
+          {
+            Ok(bootstrapped) -> {
+              let core = complete_bootstrap(state, bootstrapped)
               notify_waiters(state.phase, Ok(Nil))
               actor.continue(State(..state, phase: Ready(core, None)))
             }
             Error(core_error) ->
               panic as { "bootstrap failed: " <> string.inspect(core_error) }
           }
+        }
         Reconnecting(core) -> {
           let core = runtime_core.adopt_reconnect(core, connected)
           let checkpoint =
@@ -602,6 +692,202 @@ fn maybe_request_ops(
       push(channel, "requestOps", wire.encode_request_ops(from: from))
     _, _ -> Nil
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summaries
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+fn handle_summarize(
+  state: State,
+  reply: Subject(Result(String, String)),
+) -> actor.Next(State, Msg) {
+  // Summarizing is only well-defined while fully synced with a live channel:
+  // the confirmed state is stable and the summarize op can go out immediately.
+  case state.phase, state.channel {
+    Ready(core, None), Some(channel) ->
+      case state.connect_message.token {
+        None -> {
+          process.send(reply, Error("summarize requires an auth token"))
+          actor.continue(state)
+        }
+        Some(token) -> {
+          case runtime_core.is_synced(core) {
+            False -> {
+              process.send(
+                reply,
+                Error(
+                  "summarize requires the client to be caught up; retry once "
+                  <> "in-flight edits have been acknowledged",
+                ),
+              )
+              actor.continue(state)
+            }
+            True -> {
+              let entries = runtime_core.summary_entries(core)
+              case
+                git_storage.upload_summary(
+                  base_url: http_base_url(state),
+                  tenant: state.connect_message.tenant_id,
+                  token: token,
+                  address: address,
+                  sequence_number: core.last_seen_sn,
+                  entries: entries,
+                )
+              {
+                Error(reason) -> {
+                  process.send(reply, Error(reason))
+                  actor.continue(state)
+                }
+                Ok(tree_sha) -> {
+                  let #(core, outbound) =
+                    runtime_core.build_summarize(
+                      core,
+                      handle: tree_sha,
+                      message: "watershed summary",
+                      head: tree_sha,
+                    )
+                  push(
+                    channel,
+                    "submitOp",
+                    wire.encode_submit_op(core.client_id, [[outbound]]),
+                  )
+                  process.send(reply, Ok(tree_sha))
+                  actor.continue(State(..state, phase: Ready(core, None)))
+                }
+              }
+            }
+          }
+        }
+      }
+    _, _ -> {
+      process.send(
+        reply,
+        Error("summarize is only available once the connection is fully synced"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+/// Close any gap between the bootstrap seed point and the earliest op the
+/// server pushed in-band by paging the missing prefix from the deltas REST
+/// endpoint until the history is contiguous. Bootstrap must not complete on
+/// a gapped history, so any failure here is fatal.
+fn complete_bootstrap(
+  state: State,
+  bootstrapped: runtime_core.Bootstrapped,
+) -> runtime_core.Core {
+  case bootstrapped {
+    runtime_core.Complete(core) -> core
+    runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
+      let deltas = case fetch_missing_deltas(state, from, to) {
+        Ok(deltas) -> deltas
+        Error(reason) -> panic as { "history catch-up failed: " <> reason }
+      }
+      case
+        runtime_core.resume_bootstrap(
+          core,
+          checkpoint: checkpoint,
+          deltas: deltas,
+        )
+      {
+        Ok(next) -> complete_bootstrap(state, next)
+        Error(core_error) ->
+          panic as { "bootstrap failed: " <> string.inspect(core_error) }
+      }
+    }
+  }
+}
+
+@target(erlang)
+fn fetch_missing_deltas(
+  state: State,
+  from: Int,
+  to: Int,
+) -> Result(List(SequencedDocumentMessage), String) {
+  case state.connect_message.token {
+    None -> Error("history catch-up requires an auth token")
+    Some(token) ->
+      git_storage.fetch_deltas(
+        base_url: http_base_url(state),
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        document: state.connect_message.document_id,
+        from: from,
+        to: to,
+      )
+  }
+}
+
+@target(erlang)
+fn fetch_document_versions(
+  state: State,
+  count: Int,
+) -> Result(List(git_storage.SummaryVersion), String) {
+  case state.connect_message.token {
+    None -> Error("listing versions requires an auth token")
+    Some(token) ->
+      git_storage.fetch_versions(
+        base_url: http_base_url(state),
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        document: state.connect_message.document_id,
+        count: count,
+      )
+  }
+}
+
+@target(erlang)
+fn fetch_version_blob(
+  state: State,
+  handle: String,
+) -> Result(wire.SummaryBlob, String) {
+  case state.connect_message.token {
+    None -> Error("loading a version requires an auth token")
+    Some(token) ->
+      git_storage.fetch_summary(
+        base_url: http_base_url(state),
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        handle: handle,
+      )
+  }
+}
+
+@target(erlang)
+fn fetch_summary(
+  state: State,
+  ctx: SummaryContext,
+) -> Result(runtime_core.Summary, String) {
+  case state.connect_message.token {
+    None -> Error("loading a summarized document requires an auth token")
+    Some(token) ->
+      git_storage.fetch_summary(
+        base_url: http_base_url(state),
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        handle: ctx.handle,
+      )
+      |> result.map(fn(blob) {
+        // The summary blob records the SN it was captured at, but the
+        // authoritative load point is the server's summaryContext.
+        runtime_core.Summary(
+          sequence_number: ctx.sequence_number,
+          entries: blob.entries,
+        )
+      })
+  }
+}
+
+@target(erlang)
+/// The HTTP(S) base URL for git-storage calls, derived from the socket host
+/// and port. levee serves both the Phoenix socket and the REST API from the
+/// same origin.
+fn http_base_url(state: State) -> String {
+  "http://" <> state.host <> ":" <> int.to_string(state.port)
 }
 
 @target(erlang)

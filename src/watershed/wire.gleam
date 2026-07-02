@@ -22,13 +22,15 @@
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import spillway/message.{
   type ConnectError, type ConnectMessage, type ConnectedMessage, type OpMessage,
-  type SignalMessage, ConnectError, ConnectedMessage, OpMessage, SignalMessage,
+  type SignalMessage, type SummaryContext, ConnectError, ConnectedMessage,
+  OpMessage, SignalMessage, SummaryContext,
 }
 import spillway/nack.{type Nack, type NackContent, Nack, NackContent}
 import spillway/types.{
@@ -69,6 +71,33 @@ pub fn outbound_map_op(
     reference_sequence_number: reference_sequence_number,
     op_type: "op",
     contents: encode_map_envelope(address, op),
+    metadata: None,
+  )
+}
+
+/// A `"summarize"` op announcing a stored snapshot. Contents carry the fields
+/// the server's `validate_summarize_contents` requires: `handle` (storage
+/// handle for the snapshot), `message` (commit message), `parents` (parent
+/// summary handles), and `head` (the git tree SHA the client uploaded). We set
+/// `handle == head` so a loading client can fetch the tree directly by handle.
+pub fn outbound_summarize_op(
+  client_sequence_number client_sequence_number: Int,
+  reference_sequence_number reference_sequence_number: Int,
+  handle handle: String,
+  message message: String,
+  parents parents: List(String),
+  head head: String,
+) -> OutboundOp {
+  OutboundOp(
+    client_sequence_number: client_sequence_number,
+    reference_sequence_number: reference_sequence_number,
+    op_type: "summarize",
+    contents: json.object([
+      #("handle", json.string(handle)),
+      #("message", json.string(message)),
+      #("parents", json.array(parents, json.string)),
+      #("head", json.string(head)),
+    ]),
     metadata: None,
   )
 }
@@ -300,6 +329,11 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
     None,
     decode.optional(decode.string),
   )
+  use summary_context <- decode.optional_field(
+    "summaryContext",
+    None,
+    decode.optional(summary_context_decoder()),
+  )
   decode.success(ConnectedMessage(
     claims: claims,
     client_id: client_id,
@@ -317,6 +351,18 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
     checkpoint_sequence_number: checkpoint_sequence_number,
     epoch: epoch,
     relay_service_agent: relay_service_agent,
+    summary_context: summary_context,
+  ))
+}
+
+/// `summaryContext` sub-object of `connect_document_success`:
+/// `{handle, sequenceNumber}`.
+pub fn summary_context_decoder() -> Decoder(SummaryContext) {
+  use handle <- decode.field("handle", decode.string)
+  use sequence_number <- decode.field("sequenceNumber", decode.int)
+  decode.success(SummaryContext(
+    handle: handle,
+    sequence_number: sequence_number,
   ))
 }
 
@@ -757,4 +803,86 @@ fn dynamic_to_json(value: Dynamic) -> Json {
     Ok(decoded) -> decoded
     Error(_) -> json.null()
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summary snapshot blob
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Current on-disk format version for a watershed summary blob. Loaders reject
+/// anything they don't recognise rather than misread a foreign snapshot.
+pub const summary_blob_version = 1
+
+/// Serialize a map's confirmed (sequenced) state as a summary blob. `entries`
+/// are in insertion order; `value`s are the raw kernel `Json` (already
+/// unwrapped from the `{type: "Plain", value}` op envelope). `sequence_number`
+/// is informational — the authoritative load SN comes from `summaryContext`.
+pub fn encode_summary_blob(
+  address address: String,
+  sequence_number sequence_number: Int,
+  entries entries: List(#(String, Json)),
+) -> Json {
+  json.object([
+    #("watershedSummaryVersion", json.int(summary_blob_version)),
+    #("address", json.string(address)),
+    #("sequenceNumber", json.int(sequence_number)),
+    #(
+      "entries",
+      json.array(entries, fn(entry) {
+        json.object([
+          #("key", json.string(entry.0)),
+          #("value", entry.1),
+        ])
+      }),
+    ),
+  ])
+}
+
+/// Decoded summary blob: the captured sequence number and the sequenced
+/// entries in insertion order.
+pub type SummaryBlob {
+  SummaryBlob(
+    address: String,
+    sequence_number: Int,
+    entries: List(#(String, Json)),
+  )
+}
+
+/// Decode a summary blob produced by `encode_summary_blob`. Fails on an
+/// unknown version so a loader never silently misreads a snapshot format it
+/// doesn't understand.
+pub fn decode_summary_blob(
+  raw: String,
+) -> Result(SummaryBlob, json.DecodeError) {
+  json.parse(raw, summary_blob_decoder())
+}
+
+pub fn summary_blob_decoder() -> Decoder(SummaryBlob) {
+  use version <- decode.field("watershedSummaryVersion", decode.int)
+  case version == summary_blob_version {
+    False ->
+      decode.failure(
+        SummaryBlob(address: "", sequence_number: 0, entries: []),
+        "watershedSummaryVersion " <> int.to_string(summary_blob_version),
+      )
+    True -> {
+      use address <- decode.field("address", decode.string)
+      use sequence_number <- decode.field("sequenceNumber", decode.int)
+      use entries <- decode.field(
+        "entries",
+        decode.list(summary_entry_decoder()),
+      )
+      decode.success(SummaryBlob(
+        address: address,
+        sequence_number: sequence_number,
+        entries: entries,
+      ))
+    }
+  }
+}
+
+fn summary_entry_decoder() -> Decoder(#(String, Json)) {
+  use key <- decode.field("key", decode.string)
+  use value <- decode.field("value", json_value_decoder())
+  decode.success(#(key, value))
 }

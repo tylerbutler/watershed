@@ -74,6 +74,13 @@ runtime driving the *same* `runtime_core`/`wire`/`map_kernel`;
 reconnect with edits applied during the drop — and both converged identically,
 green across repeated runs. Follow-on for productization: split the pure core
 into its own package so a JS app doesn't compile the erlang runtime tree.
+⚠️ **Superseded (2026-07-02):** a `packages/watershed_core` + `watershed` +
+`watershed_js` split was tried, but Gleam git dependencies require a
+`gleam.toml` at the repo root and can't target a sub-package, which broke
+consuming `watershed` as a git dep. Reverted to a single root `watershed`
+package: the pure core, OTP runtime, and JS runtime all ship as modules under
+`watershed/`, gated with `@target`. Slimming the JS dependency tree is deferred
+to publishing the core as its own repo/package if it's ever needed.
 
 
 ## Goal
@@ -331,8 +338,61 @@ headless smoke test passed against a fresh `just server`). The
 no-gap-after-bootstrap invariant is asserted in `runtime_core.bootstrap` (see
 the risk note below).
 
-Total: **~3–4 weeks**, with M1+M2 de-risking the only semantically hard part
-before any networking exists.
+**M6 — Erlang client example (next step).** Scaffold `examples/dice_cli`, an
+Erlang-target (`target = "erlang"`) counterpart to `dice_lustre` that joins the
+*same* session (`dev-tenant` / `dice` on `127.0.0.1:4000`) using the existing
+`watershed` OTP client API — proving the pure core drives both runtimes over
+one document. The client API already exists (`src/watershed.gleam`, all
+`@target(erlang)`; mirrors `watershed_js`); the example just wires it into a
+runnable program:
+
+- `watershed.connect` → `root` → `subscribe` (returns a `Subject(MapEvent)`, not
+  a JS callback) → loop on `process.receive` re-reading optimistic state; edits
+  via `set`/`delete` (async sends), reads via `get`/`entries` (blocking calls).
+- Use `127.0.0.1`, not `"localhost"` — the Erlang inet resolver stalls ~8s on
+  AAAA lookup and levee drops the socket as idle (see `integration_test.gleam`
+  L44 note).
+- **Token gap:** there is no Erlang `dev_token` in the public API (JS-only via
+  `watershed_js.dev_token`). Either copy the HS256 `mint_token`/`base64url`
+  helpers from `test/watershed/integration_test.gleam:445-487`, or — preferred —
+  promote a public `watershed.dev_token` so the Erlang example matches the JS
+  one 1:1.
+- Deps: `watershed` (path) + `gleam_stdlib`, `gleam_json`, `gleam_crypto`.
+- Exit: with `just server` up and a `dice_lustre` tab open, rolling from the
+  Erlang CLI converges in the browser and vice-versa (the `events` subject
+  fires on remote rolls).
+
+**M7 — Handle support / nested DDS (design + spike, sizing TBD).** Today values
+are `Plain` only: the kernel stores opaque `Json` and `wire.plain_value_decoder`
+(`wire.gleam:765-771`) rejects any non-`Plain` value, so a value can be an inert
+JSON object but never a *collaborative* nested map. This milestone adds Fluid
+`{"type": "Shared", ...}` handle values so a SharedMap key can reference another
+DDS (another SharedMap first), unlocking real nested/sibling collaborative
+structures rather than last-writer-wins JSON blobs.
+
+Scope to design before committing to an estimate:
+
+- **Wire:** encode/decode the `Shared` value variant (an `IFluidHandle` route —
+  a serialized handle path, e.g. `{"type":"__fluid_handle__","url":...}`), and
+  decide how handles round-trip through the summary blob (`encode_summary_blob`
+  currently assumes unwrapped `Plain` `Json`).
+- **Kernel/value model:** the value type can no longer be bare `Json` — it must
+  distinguish a plain value from a handle to a child channel. Handles bind by
+  `address`, so this leans on the same per-map `address` mechanism M6's risk note
+  describes for sibling maps (see the "Multiple maps per document" note below).
+- **Runtime:** creating/attaching a child DDS means allocating a new `address`,
+  routing its ops through the same submit/ack/sequence path, and lazily
+  materializing the child map actor when a handle is first resolved.
+- **Corpus parity (M2):** extend the TS oracle to emit handle scenarios so the
+  Gleam kernel is proven byte-identical on `Shared` values too.
+- **Risk:** this is where "out of scope: the full Fluid runtime" (`wire.gleam:766`)
+  starts to bite — GC/reference-counting of unreferenced handles and detached
+  attach semantics are the genuinely hard parts and may stay v-next.
+- Exit: a client can `set(map, key, handle_to(child_map))`, a second client
+  resolves the handle and both converge on edits to the *child* map.
+
+Total: **~3–4 weeks** for M1–M5, with M1+M2 de-risking the only semantically hard
+part before any networking exists; M6–M7 are post-v1 extensions.
 
 ## Open questions / risks
 
@@ -376,20 +436,71 @@ Still open:
   fixtures are copied into `test/fixtures/corpus/` here (M2 complete).
 - **Multiple maps per document** work naturally via `address`, but v1 ships
   with just the root map to keep the API small.
-- **Summaries / snapshot load** — the levee server fully supports summaries
-  (Fluid's snapshots): a client `summarize` op stores a state blob referenced
-  by a `handle` (+ ref/commit SHA for `getVersions()`), and on session
-  (re)start the server restores `sequence_state` from the summary checkpoint
-  and serves only *post-summary* `initialMessages` (`get_deltas(from:
-  summary_sn, limit: 1000)`), plus a `summaryContext {handle, sequenceNumber}`
-  in the connect response. **watershed's client does not consume this yet**:
-  `runtime_core.bootstrap` ignores `summaryContext` and replays
-  `initialMessages` as an op log from SN 1, so a document that has been
-  summarized starts its history above SN 1 and now fails loudly with
-  `CoreError.HistoryGap` (the invariant above). To open summarized documents,
-  the client must: read `summaryContext.handle`, fetch the summary blob
-  (storage/REST), deserialize the SharedMap state into `map_kernel`'s
-  `sequenced` dict, seed `last_seen_sn = summaryContext.sequenceNumber`, then
-  apply the post-summary deltas. This pairs with the `GET /deltas/:tenant_id/
-  :id` escape hatch and is the natural post-v1 follow-on for large/long-lived
-  documents. v1 only opens never-summarized documents.
+- **Summaries / snapshot load** — **IMPLEMENTED** (branch
+  `feat/summaries-snapshot-load`). A client `summarize(document)` uploads the
+  confirmed SharedMap state as a summary blob (git REST: blob + tree) and
+  submits a `summarize` op; on (re)start the server restores `sequence_state`
+  from the summary checkpoint, serves only *post-summary* `initialMessages`, and
+  returns a `summaryContext {handle, sequenceNumber}` in the connect response.
+  `runtime_core.bootstrap` now consumes it: fetch the summary blob by handle,
+  seed `map_kernel` + `last_seen_sn = summaryContext.sequenceNumber`, then apply
+  the post-summary deltas. Verified end-to-end against levee by
+  `summary_bootstrap_test`. Two supporting fixes landed:
+  - httpc `Connection: close` header (avoids sequential-request stall) and using
+    the IP literal `127.0.0.1` (avoids ~8s inet6 `localhost` resolution stall).
+  - **Server-side SN collision**: the levee `summaryAck` is minted at
+    `assigned_sn + 1` but the sequencer was not advanced, so the next client op
+    reused that SN and bootstrap replay dropped the post-summary delta. Fixed via
+    spillway `reserve_sequence_number` (advances the sequence state past the
+    ack's slot), wired through levee's `session.ex`.
+  v1 requires the summarizing client to be caught up/quiescent (`is_synced`).
+
+  Known follow-on gaps for summaries (post this change):
+  - **JS/browser target summarize + snapshot-load** — **IMPLEMENTED** (branch
+    `feat/summaries-snapshot-load`). `git_storage.gleam` is now a cross-target
+    HTTP seam: shared request builders/decoders/blob codecs, with a target-split
+    `send`/`get_json`/`post_json`. The erlang path stays synchronous
+    (`gleam_httpc`); the JS path is asynchronous (`gleam_fetch`, returns
+    `Promise`). `runtime_js.on_connect_success` awaits `git_storage.fetch_summary`
+    when the connect response carries a `summaryContext`, seeding the core from
+    the blob at the server-authoritative SN. `runtime_js.summarize/1` +
+    `is_synced/1` (exposed on `watershed_js.Document`) upload the confirmed state
+    and push a summarize op, mirroring the erlang API (summarize returns a
+    `Promise(Result(String, String))`). JS dev-token/connect scopes include
+    `summary:write`. Ops that arrive during the async fetch are dropped while
+    `Connecting`; the gap they open is self-healing via the post-bootstrap
+    `requestOps` catch-up.
+  - **Summarize requires a quiescent client** — gated on `is_synced` (in-flight
+    empty). No summarize-while-editing; the caller must retry once synced.
+  - **Post-summary delta pagination** — **IMPLEMENTED** (branch
+    `feat/summaries-snapshot-load`, 2026-07-02). levee serves `initialMessages`
+    from its in-memory history capped at 1000 messages, so a document whose
+    (post-summary) history outgrows the window arrives missing its prefix.
+    `runtime_core.bootstrap` now returns `Bootstrapped`
+    (`Complete | MissingPrefix(core, checkpoint, from, to)`) instead of failing:
+    the runtime pages the missing range from `GET /deltas/:tenant_id/:id`
+    (`git_storage.fetch_deltas`, cross-target: sync httpc / async fetch) and
+    feeds it back via `runtime_core.resume_bootstrap`, repeating until
+    contiguous — the checkpoint is only applied on completion so buffered ops
+    can't be skipped. `HistoryGap` remains as the terminal error for a catch-up
+    round that makes no progress (storage genuinely missing the range). Both
+    runtimes wire it in (erlang: sync loop in `complete_bootstrap`; JS:
+    recursive promise loop in `continue_bootstrap`). Verified by 4 new pure
+    tests (fetch-range computation incl. summary seeding, multi-page resume,
+    no-progress fatality) and a gated live `large_history_bootstrap_test`
+    (1050 ops; server log confirms the fresh client paged `from=0 to=51` over
+    REST and converged, incl. keys only present in the aged-out prefix).
+  - **getVersions / historical summary selection** — **IMPLEMENTED**
+    (2026-07-02, watershed branch `feat/summaries-snapshot-load` + levee branch
+    `gleam`). levee already stored one summary record per summarize op; a new
+    client-facing `GET /versions/:tenant_id/:id?count=N` (read_access, newest
+    first, capped at 100) exposes them, mirroring the deltas endpoint. The
+    client gains `git_storage.fetch_versions` (cross-target) plus
+    `get_versions(document, count)` and `load_version(document, handle)` on
+    both public APIs — `load_version` reads the historical snapshot blob by
+    handle (a point-in-time read; entries + captured SN), reusing
+    `fetch_summary`. Live bootstrap still consumes the server-authoritative
+    latest summary via `summaryContext`. Verified by 4 levee controller tests
+    and the gated `summary_versions_test` (two summarize rounds → newest-first
+    listing with matching handles, `count` capping, historical reads of both
+    snapshots).

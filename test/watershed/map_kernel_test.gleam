@@ -318,3 +318,33 @@ pub fn lifetime_before_pending_clear_is_not_iterated_test() {
   let #(state, _, _) = map_kernel.set(state, "b", json.int(2))
   map_kernel.entries(state) |> expect.to_equal([#("b", json.int(2))])
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summary seed (from_sequenced / sequenced_entries)
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn from_sequenced_round_trips_entries_test() {
+  let entries = [
+    #("die", json.int(4)),
+    #("label", json.string("x")),
+    #("count", json.int(9)),
+  ]
+  let state = map_kernel.from_sequenced(entries)
+  // Insertion order is preserved and there are no pending edits.
+  map_kernel.sequenced_entries(state) |> expect.to_equal(entries)
+  map_kernel.entries(state) |> expect.to_equal(entries)
+  map_kernel.get(state, "label") |> expect.to_equal(Some(json.string("x")))
+}
+
+pub fn from_sequenced_supports_further_edits_test() {
+  let state = map_kernel.from_sequenced([#("a", json.int(1))])
+  // A remote set on the seeded state extends it; a local set overlays.
+  let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
+  let #(state, _, _) = map_kernel.set(state, "a", json.int(10))
+  map_kernel.entries(state)
+  |> expect.to_equal([#("a", json.int(10)), #("b", json.int(2))])
+  // Only sequenced (confirmed) data is captured for a summary; the pending
+  // local set of a=10 is not yet confirmed.
+  map_kernel.sequenced_entries(state)
+  |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
+}
