@@ -60,9 +60,23 @@ whose entire client is Gleam, verified converging against a live `just server`.
 ## Development
 
 ```sh
+gleam deps download
 gleam test                      # BEAM: unit + property + corpus tests
+gleam build --target erlang     # BEAM: OTP runtime
 gleam build --target javascript # browser: pure core + JS runtime
+pnpm --dir examples/dice_lustre install
+pnpm --dir examples/dice_lustre run build
 gleam format
+```
+
+Or use the root justfile:
+
+```sh
+just deps
+just test
+just build
+just format
+just lint
 ```
 
 Ops are byte-identical to the TS `@fluidframework/map` format

@@ -27,9 +27,16 @@ just server   # registers tenant "dev-tenant" in dev mode, listens on :4000
 Then, in this directory:
 
 ```sh
-npm install          # phoenix + esbuild
-npm run build        # gleam build --target javascript, then esbuild bundle
-npm run serve        # serves index.html on http://localhost:8080
+pnpm install          # phoenix + esbuild
+pnpm run build        # gleam build --target javascript, then esbuild bundle
+pnpm run serve        # serves index.html on http://localhost:8080
+```
+
+From the watershed repo root, the install/build portion is available as:
+
+```sh
+just deps
+just build
 ```
 
 Open **two** browser tabs on <http://localhost:8080>. Roll in one; the other
@@ -47,9 +54,9 @@ asserting convergence and reconnect safety (concurrent edits, a same-key LWW
 race, a forced mid-session reconnect with edits applied during the drop):
 
 ```sh
-npm install
+pnpm install
 gleam build --target javascript
-npx esbuild build/dev/javascript/dice_lustre/smoke.mjs \
+pnpm exec esbuild build/dev/javascript/dice_lustre/smoke.mjs \
   --bundle --format=esm --outfile=dist/smoke.mjs
 node smoke/run.mjs   # supplies a WebSocket global for phoenix.js
 # → SMOKE PASS: clients converged across a reconnect
