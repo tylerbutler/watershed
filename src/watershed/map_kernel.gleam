@@ -339,7 +339,10 @@ fn has_pending_for(pending: List(PendingEntry), key: String) -> Bool {
   list.any(pending, fn(entry) { pending_matches_key(entry, key) })
 }
 
-fn has_pending_delete_or_clear(pending: List(PendingEntry), key: String) -> Bool {
+fn has_pending_delete_or_clear(
+  pending: List(PendingEntry),
+  key: String,
+) -> Bool {
   list.any(pending, fn(entry) {
     case entry {
       PendingClear -> True

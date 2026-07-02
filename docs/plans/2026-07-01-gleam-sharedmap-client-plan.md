@@ -9,6 +9,15 @@ contract and runtime sections updated with confirmed payload shapes.
 `mapKernel.ts`, 28 unit tests + 5 qcheck properties (convergence across
 authorship/submit-timing interleavings, ack transparency, rebase
 equivalence, get/entries agreement) at 1000 iterations each, all passing.
+**M2 complete** (2026-07-01): TS oracle harness landed on
+`feat/map-corpus-harness` (FluidFramework checkout,
+`packages/dds/map/src/test/mocha/corpusGenerator.spec.ts` +
+`corpusScenarios.ts`); 20 generated scenario files copied to
+`test/fixtures/corpus/` and replayed by
+`test/watershed/map_kernel_corpus_test.gleam` (multi-client sim over a
+global FIFO queue, asserting entries incl. iteration order, per-client
+event streams between checks, and convergence). All 20 match the TS
+oracle; regenerate via the fixtures README.
 
 ## Goal
 
@@ -291,8 +300,8 @@ Still open:
   carries an explicit workaround for an open upstream aquamarine issue around
   reply refs. Levee is Phoenix-channels so we're on the roost codec path, but
   M3 should validate reply handling early.
-- **M2 harness branch** — `feat/map-corpus-harness` is assumed to exist on
-  the FluidFramework workspace checkout but wasn't verifiable from this repo;
-  if it doesn't exist yet, creating it is part of M2's budget.
+- ~~M2 harness branch~~ — `feat/map-corpus-harness` exists on the
+  FluidFramework workspace checkout with the generator committed; corpus
+  fixtures are copied into `test/fixtures/corpus/` here (M2 complete).
 - **Multiple maps per document** work naturally via `address`, but v1 ships
   with just the root map to keep the API small.

@@ -1,15 +1,18 @@
 import gleam/json
 import gleam/option.{None, Some}
+import startest/expect
 import watershed/map_kernel.{
   Cleared, Delete, PendingClear, PendingDelete, PendingLifetime, Set,
   ValueChanged,
 }
-import startest/expect
 
 // Case-based helpers instead of `let assert`: startest's rescue mechanism
 // wraps `let assert` values in `Ok()`, breaking error-variant destructuring.
 
-fn ack(state: map_kernel.MapState, op: map_kernel.MapOp) -> map_kernel.MapState {
+fn ack(
+  state: map_kernel.MapState,
+  op: map_kernel.MapOp,
+) -> map_kernel.MapState {
   case map_kernel.ack_local(state, op) {
     Ok(state) -> state
     Error(_) -> panic as "expected ack to succeed"

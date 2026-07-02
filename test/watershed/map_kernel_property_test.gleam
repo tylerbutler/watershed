@@ -12,8 +12,8 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option
 import qcheck
-import watershed/map_kernel.{type MapOp, type MapState, Clear, Delete, Set}
 import startest/expect
+import watershed/map_kernel.{type MapOp, type MapState, Clear, Delete, Set}
 
 const iterations = 1000
 
