@@ -376,3 +376,20 @@ Still open:
   fixtures are copied into `test/fixtures/corpus/` here (M2 complete).
 - **Multiple maps per document** work naturally via `address`, but v1 ships
   with just the root map to keep the API small.
+- **Summaries / snapshot load** — the levee server fully supports summaries
+  (Fluid's snapshots): a client `summarize` op stores a state blob referenced
+  by a `handle` (+ ref/commit SHA for `getVersions()`), and on session
+  (re)start the server restores `sequence_state` from the summary checkpoint
+  and serves only *post-summary* `initialMessages` (`get_deltas(from:
+  summary_sn, limit: 1000)`), plus a `summaryContext {handle, sequenceNumber}`
+  in the connect response. **watershed's client does not consume this yet**:
+  `runtime_core.bootstrap` ignores `summaryContext` and replays
+  `initialMessages` as an op log from SN 1, so a document that has been
+  summarized starts its history above SN 1 and now fails loudly with
+  `CoreError.HistoryGap` (the invariant above). To open summarized documents,
+  the client must: read `summaryContext.handle`, fetch the summary blob
+  (storage/REST), deserialize the SharedMap state into `map_kernel`'s
+  `sequenced` dict, seed `last_seen_sn = summaryContext.sequenceNumber`, then
+  apply the post-summary deltas. This pairs with the `GET /deltas/:tenant_id/
+  :id` escape hatch and is the natural post-v1 follow-on for large/long-lived
+  documents. v1 only opens never-summarized documents.
