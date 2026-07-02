@@ -18,6 +18,22 @@ equivalence, get/entries agreement) at 1000 iterations each, all passing.
 global FIFO queue, asserting entries incl. iteration order, per-client
 event streams between checks, and convergence). All 20 match the TS
 oracle; regenerate via the fixtures README.
+**M3 complete** (2026-07-01): `watershed/wire` codecs over spillway
+types (git dep on spillway `main`; `document_id`→`id` rename,
+`lastSeenSequenceNumber` as a codec argument, local `OutboundOp` for
+client-authored ops since spillway's `DocumentMessage` is parse-side);
+pure `watershed/runtime_core` state machine (bootstrap with the
+checkpoint/join-push dedupe, SN dedupe, fatal gaps pending M4, CSN/RSN
+stamping, FIFO ack matching); `watershed/runtime` OTP actor + dedicated
+channel-receiver process over aquamarine (roost codec needs
+`?vsn=2.0.0` on the socket path); public API in `watershed.gleam`
+(connect/root/set/delete/clear/get/entries/subscribe/close). 89 tests:
+36 wire+core unit tests plus a live integration test
+(`WATERSHED_INTEGRATION=1 gleam test` against `just server`) where two
+clients converge on concurrent edits incl. a same-key LWW race, and a
+third client bootstraps from history — verified against the levee dev
+server. Nack/gap/close-while-connected all crash loudly per the M3
+policy; M4 replaces those paths with reconnect/reconcile.
 
 ## Goal
 
@@ -296,10 +312,11 @@ wire-contract and runtime sections above):
 
 Still open:
 
-- **aquamarine reply-matching caveat** — confirmed real: dewdrop's source
-  carries an explicit workaround for an open upstream aquamarine issue around
-  reply refs. Levee is Phoenix-channels so we're on the roost codec path, but
-  M3 should validate reply handling early.
+- ~~aquamarine reply-matching caveat~~ — validated in M3: the roost codec
+  path against real Phoenix works (join reply matching, pushes, receives)
+  with no workaround needed. One gotcha found and fixed: Phoenix only
+  speaks the V2 array frames roost emits when the websocket URL carries
+  `?vsn=2.0.0`.
 - ~~M2 harness branch~~ — `feat/map-corpus-harness` exists on the
   FluidFramework workspace checkout with the generator committed; corpus
   fixtures are copied into `test/fixtures/corpus/` here (M2 complete).
