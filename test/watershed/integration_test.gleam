@@ -9,26 +9,41 @@
 //// WATERSHED_INTEGRATION=1 gleam test
 //// ```
 
+@target(erlang)
 import envoy
+@target(erlang)
 import gleam/bit_array
+@target(erlang)
 import gleam/crypto
+@target(erlang)
 import gleam/erlang/process
+@target(erlang)
 import gleam/int
+@target(erlang)
 import gleam/io
+@target(erlang)
 import gleam/json.{type Json}
+@target(erlang)
 import gleam/option.{None, Some}
+@target(erlang)
 import startest/expect
 
+@target(erlang)
 import watershed
 
+@target(erlang)
 const tenant = "dev-tenant"
 
+@target(erlang)
 const tenant_secret = "levee-dev-secret-change-in-production"
 
+@target(erlang)
 const host = "localhost"
 
+@target(erlang)
 const port = 4000
 
+@target(erlang)
 pub fn two_clients_converge_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_convergence_test()
@@ -36,6 +51,7 @@ pub fn two_clients_converge_test() {
   }
 }
 
+@target(erlang)
 /// M4 exit criterion: drop a client's channel mid-burst and assert both
 /// clients still converge with no lost or duplicated ops.
 pub fn reconnect_converges_test() {
@@ -45,6 +61,7 @@ pub fn reconnect_converges_test() {
   }
 }
 
+@target(erlang)
 fn run_reconnect_test() -> Nil {
   let document = "watershed-rc-" <> int.to_string(system_time(Second))
 
@@ -107,6 +124,7 @@ fn run_reconnect_test() -> Nil {
   watershed.close(doc_c)
 }
 
+@target(erlang)
 fn run_convergence_test() -> Nil {
   let document = "watershed-it-" <> int.to_string(system_time(Second))
 
@@ -150,6 +168,7 @@ fn run_convergence_test() -> Nil {
   watershed.close(doc_c)
 }
 
+@target(erlang)
 fn connect_or_panic(document: String, user_id: String) -> watershed.Document {
   let token = mint_token(tenant, document, user_id)
   case
@@ -167,6 +186,7 @@ fn connect_or_panic(document: String, user_id: String) -> watershed.Document {
   }
 }
 
+@target(erlang)
 /// Converged clients must agree on values AND iteration order, since both
 /// derive insertion order from the same sequenced op stream.
 fn same_entries(
@@ -176,6 +196,7 @@ fn same_entries(
   left == right
 }
 
+@target(erlang)
 fn wait_until(attempts: Int, check: fn() -> Bool) -> Bool {
   case check() {
     True -> True
@@ -194,6 +215,7 @@ fn wait_until(attempts: Int, check: fn() -> Bool) -> Bool {
 // Dev JWT minting (HS256, matching levee's JOSE verification)
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 fn mint_token(tenant: String, document: String, user_id: String) -> String {
   let now = system_time(Second)
   let header =
@@ -220,13 +242,16 @@ fn mint_token(tenant: String, document: String, user_id: String) -> String {
   signing_input <> "." <> base64url(signature)
 }
 
+@target(erlang)
 fn base64url(data: BitArray) -> String {
   bit_array.base64_url_encode(data, False)
 }
 
+@target(erlang)
 type TimeUnit {
   Second
 }
 
+@target(erlang)
 @external(erlang, "os", "system_time")
 fn system_time(unit: TimeUnit) -> Int

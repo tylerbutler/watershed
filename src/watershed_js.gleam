@@ -1,0 +1,208 @@
+//// Public JavaScript API: connect to a levee document and edit its root
+//// SharedMap from the browser. The BEAM counterpart is `watershed`.
+////
+//// ```gleam
+//// let token =
+////   watershed_js.dev_token(
+////     secret: "levee-dev-secret-change-in-production",
+////     tenant: "dev-tenant", document: "dice", user_id: "user-1",
+////   )
+//// let doc =
+////   watershed_js.connect(
+////     WatershedConfig(
+////       url: "ws://localhost:4000/socket/websocket?vsn=2.0.0",
+////       tenant: "dev-tenant", document: "dice",
+////       token: token, user_id: "user-1",
+////     ),
+////     on_ready: fn(result) { ... },
+////   )
+//// let map = watershed_js.root(doc)
+//// watershed_js.set(map, "die", json.int(4))
+//// watershed_js.subscribe(map, fn(event) { ... })
+//// ```
+////
+//// Reads are optimistic (local pending edits overlay the sequenced state);
+//// convergence is guaranteed by server sequencing. v1 exposes only the root
+//// map. JavaScript target only.
+
+@target(javascript)
+import gleam/dict
+@target(javascript)
+import gleam/json.{type Json}
+@target(javascript)
+import gleam/option.{type Option, None, Some}
+
+@target(javascript)
+import spillway/message.{ConnectMessage}
+@target(javascript)
+import spillway/types.{
+  Client, ClientCapabilities, ClientDetails, User, WriteMode,
+}
+
+@target(javascript)
+import watershed/map_kernel.{type MapEvent}
+@target(javascript)
+import watershed/runtime_js
+@target(javascript)
+import watershed/transport_js
+
+@target(javascript)
+/// Connection parameters for `connect`.
+pub type WatershedConfig {
+  WatershedConfig(
+    /// Phoenix socket URL, e.g.
+    /// `"ws://localhost:4000/socket/websocket?vsn=2.0.0"`. The `vsn=2.0.0`
+    /// query selects the V2 serializer.
+    url: String,
+    tenant: String,
+    document: String,
+    token: String,
+    user_id: String,
+  )
+}
+
+@target(javascript)
+pub opaque type Document {
+  Document(runtime: runtime_js.Runtime)
+}
+
+@target(javascript)
+pub opaque type SharedMap {
+  SharedMap(runtime: runtime_js.Runtime)
+}
+
+@target(javascript)
+/// Connect to a document. Returns the handle immediately and invokes
+/// `on_ready` once the handshake and history replay complete (`Ok(Nil)`) or
+/// the connection is rejected (`Error(reason)`).
+pub fn connect(
+  config: WatershedConfig,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document {
+  let topic = "document:" <> config.tenant <> ":" <> config.document
+  let connect_message =
+    ConnectMessage(
+      tenant_id: config.tenant,
+      document_id: config.document,
+      token: Some(config.token),
+      client: Client(
+        mode: WriteMode,
+        details: ClientDetails(
+          capabilities: ClientCapabilities(interactive: True),
+          client_type: Some("watershed-js"),
+          environment: None,
+          device: None,
+        ),
+        permission: [],
+        user: User(id: config.user_id, properties: dict.new()),
+        scopes: ["doc:read", "doc:write"],
+        timestamp: None,
+      ),
+      versions: ["^0.1.0"],
+      driver_version: None,
+      mode: WriteMode,
+      nonce: None,
+      epoch: None,
+      supported_features: None,
+      relay_user_agent: None,
+    )
+
+  let runtime =
+    runtime_js.start(
+      url: config.url,
+      topic: topic,
+      connect_message: connect_message,
+      on_ready: on_ready,
+    )
+  Document(runtime: runtime)
+}
+
+@target(javascript)
+/// The document's root map (channel address `"root"`).
+pub fn root(document: Document) -> SharedMap {
+  SharedMap(runtime: document.runtime)
+}
+
+@target(javascript)
+pub fn close(document: Document) -> Nil {
+  runtime_js.close(document.runtime)
+}
+
+@target(javascript)
+/// Fault-injection hook (tests/demos): drop the socket to force the
+/// reconnect/reconcile path. Pending and in-flight edits are preserved.
+pub fn force_reconnect(document: Document) -> Nil {
+  runtime_js.force_reconnect(document.runtime)
+}
+
+// ── Edits (optimistic) ───────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
+  runtime_js.set(map.runtime, key, value)
+}
+
+@target(javascript)
+pub fn delete(map: SharedMap, key: String) -> Nil {
+  runtime_js.delete(map.runtime, key)
+}
+
+@target(javascript)
+pub fn clear(map: SharedMap) -> Nil {
+  runtime_js.clear(map.runtime)
+}
+
+// ── Reads ────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn get(map: SharedMap, key: String) -> Option(Json) {
+  runtime_js.get(map.runtime, key)
+}
+
+@target(javascript)
+pub fn has(map: SharedMap, key: String) -> Bool {
+  get(map, key) != None
+}
+
+@target(javascript)
+pub fn entries(map: SharedMap) -> List(#(String, Json)) {
+  runtime_js.entries(map.runtime)
+}
+
+@target(javascript)
+pub fn keys(map: SharedMap) -> List(String) {
+  runtime_js.keys(map.runtime)
+}
+
+@target(javascript)
+pub fn size(map: SharedMap) -> Int {
+  runtime_js.size(map.runtime)
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Register a callback invoked for every local and remote map event.
+pub fn subscribe(map: SharedMap, handler: fn(MapEvent) -> Nil) -> Nil {
+  runtime_js.subscribe(map.runtime, handler)
+}
+
+// ── Demo helpers ─────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Mint an HS256 dev JWT for `just server` (dev mode). Do not use in
+/// production — the tenant secret must never reach the browser there.
+pub fn dev_token(
+  secret secret: String,
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+) -> String {
+  transport_js.mint_dev_token(secret, tenant, document, user_id)
+}
+
+@target(javascript)
+/// Random integer in `[min, max]` inclusive (e.g. a die roll).
+pub fn random_int(min: Int, max: Int) -> Int {
+  transport_js.random_int(min, max)
+}

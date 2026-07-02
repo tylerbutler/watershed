@@ -1,0 +1,19 @@
+{
+  "name": "dice_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phoenix JS client dependency for the watershed Lustre dice example",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/dice_lustre/dice_lustre.mjs --bundle --format=esm --outfile=dist/dice_lustre.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.8",
+    "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}

@@ -59,6 +59,21 @@ mid-burst via the `watershed.force_reconnect` fault-injection hook, then edits
 during reconnect and from a peer, and asserts both clients (and a fresh
 history-bootstrapping third) converge with no lost/duplicated ops — verified
 green against `just server` (94 tests total, stable across repeated runs).
+**M5 spike** (2026-07-01): proved a Gleam-end-to-end browser client is feasible
+by reusing the pure core unchanged. Erlang-only modules (`runtime`,
+`watershed`, live integration test) are gated with `@target(erlang)` so
+`gleam build --target javascript` compiles just the pure core plus a new JS
+stack: `watershed/transport_js` (+ `transport_ffi.mjs`) wraps the official
+phoenix.js client and mints an HS256 dev JWT via a self-contained JS
+HMAC-SHA256; `watershed/runtime_js` is a callback/mutable-cell port of the OTP
+runtime driving the *same* `runtime_core`/`wire`/`map_kernel`;
+`watershed_js` is the public browser API. `examples/dice_lustre` is a Lustre SPA
+(entire client is Gleam) that bundles with esbuild. A headless Node smoke test
+(`examples/dice_lustre/src/smoke.gleam`) drove two JS clients against a live
+`just server` — concurrent edits, a same-key LWW race, and a forced mid-session
+reconnect with edits applied during the drop — and both converged identically,
+green across repeated runs. Follow-on for productization: split the pure core
+into its own package so a JS app doesn't compile the erlang runtime tree.
 
 
 ## Goal

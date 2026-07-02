@@ -21,36 +21,58 @@
 ////   everything else reconnects and reconciles.
 //// - **Heartbeat** — a periodic `noop` advances the server's MSN while idle.
 
+@target(erlang)
 import gleam/dynamic/decode
+@target(erlang)
 import gleam/erlang/process.{type Subject}
+@target(erlang)
 import gleam/json.{type Json}
+@target(erlang)
 import gleam/list
+@target(erlang)
 import gleam/option.{type Option, None, Some}
+@target(erlang)
 import gleam/otp/actor
+@target(erlang)
 import gleam/string
 
+@target(erlang)
 import aquamarine
+@target(erlang)
 import aquamarine/channel.{type Channel}
+@target(erlang)
 import aquamarine/codec.{type Incoming}
+@target(erlang)
 import aquamarine/phoenix
 
+@target(erlang)
 import spillway/message.{type ConnectMessage}
+@target(erlang)
 import spillway/nack.{type Nack}
+@target(erlang)
 import spillway/types.{type SequencedDocumentMessage}
 
+@target(erlang)
 import watershed/map_kernel.{type MapEvent}
+@target(erlang)
 import watershed/runtime_core
+@target(erlang)
 import watershed/wire
 
+@target(erlang)
 const connect_timeout_ms = 10_000
 
+@target(erlang)
 const heartbeat_interval_ms = 30_000
 
+@target(erlang)
 const address = "root"
 
+@target(erlang)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
 const max_ops_per_submission = 100
 
+@target(erlang)
 pub type Msg {
   // Actor bootstrap: learn our own subject so we can schedule heartbeats.
   Register(self: Subject(Msg))
@@ -78,6 +100,7 @@ pub type Msg {
   Shutdown
 }
 
+@target(erlang)
 type Phase {
   Connecting(waiters: List(Subject(Result(Nil, String))))
   /// Socket down and re-handshaking; holds the pre-reconnect core so its
@@ -90,6 +113,7 @@ type Phase {
   Failed(reason: String)
 }
 
+@target(erlang)
 type State {
   State(
     host: String,
@@ -105,6 +129,7 @@ type State {
   )
 }
 
+@target(erlang)
 /// Start a document runtime: spawns the actor and the channel receiver
 /// process, then returns the actor subject. Callers should `AwaitReady`
 /// (via `process.call`) before editing.
@@ -145,6 +170,7 @@ pub fn start(
   }
 }
 
+@target(erlang)
 /// Block until the handshake completes (or fails).
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
@@ -154,6 +180,7 @@ pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
 // Receiver process
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 fn spawn_receiver(state: State, runtime: Subject(Msg)) -> Nil {
   let _ =
     process.spawn_unlinked(fn() {
@@ -169,6 +196,7 @@ fn spawn_receiver(state: State, runtime: Subject(Msg)) -> Nil {
   Nil
 }
 
+@target(erlang)
 fn receiver_main(
   host: String,
   port: Int,
@@ -195,6 +223,7 @@ fn receiver_main(
   }
 }
 
+@target(erlang)
 fn receive_loop(channel: Channel, runtime: Subject(Msg)) -> Nil {
   case aquamarine.receive(channel) {
     Ok(incoming) -> {
@@ -209,6 +238,7 @@ fn receive_loop(channel: Channel, runtime: Subject(Msg)) -> Nil {
 // Actor
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
     Register(self) -> {
@@ -332,6 +362,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
   }
 }
 
+@target(erlang)
 fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
   case incoming.event {
     "connect_document_success" -> {
@@ -415,6 +446,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
   }
 }
 
+@target(erlang)
 /// Resubmit un-acked ops once catch-up has reached the reconnect checkpoint;
 /// otherwise stay in the catching-up state until more ops arrive.
 fn settle_reconnect(
@@ -433,6 +465,7 @@ fn settle_reconnect(
   }
 }
 
+@target(erlang)
 fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
   let message =
     require(
@@ -442,6 +475,7 @@ fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
   message.ops
 }
 
+@target(erlang)
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
@@ -449,6 +483,7 @@ fn apply_ops(
   do_apply_ops(core, ops, [], None)
 }
 
+@target(erlang)
 fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
@@ -474,6 +509,7 @@ fn do_apply_ops(
   }
 }
 
+@target(erlang)
 fn edit(
   state: State,
   operate: fn(runtime_core.Core) ->
@@ -508,6 +544,7 @@ fn edit(
   }
 }
 
+@target(erlang)
 fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
   case state.phase {
     Ready(core, _) -> extract(core)
@@ -520,6 +557,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 // Reconnect helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 /// Enter the reconnecting phase after a channel close: drop the dead channel
 /// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
@@ -530,6 +568,7 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
+@target(erlang)
 /// Retryable nack: close the channel and enter the reconnecting phase. The
 /// receiver's resulting `ChannelClosed` drives the actual reconnect, so we
 /// don't spawn a second receiver here.
@@ -544,6 +583,7 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
+@target(erlang)
 fn nack_is_fatal(item: Nack) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
@@ -552,6 +592,7 @@ fn nack_is_fatal(item: Nack) -> Bool {
   }
 }
 
+@target(erlang)
 fn maybe_request_ops(
   channel: Option(Channel),
   request_from: Option(Int),
@@ -563,6 +604,7 @@ fn maybe_request_ops(
   }
 }
 
+@target(erlang)
 fn send_outbound(
   channel: Option(Channel),
   client_id: String,
@@ -578,6 +620,7 @@ fn send_outbound(
   }
 }
 
+@target(erlang)
 fn push(channel: Channel, event: String, payload: Json) -> Nil {
   case aquamarine.push(channel, event, payload) {
     Ok(Nil) -> Nil
@@ -585,6 +628,7 @@ fn push(channel: Channel, event: String, payload: Json) -> Nil {
   }
 }
 
+@target(erlang)
 fn fan_out(
   subscribers: List(Subject(MapEvent)),
   events: List(MapEvent),
@@ -592,11 +636,13 @@ fn fan_out(
   list.each(events, fn(event) { list.each(subscribers, process.send(_, event)) })
 }
 
+@target(erlang)
 fn fail(state: State, reason: String) -> State {
   notify_waiters(state.phase, Error(reason))
   State(..state, phase: Failed(reason))
 }
 
+@target(erlang)
 fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
   case phase {
     Connecting(waiters) -> list.each(waiters, process.send(_, result))
@@ -604,6 +650,7 @@ fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
   }
 }
 
+@target(erlang)
 fn require(result: Result(t, e), context: String) -> t {
   case result {
     Ok(value) -> value

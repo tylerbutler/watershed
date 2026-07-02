@@ -31,13 +31,37 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   insertion-order iteration). Unit tests plus qcheck properties: convergence
   across authorship/submit-timing interleavings, ack transparency, and rebase
   equivalence, at 1000 iterations each.
-- M2 — shared test corpus against the TS `MapKernel` oracle: not started.
-- M3+ — wire codecs, runtime actor, resilience, public API: not started.
+- **M2 — shared test corpus: done.** 20 scenarios generated from the TS
+  `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
+- **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
+  spillway types; `watershed/runtime_core` pure state machine; `watershed/runtime`
+  OTP actor over aquamarine. Two BEAM clients converge against a live server.
+- **M4 — resilience: done.** Out-of-order buffering + in-band `requestOps`,
+  reconnect/reconcile with client-id remap, nack policy, noop heartbeat.
+- **M5 — polish + example: in progress.** Public API (`watershed`), and a
+  **Gleam-end-to-end Lustre** dice roller (see below).
+
+## Targets
+
+The pure core (`map_kernel`, `wire`, `runtime_core`) is target-agnostic. Two
+runtimes sit on top:
+
+| Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
+| --- | --- | --- |
+| Transport | aquamarine (gun / roost) | phoenix.js via FFI |
+| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
+| Pure core | `map_kernel` · `wire` · `runtime_core` | ← identical, shared |
+
+The erlang-only modules are gated with `@target(erlang)` so
+`gleam build --target javascript` compiles just the pure core plus the JS
+runtime. See [`examples/dice_lustre`](examples/dice_lustre) for a Lustre SPA
+whose entire client is Gleam, verified converging against a live `just server`.
 
 ## Development
 
 ```sh
-gleam test    # unit + property tests
+gleam test                      # BEAM: unit + property + corpus tests
+gleam build --target javascript # browser: pure core + JS runtime
 gleam format
 ```
 
