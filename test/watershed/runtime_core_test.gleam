@@ -229,6 +229,39 @@ pub fn bootstrap_replays_initial_messages_test() {
   core.last_seen_sn |> expect.to_equal(5)
 }
 
+pub fn bootstrap_truncated_history_is_fatal_test() {
+  // A document with more ops than the server retains: `initialMessages` starts
+  // above SN 1, so the prefix (SN 1..2) is gone. Replaying it would silently
+  // build a state missing its early data, so bootstrap must fail loudly with a
+  // HistoryGap rather than diverge.
+  let truncated = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 3,
+      csn: 1,
+      op: Set("die", json.int(4)),
+    ),
+    map_op_message(
+      client_id: other_client_id,
+      sn: 4,
+      csn: 2,
+      op: Set("count", json.int(9)),
+    ),
+  ]
+
+  runtime_core.bootstrap(
+    connected_message(truncated, 5),
+    address: "root",
+  )
+  |> fn(result) {
+    case result {
+      Error(runtime_core.HistoryGap(_)) -> Nil
+      Error(_) -> panic as "expected HistoryGap, got another CoreError"
+      Ok(_) -> panic as "expected bootstrap to fail on truncated history"
+    }
+  }
+}
+
 pub fn bootstrap_dedupes_own_join_push_test() {
   // The join for our own client arrives as a separate op push right after
   // connect_document_success, with SN == checkpointSequenceNumber. It must

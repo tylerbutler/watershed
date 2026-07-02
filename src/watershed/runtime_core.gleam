@@ -58,6 +58,12 @@ pub type CoreError {
   /// A sequenced `"op"` message carried contents we could not decode. With
   /// only map channels in v1 this signals corruption, not a foreign DDS.
   BadOpContents(sequence_number: Int)
+  /// Bootstrap replayed an op history that is not contiguous from SN 1: the
+  /// earliest replayable op sits above the gap because the server dropped ops
+  /// past its retention window. The state we would build is missing its
+  /// prefix, so we fail loudly rather than diverge silently. Older deltas must
+  /// be fetched out of band (`GET /deltas/:tenant_id/:id`).
+  HistoryGap(detail: String)
 }
 
 /// Outcome of ingesting a sequenced message: events to fan out to subscribers
@@ -99,6 +105,20 @@ pub fn bootstrap(
       |> result.map(fn(outcome) { outcome.0 })
     }),
   )
+  // A complete history replays contiguously from SN 1, leaving nothing
+  // buffered. Anything still in `out_of_order` means the earliest replayable
+  // op sits above the gap: the server dropped ops past its retention window,
+  // so the state we just built is missing its prefix. Fail loudly.
+  use _ <- result.try(case core.out_of_order {
+    [] -> Ok(Nil)
+    [head, ..] ->
+      Error(HistoryGap(
+        "bootstrap history is not contiguous from sequence number 1; earliest "
+        <> "replayable op is "
+        <> int.to_string(head.sequence_number)
+        <> " (server op history truncated past its retention window)",
+      ))
+  })
   let checkpoint =
     option.unwrap(connected.checkpoint_sequence_number, core.last_seen_sn)
   Ok(Core(..core, last_seen_sn: int.max(core.last_seen_sn, checkpoint)))

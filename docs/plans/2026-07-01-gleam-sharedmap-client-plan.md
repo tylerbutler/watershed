@@ -324,6 +324,12 @@ convergence + no lost/duplicated ops.
 **M5 — Polish + example (3–4 days).** Public API, docs, and a Gleam
 dice-roller mirroring `levee-example` — ideally Lustre so the demo is Gleam
 end-to-end. Exit: README quick-start works from scratch against `just server`.
+✅ **Done (2026-07-01):** the `examples/dice_lustre` Lustre SPA is the exit
+example; its quick-start was verified from a clean checkout (wiped
+`build/node_modules/dist`, `npm install` → `npm run build` → bundle, then the
+headless smoke test passed against a fresh `just server`). The
+no-gap-after-bootstrap invariant is asserted in `runtime_core.bootstrap` (see
+the risk note below).
 
 Total: **~3–4 weeks**, with M1+M2 de-risking the only semantically hard part
 before any networking exists.
@@ -346,7 +352,14 @@ wire-contract and runtime sections above):
   deltas. All deltas *do* persist to storage, so the v1 escape hatch for docs
   past 1000 ops is the REST endpoint `GET /deltas/:tenant_id/:id`, not
   "create docs fresh". v1 can ship without it but should assert the
-  no-gap-after-bootstrap invariant and fail loudly.
+  no-gap-after-bootstrap invariant and fail loudly. ✅ **Implemented
+  (2026-07-01):** `runtime_core.bootstrap` fails with a new
+  `CoreError.HistoryGap` when replaying `initialMessages` leaves ops buffered
+  past a gap (i.e. history does not start at SN 1), and both runtimes surface
+  it loudly (BEAM panics, JS drives the cell to `Failed`). The live-catch-up
+  truncation signal (earliest requestOps SN > `from + 1`) is a runtime/batch
+  concern — ordinary ops legitimately arrive out of order in the pure core —
+  so it stays out of scope here and is left for the REST escape hatch.
 - **Nacked batches partially sequence** — confirmed server behavior, now
   drives the nack policy in the runtime section (reconnect + reconcile, never
   blind-resubmit).
