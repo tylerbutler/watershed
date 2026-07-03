@@ -2,9 +2,14 @@
 //// `{address, contents}` document envelope, attach envelopes carrying a
 //// channel snapshot, and the `"summarize"` op announcing a stored snapshot.
 ////
-//// The map op format inside the `{address, contents}` envelope is
-//// byte-identical to TS `@fluidframework/map` ops (`set`/`delete`/`clear`,
-//// values wrapped as `{"type": "Plain", "value": ...}`).
+//// The map op format inside the `{address, contents}` envelope matches TS
+//// `@fluidframework/map` ops (`set`/`delete`/`clear`, values wrapped as
+//// `{"type": "Plain", "value": ...}`). That is a convenience — it keeps the
+//// corpus tests' vocabulary aligned with the TS oracle — not a compatibility
+//// contract: nothing external consumes watershed's wire or storage formats
+//// yet, so a considered format change needs versioning and fixture updates
+//// but no migration shims. Change formats deliberately all the same; that
+//// freedom shrinks as soon as real documents or clients exist.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
