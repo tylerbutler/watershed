@@ -2,3 +2,8 @@
 *.ez
 /build
 erl_crash.dump
+
+# Local tool state
+/.claude/
+/.impeccable/
+/.playwright-mcp/
