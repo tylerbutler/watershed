@@ -4,7 +4,7 @@
 //// that have aged out of the server's in-band history window.
 ////
 //// A watershed summary is a single JSON blob (see
-//// `wire.encode_summary_blob_channels`)
+//// `summary_blob.encode_channels`)
 //// stored at path `"header"` inside a git tree. We set the summarize op's
 //// `handle` equal to the tree SHA, so loading a summary is: fetch the tree by
 //// handle, read the `header` blob, base64-decode, and decode the blob.
@@ -32,7 +32,8 @@ import gleam/string
 
 import spillway/types.{type SequencedDocumentMessage}
 
-import watershed/wire.{type SummaryBlob}
+import watershed/wire/socket
+import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(erlang)
 import gleam/httpc
@@ -298,7 +299,7 @@ fn blob_body(
   channels: List(#(String, List(#(String, json.Json)))),
 ) -> String {
   let blob_json =
-    wire.encode_summary_blob_channels(sequence_number, channels)
+    summary_blob.encode_channels(sequence_number, channels)
     |> json.to_string
   let content = bit_array.base64_encode(<<blob_json:utf8>>, True)
   json.object([
@@ -359,7 +360,7 @@ fn decode_blob(
     bit_array.to_string(bits)
     |> result.replace_error("summary blob " <> blob_sha <> " is not UTF-8"),
   )
-  wire.decode_summary_blob(raw)
+  summary_blob.decode(raw)
   |> result.map_error(fn(err) {
     "summary blob " <> blob_sha <> " decode failed: " <> string.inspect(err)
   })
@@ -572,7 +573,7 @@ fn sha_decoder() -> Decoder(String) {
 /// Deltas response: `{value: [SequencedDocumentMessage]}` — the same message
 /// shape the document channel pushes, so the channel decoder is reused.
 fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
-  decode.at(["value"], decode.list(wire.sequenced_document_message_decoder()))
+  decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
 }
 
 /// Versions response: `{value: [{handle, sequenceNumber, message, ...}]}`,

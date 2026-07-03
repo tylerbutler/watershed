@@ -56,7 +56,7 @@ import watershed/runtime_js
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
-import watershed/wire.{type SummaryBlob}
+import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(javascript)
 /// Connection parameters for `connect`.

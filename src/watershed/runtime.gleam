@@ -66,6 +66,10 @@ import watershed/map_kernel.{type MapEvent}
 import watershed/runtime_core
 @target(erlang)
 import watershed/wire
+@target(erlang)
+import watershed/wire/socket
+@target(erlang)
+import watershed/wire/summary_blob
 
 @target(erlang)
 const connect_timeout_ms = 10_000
@@ -104,7 +108,10 @@ pub type Msg {
     reply: Subject(Result(List(git_storage.SummaryVersion), String)),
   )
   /// Read the historical snapshot a summary version captured, by its handle.
-  LoadVersion(handle: String, reply: Subject(Result(wire.SummaryBlob, String)))
+  LoadVersion(
+    handle: String,
+    reply: Subject(Result(summary_blob.SummaryBlob, String)),
+  )
   // Reads
   GetValue(address: String, key: String, reply: Subject(Option(Json)))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
@@ -231,7 +238,7 @@ pub fn get_versions(
 pub fn load_version(
   runtime: Subject(Msg),
   handle: String,
-) -> Result(wire.SummaryBlob, String) {
+) -> Result(summary_blob.SummaryBlob, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
     LoadVersion(handle, reply)
   })
@@ -309,7 +316,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           push(
             channel,
             "noop",
-            wire.encode_noop(
+            socket.encode_noop(
               core.client_id,
               reference_sequence_number: core.last_seen_sn,
             ),
@@ -327,7 +334,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       push(
         channel,
         "connect_document",
-        wire.encode_connect_document(state.connect_message, last_seen),
+        socket.encode_connect_document(state.connect_message, last_seen),
       )
       actor.continue(State(..state, channel: Some(channel)))
     }
@@ -476,7 +483,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "connect_document_success" -> {
       let connected =
         require(
-          decode.run(incoming.payload, wire.connected_message_decoder()),
+          decode.run(incoming.payload, socket.connected_message_decoder()),
           "connect_document_success payload",
         )
       case state.phase {
@@ -516,7 +523,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "connect_document_error" -> {
       let connect_error =
         require(
-          decode.run(incoming.payload, wire.connect_error_decoder()),
+          decode.run(incoming.payload, socket.connect_error_decoder()),
           "connect_document_error payload",
         )
       actor.continue(fail(state, connect_error.message))
@@ -542,7 +549,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "nack" -> {
       let nacks =
         require(
-          decode.run(incoming.payload, wire.nacks_decoder()),
+          decode.run(incoming.payload, socket.nacks_decoder()),
           "nack payload",
         )
       case list.any(nacks, nack_is_fatal) {
@@ -587,7 +594,7 @@ fn settle_reconnect(
 fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
   let message =
     require(
-      decode.run(incoming.payload, wire.op_message_decoder()),
+      decode.run(incoming.payload, socket.op_message_decoder()),
       "op payload",
     )
   message.ops
@@ -723,7 +730,7 @@ fn maybe_request_ops(
 ) -> Nil {
   case channel, request_from {
     Some(channel), Some(from) ->
-      push(channel, "requestOps", wire.encode_request_ops(from: from))
+      push(channel, "requestOps", socket.encode_request_ops(from: from))
     _, _ -> Nil
   }
 }
@@ -795,7 +802,11 @@ fn do_summarize(
       message: "watershed summary",
       head: tree_sha,
     )
-  push(channel, "submitOp", wire.encode_submit_op(core.client_id, [[outbound]]))
+  push(
+    channel,
+    "submitOp",
+    socket.encode_submit_op(core.client_id, [[outbound]]),
+  )
   Ok(#(core, tree_sha))
 }
 
@@ -872,7 +883,7 @@ fn fetch_document_versions(
 fn fetch_version_blob(
   state: State,
   handle: String,
-) -> Result(wire.SummaryBlob, String) {
+) -> Result(summary_blob.SummaryBlob, String) {
   case state.connect_message.token {
     None -> Error("loading a version requires an auth token")
     Some(token) ->
@@ -930,7 +941,7 @@ fn send_outbound(
     _, [] -> Nil
     Some(channel), _ ->
       list.each(list.sized_chunk(outbound, max_ops_per_submission), fn(chunk) {
-        push(channel, "submitOp", wire.encode_submit_op(client_id, [chunk]))
+        push(channel, "submitOp", socket.encode_submit_op(client_id, [chunk]))
       })
     None, _ -> Nil
   }

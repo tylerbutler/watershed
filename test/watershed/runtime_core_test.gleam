@@ -21,6 +21,7 @@ import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/runtime_core.{type Core}
 import watershed/wire
+import watershed/wire/ops
 
 const our_client_id = "default_dice_2"
 
@@ -66,7 +67,7 @@ fn channel_op_message(
     sn: sn,
     csn: csn,
     message_type: "op",
-    contents: to_dynamic(wire.encode_map_envelope(address, op)),
+    contents: to_dynamic(ops.encode_map_envelope(address, op)),
   )
 }
 
@@ -82,7 +83,7 @@ fn attach_message(
     sn: sn,
     csn: csn,
     message_type: "op",
-    contents: to_dynamic(wire.encode_attach(
+    contents: to_dynamic(ops.encode_attach(
       address,
       wire.channel_type_map,
       snapshot,
@@ -286,11 +287,11 @@ fn root_delete(
   }
 }
 
-fn decode_outbound_contents(op: wire.OutboundOp) -> wire.OpContents {
+fn decode_outbound_contents(op: wire.OutboundOp) -> ops.OpContents {
   case json.parse(json.to_string(op.contents), decode.dynamic) {
     Error(_) -> panic as "failed to re-parse outbound contents"
     Ok(dynamic_value) ->
-      case wire.decode_op_contents(dynamic_value) {
+      case ops.decode_op_contents(dynamic_value) {
         Ok(contents) -> contents
         Error(_) -> panic as "failed to decode outbound contents"
       }
@@ -731,7 +732,7 @@ pub fn unknown_address_ops_are_fatal_test() {
       sn: 2,
       csn: 1,
       message_type: "op",
-      contents: to_dynamic(wire.encode_map_envelope(
+      contents: to_dynamic(ops.encode_map_envelope(
         "other-map",
         Set("die", json.int(4)),
       )),
@@ -1246,17 +1247,17 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
   ])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    wire.AttachOp(
+    ops.AttachOp(
       address: "grand",
       channel_type: wire.channel_type_map,
       snapshot: [#("g", json.int(1))],
     ),
-    wire.AttachOp(
+    ops.AttachOp(
       address: "child",
       channel_type: wire.channel_type_map,
       snapshot: [#("ref", handle.encode_handle("grand"))],
     ),
-    wire.ChannelOp(
+    ops.ChannelOp(
       address: "root",
       op: Set("child", handle.encode_handle("child")),
     ),
@@ -1279,13 +1280,13 @@ pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
 
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    wire.AttachOp(address: "b", channel_type: wire.channel_type_map, snapshot: [
+    ops.AttachOp(address: "b", channel_type: wire.channel_type_map, snapshot: [
       #("peer", handle.encode_handle("a")),
     ]),
-    wire.AttachOp(address: "a", channel_type: wire.channel_type_map, snapshot: [
+    ops.AttachOp(address: "a", channel_type: wire.channel_type_map, snapshot: [
       #("peer", handle.encode_handle("b")),
     ]),
-    wire.ChannelOp(address: "root", op: Set("ref", handle.encode_handle("a"))),
+    ops.ChannelOp(address: "root", op: Set("ref", handle.encode_handle("a"))),
   ])
 }
 
@@ -1308,7 +1309,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
     ),
   ])
   decode_outbound_contents(child_outbound)
-  |> expect.to_equal(wire.ChannelOp(address: "child", op: Set("a", json.int(2))))
+  |> expect.to_equal(ops.ChannelOp(address: "child", op: Set("a", json.int(2))))
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightAttach(
@@ -1381,13 +1382,13 @@ pub fn attach_ack_pops_with_no_events_test() {
     runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
   outbound
   |> expect.to_equal([
-    wire.outbound_attach_op(
+    ops.outbound_attach_op(
       address: "child",
       client_sequence_number: 1,
       reference_sequence_number: 1,
       snapshot: [#("a", json.int(1))],
     ),
-    wire.outbound_map_op(
+    ops.outbound_map_op(
       address: "root",
       client_sequence_number: 2,
       reference_sequence_number: 1,
@@ -1511,16 +1512,16 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
   ])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    wire.AttachOp(
+    ops.AttachOp(
       address: "child",
       channel_type: wire.channel_type_map,
       snapshot: [#("a", json.int(1))],
     ),
-    wire.ChannelOp(
+    ops.ChannelOp(
       address: "root",
       op: Set("ref", handle.encode_handle("child")),
     ),
-    wire.ChannelOp(address: "child", op: Set("a", json.int(2))),
+    ops.ChannelOp(address: "child", op: Set("a", json.int(2))),
   ])
 }
 

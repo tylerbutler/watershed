@@ -49,7 +49,7 @@ import watershed/map_kernel.{type MapEvent}
 @target(erlang)
 import watershed/runtime
 @target(erlang)
-import watershed/wire.{type SummaryBlob}
+import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(erlang)
 /// The default Phoenix websocket mount for levee. `vsn=2.0.0` selects the

@@ -19,6 +19,7 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/handle
 import watershed/map_kernel.{type MapEvent, type MapOp}
 import watershed/wire
+import watershed/wire/ops
 
 const root_address = "root"
 
@@ -164,7 +165,7 @@ pub fn build_summarize(
 ) -> #(Core, wire.OutboundOp) {
   let csn = core.next_csn
   let outbound =
-    wire.outbound_summarize_op(
+    ops.outbound_summarize_op(
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
       handle: handle,
@@ -228,7 +229,7 @@ fn restamp_in_flight(
   case entry {
     InFlightOp(address: address, op: op, ..) -> #(
       InFlightOp(client_id: core.client_id, csn: csn, address: address, op: op),
-      wire.outbound_map_op(
+      ops.outbound_map_op(
         address: address,
         client_sequence_number: csn,
         reference_sequence_number: core.last_seen_sn,
@@ -242,7 +243,7 @@ fn restamp_in_flight(
         address: address,
         snapshot: snapshot,
       ),
-      wire.outbound_attach_op(
+      ops.outbound_attach_op(
         address: address,
         client_sequence_number: csn,
         reference_sequence_number: core.last_seen_sn,
@@ -328,9 +329,9 @@ fn handle_op(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
-  case wire.decode_op_contents(msg.contents) {
+  case ops.decode_op_contents(msg.contents) {
     Error(_) -> Error(BadOpContents(msg.sequence_number))
-    Ok(wire.AttachOp(address, channel_type, snapshot)) -> {
+    Ok(ops.AttachOp(address, channel_type, snapshot)) -> {
       case channel_type == wire.channel_type_map {
         False -> Error(BadOpContents(msg.sequence_number))
         True ->
@@ -347,7 +348,7 @@ fn handle_op(
           }
       }
     }
-    Ok(wire.ChannelOp(address, op)) ->
+    Ok(ops.ChannelOp(address, op)) ->
       case is_own_op(core, msg.client_id) {
         True ->
           ack_own_op(
@@ -750,7 +751,7 @@ fn submit_attaches(
         let snapshot = map_kernel.entries(kernel)
         let csn = core.next_csn
         let outbound_op =
-          wire.outbound_attach_op(
+          ops.outbound_attach_op(
             address: address,
             client_sequence_number: csn,
             reference_sequence_number: core.last_seen_sn,
@@ -793,7 +794,7 @@ fn stamp_attached(
 ) -> #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)) {
   let csn = core.next_csn
   let outbound =
-    wire.outbound_map_op(
+    ops.outbound_map_op(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,

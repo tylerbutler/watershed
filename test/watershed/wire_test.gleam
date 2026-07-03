@@ -25,6 +25,9 @@ import spillway/types
 
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/wire
+import watershed/wire/ops
+import watershed/wire/socket
+import watershed/wire/summary_blob
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -75,7 +78,7 @@ fn test_connect_message() -> message.ConnectMessage {
 
 pub fn encode_connect_document_has_required_fields_test() {
   let encoded =
-    wire.encode_connect_document(test_connect_message(), None)
+    socket.encode_connect_document(test_connect_message(), None)
     |> json.to_string
 
   encoded
@@ -91,7 +94,7 @@ pub fn encode_connect_document_has_required_fields_test() {
 
 pub fn encode_connect_document_includes_last_seen_sn_test() {
   let encoded =
-    wire.encode_connect_document(test_connect_message(), Some(42))
+    socket.encode_connect_document(test_connect_message(), Some(42))
     |> json.to_string
 
   // Reconnects carry lastSeenSequenceNumber so the server pushes catch-up.
@@ -102,7 +105,7 @@ pub fn encode_connect_document_includes_last_seen_sn_test() {
 
 pub fn encode_connect_document_null_token_test() {
   let msg = message.ConnectMessage(..test_connect_message(), token: None)
-  wire.encode_connect_document(msg, None)
+  socket.encode_connect_document(msg, None)
   |> json.to_string
   |> string_contains("\"token\":null")
   |> expect.to_be_true()
@@ -159,7 +162,7 @@ fn connected_fixture() -> String {
 }
 
 pub fn decode_connected_message_test() {
-  let connected = parse(connected_fixture(), wire.connected_message_decoder())
+  let connected = parse(connected_fixture(), socket.connected_message_decoder())
 
   connected.client_id |> expect.to_equal("default_dice_1")
   connected.existing |> expect.to_be_true()
@@ -198,7 +201,7 @@ pub fn decode_connected_message_with_summary_context_test() {
       \"checkpointSequenceNumber\": 42,
       \"summaryContext\": {\"handle\": \"tree-abc\", \"sequenceNumber\": 40}
     }"
-  let connected = parse(fixture, wire.connected_message_decoder())
+  let connected = parse(fixture, socket.connected_message_decoder())
   connected.summary_context
   |> expect.to_equal(
     Some(message.SummaryContext(handle: "tree-abc", sequence_number: 40)),
@@ -216,9 +219,9 @@ pub fn summary_blob_round_trips_test() {
     #("nested", json.object([#("a", json.array([1, 2], json.int))])),
   ]
   let encoded =
-    wire.encode_summary_blob_channels(7, [#("root", entries)])
+    summary_blob.encode_channels(7, [#("root", entries)])
     |> json.to_string
-  let assert Ok(blob) = wire.decode_summary_blob(encoded)
+  let assert Ok(blob) = summary_blob.decode(encoded)
   blob.sequence_number |> expect.to_equal(7)
   let assert [channel] = blob.channels
   channel.address |> expect.to_equal("root")
@@ -234,7 +237,7 @@ pub fn summary_blob_rejects_unknown_version_test() {
   let raw =
     "{\"watershedSummaryVersion\": 999, \"address\": \"root\","
     <> " \"sequenceNumber\": 1, \"entries\": []}"
-  case wire.decode_summary_blob(raw) {
+  case summary_blob.decode(raw) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected unknown summary version to be rejected"
   }
@@ -242,7 +245,7 @@ pub fn summary_blob_rejects_unknown_version_test() {
 
 pub fn encode_summarize_op_test() {
   let op =
-    wire.outbound_summarize_op(
+    ops.outbound_summarize_op(
       client_sequence_number: 3,
       reference_sequence_number: 9,
       handle: "tree-abc",
@@ -251,7 +254,7 @@ pub fn encode_summarize_op_test() {
       head: "tree-abc",
     )
   let encoded =
-    wire.encode_submit_op("default_dice_1", [[op]]) |> json.to_string
+    socket.encode_submit_op("default_dice_1", [[op]]) |> json.to_string
   string_contains(encoded, "\"type\":\"summarize\"") |> expect.to_be_true()
   string_contains(encoded, "\"handle\":\"tree-abc\"") |> expect.to_be_true()
   string_contains(encoded, "\"head\":\"tree-abc\"") |> expect.to_be_true()
@@ -263,7 +266,7 @@ pub fn decode_connect_error_test() {
   let error =
     parse(
       "{\"code\": 401, \"message\": \"Token has expired\"}",
-      wire.connect_error_decoder(),
+      socket.connect_error_decoder(),
     )
   error |> expect.to_equal(message.ConnectError(401, "Token has expired"))
 }
@@ -300,7 +303,7 @@ fn op_event_fixture() -> String {
 }
 
 pub fn decode_op_message_test() {
-  let op_message = parse(op_event_fixture(), wire.op_message_decoder())
+  let op_message = parse(op_event_fixture(), socket.op_message_decoder())
 
   op_message.document_id |> expect.to_equal("dice")
   let assert [op, join] = op_message.ops
@@ -316,10 +319,10 @@ pub fn decode_op_message_test() {
 }
 
 pub fn decode_map_envelope_from_sequenced_contents_test() {
-  let op_message = parse(op_event_fixture(), wire.op_message_decoder())
+  let op_message = parse(op_event_fixture(), socket.op_message_decoder())
   let assert [op, _join] = op_message.ops
 
-  wire.decode_map_envelope(op.contents)
+  ops.decode_map_envelope(op.contents)
   |> expect.to_equal(Ok(#("root", Delete("die"))))
 }
 
@@ -328,8 +331,8 @@ pub fn decode_map_envelope_from_sequenced_contents_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn round_trip_map_op(op: map_kernel.MapOp) {
-  let encoded = wire.encode_map_envelope("root", op) |> json.to_string
-  let decoded = parse(encoded, wire.map_envelope_decoder())
+  let encoded = ops.encode_map_envelope("root", op) |> json.to_string
+  let decoded = parse(encoded, ops.map_envelope_decoder())
   decoded |> expect.to_equal(#("root", op))
 }
 
@@ -358,7 +361,7 @@ pub fn map_op_clear_round_trip_test() {
 
 pub fn map_op_set_wire_shape_test() {
   // Byte-identical to the TS `@fluidframework/map` op format.
-  wire.encode_map_envelope("root", Set("die", json.int(4)))
+  ops.encode_map_envelope("root", Set("die", json.int(4)))
   |> json.to_string
   |> expect.to_equal(
     "{\"address\":\"root\",\"contents\":"
@@ -373,7 +376,7 @@ pub fn map_op_rejects_non_plain_value_test() {
       \"contents\": {\"type\": \"set\", \"key\": \"k\",
                      \"value\": {\"type\": \"Shared\", \"value\": \"handle\"}}}"
   let _ =
-    json.parse(shared, wire.map_envelope_decoder())
+    json.parse(shared, ops.map_envelope_decoder())
     |> expect.to_be_error()
   Nil
 }
@@ -384,14 +387,14 @@ pub fn map_op_rejects_non_plain_value_test() {
 
 pub fn encode_submit_op_test() {
   let op =
-    wire.outbound_map_op(
+    ops.outbound_map_op(
       address: "root",
       client_sequence_number: 1,
       reference_sequence_number: 5,
       op: Set("die", json.int(4)),
     )
 
-  wire.encode_submit_op("default_dice_1", [[op]])
+  socket.encode_submit_op("default_dice_1", [[op]])
   |> json.to_string
   |> expect.to_equal(
     "{\"clientId\":\"default_dice_1\",\"messageBatches\":[["
@@ -406,13 +409,13 @@ pub fn encode_submit_op_test() {
 }
 
 pub fn encode_request_ops_test() {
-  wire.encode_request_ops(from: 10)
+  socket.encode_request_ops(from: 10)
   |> json.to_string
   |> expect.to_equal("{\"from\":10}")
 }
 
 pub fn encode_noop_test() {
-  wire.encode_noop("default_dice_1", reference_sequence_number: 12)
+  socket.encode_noop("default_dice_1", reference_sequence_number: 12)
   |> json.to_string
   |> expect.to_equal(
     "{\"clientId\":\"default_dice_1\",\"referenceSequenceNumber\":12}",
@@ -437,7 +440,7 @@ pub fn decode_nack_event_test() {
       ]
     }"
 
-  let assert [rejected] = parse(fixture, wire.nacks_decoder())
+  let assert [rejected] = parse(fixture, socket.nacks_decoder())
   rejected.operation |> expect.to_equal(None)
   rejected.sequence_number |> expect.to_equal(-1)
   rejected.content.code |> expect.to_equal(400)
@@ -464,7 +467,7 @@ pub fn decode_nack_with_operation_test() {
       ]
     }"
 
-  let assert [nacked] = parse(fixture, wire.nacks_decoder())
+  let assert [nacked] = parse(fixture, socket.nacks_decoder())
   nacked.sequence_number |> expect.to_equal(12)
   nacked.content.error_type |> expect.to_equal(nack.ThrottlingError)
   nacked.content.retry_after |> expect.to_equal(Some(5))
@@ -514,12 +517,12 @@ fn list_each(items: List(a), run: fn(a) -> b) -> Nil {
 pub fn attach_codec_round_trip_test() {
   let snapshot = [#("k", json.int(1)), #("s", json.string("v"))]
   let encoded =
-    wire.encode_attach("root", wire.channel_type_map, snapshot)
+    ops.encode_attach("root", wire.channel_type_map, snapshot)
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case wire.decode_op_contents(dynamic) {
+  case ops.decode_op_contents(dynamic) {
     Ok(attach) -> {
-      let assert wire.AttachOp(address, channel_type, entries) = attach
+      let assert ops.AttachOp(address, channel_type, entries) = attach
       address |> expect.to_equal("root")
       channel_type |> expect.to_equal(wire.channel_type_map)
       entries |> expect.to_equal(snapshot)
@@ -533,9 +536,9 @@ pub fn decode_op_contents_discrimination_test() {
   let map_json =
     "{\"address\": \"root\", \"contents\": {\"type\": \"set\", \"key\": \"k\", \"value\": {\"type\": \"Plain\", \"value\": 4}}}"
   let dynamic = parse(map_json, decode.dynamic)
-  case wire.decode_op_contents(dynamic) {
+  case ops.decode_op_contents(dynamic) {
     Ok(channel) -> {
-      let assert wire.ChannelOp(address, op) = channel
+      let assert ops.ChannelOp(address, op) = channel
       address |> expect.to_equal("root")
       let assert Set(k, _) = op
       k |> expect.to_equal("k")
@@ -549,7 +552,7 @@ pub fn decode_op_contents_rejects_bad_attach_test() {
   let bad =
     "{\"type\": \"attach\", \"address\": \"root\", \"channelType\": \"weird\", \"snapshot\": [{\"key\": \"k\", \"value\": 1}]}"
   let dynamic = parse(bad, decode.dynamic)
-  case wire.decode_op_contents(dynamic) {
+  case ops.decode_op_contents(dynamic) {
     Error(_) -> Nil
     Ok(_) ->
       panic as "expected bad attach to be rejected, not decoded as channel op"
@@ -576,7 +579,7 @@ pub fn summary_blob_v2_round_trips_test() {
       #("channels", json.array([channel], fn(c) { c })),
     ])
     |> json.to_string
-  case wire.decode_summary_blob(raw) {
+  case summary_blob.decode(raw) {
     Ok(blob) -> {
       blob.sequence_number |> expect.to_equal(5)
       let assert [ch] = blob.channels
@@ -607,7 +610,7 @@ pub fn summary_blob_unknown_channel_type_rejected_test() {
       #("channels", json.array([channel], fn(c) { c })),
     ])
     |> json.to_string
-  case wire.decode_summary_blob(raw) {
+  case summary_blob.decode(raw) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected unknown channel type to be rejected"
   }

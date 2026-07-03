@@ -48,6 +48,10 @@ import watershed/runtime_core
 import watershed/transport_js.{type Cell, type Channel}
 @target(javascript)
 import watershed/wire
+@target(javascript)
+import watershed/wire/socket
+@target(javascript)
+import watershed/wire/summary_blob
 
 @target(javascript)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
@@ -328,7 +332,7 @@ pub fn get_versions(
 pub fn load_version(
   runtime: Runtime,
   handle: String,
-) -> Promise(Result(wire.SummaryBlob, String)) {
+) -> Promise(Result(summary_blob.SummaryBlob, String)) {
   let state = cell_get(runtime.cell)
   case state.connect_message.token {
     None -> promise.resolve(Error("loading a version requires an auth token"))
@@ -364,7 +368,7 @@ fn finish_summarize(
       push_json(
         channel,
         "submitOp",
-        wire.encode_submit_op(core.client_id, [[outbound]]),
+        socket.encode_submit_op(core.client_id, [[outbound]]),
       )
       cell_set(cell, State(..state, phase: Ready(core, None)))
       Ok(tree_sha)
@@ -425,7 +429,7 @@ fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
 
 @target(javascript)
 fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, wire.connected_message_decoder()) {
+  case decode.run(payload, socket.connected_message_decoder()) {
     Error(_) -> fail(cell, "malformed connect_document_success payload")
     Ok(connected) -> {
       let state = cell_get(cell)
@@ -566,7 +570,7 @@ fn continue_bootstrap(
 
 @target(javascript)
 fn on_connect_error(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, wire.connect_error_decoder()) {
+  case decode.run(payload, socket.connect_error_decoder()) {
     Ok(err) -> fail(cell, err.message)
     Error(_) -> fail(cell, "connect_document_error")
   }
@@ -577,7 +581,7 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
   let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
-      case decode.run(payload, wire.op_message_decoder()) {
+      case decode.run(payload, socket.op_message_decoder()) {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) ->
           case apply_ops(core, message.ops) {
@@ -605,7 +609,7 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
 
 @target(javascript)
 fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, wire.nacks_decoder()) {
+  case decode.run(payload, socket.nacks_decoder()) {
     Error(_) -> fail(cell, "malformed nack payload")
     Ok(nacks) ->
       case list.any(nacks, nack_is_fatal) {
@@ -762,7 +766,7 @@ fn push_connect(
   push_json(
     channel,
     "connect_document",
-    wire.encode_connect_document(connect_message, last_seen),
+    socket.encode_connect_document(connect_message, last_seen),
   )
 }
 
@@ -773,7 +777,7 @@ fn maybe_request_ops(
 ) -> Nil {
   case channel, request_from {
     Some(channel), Some(from) ->
-      push_json(channel, "requestOps", wire.encode_request_ops(from: from))
+      push_json(channel, "requestOps", socket.encode_request_ops(from: from))
     _, _ -> Nil
   }
 }
@@ -791,7 +795,7 @@ fn send_outbound(
         push_json(
           channel,
           "submitOp",
-          wire.encode_submit_op(client_id, [chunk]),
+          socket.encode_submit_op(client_id, [chunk]),
         )
       })
     None, _ -> Nil
