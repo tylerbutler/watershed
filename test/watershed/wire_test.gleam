@@ -23,6 +23,7 @@ import spillway/message
 import spillway/nack
 import spillway/types
 
+import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/wire
 import watershed/wire/ops
@@ -377,6 +378,42 @@ pub fn map_op_rejects_non_plain_value_test() {
                      \"value\": {\"type\": \"Shared\", \"value\": \"handle\"}}}"
   let _ =
     json.parse(shared, ops.map_envelope_decoder())
+    |> expect.to_be_error()
+  Nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// counter op envelope round-trips
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn round_trip_counter_op(op: counter_kernel.CounterOp) {
+  let encoded = ops.encode_counter_envelope("counter", op) |> json.to_string
+  let decoded = parse(encoded, ops.counter_envelope_decoder())
+  decoded |> expect.to_equal(#("counter", op))
+}
+
+pub fn counter_op_increment_round_trip_test() {
+  round_trip_counter_op(counter_kernel.Increment(4))
+}
+
+pub fn counter_op_negative_increment_round_trip_test() {
+  round_trip_counter_op(counter_kernel.Increment(-3))
+}
+
+pub fn counter_op_wire_shape_test() {
+  ops.encode_counter_envelope("counter", counter_kernel.Increment(4))
+  |> json.to_string
+  |> expect.to_equal(
+    "{\"address\":\"counter\",\"contents\":"
+    <> "{\"type\":\"increment\",\"incrementAmount\":4}}",
+  )
+}
+
+pub fn counter_op_rejects_fractional_increment_test() {
+  let fractional =
+    "{\"address\":\"counter\",\"contents\":{\"type\":\"increment\",\"incrementAmount\":1.5}}"
+  let _ =
+    json.parse(fractional, ops.counter_envelope_decoder())
     |> expect.to_be_error()
   Nil
 }

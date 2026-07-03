@@ -2,7 +2,8 @@
 
 A Gleam (BEAM) DDS client toolkit for [levee](https://github.com/tylerbutler/levee) —
 collaborative data structures with optimistic local edits, convergence guaranteed
-by server sequencing, and reconnect safety. The first DDS is SharedMap.
+by server sequencing, and reconnect safety. The runtime-backed DDS is SharedMap;
+`counter_kernel` provides a pure SharedCounter kernel alongside it.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -16,9 +17,9 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 │  handshake · CSN/RSN · inbound ordering ·   │
 │  catch-up · resubmit · nack · event fan-out │
 ├──────────────────────┬──────────────────────┤
-│  map_kernel (PURE)   │  wire (PURE)         │   (M1 ✅ / M3)
+│  DDS kernels (PURE)  │  wire (PURE)         │   (M1 ✅ / M3)
 │  sequenced + pending │  levee channel       │
-│  LWW merge, acks     │  payload codecs      │
+│  LWW/delta merge     │  payload codecs      │
 ├──────────────────────┴──────────────────────┤
 │  aquamarine (channel client, roost codec)   │
 └─────────────────────────────────────────────┘
@@ -31,6 +32,10 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   insertion-order iteration). Unit tests plus qcheck properties: convergence
   across authorship/submit-timing interleavings, ack transparency, and rebase
   equivalence, at 1000 iterations each.
+- **SharedCounter kernel: done.** `watershed/counter_kernel` is a pure port of
+  FluidFramework's `counter.ts` delta semantics: integer increments, optimistic
+  local apply, FIFO acks, local message-id validation, stashed ops, rollback,
+  and summary seeding.
 - **M2 — shared test corpus: done.** 20 scenarios generated from the TS
   `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
 - **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
@@ -43,14 +48,14 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 
 ## Targets
 
-The pure core (`map_kernel`, `wire`, `runtime_core`) is target-agnostic. Two
-runtimes sit on top:
+The pure core (`map_kernel`, `counter_kernel`, `wire`, `runtime_core`) is
+target-agnostic. Two runtimes sit on top:
 
 | Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
 | Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
-| Pure core | `map_kernel` · `wire` · `runtime_core` | ← identical, shared |
+| Pure core | `map_kernel` · `counter_kernel` · `wire` · `runtime_core` | ← identical, shared |
 
 The erlang-only modules are gated with `@target(erlang)` so
 `gleam build --target javascript` compiles just the pure core plus the JS
@@ -82,6 +87,7 @@ just format
 just lint
 ```
 
-Ops are byte-identical to the TS `@fluidframework/map` format
+Map ops are byte-identical to the TS `@fluidframework/map` format
 (`{type: "set"|"delete"|"clear", key?, value?: {type: "Plain", value}}`);
-values are `gleam/json` values in v1.
+SharedCounter ops match `@fluidframework/counter` (`{type: "increment",
+incrementAmount}`).

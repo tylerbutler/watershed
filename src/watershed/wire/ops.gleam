@@ -1,4 +1,4 @@
-//// Codecs for the contents of `"op"` messages: kernel map ops in their
+//// Codecs for the contents of `"op"` messages: kernel DDS ops in their
 //// `{address, contents}` document envelope, attach envelopes carrying a
 //// channel snapshot, and the `"summarize"` op announcing a stored snapshot.
 ////
@@ -12,6 +12,7 @@ import gleam/json.{type Json}
 import gleam/option.{None}
 import gleam/result
 
+import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/wire.{type OutboundOp}
 
@@ -38,6 +39,23 @@ pub fn outbound_map_op(
     reference_sequence_number: reference_sequence_number,
     op_type: "op",
     contents: encode_map_envelope(address, op),
+    metadata: None,
+  )
+}
+
+/// Wrap a SharedCounter op in the document envelope as an outbound `"op"`
+/// message. Counter local message ids are runtime metadata, not wire contents.
+pub fn outbound_counter_op(
+  address address: String,
+  client_sequence_number client_sequence_number: Int,
+  reference_sequence_number reference_sequence_number: Int,
+  op op: CounterOp,
+) -> OutboundOp {
+  wire.OutboundOp(
+    client_sequence_number: client_sequence_number,
+    reference_sequence_number: reference_sequence_number,
+    op_type: "op",
+    contents: encode_counter_envelope(address, op),
     metadata: None,
   )
 }
@@ -130,6 +148,24 @@ pub fn encode_map_op(op: MapOp) -> Json {
   }
 }
 
+/// `{address, contents}` document envelope around a SharedCounter op.
+pub fn encode_counter_envelope(address: String, op: CounterOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_counter_op(op)),
+  ])
+}
+
+pub fn encode_counter_op(op: CounterOp) -> Json {
+  case op {
+    Increment(increment_amount) ->
+      json.object([
+        #("type", json.string("increment")),
+        #("incrementAmount", json.int(increment_amount)),
+      ])
+  }
+}
+
 /// Decode the `contents` of a sequenced `"op"` message into
 /// `#(address, MapOp)`.
 pub fn decode_map_envelope(
@@ -158,6 +194,31 @@ pub fn map_op_decoder() -> Decoder(MapOp) {
     }
     "clear" -> decode.success(Clear)
     _ -> decode.failure(Clear, "MapOp")
+  }
+}
+
+/// Decode the `contents` of a sequenced `"op"` message into
+/// `#(address, CounterOp)`.
+pub fn decode_counter_envelope(
+  contents: Dynamic,
+) -> Result(#(String, CounterOp), List(decode.DecodeError)) {
+  decode.run(contents, counter_envelope_decoder())
+}
+
+pub fn counter_envelope_decoder() -> Decoder(#(String, CounterOp)) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", counter_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn counter_op_decoder() -> Decoder(CounterOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "increment" -> {
+      use increment_amount <- decode.field("incrementAmount", decode.int)
+      decode.success(Increment(increment_amount))
+    }
+    _ -> decode.failure(Increment(0), "CounterOp")
   }
 }
 
