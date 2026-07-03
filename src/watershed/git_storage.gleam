@@ -32,6 +32,7 @@ import gleam/string
 
 import spillway/types.{type SequencedDocumentMessage}
 
+import watershed/channel
 import watershed/wire/socket
 import watershed/wire/summary_blob.{type SummaryBlob}
 
@@ -94,7 +95,7 @@ pub fn upload_summary(
   tenant tenant: String,
   token token: String,
   sequence_number sequence_number: Int,
-  channels channels: List(#(String, List(#(String, json.Json)))),
+  channels channels: List(#(String, channel.Snapshot)),
 ) -> Result(String, String) {
   use blob_sha <- result.try(post_json(
     blobs_url(base_url, tenant),
@@ -182,7 +183,7 @@ pub fn upload_summary(
   tenant tenant: String,
   token token: String,
   sequence_number sequence_number: Int,
-  channels channels: List(#(String, List(#(String, json.Json)))),
+  channels channels: List(#(String, channel.Snapshot)),
 ) -> Promise(Result(String, String)) {
   use blob_sha <- promise.try_await(post_json(
     blobs_url(base_url, tenant),
@@ -296,7 +297,7 @@ fn versions_url(
 
 fn blob_body(
   sequence_number: Int,
-  channels: List(#(String, List(#(String, json.Json)))),
+  channels: List(#(String, channel.Snapshot)),
 ) -> String {
   let blob_json =
     summary_blob.encode_channels(sequence_number, channels)

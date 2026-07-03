@@ -37,11 +37,11 @@ import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 @target(javascript)
+import watershed/channel.{type ChannelEvent}
+@target(javascript)
 import watershed/git_storage
 @target(javascript)
 import watershed/ids
-@target(javascript)
-import watershed/map_kernel.{type MapEvent}
 @target(javascript)
 import watershed/runtime_core
 @target(javascript)
@@ -78,7 +78,7 @@ type State {
     http_base_url: String,
     channel: Option(Channel),
     phase: Phase,
-    subscribers: List(#(String, fn(MapEvent) -> Nil)),
+    subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
   )
@@ -182,13 +182,13 @@ pub fn create_map(runtime: Runtime) -> Result(String, String) {
   case state.phase {
     Ready(core, resubmit_at) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address)
+      let core = runtime_core.create_detached(core, address, channel.MapChannel)
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
     Reconnecting(core) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address)
+      let core = runtime_core.create_detached(core, address, channel.MapChannel)
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }
@@ -215,12 +215,12 @@ pub fn resolve_address(
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote event on the map
+/// Register a callback invoked for every local and remote event on the
 /// channel at `address`.
 pub fn subscribe(
   runtime: Runtime,
   address: String,
-  handler: fn(MapEvent) -> Nil,
+  handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   let state = cell_get(runtime.cell)
   cell_set(
@@ -491,7 +491,7 @@ fn load_summary_then_bootstrap(
                 Some(runtime_core.Summary(
                   sequence_number: ctx.sequence_number,
                   channels: list.map(blob.channels, fn(ch) {
-                    #(ch.address, ch.entries)
+                    #(ch.address, ch.snapshot)
                   }),
                 )),
               )
@@ -655,7 +655,7 @@ fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
 ) -> Result(
-  #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)),
+  #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)),
   runtime_core.CoreError,
 ) {
   do_apply_ops(core, ops, [], None)
@@ -665,10 +665,10 @@ fn apply_ops(
 fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-  events: List(List(#(String, MapEvent))),
+  events: List(List(#(String, ChannelEvent))),
   request_from: Option(Int),
 ) -> Result(
-  #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)),
+  #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)),
   runtime_core.CoreError,
 ) {
   case ops {
@@ -692,7 +692,7 @@ fn edit(
   cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
       runtime_core.CoreError,
     ),
 ) -> Nil {
@@ -837,8 +837,8 @@ fn http_base_from_socket_url(url: String) -> String {
 /// out, so a handler that reads the map during the event observes the
 /// just-applied state (local edits, remote ops, and reconnects alike).
 fn fan_out(
-  subscribers: List(#(String, fn(MapEvent) -> Nil)),
-  events: List(#(String, MapEvent)),
+  subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+  events: List(#(String, ChannelEvent)),
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event

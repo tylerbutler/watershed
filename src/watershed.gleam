@@ -41,11 +41,11 @@ import spillway/types.{
 }
 
 @target(erlang)
+import watershed/channel.{type ChannelEvent}
+@target(erlang)
 import watershed/git_storage.{type SummaryVersion}
 @target(erlang)
 import watershed/handle
-@target(erlang)
-import watershed/map_kernel.{type MapEvent}
 @target(erlang)
 import watershed/runtime
 @target(erlang)
@@ -301,8 +301,9 @@ pub fn size(map: SharedMap) -> Int {
 
 @target(erlang)
 /// Subscribe the calling process to this map's events. The returned subject
-/// receives a `MapEvent` for every local and remote change to this channel.
-pub fn subscribe(map: SharedMap) -> Subject(MapEvent) {
+/// receives a `ChannelEvent` (a `channel.MapEvent(..)` for map channels) for
+/// every local and remote change to this channel.
+pub fn subscribe(map: SharedMap) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(map.runtime, runtime.Subscribe(map.address, subscriber))
   subscriber

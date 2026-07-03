@@ -11,6 +11,7 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
 
+import watershed/channel
 import watershed/map_kernel
 import watershed/transport_js
 import watershed_js.{type Document, WatershedConfig}
@@ -78,12 +79,12 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   let remote_probe = transport_js.new_cell(False)
   watershed_js.subscribe(map_a, fn(event) {
     case event {
-      map_kernel.ValueChanged("local_probe", _, True) ->
+      channel.MapEvent(map_kernel.ValueChanged("local_probe", _, True)) ->
         transport_js.set_cell(
           local_probe,
           watershed_js.get(map_a, "local_probe") == Some(json.int(7)),
         )
-      map_kernel.ValueChanged("remote_probe", _, False) ->
+      channel.MapEvent(map_kernel.ValueChanged("remote_probe", _, False)) ->
         transport_js.set_cell(
           remote_probe,
           watershed_js.get(map_a, "remote_probe") == Some(json.int(9)),

@@ -20,7 +20,8 @@ import gleam/option.{None, Some}
 import gleam/string
 
 import watershed
-import watershed/map_kernel.{type MapEvent, ValueChanged}
+import watershed/channel.{type ChannelEvent}
+import watershed/map_kernel.{ValueChanged}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -45,7 +46,7 @@ const first_roll_delay_ms = 1000
 const roll_interval_ms = 5000
 
 type CliMsg {
-  MapChanged(MapEvent)
+  MapChanged(ChannelEvent)
   RollDue
 }
 
@@ -168,9 +169,10 @@ fn print_die(label: String, map: watershed.SharedMap) -> Nil {
   }
 }
 
-fn print_event(event: MapEvent) -> Nil {
+fn print_event(event: ChannelEvent) -> Nil {
   case event {
-    ValueChanged(key: k, ..) -> io.println("  event: changed key " <> k)
+    channel.MapEvent(ValueChanged(key: k, ..)) ->
+      io.println("  event: changed key " <> k)
     _ -> io.println("  event: " <> string.inspect(event))
   }
 }

@@ -17,6 +17,7 @@ import startest/expect
 import spillway/message
 import spillway/types
 
+import watershed/channel
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/runtime_core.{type Core}
@@ -85,8 +86,7 @@ fn attach_message(
     message_type: "op",
     contents: to_dynamic(ops.encode_attach(
       address,
-      wire.channel_type_map,
-      snapshot,
+      channel.MapSnapshot(snapshot),
     )),
   )
 }
@@ -207,7 +207,7 @@ fn apply(
 fn apply_tagged(
   core: Core,
   msg: types.SequencedDocumentMessage,
-) -> #(Core, List(#(String, map_kernel.MapEvent))) {
+) -> #(Core, List(#(String, channel.ChannelEvent))) {
   case runtime_core.handle_sequenced(core, msg) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
@@ -229,12 +229,12 @@ fn ingest(
 }
 
 fn root_events(
-  events: List(#(String, map_kernel.MapEvent)),
+  events: List(#(String, channel.ChannelEvent)),
 ) -> List(map_kernel.MapEvent) {
   list.filter_map(events, fn(entry) {
-    case entry.0 == "root" {
-      True -> Ok(entry.1)
-      False -> Error(Nil)
+    case entry {
+      #("root", channel.MapEvent(event)) -> Ok(event)
+      _ -> Error(Nil)
     }
   })
 }
@@ -244,7 +244,7 @@ fn root_summary(
   entries: List(#(String, Json)),
 ) -> runtime_core.Summary {
   runtime_core.Summary(sequence_number: sequence_number, channels: [
-    #("root", entries),
+    #("root", channel.MapSnapshot(entries)),
   ])
 }
 
@@ -287,12 +287,28 @@ fn root_delete(
   }
 }
 
-fn decode_outbound_contents(op: wire.OutboundOp) -> ops.OpContents {
+/// An outbound op's contents, fully decoded for comparison: channel op
+/// payloads are stage-two decoded against the map grammar (every channel in
+/// these tests is a map).
+type DecodedOp {
+  DecodedAttach(address: String, snapshot: channel.Snapshot)
+  DecodedChannelOp(address: String, op: channel.ChannelOp)
+}
+
+fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
   case json.parse(json.to_string(op.contents), decode.dynamic) {
     Error(_) -> panic as "failed to re-parse outbound contents"
     Ok(dynamic_value) ->
       case ops.decode_op_contents(dynamic_value) {
-        Ok(contents) -> contents
+        Ok(ops.AttachOp(address, snapshot)) ->
+          DecodedAttach(address: address, snapshot: snapshot)
+        Ok(ops.ChannelOp(address, contents)) ->
+          case
+            decode.run(contents, ops.channel_op_decoder(channel.MapChannel))
+          {
+            Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_) -> panic as "failed to decode outbound op contents"
+          }
         Error(_) -> panic as "failed to decode outbound contents"
       }
   }
@@ -586,7 +602,9 @@ pub fn bootstrap_from_summary_no_deltas_test() {
   core.last_seen_sn |> expect.to_equal(5)
   // The confirmed entries a fresh summarize would capture round-trip exactly.
   runtime_core.summary_channels(core)
-  |> expect.to_equal([#("root", [#("a", json.int(1)), #("b", json.int(2))])])
+  |> expect.to_equal([
+    #("root", channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))])),
+  ])
 }
 
 pub fn bootstrap_dedupes_own_join_push_test() {
@@ -825,7 +843,8 @@ pub fn acks_match_fifo_across_multiple_ops_test() {
       client_id: our_client_id,
       csn: 2,
       address: "root",
-      op: Set("b", json.int(2)),
+      op: channel.MapOp(Set("b", json.int(2))),
+      meta: channel.NoMeta,
     ),
   ])
 
@@ -977,7 +996,8 @@ pub fn reconnect_reconciles_then_resubmits_test() {
       client_id: our_client_id,
       csn: 2,
       address: "root",
-      op: Set("b", json.int(2)),
+      op: channel.MapOp(Set("b", json.int(2))),
+      meta: channel.NoMeta,
     ),
   ])
 
@@ -994,7 +1014,8 @@ pub fn reconnect_reconciles_then_resubmits_test() {
       client_id: reconnect_client_id,
       csn: 3,
       address: "root",
-      op: Set("b", json.int(2)),
+      op: channel.MapOp(Set("b", json.int(2))),
+      meta: channel.NoMeta,
     ),
   ])
   core.next_csn |> expect.to_equal(4)
@@ -1119,19 +1140,22 @@ pub fn resubmit_restamps_in_flight_in_order_test() {
       client_id: reconnect_client_id,
       csn: 4,
       address: "root",
-      op: Set("a", json.int(1)),
+      op: channel.MapOp(Set("a", json.int(1))),
+      meta: channel.NoMeta,
     ),
     runtime_core.InFlightOp(
       client_id: reconnect_client_id,
       csn: 5,
       address: "root",
-      op: Set("b", json.int(2)),
+      op: channel.MapOp(Set("b", json.int(2))),
+      meta: channel.NoMeta,
     ),
     runtime_core.InFlightOp(
       client_id: reconnect_client_id,
       csn: 6,
       address: "root",
-      op: Delete("a"),
+      op: channel.MapOp(Delete("a")),
+      meta: channel.NoMeta,
     ),
   ])
   list.length(outbound) |> expect.to_equal(3)
@@ -1175,7 +1199,14 @@ pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events
     )
   events
   |> expect.to_equal([
-    #("child", ValueChanged(key: "b", previous_value: None, local: False)),
+    #(
+      "child",
+      channel.MapEvent(ValueChanged(
+        key: "b",
+        previous_value: None,
+        local: False,
+      )),
+    ),
   ])
   runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
 }
@@ -1212,13 +1243,20 @@ pub fn duplicate_attach_is_fatal_test() {
 
 pub fn detached_edits_produce_no_outbound_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
 
   case runtime_core.set(core, "child", "a", json.int(1)) {
     Ok(#(core, events, outbound)) -> {
       events
       |> expect.to_equal([
-        #("child", ValueChanged(key: "a", previous_value: None, local: True)),
+        #(
+          "child",
+          channel.MapEvent(ValueChanged(
+            key: "a",
+            previous_value: None,
+            local: True,
+          )),
+        ),
       ])
       outbound |> expect.to_equal([])
       core.in_flight |> expect.to_equal([])
@@ -1231,8 +1269,8 @@ pub fn detached_edits_produce_no_outbound_test() {
 
 pub fn handle_set_emits_recursive_attach_post_order_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
-  let core = runtime_core.create_detached(core, "grand")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "grand", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "grand", "g", json.int(1))
   let assert Ok(#(core, _, [])) =
@@ -1243,23 +1281,28 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
 
   events
   |> expect.to_equal([
-    #("root", ValueChanged(key: "child", previous_value: None, local: True)),
+    #(
+      "root",
+      channel.MapEvent(ValueChanged(
+        key: "child",
+        previous_value: None,
+        local: True,
+      )),
+    ),
   ])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    ops.AttachOp(
+    DecodedAttach(
       address: "grand",
-      channel_type: wire.channel_type_map,
-      snapshot: [#("g", json.int(1))],
+      snapshot: channel.MapSnapshot([#("g", json.int(1))]),
     ),
-    ops.AttachOp(
+    DecodedAttach(
       address: "child",
-      channel_type: wire.channel_type_map,
-      snapshot: [#("ref", handle.encode_handle("grand"))],
+      snapshot: channel.MapSnapshot([#("ref", handle.encode_handle("grand"))]),
     ),
-    ops.ChannelOp(
+    DecodedChannelOp(
       address: "root",
-      op: Set("child", handle.encode_handle("child")),
+      op: channel.MapOp(Set("child", handle.encode_handle("child"))),
     ),
   ])
   runtime_core.has_channel(core, "child") |> expect.to_be_true()
@@ -1268,8 +1311,8 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
 
 pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "a")
-  let core = runtime_core.create_detached(core, "b")
+  let core = runtime_core.create_detached(core, "a", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "b", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "a", "peer", handle.encode_handle("b"))
   let assert Ok(#(core, _, [])) =
@@ -1280,19 +1323,24 @@ pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
 
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    ops.AttachOp(address: "b", channel_type: wire.channel_type_map, snapshot: [
-      #("peer", handle.encode_handle("a")),
-    ]),
-    ops.AttachOp(address: "a", channel_type: wire.channel_type_map, snapshot: [
-      #("peer", handle.encode_handle("b")),
-    ]),
-    ops.ChannelOp(address: "root", op: Set("ref", handle.encode_handle("a"))),
+    DecodedAttach(
+      address: "b",
+      snapshot: channel.MapSnapshot([#("peer", handle.encode_handle("a"))]),
+    ),
+    DecodedAttach(
+      address: "a",
+      snapshot: channel.MapSnapshot([#("peer", handle.encode_handle("b"))]),
+    ),
+    DecodedChannelOp(
+      address: "root",
+      op: channel.MapOp(Set("ref", handle.encode_handle("a"))),
+    ),
   ])
 }
 
 pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, initial_outbound)) =
@@ -1305,30 +1353,39 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
   |> expect.to_equal([
     #(
       "child",
-      ValueChanged(key: "a", previous_value: Some(json.int(1)), local: True),
+      channel.MapEvent(ValueChanged(
+        key: "a",
+        previous_value: Some(json.int(1)),
+        local: True,
+      )),
     ),
   ])
   decode_outbound_contents(child_outbound)
-  |> expect.to_equal(ops.ChannelOp(address: "child", op: Set("a", json.int(2))))
+  |> expect.to_equal(DecodedChannelOp(
+    address: "child",
+    op: channel.MapOp(Set("a", json.int(2))),
+  ))
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: our_client_id,
       csn: 1,
       address: "child",
-      snapshot: [#("a", json.int(1))],
+      snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOp(
       client_id: our_client_id,
       csn: 2,
       address: "root",
-      op: Set("ref", handle.encode_handle("child")),
+      op: channel.MapOp(Set("ref", handle.encode_handle("child"))),
+      meta: channel.NoMeta,
     ),
     runtime_core.InFlightOp(
       client_id: our_client_id,
       csn: 3,
       address: "child",
-      op: Set("a", json.int(2)),
+      op: channel.MapOp(Set("a", json.int(2))),
+      meta: channel.NoMeta,
     ),
   ])
 
@@ -1375,7 +1432,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
 
 pub fn attach_ack_pops_with_no_events_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, outbound)) =
@@ -1386,13 +1443,13 @@ pub fn attach_ack_pops_with_no_events_test() {
       address: "child",
       client_sequence_number: 1,
       reference_sequence_number: 1,
-      snapshot: [#("a", json.int(1))],
+      snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
-    ops.outbound_map_op(
+    ops.outbound_channel_op(
       address: "root",
       client_sequence_number: 2,
       reference_sequence_number: 1,
-      op: Set("ref", handle.encode_handle("child")),
+      op: channel.MapOp(Set("ref", handle.encode_handle("child"))),
     ),
   ])
 
@@ -1415,14 +1472,15 @@ pub fn attach_ack_pops_with_no_events_test() {
       client_id: our_client_id,
       csn: 2,
       address: "root",
-      op: Set("ref", handle.encode_handle("child")),
+      op: channel.MapOp(Set("ref", handle.encode_handle("child"))),
+      meta: channel.NoMeta,
     ),
   ])
 }
 
 pub fn attach_ack_mismatch_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1448,7 +1506,7 @@ pub fn attach_ack_mismatch_is_fatal_test() {
 
 pub fn attach_ack_value_mismatch_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1474,7 +1532,7 @@ pub fn attach_ack_value_mismatch_is_fatal_test() {
 
 pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child")
+  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1495,41 +1553,42 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
       client_id: reconnect_client_id,
       csn: 4,
       address: "child",
-      snapshot: [#("a", json.int(1))],
+      snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOp(
       client_id: reconnect_client_id,
       csn: 5,
       address: "root",
-      op: Set("ref", handle.encode_handle("child")),
+      op: channel.MapOp(Set("ref", handle.encode_handle("child"))),
+      meta: channel.NoMeta,
     ),
     runtime_core.InFlightOp(
       client_id: reconnect_client_id,
       csn: 6,
       address: "child",
-      op: Set("a", json.int(2)),
+      op: channel.MapOp(Set("a", json.int(2))),
+      meta: channel.NoMeta,
     ),
   ])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    ops.AttachOp(
+    DecodedAttach(
       address: "child",
-      channel_type: wire.channel_type_map,
-      snapshot: [#("a", json.int(1))],
+      snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
-    ops.ChannelOp(
+    DecodedChannelOp(
       address: "root",
-      op: Set("ref", handle.encode_handle("child")),
+      op: channel.MapOp(Set("ref", handle.encode_handle("child"))),
     ),
-    ops.ChannelOp(address: "child", op: Set("a", json.int(2))),
+    DecodedChannelOp(address: "child", op: channel.MapOp(Set("a", json.int(2)))),
   ])
 }
 
 pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
   let summary =
     runtime_core.Summary(sequence_number: 5, channels: [
-      #("root", [#("die", json.int(4))]),
-      #("child", [#("a", json.int(1))]),
+      #("root", channel.MapSnapshot([#("die", json.int(4))])),
+      #("child", channel.MapSnapshot([#("a", json.int(1))])),
     ])
   let deltas = [
     attach_message(
@@ -1558,9 +1617,12 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
       runtime_core.get(core, "grand", "g") |> expect.to_equal(Some(json.int(9)))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
-        #("root", [#("die", json.int(4))]),
-        #("child", [#("a", json.int(1)), #("b", json.int(2))]),
-        #("grand", [#("g", json.int(9))]),
+        #("root", channel.MapSnapshot([#("die", json.int(4))])),
+        #(
+          "child",
+          channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))]),
+        ),
+        #("grand", channel.MapSnapshot([#("g", json.int(9))])),
       ])
     }
     _ -> panic as "expected multi-channel summary bootstrap to succeed"
@@ -1599,8 +1661,14 @@ pub fn bootstrap_from_bare_attach_history_test() {
       |> expect.to_equal(Some(handle.encode_handle("child")))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
-        #("root", [#("ref", handle.encode_handle("child"))]),
-        #("child", [#("a", json.int(1)), #("b", json.int(2))]),
+        #(
+          "root",
+          channel.MapSnapshot([#("ref", handle.encode_handle("child"))]),
+        ),
+        #(
+          "child",
+          channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))]),
+        ),
       ])
     }
     _ -> panic as "expected attach history bootstrap to succeed"

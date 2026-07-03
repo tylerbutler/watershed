@@ -28,7 +28,8 @@ import gleam/option.{None, Some}
 import gleam/string
 
 import watershed
-import watershed/map_kernel.{type MapEvent, Cleared, ValueChanged}
+import watershed/channel.{type ChannelEvent}
+import watershed/map_kernel.{Cleared, ValueChanged}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -61,9 +62,9 @@ const resolve_attempts = 25
 
 type Msg {
   /// The roster map changed: a player joined (or re-registered).
-  RosterChanged(MapEvent)
+  RosterChanged(ChannelEvent)
   /// Some player's own map changed: a roll landed.
-  ScoreChanged(MapEvent)
+  ScoreChanged(ChannelEvent)
   RollDue
 }
 
@@ -197,7 +198,7 @@ fn event_loop(state: State) -> Nil {
       schedule_roll(state.roll_due, roll_interval_ms)
       event_loop(state)
     }
-    RosterChanged(ValueChanged(key: player_id, ..)) -> {
+    RosterChanged(channel.MapEvent(ValueChanged(key: player_id, ..))) -> {
       let new_state = watch_player(state, player_id)
       case dict.size(new_state.known) > dict.size(state.known) {
         True -> print_scoreboard(new_state)
@@ -205,15 +206,15 @@ fn event_loop(state: State) -> Nil {
       }
       event_loop(new_state)
     }
-    RosterChanged(Cleared(..)) -> {
+    RosterChanged(channel.MapEvent(Cleared(..))) -> {
       event_loop(state)
     }
     ScoreChanged(event) -> {
       // A remote roll writes three keys ("last_roll", "total", "rolls");
       // reprint once, on the final write. Local writes already print above.
       case event {
-        ValueChanged(key: "rolls", local: False, ..) | Cleared(local: False) ->
-          print_scoreboard(state)
+        channel.MapEvent(ValueChanged(key: "rolls", local: False, ..))
+        | channel.MapEvent(Cleared(local: False)) -> print_scoreboard(state)
         _ -> Nil
       }
       event_loop(state)

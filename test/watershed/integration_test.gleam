@@ -33,6 +33,8 @@ import startest/expect
 @target(erlang)
 import watershed
 @target(erlang)
+import watershed/channel
+@target(erlang)
 import watershed/git_storage
 @target(erlang)
 import watershed/handle
@@ -134,11 +136,11 @@ pub fn reconnect_mid_attach_test() {
 }
 
 @target(erlang)
-/// M7: a fresh client bootstraps nested maps from a summary v2 blob alone
+/// M7: a fresh client bootstraps nested maps from a summary blob alone
 /// (the attach op predates its history) and resolves the child.
-pub fn summary_v2_nested_bootstrap_test() {
+pub fn summary_nested_bootstrap_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
-    Ok("1") -> run_summary_v2_nested_test()
+    Ok("1") -> run_summary_nested_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -281,7 +283,7 @@ fn run_reconnect_mid_attach_test() -> Nil {
 }
 
 @target(erlang)
-fn run_summary_v2_nested_test() -> Nil {
+fn run_summary_nested_test() -> Nil {
   let document = "watershed-s2-" <> int.to_string(system_time(Second))
 
   let doc_a = connect_or_panic(document, "user-a")
@@ -349,10 +351,11 @@ fn run_load_version_multichannel_test() -> Nil {
   case blob.channels {
     [root_channel, child_channel] -> {
       root_channel.address |> expect.to_equal("root")
-      root_channel.entries
+      snapshot_entries(root_channel.snapshot)
       |> expect.to_equal([#("child", handle_value)])
       child_channel.address |> expect.to_equal(child_address)
-      child_channel.entries |> expect.to_equal([#("die", json.int(4))])
+      snapshot_entries(child_channel.snapshot)
+      |> expect.to_equal([#("die", json.int(4))])
     }
     _ -> panic as "expected exactly two channels in the summary blob"
   }
@@ -454,14 +457,20 @@ fn run_versions_test() -> Nil {
   // Historical snapshot reads by handle: each version returns exactly the
   // confirmed state it captured, without affecting the live document.
   let assert Ok(blob_1) = watershed.load_version(doc, handle: handle_1)
-  let entries_1 = list.flatten(list.map(blob_1.channels, fn(ch) { ch.entries }))
+  let entries_1 =
+    list.flatten(
+      list.map(blob_1.channels, fn(ch) { snapshot_entries(ch.snapshot) }),
+    )
   entries_1
   |> expect.to_equal([
     #("die", json.int(4)),
     #("color", json.string("blue")),
   ])
   let assert Ok(blob_2) = watershed.load_version(doc, handle: handle_2)
-  let entries_2 = list.flatten(list.map(blob_2.channels, fn(ch) { ch.entries }))
+  let entries_2 =
+    list.flatten(
+      list.map(blob_2.channels, fn(ch) { snapshot_entries(ch.snapshot) }),
+    )
   entries_2
   |> expect.to_equal([
     #("die", json.int(4)),
@@ -699,6 +708,14 @@ fn connect_or_panic(document: String, user_id: String) -> watershed.Document {
     Ok(doc) -> doc
     Error(reason) -> panic as { "connect failed: " <> reason }
   }
+}
+
+@target(erlang)
+/// The map entries a summary blob channel captured. Every channel in these
+/// tests is a map.
+fn snapshot_entries(snapshot: channel.Snapshot) -> List(#(String, Json)) {
+  let channel.MapSnapshot(entries) = snapshot
+  entries
 }
 
 @target(erlang)

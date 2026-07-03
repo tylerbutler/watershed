@@ -21,7 +21,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed/map_kernel.{type MapEvent}
+import watershed/channel.{type ChannelEvent}
 import watershed_js.{type Document, WatershedConfig}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -112,7 +112,7 @@ fn connect_effect(user_id: String) -> Effect(Msg) {
     // Local edits fire synchronously from inside `update` (Roll → set →
     // event), and a dispatch nested in a running update is clobbered when the
     // outer update returns — so defer it to a microtask.
-    watershed_js.subscribe(map, fn(_event: MapEvent) {
+    watershed_js.subscribe(map, fn(_event: ChannelEvent) {
       queue_microtask(fn() { dispatch(MapChanged) })
     })
     dispatch(GotHandle(doc))

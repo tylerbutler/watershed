@@ -23,6 +23,7 @@ import spillway/message
 import spillway/nack
 import spillway/types
 
+import watershed/channel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/wire
@@ -220,18 +221,18 @@ pub fn summary_blob_round_trips_test() {
     #("nested", json.object([#("a", json.array([1, 2], json.int))])),
   ]
   let encoded =
-    summary_blob.encode_channels(7, [#("root", entries)])
+    summary_blob.encode_channels(7, [#("root", channel.MapSnapshot(entries))])
     |> json.to_string
   let assert Ok(blob) = summary_blob.decode(encoded)
   blob.sequence_number |> expect.to_equal(7)
-  let assert [channel] = blob.channels
-  channel.address |> expect.to_equal("root")
-  channel.channel_type |> expect.to_equal(wire.channel_type_map)
+  let assert [decoded_channel] = blob.channels
+  decoded_channel.address |> expect.to_equal("root")
+  let channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
   // Values compare structurally by re-encoding through the same codec.
   let normalize = fn(pairs: List(#(String, json.Json))) {
     list.map(pairs, fn(pair) { #(pair.0, json.to_string(pair.1)) })
   }
-  normalize(channel.entries) |> expect.to_equal(normalize(entries))
+  normalize(decoded_entries) |> expect.to_equal(normalize(entries))
 }
 
 pub fn summary_blob_rejects_unknown_version_test() {
@@ -424,11 +425,11 @@ pub fn counter_op_rejects_fractional_increment_test() {
 
 pub fn encode_submit_op_test() {
   let op =
-    ops.outbound_map_op(
+    ops.outbound_channel_op(
       address: "root",
       client_sequence_number: 1,
       reference_sequence_number: 5,
-      op: Set("die", json.int(4)),
+      op: channel.MapOp(Set("die", json.int(4))),
     )
 
   socket.encode_submit_op("default_dice_1", [[op]])
@@ -549,36 +550,38 @@ fn list_each(items: List(a), run: fn(a) -> b) -> Nil {
   list.each(items, run)
 }
 
-// New tests for attach ops and summary v2
+// New tests for attach ops and the summary blob
 
 pub fn attach_codec_round_trip_test() {
-  let snapshot = [#("k", json.int(1)), #("s", json.string("v"))]
+  let entries = [#("k", json.int(1)), #("s", json.string("v"))]
   let encoded =
-    ops.encode_attach("root", wire.channel_type_map, snapshot)
+    ops.encode_attach("root", channel.MapSnapshot(entries))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case ops.decode_op_contents(dynamic) {
     Ok(attach) -> {
-      let assert ops.AttachOp(address, channel_type, entries) = attach
+      let assert ops.AttachOp(address, snapshot) = attach
       address |> expect.to_equal("root")
-      channel_type |> expect.to_equal(wire.channel_type_map)
-      entries |> expect.to_equal(snapshot)
+      snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
     Error(_) -> panic as "attach decode failed"
   }
 }
 
 pub fn decode_op_contents_discrimination_test() {
-  // Map envelope should decode as ChannelOp
+  // A map envelope decodes as ChannelOp, its payload left for stage-two
+  // decoding against the addressed channel's registered type.
   let map_json =
     "{\"address\": \"root\", \"contents\": {\"type\": \"set\", \"key\": \"k\", \"value\": {\"type\": \"Plain\", \"value\": 4}}}"
   let dynamic = parse(map_json, decode.dynamic)
   case ops.decode_op_contents(dynamic) {
-    Ok(channel) -> {
-      let assert ops.ChannelOp(address, op) = channel
+    Ok(contents) -> {
+      let assert ops.ChannelOp(address, payload) = contents
       address |> expect.to_equal("root")
-      let assert Set(k, _) = op
-      k |> expect.to_equal("k")
+      case decode.run(payload, ops.channel_op_decoder(channel.MapChannel)) {
+        Ok(channel.MapOp(Set(k, _))) -> k |> expect.to_equal("k")
+        _ -> panic as "stage-two map op decode failed"
+      }
     }
     Error(_) -> panic as "channel op decode failed"
   }
@@ -596,14 +599,14 @@ pub fn decode_op_contents_rejects_bad_attach_test() {
   }
 }
 
-pub fn summary_blob_v2_round_trips_test() {
+pub fn summary_blob_v3_round_trips_test() {
   let entries = [#("a", json.int(1))]
-  let channel =
+  let channel_json =
     json.object([
       #("address", json.string("root")),
       #("type", json.string(wire.channel_type_map)),
       #(
-        "entries",
+        "data",
         json.array(entries, fn(e) {
           json.object([#("key", json.string(e.0)), #("value", e.1)])
         }),
@@ -611,9 +614,9 @@ pub fn summary_blob_v2_round_trips_test() {
     ])
   let raw =
     json.object([
-      #("watershedSummaryVersion", json.int(2)),
+      #("watershedSummaryVersion", json.int(3)),
       #("sequenceNumber", json.int(5)),
-      #("channels", json.array([channel], fn(c) { c })),
+      #("channels", json.array([channel_json], fn(c) { c })),
     ])
     |> json.to_string
   case summary_blob.decode(raw) {
@@ -621,20 +624,33 @@ pub fn summary_blob_v2_round_trips_test() {
       blob.sequence_number |> expect.to_equal(5)
       let assert [ch] = blob.channels
       ch.address |> expect.to_equal("root")
-      ch.channel_type |> expect.to_equal(wire.channel_type_map)
+      ch.snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
-    Error(_) -> panic as "v2 decode failed"
+    Error(_) -> panic as "v3 decode failed"
+  }
+}
+
+pub fn summary_blob_rejects_superseded_version_test() {
+  // The v2 shape (per-channel `entries`, version 2) has no loader: formats
+  // are cut clean while nothing external consumes them.
+  let raw =
+    "{\"watershedSummaryVersion\": 2, \"sequenceNumber\": 5,"
+    <> " \"channels\": [{\"address\": \"root\", \"type\": \"map\","
+    <> " \"entries\": [{\"key\": \"a\", \"value\": 1}]}]}"
+  case summary_blob.decode(raw) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected the superseded v2 format to be rejected"
   }
 }
 
 pub fn summary_blob_unknown_channel_type_rejected_test() {
   let entries = [#("a", json.int(1))]
-  let channel =
+  let channel_json =
     json.object([
       #("address", json.string("root")),
       #("type", json.string("weird")),
       #(
-        "entries",
+        "data",
         json.array(entries, fn(e) {
           json.object([#("key", json.string(e.0)), #("value", e.1)])
         }),
@@ -642,9 +658,9 @@ pub fn summary_blob_unknown_channel_type_rejected_test() {
     ])
   let raw =
     json.object([
-      #("watershedSummaryVersion", json.int(2)),
+      #("watershedSummaryVersion", json.int(3)),
       #("sequenceNumber", json.int(5)),
-      #("channels", json.array([channel], fn(c) { c })),
+      #("channels", json.array([channel_json], fn(c) { c })),
     ])
     |> json.to_string
   case summary_blob.decode(raw) {

@@ -3,9 +3,11 @@
 //// Owns the client half of spillway's sequencing discipline: CSN strictly
 //// increasing per connection, RSN = last seen sequence number, dedupe by SN,
 //// FIFO ack matching, and optimistic local state for attached and detached
-//// map channels.
+//// channels. Kernel state, ops, and events flow through the closed sums in
+//// `watershed/channel`; the sequencing discipline itself is kernel-agnostic.
 
 import gleam/dict.{type Dict}
+import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -16,8 +18,11 @@ import gleam/result
 import spillway/message.{type ConnectedMessage}
 import spillway/types.{type SequencedDocumentMessage}
 
+import watershed/channel.{
+  type ChannelEvent, type ChannelState, type Snapshot, SequencedMeta,
+}
 import watershed/handle
-import watershed/map_kernel.{type MapEvent, type MapOp}
+import watershed/map_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -26,9 +31,9 @@ const root_address = "root"
 pub type Core {
   Core(
     client_id: String,
-    channels: Dict(String, map_kernel.MapState),
+    channels: Dict(String, ChannelState),
     channel_order: List(String),
-    detached: Dict(String, map_kernel.MapState),
+    detached: Dict(String, ChannelState),
     next_csn: Int,
     last_seen_sn: Int,
     in_flight: List(InFlight),
@@ -37,12 +42,18 @@ pub type Core {
 }
 
 pub type InFlight {
-  InFlightOp(client_id: String, csn: Int, address: String, op: MapOp)
+  InFlightOp(
+    client_id: String,
+    csn: Int,
+    address: String,
+    op: channel.ChannelOp,
+    meta: channel.LocalOpMeta,
+  )
   InFlightAttach(
     client_id: String,
     csn: Int,
     address: String,
-    snapshot: List(#(String, Json)),
+    snapshot: Snapshot,
   )
 }
 
@@ -60,14 +71,11 @@ pub type Bootstrapped {
 }
 
 pub type Ingested {
-  Ingested(events: List(#(String, MapEvent)), request_ops_from: Option(Int))
+  Ingested(events: List(#(String, ChannelEvent)), request_ops_from: Option(Int))
 }
 
 pub type Summary {
-  Summary(
-    sequence_number: Int,
-    channels: List(#(String, List(#(String, Json)))),
-  )
+  Summary(sequence_number: Int, channels: List(#(String, Snapshot)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -144,10 +152,10 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   }
 }
 
-pub fn summary_channels(core: Core) -> List(#(String, List(#(String, Json)))) {
+pub fn summary_channels(core: Core) -> List(#(String, Snapshot)) {
   list.filter_map(core.channel_order, fn(address) {
     case dict.get(core.channels, address) {
-      Ok(kernel) -> Ok(#(address, map_kernel.sequenced_entries(kernel)))
+      Ok(state) -> Ok(#(address, channel.snapshot(state)))
       Error(_) -> Error(Nil)
     }
   })
@@ -177,24 +185,24 @@ pub fn build_summarize(
 }
 
 fn seed_channels(
-  seeded: List(#(String, List(#(String, Json)))),
-) -> #(Dict(String, map_kernel.MapState), List(String)) {
+  seeded: List(#(String, Snapshot)),
+) -> #(Dict(String, ChannelState), List(String)) {
   let #(channels, channel_order) =
     list.fold(seeded, #(dict.new(), []), fn(acc, entry) {
       let #(channels, channel_order) = acc
-      let #(address, entries) = entry
+      let #(address, snapshot) = entry
       #(
-        dict.insert(channels, address, map_kernel.from_sequenced(entries)),
+        dict.insert(channels, address, channel.from_snapshot(snapshot)),
         list.unique(list.append(channel_order, [address])),
       )
     })
 
   case dict.has_key(channels, root_address) {
     True -> #(channels, channel_order)
-    False -> #(dict.insert(channels, root_address, map_kernel.new()), [
-      root_address,
-      ..channel_order
-    ])
+    False -> #(
+      dict.insert(channels, root_address, channel.new(channel.MapChannel)),
+      [root_address, ..channel_order],
+    )
   }
 }
 
@@ -227,9 +235,15 @@ fn restamp_in_flight(
   csn: Int,
 ) -> #(InFlight, wire.OutboundOp) {
   case entry {
-    InFlightOp(address: address, op: op, ..) -> #(
-      InFlightOp(client_id: core.client_id, csn: csn, address: address, op: op),
-      ops.outbound_map_op(
+    InFlightOp(address: address, op: op, meta: meta, ..) -> #(
+      InFlightOp(
+        client_id: core.client_id,
+        csn: csn,
+        address: address,
+        op: op,
+        meta: meta,
+      ),
+      ops.outbound_channel_op(
         address: address,
         client_sequence_number: csn,
         reference_sequence_number: core.last_seen_sn,
@@ -284,7 +298,7 @@ pub fn handle_sequenced(
 fn apply_one(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_op(core, msg)
@@ -294,7 +308,7 @@ fn apply_one(
 
 fn drain_buffer(
   core: Core,
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   case core.out_of_order {
     [head, ..rest] if head.sequence_number <= core.last_seen_sn ->
       drain_buffer(Core(..core, out_of_order: rest))
@@ -328,37 +342,57 @@ fn buffer_insert(
 fn handle_op(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   case ops.decode_op_contents(msg.contents) {
     Error(_) -> Error(BadOpContents(msg.sequence_number))
-    Ok(ops.AttachOp(address, channel_type, snapshot)) -> {
-      case channel_type == wire.channel_type_map {
-        False -> Error(BadOpContents(msg.sequence_number))
-        True ->
-          case is_own_op(core, msg.client_id) {
-            True ->
-              ack_own_attach(
-                core,
-                msg.client_id,
-                msg.client_sequence_number,
-                address,
-                snapshot,
-              )
-            False -> remote_attach(core, msg.sequence_number, address, snapshot)
-          }
-      }
-    }
-    Ok(ops.ChannelOp(address, op)) ->
+    Ok(ops.AttachOp(address, snapshot)) ->
       case is_own_op(core, msg.client_id) {
         True ->
-          ack_own_op(
+          ack_own_attach(
             core,
             msg.client_id,
             msg.client_sequence_number,
             address,
-            op,
+            snapshot,
           )
-        False -> apply_remote_channel(core, msg.sequence_number, address, op)
+        False -> remote_attach(core, msg.sequence_number, address, snapshot)
+      }
+    Ok(ops.ChannelOp(address, raw_contents)) ->
+      // The op envelope carries no channel type; the registry is the
+      // authoritative source, so decode against the addressed channel's own
+      // grammar. Channels are always attached before their ops arrive.
+      case dict.get(core.channels, address) {
+        Error(_) -> Error(UnknownChannel(address, msg.sequence_number))
+        Ok(state) ->
+          case
+            decode.run(
+              raw_contents,
+              ops.channel_op_decoder(channel.channel_type(state)),
+            )
+          {
+            Error(_) -> Error(BadOpContents(msg.sequence_number))
+            Ok(op) ->
+              case is_own_op(core, msg.client_id) {
+                True ->
+                  ack_own_op(
+                    core,
+                    msg.client_id,
+                    msg.client_sequence_number,
+                    address,
+                    state,
+                    op,
+                    msg.sequence_number,
+                  )
+                False ->
+                  apply_remote_channel(
+                    core,
+                    msg.sequence_number,
+                    address,
+                    state,
+                    op,
+                  )
+              }
+          }
       }
   }
 }
@@ -386,18 +420,14 @@ fn remote_attach(
   core: Core,
   sequence_number: Int,
   address: String,
-  snapshot: List(#(String, Json)),
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  snapshot: Snapshot,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   case has_channel(core, address) {
     True -> Error(DuplicateAttach(address, sequence_number))
     False ->
       Ok(
         #(
-          add_attached_channel(
-            core,
-            address,
-            map_kernel.from_sequenced(snapshot),
-          ),
+          add_attached_channel(core, address, channel.from_snapshot(snapshot)),
           [],
         ),
       )
@@ -408,17 +438,18 @@ fn apply_remote_channel(
   core: Core,
   sequence_number: Int,
   address: String,
-  op: MapOp,
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
-  case dict.get(core.channels, address) {
-    Error(_) -> Error(UnknownChannel(address, sequence_number))
-    Ok(kernel) -> {
-      let #(kernel, events) = map_kernel.apply_remote(kernel, op)
+  state: ChannelState,
+  op: channel.ChannelOp,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+  let meta =
+    SequencedMeta(seq: sequence_number, last_seen_sn: core.last_seen_sn)
+  case channel.apply_remote(state, op, meta) {
+    Ok(#(state, events)) ->
       Ok(#(
-        put_attached_channel(core, address, kernel),
+        put_attached_channel(core, address, state),
         tag_events(address, events),
       ))
-    }
+    Error(channel.UnexpectedAck(detail)) -> Error(AckMismatch(detail))
   }
 }
 
@@ -427,8 +458,8 @@ fn ack_own_attach(
   message_client_id: Option(String),
   csn: Int,
   address: String,
-  echoed: List(#(String, Json)),
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  echoed: Snapshot,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   case core.in_flight {
     [] ->
       Error(AckMismatch(
@@ -448,7 +479,7 @@ fn ack_own_attach(
             Some(client_id) == message_client_id
             && head_csn == csn
             && head_address == address
-            && same_attach_shape(snapshot, echoed)
+            && channel.same_snapshot(snapshot, echoed)
           {
             True -> Ok(#(Core(..core, in_flight: rest), []))
             False ->
@@ -475,8 +506,10 @@ fn ack_own_op(
   message_client_id: Option(String),
   csn: Int,
   address: String,
-  echoed: MapOp,
-) -> Result(#(Core, List(#(String, MapEvent))), CoreError) {
+  state: ChannelState,
+  echoed: channel.ChannelOp,
+  sequence_number: Int,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
   case core.in_flight {
     [] ->
       Error(AckMismatch(
@@ -491,12 +524,13 @@ fn ack_own_op(
           csn: head_csn,
           address: head_address,
           op: op,
+          meta: meta,
         ) ->
           case
             Some(client_id) == message_client_id
             && head_csn == csn
             && head_address == address
-            && same_shape(op, echoed)
+            && channel.same_shape(op, echoed)
           {
             False ->
               Error(AckMismatch(
@@ -505,30 +539,26 @@ fn ack_own_op(
                 <> ", got csn "
                 <> int.to_string(csn),
               ))
-            True ->
-              case dict.get(core.channels, address) {
-                Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-                Ok(kernel) ->
-                  case map_kernel.ack_local(kernel, op) {
-                    Ok(kernel) ->
-                      Ok(
-                        #(
-                          Core(
-                            ..core,
-                            channels: dict.insert(
-                              core.channels,
-                              address,
-                              kernel,
-                            ),
-                            in_flight: rest,
-                          ),
-                          [],
-                        ),
-                      )
-                    Error(map_kernel.UnexpectedAck(_, detail)) ->
-                      Error(AckMismatch(detail))
-                  }
+            True -> {
+              let sequenced_meta =
+                SequencedMeta(
+                  seq: sequence_number,
+                  last_seen_sn: core.last_seen_sn,
+                )
+              case channel.ack_local(state, op, meta, sequenced_meta) {
+                Ok(#(state, events)) ->
+                  Ok(#(
+                    Core(
+                      ..core,
+                      channels: dict.insert(core.channels, address, state),
+                      in_flight: rest,
+                    ),
+                    tag_events(address, events),
+                  ))
+                Error(channel.UnexpectedAck(detail)) ->
+                  Error(AckMismatch(detail))
               }
+            }
           }
         InFlightAttach(csn: head_csn, ..) ->
           Error(AckMismatch(
@@ -541,53 +571,21 @@ fn ack_own_op(
   }
 }
 
-fn same_shape(ours: MapOp, echoed: MapOp) -> Bool {
-  case ours, echoed {
-    map_kernel.Set(our_key, _), map_kernel.Set(echoed_key, _) ->
-      our_key == echoed_key
-    map_kernel.Delete(our_key), map_kernel.Delete(echoed_key) ->
-      our_key == echoed_key
-    map_kernel.Clear, map_kernel.Clear -> True
-    _, _ -> False
-  }
-}
-
-fn same_attach_shape(
-  ours: List(#(String, Json)),
-  echoed: List(#(String, Json)),
-) -> Bool {
-  case ours, echoed {
-    [], [] -> True
-    [our, ..our_rest], [echoed, ..echoed_rest] ->
-      our.0 == echoed.0
-      && same_json_value(our.1, echoed.1)
-      && same_attach_shape(our_rest, echoed_rest)
-    _, _ -> False
-  }
-}
-
-fn same_json_value(ours: Json, echoed: Json) -> Bool {
-  case json.parse(json.to_string(ours), wire.json_value_decoder()) {
-    Ok(normalized_ours) ->
-      case json.parse(json.to_string(echoed), wire.json_value_decoder()) {
-        Ok(normalized_echoed) -> normalized_ours == normalized_echoed
-        Error(_) -> False
-      }
-    Error(_) -> False
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Outbound
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn create_detached(core: Core, address: String) -> Core {
+pub fn create_detached(
+  core: Core,
+  address: String,
+  channel_type: channel.ChannelType,
+) -> Core {
   case address == root_address || has_channel(core, address) {
     True -> core
     False ->
       Core(
         ..core,
-        detached: dict.insert(core.detached, address, map_kernel.new()),
+        detached: dict.insert(core.detached, address, channel.new(channel_type)),
       )
   }
 }
@@ -602,16 +600,16 @@ pub fn set(
   key: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
   case dict.get(core.detached, address) {
-    Ok(kernel) -> {
+    Ok(channel.MapState(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.set(kernel, key, value)
       Ok(
         #(
-          Core(..core, detached: dict.insert(core.detached, address, kernel)),
-          tag_events(address, events),
+          put_detached_channel(core, address, channel.MapState(kernel)),
+          tag_map_events(address, events),
           [],
         ),
       )
@@ -619,12 +617,19 @@ pub fn set(
     Error(_) ->
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(_kernel) -> {
+        Ok(_state) -> {
           let #(core, attach_outbound) = attach_dependencies(core, value)
-          let assert Ok(kernel) = dict.get(core.channels, address)
+          let assert Ok(channel.MapState(kernel)) =
+            dict.get(core.channels, address)
           let #(kernel, events, op) = map_kernel.set(kernel, key, value)
           let #(core, events, outbound) =
-            stamp_attached(core, address, kernel, events, op)
+            stamp_attached(
+              core,
+              address,
+              channel.MapState(kernel),
+              tag_map_events(address, events),
+              channel.MapOp(op),
+            )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
       }
@@ -636,16 +641,16 @@ pub fn delete(
   address: String,
   key: String,
 ) -> Result(
-  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
   case dict.get(core.detached, address) {
-    Ok(kernel) -> {
+    Ok(channel.MapState(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.delete(kernel, key)
       Ok(
         #(
-          Core(..core, detached: dict.insert(core.detached, address, kernel)),
-          tag_events(address, events),
+          put_detached_channel(core, address, channel.MapState(kernel)),
+          tag_map_events(address, events),
           [],
         ),
       )
@@ -653,9 +658,15 @@ pub fn delete(
     Error(_) ->
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(kernel) -> {
+        Ok(channel.MapState(kernel)) -> {
           let #(kernel, events, op) = map_kernel.delete(kernel, key)
-          Ok(stamp_attached(core, address, kernel, events, op))
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.MapState(kernel),
+            tag_map_events(address, events),
+            channel.MapOp(op),
+          ))
         }
       }
   }
@@ -665,16 +676,16 @@ pub fn clear(
   core: Core,
   address: String,
 ) -> Result(
-  #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
   case dict.get(core.detached, address) {
-    Ok(kernel) -> {
+    Ok(channel.MapState(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.clear(kernel)
       Ok(
         #(
-          Core(..core, detached: dict.insert(core.detached, address, kernel)),
-          tag_events(address, events),
+          put_detached_channel(core, address, channel.MapState(kernel)),
+          tag_map_events(address, events),
           [],
         ),
       )
@@ -682,9 +693,15 @@ pub fn clear(
     Error(_) ->
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(kernel) -> {
+        Ok(channel.MapState(kernel)) -> {
           let #(kernel, events, op) = map_kernel.clear(kernel)
-          Ok(stamp_attached(core, address, kernel, events, op))
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.MapState(kernel),
+            tag_map_events(address, events),
+            channel.MapOp(op),
+          ))
         }
       }
   }
@@ -722,21 +739,14 @@ fn collect_attach_for(
       let visited = [address, ..visited]
       case dict.get(core.detached, address) {
         Error(_) -> #([], visited)
-        Ok(kernel) -> {
-          let deps = detached_handle_dependencies(kernel)
+        Ok(state) -> {
+          let deps = channel.handle_addresses(state)
           let #(order, visited) = collect_attach_order(core, deps, visited)
           #(list.append(order, [address]), visited)
         }
       }
     }
   }
-}
-
-fn detached_handle_dependencies(kernel: map_kernel.MapState) -> List(String) {
-  list.flat_map(map_kernel.entries(kernel), fn(entry) {
-    handle.collect_handle_addresses(entry.1)
-  })
-  |> list.unique
 }
 
 fn submit_attaches(
@@ -747,8 +757,8 @@ fn submit_attaches(
     let #(core, outbound) = acc
     case dict.get(core.detached, address) {
       Error(_) -> #(core, outbound)
-      Ok(kernel) -> {
-        let snapshot = map_kernel.entries(kernel)
+      Ok(state) -> {
+        let snapshot = channel.attach_snapshot(state)
         let csn = core.next_csn
         let outbound_op =
           ops.outbound_attach_op(
@@ -763,7 +773,7 @@ fn submit_attaches(
             channels: dict.insert(
               core.channels,
               address,
-              map_kernel.from_sequenced(snapshot),
+              channel.from_snapshot(snapshot),
             ),
             channel_order: list.unique(
               list.append(core.channel_order, [address]),
@@ -788,13 +798,13 @@ fn submit_attaches(
 fn stamp_attached(
   core: Core,
   address: String,
-  kernel: map_kernel.MapState,
-  events: List(MapEvent),
-  op: MapOp,
-) -> #(Core, List(#(String, MapEvent)), List(wire.OutboundOp)) {
+  state: ChannelState,
+  events: List(#(String, ChannelEvent)),
+  op: channel.ChannelOp,
+) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)) {
   let csn = core.next_csn
   let outbound =
-    ops.outbound_map_op(
+    ops.outbound_channel_op(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
@@ -803,7 +813,7 @@ fn stamp_attached(
   let core =
     Core(
       ..core,
-      channels: dict.insert(core.channels, address, kernel),
+      channels: dict.insert(core.channels, address, state),
       next_csn: csn + 1,
       in_flight: list.append(core.in_flight, [
         InFlightOp(
@@ -811,17 +821,25 @@ fn stamp_attached(
           csn: csn,
           address: address,
           op: op,
+          meta: channel.NoMeta,
         ),
       ]),
     )
-  #(core, tag_events(address, events), [outbound])
+  #(core, events, [outbound])
 }
 
 fn tag_events(
   address: String,
-  events: List(MapEvent),
-) -> List(#(String, MapEvent)) {
+  events: List(ChannelEvent),
+) -> List(#(String, ChannelEvent)) {
   list.map(events, fn(event) { #(address, event) })
+}
+
+fn tag_map_events(
+  address: String,
+  events: List(map_kernel.MapEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.MapEvent(event)) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -830,7 +848,7 @@ fn tag_events(
 
 pub fn get(core: Core, address: String, key: String) -> Option(Json) {
   case find_channel(core, address) {
-    Some(kernel) -> map_kernel.get(kernel, key)
+    Some(channel.MapState(kernel)) -> map_kernel.get(kernel, key)
     None -> None
   }
 }
@@ -841,31 +859,31 @@ pub fn has(core: Core, address: String, key: String) -> Bool {
 
 pub fn size(core: Core, address: String) -> Int {
   case find_channel(core, address) {
-    Some(kernel) -> map_kernel.size(kernel)
+    Some(channel.MapState(kernel)) -> map_kernel.size(kernel)
     None -> 0
   }
 }
 
 pub fn keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(kernel) -> map_kernel.keys(kernel)
+    Some(channel.MapState(kernel)) -> map_kernel.keys(kernel)
     None -> []
   }
 }
 
 pub fn entries(core: Core, address: String) -> List(#(String, Json)) {
   case find_channel(core, address) {
-    Some(kernel) -> map_kernel.entries(kernel)
+    Some(channel.MapState(kernel)) -> map_kernel.entries(kernel)
     None -> []
   }
 }
 
-fn find_channel(core: Core, address: String) -> Option(map_kernel.MapState) {
+fn find_channel(core: Core, address: String) -> Option(ChannelState) {
   case dict.get(core.channels, address) {
-    Ok(kernel) -> Some(kernel)
+    Ok(state) -> Some(state)
     Error(_) ->
       case dict.get(core.detached, address) {
-        Ok(kernel) -> Some(kernel)
+        Ok(state) -> Some(state)
         Error(_) -> None
       }
   }
@@ -874,19 +892,27 @@ fn find_channel(core: Core, address: String) -> Option(map_kernel.MapState) {
 fn put_attached_channel(
   core: Core,
   address: String,
-  kernel: map_kernel.MapState,
+  state: ChannelState,
 ) -> Core {
-  Core(..core, channels: dict.insert(core.channels, address, kernel))
+  Core(..core, channels: dict.insert(core.channels, address, state))
+}
+
+fn put_detached_channel(
+  core: Core,
+  address: String,
+  state: ChannelState,
+) -> Core {
+  Core(..core, detached: dict.insert(core.detached, address, state))
 }
 
 fn add_attached_channel(
   core: Core,
   address: String,
-  kernel: map_kernel.MapState,
+  state: ChannelState,
 ) -> Core {
   Core(
     ..core,
-    channels: dict.insert(core.channels, address, kernel),
+    channels: dict.insert(core.channels, address, state),
     channel_order: list.unique(list.append(core.channel_order, [address])),
   )
 }

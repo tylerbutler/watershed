@@ -2,8 +2,15 @@
 //// `{address, contents}` document envelope, attach envelopes carrying a
 //// channel snapshot, and the `"summarize"` op announcing a stored snapshot.
 ////
-//// The map op format inside the `{address, contents}` envelope matches TS
-//// `@fluidframework/map` ops (`set`/`delete`/`clear`, values wrapped as
+//// The `{address, contents}` envelope carries no channel type: the channel
+//// registry is the authoritative source of a channel's type, so decoding is
+//// two-stage. `decode_op_contents` returns attach ops fully decoded (the
+//// attach envelope has `channelType`) but channel ops only as
+//// `#(address, Dynamic)`; the runtime looks the channel's type up by
+//// address and finishes with `channel_op_decoder`.
+////
+//// The map op format inside the envelope matches TS `@fluidframework/map`
+//// ops (`set`/`delete`/`clear`, values wrapped as
 //// `{"type": "Plain", "value": ...}`). That is a convenience — it keeps the
 //// corpus tests' vocabulary aligned with the TS oracle — not a compatibility
 //// contract: nothing external consumes watershed's wire or storage formats
@@ -15,68 +22,48 @@ import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{None}
-import gleam/result
 
+import watershed/channel
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/wire.{type OutboundOp}
 
-/// Contents of a sequenced `"op"`: either a kernel channel op or an attach
+/// Contents of a sequenced `"op"`: either a kernel channel op — its payload
+/// still undecoded, pending the address → channel-type lookup — or an attach
 /// envelope carrying a channel snapshot.
 pub type OpContents {
-  ChannelOp(address: String, op: MapOp)
-  AttachOp(
-    address: String,
-    channel_type: String,
-    snapshot: List(#(String, Json)),
-  )
+  ChannelOp(address: String, contents: Dynamic)
+  AttachOp(address: String, snapshot: channel.Snapshot)
 }
 
 /// Wrap a kernel op in the document envelope as an outbound `"op"` message.
-pub fn outbound_map_op(
+pub fn outbound_channel_op(
   address address: String,
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
-  op op: MapOp,
+  op op: channel.ChannelOp,
 ) -> OutboundOp {
   wire.OutboundOp(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
     op_type: "op",
-    contents: encode_map_envelope(address, op),
-    metadata: None,
-  )
-}
-
-/// Wrap a SharedCounter op in the document envelope as an outbound `"op"`
-/// message. Counter local message ids are runtime metadata, not wire contents.
-pub fn outbound_counter_op(
-  address address: String,
-  client_sequence_number client_sequence_number: Int,
-  reference_sequence_number reference_sequence_number: Int,
-  op op: CounterOp,
-) -> OutboundOp {
-  wire.OutboundOp(
-    client_sequence_number: client_sequence_number,
-    reference_sequence_number: reference_sequence_number,
-    op_type: "op",
-    contents: encode_counter_envelope(address, op),
+    contents: encode_channel_envelope(address, op),
     metadata: None,
   )
 }
 
 /// Attach envelopes carry the full channel snapshot as
-/// `{type:"attach", address, channelType, snapshot}`.
-pub fn encode_attach(
-  address: String,
-  channel_type: String,
-  snapshot: List(#(String, Json)),
-) -> Json {
+/// `{type:"attach", address, channelType, snapshot}`, the `snapshot` payload
+/// shaped by the channel type.
+pub fn encode_attach(address: String, snapshot: channel.Snapshot) -> Json {
   json.object([
     #("type", json.string("attach")),
     #("address", json.string(address)),
-    #("channelType", json.string(channel_type)),
-    #("snapshot", wire.encode_entries(snapshot)),
+    #(
+      "channelType",
+      json.string(channel.type_to_string(channel.snapshot_type(snapshot))),
+    ),
+    #("snapshot", channel.encode_snapshot(snapshot)),
   ])
 }
 
@@ -84,13 +71,13 @@ pub fn outbound_attach_op(
   address address: String,
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
-  snapshot snapshot: List(#(String, Json)),
+  snapshot snapshot: channel.Snapshot,
 ) -> OutboundOp {
   wire.OutboundOp(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
     op_type: "op",
-    contents: encode_attach(address, wire.channel_type_map, snapshot),
+    contents: encode_attach(address, snapshot),
     metadata: None,
   )
 }
@@ -120,6 +107,30 @@ pub fn outbound_summarize_op(
     ]),
     metadata: None,
   )
+}
+
+/// `{address, contents}` document envelope around a kernel op.
+pub fn encode_channel_envelope(address: String, op: channel.ChannelOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_channel_op(op)),
+  ])
+}
+
+pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
+  case op {
+    channel.MapOp(op) -> encode_map_op(op)
+  }
+}
+
+/// Decoder for a channel op's `contents` payload, selected by the channel's
+/// registered type. Stage two of `decode_op_contents`.
+pub fn channel_op_decoder(
+  channel_type: channel.ChannelType,
+) -> Decoder(channel.ChannelOp) {
+  case channel_type {
+    channel.MapChannel -> map_op_decoder() |> decode.map(channel.MapOp)
+  }
 }
 
 /// `{address, contents}` document envelope around a map op.
@@ -244,28 +255,24 @@ pub fn attach_envelope_decoder() -> Decoder(OpContents) {
     "attach" -> {
       use address <- decode.field("address", decode.string)
       use channel_type <- decode.field("channelType", decode.string)
-      case channel_type == wire.channel_type_map {
-        True -> {
+      case channel.type_from_string(channel_type) {
+        Ok(channel_type) -> {
           use snapshot <- decode.field(
             "snapshot",
-            decode.list(wire.entry_decoder()),
+            channel.snapshot_decoder(channel_type),
           )
-          decode.success(AttachOp(
-            address: address,
-            channel_type: channel_type,
-            snapshot: snapshot,
-          ))
+          decode.success(AttachOp(address: address, snapshot: snapshot))
         }
-        False ->
+        Error(_) ->
           decode.failure(
-            AttachOp(address: "", channel_type: "", snapshot: []),
+            AttachOp(address: "", snapshot: channel.MapSnapshot([])),
             "ChannelType",
           )
       }
     }
     _ ->
       decode.failure(
-        AttachOp(address: "", channel_type: "", snapshot: []),
+        AttachOp(address: "", snapshot: channel.MapSnapshot([])),
         "AttachEnvelope",
       )
   }
@@ -275,11 +282,16 @@ pub fn decode_op_contents(
   contents: Dynamic,
 ) -> Result(OpContents, List(decode.DecodeError)) {
   // An explicit top-level `type: "attach"` must decode as an attach envelope
-  // (no fallback); anything else decodes as the map envelope.
+  // (no fallback); anything else decodes as the `{address, contents}`
+  // envelope, its payload left for stage-two decoding by channel type.
   case decode.run(contents, decode.at(["type"], decode.string)) {
     Ok("attach") -> decode.run(contents, attach_envelope_decoder())
-    _ ->
-      decode.run(contents, map_envelope_decoder())
-      |> result.map(fn(pair) { ChannelOp(pair.0, pair.1) })
+    _ -> decode.run(contents, channel_envelope_decoder())
   }
+}
+
+fn channel_envelope_decoder() -> Decoder(OpContents) {
+  use address <- decode.field("address", decode.string)
+  use contents <- decode.field("contents", decode.dynamic)
+  decode.success(ChannelOp(address: address, contents: contents))
 }

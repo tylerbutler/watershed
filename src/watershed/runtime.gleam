@@ -57,11 +57,11 @@ import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 @target(erlang)
+import watershed/channel.{type ChannelEvent, MapChannel} as _watershed_channel
+@target(erlang)
 import watershed/git_storage
 @target(erlang)
 import watershed/ids
-@target(erlang)
-import watershed/map_kernel.{type MapEvent}
 @target(erlang)
 import watershed/runtime_core
 @target(erlang)
@@ -121,7 +121,7 @@ pub type Msg {
   /// so the confirmed state is complete and stable.
   IsSynced(reply: Subject(Bool))
   // Lifecycle
-  Subscribe(address: String, subscriber: Subject(MapEvent))
+  Subscribe(address: String, subscriber: Subject(ChannelEvent))
   AwaitReady(reply: Subject(Result(Nil, String)))
   /// Fault-injection hook (tests): drop the live channel to force the
   /// runtime through its reconnect/reconcile path.
@@ -153,7 +153,7 @@ type State {
     connect_message: ConnectMessage,
     channel: Option(Channel),
     phase: Phase,
-    subscribers: List(#(String, Subject(MapEvent))),
+    subscribers: List(#(String, Subject(ChannelEvent))),
     self: Subject(Msg),
   )
 }
@@ -362,13 +362,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       case state.phase {
         Ready(core, resubmit_at) -> {
           let address = ids.uuid_v4()
-          let core = runtime_core.create_detached(core, address)
+          let core = runtime_core.create_detached(core, address, MapChannel)
           process.send(reply, Ok(address))
           actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
         Reconnecting(core) -> {
           let address = ids.uuid_v4()
-          let core = runtime_core.create_detached(core, address)
+          let core = runtime_core.create_detached(core, address, MapChannel)
           process.send(reply, Ok(address))
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
@@ -604,7 +604,7 @@ fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-) -> #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)) {
+) -> #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)) {
   do_apply_ops(core, ops, [], None)
 }
 
@@ -612,9 +612,9 @@ fn apply_ops(
 fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-  events: List(List(#(String, MapEvent))),
+  events: List(List(#(String, ChannelEvent))),
   request_from: Option(Int),
-) -> #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)) {
+) -> #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)) {
   case ops {
     [] -> #(core, list.reverse(events) |> list.flatten, request_from)
     [op, ..rest] ->
@@ -639,7 +639,7 @@ fn edit(
   state: State,
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, MapEvent)), List(wire.OutboundOp)),
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
       runtime_core.CoreError,
     ),
 ) -> actor.Next(State, Msg) {
@@ -914,7 +914,7 @@ fn fetch_summary(
         // The summary blob records the SN it was captured at, but the
         // authoritative load point is the server's summaryContext.
         let channels =
-          list.map(blob.channels, fn(ch) { #(ch.address, ch.entries) })
+          list.map(blob.channels, fn(ch) { #(ch.address, ch.snapshot) })
         runtime_core.Summary(
           sequence_number: ctx.sequence_number,
           channels: channels,
@@ -959,8 +959,8 @@ fn push(channel: Channel, event: String, payload: Json) -> Nil {
 /// Route each address-tagged event to the subscribers registered for that
 /// channel address.
 fn fan_out(
-  subscribers: List(#(String, Subject(MapEvent))),
-  events: List(#(String, MapEvent)),
+  subscribers: List(#(String, Subject(ChannelEvent))),
+  events: List(#(String, ChannelEvent)),
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event

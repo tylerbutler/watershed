@@ -1,45 +1,49 @@
-//// The summary snapshot blob (v2): the format `summarize` uploads to levee's
+//// The summary snapshot blob (v3): the format `summarize` uploads to levee's
 //// git storage and fresh connections bootstrap from. A *storage* format, not
 //// a wire format — versioned independently so loaders reject snapshots they
 //// don't understand rather than misread them.
+////
+//// v3 carries one `{address, type, data}` object per channel, `data` being
+//// the channel-type-dependent snapshot payload (see `channel.Snapshot`).
+//// There is no v2 loader: formats are cut clean while nothing external
+//// consumes them, and stored documents are reset rather than migrated.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
 
-import watershed/wire
+import watershed/channel
 
 /// Current on-disk format version. Loaders reject anything they don't
 /// recognise rather than misread a foreign snapshot.
-pub const version = 2
+pub const version = 3
 
 pub type SummaryBlob {
   SummaryBlob(sequence_number: Int, channels: List(ChannelSnapshot))
 }
 
 pub type ChannelSnapshot {
-  ChannelSnapshot(
-    address: String,
-    channel_type: String,
-    entries: List(#(String, Json)),
-  )
+  ChannelSnapshot(address: String, snapshot: channel.Snapshot)
 }
 
 pub fn encode_channels(
   sequence_number: Int,
-  channels: List(#(String, List(#(String, Json)))),
+  channels: List(#(String, channel.Snapshot)),
 ) -> Json {
   json.object([
     #("watershedSummaryVersion", json.int(version)),
     #("sequenceNumber", json.int(sequence_number)),
     #(
       "channels",
-      json.array(channels, fn(channel) {
-        let #(address, entries) = channel
+      json.array(channels, fn(entry) {
+        let #(address, snapshot) = entry
         json.object([
           #("address", json.string(address)),
-          #("type", json.string(wire.channel_type_map)),
-          #("entries", wire.encode_entries(entries)),
+          #(
+            "type",
+            json.string(channel.type_to_string(channel.snapshot_type(snapshot))),
+          ),
+          #("data", channel.encode_snapshot(snapshot)),
         ])
       }),
     ),
@@ -78,18 +82,17 @@ fn channel_snapshot_decoder() -> Decoder(ChannelSnapshot) {
   use address <- decode.field("address", decode.string)
   use channel_type <- decode.field("type", decode.string)
   // Only recognize known channel types.
-  case channel_type == wire.channel_type_map {
-    True -> {
-      use entries <- decode.field("entries", decode.list(wire.entry_decoder()))
-      decode.success(ChannelSnapshot(
-        address: address,
-        channel_type: channel_type,
-        entries: entries,
-      ))
+  case channel.type_from_string(channel_type) {
+    Ok(channel_type) -> {
+      use snapshot <- decode.field(
+        "data",
+        channel.snapshot_decoder(channel_type),
+      )
+      decode.success(ChannelSnapshot(address: address, snapshot: snapshot))
     }
-    False ->
+    Error(_) ->
       decode.failure(
-        ChannelSnapshot(address: "", channel_type: "", entries: []),
+        ChannelSnapshot(address: "", snapshot: channel.MapSnapshot([])),
         "ChannelType",
       )
   }

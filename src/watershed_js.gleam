@@ -46,11 +46,11 @@ import spillway/types.{
 import gleam/result
 
 @target(javascript)
+import watershed/channel.{type ChannelEvent}
+@target(javascript)
 import watershed/git_storage.{type SummaryVersion}
 @target(javascript)
 import watershed/handle
-@target(javascript)
-import watershed/map_kernel.{type MapEvent}
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
@@ -278,8 +278,9 @@ pub fn size(map: SharedMap) -> Int {
 
 @target(javascript)
 /// Register a callback invoked for every local and remote change to this map
-/// channel.
-pub fn subscribe(map: SharedMap, handler: fn(MapEvent) -> Nil) -> Nil {
+/// channel. The handler receives a `ChannelEvent` (a `channel.MapEvent(..)`
+/// for map channels).
+pub fn subscribe(map: SharedMap, handler: fn(ChannelEvent) -> Nil) -> Nil {
   runtime_js.subscribe(map.runtime, map.address, handler)
 }
 
