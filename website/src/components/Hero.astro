@@ -1,34 +1,11 @@
 ---
-// Pseudo-topographic contour field, generated at build time. Contours are
-// labeled with server sequence numbers (SNs) instead of elevations: state
-// flows downhill toward sequencing.
-const W = 1300;
-const H = 860;
+// Contour field markup is generated at build time from the shared generator;
+// hero-drift.js re-derives the same geometry on the client to keep the lines
+// slowly flexing after the draw-in.
+import { W, H, ROWS, contourPath } from "../scripts/contour-field.js";
 
-function contour(row: number, seedPhase: number): string {
-  const baseY = 40 + row * 62;
-  const pts: Array<[number, number]> = [];
-  for (let x = -40; x <= W + 40; x += 100) {
-    const t = x / W;
-    const y =
-      baseY +
-      Math.sin(t * Math.PI * 2 + seedPhase + row * 0.55) * (26 + row * 2.4) +
-      Math.sin(t * Math.PI * 5 + seedPhase * 1.7) * 9 +
-      t * row * 14; // drift downhill to the right
-    pts.push([x, y]);
-  }
-  let d = `M ${pts[0][0]} ${pts[0][1].toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1];
-    const [x1, y1] = pts[i];
-    const cx = (x0 + x1) / 2;
-    d += ` C ${cx} ${y0.toFixed(1)}, ${cx} ${y1.toFixed(1)}, ${x1} ${y1.toFixed(1)}`;
-  }
-  return d;
-}
-
-const contours = Array.from({ length: 13 }, (_, i) => ({
-  d: contour(i, 0.9),
+const contours = Array.from({ length: ROWS }, (_, i) => ({
+  d: contourPath(i),
   index: i % 4 === 1, // every 4th is an index contour
   sn: 1240 - i * 20,
 }));
@@ -37,6 +14,7 @@ const contours = Array.from({ length: 13 }, (_, i) => ({
 <header class="hero">
   <svg
     class="contours"
+    data-contour-field
     viewBox={`0 0 ${W} ${H}`}
     preserveAspectRatio="xMaxYMid slice"
     aria-hidden="true"

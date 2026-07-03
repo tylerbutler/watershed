@@ -51,6 +51,12 @@ sections themselves get plain headings — no per-section eyebrows.
 - Tokens: `--ease-out-quart`, `--ease-out-expo`; 130ms feedback / 240ms state
   / 700ms entrance.
 - Hero contours draw in via `stroke-dashoffset` keyframes; headline rises.
+- After draw-in the contour field keeps flexing slowly (`hero-drift.js`):
+  path geometry is re-derived from the shared generator
+  (`contour-field.js`) with a two-frequency ~5px vertical drift, amplitude
+  ramped from zero so the JS takeover never jumps. ~26fps, paused
+  off-screen via IntersectionObserver, skipped (and reset to static)
+  under reduced motion.
 - Scroll reveals (`src/scripts/motion.js`) animate *visible-by-default*
   content with WAAPI at trigger time — nothing is hidden if JS fails.
   Variants: `rise` (up) and `settle` (strata settle downward).
