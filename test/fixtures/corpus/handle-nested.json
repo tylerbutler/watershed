@@ -1,0 +1,97 @@
+{
+	"formatVersion": 1,
+	"name": "handle-nested",
+	"description": "A handle buried inside an object within an array is preserved by the op serializer alongside plain JSON siblings.",
+	"clients": [
+		"A",
+		"B"
+	],
+	"steps": [
+		{
+			"action": "set",
+			"client": "A",
+			"key": "doc",
+			"value": {
+				"list": [
+					1,
+					{
+						"child": {
+							"type": "__fluid_handle__",
+							"url": "/child-b"
+						},
+						"label": "two"
+					}
+				],
+				"flag": true
+			}
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "check"
+		}
+	],
+	"observations": [
+		{
+			"afterStep": 2,
+			"converged": true,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"doc",
+							{
+								"list": [
+									1,
+									{
+										"child": {
+											"type": "__fluid_handle__",
+											"url": "/child-b"
+										},
+										"label": "two"
+									}
+								],
+								"flag": true
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "doc",
+							"local": true
+						}
+					]
+				},
+				"B": {
+					"entries": [
+						[
+							"doc",
+							{
+								"list": [
+									1,
+									{
+										"child": {
+											"type": "__fluid_handle__",
+											"url": "/child-b"
+										},
+										"label": "two"
+									}
+								],
+								"flag": true
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "doc",
+							"local": false
+						}
+					]
+				}
+			}
+		}
+	]
+}

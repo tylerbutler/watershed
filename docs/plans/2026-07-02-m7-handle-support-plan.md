@@ -1,10 +1,35 @@
 # M7 — Handle support / nested SharedMaps (watershed)
 
 **Date:** 2026-07-02
-**Status:** Planned, not started. Companion to
+**Status:** ✅ Complete (2026-07-02, branch `feat/m7-handles`; M7a landed
+earlier on `main` as `d2cd766`). Companion to
 `2026-07-01-gleam-sharedmap-client-plan.md` (whose M7 section this supersedes
 in detail — notably its `{"type":"Shared"}` sketch and the "value type can no
 longer be bare Json" assumption).
+
+**Outcome notes (what shipped vs. the plan below):**
+
+- **M7a** — as planned: `handle.gleam`, wire attach op + summary blob v2,
+  multi-channel `runtime_core` (detached/attached channels, attach closure,
+  `InFlightAttach`, `UnknownChannel`/`DuplicateAttach`), tests on both targets.
+- **M7b** — as planned, with one deviation: `ids.uuid_v4` is target-split
+  (erlang: `gleam/crypto.strong_random_bytes`; JS: a self-contained
+  `globalThis.crypto.randomUUID` FFI) because promoting `gleam_crypto` into the
+  JS build drags its static `node:crypto` import into browser bundles and
+  breaks esbuild. Public API (`create_map`/`handle_of`/`is_handle`/`resolve`),
+  address-routed subscribers, and `CreateMap`/`ResolveAddress` runtime messages
+  landed on both targets; `examples/dice_lustre` and `examples/dice_cli`
+  compile unchanged.
+- **M7c** — as planned: six handle corpus fixtures (`handle-set`, `-nested`,
+  `-overwrite`, `-delete`, `-clear`, `-iteration-order`) generated on the
+  FluidFramework `feat/map-corpus-harness` branch via a `{$handle: path}`
+  sentinel revived into `MockHandle`s (set-step values are written to the
+  fixture pre-serialized so replayers apply them verbatim); all replay green
+  with **zero kernel changes**, and `encode_handle` is frozen to the oracle's
+  marker byte shape by a unit test. The five live integration scenarios
+  (nested convergence, recursive attach, reconnect mid-attach, summary v2
+  bootstrap, multi-channel `load_version`) pass repeatedly against
+  `just server`; server logs confirmed no levee change was needed.
 
 ## Context
 

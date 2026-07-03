@@ -34,6 +34,8 @@ import startest/expect
 import watershed
 @target(erlang)
 import watershed/git_storage
+@target(erlang)
+import watershed/handle
 
 @target(erlang)
 const tenant = "dev-tenant"
@@ -98,6 +100,307 @@ pub fn summary_versions_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_versions_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// M7 exit criterion: a client stores a handle to a freshly created map, a
+/// peer resolves it, and both converge on edits to the *child* map.
+pub fn nested_map_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_nested_map_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// M7: two mutually-referencing detached maps attach as one closure when
+/// either handle is stored; a peer resolves them transitively.
+pub fn recursive_attach_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_recursive_attach_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// M7: a handle stored while the client is reconnecting rides the resubmit
+/// queue (`InFlightAttach`); the peer still sees the attach + edits.
+pub fn reconnect_mid_attach_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_reconnect_mid_attach_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// M7: a fresh client bootstraps nested maps from a summary v2 blob alone
+/// (the attach op predates its history) and resolves the child.
+pub fn summary_v2_nested_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_summary_v2_nested_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// M7: `load_version` returns the multi-channel blob, child address included.
+pub fn load_version_multichannel_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_load_version_multichannel_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_nested_map_test() -> Nil {
+  let document = "watershed-nm-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Establish the session.
+  watershed.set(map_a, "title", json.string("nested demo"))
+  wait_until(50, fn() { watershed.size(map_b) == 1 }) |> expect.to_be_true()
+
+  // Create a detached map and edit it: local-only, so no ops go out (the
+  // in-flight queue stays empty) and B sees nothing.
+  let child_a = case watershed.create_map(doc_a) {
+    Ok(child) -> child
+    Error(reason) -> panic as { "create_map failed: " <> reason }
+  }
+  watershed.set(child_a, "die", json.int(3))
+  watershed.set(child_a, "note", json.string("hi"))
+  watershed.is_synced(doc_a) |> expect.to_be_true()
+  watershed.size(map_b) |> expect.to_equal(1)
+
+  // Storing the handle attaches the child (snapshot included) and syncs it.
+  watershed.set(map_a, "child", watershed.handle_of(child_a))
+
+  // B resolves the handle and sees the detached-phase snapshot.
+  let child_b = resolve_key_or_panic(doc_b, map_b, "child")
+  wait_until(50, fn() {
+    watershed.entries(child_b) == watershed.entries(child_a)
+  })
+  |> expect.to_be_true()
+  watershed.get(child_b, "die") |> expect.to_equal(Some(json.int(3)))
+
+  // Both clients edit the child concurrently, including a same-key race.
+  watershed.set(child_a, "die", json.int(6))
+  watershed.set(child_b, "from-b", json.bool(True))
+  watershed.set(child_a, "raced", json.string("from-a"))
+  watershed.set(child_b, "raced", json.string("from-b"))
+
+  wait_until(50, fn() {
+    let entries_a = watershed.entries(child_a)
+    entries_a != []
+    && same_entries(entries_a, watershed.entries(child_b))
+    && watershed.get(child_a, "from-b") == Some(json.bool(True))
+    && watershed.get(child_b, "die") == Some(json.int(6))
+  })
+  |> expect.to_be_true()
+  watershed.get(child_a, "raced")
+  |> expect.to_equal(watershed.get(child_b, "raced"))
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_recursive_attach_test() -> Nil {
+  let document = "watershed-ra-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Two detached maps referencing each other (a cycle).
+  let assert Ok(m1_a) = watershed.create_map(doc_a)
+  let assert Ok(m2_a) = watershed.create_map(doc_a)
+  watershed.set(m1_a, "name", json.string("m1"))
+  watershed.set(m1_a, "peer", watershed.handle_of(m2_a))
+  watershed.set(m2_a, "name", json.string("m2"))
+  watershed.set(m2_a, "peer", watershed.handle_of(m1_a))
+  watershed.is_synced(doc_a) |> expect.to_be_true()
+
+  // Storing one handle attaches the whole reachable closure.
+  watershed.set(map_a, "m1", watershed.handle_of(m1_a))
+
+  // B resolves transitively: root -> m1 -> m2 -> back to m1.
+  let m1_b = resolve_key_or_panic(doc_b, map_b, "m1")
+  let m2_b = resolve_key_or_panic(doc_b, m1_b, "peer")
+  wait_until(50, fn() { watershed.get(m2_b, "name") == Some(json.string("m2")) })
+  |> expect.to_be_true()
+  let m1_again = resolve_key_or_panic(doc_b, m2_b, "peer")
+  watershed.get(m1_again, "name") |> expect.to_equal(Some(json.string("m1")))
+
+  // Edits through the cycle converge.
+  watershed.set(m2_b, "from-b", json.int(2))
+  wait_until(50, fn() { watershed.get(m2_a, "from-b") == Some(json.int(2)) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_reconnect_mid_attach_test() -> Nil {
+  let document = "watershed-rma-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Establish the session.
+  watershed.set(map_a, "k", json.int(1))
+  wait_until(50, fn() { watershed.size(map_b) == 1 }) |> expect.to_be_true()
+
+  // Detached edits, then drop the channel. The attach triggered while
+  // reconnecting must survive as in-flight state and resubmit.
+  let assert Ok(child_a) = watershed.create_map(doc_a)
+  watershed.set(child_a, "die", json.int(5))
+  watershed.force_reconnect(doc_a)
+  watershed.set(map_a, "child", watershed.handle_of(child_a))
+  watershed.set(child_a, "during", json.string("reconnect"))
+
+  // B converges on the attach and both edits once A is back.
+  let child_b = resolve_key_or_panic(doc_b, map_b, "child")
+  wait_until(100, fn() {
+    watershed.entries(child_b) == watershed.entries(child_a)
+    && watershed.get(child_b, "during") == Some(json.string("reconnect"))
+  })
+  |> expect.to_be_true()
+  watershed.get(child_b, "die") |> expect.to_equal(Some(json.int(5)))
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_summary_v2_nested_test() -> Nil {
+  let document = "watershed-s2-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  // Nested state: root -> child, both with confirmed entries.
+  let assert Ok(child_a) = watershed.create_map(doc_a)
+  watershed.set(child_a, "die", json.int(3))
+  watershed.set(map_a, "title", json.string("doc"))
+  watershed.set(map_a, "child", watershed.handle_of(child_a))
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+
+  let handle = case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(handle) -> handle
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+  { handle != "" } |> expect.to_be_true()
+
+  // A post-summary delta on the *child* channel: a fresh client can only
+  // apply it if the summary taught it that channel.
+  watershed.set(child_a, "post", json.bool(True))
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+
+  // Fresh client: bootstraps from the summary blob (the attach op predates
+  // its post-summary history), resolves the child, sees everything.
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  wait_until(50, fn() {
+    same_entries(watershed.entries(map_c), watershed.entries(map_a))
+  })
+  |> expect.to_be_true()
+  let child_c = resolve_key_or_panic(doc_c, map_c, "child")
+  wait_until(50, fn() {
+    same_entries(watershed.entries(child_c), watershed.entries(child_a))
+  })
+  |> expect.to_be_true()
+  watershed.get(child_c, "post") |> expect.to_equal(Some(json.bool(True)))
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn run_load_version_multichannel_test() -> Nil {
+  let document = "watershed-lvm-" <> int.to_string(system_time(Second))
+
+  let doc = connect_or_panic(document, "user-a")
+  let map = watershed.root(doc)
+
+  let assert Ok(child) = watershed.create_map(doc)
+  watershed.set(child, "die", json.int(4))
+  watershed.set(map, "child", watershed.handle_of(child))
+  wait_until(50, fn() { watershed.is_synced(doc) }) |> expect.to_be_true()
+
+  let tree_sha = case wait_until_ok(50, fn() { watershed.summarize(doc) }) {
+    Ok(tree_sha) -> tree_sha
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  // The stored blob is multi-channel: root first, then the child address the
+  // root's handle value points at, with the child's captured entries.
+  let assert Ok(blob) = watershed.load_version(doc, handle: tree_sha)
+  let assert Some(handle_value) = watershed.get(map, "child")
+  let assert Ok(child_address) = handle.parse_handle(handle_value)
+  case blob.channels {
+    [root_channel, child_channel] -> {
+      root_channel.address |> expect.to_equal("root")
+      root_channel.entries
+      |> expect.to_equal([#("child", handle_value)])
+      child_channel.address |> expect.to_equal(child_address)
+      child_channel.entries |> expect.to_equal([#("die", json.int(4))])
+    }
+    _ -> panic as "expected exactly two channels in the summary blob"
+  }
+
+  watershed.close(doc)
+}
+
+@target(erlang)
+/// Wait until `key` on `map` holds a resolvable handle, then resolve it.
+/// Retries both the read (the set may not have arrived) and the resolve
+/// (the referenced channel's attach may still be in flight).
+fn resolve_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedMap {
+  case try_resolve_key(50, doc, map, key) {
+    Ok(child) -> child
+    Error(reason) ->
+      panic as { "resolving handle at key " <> key <> " failed: " <> reason }
+  }
+}
+
+@target(erlang)
+fn try_resolve_key(
+  attempts: Int,
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> Result(watershed.SharedMap, String) {
+  let attempt = case watershed.get(map, key) {
+    None -> Error("key absent")
+    Some(value) ->
+      case watershed.is_handle(value) {
+        False -> Error("value is not a handle")
+        True -> watershed.resolve(doc, value)
+      }
+  }
+  case attempt {
+    Ok(child) -> Ok(child)
+    Error(reason) ->
+      case attempts {
+        0 -> Error(reason)
+        _ -> {
+          process.sleep(100)
+          try_resolve_key(attempts - 1, doc, map, key)
+        }
+      }
   }
 }
 

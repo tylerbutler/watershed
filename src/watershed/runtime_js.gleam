@@ -39,6 +39,8 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(javascript)
 import watershed/git_storage
 @target(javascript)
+import watershed/ids
+@target(javascript)
 import watershed/map_kernel.{type MapEvent}
 @target(javascript)
 import watershed/runtime_core
@@ -46,9 +48,6 @@ import watershed/runtime_core
 import watershed/transport_js.{type Cell, type Channel}
 @target(javascript)
 import watershed/wire
-
-@target(javascript)
-const address = "root"
 
 @target(javascript)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
@@ -75,7 +74,7 @@ type State {
     http_base_url: String,
     channel: Option(Channel),
     phase: Phase,
-    subscribers: List(fn(MapEvent) -> Nil),
+    subscribers: List(#(String, fn(MapEvent) -> Nil)),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
   )
@@ -132,52 +131,97 @@ pub fn start(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn set(runtime: Runtime, key: String, value: Json) -> Nil {
+pub fn set(runtime: Runtime, address: String, key: String, value: Json) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.set(core, address, key, value) })
 }
 
 @target(javascript)
-pub fn delete(runtime: Runtime, key: String) -> Nil {
+pub fn delete(runtime: Runtime, address: String, key: String) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.delete(core, address, key) })
 }
 
 @target(javascript)
-pub fn clear(runtime: Runtime) -> Nil {
+pub fn clear(runtime: Runtime, address: String) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.clear(core, address) })
 }
 
 @target(javascript)
-pub fn get(runtime: Runtime, key: String) -> Option(Json) {
+pub fn get(runtime: Runtime, address: String, key: String) -> Option(Json) {
   read(runtime.cell, None, runtime_core.get(_, address, key))
 }
 
 @target(javascript)
-pub fn entries(runtime: Runtime) -> List(#(String, Json)) {
+pub fn entries(runtime: Runtime, address: String) -> List(#(String, Json)) {
   read(runtime.cell, [], runtime_core.entries(_, address))
 }
 
 @target(javascript)
-pub fn keys(runtime: Runtime) -> List(String) {
+pub fn keys(runtime: Runtime, address: String) -> List(String) {
   read(runtime.cell, [], runtime_core.keys(_, address))
 }
 
 @target(javascript)
-pub fn size(runtime: Runtime) -> Int {
+pub fn size(runtime: Runtime, address: String) -> Int {
   read(runtime.cell, 0, runtime_core.size(_, address))
 }
 
 @target(javascript)
-pub fn has(runtime: Runtime, key: String) -> Bool {
-  get(runtime, key) != None
+pub fn has(runtime: Runtime, address: String, key: String) -> Bool {
+  get(runtime, address, key) != None
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote map event.
-pub fn subscribe(runtime: Runtime, handler: fn(MapEvent) -> Nil) -> Nil {
+/// Create a new detached map channel: local-only until its handle is first
+/// stored into an attached map. Returns the generated address.
+pub fn create_map(runtime: Runtime) -> Result(String, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address)
+      cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
+      Ok(address)
+    }
+    Reconnecting(core) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address)
+      cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      Ok(address)
+    }
+    _ -> Error("create_map requires a ready document connection")
+  }
+}
+
+@target(javascript)
+/// Whether a channel exists at `address` (attached or detached). Errors are
+/// retryable — a foreign attach may still be in flight.
+pub fn resolve_address(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  case read(runtime.cell, False, runtime_core.has_channel(_, address)) {
+    True -> Ok(Nil)
+    False ->
+      Error(
+        "unresolved handle: no channel at address "
+        <> address
+        <> " (a foreign attach may still be in flight; retry)",
+      )
+  }
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote event on the map
+/// channel at `address`.
+pub fn subscribe(
+  runtime: Runtime,
+  address: String,
+  handler: fn(MapEvent) -> Nil,
+) -> Nil {
   let state = cell_get(runtime.cell)
   cell_set(
     runtime.cell,
-    State(..state, subscribers: [handler, ..state.subscribers]),
+    State(..state, subscribers: [#(address, handler), ..state.subscribers]),
   )
 }
 
@@ -610,7 +654,7 @@ fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
 ) -> Result(
-  #(runtime_core.Core, List(MapEvent), Option(Int)),
+  #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)),
   runtime_core.CoreError,
 ) {
   do_apply_ops(core, ops, [], None)
@@ -620,10 +664,10 @@ fn apply_ops(
 fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-  events: List(List(MapEvent)),
+  events: List(List(#(String, MapEvent))),
   request_from: Option(Int),
 ) -> Result(
-  #(runtime_core.Core, List(MapEvent), Option(Int)),
+  #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)),
   runtime_core.CoreError,
 ) {
   case ops {
@@ -634,7 +678,7 @@ fn do_apply_ops(
           do_apply_ops(
             core,
             rest,
-            [root_events(ingested.events), ..events],
+            [ingested.events, ..events],
             option.or(request_from, ingested.request_ops_from),
           )
         Error(core_error) -> Error(core_error)
@@ -655,7 +699,8 @@ fn edit(
   case state.phase {
     Ready(core, resubmit_at) -> {
       case operate(core) {
-        Error(_) -> Nil
+        Error(core_error) ->
+          panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, outbound)) -> {
           // Push immediately only when fully synced with a live channel;
           // otherwise the op stays in-flight and `resubmit` sends it once, so a
@@ -664,16 +709,17 @@ fn edit(
             None -> send_outbound(state.channel, core.client_id, outbound)
             _ -> Nil
           }
-          fan_out(state.subscribers, root_events(events))
+          fan_out(state.subscribers, events)
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
         }
       }
     }
     Reconnecting(core) -> {
       case operate(core) {
-        Error(_) -> Nil
+        Error(core_error) ->
+          panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, _outbound)) -> {
-          fan_out(state.subscribers, root_events(events))
+          fan_out(state.subscribers, events)
           cell_set(cell, State(..state, phase: Reconnecting(core)))
         }
       }
@@ -782,22 +828,20 @@ fn http_base_from_socket_url(url: String) -> String {
 }
 
 @target(javascript)
+/// Route each address-tagged event to the subscribers registered for that
+/// channel address.
 fn fan_out(
-  subscribers: List(fn(MapEvent) -> Nil),
-  events: List(MapEvent),
+  subscribers: List(#(String, fn(MapEvent) -> Nil)),
+  events: List(#(String, MapEvent)),
 ) -> Nil {
   list.each(events, fn(event) {
-    list.each(subscribers, fn(subscriber) { subscriber(event) })
-  })
-}
-
-@target(javascript)
-fn root_events(events: List(#(String, MapEvent))) -> List(MapEvent) {
-  list.filter_map(events, fn(entry) {
-    case entry.0 == address {
-      True -> Ok(entry.1)
-      False -> Error(Nil)
-    }
+    let #(address, event) = event
+    list.each(subscribers, fn(subscriber) {
+      case subscriber.0 == address {
+        True -> subscriber.1(event)
+        False -> Nil
+      }
+    })
   })
 }
 

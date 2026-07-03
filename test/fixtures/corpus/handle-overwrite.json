@@ -1,0 +1,79 @@
+{
+	"formatVersion": 1,
+	"name": "handle-overwrite",
+	"description": "Concurrent sets racing a handle against a plain value on one key; the later sequenced set wins and previousValue reports the loser.",
+	"clients": [
+		"A",
+		"B"
+	],
+	"steps": [
+		{
+			"action": "set",
+			"client": "A",
+			"key": "x",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-a"
+			}
+		},
+		{
+			"action": "set",
+			"client": "B",
+			"key": "x",
+			"value": "plain"
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "check"
+		}
+	],
+	"observations": [
+		{
+			"afterStep": 3,
+			"converged": true,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"x",
+							"plain"
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": true
+						},
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": false,
+							"previousValue": {
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						}
+					]
+				},
+				"B": {
+					"entries": [
+						[
+							"x",
+							"plain"
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": true
+						}
+					]
+				}
+			}
+		}
+	]
+}

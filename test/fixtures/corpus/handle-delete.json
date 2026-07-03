@@ -1,0 +1,140 @@
+{
+	"formatVersion": 1,
+	"name": "handle-delete",
+	"description": "A remote delete of a handle-valued key is masked by a local pending set of a different handle on the same key.",
+	"clients": [
+		"A",
+		"B"
+	],
+	"steps": [
+		{
+			"action": "set",
+			"client": "A",
+			"key": "x",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-a"
+			}
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "delete",
+			"client": "B",
+			"key": "x"
+		},
+		{
+			"action": "set",
+			"client": "A",
+			"key": "x",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-b"
+			}
+		},
+		{
+			"action": "processSome",
+			"count": 1
+		},
+		{
+			"action": "check"
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "check"
+		}
+	],
+	"observations": [
+		{
+			"afterStep": 5,
+			"converged": false,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"x",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-b"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": true
+						},
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": true,
+							"previousValue": {
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						}
+					]
+				},
+				"B": {
+					"entries": [],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": false
+						},
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": true,
+							"previousValue": {
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						}
+					]
+				}
+			}
+		},
+		{
+			"afterStep": 7,
+			"converged": true,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"x",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-b"
+							}
+						]
+					],
+					"events": []
+				},
+				"B": {
+					"entries": [
+						[
+							"x",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-b"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "x",
+							"local": false
+						}
+					]
+				}
+			}
+		}
+	]
+}

@@ -13,9 +13,10 @@
 //// ```
 ////
 //// Reads are optimistic (local pending edits overlay the sequenced state);
-//// convergence is guaranteed by server sequencing. v1 exposes only the
-//// root map; additional per-document maps ride the same `address`
-//// mechanism later.
+//// convergence is guaranteed by server sequencing. Beyond the root map,
+//// `create_map` makes additional (initially detached) maps whose handles
+//// (`handle_of`) can be stored as values and `resolve`d by peers, enabling
+//// nested collaborative structures.
 
 @target(erlang)
 import gleam/bit_array
@@ -29,6 +30,8 @@ import gleam/erlang/process.{type Subject}
 import gleam/json.{type Json}
 @target(erlang)
 import gleam/option.{type Option, None, Some}
+@target(erlang)
+import gleam/result
 
 @target(erlang)
 import spillway/message.{ConnectMessage}
@@ -39,6 +42,8 @@ import spillway/types.{
 
 @target(erlang)
 import watershed/git_storage.{type SummaryVersion}
+@target(erlang)
+import watershed/handle
 @target(erlang)
 import watershed/map_kernel.{type MapEvent}
 @target(erlang)
@@ -61,7 +66,7 @@ pub opaque type Document {
 
 @target(erlang)
 pub opaque type SharedMap {
-  SharedMap(runtime: Subject(runtime.Msg))
+  SharedMap(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -127,7 +132,56 @@ pub fn connect(
 @target(erlang)
 /// The document's root map (channel address `"root"`).
 pub fn root(document: Document) -> SharedMap {
-  SharedMap(runtime: document.runtime)
+  SharedMap(runtime: document.runtime, address: "root")
+}
+
+@target(erlang)
+/// Create a new map channel. The map starts *detached* — local-only, its
+/// edits produce no ops — until its handle (`handle_of`) is first stored into
+/// an attached map, at which point the runtime attaches it (snapshot and all)
+/// and starts syncing its edits.
+pub fn create_map(document: Document) -> Result(SharedMap, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateMap,
+  )
+  |> result.map(fn(address) {
+    SharedMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `map`, suitable for storing as a value
+/// in another map: `{"type": "__fluid_handle__", "url": "/<address>"}`.
+pub fn handle_of(map: SharedMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(erlang)
+/// Whether a value read from a map is a handle marker (see `resolve`).
+pub fn is_handle(value: Json) -> Bool {
+  handle.parse_handle(value) != Error(Nil)
+}
+
+@target(erlang)
+/// Resolve a handle value (from `get`/`entries`) to the SharedMap it
+/// references. Errors are retryable: a handle read from a remote value can be
+/// transiently unresolved while the referenced channel's attach op is still
+/// in flight.
+pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedMap(runtime: document.runtime, address: address)
+      })
+  }
 }
 
 @target(erlang)
@@ -191,17 +245,17 @@ pub fn load_version(
 
 @target(erlang)
 pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
-  process.send(map.runtime, runtime.Put(key, value))
+  process.send(map.runtime, runtime.Put(map.address, key, value))
 }
 
 @target(erlang)
 pub fn delete(map: SharedMap, key: String) -> Nil {
-  process.send(map.runtime, runtime.Remove(key))
+  process.send(map.runtime, runtime.Remove(map.address, key))
 }
 
 @target(erlang)
 pub fn clear(map: SharedMap) -> Nil {
-  process.send(map.runtime, runtime.RemoveAll)
+  process.send(map.runtime, runtime.RemoveAll(map.address))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,7 +265,7 @@ pub fn clear(map: SharedMap) -> Nil {
 @target(erlang)
 pub fn get(map: SharedMap, key: String) -> Option(Json) {
   process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetValue(key, reply)
+    runtime.GetValue(map.address, key, reply)
   })
 }
 
@@ -222,21 +276,23 @@ pub fn has(map: SharedMap, key: String) -> Bool {
 
 @target(erlang)
 pub fn entries(map: SharedMap) -> List(#(String, Json)) {
-  process.call(
-    map.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.GetEntries,
-  )
+  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetEntries(map.address, reply)
+  })
 }
 
 @target(erlang)
 pub fn keys(map: SharedMap) -> List(String) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: runtime.GetKeys)
+  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetKeys(map.address, reply)
+  })
 }
 
 @target(erlang)
 pub fn size(map: SharedMap) -> Int {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: runtime.GetSize)
+  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetSize(map.address, reply)
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -244,11 +300,11 @@ pub fn size(map: SharedMap) -> Int {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Subscribe the calling process to map events. The returned subject
-/// receives a `MapEvent` for every local and remote change.
+/// Subscribe the calling process to this map's events. The returned subject
+/// receives a `MapEvent` for every local and remote change to this channel.
 pub fn subscribe(map: SharedMap) -> Subject(MapEvent) {
   let subscriber = process.new_subject()
-  process.send(map.runtime, runtime.Subscribe(subscriber))
+  process.send(map.runtime, runtime.Subscribe(map.address, subscriber))
   subscriber
 }
 

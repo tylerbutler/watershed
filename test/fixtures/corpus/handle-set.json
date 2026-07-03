@@ -1,0 +1,70 @@
+{
+	"formatVersion": 1,
+	"name": "handle-set",
+	"description": "A handle stored as a top-level value round-trips as the serialized handle marker on every client.",
+	"clients": [
+		"A",
+		"B"
+	],
+	"steps": [
+		{
+			"action": "set",
+			"client": "A",
+			"key": "child",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-a"
+			}
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "check"
+		}
+	],
+	"observations": [
+		{
+			"afterStep": 2,
+			"converged": true,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"child",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "child",
+							"local": true
+						}
+					]
+				},
+				"B": {
+					"entries": [
+						[
+							"child",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "child",
+							"local": false
+						}
+					]
+				}
+			}
+		}
+	]
+}

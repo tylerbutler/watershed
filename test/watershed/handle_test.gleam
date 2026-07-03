@@ -4,6 +4,14 @@ import startest/expect
 
 import watershed/handle
 
+pub fn encode_handle_matches_corpus_marker_test() {
+  // The exact serialized form the TS oracle emits for a handle (see the
+  // handle-* corpus fixtures); wire compatibility freezes this byte shape.
+  handle.encode_handle("child-a")
+  |> json.to_string
+  |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/child-a\"}")
+}
+
 pub fn encode_parse_handle_test() {
   let encoded = handle.encode_handle("tree-abc")
   case handle.parse_handle(encoded) {

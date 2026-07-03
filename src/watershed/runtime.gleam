@@ -59,6 +59,8 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
+import watershed/ids
+@target(erlang)
 import watershed/map_kernel.{type MapEvent}
 @target(erlang)
 import watershed/runtime_core
@@ -70,9 +72,6 @@ const connect_timeout_ms = 10_000
 
 @target(erlang)
 const heartbeat_interval_ms = 30_000
-
-@target(erlang)
-const address = "root"
 
 @target(erlang)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
@@ -87,9 +86,15 @@ pub type Msg {
   Inbound(Incoming)
   ChannelClosed(String)
   // Local edits
-  Put(key: String, value: Json)
-  Remove(key: String)
-  RemoveAll
+  Put(address: String, key: String, value: Json)
+  Remove(address: String, key: String)
+  RemoveAll(address: String)
+  /// Create a new detached map channel: local-only until its handle is first
+  /// stored into an attached map. Replies with the generated address.
+  CreateMap(reply: Subject(Result(String, String)))
+  /// Whether a channel exists at `address` (attached or detached). Errors are
+  /// retryable — a foreign attach may still be in flight.
+  ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
   /// Summarize the current confirmed state to levee storage, replying with the
   /// summary handle (git tree SHA) on success.
   Summarize(reply: Subject(Result(String, String)))
@@ -101,15 +106,15 @@ pub type Msg {
   /// Read the historical snapshot a summary version captured, by its handle.
   LoadVersion(handle: String, reply: Subject(Result(wire.SummaryBlob, String)))
   // Reads
-  GetValue(key: String, reply: Subject(Option(Json)))
-  GetEntries(reply: Subject(List(#(String, Json))))
-  GetKeys(reply: Subject(List(String)))
-  GetSize(reply: Subject(Int))
+  GetValue(address: String, key: String, reply: Subject(Option(Json)))
+  GetEntries(address: String, reply: Subject(List(#(String, Json))))
+  GetKeys(address: String, reply: Subject(List(String)))
+  GetSize(address: String, reply: Subject(Int))
   /// Whether every local edit has been acknowledged (in-flight queue empty),
   /// so the confirmed state is complete and stable.
   IsSynced(reply: Subject(Bool))
   // Lifecycle
-  Subscribe(Subject(MapEvent))
+  Subscribe(address: String, subscriber: Subject(MapEvent))
   AwaitReady(reply: Subject(Result(Nil, String)))
   /// Fault-injection hook (tests): drop the live channel to force the
   /// runtime through its reconnect/reconcile path.
@@ -141,7 +146,7 @@ type State {
     connect_message: ConnectMessage,
     channel: Option(Channel),
     phase: Phase,
-    subscribers: List(Subject(MapEvent)),
+    subscribers: List(#(String, Subject(MapEvent))),
     self: Subject(Msg),
   )
 }
@@ -339,11 +344,50 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     Inbound(incoming) -> handle_inbound(state, incoming)
 
-    Put(key, value) ->
+    Put(address, key, value) ->
       edit(state, fn(core) { runtime_core.set(core, address, key, value) })
-    Remove(key) ->
+    Remove(address, key) ->
       edit(state, fn(core) { runtime_core.delete(core, address, key) })
-    RemoveAll -> edit(state, fn(core) { runtime_core.clear(core, address) })
+    RemoveAll(address) ->
+      edit(state, fn(core) { runtime_core.clear(core, address) })
+
+    CreateMap(reply) ->
+      case state.phase {
+        Ready(core, resubmit_at) -> {
+          let address = ids.uuid_v4()
+          let core = runtime_core.create_detached(core, address)
+          process.send(reply, Ok(address))
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Reconnecting(core) -> {
+          let address = ids.uuid_v4()
+          let core = runtime_core.create_detached(core, address)
+          process.send(reply, Ok(address))
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+        _ -> {
+          process.send(
+            reply,
+            Error("create_map requires a ready document connection"),
+          )
+          actor.continue(state)
+        }
+      }
+
+    ResolveAddress(address, reply) -> {
+      let known = read(state, False, runtime_core.has_channel(_, address))
+      let result = case known {
+        True -> Ok(Nil)
+        False ->
+          Error(
+            "unresolved handle: no channel at address "
+            <> address
+            <> " (a foreign attach may still be in flight; retry)",
+          )
+      }
+      process.send(reply, result)
+      actor.continue(state)
+    }
 
     Summarize(reply) -> handle_summarize(state, reply)
 
@@ -356,19 +400,19 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
 
-    GetValue(key, reply) -> {
+    GetValue(address, key, reply) -> {
       process.send(reply, read(state, None, runtime_core.get(_, address, key)))
       actor.continue(state)
     }
-    GetEntries(reply) -> {
+    GetEntries(address, reply) -> {
       process.send(reply, read(state, [], runtime_core.entries(_, address)))
       actor.continue(state)
     }
-    GetKeys(reply) -> {
+    GetKeys(address, reply) -> {
       process.send(reply, read(state, [], runtime_core.keys(_, address)))
       actor.continue(state)
     }
-    GetSize(reply) -> {
+    GetSize(address, reply) -> {
       process.send(reply, read(state, 0, runtime_core.size(_, address)))
       actor.continue(state)
     }
@@ -377,9 +421,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
 
-    Subscribe(subscriber) ->
+    Subscribe(address, subscriber) ->
       actor.continue(
-        State(..state, subscribers: [subscriber, ..state.subscribers]),
+        State(..state, subscribers: [
+          #(address, subscriber),
+          ..state.subscribers
+        ]),
       )
 
     AwaitReady(reply) ->
@@ -550,7 +597,7 @@ fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
+) -> #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)) {
   do_apply_ops(core, ops, [], None)
 }
 
@@ -558,9 +605,9 @@ fn apply_ops(
 fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-  events: List(List(MapEvent)),
+  events: List(List(#(String, MapEvent))),
   request_from: Option(Int),
-) -> #(runtime_core.Core, List(MapEvent), Option(Int)) {
+) -> #(runtime_core.Core, List(#(String, MapEvent)), Option(Int)) {
   case ops {
     [] -> #(core, list.reverse(events) |> list.flatten, request_from)
     [op, ..rest] ->
@@ -569,7 +616,7 @@ fn do_apply_ops(
           do_apply_ops(
             core,
             rest,
-            [root_events(ingested.events), ..events],
+            [ingested.events, ..events],
             option.or(request_from, ingested.request_ops_from),
           )
         Error(core_error) ->
@@ -603,7 +650,7 @@ fn edit(
               send_outbound(Some(channel), core.client_id, outbound)
             _, _ -> Nil
           }
-          fan_out(state.subscribers, root_events(events))
+          fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
       }
@@ -613,7 +660,7 @@ fn edit(
         Error(core_error) ->
           panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, _outbound)) -> {
-          fan_out(state.subscribers, root_events(events))
+          fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
@@ -898,20 +945,20 @@ fn push(channel: Channel, event: String, payload: Json) -> Nil {
 }
 
 @target(erlang)
+/// Route each address-tagged event to the subscribers registered for that
+/// channel address.
 fn fan_out(
-  subscribers: List(Subject(MapEvent)),
-  events: List(MapEvent),
+  subscribers: List(#(String, Subject(MapEvent))),
+  events: List(#(String, MapEvent)),
 ) -> Nil {
-  list.each(events, fn(event) { list.each(subscribers, process.send(_, event)) })
-}
-
-@target(erlang)
-fn root_events(events: List(#(String, MapEvent))) -> List(MapEvent) {
-  list.filter_map(events, fn(entry) {
-    case entry.0 == address {
-      True -> Ok(entry.1)
-      False -> Error(Nil)
-    }
+  list.each(events, fn(event) {
+    let #(address, event) = event
+    list.each(subscribers, fn(subscriber) {
+      case subscriber.0 == address {
+        True -> process.send(subscriber.1, event)
+        False -> Nil
+      }
+    })
   })
 }
 

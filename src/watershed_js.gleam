@@ -21,8 +21,10 @@
 //// ```
 ////
 //// Reads are optimistic (local pending edits overlay the sequenced state);
-//// convergence is guaranteed by server sequencing. v1 exposes only the root
-//// map. JavaScript target only.
+//// convergence is guaranteed by server sequencing. Beyond the root map,
+//// `create_map` makes additional (initially detached) maps whose handles
+//// (`handle_of`) can be stored as values and `resolve`d by peers, enabling
+//// nested collaborative structures. JavaScript target only.
 
 @target(javascript)
 import gleam/dict
@@ -41,7 +43,12 @@ import spillway/types.{
 }
 
 @target(javascript)
+import gleam/result
+
+@target(javascript)
 import watershed/git_storage.{type SummaryVersion}
+@target(javascript)
+import watershed/handle
 @target(javascript)
 import watershed/map_kernel.{type MapEvent}
 @target(javascript)
@@ -73,7 +80,7 @@ pub opaque type Document {
 
 @target(javascript)
 pub opaque type SharedMap {
-  SharedMap(runtime: runtime_js.Runtime)
+  SharedMap(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -125,7 +132,48 @@ pub fn connect(
 @target(javascript)
 /// The document's root map (channel address `"root"`).
 pub fn root(document: Document) -> SharedMap {
-  SharedMap(runtime: document.runtime)
+  SharedMap(runtime: document.runtime, address: "root")
+}
+
+@target(javascript)
+/// Create a new map channel. The map starts *detached* — local-only, its
+/// edits produce no ops — until its handle (`handle_of`) is first stored into
+/// an attached map, at which point the runtime attaches it (snapshot and all)
+/// and starts syncing its edits. Requires a ready connection (`on_ready`).
+pub fn create_map(document: Document) -> Result(SharedMap, String) {
+  runtime_js.create_map(document.runtime)
+  |> result.map(fn(address) {
+    SharedMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `map`, suitable for storing as a value
+/// in another map: `{"type": "__fluid_handle__", "url": "/<address>"}`.
+pub fn handle_of(map: SharedMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(javascript)
+/// Whether a value read from a map is a handle marker (see `resolve`).
+pub fn is_handle(value: Json) -> Bool {
+  handle.parse_handle(value) != Error(Nil)
+}
+
+@target(javascript)
+/// Resolve a handle value (from `get`/`entries`) to the SharedMap it
+/// references. Errors are retryable: a handle read from a remote value can be
+/// transiently unresolved while the referenced channel's attach op is still
+/// in flight.
+pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedMap(runtime: document.runtime, address: address)
+      })
+  }
 }
 
 @target(javascript)
@@ -186,24 +234,24 @@ pub fn load_version(
 
 @target(javascript)
 pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
-  runtime_js.set(map.runtime, key, value)
+  runtime_js.set(map.runtime, map.address, key, value)
 }
 
 @target(javascript)
 pub fn delete(map: SharedMap, key: String) -> Nil {
-  runtime_js.delete(map.runtime, key)
+  runtime_js.delete(map.runtime, map.address, key)
 }
 
 @target(javascript)
 pub fn clear(map: SharedMap) -> Nil {
-  runtime_js.clear(map.runtime)
+  runtime_js.clear(map.runtime, map.address)
 }
 
 // ── Reads ────────────────────────────────────────────────────────────────────
 
 @target(javascript)
 pub fn get(map: SharedMap, key: String) -> Option(Json) {
-  runtime_js.get(map.runtime, key)
+  runtime_js.get(map.runtime, map.address, key)
 }
 
 @target(javascript)
@@ -213,25 +261,26 @@ pub fn has(map: SharedMap, key: String) -> Bool {
 
 @target(javascript)
 pub fn entries(map: SharedMap) -> List(#(String, Json)) {
-  runtime_js.entries(map.runtime)
+  runtime_js.entries(map.runtime, map.address)
 }
 
 @target(javascript)
 pub fn keys(map: SharedMap) -> List(String) {
-  runtime_js.keys(map.runtime)
+  runtime_js.keys(map.runtime, map.address)
 }
 
 @target(javascript)
 pub fn size(map: SharedMap) -> Int {
-  runtime_js.size(map.runtime)
+  runtime_js.size(map.runtime, map.address)
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Register a callback invoked for every local and remote map event.
+/// Register a callback invoked for every local and remote change to this map
+/// channel.
 pub fn subscribe(map: SharedMap, handler: fn(MapEvent) -> Nil) -> Nil {
-  runtime_js.subscribe(map.runtime, handler)
+  runtime_js.subscribe(map.runtime, map.address, handler)
 }
 
 // ── Demo helpers ─────────────────────────────────────────────────────────────

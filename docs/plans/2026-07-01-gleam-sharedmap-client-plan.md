@@ -81,6 +81,23 @@ consuming `watershed` as a git dep. Reverted to a single root `watershed`
 package: the pure core, OTP runtime, and JS runtime all ship as modules under
 `watershed/`, gated with `@target`. Slimming the JS dependency tree is deferred
 to publishing the core as its own repo/package if it's ever needed.
+**M6 complete** (2026-07-02): `examples/dice_cli`, an Erlang-target dice CLI
+joining the same session as `dice_lustre` through the `watershed` OTP client
+API (connect → root → subscribe loop, edits via set/delete). The token gap was
+closed the preferred way: `watershed.dev_token` is now public on the erlang
+target, matching `watershed_js.dev_token` 1:1 (plus `dev_token_test`).
+**M7 complete** (2026-07-02, branch `feat/m7-handles`): Fluid-compatible
+handle values and nested SharedMaps, per the detailed companion plan
+`2026-07-02-m7-handle-support-plan.md` (see its status header for outcome
+notes). Public API: `create_map` (detached until its handle is stored),
+`handle_of`, `is_handle`, `resolve` on both targets; handles serialize as the
+modern `Plain`-embedded `{"type":"__fluid_handle__","url":"/<address>"}`
+marker (byte-frozen against the TS oracle), attach rides an opaque watershed
+`attach` op (no levee changes), summaries are multi-channel (blob v2, v1 still
+loads), and the kernel needed zero changes — proven by six new oracle corpus
+fixtures and five live integration scenarios (nested convergence, recursive
+attach closure, reconnect mid-attach, summary v2 bootstrap, multi-channel
+`load_version`), all green and stable against `just server`.
 
 
 ## Goal
@@ -338,7 +355,8 @@ headless smoke test passed against a fresh `just server`). The
 no-gap-after-bootstrap invariant is asserted in `runtime_core.bootstrap` (see
 the risk note below).
 
-**M6 — Erlang client example (next step).** Scaffold `examples/dice_cli`, an
+**M6 — Erlang client example.** ✅ Done (2026-07-02); see the status note at
+the top. Original scope: scaffold `examples/dice_cli`, an
 Erlang-target (`target = "erlang"`) counterpart to `dice_lustre` that joins the
 *same* session (`dev-tenant` / `dice` on `127.0.0.1:4000`) using the existing
 `watershed` OTP client API — proving the pure core drives both runtimes over
@@ -362,7 +380,11 @@ runnable program:
   Erlang CLI converges in the browser and vice-versa (the `events` subject
   fires on remote rolls).
 
-**M7 — Handle support / nested DDS (design + spike, sizing TBD).** Today values
+**M7 — Handle support / nested DDS.** ✅ Done (2026-07-02) — designed and
+implemented per `2026-07-02-m7-handle-support-plan.md`, which supersedes the
+sketch below (notably: no `Shared` value type — handles are `Plain`-embedded
+markers — and the kernel value model stayed bare `Json`). Original scope
+follows. Today values
 are `Plain` only: the kernel stores opaque `Json` and `wire.plain_value_decoder`
 (`wire.gleam:765-771`) rejects any non-`Plain` value, so a value can be an inert
 JSON object but never a *collaborative* nested map. This milestone adds Fluid

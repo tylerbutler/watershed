@@ -1,0 +1,175 @@
+{
+	"formatVersion": 1,
+	"name": "handle-iteration-order",
+	"description": "Handle-valued keys obey the same insertion-order iteration contract as plain keys: deleting and re-adding one moves it to the end.",
+	"clients": [
+		"A",
+		"B"
+	],
+	"steps": [
+		{
+			"action": "set",
+			"client": "A",
+			"key": "a",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-a"
+			}
+		},
+		{
+			"action": "set",
+			"client": "A",
+			"key": "b",
+			"value": 2
+		},
+		{
+			"action": "set",
+			"client": "A",
+			"key": "c",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-c"
+			}
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "delete",
+			"client": "A",
+			"key": "a"
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "set",
+			"client": "A",
+			"key": "a",
+			"value": {
+				"type": "__fluid_handle__",
+				"url": "/child-a2"
+			}
+		},
+		{
+			"action": "processAll"
+		},
+		{
+			"action": "check"
+		}
+	],
+	"observations": [
+		{
+			"afterStep": 8,
+			"converged": true,
+			"clients": {
+				"A": {
+					"entries": [
+						[
+							"b",
+							2
+						],
+						[
+							"c",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-c"
+							}
+						],
+						[
+							"a",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-a2"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": true
+						},
+						{
+							"event": "valueChanged",
+							"key": "b",
+							"local": true
+						},
+						{
+							"event": "valueChanged",
+							"key": "c",
+							"local": true
+						},
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": true,
+							"previousValue": {
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						},
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": true
+						}
+					]
+				},
+				"B": {
+					"entries": [
+						[
+							"b",
+							2
+						],
+						[
+							"c",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-c"
+							}
+						],
+						[
+							"a",
+							{
+								"type": "__fluid_handle__",
+								"url": "/child-a2"
+							}
+						]
+					],
+					"events": [
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": false
+						},
+						{
+							"event": "valueChanged",
+							"key": "b",
+							"local": false
+						},
+						{
+							"event": "valueChanged",
+							"key": "c",
+							"local": false
+						},
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": false,
+							"previousValue": {
+								"type": "__fluid_handle__",
+								"url": "/child-a"
+							}
+						},
+						{
+							"event": "valueChanged",
+							"key": "a",
+							"local": false
+						}
+					]
+				}
+			}
+		}
+	]
+}
