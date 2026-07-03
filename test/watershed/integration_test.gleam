@@ -116,6 +116,17 @@ pub fn nested_map_converges_test() {
 }
 
 @target(erlang)
+/// R2 exit criterion: a root map holds a handle to a counter channel; two
+/// clients converge on concurrent increments, and a fresh client bootstraps
+/// the mixed-channel document from a summary.
+pub fn mixed_counter_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_mixed_counter_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
 /// M7: two mutually-referencing detached maps attach as one closure when
 /// either handle is stored; a peer resolves them transitively.
 pub fn recursive_attach_converges_test() {
@@ -208,6 +219,79 @@ fn run_nested_map_test() -> Nil {
 
   watershed.close(doc_a)
   watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_mixed_counter_test() -> Nil {
+  let document = "watershed-cnt-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Establish the session.
+  watershed.set(map_a, "title", json.string("scoreboard"))
+  wait_until(50, fn() { watershed.size(map_b) == 1 }) |> expect.to_be_true()
+
+  // Detached counter: local increments produce no ops.
+  let assert Ok(counter_a) = watershed.create_counter(doc_a)
+  watershed.increment(counter_a, 2)
+  watershed.is_synced(doc_a) |> expect.to_be_true()
+  watershed.counter_value(counter_a) |> expect.to_equal(Some(2))
+
+  // Storing the handle attaches the counter with its optimistic value.
+  watershed.set(map_a, "tally", watershed.counter_handle_of(counter_a))
+
+  // B resolves the handle and sees the detached-phase value.
+  let counter_b = resolve_counter_key_or_panic(doc_b, map_b, "tally")
+  wait_until(50, fn() { watershed.counter_value(counter_b) == Some(2) })
+  |> expect.to_be_true()
+
+  // Concurrent increments from both sides commute.
+  watershed.increment(counter_a, 5)
+  watershed.increment(counter_b, -1)
+  wait_until(50, fn() {
+    watershed.counter_value(counter_a) == Some(6)
+    && watershed.counter_value(counter_b) == Some(6)
+  })
+  |> expect.to_be_true()
+
+  // A mixed-channel summary bootstraps a fresh client.
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let counter_c = resolve_counter_key_or_panic(doc_c, map_c, "tally")
+  wait_until(50, fn() { watershed.counter_value(counter_c) == Some(6) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_counter_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedCounter {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_counter(doc, value)
+      }
+    })
+  case resolved {
+    Ok(counter) -> counter
+    Error(reason) ->
+      panic as { "resolving counter at key " <> key <> " failed: " <> reason }
+  }
 }
 
 @target(erlang)
@@ -714,7 +798,7 @@ fn connect_or_panic(document: String, user_id: String) -> watershed.Document {
 /// The map entries a summary blob channel captured. Every channel in these
 /// tests is a map.
 fn snapshot_entries(snapshot: channel.Snapshot) -> List(#(String, Json)) {
-  let channel.MapSnapshot(entries) = snapshot
+  let assert channel.MapSnapshot(entries) = snapshot
   entries
 }
 

@@ -227,7 +227,7 @@ pub fn summary_blob_round_trips_test() {
   blob.sequence_number |> expect.to_equal(7)
   let assert [decoded_channel] = blob.channels
   decoded_channel.address |> expect.to_equal("root")
-  let channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
+  let assert channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
   // Values compare structurally by re-encoding through the same codec.
   let normalize = fn(pairs: List(#(String, json.Json))) {
     list.map(pairs, fn(pair) { #(pair.0, json.to_string(pair.1)) })
@@ -666,5 +666,72 @@ pub fn summary_blob_unknown_channel_type_rejected_test() {
   case summary_blob.decode(raw) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected unknown channel type to be rejected"
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Counter channels (R2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn counter_attach_codec_round_trip_test() {
+  let encoded =
+    ops.encode_attach("tally", channel.CounterSnapshot(41)) |> json.to_string
+  string_contains(encoded, "\"channelType\":\"counter\"") |> expect.to_be_true()
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.AttachOp(address, snapshot)) -> {
+      address |> expect.to_equal("tally")
+      snapshot |> expect.to_equal(channel.CounterSnapshot(41))
+    }
+    _ -> panic as "counter attach decode failed"
+  }
+}
+
+pub fn counter_channel_op_stage_two_decode_test() {
+  let encoded =
+    ops.encode_channel_envelope(
+      "tally",
+      channel.CounterOp(counter_kernel.Increment(5)),
+    )
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.ChannelOp(address, payload)) -> {
+      address |> expect.to_equal("tally")
+      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      |> expect.to_equal(Ok(channel.CounterOp(counter_kernel.Increment(5))))
+      // The same payload must not decode against the map grammar.
+      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      |> expect.to_be_error()
+      Nil
+    }
+    _ -> panic as "counter channel op decode failed"
+  }
+}
+
+pub fn summary_blob_mixed_channel_types_round_trip_test() {
+  let encoded =
+    summary_blob.encode_channels(9, [
+      #("root", channel.MapSnapshot([#("k", json.int(1))])),
+      #("tally", channel.CounterSnapshot(7)),
+    ])
+    |> json.to_string
+  string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
+  case summary_blob.decode(encoded) {
+    Ok(blob) -> {
+      blob.sequence_number |> expect.to_equal(9)
+      blob.channels
+      |> expect.to_equal([
+        summary_blob.ChannelSnapshot(
+          address: "root",
+          snapshot: channel.MapSnapshot([#("k", json.int(1))]),
+        ),
+        summary_blob.ChannelSnapshot(
+          address: "tally",
+          snapshot: channel.CounterSnapshot(7),
+        ),
+      ])
+    }
+    Error(_) -> panic as "mixed summary decode failed"
   }
 }

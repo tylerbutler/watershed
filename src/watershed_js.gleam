@@ -84,6 +84,11 @@ pub opaque type SharedMap {
 }
 
 @target(javascript)
+pub opaque type SharedCounter {
+  SharedCounter(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
 /// Connect to a document. Returns the handle immediately and invokes
 /// `on_ready` once the handshake and history replay complete (`Ok(Nil)`) or
 /// the connection is rejected (`Error(reason)`).
@@ -174,6 +179,67 @@ pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
         SharedMap(runtime: document.runtime, address: address)
       })
   }
+}
+
+// ── Counters ─────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new counter channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`counter_handle_of`) is first stored into an
+/// attached map. Requires a ready connection (`on_ready`).
+pub fn create_counter(document: Document) -> Result(SharedCounter, String) {
+  runtime_js.create_counter(document.runtime)
+  |> result.map(fn(address) {
+    SharedCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `counter`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn counter_handle_of(counter: SharedCounter) -> Json {
+  handle.encode_handle(counter.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the SharedCounter it references. Existence is
+/// checked, not channel type: resolving a non-counter yields a counter whose
+/// reads return `None`. Errors are retryable, as with `resolve`.
+pub fn resolve_counter(
+  document: Document,
+  value: Json,
+) -> Result(SharedCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically increment the counter (negative amounts decrement).
+pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
+  runtime_js.increment(counter.runtime, counter.address, amount)
+}
+
+@target(javascript)
+/// The counter's current optimistic value, `None` when the address is not a
+/// counter channel.
+pub fn counter_value(counter: SharedCounter) -> Option(Int) {
+  runtime_js.counter_value(counter.runtime, counter.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// counter channel (`channel.CounterEvent(..)`).
+pub fn subscribe_counter(
+  counter: SharedCounter,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(counter.runtime, counter.address, handler)
 }
 
 @target(javascript)

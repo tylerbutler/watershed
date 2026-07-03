@@ -57,7 +57,9 @@ import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 @target(erlang)
-import watershed/channel.{type ChannelEvent, MapChannel} as _watershed_channel
+import watershed/channel.{
+  type ChannelEvent, type ChannelType, CounterChannel, MapChannel,
+} as _watershed_channel
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
@@ -93,9 +95,12 @@ pub type Msg {
   Put(address: String, key: String, value: Json)
   Remove(address: String, key: String)
   RemoveAll(address: String)
+  IncrementCounter(address: String, amount: Int)
   /// Create a new detached map channel: local-only until its handle is first
   /// stored into an attached map. Replies with the generated address.
   CreateMap(reply: Subject(Result(String, String)))
+  /// Create a new detached counter channel, same lifecycle as `CreateMap`.
+  CreateCounter(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
@@ -114,6 +119,9 @@ pub type Msg {
   )
   // Reads
   GetValue(address: String, key: String, reply: Subject(Option(Json)))
+  /// The counter's optimistic value, `None` when the address is missing or
+  /// not a counter channel.
+  GetCounterValue(address: String, reply: Subject(Option(Int)))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
@@ -357,29 +365,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) { runtime_core.delete(core, address, key) })
     RemoveAll(address) ->
       edit(state, fn(core) { runtime_core.clear(core, address) })
+    IncrementCounter(address, amount) ->
+      edit(state, fn(core) { runtime_core.increment(core, address, amount) })
 
-    CreateMap(reply) ->
-      case state.phase {
-        Ready(core, resubmit_at) -> {
-          let address = ids.uuid_v4()
-          let core = runtime_core.create_detached(core, address, MapChannel)
-          process.send(reply, Ok(address))
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
-        }
-        Reconnecting(core) -> {
-          let address = ids.uuid_v4()
-          let core = runtime_core.create_detached(core, address, MapChannel)
-          process.send(reply, Ok(address))
-          actor.continue(State(..state, phase: Reconnecting(core)))
-        }
-        _ -> {
-          process.send(
-            reply,
-            Error("create_map requires a ready document connection"),
-          )
-          actor.continue(state)
-        }
-      }
+    CreateMap(reply) -> create_channel(state, reply, MapChannel, "create_map")
+    CreateCounter(reply) ->
+      create_channel(state, reply, CounterChannel, "create_counter")
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -409,6 +400,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     GetValue(address, key, reply) -> {
       process.send(reply, read(state, None, runtime_core.get(_, address, key)))
+      actor.continue(state)
+    }
+    GetCounterValue(address, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.counter_value(_, address)),
+      )
       actor.continue(state)
     }
     GetEntries(address, reply) -> {
@@ -473,6 +471,39 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         None -> Nil
       }
       actor.stop()
+    }
+  }
+}
+
+@target(erlang)
+/// Create a detached channel of the given type, replying with its generated
+/// address. Detached channels are pure local state, so this works in any
+/// connected-ish phase.
+fn create_channel(
+  state: State,
+  reply: Subject(Result(String, String)),
+  channel_type: ChannelType,
+  verb: String,
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address, channel_type)
+      process.send(reply, Ok(address))
+      actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+    }
+    Reconnecting(core) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address, channel_type)
+      process.send(reply, Ok(address))
+      actor.continue(State(..state, phase: Reconnecting(core)))
+    }
+    _ -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a ready document connection"),
+      )
+      actor.continue(state)
     }
   }
 }

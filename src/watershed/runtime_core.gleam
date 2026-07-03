@@ -21,6 +21,7 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel.{
   type ChannelEvent, type ChannelState, type Snapshot, SequencedMeta,
 }
+import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/wire
@@ -63,6 +64,13 @@ pub type CoreError {
   HistoryGap(detail: String)
   UnknownChannel(address: String, sequence_number: Int)
   DuplicateAttach(address: String, sequence_number: Int)
+  /// A local edit used a verb for one channel type on a channel of another
+  /// (e.g. `set` on a counter). Retryable API misuse, not document corruption.
+  WrongChannelType(
+    address: String,
+    expected: channel.ChannelType,
+    actual: channel.ChannelType,
+  )
 }
 
 pub type Bootstrapped {
@@ -449,7 +457,8 @@ fn apply_remote_channel(
         put_attached_channel(core, address, state),
         tag_events(address, events),
       ))
-    Error(channel.UnexpectedAck(detail)) -> Error(AckMismatch(detail))
+    Error(channel.UnexpectedAck(detail))
+    | Error(channel.WrongChannelType(detail)) -> Error(AckMismatch(detail))
   }
 }
 
@@ -555,7 +564,8 @@ fn ack_own_op(
                     ),
                     tag_events(address, events),
                   ))
-                Error(channel.UnexpectedAck(detail)) ->
+                Error(channel.UnexpectedAck(detail))
+                | Error(channel.WrongChannelType(detail)) ->
                   Error(AckMismatch(detail))
               }
             }
@@ -603,8 +613,9 @@ pub fn set(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  case dict.get(core.detached, address) {
-    Ok(channel.MapState(kernel)) -> {
+  case locate_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.set(kernel, key, value)
       Ok(
         #(
@@ -614,25 +625,23 @@ pub fn set(
         ),
       )
     }
-    Error(_) ->
-      case dict.get(core.channels, address) {
-        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(_state) -> {
-          let #(core, attach_outbound) = attach_dependencies(core, value)
-          let assert Ok(channel.MapState(kernel)) =
-            dict.get(core.channels, address)
-          let #(kernel, events, op) = map_kernel.set(kernel, key, value)
-          let #(core, events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.MapState(kernel),
-              tag_map_events(address, events),
-              channel.MapOp(op),
-            )
-          Ok(#(core, events, list.append(attach_outbound, outbound)))
-        }
-      }
+    Ok(Attached(_)) -> {
+      // Attaching dependencies first can reshape `core.channels`, so re-read
+      // the kernel afterwards (its own type cannot change underneath us).
+      let #(core, attach_outbound) = attach_dependencies(core, value)
+      let assert Ok(channel.MapState(kernel)) = dict.get(core.channels, address)
+      let #(kernel, events, op) = map_kernel.set(kernel, key, value)
+      let #(core, events, outbound) =
+        stamp_attached(
+          core,
+          address,
+          channel.MapState(kernel),
+          tag_map_events(address, events),
+          channel.MapOp(op),
+          channel.NoMeta,
+        )
+      Ok(#(core, events, list.append(attach_outbound, outbound)))
+    }
   }
 }
 
@@ -644,8 +653,9 @@ pub fn delete(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  case dict.get(core.detached, address) {
-    Ok(channel.MapState(kernel)) -> {
+  case locate_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.delete(kernel, key)
       Ok(
         #(
@@ -655,20 +665,17 @@ pub fn delete(
         ),
       )
     }
-    Error(_) ->
-      case dict.get(core.channels, address) {
-        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(channel.MapState(kernel)) -> {
-          let #(kernel, events, op) = map_kernel.delete(kernel, key)
-          Ok(stamp_attached(
-            core,
-            address,
-            channel.MapState(kernel),
-            tag_map_events(address, events),
-            channel.MapOp(op),
-          ))
-        }
-      }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op) = map_kernel.delete(kernel, key)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.MapState(kernel),
+        tag_map_events(address, events),
+        channel.MapOp(op),
+        channel.NoMeta,
+      ))
+    }
   }
 }
 
@@ -679,8 +686,9 @@ pub fn clear(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  case dict.get(core.detached, address) {
-    Ok(channel.MapState(kernel)) -> {
+  case locate_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
       let #(kernel, events, _op) = map_kernel.clear(kernel)
       Ok(
         #(
@@ -690,19 +698,106 @@ pub fn clear(
         ),
       )
     }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op) = map_kernel.clear(kernel)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.MapState(kernel),
+        tag_map_events(address, events),
+        channel.MapOp(op),
+        channel.NoMeta,
+      ))
+    }
+  }
+}
+
+pub fn increment(
+  core: Core,
+  address: String,
+  amount: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_counter(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        counter_kernel.increment(kernel, amount)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.CounterState(kernel)),
+          tag_counter_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) =
+        counter_kernel.increment(kernel, amount)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.CounterState(kernel),
+        tag_counter_events(address, events),
+        channel.CounterOp(op),
+        channel.CounterMeta(message_id),
+      ))
+    }
+  }
+}
+
+/// Where an edit's target channel lives, holding the type-checked kernel.
+type Located(kernel) {
+  Detached(kernel)
+  Attached(kernel)
+}
+
+fn locate_map(
+  core: Core,
+  address: String,
+) -> Result(Located(map_kernel.MapState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.MapState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.MapState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.MapChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_counter(
+  core: Core,
+  address: String,
+) -> Result(Located(counter_kernel.CounterState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.CounterState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.CounterState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.CounterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_channel(
+  core: Core,
+  address: String,
+) -> Result(Located(ChannelState), CoreError) {
+  case dict.get(core.detached, address) {
+    Ok(state) -> Ok(Detached(state))
     Error(_) ->
       case dict.get(core.channels, address) {
+        Ok(state) -> Ok(Attached(state))
         Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
-        Ok(channel.MapState(kernel)) -> {
-          let #(kernel, events, op) = map_kernel.clear(kernel)
-          Ok(stamp_attached(
-            core,
-            address,
-            channel.MapState(kernel),
-            tag_map_events(address, events),
-            channel.MapOp(op),
-          ))
-        }
       }
   }
 }
@@ -801,6 +896,7 @@ fn stamp_attached(
   state: ChannelState,
   events: List(#(String, ChannelEvent)),
   op: channel.ChannelOp,
+  meta: channel.LocalOpMeta,
 ) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)) {
   let csn = core.next_csn
   let outbound =
@@ -821,7 +917,7 @@ fn stamp_attached(
           csn: csn,
           address: address,
           op: op,
-          meta: channel.NoMeta,
+          meta: meta,
         ),
       ]),
     )
@@ -842,6 +938,13 @@ fn tag_map_events(
   list.map(events, fn(event) { #(address, channel.MapEvent(event)) })
 }
 
+fn tag_counter_events(
+  address: String,
+  events: List(counter_kernel.CounterEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.CounterEvent(event)) })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
@@ -849,7 +952,7 @@ fn tag_map_events(
 pub fn get(core: Core, address: String, key: String) -> Option(Json) {
   case find_channel(core, address) {
     Some(channel.MapState(kernel)) -> map_kernel.get(kernel, key)
-    None -> None
+    _ -> None
   }
 }
 
@@ -860,21 +963,30 @@ pub fn has(core: Core, address: String, key: String) -> Bool {
 pub fn size(core: Core, address: String) -> Int {
   case find_channel(core, address) {
     Some(channel.MapState(kernel)) -> map_kernel.size(kernel)
-    None -> 0
+    _ -> 0
   }
 }
 
 pub fn keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.MapState(kernel)) -> map_kernel.keys(kernel)
-    None -> []
+    _ -> []
   }
 }
 
 pub fn entries(core: Core, address: String) -> List(#(String, Json)) {
   case find_channel(core, address) {
     Some(channel.MapState(kernel)) -> map_kernel.entries(kernel)
-    None -> []
+    _ -> []
+  }
+}
+
+/// The counter's current optimistic value, `None` when the address is
+/// missing or not a counter channel.
+pub fn counter_value(core: Core, address: String) -> Option(Int) {
+  case find_channel(core, address) {
+    Some(channel.CounterState(kernel)) -> Some(kernel.value)
+    _ -> None
   }
 }
 

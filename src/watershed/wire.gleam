@@ -29,8 +29,11 @@ pub type OutboundOp {
   )
 }
 
-/// The only channel type watershed speaks.
+/// Wire names for the channel types watershed speaks (the attach envelope's
+/// and summary blob's `channelType`/`type` fields).
 pub const channel_type_map = "map"
+
+pub const channel_type_counter = "counter"
 
 /// Encode map entries as the ordered `[{key, value}]` array shared by attach
 /// snapshots and summary blob channels.

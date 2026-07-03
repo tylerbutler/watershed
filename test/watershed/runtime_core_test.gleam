@@ -18,6 +18,7 @@ import spillway/message
 import spillway/types
 
 import watershed/channel
+import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/runtime_core.{type Core}
@@ -288,8 +289,8 @@ fn root_delete(
 }
 
 /// An outbound op's contents, fully decoded for comparison: channel op
-/// payloads are stage-two decoded against the map grammar (every channel in
-/// these tests is a map).
+/// payloads are stage-two decoded against the map grammar first, then the
+/// counter grammar (the op-type tags are disjoint, so this is unambiguous).
 type DecodedOp {
   DecodedAttach(address: String, snapshot: channel.Snapshot)
   DecodedChannelOp(address: String, op: channel.ChannelOp)
@@ -304,10 +305,13 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
           DecodedAttach(address: address, snapshot: snapshot)
         Ok(ops.ChannelOp(address, contents)) ->
           case
-            decode.run(contents, ops.channel_op_decoder(channel.MapChannel))
+            decode.run(contents, ops.channel_op_decoder(channel.MapChannel)),
+            decode.run(contents, ops.channel_op_decoder(channel.CounterChannel))
           {
-            Ok(op) -> DecodedChannelOp(address: address, op: op)
-            Error(_) -> panic as "failed to decode outbound op contents"
+            Ok(op), _ -> DecodedChannelOp(address: address, op: op)
+            _, Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_), Error(_) ->
+              panic as "failed to decode outbound op contents"
           }
         Error(_) -> panic as "failed to decode outbound contents"
       }
@@ -1673,4 +1677,360 @@ pub fn bootstrap_from_bare_attach_history_test() {
     }
     _ -> panic as "expected attach history bootstrap to succeed"
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Counter channels (R2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn counter_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: counter_kernel.CounterOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_counter_envelope(address, op)),
+  )
+}
+
+fn counter_attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  value value: Int,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_attach(
+      address,
+      channel.CounterSnapshot(value),
+    )),
+  )
+}
+
+pub fn detached_counter_increment_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.increment(core, "tally", 3)
+  events
+  |> expect.to_equal([
+    #("tally", channel.CounterEvent(counter_kernel.Incremented(3, 3))),
+  ])
+  outbound |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+}
+
+pub fn counter_attach_via_handle_then_ops_round_trip_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+  let assert Ok(#(core, _, [])) = runtime_core.increment(core, "tally", 2)
+
+  // Storing the handle attaches the counter with its optimistic value.
+  let assert Ok(#(core, _, outbound)) =
+    runtime_core.set(core, "root", "tally", handle.encode_handle("tally"))
+  list.map(outbound, decode_outbound_contents)
+  |> expect.to_equal([
+    DecodedAttach(address: "tally", snapshot: channel.CounterSnapshot(2)),
+    DecodedChannelOp(
+      address: "root",
+      op: channel.MapOp(Set("tally", handle.encode_handle("tally"))),
+    ),
+  ])
+
+  // Server echoes both; the acks retire them silently.
+  let #(core, events) =
+    apply_tagged(
+      core,
+      counter_attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "tally",
+        value: 2,
+      ),
+    )
+  events |> expect.to_equal([])
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "root",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("tally", handle.encode_handle("tally")),
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+
+  // An attached increment goes on the wire with the next CSN.
+  let assert Ok(#(core, events, [outbound_op])) =
+    runtime_core.increment(core, "tally", 5)
+  events
+  |> expect.to_equal([
+    #("tally", channel.CounterEvent(counter_kernel.Incremented(5, 7))),
+  ])
+  outbound_op.client_sequence_number |> expect.to_equal(3)
+  decode_outbound_contents(outbound_op)
+  |> expect.to_equal(DecodedChannelOp(
+    address: "tally",
+    op: channel.CounterOp(counter_kernel.Increment(5)),
+  ))
+
+  // A remote increment applies on top of the optimistic value.
+  let #(core, events) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: other_client_id,
+        sn: 4,
+        csn: 1,
+        op: counter_kernel.Increment(10),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #("tally", channel.CounterEvent(counter_kernel.Incremented(10, 17))),
+  ])
+
+  // Our own echo retires the pending increment without events.
+  let #(core, events) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: our_client_id,
+        sn: 5,
+        csn: 3,
+        op: counter_kernel.Increment(5),
+      ),
+    )
+  events |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(17))
+}
+
+pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, events) =
+    apply_tagged(
+      core,
+      counter_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "tally",
+        value: 40,
+      ),
+    )
+  events |> expect.to_equal([])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(40))
+
+  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 1)
+  expect_error(
+    runtime_core.handle_sequenced(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 1,
+        op: counter_kernel.Increment(9),
+      ),
+    ),
+    fn(core_error) {
+      case core_error {
+        runtime_core.AckMismatch(_) -> True
+        _ -> False
+      }
+    },
+  )
+}
+
+pub fn reconnect_resubmits_counter_ops_restamped_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      counter_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "tally",
+        value: 0,
+      ),
+    )
+  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 1)
+  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 2)
+
+  let core =
+    runtime_core.adopt_reconnect(
+      core,
+      reconnect_connected(client_id: reconnect_client_id, checkpoint: 2),
+    )
+  let #(core, outbound) = runtime_core.resubmit(core)
+
+  list.map(outbound, fn(op) { op.client_sequence_number })
+  |> expect.to_equal([3, 4])
+  list.map(outbound, decode_outbound_contents)
+  |> expect.to_equal([
+    DecodedChannelOp(
+      address: "tally",
+      op: channel.CounterOp(counter_kernel.Increment(1)),
+    ),
+    DecodedChannelOp(
+      address: "tally",
+      op: channel.CounterOp(counter_kernel.Increment(2)),
+    ),
+  ])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+
+  // The restamped echoes ack cleanly under the new client id.
+  let #(core, _) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: reconnect_client_id,
+        sn: 3,
+        csn: 3,
+        op: counter_kernel.Increment(1),
+      ),
+    )
+  let #(core, _) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: reconnect_client_id,
+        sn: 4,
+        csn: 4,
+        op: counter_kernel.Increment(2),
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+}
+
+pub fn wrong_channel_type_edits_are_rejected_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+
+  // Map verbs on a counter channel are rejected, not applied or crashed.
+  case runtime_core.set(core, "tally", "k", json.int(1)) {
+    Error(runtime_core.WrongChannelType(
+      address: "tally",
+      expected: channel.MapChannel,
+      actual: channel.CounterChannel,
+    )) -> Nil
+    _ -> panic as "expected set on a counter channel to be rejected"
+  }
+  case runtime_core.delete(core, "tally", "k") {
+    Error(runtime_core.WrongChannelType(..)) -> Nil
+    _ -> panic as "expected delete on a counter channel to be rejected"
+  }
+  case runtime_core.clear(core, "tally") {
+    Error(runtime_core.WrongChannelType(..)) -> Nil
+    _ -> panic as "expected clear on a counter channel to be rejected"
+  }
+  // And the counter verb on a map channel likewise.
+  case runtime_core.increment(core, "root", 1) {
+    Error(runtime_core.WrongChannelType(
+      address: "root",
+      expected: channel.CounterChannel,
+      actual: channel.MapChannel,
+    )) -> Nil
+    _ -> panic as "expected increment on a map channel to be rejected"
+  }
+  // Reads on the wrong channel type return empty defaults.
+  runtime_core.counter_value(core, "root") |> expect.to_equal(None)
+  runtime_core.get(core, "tally", "k") |> expect.to_equal(None)
+  runtime_core.entries(core, "tally") |> expect.to_equal([])
+  runtime_core.keys(core, "tally") |> expect.to_equal([])
+  runtime_core.size(core, "tally") |> expect.to_equal(0)
+}
+
+pub fn summary_captures_confirmed_counter_value_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      counter_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "tally",
+        value: 0,
+      ),
+    )
+  let #(core, _) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: other_client_id,
+        sn: 3,
+        csn: 2,
+        op: counter_kernel.Increment(4),
+      ),
+    )
+  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 3)
+
+  // The optimistic read includes the un-acked increment; the summary only
+  // captures the confirmed value.
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(7))
+  runtime_core.summary_channels(core)
+  |> expect.to_equal([
+    #("root", channel.MapSnapshot([])),
+    #("tally", channel.CounterSnapshot(4)),
+  ])
+}
+
+pub fn bootstrap_from_summary_with_counter_channel_test() {
+  let summary =
+    runtime_core.Summary(sequence_number: 5, channels: [
+      #(
+        "root",
+        channel.MapSnapshot([#("tally", handle.encode_handle("tally"))]),
+      ),
+      #("tally", channel.CounterSnapshot(9)),
+    ])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to complete"
+  }
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(9))
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      counter_op_message(
+        address: "tally",
+        client_id: other_client_id,
+        sn: 6,
+        csn: 1,
+        op: counter_kernel.Increment(2),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #("tally", channel.CounterEvent(counter_kernel.Incremented(2, 11))),
+  ])
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(11))
 }

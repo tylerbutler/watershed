@@ -175,24 +175,53 @@ pub fn has(runtime: Runtime, address: String, key: String) -> Bool {
 }
 
 @target(javascript)
+/// Optimistically increment the counter at `address` (negative amounts
+/// decrement).
+pub fn increment(runtime: Runtime, address: String, amount: Int) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.increment(core, address, amount) })
+}
+
+@target(javascript)
+/// The counter's optimistic value, `None` when the address is missing or
+/// not a counter channel.
+pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.counter_value(_, address))
+}
+
+@target(javascript)
 /// Create a new detached map channel: local-only until its handle is first
 /// stored into an attached map. Returns the generated address.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.MapChannel, "create_map")
+}
+
+@target(javascript)
+/// Create a new detached counter channel, same lifecycle as `create_map`.
+pub fn create_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.CounterChannel, "create_counter")
+}
+
+@target(javascript)
+fn create_channel(
+  runtime: Runtime,
+  channel_type: channel.ChannelType,
+  verb: String,
+) -> Result(String, String) {
   let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel.MapChannel)
+      let core = runtime_core.create_detached(core, address, channel_type)
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
     Reconnecting(core) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel.MapChannel)
+      let core = runtime_core.create_detached(core, address, channel_type)
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }
-    _ -> Error("create_map requires a ready document connection")
+    _ -> Error(verb <> " requires a ready document connection")
   }
 }
 

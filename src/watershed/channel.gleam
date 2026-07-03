@@ -16,6 +16,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 
+import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/wire
@@ -24,53 +25,61 @@ import watershed/wire
 /// `channelType` strings via `type_to_string`/`type_from_string`.
 pub type ChannelType {
   MapChannel
+  CounterChannel
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
   case channel_type {
     MapChannel -> wire.channel_type_map
+    CounterChannel -> wire.channel_type_counter
   }
 }
 
 pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
-  case raw == wire.channel_type_map {
-    True -> Ok(MapChannel)
-    False -> Error(Nil)
+  case raw {
+    _ if raw == wire.channel_type_map -> Ok(MapChannel)
+    _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
+    _ -> Error(Nil)
   }
 }
 
 /// One channel's kernel state.
 pub type ChannelState {
   MapState(map_kernel.MapState)
+  CounterState(counter_kernel.CounterState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
 /// matching) and, via `wire/ops`, over the wire.
 pub type ChannelOp {
   MapOp(map_kernel.MapOp)
+  CounterOp(counter_kernel.CounterOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
 pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
+  CounterEvent(counter_kernel.CounterEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
 /// `snapshot` payload and the summary blob's per-channel `data` payload.
 pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
+  CounterSnapshot(value: Int)
 }
 
 /// Per-kernel *local* metadata an in-flight op carries alongside the wire
-/// op (never serialized). Map ops carry none; counter local message ids
-/// arrive with the counter kernel.
+/// op (never serialized). Map ops carry none; counters validate the local
+/// message id Fluid pairs with each pending increment.
 pub type LocalOpMeta {
   NoMeta
+  CounterMeta(message_id: Int)
 }
 
-/// Sequencer-assigned metadata for a sequenced op. Map ignores it; kernels
-/// that persist sequence numbers (claims) consume `seq`. Threaded from day
-/// one so adding such a kernel is additive.
+/// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
+/// it; kernels that persist sequence numbers (claims) consume `seq`.
+/// Threaded from day one so adding such a kernel is additive.
 pub type SequencedMeta {
   SequencedMeta(seq: Int, last_seen_sn: Int)
 }
@@ -79,23 +88,30 @@ pub type ChannelError {
   /// An ack did not line up with the kernel's pending queue. Fatal: the
   /// runtime routed an ack the kernel never submitted (or out of order).
   UnexpectedAck(detail: String)
+  /// The runtime dispatched an op to a channel of a different kernel type.
+  /// Fatal: ops are decoded against the registry's type for their address,
+  /// so a mismatch here is a routing bug, not bad input.
+  WrongChannelType(detail: String)
 }
 
 pub fn channel_type(state: ChannelState) -> ChannelType {
   case state {
     MapState(_) -> MapChannel
+    CounterState(_) -> CounterChannel
   }
 }
 
 pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
   case snapshot {
     MapSnapshot(_) -> MapChannel
+    CounterSnapshot(_) -> CounterChannel
   }
 }
 
 pub fn new(channel_type: ChannelType) -> ChannelState {
   case channel_type {
     MapChannel -> MapState(map_kernel.new())
+    CounterChannel -> CounterState(counter_kernel.new())
   }
 }
 
@@ -104,6 +120,7 @@ pub fn new(channel_type: ChannelType) -> ChannelState {
 pub fn from_snapshot(snapshot: Snapshot) -> ChannelState {
   case snapshot {
     MapSnapshot(entries) -> MapState(map_kernel.from_sequenced(entries))
+    CounterSnapshot(value) -> CounterState(counter_kernel.from_summary(value))
   }
 }
 
@@ -111,7 +128,16 @@ pub fn from_snapshot(snapshot: Snapshot) -> ChannelState {
 pub fn snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
+    CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
   }
+}
+
+/// The counter kernel's value is optimistic (pending increments applied);
+/// back the un-acked amounts out for the sequenced-only view.
+fn counter_sequenced_value(kernel: counter_kernel.CounterState) -> Int {
+  list.fold(kernel.pending, kernel.value, fn(value, pending) {
+    value - pending.increment_amount
+  })
 }
 
 /// The current optimistic view, as an attach op captures it. A detached
@@ -120,6 +146,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
 pub fn attach_snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
+    CounterState(kernel) -> CounterSnapshot(kernel.value)
   }
 }
 
@@ -134,6 +161,11 @@ pub fn apply_remote(
       let #(kernel, events) = map_kernel.apply_remote(kernel, op)
       Ok(#(MapState(kernel), list.map(events, MapEvent)))
     }
+    CounterState(kernel), CounterOp(op) -> {
+      let #(kernel, events) = counter_kernel.apply_remote(kernel, op)
+      Ok(#(CounterState(kernel), list.map(events, CounterEvent)))
+    }
+    state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
 
@@ -141,7 +173,7 @@ pub fn apply_remote(
 pub fn ack_local(
   state: ChannelState,
   op: ChannelOp,
-  _local: LocalOpMeta,
+  local: LocalOpMeta,
   _meta: SequencedMeta,
 ) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
   case state, op {
@@ -151,7 +183,31 @@ pub fn ack_local(
         Error(map_kernel.UnexpectedAck(_, detail)) ->
           Error(UnexpectedAck(detail))
       }
+    CounterState(kernel), CounterOp(op) ->
+      case local {
+        CounterMeta(message_id) ->
+          case
+            counter_kernel.ack_local_with_message_id(kernel, op, message_id)
+          {
+            Ok(kernel) -> Ok(#(CounterState(kernel), []))
+            Error(counter_kernel.UnexpectedAck(_, detail))
+            | Error(counter_kernel.UnexpectedRollback(_, detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        NoMeta ->
+          Error(UnexpectedAck("counter ack is missing its local message id"))
+      }
+    state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
+}
+
+fn wrong_channel_type(state: ChannelState, context: String) -> ChannelError {
+  WrongChannelType(
+    context
+    <> " does not match the "
+    <> type_to_string(channel_type(state))
+    <> " channel it was routed to",
+  )
 }
 
 /// Whether a sequenced echo of our own op has the shape we submitted
@@ -159,6 +215,10 @@ pub fn ack_local(
 pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
   case ours, echoed {
     MapOp(ours), MapOp(echoed) -> same_map_shape(ours, echoed)
+    CounterOp(counter_kernel.Increment(ours)),
+      CounterOp(counter_kernel.Increment(echoed))
+    -> ours == echoed
+    _, _ -> False
   }
 }
 
@@ -178,6 +238,8 @@ fn same_map_shape(ours: map_kernel.MapOp, echoed: map_kernel.MapOp) -> Bool {
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
+    CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
+    _, _ -> False
   }
 }
 
@@ -207,7 +269,7 @@ fn same_json_value(ours: Json, echoed: Json) -> Bool {
 }
 
 /// Handle addresses reachable from the channel's current values, for
-/// attach-dependency ordering.
+/// attach-dependency ordering. Counters hold no handles.
 pub fn handle_addresses(state: ChannelState) -> List(String) {
   case state {
     MapState(kernel) ->
@@ -215,6 +277,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
         handle.collect_handle_addresses(entry.1)
       })
       |> list.unique
+    CounterState(_) -> []
   }
 }
 
@@ -223,6 +286,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
 pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   case snapshot {
     MapSnapshot(entries) -> wire.encode_entries(entries)
+    CounterSnapshot(value) -> json.int(value)
   }
 }
 
@@ -231,5 +295,6 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
 pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
   case channel_type {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
+    CounterChannel -> decode.int |> decode.map(CounterSnapshot)
   }
 }

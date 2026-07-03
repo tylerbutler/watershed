@@ -120,6 +120,7 @@ pub fn encode_channel_envelope(address: String, op: channel.ChannelOp) -> Json {
 pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
   case op {
     channel.MapOp(op) -> encode_map_op(op)
+    channel.CounterOp(op) -> encode_counter_op(op)
   }
 }
 
@@ -130,6 +131,8 @@ pub fn channel_op_decoder(
 ) -> Decoder(channel.ChannelOp) {
   case channel_type {
     channel.MapChannel -> map_op_decoder() |> decode.map(channel.MapOp)
+    channel.CounterChannel ->
+      counter_op_decoder() |> decode.map(channel.CounterOp)
   }
 }
 

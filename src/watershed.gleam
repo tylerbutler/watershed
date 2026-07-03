@@ -70,6 +70,11 @@ pub opaque type SharedMap {
 }
 
 @target(erlang)
+pub opaque type SharedCounter {
+  SharedCounter(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
 /// Connect to a document, blocking until the handshake completes and the
 /// full op history has been replayed locally.
 pub fn connect(
@@ -182,6 +187,81 @@ pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
         SharedMap(runtime: document.runtime, address: address)
       })
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Counters
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new counter channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`counter_handle_of`) is first stored into an
+/// attached map.
+pub fn create_counter(document: Document) -> Result(SharedCounter, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateCounter,
+  )
+  |> result.map(fn(address) {
+    SharedCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `counter`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn counter_handle_of(counter: SharedCounter) -> Json {
+  handle.encode_handle(counter.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedCounter it references. Existence is
+/// checked, not channel type: resolving a non-counter yields a counter whose
+/// reads return `None`. Errors are retryable, as with `resolve`.
+pub fn resolve_counter(
+  document: Document,
+  value: Json,
+) -> Result(SharedCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically increment the counter (negative amounts decrement).
+pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
+  process.send(
+    counter.runtime,
+    runtime.IncrementCounter(counter.address, amount),
+  )
+}
+
+@target(erlang)
+/// The counter's current optimistic value, `None` when the address is not a
+/// counter channel.
+pub fn counter_value(counter: SharedCounter) -> Option(Int) {
+  process.call(counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetCounterValue(counter.address, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this counter's events
+/// (`channel.CounterEvent(..)`), local and remote alike.
+pub fn subscribe_counter(counter: SharedCounter) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(counter.runtime, runtime.Subscribe(counter.address, subscriber))
+  subscriber
 }
 
 @target(erlang)
