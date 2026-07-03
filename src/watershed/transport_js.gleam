@@ -6,6 +6,8 @@
 
 @target(javascript)
 import gleam/dynamic.{type Dynamic}
+@target(javascript)
+import gleam/javascript/promise.{type Promise}
 
 @target(javascript)
 /// An opaque Phoenix channel handle (carries its socket back-reference).
@@ -58,16 +60,12 @@ pub fn get_cell(cell: Cell(a)) -> a
 pub fn set_cell(cell: Cell(a), value: a) -> Nil
 
 @target(javascript)
-/// Random integer in `[min, max]` (inclusive) — demo helper.
-@external(javascript, "./transport_ffi.mjs", "randomInt")
-pub fn random_int(min: Int, max: Int) -> Int
-
-@target(javascript)
-/// Mint an HS256 dev JWT matching levee's dev-mode verification.
+/// Mint an HS256 dev JWT matching levee's dev-mode verification. Signs with
+/// Web Crypto, so the token resolves asynchronously.
 @external(javascript, "./transport_ffi.mjs", "mintDevToken")
 pub fn mint_dev_token(
   secret: String,
   tenant: String,
   document: String,
   user_id: String,
-) -> String
+) -> Promise(String)

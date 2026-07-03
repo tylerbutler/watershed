@@ -3,7 +3,8 @@
 //// deltas API (`GET /deltas/:tenant_id/:id`) used to fetch sequenced ops
 //// that have aged out of the server's in-band history window.
 ////
-//// A watershed summary is a single JSON blob (see `wire.encode_summary_blob`)
+//// A watershed summary is a single JSON blob (see
+//// `wire.encode_summary_blob_channels`)
 //// stored at path `"header"` inside a git tree. We set the summarize op's
 //// `handle` equal to the tree SHA, so loading a summary is: fetch the tree by
 //// handle, read the `header` blob, base64-decode, and decode the blob.

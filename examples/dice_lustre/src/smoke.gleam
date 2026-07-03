@@ -6,6 +6,7 @@
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
 
 import gleam/int
+import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
@@ -27,8 +28,13 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Document {
-  let token = watershed_js.dev_token(secret, tenant, document, user)
+fn connect_client(document: String, user: String) -> Promise(Document) {
+  use token <- promise.map(watershed_js.dev_token(
+    secret,
+    tenant,
+    document,
+    user,
+  ))
   watershed_js.connect(
     WatershedConfig(
       url: url,
@@ -47,12 +53,18 @@ fn connect_client(document: String, user: String) -> Document {
 }
 
 pub fn main() {
-  let document =
-    "js-smoke-" <> int.to_string(watershed_js.random_int(100_000, 999_999))
+  let document = "js-smoke-" <> int.to_string(100_000 + int.random(900_000))
   log("smoke: document " <> document)
 
-  let doc_a = connect_client(document, "user-a")
-  let doc_b = connect_client(document, "user-b")
+  let _ = {
+    use doc_a <- promise.await(connect_client(document, "user-a"))
+    use doc_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(doc_a, doc_b)
+  }
+  Nil
+}
+
+fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   let map_a = watershed_js.root(doc_a)
   let map_b = watershed_js.root(doc_b)
 

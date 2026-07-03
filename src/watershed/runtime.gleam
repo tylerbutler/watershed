@@ -80,8 +80,6 @@ const max_ops_per_submission = 100
 
 @target(erlang)
 pub type Msg {
-  // Actor bootstrap: learn our own subject so we can schedule heartbeats.
-  Register(self: Subject(Msg))
   Heartbeat
   // Receiver-process lifecycle
   ChannelReady(Channel)
@@ -144,7 +142,7 @@ type State {
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(Subject(MapEvent)),
-    self: Option(Subject(Msg)),
+    self: Subject(Msg),
   )
 }
 
@@ -165,28 +163,27 @@ pub fn start(
     Some(token) -> json.object([#("token", json.string(token))])
     None -> json.object([])
   }
-  let state =
-    State(
-      host: host,
-      port: port,
-      path: path,
-      topic: topic,
-      join_payload: join_payload,
-      connect_message: connect_message,
-      channel: None,
-      phase: Connecting([]),
-      subscribers: [],
-      self: None,
-    )
-  case actor.new(state) |> actor.on_message(handle) |> actor.start {
-    Error(err) -> Error(err)
-    Ok(started) -> {
-      let runtime = started.data
-      process.send(runtime, Register(runtime))
-      spawn_receiver(state, runtime)
-      Ok(runtime)
-    }
-  }
+  actor.new_with_initialiser(1000, fn(self) {
+    let state =
+      State(
+        host: host,
+        port: port,
+        path: path,
+        topic: topic,
+        join_payload: join_payload,
+        connect_message: connect_message,
+        channel: None,
+        phase: Connecting([]),
+        subscribers: [],
+        self: self,
+      )
+    let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
+    spawn_receiver(state, self)
+    Ok(actor.initialised(state) |> actor.returning(self))
+  })
+  |> actor.on_message(handle)
+  |> actor.start
+  |> result.map(fn(started) { started.data })
 }
 
 @target(erlang)
@@ -300,19 +297,8 @@ fn receive_loop(channel: Channel, runtime: Subject(Msg)) -> Nil {
 @target(erlang)
 fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
-    Register(self) -> {
-      let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
-      actor.continue(State(..state, self: Some(self)))
-    }
-
     Heartbeat -> {
-      case state.self {
-        Some(self) -> {
-          let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
-          Nil
-        }
-        None -> Nil
-      }
+      let _ = process.send_after(state.self, heartbeat_interval_ms, Heartbeat)
       case state.phase, state.channel {
         Ready(core, None), Some(channel) ->
           push(
@@ -655,10 +641,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 /// Enter the reconnecting phase after a channel close: drop the dead channel
 /// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
-  case state.self {
-    Some(self) -> spawn_receiver(state, self)
-    None -> Nil
-  }
+  spawn_receiver(state, state.self)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -711,57 +694,14 @@ fn handle_summarize(
   // the confirmed state is stable and the summarize op can go out immediately.
   case state.phase, state.channel {
     Ready(core, None), Some(channel) ->
-      case state.connect_message.token {
-        None -> {
-          process.send(reply, Error("summarize requires an auth token"))
-          actor.continue(state)
+      case do_summarize(state, core, channel) {
+        Ok(#(core, tree_sha)) -> {
+          process.send(reply, Ok(tree_sha))
+          actor.continue(State(..state, phase: Ready(core, None)))
         }
-        Some(token) -> {
-          case runtime_core.is_synced(core) {
-            False -> {
-              process.send(
-                reply,
-                Error(
-                  "summarize requires the client to be caught up; retry once "
-                  <> "in-flight edits have been acknowledged",
-                ),
-              )
-              actor.continue(state)
-            }
-            True -> {
-              let channels = runtime_core.summary_channels(core)
-              case
-                git_storage.upload_summary(
-                  base_url: http_base_url(state),
-                  tenant: state.connect_message.tenant_id,
-                  token: token,
-                  sequence_number: core.last_seen_sn,
-                  channels: channels,
-                )
-              {
-                Error(reason) -> {
-                  process.send(reply, Error(reason))
-                  actor.continue(state)
-                }
-                Ok(tree_sha) -> {
-                  let #(core, outbound) =
-                    runtime_core.build_summarize(
-                      core,
-                      handle: tree_sha,
-                      message: "watershed summary",
-                      head: tree_sha,
-                    )
-                  push(
-                    channel,
-                    "submitOp",
-                    wire.encode_submit_op(core.client_id, [[outbound]]),
-                  )
-                  process.send(reply, Ok(tree_sha))
-                  actor.continue(State(..state, phase: Ready(core, None)))
-                }
-              }
-            }
-          }
+        Error(reason) -> {
+          process.send(reply, Error(reason))
+          actor.continue(state)
         }
       }
     _, _ -> {
@@ -772,6 +712,44 @@ fn handle_summarize(
       actor.continue(state)
     }
   }
+}
+
+@target(erlang)
+/// Upload the confirmed state as a summary blob, then stamp and push the
+/// summarize op referencing it. Returns the updated core and the tree SHA.
+fn do_summarize(
+  state: State,
+  core: runtime_core.Core,
+  channel: Channel,
+) -> Result(#(runtime_core.Core, String), String) {
+  use token <- result.try(option.to_result(
+    state.connect_message.token,
+    "summarize requires an auth token",
+  ))
+  use _ <- result.try(case runtime_core.is_synced(core) {
+    True -> Ok(Nil)
+    False ->
+      Error(
+        "summarize requires the client to be caught up; retry once "
+        <> "in-flight edits have been acknowledged",
+      )
+  })
+  use tree_sha <- result.try(git_storage.upload_summary(
+    base_url: http_base_url(state),
+    tenant: state.connect_message.tenant_id,
+    token: token,
+    sequence_number: core.last_seen_sn,
+    channels: runtime_core.summary_channels(core),
+  ))
+  let #(core, outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: tree_sha,
+      message: "watershed summary",
+      head: tree_sha,
+    )
+  push(channel, "submitOp", wire.encode_submit_op(core.client_id, [[outbound]]))
+  Ok(#(core, tree_sha))
 }
 
 @target(erlang)

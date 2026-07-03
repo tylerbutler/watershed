@@ -53,9 +53,16 @@ pub fn collect_handle_addresses_nested_and_dedup_test() {
 }
 
 pub fn collect_handle_addresses_ignores_multi_segment_test() {
-  let multi = json.object([
-    #("h", json.object([#("type", json.string(handle.fluid_handle_type)), #("url", json.string("/a/b"))]))
-  ])
+  let multi =
+    json.object([
+      #(
+        "h",
+        json.object([
+          #("type", json.string(handle.fluid_handle_type)),
+          #("url", json.string("/a/b")),
+        ]),
+      ),
+    ])
   let addrs = handle.collect_handle_addresses(multi)
   list.length(addrs) |> expect.to_equal(0)
 }

@@ -216,11 +216,7 @@ pub fn summary_blob_round_trips_test() {
     #("nested", json.object([#("a", json.array([1, 2], json.int))])),
   ]
   let encoded =
-    wire.encode_summary_blob(
-      address: "root",
-      sequence_number: 7,
-      entries: entries,
-    )
+    wire.encode_summary_blob_channels(7, [#("root", entries)])
     |> json.to_string
   let assert Ok(blob) = wire.decode_summary_blob(encoded)
   blob.sequence_number |> expect.to_equal(7)
@@ -557,20 +553,6 @@ pub fn decode_op_contents_rejects_bad_attach_test() {
     Error(_) -> Nil
     Ok(_) ->
       panic as "expected bad attach to be rejected, not decoded as channel op"
-  }
-}
-
-pub fn summary_blob_v1_fallback_to_one_map_channel_test() {
-  let raw =
-    "{\"watershedSummaryVersion\": 1, \"address\": \"legacy\", \"sequenceNumber\": 1, \"entries\": []}"
-  case wire.decode_summary_blob(raw) {
-    Ok(blob) -> {
-      blob.sequence_number |> expect.to_equal(1)
-      let assert [channel] = blob.channels
-      channel.channel_type |> expect.to_equal(wire.channel_type_map)
-      channel.address |> expect.to_equal("root")
-    }
-    Error(_) -> panic as "v1 fallback failed"
   }
 }
 

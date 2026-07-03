@@ -584,8 +584,8 @@ pub fn bootstrap_from_summary_no_deltas_test() {
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
   core.last_seen_sn |> expect.to_equal(5)
   // The confirmed entries a fresh summarize would capture round-trip exactly.
-  runtime_core.summary_entries(core)
-  |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
+  runtime_core.summary_channels(core)
+  |> expect.to_equal([#("root", [#("a", json.int(1)), #("b", json.int(2))])])
 }
 
 pub fn bootstrap_dedupes_own_join_push_test() {

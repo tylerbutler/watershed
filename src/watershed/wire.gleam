@@ -26,6 +26,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 import spillway/message.{
   type ConnectError, type ConnectMessage, type ConnectedMessage, type OpMessage,
@@ -857,45 +858,13 @@ pub fn attach_envelope_decoder() -> Decoder(OpContents) {
 pub fn decode_op_contents(
   contents: Dynamic,
 ) -> Result(OpContents, List(decode.DecodeError)) {
-  // If the incoming object explicitly declares a top-level `type` we must
-  // honour that intent. If `type == "attach"` require the attach envelope
-  // to decode successfully; otherwise decode the legacy map envelope.
-  case decode.run(contents, decode.dict(decode.string, decode.dynamic)) {
-    Ok(map) -> {
-      case dict.get(map, "type") {
-        Ok(type_dynamic) ->
-          case decode.run(type_dynamic, decode.string) {
-            Ok(t) ->
-              case t == "attach" {
-                True ->
-                  case decode.run(contents, attach_envelope_decoder()) {
-                    Ok(attach) -> Ok(attach)
-                    Error(errs) -> Error(errs)
-                  }
-                False ->
-                  case decode.run(contents, map_envelope_decoder()) {
-                    Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
-                    Error(errs) -> Error(errs)
-                  }
-              }
-            Error(_) ->
-              case decode.run(contents, map_envelope_decoder()) {
-                Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
-                Error(errs) -> Error(errs)
-              }
-          }
-        Error(_) ->
-          case decode.run(contents, map_envelope_decoder()) {
-            Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
-            Error(errs) -> Error(errs)
-          }
-      }
-    }
-    Error(_) ->
-      case decode.run(contents, map_envelope_decoder()) {
-        Ok(#(addr, op)) -> Ok(ChannelOp(addr, op))
-        Error(errs) -> Error(errs)
-      }
+  // An explicit top-level `type: "attach"` must decode as an attach envelope
+  // (no fallback); anything else decodes as the map envelope.
+  case decode.run(contents, decode.at(["type"], decode.string)) {
+    Ok("attach") -> decode.run(contents, attach_envelope_decoder())
+    _ ->
+      decode.run(contents, map_envelope_decoder())
+      |> result.map(fn(pair) { ChannelOp(pair.0, pair.1) })
   }
 }
 
@@ -940,18 +909,6 @@ fn dynamic_to_json(value: Dynamic) -> Json {
 /// anything they don't recognise rather than misread a foreign snapshot.
 pub const summary_blob_version = 2
 
-/// Encode the legacy single-map summary as the new v2 channel-oriented blob.
-/// We keep the existing `address, sequence_number, entries` convenience
-/// signature used by older callers and emit the v2 shape with one `map`
-/// channel.
-pub fn encode_summary_blob(
-  address address: String,
-  sequence_number sequence_number: Int,
-  entries entries: List(#(String, Json)),
-) -> Json {
-  encode_summary_blob_channels(sequence_number, [#(address, entries)])
-}
-
 pub fn encode_summary_blob_channels(
   sequence_number: Int,
   channels: List(#(String, List(#(String, Json)))),
@@ -993,10 +950,8 @@ pub type ChannelSnapshot {
   )
 }
 
-/// Decode a summary blob produced by `encode_summary_blob`. Accept both v2
-/// channel-oriented blobs and legacy v1 single-map blobs (which we convert
-/// into a one-entry `map` channel). Reject unknown versions and unknown
-/// channel types.
+/// Decode a summary blob produced by `encode_summary_blob_channels`. Reject
+/// unknown versions and unknown channel types.
 pub fn decode_summary_blob(
   raw: String,
 ) -> Result(SummaryBlob, json.DecodeError) {
@@ -1017,33 +972,11 @@ pub fn summary_blob_decoder() -> Decoder(SummaryBlob) {
         channels: channels,
       ))
     }
-    False -> {
-      case version {
-        1 -> {
-          // Legacy single-map blob: convert to a single `map` channel.
-          use _address <- decode.field("address", decode.string)
-          use sequence_number <- decode.field("sequenceNumber", decode.int)
-          use entries <- decode.field(
-            "entries",
-            decode.list(summary_entry_decoder()),
-          )
-          let channel =
-            ChannelSnapshot(
-              address: "root",
-              channel_type: channel_type_map,
-              entries: entries,
-            )
-          decode.success(
-            SummaryBlob(sequence_number: sequence_number, channels: [channel]),
-          )
-        }
-        _ ->
-          decode.failure(
-            SummaryBlob(sequence_number: 0, channels: []),
-            "watershedSummaryVersion " <> int.to_string(summary_blob_version),
-          )
-      }
-    }
+    False ->
+      decode.failure(
+        SummaryBlob(sequence_number: 0, channels: []),
+        "watershedSummaryVersion " <> int.to_string(summary_blob_version),
+      )
   }
 }
 

@@ -9,6 +9,7 @@
 //// rolls converge. Roll during a forced reconnect and nothing is lost.
 
 import gleam/int
+import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -70,7 +71,7 @@ type Msg {
 
 fn init(_args) -> #(Model, Effect(Msg)) {
   // A distinct user per tab so the two clients are separate connections.
-  let user_id = "web-" <> int.to_string(watershed_js.random_int(1000, 9999))
+  let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
     Model(
       status: Connecting,
@@ -85,28 +86,30 @@ fn init(_args) -> #(Model, Effect(Msg)) {
 /// Connect, then bridge watershed's callbacks into Lustre's dispatch.
 fn connect_effect(user_id: String) -> Effect(Msg) {
   use dispatch <- effect.from
-  let token =
-    watershed_js.dev_token(
+  let _ = {
+    use token <- promise.map(watershed_js.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,
       user_id: user_id,
-    )
-  let doc =
-    watershed_js.connect(
-      WatershedConfig(
-        url: socket_url,
-        tenant: tenant,
-        document: document_id,
-        token: token,
-        user_id: user_id,
-      ),
-      on_ready: fn(result) { dispatch(Connected(result)) },
-    )
-  let map = watershed_js.root(doc)
-  // Local and remote edits both surface here; we re-read the map on each.
-  watershed_js.subscribe(map, fn(_event: MapEvent) { dispatch(MapChanged) })
-  dispatch(GotHandle(doc))
+    ))
+    let doc =
+      watershed_js.connect(
+        WatershedConfig(
+          url: socket_url,
+          tenant: tenant,
+          document: document_id,
+          token: token,
+          user_id: user_id,
+        ),
+        on_ready: fn(result) { dispatch(Connected(result)) },
+      )
+    let map = watershed_js.root(doc)
+    // Local and remote edits both surface here; we re-read the map on each.
+    watershed_js.subscribe(map, fn(_event: MapEvent) { dispatch(MapChanged) })
+    dispatch(GotHandle(doc))
+  }
+  Nil
 }
 
 // ── Update ───────────────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           watershed_js.set(
             watershed_js.root(doc),
             die_key,
-            json.int(watershed_js.random_int(1, 6)),
+            json.int(1 + int.random(6)),
           )
         None -> Nil
       }

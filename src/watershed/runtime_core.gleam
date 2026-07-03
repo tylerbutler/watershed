@@ -77,11 +77,9 @@ pub fn bootstrap(
   connected: ConnectedMessage,
   summary summary: Option(Summary),
 ) -> Result(Bootstrapped, CoreError) {
-  let #(channels, channel_order, last_seen) = case summary {
-    Some(Summary(sequence_number: sn, channels: summary_channels)) ->
-      seed_channels(summary_channels, sn)
-    None -> seed_channels([], 0)
-  }
+  let Summary(sequence_number: last_seen, channels: seeded) =
+    option.unwrap(summary, Summary(sequence_number: 0, channels: []))
+  let #(channels, channel_order) = seed_channels(seeded)
 
   let core =
     Core(
@@ -145,13 +143,6 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   }
 }
 
-pub fn summary_entries(core: Core) -> List(#(String, Json)) {
-  case dict.get(core.channels, root_address) {
-    Ok(kernel) -> map_kernel.sequenced_entries(kernel)
-    Error(_) -> []
-  }
-}
-
 pub fn summary_channels(core: Core) -> List(#(String, List(#(String, Json)))) {
   list.filter_map(core.channel_order, fn(address) {
     case dict.get(core.channels, address) {
@@ -186,31 +177,23 @@ pub fn build_summarize(
 
 fn seed_channels(
   seeded: List(#(String, List(#(String, Json)))),
-  last_seen: Int,
-) -> #(Dict(String, map_kernel.MapState), List(String), Int) {
+) -> #(Dict(String, map_kernel.MapState), List(String)) {
   let #(channels, channel_order) =
     list.fold(seeded, #(dict.new(), []), fn(acc, entry) {
       let #(channels, channel_order) = acc
       let #(address, entries) = entry
-      case dict.has_key(channels, address) {
-        True -> #(
-          dict.insert(channels, address, map_kernel.from_sequenced(entries)),
-          channel_order,
-        )
-        False -> #(
-          dict.insert(channels, address, map_kernel.from_sequenced(entries)),
-          list.append(channel_order, [address]),
-        )
-      }
+      #(
+        dict.insert(channels, address, map_kernel.from_sequenced(entries)),
+        list.unique(list.append(channel_order, [address])),
+      )
     })
 
   case dict.has_key(channels, root_address) {
-    True -> #(channels, channel_order, last_seen)
-    False -> #(
-      dict.insert(channels, root_address, map_kernel.new()),
-      [root_address, ..channel_order],
-      last_seen,
-    )
+    True -> #(channels, channel_order)
+    False -> #(dict.insert(channels, root_address, map_kernel.new()), [
+      root_address,
+      ..channel_order
+    ])
   }
 }
 
@@ -749,16 +732,10 @@ fn collect_attach_for(
 }
 
 fn detached_handle_dependencies(kernel: map_kernel.MapState) -> List(String) {
-  list.fold(map_kernel.entries(kernel), [], fn(acc, entry) {
-    list.fold(handle.collect_handle_addresses(entry.1), acc, append_unique)
+  list.flat_map(map_kernel.entries(kernel), fn(entry) {
+    handle.collect_handle_addresses(entry.1)
   })
-}
-
-fn append_unique(addresses: List(String), address: String) -> List(String) {
-  case list.any(addresses, fn(existing) { existing == address }) {
-    True -> addresses
-    False -> list.append(addresses, [address])
-  }
+  |> list.unique
 }
 
 fn submit_attaches(
@@ -787,7 +764,9 @@ fn submit_attaches(
               address,
               map_kernel.from_sequenced(snapshot),
             ),
-            channel_order: append_unique(core.channel_order, address),
+            channel_order: list.unique(
+              list.append(core.channel_order, [address]),
+            ),
             detached: dict.delete(core.detached, address),
             next_csn: csn + 1,
             in_flight: list.append(core.in_flight, [
@@ -907,6 +886,6 @@ fn add_attached_channel(
   Core(
     ..core,
     channels: dict.insert(core.channels, address, kernel),
-    channel_order: append_unique(core.channel_order, address),
+    channel_order: list.unique(list.append(core.channel_order, [address])),
   )
 }

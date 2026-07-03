@@ -2,11 +2,10 @@
 //// SharedMap from the browser. The BEAM counterpart is `watershed`.
 ////
 //// ```gleam
-//// let token =
-////   watershed_js.dev_token(
-////     secret: "levee-dev-secret-change-in-production",
-////     tenant: "dev-tenant", document: "dice", user_id: "user-1",
-////   )
+//// use token <- promise.map(watershed_js.dev_token(
+////   secret: "levee-dev-secret-change-in-production",
+////   tenant: "dev-tenant", document: "dice", user_id: "user-1",
+//// ))
 //// let doc =
 ////   watershed_js.connect(
 ////     WatershedConfig(
@@ -238,19 +237,14 @@ pub fn subscribe(map: SharedMap, handler: fn(MapEvent) -> Nil) -> Nil {
 // ── Demo helpers ─────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Mint an HS256 dev JWT for `just server` (dev mode). Do not use in
-/// production — the tenant secret must never reach the browser there.
+/// Mint an HS256 dev JWT for `just server` (dev mode). Signed with Web
+/// Crypto, so the token resolves asynchronously. Do not use in production —
+/// the tenant secret must never reach the browser there.
 pub fn dev_token(
   secret secret: String,
   tenant tenant: String,
   document document: String,
   user_id user_id: String,
-) -> String {
+) -> Promise(String) {
   transport_js.mint_dev_token(secret, tenant, document, user_id)
-}
-
-@target(javascript)
-/// Random integer in `[min, max]` inclusive (e.g. a die roll).
-pub fn random_int(min: Int, max: Int) -> Int {
-  transport_js.random_int(min, max)
 }
