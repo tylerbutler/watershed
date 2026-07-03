@@ -2,6 +2,7 @@
   "name": "watershed-website",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.15.0",
   "scripts": {
     "predev": "cd .. && gleam build --target javascript",
     "dev": "astro dev",
