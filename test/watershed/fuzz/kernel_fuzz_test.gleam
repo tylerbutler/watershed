@@ -25,13 +25,14 @@ fn sum_model() -> KernelModel(Int, Int, Int) {
   KernelModel(
     name: "toy-sum",
     init: fn() { 0 },
-    submit: fn(state, op, _meta) { state + op },
+    submit: fn(state, op, _meta) { #(state + op, Some(op)) },
     apply_remote: fn(state, op, _meta) { state + op },
     ack_local: fn(state, _op, _meta) { Ok(state) },
     observe: fn(state) { state },
     gen_op: qcheck.bounded_int(from: -5, to: 5),
     check: None,
     canonicalize: None,
+    ack_preserves_view: True,
     op_to_json: json.int,
     op_decoder: decode.int,
     capabilities: Capabilities(

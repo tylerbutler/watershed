@@ -25,13 +25,14 @@ fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
     init: fn() { [] },
-    submit: fn(state, op, _meta) { list.append(state, [op]) },
+    submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
     apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
     observe: fn(state) { state },
     gen_op: qcheck.bounded_int(from: 0, to: 5),
     check: None,
     canonicalize: None,
+    ack_preserves_view: True,
     op_to_json: json.int,
     op_decoder: decode.int,
     capabilities: Capabilities(

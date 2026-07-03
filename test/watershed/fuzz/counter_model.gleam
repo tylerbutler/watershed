@@ -41,11 +41,11 @@ fn submit(
   state: CounterState,
   op: CounterOp,
   _meta: kernel_fuzz.SubmitMeta,
-) -> CounterState {
+) -> #(CounterState, option.Option(CounterOp)) {
   case op {
     Increment(amount) -> {
       let #(state, _, _, _) = counter_kernel.increment(state, amount)
-      state
+      #(state, Some(op))
     }
   }
 }
@@ -118,6 +118,7 @@ pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
     gen_op: op_generator(),
     check: None,
     canonicalize: None,
+    ack_preserves_view: True,
     op_to_json: op_to_json,
     op_decoder: op_decoder(),
     capabilities: Capabilities(

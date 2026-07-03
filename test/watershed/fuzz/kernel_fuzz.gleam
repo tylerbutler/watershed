@@ -76,7 +76,15 @@ pub type KernelModel(state, op, view) {
   KernelModel(
     name: String,
     init: fn() -> state,
-    submit: fn(state, op, SubmitMeta) -> state,
+    // Optimistically apply a local op, returning the new state and the op to
+    // route onto the wire — or `None` when the submit produces no op. Optimistic
+    // kernels (counter, map) always return `Some(op)` unchanged. Consensus
+    // kernels (claims) may return `None` (a synchronous no-op, e.g. a write-once
+    // claim on an already-committed key, or a duplicate suppressed to keep the
+    // kernel's one-pending-per-key invariant) and may return a *rewritten* op
+    // whose contents were computed at submit time from `SubmitMeta` (claims
+    // fills in `ref_seq` from the client's delivered cursor).
+    submit: fn(state, op, SubmitMeta) -> #(state, Option(op)),
     apply_remote: fn(state, op, SequencedMeta) -> state,
     ack_local: fn(state, op, SequencedMeta) -> Result(state, String),
     observe: fn(state) -> view,
@@ -94,6 +102,14 @@ pub type KernelModel(state, op, view) {
     // sort-by-key so that reordering isn't mistaken for a lost/changed
     // value.
     canonicalize: Option(fn(view) -> view),
+    // Whether acking one's own op leaves `observe` unchanged. True for
+    // optimistic kernels (counter/map show the value at submit, so the ack only
+    // retires pending). False for non-optimistic consensus kernels (claims:
+    // reads are committed-only, so acking a *winning* claim first makes it
+    // visible — a legitimate view change, not a bug). Gates the ack-transparency
+    // assertion in `deliver_one`; convergence and the oracle still validate
+    // claims fully at every `Synchronize`.
+    ack_preserves_view: Bool,
     // F4: reproduction DX. Every op must be JSON-round-trippable so a
     // shrunk failing script can be dumped to `test/fixtures/fuzz_failures/`
     // and replayed later with no transcription (see `dump_failure` and
@@ -274,35 +290,41 @@ fn deliver_one(
                 <> detail,
               )
             Ok(new_state) -> {
-              let after = model.observe(new_state)
-              let #(canon_before, canon_after) = case model.canonicalize {
-                None -> #(before, after)
-                Some(canonicalize) -> #(
-                  canonicalize(before),
-                  canonicalize(after),
-                )
-              }
-              case canon_after == canon_before {
-                False ->
-                  Error(
-                    "ack transparency violated for client "
-                    <> int.to_string(index)
-                    <> ": observe changed from "
-                    <> string.inspect(before)
-                    <> " to "
-                    <> string.inspect(after)
-                    <> " across an ack_local of our own op",
+              let advanced =
+                update_client(sim, index, fn(client) {
+                  Client(
+                    ..client,
+                    state: new_state,
+                    delivered: client.delivered + 1,
                   )
-                True ->
-                  Ok(
-                    update_client(sim, index, fn(client) {
-                      Client(
-                        ..client,
-                        state: new_state,
-                        delivered: client.delivered + 1,
+                })
+              // Non-optimistic kernels (claims) legitimately change `observe`
+              // when acking a winning op, so they opt out of this assertion.
+              case model.ack_preserves_view {
+                False -> Ok(advanced)
+                True -> {
+                  let after = model.observe(new_state)
+                  let #(canon_before, canon_after) = case model.canonicalize {
+                    None -> #(before, after)
+                    Some(canonicalize) -> #(
+                      canonicalize(before),
+                      canonicalize(after),
+                    )
+                  }
+                  case canon_after == canon_before {
+                    False ->
+                      Error(
+                        "ack transparency violated for client "
+                        <> int.to_string(index)
+                        <> ": observe changed from "
+                        <> string.inspect(before)
+                        <> " to "
+                        <> string.inspect(after)
+                        <> " across an ack_local of our own op",
                       )
-                    }),
-                  )
+                    True -> Ok(advanced)
+                  }
+                }
               }
             }
           }
@@ -519,9 +541,14 @@ fn rollback_op(
       )
     Some(rollback) -> {
       let client = get_client(sim, index)
-      let after_submit =
+      let #(after_submit, maybe_op) =
         model.submit(client.state, op, SubmitMeta(client.delivered))
-      let rolled_back = rollback(after_submit, op)
+      // A submit that produced no op (a consensus-kernel no-op) has nothing to
+      // roll back; otherwise roll back the op the submit actually routed.
+      let rolled_back = case maybe_op {
+        None -> after_submit
+        Some(routed) -> rollback(after_submit, routed)
+      }
       Ok(
         update_client(sim, index, fn(client) {
           Client(..client, state: rolled_back)
@@ -586,18 +613,24 @@ fn interpret(
     ClientOp(client, op) -> {
       let index = client_index(client, client_count)
       let existing = get_client(sim, index)
-      let new_state =
+      let #(new_state, maybe_op) =
         model.submit(existing.state, op, SubmitMeta(existing.delivered))
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)
         })
-      let sim = case existing.connected {
-        True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, op)]))
-        False ->
-          update_client(sim, index, fn(client) {
-            Client(..client, resend: list.append(client.resend, [op]))
-          })
+      // Route the op the submit actually produced (which may be a rewritten
+      // op), or nothing when the submit was a synchronous no-op.
+      let sim = case maybe_op {
+        None -> sim
+        Some(routed) ->
+          case existing.connected {
+            True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
+            False ->
+              update_client(sim, index, fn(client) {
+                Client(..client, resend: list.append(client.resend, [routed]))
+              })
+          }
       }
       Ok(sim)
     }
