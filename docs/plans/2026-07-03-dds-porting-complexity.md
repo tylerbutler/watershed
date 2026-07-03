@@ -15,6 +15,7 @@ Already done in watershed:
 
 - ✅ **counter** — `src/watershed/counter_kernel.gleam`
 - ✅ **map** (SharedMap) — `src/watershed/map_kernel.gleam`
+- ✅ **claims** — `src/watershed/claims_kernel.gleam`
 
 ## Ratings
 
@@ -23,11 +24,11 @@ Already done in watershed:
 | shared-summary-block | 1 | 252 | — | No ops at all; just a serialized blob in the summary. Trivial, and probably pointless to port. |
 | counter | 1 | 438 | ✅ done | Commutative increments — no conflict resolution. |
 | cell | 2 | 640 | skip | Single last-writer-wins register. Skipped: a one-key SharedMap gives the same semantics, and `map_kernel` is done. |
-| claims | 2 | 595 | planned | First-writer-wins plus experimental CAS via per-key sequence numbers (`ref_seq` equality check). Reads are non-optimistic — no rebase machinery. Plan: `2026-07-03-claims-kernel-plan.md`. |
-| register-collection | 3 | 638 | — | Consensus register retaining concurrent versions, with atomic/LWW read policies. Small but versioning rules need care. |
+| claims | 2 | 595 | ✅ done | First-writer-wins plus experimental CAS via per-key sequence numbers (`ref_seq` equality check). Reads are non-optimistic — no rebase machinery. `src/watershed/claims_kernel.gleam`; plan `2026-07-03-claims-kernel-plan.md`. |
+| register-collection | 3 | 638 | planned | Consensus register retaining concurrent versions, with atomic/LWW read policies. Small but versioning rules need care. Plan: `2026-07-03-register-collection-kernel-plan.md`. |
 | ink | 3 | 999 | skip | Append-only stroke data; deprecated upstream. |
-| pact-map | 4 | 667 | — | Value accepted only once all connected clients have seen it. The consensus/ack bookkeeping against the client quorum is the interesting part. |
-| ordered-collection | 4 | 874 | — | Consensus queue with acquire/complete/release lifecycle and re-release when a holder disconnects. Deterministic, but lifecycle edge cases. |
+| pact-map | 4 | 667 | planned | Value accepted only once all connected clients have seen it. The consensus/ack bookkeeping against the client quorum is the interesting part. Plan: `2026-07-03-pact-map-kernel-plan.md`. |
+| ordered-collection | 4 | 874 | planned | Consensus queue with acquire/complete/release lifecycle and re-release when a holder disconnects. Deterministic, but lifecycle edge cases. Plan: `2026-07-03-ordered-collection-kernel-plan.md`. |
 | task-manager | 5 | 1208 | — | Op format is simple (volunteer/abandon); complexity is in connection-state transitions, queue-position tracking, subscription mode. |
 | map (SharedMap) | 3 | (part of 4801) | ✅ done | Per-key LWW with pending-state rebase. |
 | map (SharedDirectory) | 5 | (part of 4801) | — | Nested subdirectories, create/delete conflict resolution, pending-local-state rebasing — where most of the package's complexity lives. |
@@ -66,11 +67,15 @@ With counter and SharedMap done, the remaining ladder — each rung introduces
 one new conflict-resolution pattern before facing a sequence CRDT:
 
 1. ~~cell~~ — skipped: a single-key map covers the LWW-register pattern.
-2. **claims** (2) — first-writer-wins + per-key-seq CAS; introduces the
-   deferred-outcome contract (see `2026-07-03-claims-kernel-plan.md`).
+2. ~~claims~~ (2) — ✅ done: first-writer-wins + per-key-seq CAS; introduced the
+   deferred-outcome contract (`2026-07-03-claims-kernel-plan.md`).
 3. **register-collection** (3) — concurrent-version retention + read policies.
+   Reuses claims' non-optimistic deferred-outcome shape; needs **no harness
+   extension**. Plan: `2026-07-03-register-collection-kernel-plan.md`.
 4. **pact-map** (4) — quorum/ack consensus pattern.
+   Plan: `2026-07-03-pact-map-kernel-plan.md`.
 5. **ordered-collection** (4) — consensus queue lifecycle.
+   Plan: `2026-07-03-ordered-collection-kernel-plan.md`.
 6. **task-manager** (5) — connection-state-dependent behavior.
 7. **map: SharedDirectory** (5) — hierarchical namespace on the existing map kernel.
 8. **merge-tree redesign** (9) — persistent sequence CRDT; unlocks sequence (9→~6) and matrix (7).
@@ -78,3 +83,11 @@ one new conflict-resolution pattern before facing a sequence CRDT:
 
 Rungs 2–7 cover every conflict-resolution pattern in the Fluid catalog
 (commutative, LWW, FWW, consensus, queue lifecycle) at low individual cost.
+
+**Sequencing note (rungs 4–5).** pact-map and ordered-collection both need two
+shared fuzz-harness generalizations — *follow-on ops* (applying a sequenced op
+enqueues a new op) and *membership-leave as a sequenced event* — specified in
+`2026-07-03-fuzz-harness-consensus-extension-plan.md` (F6 / CO0).
+`kernel_fuzz.SequencedMeta` already carries the data (`connected_clients`,
+`min_sequence_number`) for them. Build CO0 once and share it. register-collection
+(rung 3) is independent of CO0, so it is the cleanest next port.
