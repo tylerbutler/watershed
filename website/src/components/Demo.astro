@@ -5,11 +5,14 @@ const gauges = [
   { key: "low-ford", value: 42 },
 ];
 const counter = { key: "sandbags-placed", value: 120 };
+const pn = { key: "earthwork-balance", fill: 74, cut: 30 };
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
 ];
 const counterSteps = [-5, -1, 1, 5];
+const pnCutSteps = [-6, -2];
+const pnFillSteps = [2, 6];
 ---
 
 <section id="demo" class="demo" aria-labelledby="demo-title">
@@ -21,14 +24,14 @@ const counterSteps = [-5, -1, 1, 5];
       applies instantly and shows <strong class="k-pending">magenta</strong> while
       it is pending, then sets in <strong class="k-seq">ink</strong> once the
       server assigns it a sequence number. The two clients below run the real
-      <code>map_kernel</code> and <code>counter_kernel</code> — the same Gleam
-      modules the BEAM runtime uses, compiled to JavaScript — riding one
-      sequencer on this page.
+      <code>map_kernel</code>, <code>counter_kernel</code>, and
+      <code>pn_counter_kernel</code> — the same Gleam modules the BEAM runtime
+      uses, compiled to JavaScript — riding one sequencer on this page.
     </p>
     <p class="demo-hint">
-      Nudge the gauges, tally the sandbags, stretch the link latency, race a
-      concurrent write. The replicas always converge — each structure by its
-      own rule.
+      Nudge the gauges, tally the sandbags, balance the earthwork, stretch the
+      link latency, race a concurrent write. The replicas always converge —
+      each structure by its own rule.
     </p>
   </div>
 
@@ -43,6 +46,10 @@ const counterSteps = [-5, -1, 1, 5];
         <input type="radio" name="dds" value="counter" data-dds-pick disabled />
         <span>Shared counter</span>
       </label>
+      <label>
+        <input type="radio" name="dds" value="pn" data-dds-pick disabled />
+        <span>PN counter</span>
+      </label>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
       <strong>Merge rule — last write wins.</strong> Race two writes to the
@@ -53,6 +60,12 @@ const counterSteps = [-5, -1, 1, 5];
       <strong>Merge rule — increments commute.</strong> Race two increments
       and both apply. The counter converges on the sum; nothing is
       overwritten.
+    </p>
+    <p class="merge-rule" data-merge-rule="pn" hidden>
+      <strong>Merge rule — deltas join a lattice.</strong> Every update
+      travels as a CRDT delta; merging is commutative and idempotent. Race
+      it, resend it, deliver it twice — it counts exactly once, and the
+      balance converges on fill&nbsp;−&nbsp;cut.
     </p>
   </div>
 
@@ -137,6 +150,55 @@ const counterSteps = [-5, -1, 1, 5];
               ))}
             </div>
           </div>
+          <div
+            class="counter-panel dds-pn"
+            role="group"
+            aria-label={`PN counter replica on ${c.name}`}
+          >
+            <code class="counter-key">{pn.key} · yd³</code>
+            <output class="counter-value" data-pn-value>
+              +{pn.fill - pn.cut}
+            </output>
+            <span
+              class="counter-delta annot"
+              data-pn-delta
+              aria-label="Pending unsequenced delta"
+            ></span>
+            <dl class="pn-ledger">
+              <div>
+                <dt class="annot">fill Σ</dt>
+                <dd data-pn-fill>{pn.fill}</dd>
+              </div>
+              <div>
+                <dt class="annot">cut Σ</dt>
+                <dd data-pn-cut>{pn.cut}</dd>
+              </div>
+            </dl>
+            <div class="counter-actions pn-actions">
+              <span class="annot" aria-hidden="true">cut</span>
+              {pnCutSteps.map((step) => (
+                <button
+                  type="button"
+                  data-pn-inc={step}
+                  aria-label={`Cut ${Math.abs(step)} cubic yards on ${c.name}`}
+                  disabled
+                >
+                  −{Math.abs(step)}
+                </button>
+              ))}
+              {pnFillSteps.map((step) => (
+                <button
+                  type="button"
+                  data-pn-inc={step}
+                  aria-label={`Fill ${step} cubic yards on ${c.name}`}
+                  disabled
+                >
+                  +{step}
+                </button>
+              ))}
+              <span class="annot" aria-hidden="true">fill</span>
+            </div>
+          </div>
         </article>
       ))
     }
@@ -179,6 +241,16 @@ const counterSteps = [-5, -1, 1, 5];
     </button>
     <button
       type="button"
+      class="race-btn"
+      data-replay
+      aria-label="Deliver the most recently sequenced delta a second time to both replicas"
+      hidden
+      disabled
+    >
+      Re-deliver last delta
+    </button>
+    <button
+      type="button"
       class="reset-btn"
       data-reset
       aria-label="Reset all gauges to their surveyed baseline values"
@@ -195,8 +267,9 @@ const counterSteps = [-5, -1, 1, 5];
   <noscript>
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
-      <code>map_kernel</code> and <code>counter_kernel</code> in your browser.
-      The rest of the page works fine without it.
+      <code>map_kernel</code>, <code>counter_kernel</code>, and
+      <code>pn_counter_kernel</code> in your browser. The rest of the page
+      works fine without it.
     </p>
   </noscript>
 
@@ -435,12 +508,13 @@ const counterSteps = [-5, -1, 1, 5];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, two structures: the picker swaps which replica view is printed */
-  .rig[data-dds="map"] .dds-counter {
-    display: none;
-  }
-
-  .rig[data-dds="counter"] .dds-map {
+  /* one rig, three structures: the picker swaps which replica view is printed */
+  .rig[data-dds="map"] .dds-counter,
+  .rig[data-dds="map"] .dds-pn,
+  .rig[data-dds="counter"] .dds-map,
+  .rig[data-dds="counter"] .dds-pn,
+  .rig[data-dds="pn"] .dds-map,
+  .rig[data-dds="pn"] .dds-counter {
     display: none;
   }
 
@@ -510,6 +584,36 @@ const counterSteps = [-5, -1, 1, 5];
     background: var(--overprint-faint);
   }
 
+  /* the PN ledger prints the lattice's two monotone tallies side by side */
+  .pn-ledger {
+    display: flex;
+    gap: var(--space-lg);
+    margin: var(--space-2xs) 0 0;
+  }
+
+  .pn-ledger div {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+  }
+
+  .pn-ledger dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  /* cut ‹ buttons › fill — the sign convention printed in the margin */
+  .pn-actions {
+    align-items: center;
+  }
+
+  .pn-actions .annot {
+    font-size: 0.7rem;
+  }
+
   .channel {
     display: flex;
     flex-direction: column;
@@ -575,6 +679,12 @@ const counterSteps = [-5, -1, 1, 5];
 
   .op-log :global(li:first-child) {
     color: var(--ink);
+  }
+
+  /* a re-delivered duplicate is a non-event: logged, absorbed, italic */
+  .op-log :global(li.replay) {
+    color: var(--muted);
+    font-style: italic;
   }
 
   .flow-layer {
@@ -725,6 +835,20 @@ const counterSteps = [-5, -1, 1, 5];
 
     .op-log {
       max-height: 5.7rem;
+    }
+  }
+
+  /* three picker cells no longer fit one row on narrow sheets: stack them
+     like a printed legend column */
+  @media (max-width: 560px) {
+    .dds-picker {
+      flex-direction: column;
+      width: 100%;
+    }
+
+    .dds-picker label + label {
+      border-inline-start: 0;
+      border-block-start: 1px solid var(--ink);
     }
   }
 
