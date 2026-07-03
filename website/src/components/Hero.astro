@@ -1,7 +1,7 @@
 ---
 // Pseudo-topographic contour field, generated at build time. Contours are
-// labeled with CSN values instead of elevations: state flows downhill toward
-// sequencing.
+// labeled with server sequence numbers (SNs) instead of elevations: state
+// flows downhill toward sequencing.
 const W = 1300;
 const H = 860;
 
@@ -30,7 +30,7 @@ function contour(row: number, seedPhase: number): string {
 const contours = Array.from({ length: 13 }, (_, i) => ({
   d: contour(i, 0.9),
   index: i % 4 === 1, // every 4th is an index contour
-  csn: 1240 - i * 20,
+  sn: 1240 - i * 20,
 }));
 ---
 
@@ -53,7 +53,7 @@ const contours = Array.from({ length: 13 }, (_, i) => ({
           {c.index && (
             <text class="contour-label" dy="-4">
               <textPath href={`#contour-${i}`} startOffset={`${64 + i * 2}%`}>
-                CSN {c.csn}
+                SN {c.sn}
               </textPath>
             </text>
           )}

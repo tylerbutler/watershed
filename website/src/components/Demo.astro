@@ -65,6 +65,7 @@ const clients = [
                       type="button"
                       data-step="-1"
                       aria-label={`Lower ${g.key} on ${c.name}`}
+                      disabled
                     >
                       −
                     </button>
@@ -72,6 +73,7 @@ const clients = [
                       type="button"
                       data-step="1"
                       aria-label={`Raise ${g.key} on ${c.name}`}
+                      disabled
                     >
                       +
                     </button>
@@ -88,10 +90,16 @@ const clients = [
       <div class="seq-node" data-seq-node>
         <span class="annot">Sequencer</span>
         <output class="seq-counter" data-seq-counter aria-label="Latest sequence number">
-          CSN&nbsp;0
+          SN&nbsp;0
         </output>
       </div>
-      <ol class="op-log" data-op-log aria-label="Sequenced operations, newest first"></ol>
+      <ol
+        class="op-log"
+        data-op-log
+        aria-live="polite"
+        aria-label="Sequenced operations, newest first"
+      >
+      </ol>
     </div>
 
     <div class="flow-layer" data-flow-layer aria-hidden="true"></div>
@@ -107,11 +115,21 @@ const clients = [
         step="100"
         value="700"
         data-latency
+        disabled
       />
       <output data-latency-out>700 ms</output>
     </label>
-    <button type="button" class="race-btn" data-race>
+    <button type="button" class="race-btn" data-race disabled>
       Race a concurrent write
+    </button>
+    <button
+      type="button"
+      class="reset-btn"
+      data-reset
+      aria-label="Reset all gauges to their surveyed baseline values"
+      disabled
+    >
+      Reset survey
     </button>
     <p class="status" data-status role="status">
       <span class="stamp converged">Converged</span>
@@ -126,11 +144,23 @@ const clients = [
       without it.
     </p>
   </noscript>
+
+  <p class="demo-noscript" data-demo-fallback hidden>
+    The live demo couldn’t start — it runs watershed’s actual
+    <code>map_kernel</code> as a compiled JavaScript module, and this browser
+    didn’t load it. The rest of the page works fine without it.
+  </p>
 </section>
 
 <script>
-  import { initDemo } from "../scripts/demo.js";
-  initDemo();
+  try {
+    const { initDemo } = await import("../scripts/demo.js");
+    initDemo();
+  } catch (error) {
+    console.error("watershed demo failed to start", error);
+    const note = document.querySelector("[data-demo-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
 </script>
 
 <style>
@@ -157,8 +187,9 @@ const clients = [
   }
 
   .demo-hint {
-    color: var(--muted);
+    color: var(--ink);
     font-size: var(--text-sm);
+    font-weight: 500;
   }
 
   .k-pending {
@@ -205,11 +236,11 @@ const clients = [
 
   .pending-count {
     color: var(--overprint-deep);
-    transition: opacity var(--dur-state) var(--ease-out-quart);
+    transition: color var(--dur-state) var(--ease-out-quart);
   }
 
+  /* idle stays full-strength --muted (7.7:1); magenta alone marks pending */
   .pending-count[data-zero] {
-    opacity: 0.35;
     color: var(--muted);
   }
 
@@ -265,11 +296,11 @@ const clients = [
       transform var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .gauge-actions button:hover {
+  .gauge-actions button:hover:enabled {
     background: var(--surface);
   }
 
-  .gauge-actions button:active {
+  .gauge-actions button:active:enabled {
     transform: scale(0.94);
     background: var(--overprint-faint);
   }
@@ -404,12 +435,42 @@ const clients = [
       transform var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .race-btn:hover {
+  .race-btn:hover:enabled {
     background: var(--overprint-faint);
   }
 
-  .race-btn:active {
+  .race-btn:active:enabled {
     transform: scale(0.97);
+  }
+
+  .reset-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    color: var(--muted);
+    font-weight: 400;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .reset-btn:hover:enabled {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .reset-btn:active:enabled {
+    transform: scale(0.97);
+  }
+
+  /* controls boot disabled; initDemo() enables them once the kernel loads */
+  .gauge-actions button:disabled,
+  .race-btn:disabled,
+  .reset-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
 
   .status {
@@ -462,6 +523,19 @@ const clients = [
 
     .op-log {
       max-height: 5.7rem;
+    }
+  }
+
+  /* touch input: 44px minimum targets, keyed to pointer, not viewport */
+  @media (pointer: coarse) {
+    .gauge-actions button {
+      inline-size: 2.75rem;
+      block-size: 2.75rem;
+    }
+
+    .race-btn,
+    .reset-btn {
+      padding: 0.85rem 1.2rem;
     }
   }
 </style>

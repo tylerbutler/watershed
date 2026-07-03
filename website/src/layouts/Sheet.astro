@@ -69,6 +69,14 @@ const { title, description } = Astro.props;
     }
   }
 
+  /* narrowest sheets: one annotation per margin row so the frame stays a
+     single line above and below the neatline */
+  @media (max-width: 540px) {
+    .margin-row span:last-child {
+      display: none;
+    }
+  }
+
   .sheet {
     position: relative;
     margin: 0 var(--sheet-gutter);

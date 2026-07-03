@@ -1,8 +1,8 @@
 // Live convergence demo. The two "clients" here each own a real
 // `watershed/map_kernel` state — the same pure Gleam module the BEAM runtime
 // uses, compiled with `gleam build --target javascript` — and talk through a
-// tiny in-page sequencer that stamps CSNs and broadcasts in order, the same
-// protocol shape as a live levee server.
+// tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
+// in order, the same protocol shape as a live levee server.
 import * as kernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
@@ -59,6 +59,14 @@ export function initDemo() {
   const latencyInput = document.querySelector("[data-latency]");
   const latencyOut = document.querySelector("[data-latency-out]");
   const raceBtn = document.querySelector("[data-race]");
+  const resetBtn = document.querySelector("[data-reset]");
+
+  // Controls are authored `disabled` so they are never interactive before the
+  // kernel is loaded (or at all, if this module fails to boot).
+  const demoSection = document.querySelector("#demo");
+  for (const el of demoSection.querySelectorAll("button, input")) {
+    el.disabled = false;
+  }
 
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
 
@@ -73,9 +81,10 @@ export function initDemo() {
   }
 
   let latency = Number(latencyInput.value);
-  let csn = 0;
+  let sn = 0;
   let inFlight = 0;
   let seqLastArrival = 0; // FIFO into the sequencer too
+  let hasInteracted = false;
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -118,12 +127,12 @@ export function initDemo() {
       .map(([k, v]) => [k, json.to_string(v)]);
   }
 
-  function logOp(stampedCsn, origin, op) {
+  function logOp(stampedSn, origin, op) {
     const li = document.createElement("li");
-    li.textContent = `#${String(stampedCsn).padStart(2, "0")} ${describeOp(op)} · from ${origin.toUpperCase()}`;
+    li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(op)} · from ${origin.toUpperCase()}`;
     opLog.prepend(li);
     while (opLog.children.length > 14) opLog.lastChild.remove();
-    seqCounter.textContent = `CSN ${stampedCsn}`;
+    seqCounter.textContent = `SN ${stampedSn}`;
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
     seqCounter.classList.add("stamped");
@@ -172,8 +181,8 @@ export function initDemo() {
     seqLastArrival = arrival;
 
     setTimeout(() => {
-      csn += 1;
-      const stamped = csn;
+      sn += 1;
+      const stamped = sn;
       logOp(stamped, originId, op);
 
       for (const target of Object.values(clients)) {
@@ -216,6 +225,7 @@ export function initDemo() {
     client.el.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-step]");
       if (!button) return;
+      hasInteracted = true;
       const key = button.closest("tr").dataset.key;
       const current = readInt(kernel.get(client.state, key)) ?? 0;
       localSet(client.id, key, current + Number(button.dataset.step));
@@ -228,6 +238,7 @@ export function initDemo() {
   });
 
   raceBtn.addEventListener("click", () => {
+    hasInteracted = true;
     // Both clients write the same key inside one latency window. The op the
     // server sequences last wins on every replica — that's LWW, and both
     // replicas agree because they apply ops in the same order.
@@ -236,6 +247,36 @@ export function initDemo() {
     localSet("a", key, base + 10);
     localSet("b", key, base - 10);
   });
+
+  resetBtn.addEventListener("click", () => {
+    hasInteracted = true;
+    // Reset goes through the sequencer like any other edit: one op per gauge
+    // that has drifted from its surveyed baseline.
+    for (const [key, base] of INITIAL) {
+      if (readInt(kernel.get(clients.a.state, key)) !== base) {
+        localSet("a", key, base);
+      }
+    }
+  });
+
+  // One scripted op on first reveal, so convergence is witnessed rather than
+  // waiting to be discovered. Skipped for reduced motion (the flow dots ARE
+  // the explanation) and once the visitor has already interacted.
+  if (!reducedMotion.matches && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        io.disconnect();
+        setTimeout(() => {
+          if (hasInteracted) return;
+          const current = readInt(kernel.get(clients.b.state, "kettle-run")) ?? 0;
+          localSet("b", "kettle-run", current + 1);
+        }, 600);
+      },
+      { threshold: 0.45 },
+    );
+    io.observe(rig);
+  }
 
   render(clients.a);
   render(clients.b);

@@ -8,7 +8,7 @@ The site is styled as a USGS-style survey sheet. The metaphor is load-bearing:
 on photorevised quadrangles, magenta overprint marks revisions not yet
 field-checked — on this site, magenta marks *pending, unsequenced* state, and
 ink marks state the server has sequenced. Every decorative element maps to a
-real protocol concept (contours labeled with CSNs, the architecture drawn as a
+real protocol concept (contours labeled with server sequence numbers, the architecture drawn as a
 geological cross-section, milestones as a revision ledger).
 
 ## Color (OKLCH, light theme only)
@@ -54,7 +54,9 @@ sections themselves get plain headings — no per-section eyebrows.
 - Scroll reveals (`src/scripts/motion.js`) animate *visible-by-default*
   content with WAAPI at trigger time — nothing is hidden if JS fails.
   Variants: `rise` (up) and `settle` (strata settle downward).
-- Demo ops travel as dots (magenta toward the sequencer, ink outward).
+- Demo ops travel as dots (magenta toward the sequencer, ink outward). On
+  first reveal the demo submits one scripted op so convergence is witnessed
+  without interaction (skipped under reduced motion or after user input).
 - Global `prefers-reduced-motion` rule collapses all CSS animation to end
   state; scripts return early.
 
