@@ -38,6 +38,16 @@ import simplifile
 // Kernel model
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Metadata threaded into `submit` from day one. Counter and map ignore it;
+/// claims (and later CAS-style consensus kernels) must compute an op's
+/// `ref_seq` at submit time from the submitting client's delivered cursor,
+/// which is exactly `last_seen_seq` (the sequence number of the last op this
+/// client has processed — server SNs are 1-based log positions, so a client
+/// that has delivered N ops has last seen SN N; 0 before it has seen any).
+pub type SubmitMeta {
+  SubmitMeta(last_seen_seq: Int)
+}
+
 /// Metadata threaded through `apply_remote`/`ack_local` from day one. Counter
 /// and map ignore it; pact-map and ordered-collection (later milestones)
 /// resolve ops against the connected-client quorum, so the signature is
@@ -66,7 +76,7 @@ pub type KernelModel(state, op, view) {
   KernelModel(
     name: String,
     init: fn() -> state,
-    submit: fn(state, op) -> state,
+    submit: fn(state, op, SubmitMeta) -> state,
     apply_remote: fn(state, op, SequencedMeta) -> state,
     ack_local: fn(state, op, SequencedMeta) -> Result(state, String),
     observe: fn(state) -> view,
@@ -509,7 +519,8 @@ fn rollback_op(
       )
     Some(rollback) -> {
       let client = get_client(sim, index)
-      let after_submit = model.submit(client.state, op)
+      let after_submit =
+        model.submit(client.state, op, SubmitMeta(client.delivered))
       let rolled_back = rollback(after_submit, op)
       Ok(
         update_client(sim, index, fn(client) {
@@ -575,7 +586,8 @@ fn interpret(
     ClientOp(client, op) -> {
       let index = client_index(client, client_count)
       let existing = get_client(sim, index)
-      let new_state = model.submit(existing.state, op)
+      let new_state =
+        model.submit(existing.state, op, SubmitMeta(existing.delivered))
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)

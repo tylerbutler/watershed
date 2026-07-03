@@ -83,7 +83,7 @@ fn op_generator() -> qcheck.Generator(MapOp) {
   |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
 }
 
-fn submit(state: MapState, op: MapOp) -> MapState {
+fn submit(state: MapState, op: MapOp, _meta: kernel_fuzz.SubmitMeta) -> MapState {
   case op {
     Set(key, value) -> {
       let #(state, _, _) = map_kernel.set(state, key, value)

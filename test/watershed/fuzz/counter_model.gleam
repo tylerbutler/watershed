@@ -37,7 +37,11 @@ fn op_generator() -> qcheck.Generator(CounterOp) {
   |> qcheck.map(fn(n) { Increment(amount_from_int(n)) })
 }
 
-fn submit(state: CounterState, op: CounterOp) -> CounterState {
+fn submit(
+  state: CounterState,
+  op: CounterOp,
+  _meta: kernel_fuzz.SubmitMeta,
+) -> CounterState {
   case op {
     Increment(amount) -> {
       let #(state, _, _, _) = counter_kernel.increment(state, amount)

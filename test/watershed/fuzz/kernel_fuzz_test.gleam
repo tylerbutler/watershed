@@ -25,7 +25,7 @@ fn sum_model() -> KernelModel(Int, Int, Int) {
   KernelModel(
     name: "toy-sum",
     init: fn() { 0 },
-    submit: fn(state, op) { state + op },
+    submit: fn(state, op, _meta) { state + op },
     apply_remote: fn(state, op, _meta) { state + op },
     ack_local: fn(state, _op, _meta) { Ok(state) },
     observe: fn(state) { state },

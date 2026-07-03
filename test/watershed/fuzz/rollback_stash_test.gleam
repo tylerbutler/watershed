@@ -38,7 +38,7 @@ fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
     init: fn() { [] },
-    submit: fn(state, op) { list.append(state, [op]) },
+    submit: fn(state, op, _meta) { list.append(state, [op]) },
     apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
     observe: fn(state) { state },
