@@ -1,0 +1,126 @@
+---
+import { Code } from "astro:components";
+
+const sample = `import gleam/json
+import watershed
+import watershed/map_kernel.{ValueChanged}
+
+pub fn main() {
+  // Connect, blocking until the op history has replayed locally.
+  let assert Ok(doc) =
+    watershed.connect(
+      host: "127.0.0.1",
+      port: 4000,
+      tenant: "dev-tenant",
+      document: "river-gauges",
+      token: token,
+      user_id: "gauge-1",
+    )
+  let gauges = watershed.root(doc)
+
+  // Optimistic write: applies now, sequences on the server.
+  watershed.set(gauges, "mill-race", json.int(24))
+
+  // Every replica observes the same sequence of changes.
+  watershed.subscribe(gauges, fn(event) {
+    case event {
+      ValueChanged(key:, ..) -> io.println("revised: " <> key)
+      _ -> Nil
+    }
+  })
+}`;
+---
+
+<section class="code-sample" aria-labelledby="code-title">
+  <div class="code-inner">
+    <div class="code-prose">
+      <h2 id="code-title">Reads like a map, syncs like a river</h2>
+      <p>
+        A <code>SharedMap</code> is just a map — <code>set</code>,
+        <code>get</code>, <code>subscribe</code>. There is no merge callback to
+        write and no conflict handler to forget: the server sequences every op,
+        last-writer-wins per key, and each replica applies the same ops in the
+        same order.
+      </p>
+      <p>
+        The same API runs on the Erlang target as an OTP actor and on the
+        JavaScript target inside a Lustre single-page app — see
+        <a href="https://github.com/tylerbutler/watershed/tree/main/examples"
+          >the examples</a
+        > for both, verified converging against a live levee server.
+      </p>
+    </div>
+    <figure class="code-figure" data-reveal="rise">
+      <Code code={sample} lang="gleam" theme="css-variables" />
+      <figcaption class="annot">examples · erlang + javascript targets</figcaption>
+    </figure>
+  </div>
+</section>
+
+<style>
+  .code-sample {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .code-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    align-items: start;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .code-prose p {
+    margin-top: var(--space-lg);
+  }
+
+  .code-prose code {
+    font-size: 0.85em;
+  }
+
+  .code-figure {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .code-figure :global(pre) {
+    margin: 0;
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    overflow-x: auto;
+    font-size: 0.875rem;
+    line-height: 1.7;
+    --astro-code-foreground: var(--ink);
+    --astro-code-background: var(--bg);
+    --astro-code-token-keyword: var(--overprint-deep);
+    --astro-code-token-string: var(--waterline);
+    --astro-code-token-string-expression: var(--waterline);
+    --astro-code-token-constant: var(--ink);
+    --astro-code-token-comment: var(--muted);
+    --astro-code-token-function: var(--ink);
+    --astro-code-token-parameter: var(--ink);
+    --astro-code-token-punctuation: var(--muted);
+    --astro-code-token-link: var(--waterline);
+  }
+
+  figcaption {
+    margin-top: var(--space-sm);
+    text-align: right;
+  }
+
+  @media (max-width: 860px) {
+    .code-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

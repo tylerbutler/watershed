@@ -1,0 +1,248 @@
+---
+// Wavy stratum boundaries, generated once at build time.
+function wave(seed: number): string {
+  let d = "M0 7";
+  for (let x = 0; x <= 1200; x += 75) {
+    const y = 7 + Math.sin(x / 90 + seed) * 3.4;
+    d += ` L ${x} ${y.toFixed(1)}`;
+  }
+  return d;
+}
+const waves = [wave(0.4), wave(2.1), wave(4.4)];
+---
+
+<section class="arch" aria-labelledby="arch-title">
+  <div class="arch-inner">
+    <h2 id="arch-title">One pure core, two runtimes</h2>
+    <p class="arch-intro">
+      The kernel, the wire codecs, and the connection state machine are pure
+      Gleam — no processes, no side effects, every function returning new state
+      plus the events it produced. Everything target-specific sits above or
+      below that stratum. Drill down from either target and you pass through
+      the same rock.
+    </p>
+
+    <div class="strata" role="img" aria-label="Cross-section of the watershed architecture: a shared public API and pure core, with target-specific runtime and transport layers for the BEAM and the browser.">
+      <div class="target-heads" aria-hidden="true">
+        <span class="annot">◍ BEAM target</span>
+        <span class="annot">◍ Browser target</span>
+      </div>
+
+      <div class="stratum span" data-reveal="settle">
+        <h3>Public API</h3>
+        <p><code>connect</code> · <code>root</code> · <code>set</code> / <code>get</code> / <code>subscribe</code> · nested maps via handles</p>
+        <span class="stratum-note annot">watershed · watershed_js</span>
+      </div>
+
+      <svg class="wave" viewBox="0 0 1200 14" preserveAspectRatio="none" aria-hidden="true">
+        <path d={waves[0]}></path>
+      </svg>
+
+      <div class="stratum split" data-reveal="settle">
+        <div>
+          <h3>Runtime — OTP actor</h3>
+          <p>handshake · CSN/RSN · inbound ordering · catch-up · resubmit · nack policy · heartbeat</p>
+        </div>
+        <div>
+          <h3>Runtime — callbacks</h3>
+          <p>the same state machine, driven by callbacks over a mutable cell</p>
+        </div>
+      </div>
+
+      <svg class="wave" viewBox="0 0 1200 14" preserveAspectRatio="none" aria-hidden="true">
+        <path d={waves[1]}></path>
+      </svg>
+
+      <div class="stratum span bedrock" data-reveal="settle">
+        <h3>Pure core</h3>
+        <p>
+          <code>map_kernel</code> · <code>wire</code> · <code>runtime_core</code>
+          — sequenced + pending state, LWW merge, ack matching, payload codecs
+        </p>
+        <span class="pure-stamp" aria-label="Pure and target-agnostic">Pure · shared</span>
+      </div>
+
+      <svg class="wave" viewBox="0 0 1200 14" preserveAspectRatio="none" aria-hidden="true">
+        <path d={waves[2]}></path>
+      </svg>
+
+      <div class="stratum split" data-reveal="settle">
+        <div>
+          <h3>aquamarine</h3>
+          <p>channel client over gun, roost codec</p>
+        </div>
+        <div>
+          <h3>phoenix.js</h3>
+          <p>Phoenix Channels via FFI</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="arch-note">
+      The Erlang-only modules are gated with <code>@target(erlang)</code>, so
+      <code>gleam build --target javascript</code> compiles just the pure core
+      and the JS runtime — that compiled core is what’s running in the demo
+      above.
+    </p>
+  </div>
+</section>
+
+<style>
+  .arch {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
+  }
+
+  .arch-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .arch-intro {
+    margin-top: var(--space-lg);
+  }
+
+  .strata {
+    margin-top: var(--space-2xl);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .target-heads {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-lg) 0;
+  }
+
+  .target-heads span:last-child {
+    text-align: right;
+  }
+
+  .stratum {
+    padding: var(--space-lg) var(--space-lg);
+    position: relative;
+  }
+
+  .stratum h3 {
+    font-size: var(--text-h3);
+    font-weight: 650;
+    font-stretch: 115%;
+  }
+
+  .stratum p {
+    margin-top: var(--space-2xs);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .stratum code {
+    font-size: 0.85em;
+    color: var(--ink);
+  }
+
+  .stratum-note {
+    position: absolute;
+    top: var(--space-lg);
+    right: var(--space-lg);
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-xl);
+  }
+
+  .split > div:last-child {
+    text-align: right;
+  }
+
+  .wave {
+    display: block;
+    width: 100%;
+    height: 14px;
+  }
+
+  .wave path {
+    fill: none;
+    stroke: var(--hairline);
+    stroke-width: 1;
+  }
+
+  /* bedrock hatching: the geological symbol for the layer everything rests on */
+  .bedrock {
+    background: repeating-linear-gradient(
+      -45deg,
+      transparent 0 9px,
+      var(--hairline-faint) 9px 10px
+    );
+  }
+
+  .bedrock p {
+    color: var(--ink);
+  }
+
+  .pure-stamp {
+    position: absolute;
+    top: var(--space-lg);
+    right: var(--space-lg);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--overprint-deep);
+    border: 1.5px solid currentColor;
+    padding: 0.2rem 0.55rem;
+    transform: rotate(2deg);
+    background: var(--bg);
+  }
+
+  .arch-note {
+    margin-top: var(--space-xl);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .arch-note code {
+    color: var(--ink);
+    font-size: 0.9em;
+  }
+
+  @media (max-width: 720px) {
+    .split {
+      grid-template-columns: 1fr;
+      gap: var(--space-lg);
+    }
+
+    .split > div:last-child {
+      text-align: left;
+      padding-top: var(--space-md);
+      border-top: 1px dashed var(--hairline);
+    }
+
+    .target-heads {
+      display: none;
+    }
+
+    .stratum-note {
+      position: static;
+      display: block;
+      margin-top: var(--space-xs);
+    }
+
+    .pure-stamp {
+      position: static;
+      display: inline-block;
+      margin-top: var(--space-sm);
+    }
+  }
+</style>

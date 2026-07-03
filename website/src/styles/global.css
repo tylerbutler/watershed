@@ -1,0 +1,149 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   watershed — design tokens
+   Visual system: "photorevised survey quadrangle". Pure white sheet, blue-black
+   map ink, magenta overprint (the color USGS uses for unverified revisions —
+   here, the color of *pending, unsequenced* state), blue waterline accent.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* palette */
+  --bg: oklch(100% 0 0);
+  --surface: oklch(96.2% 0.005 340);
+  --ink: oklch(25% 0.02 260);
+  --muted: oklch(44% 0.015 260);
+  --overprint: oklch(55% 0.21 340); /* magenta: pending / brand */
+  --overprint-deep: oklch(44% 0.185 340); /* magenta at body-text sizes */
+  --overprint-faint: oklch(55% 0.21 340 / 0.13);
+  --waterline: oklch(37% 0.095 240); /* blue ink: water linework, links */
+  --waterline-faint: oklch(37% 0.095 240 / 0.35);
+  --hairline: oklch(25% 0.02 260 / 0.22);
+  --hairline-faint: oklch(25% 0.02 260 / 0.11);
+
+  /* type */
+  --font-sans:
+    "Archivo Variable", "Archivo", system-ui, "Segoe UI", "Helvetica Neue",
+    sans-serif;
+  --font-mono: "Fragment Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --text-display: clamp(2.7rem, 5vw + 1.35rem, 5.4rem);
+  --text-h2: clamp(1.85rem, 2.2vw + 1.1rem, 2.9rem);
+  --text-h3: 1.3125rem;
+  --text-body: 1.0625rem;
+  --text-sm: 0.9rem;
+  --text-annot: 0.8125rem; /* mono map-margin annotations */
+
+  /* space (4pt scale, fluid at section level) */
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-section: clamp(4.5rem, 9vw, 8.5rem);
+  --sheet-gutter: clamp(0.75rem, 2.5vw, 2rem);
+  --content-pad: clamp(1.25rem, 4.5vw, 4.5rem);
+
+  /* motion */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-feedback: 130ms;
+  --dur-state: 240ms;
+  --dur-entrance: 700ms;
+
+  /* z scale */
+  --z-flow: 2; /* demo op dots */
+  --z-sticky: 10;
+  --z-toast: 20;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.65;
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--waterline);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  color: var(--overprint-deep);
+}
+
+:focus-visible {
+  outline: 2px solid var(--overprint);
+  outline-offset: 2px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+::selection {
+  background: var(--overprint-faint);
+  color: var(--overprint-deep);
+}
+
+/* mono map-margin annotation: THE sheet grammar (frame-level, not sections) */
+.annot {
+  font-family: var(--font-mono);
+  font-size: var(--text-annot);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

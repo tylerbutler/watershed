@@ -1,0 +1,17 @@
+{
+  "name": "watershed-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "cd .. && gleam build --target javascript",
+    "dev": "astro dev",
+    "prebuild": "cd .. && gleam build --target javascript",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "^5.2.5",
+    "@fontsource/fragment-mono": "^5.2.5",
+    "astro": "^5.7.0"
+  }
+}

@@ -1,0 +1,133 @@
+---
+const system = [
+  {
+    name: "levee",
+    role: "the server — sequencing, broadcast, summaries",
+    href: "https://github.com/tylerbutler/levee",
+  },
+  {
+    name: "watershed",
+    role: "this toolkit — DDS clients for BEAM and browser",
+    href: "https://github.com/tylerbutler/watershed",
+  },
+  {
+    name: "spillway",
+    role: "the protocol — shared wire types",
+    href: "https://github.com/tylerbutler/spillway",
+  },
+  {
+    name: "aquamarine",
+    role: "the channel client — Phoenix Channels on the BEAM",
+    href: "https://github.com/tylerbutler/aquamarine",
+  },
+  {
+    name: "roost",
+    role: "the codec — Phoenix V2 frames in Gleam",
+    href: "https://github.com/tylerbutler/roost",
+  },
+];
+---
+
+<footer class="eco" aria-labelledby="eco-title">
+  <div class="eco-inner">
+    <h2 id="eco-title">The water system</h2>
+    <p>
+      watershed is one basin in a connected system: every piece is named for
+      how water actually moves, because that is how the data actually moves.
+    </p>
+    <ul class="eco-list">
+      {
+        system.map((p) => (
+          <li>
+            <a href={p.href}>
+              <code>{p.name}</code>
+            </a>
+            <span class="eco-role">{p.role}</span>
+          </li>
+        ))
+      }
+    </ul>
+    <div class="eco-close">
+      <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
+        Read the source
+      </a>
+      <span class="annot">MIT · built by Tyler Butler</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .eco {
+    padding: var(--space-section) var(--content-pad)
+      clamp(3rem, 6vw, 5rem);
+  }
+
+  .eco-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .eco > .eco-inner > p {
+    margin-top: var(--space-lg);
+  }
+
+  .eco-list {
+    list-style: none;
+    margin: var(--space-2xl) 0 0;
+    padding: 0;
+  }
+
+  .eco-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-md);
+    padding: var(--space-md) 0;
+    border-top: 1px solid var(--hairline);
+  }
+
+  .eco-list li:last-child {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .eco-list code {
+    font-size: 1.0625rem;
+  }
+
+  .eco-role {
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .eco-close {
+    margin-top: var(--space-2xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: oklch(100% 0 0);
+  }
+</style>

@@ -1,0 +1,222 @@
+---
+const ledger = [
+  {
+    id: "M1",
+    name: "Kernel",
+    detail: "Pure port of Fluid Framework’s mapKernel.ts — sequenced + pending state, lifetimes, event suppression",
+    surveyed: true,
+  },
+  {
+    id: "M2",
+    name: "Shared corpus",
+    detail: "20 scenarios generated from the TypeScript MapKernel oracle, replayed in a multi-client simulation",
+    surveyed: true,
+  },
+  {
+    id: "M3",
+    name: "Wire + runtime",
+    detail: "Codecs over spillway types; two BEAM clients converging against a live levee server",
+    surveyed: true,
+  },
+  {
+    id: "M4",
+    name: "Resilience",
+    detail: "Out-of-order buffering, in-band requestOps, reconnect with client-id remap, nack policy, heartbeat",
+    surveyed: true,
+  },
+  {
+    id: "M5",
+    name: "Public API + examples",
+    detail: "Nested SharedMaps, Lustre dice roller, multi-player scoreboard CLI",
+    surveyed: false,
+  },
+];
+---
+
+<section class="rigor" aria-labelledby="rigor-title">
+  <div class="rigor-inner">
+    <div class="guarantees">
+      <h2 id="rigor-title">Surveyed, not asserted</h2>
+      <p>
+        Convergence claims are cheap. watershed’s are checked the way a
+        benchmark sheet is checked — against an oracle, against a live server,
+        and against a thousand adversarial orderings.
+      </p>
+      <dl class="claims">
+        <div data-reveal="rise">
+          <dt>Property-tested convergence</dt>
+          <dd>
+            qcheck drives 1,000 iterations each of convergence across
+            authorship and submit-timing interleavings, ack transparency, and
+            rebase equivalence.
+          </dd>
+        </div>
+        <div data-reveal="rise">
+          <dt>Byte-identical wire format</dt>
+          <dd>
+            Ops match <code>@fluidframework/map</code> exactly —
+            <code>{"{"}type, key, value{"}"}</code> down to the byte — verified
+            against a corpus generated from the TypeScript kernel itself.
+          </dd>
+        </div>
+        <div data-reveal="rise">
+          <dt>Reconnect safety</dt>
+          <dd>
+            Buffered out-of-order delivery, in-band op requests, and client-id
+            remapping on reconnect. Pending edits survive the round trip.
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <div class="ledger-wrap">
+      <table class="ledger">
+        <caption class="annot">Revision ledger</caption>
+        <tbody>
+          {
+            ledger.map((row) => (
+              <tr class:list={[{ pending: !row.surveyed }]} data-reveal="rise">
+                <th scope="row">{row.id}</th>
+                <td>
+                  <span class="ledger-name">{row.name}</span>
+                  <span class="ledger-detail">{row.detail}</span>
+                </td>
+                <td class="ledger-status">
+                  {row.surveyed ? "surveyed" : "revising"}
+                </td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<style>
+  .rigor {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .rigor-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    align-items: start;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .guarantees > p {
+    margin-top: var(--space-lg);
+  }
+
+  .claims {
+    margin: var(--space-2xl) 0 0;
+  }
+
+  .claims div + div {
+    margin-top: var(--space-xl);
+  }
+
+  .claims dt {
+    font-weight: 650;
+    font-stretch: 112%;
+    font-size: var(--text-h3);
+  }
+
+  .claims dd {
+    margin: var(--space-xs) 0 0;
+    color: var(--muted);
+    max-width: 48ch;
+  }
+
+  .claims code {
+    font-size: 0.85em;
+    color: var(--ink);
+  }
+
+  .ledger-wrap {
+    overflow-x: auto;
+  }
+
+  .ledger {
+    width: 100%;
+    border-collapse: collapse;
+    border: 1px solid var(--ink);
+  }
+
+  .ledger caption {
+    text-align: left;
+    padding-bottom: var(--space-sm);
+  }
+
+  .ledger th,
+  .ledger td {
+    padding: var(--space-md) var(--space-md);
+    border-top: 1px solid var(--hairline);
+    vertical-align: baseline;
+    text-align: left;
+  }
+
+  .ledger tr:first-child th,
+  .ledger tr:first-child td {
+    border-top: none;
+  }
+
+  .ledger th {
+    font-family: var(--font-mono);
+    font-weight: 400;
+    font-size: var(--text-sm);
+    color: var(--muted);
+    width: 3.5rem;
+  }
+
+  .ledger-name {
+    display: block;
+    font-weight: 650;
+    font-stretch: 112%;
+  }
+
+  .ledger-detail {
+    display: block;
+    font-size: var(--text-sm);
+    color: var(--muted);
+    margin-top: var(--space-2xs);
+    text-wrap: pretty;
+  }
+
+  .ledger-status {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    width: 1%;
+  }
+
+  /* the one milestone still in magenta — not yet field-checked */
+  .ledger tr.pending .ledger-name,
+  .ledger tr.pending .ledger-status {
+    color: var(--overprint-deep);
+  }
+
+  .ledger tr.pending .ledger-status {
+    font-style: italic;
+  }
+
+  @media (max-width: 860px) {
+    .rigor-inner {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

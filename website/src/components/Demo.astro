@@ -1,0 +1,467 @@
+---
+const gauges = [
+  { key: "mill-race", value: 24 },
+  { key: "kettle-run", value: 61 },
+  { key: "low-ford", value: 42 },
+];
+const clients = [
+  { id: "a", name: "Client A" },
+  { id: "b", name: "Client B" },
+];
+---
+
+<section id="demo" class="demo" aria-labelledby="demo-title">
+  <div class="demo-head">
+    <h2 id="demo-title">Photorevision, live</h2>
+    <p>
+      On a photorevised survey sheet, magenta marks updates that haven’t been
+      field-checked yet. watershed prints its state the same way: a local edit
+      applies instantly and shows <strong class="k-pending">magenta</strong> while
+      it is pending, then sets in <strong class="k-seq">ink</strong> once the
+      server assigns it a sequence number. The two clients below run the real
+      <code>map_kernel</code> — the same Gleam module the BEAM runtime uses,
+      compiled to JavaScript — connected through a sequencer on this page.
+    </p>
+    <p class="demo-hint">
+      Nudge the gauges, stretch the link latency, race a conflicting write. The
+      replicas always converge.
+    </p>
+  </div>
+
+  <div class="rig" data-demo-rig>
+    {
+      clients.map((c) => (
+        <article
+          class="client"
+          data-client={c.id}
+          aria-label={`${c.name} replica`}
+          style={`grid-area: ${c.id}`}
+        >
+          <header class="client-head">
+            <h3>{c.name}</h3>
+            <span
+              class="pending-count annot"
+              data-pending-count
+              data-live={c.id}
+            >
+              0 pending
+            </span>
+          </header>
+          <table class="gauge-table">
+            <caption class="visually-hidden">
+              Shared map replica on {c.name}
+            </caption>
+            <tbody>
+              {gauges.map((g) => (
+                <tr data-key={g.key}>
+                  <th scope="row">
+                    <code>{g.key}</code>
+                  </th>
+                  <td class="gauge-value" data-value>
+                    {g.value}
+                  </td>
+                  <td class="gauge-actions">
+                    <button
+                      type="button"
+                      data-step="-1"
+                      aria-label={`Lower ${g.key} on ${c.name}`}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      data-step="1"
+                      aria-label={`Raise ${g.key} on ${c.name}`}
+                    >
+                      +
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+      ))
+    }
+
+    <div class="channel" style="grid-area: seq">
+      <div class="seq-node" data-seq-node>
+        <span class="annot">Sequencer</span>
+        <output class="seq-counter" data-seq-counter aria-label="Latest sequence number">
+          CSN&nbsp;0
+        </output>
+      </div>
+      <ol class="op-log" data-op-log aria-label="Sequenced operations, newest first"></ol>
+    </div>
+
+    <div class="flow-layer" data-flow-layer aria-hidden="true"></div>
+  </div>
+
+  <div class="demo-controls">
+    <label class="latency">
+      <span class="annot">Link latency</span>
+      <input
+        type="range"
+        min="100"
+        max="2000"
+        step="100"
+        value="700"
+        data-latency
+      />
+      <output data-latency-out>700 ms</output>
+    </label>
+    <button type="button" class="race-btn" data-race>
+      Race a concurrent write
+    </button>
+    <p class="status" data-status role="status">
+      <span class="stamp converged">Converged</span>
+      replicas identical · nothing pending
+    </p>
+  </div>
+
+  <noscript>
+    <p class="demo-noscript">
+      The live demo needs JavaScript — it runs watershed’s actual
+      <code>map_kernel</code> in your browser. The rest of the page works fine
+      without it.
+    </p>
+  </noscript>
+</section>
+
+<script>
+  import { initDemo } from "../scripts/demo.js";
+  initDemo();
+</script>
+
+<style>
+  .demo {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-head {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .demo-head p {
+    margin-top: var(--space-lg);
+  }
+
+  .demo-hint {
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .k-pending {
+    color: var(--overprint-deep);
+  }
+
+  .k-seq {
+    color: var(--ink);
+  }
+
+  .rig {
+    position: relative;
+    max-width: 68rem;
+    margin: var(--space-2xl) auto 0;
+    display: grid;
+    grid-template-areas: "a seq b";
+    grid-template-columns: 1fr minmax(11rem, 0.7fr) 1fr;
+    gap: var(--space-lg);
+    align-items: stretch;
+  }
+
+  .client {
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .client-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .client-head h3 {
+    font-size: 1rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .pending-count {
+    color: var(--overprint-deep);
+    transition: opacity var(--dur-state) var(--ease-out-quart);
+  }
+
+  .pending-count[data-zero] {
+    opacity: 0.35;
+    color: var(--muted);
+  }
+
+  .gauge-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--space-xs) 0 var(--space-sm);
+  }
+
+  .gauge-table th,
+  .gauge-table td {
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    font-weight: 400;
+  }
+
+  .gauge-table code {
+    font-size: var(--text-sm);
+    color: var(--muted);
+  }
+
+  .gauge-value {
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--ink);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  /* pending = magenta overprint, italic like a hand-annotated revision */
+  tr.pending .gauge-value {
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  .gauge-actions {
+    white-space: nowrap;
+    text-align: right;
+    width: 1%;
+  }
+
+  .gauge-actions button {
+    inline-size: 2.4rem;
+    block-size: 2.4rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .gauge-actions button:hover {
+    background: var(--surface);
+  }
+
+  .gauge-actions button:active {
+    transform: scale(0.94);
+    background: var(--overprint-faint);
+  }
+
+  .gauge-actions button + button {
+    margin-inline-start: var(--space-2xs);
+  }
+
+  .channel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    padding-top: clamp(var(--space-md), 6vw, 4.5rem);
+  }
+
+  .seq-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-lg);
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--bg);
+  }
+
+  .seq-counter {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .seq-counter.stamped {
+    animation: stamp 380ms var(--ease-out-quart);
+  }
+
+  @keyframes stamp {
+    0% {
+      color: var(--overprint);
+      transform: scale(1.12);
+    }
+
+    100% {
+      color: var(--ink);
+      transform: none;
+    }
+  }
+
+  .op-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.9;
+    color: var(--muted);
+    overflow: hidden;
+    max-height: 12.5rem;
+    mask-image: linear-gradient(black 55%, transparent 96%);
+  }
+
+  .op-log :global(li) {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+  }
+
+  .op-log :global(li:first-child) {
+    color: var(--ink);
+  }
+
+  .flow-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--z-flow);
+  }
+
+  :global(.flow-dot) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced) {
+    background: var(--ink);
+  }
+
+  .demo-controls {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+
+  .latency {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .latency input {
+    accent-color: var(--overprint);
+    width: clamp(8rem, 18vw, 14rem);
+  }
+
+  .latency output {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    min-width: 5ch;
+  }
+
+  .race-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .race-btn:hover {
+    background: var(--overprint-faint);
+  }
+
+  .race-btn:active {
+    transform: scale(0.97);
+  }
+
+  .status {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  /* :global — the stamp is re-rendered from JS without Astro's scope attr */
+  .status :global(.stamp) {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border: 1.5px solid currentColor;
+    transform: rotate(-2deg);
+  }
+
+  .status :global(.stamp.converged) {
+    color: var(--waterline);
+  }
+
+  .status :global(.stamp.revising) {
+    color: var(--overprint-deep);
+  }
+
+  .demo-noscript {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    color: var(--overprint-deep);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 860px) {
+    .rig {
+      grid-template-areas: "a" "seq" "b";
+      grid-template-columns: 1fr;
+    }
+
+    .op-log {
+      max-height: 5.7rem;
+    }
+  }
+</style>

@@ -1,0 +1,28 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Hero from "../components/Hero.astro";
+import Demo from "../components/Demo.astro";
+import Architecture from "../components/Architecture.astro";
+import Rigor from "../components/Rigor.astro";
+import CodeSample from "../components/CodeSample.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+---
+
+<Sheet
+  title="watershed — collaborative data structures for Gleam"
+  description="A Gleam client toolkit for levee's distributed data structures: optimistic local edits, server-sequenced convergence, reconnect safety. One pure core, running on the BEAM and in the browser."
+>
+  <Hero />
+  <main>
+    <Demo />
+    <Architecture />
+    <CodeSample />
+    <Rigor />
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>

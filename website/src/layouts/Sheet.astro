@@ -1,0 +1,109 @@
+---
+import "@fontsource-variable/archivo/wdth.css";
+import "@fontsource/fragment-mono";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+  </head>
+  <body>
+    <div class="margin-row margin-top annot" aria-hidden="true">
+      <span>Watershed — client toolkit for levee</span>
+      <span class="margin-mid">Sheet 1 · Photorevised</span>
+      <span>Gleam · Erlang/OTP · JavaScript</span>
+    </div>
+
+    <div class="sheet">
+      <span class="reg reg-tl" aria-hidden="true"></span>
+      <span class="reg reg-tr" aria-hidden="true"></span>
+      <span class="reg reg-bl" aria-hidden="true"></span>
+      <span class="reg reg-br" aria-hidden="true"></span>
+      <slot />
+    </div>
+
+    <div class="margin-row margin-bottom annot" aria-hidden="true">
+      <span>Magenta indicates revisions not yet field-checked</span>
+      <span class="margin-mid">Convergence guaranteed by server sequencing</span>
+      <span>tylerbutler.com</span>
+    </div>
+  </body>
+</html>
+
+<style>
+  .margin-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin: 0 var(--sheet-gutter);
+    padding: 0.6rem 2px;
+  }
+
+  .margin-mid {
+    text-align: center;
+  }
+
+  .margin-bottom span:first-child {
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 720px) {
+    .margin-mid {
+      display: none;
+    }
+  }
+
+  .sheet {
+    position: relative;
+    margin: 0 var(--sheet-gutter);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  /* registration crosses at the neatline corners */
+  .reg {
+    position: absolute;
+    width: 17px;
+    height: 17px;
+    pointer-events: none;
+    background:
+      linear-gradient(var(--ink), var(--ink)) center / 1px 100% no-repeat,
+      linear-gradient(var(--ink), var(--ink)) center / 100% 1px no-repeat;
+  }
+
+  .reg-tl {
+    top: -8.5px;
+    left: -8.5px;
+  }
+
+  .reg-tr {
+    top: -8.5px;
+    right: -8.5px;
+  }
+
+  .reg-bl {
+    bottom: -8.5px;
+    left: -8.5px;
+  }
+
+  .reg-br {
+    bottom: -8.5px;
+    right: -8.5px;
+  }
+</style>

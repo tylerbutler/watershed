@@ -1,0 +1,234 @@
+---
+// Pseudo-topographic contour field, generated at build time. Contours are
+// labeled with CSN values instead of elevations: state flows downhill toward
+// sequencing.
+const W = 1300;
+const H = 860;
+
+function contour(row: number, seedPhase: number): string {
+  const baseY = 40 + row * 62;
+  const pts: Array<[number, number]> = [];
+  for (let x = -40; x <= W + 40; x += 100) {
+    const t = x / W;
+    const y =
+      baseY +
+      Math.sin(t * Math.PI * 2 + seedPhase + row * 0.55) * (26 + row * 2.4) +
+      Math.sin(t * Math.PI * 5 + seedPhase * 1.7) * 9 +
+      t * row * 14; // drift downhill to the right
+    pts.push([x, y]);
+  }
+  let d = `M ${pts[0][0]} ${pts[0][1].toFixed(1)}`;
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1];
+    const [x1, y1] = pts[i];
+    const cx = (x0 + x1) / 2;
+    d += ` C ${cx} ${y0.toFixed(1)}, ${cx} ${y1.toFixed(1)}, ${x1} ${y1.toFixed(1)}`;
+  }
+  return d;
+}
+
+const contours = Array.from({ length: 13 }, (_, i) => ({
+  d: contour(i, 0.9),
+  index: i % 4 === 1, // every 4th is an index contour
+  csn: 1240 - i * 20,
+}));
+---
+
+<header class="hero">
+  <svg
+    class="contours"
+    viewBox={`0 0 ${W} ${H}`}
+    preserveAspectRatio="xMaxYMid slice"
+    aria-hidden="true"
+  >
+    {
+      contours.map((c, i) => (
+        <>
+          <path
+            id={`contour-${i}`}
+            class:list={["contour", { index: c.index }]}
+            d={c.d}
+            style={`--i: ${i}`}
+          />
+          {c.index && (
+            <text class="contour-label" dy="-4">
+              <textPath href={`#contour-${i}`} startOffset={`${64 + i * 2}%`}>
+                CSN {c.csn}
+              </textPath>
+            </text>
+          )}
+        </>
+      ))
+    }
+  </svg>
+
+  <div class="hero-inner">
+    <h1>
+      Edit upstream.<br />Converge <em>downstream.</em>
+    </h1>
+    <p class="lede">
+      watershed is a Gleam client toolkit for <a
+        href="https://github.com/tylerbutler/levee">levee</a
+      >’s distributed data structures. Clients edit locally without waiting, the
+      server sequences every op, and each replica arrives at the same state — on
+      the BEAM and in the browser, from one pure core.
+    </p>
+    <div class="cta-row">
+      <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
+        View on GitHub
+      </a>
+      <a class="cta-quiet" href="#demo">Watch two clients converge ↓</a>
+    </div>
+  </div>
+</header>
+
+<style>
+  .hero {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(4.5rem, 11vw, 9.5rem) var(--content-pad)
+      clamp(4rem, 9vw, 8rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .contours {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* fade the field out under the headline so the type stays legible */
+    mask-image: linear-gradient(
+      100deg,
+      transparent 26%,
+      oklch(0 0 0 / 0.5) 48%,
+      black 72%
+    );
+  }
+
+  .contour {
+    fill: none;
+    stroke: var(--waterline-faint);
+    stroke-width: 1;
+    stroke-dasharray: 3200;
+    stroke-dashoffset: 3200;
+    animation: draw 2.4s var(--ease-out-quart) forwards;
+    animation-delay: calc(120ms + var(--i) * 90ms);
+  }
+
+  .contour.index {
+    stroke: var(--overprint);
+    stroke-width: 1.4;
+  }
+
+  .contour-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    fill: var(--overprint-deep);
+    opacity: 0;
+    animation: fade-in 0.9s var(--ease-out-quart) 1.6s forwards;
+  }
+
+  @keyframes draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  @keyframes fade-in {
+    to {
+      opacity: 1;
+    }
+  }
+
+  .hero-inner {
+    position: relative;
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 12ch;
+    animation: rise var(--dur-entrance) var(--ease-out-expo) both;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 52ch;
+    color: var(--ink);
+    animation: rise var(--dur-entrance) var(--ease-out-expo) 140ms both;
+  }
+
+  .cta-row {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+    animation: rise var(--dur-entrance) var(--ease-out-expo) 240ms both;
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    letter-spacing: 0.01em;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: oklch(100% 0 0);
+  }
+
+  .cta-primary:active {
+    transform: scale(0.97);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (max-width: 720px) {
+    /* keep the field out from under the copy: bottom band only */
+    .contours {
+      mask-image: linear-gradient(
+        transparent 0%,
+        transparent 62%,
+        oklch(0 0 0 / 0.55) 78%,
+        black 94%
+      );
+    }
+  }
+</style>
