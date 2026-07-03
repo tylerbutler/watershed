@@ -9,6 +9,7 @@ target = "erlang"
 [dependencies]
 gleam_stdlib = ">= 0.62.0 and < 2.0.0"
 gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_crypto = ">= 1.0.0 and < 2.0.0"
 gleam_erlang = ">= 1.0.0 and < 2.0.0"
 gleam_otp = ">= 1.0.0 and < 2.0.0"
 gleam_http = ">= 4.0.0 and < 5.0.0"
@@ -22,5 +23,4 @@ aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
 startest = ">= 0.8.0 and < 1.0.0"
 qcheck = ">= 1.0.0 and < 2.0.0"
 simplifile = ">= 2.5.0 and < 3.0.0"
-gleam_crypto = ">= 1.0.0 and < 2.0.0"
 envoy = ">= 1.0.0 and < 2.0.0"

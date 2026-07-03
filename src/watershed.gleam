@@ -18,6 +18,10 @@
 //// mechanism later.
 
 @target(erlang)
+import gleam/bit_array
+@target(erlang)
+import gleam/crypto
+@target(erlang)
 import gleam/dict
 @target(erlang)
 import gleam/erlang/process.{type Subject}
@@ -247,3 +251,67 @@ pub fn subscribe(map: SharedMap) -> Subject(MapEvent) {
   process.send(map.runtime, runtime.Subscribe(subscriber))
   subscriber
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dev JWT helper
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Mint an HS256 dev JWT for a levee server running in dev mode (`just server`).
+/// Matches the signature that `watershed_js.dev_token` produces on the JS
+/// target. **Do not use in production** — the secret must never be embedded in
+/// a deployed binary.
+///
+/// ```gleam
+/// let token = watershed.dev_token(
+///   secret: "levee-dev-secret-change-in-production",
+///   tenant: "dev-tenant", document: "dice", user_id: "user-1",
+/// )
+/// ```
+pub fn dev_token(
+  secret secret: String,
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+) -> String {
+  let now = system_time(Second)
+  let header =
+    json.object([
+      #("alg", json.string("HS256")),
+      #("typ", json.string("JWT")),
+    ])
+  let payload =
+    json.object([
+      #("documentId", json.string(document)),
+      #("tenantId", json.string(tenant)),
+      #(
+        "scopes",
+        json.array(["doc:read", "doc:write", "summary:write"], json.string),
+      ),
+      #("user", json.object([#("id", json.string(user_id))])),
+      #("iat", json.int(now)),
+      #("exp", json.int(now + 3600)),
+      #("ver", json.string("1.0")),
+    ])
+  let signing_input =
+    base64url(<<json.to_string(header):utf8>>)
+    <> "."
+    <> base64url(<<json.to_string(payload):utf8>>)
+  let signature =
+    crypto.hmac(<<signing_input:utf8>>, crypto.Sha256, <<secret:utf8>>)
+  signing_input <> "." <> base64url(signature)
+}
+
+@target(erlang)
+fn base64url(data: BitArray) -> String {
+  bit_array.base64_url_encode(data, False)
+}
+
+@target(erlang)
+type TimeUnit {
+  Second
+}
+
+@target(erlang)
+@external(erlang, "os", "system_time")
+fn system_time(unit: TimeUnit) -> Int

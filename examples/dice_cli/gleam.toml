@@ -1,0 +1,13 @@
+name = "dice_cli"
+version = "1.0.0"
+description = "Erlang-target CLI dice roller using the watershed OTP client"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_erlang = ">= 1.0.0 and < 2.0.0"
+gleam_crypto = ">= 1.0.0 and < 2.0.0"
+watershed = { path = "../.." }
