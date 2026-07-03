@@ -75,6 +75,14 @@ sections themselves get plain headings — no per-section eyebrows.
 - Bedrock hatching: `repeating-linear-gradient(-45deg, …)` hairline diagonal.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.
-- The demo imports the real compiled kernel from
-  `../../../build/dev/javascript/watershed/watershed/map_kernel.mjs`
+- The demo imports the real compiled kernels from
+  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel}.mjs`
   (`gleam build --target javascript` runs via `predev`/`prebuild`).
+- The demo hosts both DDSes on one sequencer/SN stream, like DDSes sharing a
+  container. A segmented picker (`.dds-picker`, radios styled as printed
+  cells; checked cell = solid ink) swaps the replica view between the shared
+  map (gauge table) and the shared counter; both kernels stay live regardless
+  of which is shown. The counter's pending state is a *delta*, annotated in
+  magenta beside the value (`Δ +8 unsequenced`). The race button relabels per
+  structure — map races show last-write-wins, counter races converge on the
+  sum — and counter reset is a compensating increment (a counter has no set).

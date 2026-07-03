@@ -4,10 +4,12 @@ const gauges = [
   { key: "kettle-run", value: 61 },
   { key: "low-ford", value: 42 },
 ];
+const counter = { key: "sandbags-placed", value: 120 };
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
 ];
+const counterSteps = [-5, -1, 1, 5];
 ---
 
 <section id="demo" class="demo" aria-labelledby="demo-title">
@@ -19,16 +21,42 @@ const clients = [
       applies instantly and shows <strong class="k-pending">magenta</strong> while
       it is pending, then sets in <strong class="k-seq">ink</strong> once the
       server assigns it a sequence number. The two clients below run the real
-      <code>map_kernel</code> — the same Gleam module the BEAM runtime uses,
-      compiled to JavaScript — connected through a sequencer on this page.
+      <code>map_kernel</code> and <code>counter_kernel</code> — the same Gleam
+      modules the BEAM runtime uses, compiled to JavaScript — riding one
+      sequencer on this page.
     </p>
     <p class="demo-hint">
-      Nudge the gauges, stretch the link latency, race a conflicting write. The
-      replicas always converge.
+      Nudge the gauges, tally the sandbags, stretch the link latency, race a
+      concurrent write. The replicas always converge — each structure by its
+      own rule.
     </p>
   </div>
 
-  <div class="rig" data-demo-rig>
+  <div class="dds-switch">
+    <fieldset class="dds-picker" data-dds-picker>
+      <legend class="visually-hidden">Data structure shown in both clients</legend>
+      <label>
+        <input type="radio" name="dds" value="map" checked data-dds-pick disabled />
+        <span>Shared map</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="counter" data-dds-pick disabled />
+        <span>Shared counter</span>
+      </label>
+    </fieldset>
+    <p class="merge-rule" data-merge-rule="map">
+      <strong>Merge rule — last write wins.</strong> Race two writes to the
+      same key and the op the sequencer stamps later overwrites the earlier
+      one, identically on every replica.
+    </p>
+    <p class="merge-rule" data-merge-rule="counter" hidden>
+      <strong>Merge rule — increments commute.</strong> Race two increments
+      and both apply. The counter converges on the sum; nothing is
+      overwritten.
+    </p>
+  </div>
+
+  <div class="rig" data-demo-rig data-dds="map">
     {
       clients.map((c) => (
         <article
@@ -47,7 +75,7 @@ const clients = [
               0 pending
             </span>
           </header>
-          <table class="gauge-table">
+          <table class="gauge-table dds-map">
             <caption class="visually-hidden">
               Shared map replica on {c.name}
             </caption>
@@ -82,6 +110,33 @@ const clients = [
               ))}
             </tbody>
           </table>
+          <div
+            class="counter-panel dds-counter"
+            role="group"
+            aria-label={`Shared counter replica on ${c.name}`}
+          >
+            <code class="counter-key">{counter.key}</code>
+            <output class="counter-value" data-counter-value>
+              {counter.value}
+            </output>
+            <span
+              class="counter-delta annot"
+              data-counter-delta
+              aria-label="Pending unsequenced delta"
+            ></span>
+            <div class="counter-actions">
+              {counterSteps.map((step) => (
+                <button
+                  type="button"
+                  data-inc={step}
+                  aria-label={`${step > 0 ? "Add" : "Remove"} ${Math.abs(step)} ${Math.abs(step) === 1 ? "sandbag" : "sandbags"} on ${c.name}`}
+                  disabled
+                >
+                  {step > 0 ? `+${step}` : `−${Math.abs(step)}`}
+                </button>
+              ))}
+            </div>
+          </div>
         </article>
       ))
     }
@@ -140,15 +195,15 @@ const clients = [
   <noscript>
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
-      <code>map_kernel</code> in your browser. The rest of the page works fine
-      without it.
+      <code>map_kernel</code> and <code>counter_kernel</code> in your browser.
+      The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-demo-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s actual
-    <code>map_kernel</code> as a compiled JavaScript module, and this browser
-    didn’t load it. The rest of the page works fine without it.
+    The live demo couldn’t start — it runs watershed’s actual kernels as
+    compiled JavaScript modules, and this browser didn’t load them. The rest
+    of the page works fine without it.
   </p>
 </section>
 
@@ -200,10 +255,81 @@ const clients = [
     color: var(--ink);
   }
 
+  .dds-switch {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: var(--space-xl);
+    row-gap: var(--space-md);
+  }
+
+  .dds-picker {
+    display: flex;
+    border: 1px solid var(--ink);
+    padding: 0;
+    margin: 0;
+    width: max-content;
+  }
+
+  .dds-picker label {
+    position: relative;
+    padding: 0.55rem 1.15rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .dds-picker label + label {
+    border-inline-start: 1px solid var(--ink);
+  }
+
+  /* radio stays in the tree (focusable, arrow-key switchable), drawn by label */
+  .dds-picker input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .dds-picker label:has(input:checked) {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  .dds-picker label:hover:not(:has(input:checked)):not(:has(input:disabled)) {
+    background: var(--surface);
+  }
+
+  .dds-picker label:has(input:focus-visible) {
+    outline: 2px solid var(--overprint);
+    outline-offset: 2px;
+  }
+
+  .dds-picker label:has(input:disabled) {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .merge-rule {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    max-width: 52ch;
+  }
+
+  .merge-rule strong {
+    color: var(--ink);
+  }
+
   .rig {
     position: relative;
     max-width: 68rem;
-    margin: var(--space-2xl) auto 0;
+    margin: var(--space-lg) auto 0;
     display: grid;
     grid-template-areas: "a seq b";
     grid-template-columns: 1fr minmax(11rem, 0.7fr) 1fr;
@@ -307,6 +433,81 @@ const clients = [
 
   .gauge-actions button + button {
     margin-inline-start: var(--space-2xs);
+  }
+
+  /* one rig, two structures: the picker swaps which replica view is printed */
+  .rig[data-dds="map"] .dds-counter {
+    display: none;
+  }
+
+  .rig[data-dds="counter"] .dds-map {
+    display: none;
+  }
+
+  .counter-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2xs);
+    padding: var(--space-lg) var(--space-md) var(--space-xl);
+  }
+
+  .counter-key {
+    font-size: var(--text-sm);
+    color: var(--muted);
+  }
+
+  .counter-value {
+    font-family: var(--font-mono);
+    font-size: 2.6rem;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  .counter-value.pending {
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  /* the pending state of a counter is a delta — annotated like an overprint */
+  .counter-delta {
+    color: var(--overprint-deep);
+    min-height: 1.5em;
+  }
+
+  .counter-actions {
+    margin-top: var(--space-sm);
+    display: flex;
+    gap: var(--space-2xs);
+  }
+
+  .counter-actions button {
+    min-inline-size: 2.6rem;
+    block-size: 2.4rem;
+    padding-inline: 0.5rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-size: 1rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .counter-actions button:hover:enabled {
+    background: var(--surface);
+  }
+
+  .counter-actions button:active:enabled {
+    transform: scale(0.94);
+    background: var(--overprint-faint);
   }
 
   .channel {
@@ -465,8 +666,9 @@ const clients = [
     transform: scale(0.97);
   }
 
-  /* controls boot disabled; initDemo() enables them once the kernel loads */
+  /* controls boot disabled; initDemo() enables them once the kernels load */
   .gauge-actions button:disabled,
+  .counter-actions button:disabled,
   .race-btn:disabled,
   .reset-btn:disabled {
     opacity: 0.45;
@@ -531,6 +733,15 @@ const clients = [
     .gauge-actions button {
       inline-size: 2.75rem;
       block-size: 2.75rem;
+    }
+
+    .counter-actions button {
+      min-inline-size: 2.75rem;
+      block-size: 2.75rem;
+    }
+
+    .dds-picker label {
+      padding-block: 0.8rem;
     }
 
     .race-btn,

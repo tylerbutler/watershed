@@ -1,9 +1,12 @@
-// Live convergence demo. The two "clients" here each own a real
-// `watershed/map_kernel` state — the same pure Gleam module the BEAM runtime
-// uses, compiled with `gleam build --target javascript` — and talk through a
-// tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
-// in order, the same protocol shape as a live levee server.
-import * as kernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
+// Live convergence demo. The two "clients" here each own real watershed
+// kernel states — `map_kernel` and `counter_kernel`, the same pure Gleam
+// modules the BEAM runtime uses, compiled with `gleam build --target
+// javascript` — and talk through a tiny in-page sequencer that stamps
+// sequence numbers (SNs) and broadcasts in order, the same protocol shape as
+// a live levee server. Both structures ride the one op stream, like DDSes
+// sharing a container; the picker only changes which replica view is shown.
+import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
+import * as counterKernel from "../../../build/dev/javascript/watershed/watershed/counter_kernel.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
 
@@ -13,6 +16,7 @@ const INITIAL = [
   ["kettle-run", 61],
   ["low-ford", 42],
 ];
+const COUNTER_BASE = 120;
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
@@ -29,21 +33,26 @@ function readInt(optionValue) {
   return null;
 }
 
-function pendingKeys(state) {
+function pendingMapKeys(state) {
   const keys = new Set();
   for (const entry of state.pending.toArray()) {
-    if (entry instanceof kernel.PendingLifetime) keys.add(entry.key);
-    else if (entry instanceof kernel.PendingDelete) keys.add(entry.key);
+    if (entry instanceof mapKernel.PendingLifetime) keys.add(entry.key);
+    else if (entry instanceof mapKernel.PendingDelete) keys.add(entry.key);
     else for (const k of GAUGES) keys.add(k); // PendingClear masks everything
   }
   return keys;
 }
 
-function describeOp(op) {
-  if (op instanceof kernel.Set) {
+function signed(n) {
+  return n < 0 ? `−${Math.abs(n)}` : `+${n}`;
+}
+
+function describeOp(ddsId, op) {
+  if (ddsId === "counter") return `inc ${signed(op.increment_amount)}`;
+  if (op instanceof mapKernel.Set) {
     return `set ${op.key} = ${json.to_string(op.value)}`;
   }
-  if (op instanceof kernel.Delete) return `delete ${op.key}`;
+  if (op instanceof mapKernel.Delete) return `delete ${op.key}`;
   return "clear";
 }
 
@@ -60,9 +69,11 @@ export function initDemo() {
   const latencyOut = document.querySelector("[data-latency-out]");
   const raceBtn = document.querySelector("[data-race]");
   const resetBtn = document.querySelector("[data-reset]");
+  const ddsPicks = document.querySelectorAll("[data-dds-pick]");
+  const mergeRules = document.querySelectorAll("[data-merge-rule]");
 
   // Controls are authored `disabled` so they are never interactive before the
-  // kernel is loaded (or at all, if this module fails to boot).
+  // kernels are loaded (or at all, if this module fails to boot).
   const demoSection = document.querySelector("#demo");
   for (const el of demoSection.querySelectorAll("button, input")) {
     el.disabled = false;
@@ -74,12 +85,14 @@ export function initDemo() {
   for (const id of ["a", "b"]) {
     clients[id] = {
       id,
-      state: kernel.from_sequenced(initial),
+      map: mapKernel.from_sequenced(initial),
+      counter: counterKernel.from_summary(COUNTER_BASE),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
     };
   }
 
+  let activeDds = "map";
   let latency = Number(latencyInput.value);
   let sn = 0;
   let inFlight = 0;
@@ -88,48 +101,76 @@ export function initDemo() {
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
-  function render(client) {
-    const pending = pendingKeys(client.state);
+  function renderMap(client) {
+    const pending = pendingMapKeys(client.map);
     for (const key of GAUGES) {
       const row = client.el.querySelector(`tr[data-key="${key}"]`);
-      const value = readInt(kernel.get(client.state, key));
+      const value = readInt(mapKernel.get(client.map, key));
       row.querySelector("[data-value]").textContent =
         value === null ? "—" : String(value);
       row.classList.toggle("pending", pending.has(key));
     }
-    const count = client.state.pending.toArray().length;
+  }
+
+  function renderCounter(client) {
+    const pending = client.counter.pending.toArray();
+    const valueEl = client.el.querySelector("[data-counter-value]");
+    valueEl.textContent = String(client.counter.value);
+    valueEl.classList.toggle("pending", pending.length > 0);
+    const deltaSum = pending.reduce((sum, p) => sum + p.increment_amount, 0);
+    const deltaEl = client.el.querySelector("[data-counter-delta]");
+    deltaEl.textContent =
+      pending.length > 0 ? `Δ ${signed(deltaSum)} unsequenced` : "";
+  }
+
+  function renderBadge(client) {
+    const count = client[activeDds].pending.toArray().length;
     const badge = client.el.querySelector("[data-pending-count]");
     badge.textContent = `${count} pending`;
     if (count === 0) badge.setAttribute("data-zero", "");
     else badge.removeAttribute("data-zero");
   }
 
+  function render(client) {
+    renderMap(client);
+    renderCounter(client);
+    renderBadge(client);
+  }
+
+  function pendingTotal() {
+    let total = 0;
+    for (const client of Object.values(clients)) {
+      total += client.map.pending.toArray().length;
+      total += client.counter.pending.toArray().length;
+    }
+    return total;
+  }
+
   function renderStatus() {
-    const pendingTotal =
-      clients.a.state.pending.toArray().length +
-      clients.b.state.pending.toArray().length;
-    if (inFlight === 0 && pendingTotal === 0) {
+    const pending = pendingTotal();
+    if (inFlight === 0 && pending === 0) {
       const same =
-        JSON.stringify(snapshot(clients.a.state)) ===
-        JSON.stringify(snapshot(clients.b.state));
+        JSON.stringify(mapSnapshot(clients.a.map)) ===
+          JSON.stringify(mapSnapshot(clients.b.map)) &&
+        clients.a.counter.value === clients.b.counter.value;
       statusEl.innerHTML = same
         ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
     } else {
-      statusEl.innerHTML = `<span class="stamp revising">Revising</span> ${inFlight} op${inFlight === 1 ? "" : "s"} in flight · ${pendingTotal} pending`;
+      statusEl.innerHTML = `<span class="stamp revising">Revising</span> ${inFlight} op${inFlight === 1 ? "" : "s"} in flight · ${pending} pending`;
     }
   }
 
-  function snapshot(state) {
-    return kernel
+  function mapSnapshot(state) {
+    return mapKernel
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, json.to_string(v)]);
   }
 
-  function logOp(stampedSn, origin, op) {
+  function logOp(stampedSn, origin, ddsId, op) {
     const li = document.createElement("li");
-    li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(op)} · from ${origin.toUpperCase()}`;
+    li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(ddsId, op)} · from ${origin.toUpperCase()}`;
     opLog.prepend(li);
     while (opLog.children.length > 14) opLog.lastChild.remove();
     seqCounter.textContent = `SN ${stampedSn}`;
@@ -168,7 +209,29 @@ export function initDemo() {
 
   // ── protocol: client → sequencer → broadcast ──────────────────────────────
 
-  function submit(originId, op) {
+  function deliver(target, originId, ddsId, op) {
+    if (ddsId === "map") {
+      if (target.id === originId) {
+        const result = mapKernel.ack_local(target.map, op);
+        if (result.isOk()) target.map = result[0];
+        else console.error("unexpected ack", result[0]);
+      } else {
+        const [next] = mapKernel.apply_remote(target.map, op);
+        target.map = next;
+      }
+    } else {
+      if (target.id === originId) {
+        const result = counterKernel.ack_local(target.counter, op);
+        if (result.isOk()) target.counter = result[0];
+        else console.error("unexpected ack", result[0]);
+      } else {
+        const [next] = counterKernel.apply_remote(target.counter, op);
+        target.counter = next;
+      }
+    }
+  }
+
+  function submit(originId, ddsId, op) {
     const origin = clients[originId];
     inFlight += 1;
     renderStatus();
@@ -183,7 +246,7 @@ export function initDemo() {
     setTimeout(() => {
       sn += 1;
       const stamped = sn;
-      logOp(stamped, originId, op);
+      logOp(stamped, originId, ddsId, op);
 
       for (const target of Object.values(clients)) {
         animateDot(seqNode, target.el, latency, true);
@@ -192,14 +255,7 @@ export function initDemo() {
         target.lastArrival = tArrival;
         inFlight += 1;
         setTimeout(() => {
-          if (target.id === originId) {
-            const result = kernel.ack_local(target.state, op);
-            if (result.isOk()) target.state = result[0];
-            else console.error("unexpected ack", result[0]);
-          } else {
-            const [next] = kernel.apply_remote(target.state, op);
-            target.state = next;
-          }
+          deliver(target, originId, ddsId, op);
           inFlight -= 1;
           render(target);
           renderStatus();
@@ -213,22 +269,60 @@ export function initDemo() {
 
   function localSet(clientId, key, value) {
     const client = clients[clientId];
-    const [next, _events, op] = kernel.set(client.state, key, jsonInt(value));
-    client.state = next;
+    const [next, _events, op] = mapKernel.set(client.map, key, jsonInt(value));
+    client.map = next;
     render(client);
-    submit(clientId, op);
+    submit(clientId, "map", op);
+  }
+
+  function localIncrement(clientId, amount) {
+    const client = clients[clientId];
+    const [next, _events, op] = counterKernel.increment(client.counter, amount);
+    client.counter = next;
+    render(client);
+    submit(clientId, "counter", op);
   }
 
   // ── wiring ────────────────────────────────────────────────────────────────
 
   for (const client of Object.values(clients)) {
     client.el.addEventListener("click", (event) => {
-      const button = event.target.closest("button[data-step]");
-      if (!button) return;
-      hasInteracted = true;
-      const key = button.closest("tr").dataset.key;
-      const current = readInt(kernel.get(client.state, key)) ?? 0;
-      localSet(client.id, key, current + Number(button.dataset.step));
+      const stepBtn = event.target.closest("button[data-step]");
+      if (stepBtn) {
+        hasInteracted = true;
+        const key = stepBtn.closest("tr").dataset.key;
+        const current = readInt(mapKernel.get(client.map, key)) ?? 0;
+        localSet(client.id, key, current + Number(stepBtn.dataset.step));
+        return;
+      }
+      const incBtn = event.target.closest("button[data-inc]");
+      if (incBtn) {
+        hasInteracted = true;
+        localIncrement(client.id, Number(incBtn.dataset.inc));
+      }
+    });
+  }
+
+  for (const pick of ddsPicks) {
+    pick.addEventListener("change", () => {
+      if (!pick.checked) return;
+      activeDds = pick.value;
+      rig.dataset.dds = activeDds;
+      for (const rule of mergeRules) {
+        rule.hidden = rule.dataset.mergeRule !== activeDds;
+      }
+      raceBtn.textContent =
+        activeDds === "map"
+          ? "Race a concurrent write"
+          : "Race concurrent increments";
+      resetBtn.setAttribute(
+        "aria-label",
+        activeDds === "map"
+          ? "Reset all gauges to their surveyed baseline values"
+          : "Reset the counter to its surveyed baseline value",
+      );
+      renderBadge(clients.a);
+      renderBadge(clients.b);
     });
   }
 
@@ -239,23 +333,37 @@ export function initDemo() {
 
   raceBtn.addEventListener("click", () => {
     hasInteracted = true;
-    // Both clients write the same key inside one latency window. The op the
-    // server sequences last wins on every replica — that's LWW, and both
-    // replicas agree because they apply ops in the same order.
-    const key = GAUGES[Math.floor(Math.random() * GAUGES.length)];
-    const base = readInt(kernel.get(clients.a.state, key)) ?? 0;
-    localSet("a", key, base + 10);
-    localSet("b", key, base - 10);
+    if (activeDds === "map") {
+      // Both clients write the same key inside one latency window. The op the
+      // server sequences last wins on every replica — that's LWW, and both
+      // replicas agree because they apply ops in the same order.
+      const key = GAUGES[Math.floor(Math.random() * GAUGES.length)];
+      const base = readInt(mapKernel.get(clients.a.map, key)) ?? 0;
+      localSet("a", key, base + 10);
+      localSet("b", key, base - 10);
+    } else {
+      // Both clients increment inside one latency window. Neither op wins:
+      // increments commute, so every replica lands on the sum (+13).
+      localIncrement("a", 8);
+      localIncrement("b", 5);
+    }
   });
 
   resetBtn.addEventListener("click", () => {
     hasInteracted = true;
-    // Reset goes through the sequencer like any other edit: one op per gauge
-    // that has drifted from its surveyed baseline.
-    for (const [key, base] of INITIAL) {
-      if (readInt(kernel.get(clients.a.state, key)) !== base) {
-        localSet("a", key, base);
+    // Reset goes through the sequencer like any other edit.
+    if (activeDds === "map") {
+      // One set op per gauge that has drifted from its surveyed baseline.
+      for (const [key, base] of INITIAL) {
+        if (readInt(mapKernel.get(clients.a.map, key)) !== base) {
+          localSet("a", key, base);
+        }
       }
+    } else {
+      // A counter has no "set" — the reset is itself an increment that
+      // compensates for the drift.
+      const drift = clients.a.counter.value - COUNTER_BASE;
+      if (drift !== 0) localIncrement("a", -drift);
     }
   });
 
@@ -269,7 +377,8 @@ export function initDemo() {
         io.disconnect();
         setTimeout(() => {
           if (hasInteracted) return;
-          const current = readInt(kernel.get(clients.b.state, "kettle-run")) ?? 0;
+          const current =
+            readInt(mapKernel.get(clients.b.map, "kettle-run")) ?? 0;
           localSet("b", "kettle-run", current + 1);
         }, 600);
       },
