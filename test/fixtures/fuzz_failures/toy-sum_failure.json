@@ -1,0 +1,1 @@
+{"model":"toy-sum","client_count":1,"detail":"check hook failed for client 0: sum went negative","script":[{"tag":"ClientOp","client":0,"op":-1},{"tag":"Synchronize"}]}

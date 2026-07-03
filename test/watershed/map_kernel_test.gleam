@@ -1,5 +1,7 @@
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
+import qcheck
 import startest/expect
 import watershed/map_kernel.{
   Cleared, Delete, PendingClear, PendingDelete, PendingLifetime, Set,
@@ -347,4 +349,92 @@ pub fn from_sequenced_supports_further_edits_test() {
   // local set of a=10 is not yet confirmed.
   map_kernel.sequenced_entries(state)
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Point-read agreement (ported from the retired map_kernel_property_test.gleam
+// — F2 subsumes convergence/ack-transparency/rebase-equivalence into the fuzz
+// harness, but this property is about map_kernel's own read API consistency,
+// not the harness, so it stays here rather than being dropped)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn key_from_int(n: Int) -> String {
+  case n % 4 {
+    0 -> "a"
+    1 -> "b"
+    2 -> "c"
+    _ -> "d"
+  }
+}
+
+fn value_from_int(n: Int) -> json.Json {
+  json.int(n % 100)
+}
+
+fn op_from_ints(kind: Int, key: Int, value: Int) -> map_kernel.MapOp {
+  case kind % 10 {
+    0 | 1 | 2 | 3 | 4 | 5 -> Set(key_from_int(key), value_from_int(value))
+    6 | 7 | 8 -> Delete(key_from_int(key))
+    _ -> map_kernel.Clear
+  }
+}
+
+fn op_generator() -> qcheck.Generator(map_kernel.MapOp) {
+  qcheck.tuple3(
+    qcheck.small_non_negative_int(),
+    qcheck.small_non_negative_int(),
+    qcheck.small_non_negative_int(),
+  )
+  |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
+}
+
+fn ops_generator() -> qcheck.Generator(List(map_kernel.MapOp)) {
+  qcheck.generic_list(op_generator(), qcheck.small_non_negative_int())
+}
+
+fn submit_local(
+  state: map_kernel.MapState,
+  op: map_kernel.MapOp,
+) -> map_kernel.MapState {
+  case op {
+    Set(key, value) -> {
+      let #(state, _, _) = map_kernel.set(state, key, value)
+      state
+    }
+    Delete(key) -> {
+      let #(state, _, _) = map_kernel.delete(state, key)
+      state
+    }
+    map_kernel.Clear -> {
+      let #(state, _, _) = map_kernel.clear(state)
+      state
+    }
+  }
+}
+
+/// `get`/`has` agree with `entries` for every key in play.
+pub fn point_reads_agree_with_iteration_test() {
+  qcheck.run(
+    qcheck.default_config() |> qcheck.with_test_count(1000),
+    qcheck.tuple2(ops_generator(), ops_generator()),
+    fn(pair) {
+      let #(remote_ops, local_ops) = pair
+      let state =
+        list.fold(remote_ops, map_kernel.new(), fn(state, op) {
+          let #(state, _) = map_kernel.apply_remote(state, op)
+          state
+        })
+      let state = list.fold(local_ops, state, submit_local)
+      let entries = map_kernel.entries(state)
+      list.each(["a", "b", "c", "d"], fn(key) {
+        let from_entries =
+          list.find(entries, fn(entry) { entry.0 == key })
+          |> option.from_result
+          |> option.map(fn(entry) { entry.1 })
+        map_kernel.get(state, key) |> expect.to_equal(from_entries)
+        map_kernel.has(state, key)
+        |> expect.to_equal(from_entries != option.None)
+      })
+    },
+  )
 }

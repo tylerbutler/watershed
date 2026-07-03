@@ -40,6 +40,7 @@ packages = [
 [requirements]
 aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
 envoy = { version = ">= 1.0.0 and < 2.0.0" }
+exception = { version = ">= 2.1.0 and < 3.0.0" }
 gleam_crypto = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_erlang = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_fetch = { version = ">= 1.4.0 and < 2.0.0" }

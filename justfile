@@ -20,6 +20,13 @@ build: _build-erlang _build-javascript _build-dice
 test:
     gleam test
 
+# Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
+# CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
+# default (see test/watershed/fuzz/README.md). Set FUZZ_SEED to pin a
+# specific seed for a reproducible deep run.
+fuzz:
+    FUZZ_ITERATIONS=5000 gleam test
+
 # Format code
 format:
     gleam format
