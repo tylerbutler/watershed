@@ -191,7 +191,10 @@ pub fn set_detached(
   key: String,
   value: Json,
 ) -> ClaimsState {
-  ClaimsState(..state, claims: dict.insert(state.claims, key, ClaimEntry(value, 0)))
+  ClaimsState(
+    ..state,
+    claims: dict.insert(state.claims, key, ClaimEntry(value, 0)),
+  )
 }
 
 /// The acceptance rule (S3/S4), applied identically for local and remote ops:

@@ -16,10 +16,12 @@ packages = [
   { name = "gluegun", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib", "gun"], source = "git", repo = "https://github.com/tylerbutler/gluegun.git", commit = "532af1ac0308ff93c8a957467dbb638859593c93" },
   { name = "gun", version = "2.4.1", build_tools = ["make", "rebar3"], requirements = ["cowlib"], otp_app = "gun", source = "hex", outer_checksum = "1450575B4D393AA0811322727B90AD1DD94B5C10026F54A1641785BCBD250384" },
   { name = "houdini", version = "1.2.1", build_tools = ["gleam"], requirements = [], otp_app = "houdini", source = "hex", outer_checksum = "6F8AC2F12974567FB744BEA66AC93CEB76AAEA19AD28564623F76CDA9BC26A85" },
+  { name = "lattice_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], otp_app = "lattice_core", source = "hex", outer_checksum = "E0A7CC27CB58795D10DF4B7186891FDBF90F10A5FBF34C5862E5E936814A2CD5" },
+  { name = "lattice_counters", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_counters", source = "hex", outer_checksum = "1F5FA78BC2E516A025D63E7DE2E4A9FE898950BD6E835812E50AECB4FB9E1F8A" },
   { name = "lustre", version = "5.7.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_json", "gleam_otp", "gleam_stdlib", "houdini"], otp_app = "lustre", source = "hex", outer_checksum = "38C6FCBD7B7BACE994D5BF643202BB69B02576D44250B4C5DCE738387C0E8F87" },
   { name = "roost", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/roost.git", commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127" },
   { name = "spillway", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/spillway", commit = "15e9e8c3737fc9c1bd52876b78c56d571db508e4" },
-  { name = "watershed", version = "0.1.0", build_tools = ["gleam"], requirements = ["aquamarine", "gleam_crypto", "gleam_erlang", "gleam_fetch", "gleam_http", "gleam_httpc", "gleam_javascript", "gleam_json", "gleam_otp", "gleam_stdlib", "spillway"], source = "local", path = "../.." },
+  { name = "watershed", version = "0.1.0", build_tools = ["gleam"], requirements = ["aquamarine", "gleam_crypto", "gleam_erlang", "gleam_fetch", "gleam_http", "gleam_httpc", "gleam_javascript", "gleam_json", "gleam_otp", "gleam_stdlib", "lattice_counters", "spillway"], source = "local", path = "../.." },
 ]
 
 [requirements]

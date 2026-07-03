@@ -27,6 +27,8 @@ packages = [
   { name = "gluegun", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib", "gun"], source = "git", repo = "https://github.com/tylerbutler/gluegun.git", commit = "532af1ac0308ff93c8a957467dbb638859593c93" },
   { name = "gun", version = "2.4.1", build_tools = ["make", "rebar3"], requirements = ["cowlib"], otp_app = "gun", source = "hex", outer_checksum = "1450575B4D393AA0811322727B90AD1DD94B5C10026F54A1641785BCBD250384" },
   { name = "interior", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib"], otp_app = "interior", source = "hex", outer_checksum = "EE2728791E34400CB3CD986B6AD0E02A2F970F50B5ED59896E2820702C7DDD29" },
+  { name = "lattice_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], otp_app = "lattice_core", source = "hex", outer_checksum = "E0A7CC27CB58795D10DF4B7186891FDBF90F10A5FBF34C5862E5E936814A2CD5" },
+  { name = "lattice_counters", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_counters", source = "hex", outer_checksum = "1F5FA78BC2E516A025D63E7DE2E4A9FE898950BD6E835812E50AECB4FB9E1F8A" },
   { name = "prng", version = "5.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "prng", source = "hex", outer_checksum = "29DA88BCFB54D06DD1472951DF101E9524878056D139DA2616B04350B403CE10" },
   { name = "qcheck", version = "1.0.4", build_tools = ["gleam"], requirements = ["exception", "gleam_regexp", "gleam_stdlib", "gleam_yielder", "prng"], otp_app = "qcheck", source = "hex", outer_checksum = "BD9B18C1602FBC667E3E139ED270458F8C743ED791F892CC90989CE10478C4FA" },
   { name = "roost", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/roost.git", commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127" },
@@ -50,6 +52,7 @@ gleam_javascript = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_json = { version = ">= 3.0.0 and < 4.0.0" }
 gleam_otp = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_stdlib = { version = ">= 0.62.0 and < 2.0.0" }
+lattice_counters = { version = ">= 1.1.0 and < 2.0.0" }
 qcheck = { version = ">= 1.0.0 and < 2.0.0" }
 simplifile = { version = ">= 2.5.0 and < 3.0.0" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
