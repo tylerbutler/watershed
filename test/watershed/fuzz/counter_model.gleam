@@ -97,20 +97,25 @@ fn rollback(state: CounterState, op: CounterOp) -> CounterState {
 }
 
 /// Re-applies a stashed op through `increment`'s path, becoming pending and
-/// optimistically visible again — mirrors reconnect-time stash replay.
-fn apply_stashed(state: CounterState, op: CounterOp) -> CounterState {
+/// optimistically visible again — mirrors reconnect-time stash replay. The
+/// routed op is the generated one unchanged (counter ops carry no
+/// apply-time-computed content).
+fn apply_stashed(
+  state: CounterState,
+  op: CounterOp,
+) -> #(CounterState, CounterOp) {
   let #(state, _, _, _) = counter_kernel.apply_stashed_op(state, op)
-  state
+  #(state, op)
 }
 
-fn load_from_synced(state: CounterState) -> CounterState {
+fn load_from_synced(state: CounterState, _id: Int) -> CounterState {
   counter_kernel.from_summary(counter_kernel.summary_value(state))
 }
 
 pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
   KernelModel(
     name: "counter",
-    init: counter_kernel.new,
+    init: fn(_id) { counter_kernel.new() },
     submit: submit,
     apply_remote: apply_remote,
     ack_local: ack_local,

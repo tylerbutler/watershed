@@ -65,17 +65,35 @@ pub type SequencedMeta {
 /// (`load_from_synced` is F2, `rollback`/`apply_stashed` are F3) are `None`.
 pub type Capabilities(state, op, view) {
   Capabilities(
-    load_from_synced: Option(fn(state) -> state),
+    // Builds a joining client's state from client 0's caught-up state (a
+    // summary round trip). The second argument is the NEW client's identity
+    // (its index, fresh and never reused — see `add_client`); replica-
+    // identified kernels (pn_counter) must load the summary under the
+    // joiner's own identity, not the summarizer's. Identity-free kernels
+    // ignore it.
+    load_from_synced: Option(fn(state, Int) -> state),
     oracle: Option(fn(List(#(Int, op))) -> view),
     rollback: Option(fn(state, op) -> state),
-    apply_stashed: Option(fn(state, op) -> state),
+    // Re-applies a stashed op, returning the (possibly rewritten) op to
+    // route onto the wire — mirroring `submit`, which may also rewrite.
+    // Kernels whose wire ops carry content computed at apply time (a
+    // pn_counter delta) must hand back the rewritten op or every peer
+    // would receive an unusable one; kernels without that need return the
+    // op unchanged.
+    apply_stashed: Option(fn(state, op) -> #(state, op)),
   )
 }
 
 pub type KernelModel(state, op, view) {
   KernelModel(
     name: String,
-    init: fn() -> state,
+    // Build a client's initial state from its identity: the client's index,
+    // stable for the sim's lifetime and never reused across `AddClient`
+    // joins. Replica-identified kernels (pn_counter) derive their
+    // `ReplicaId` from it; identity-free kernels (counter, map, claims)
+    // ignore it — two PN replicas sharing an id silently lose increments
+    // under max-merge, which is why the harness threads it from day one.
+    init: fn(Int) -> state,
     // Optimistically apply a local op, returning the new state and the op to
     // route onto the wire — or `None` when the submit produces no op. Optimistic
     // kernels (counter, map) always return `Some(op)` unchanged. Consensus
@@ -144,7 +162,7 @@ fn new_sim(
     inbox: [],
     log: [],
     clients: list.repeat(Nil, client_count)
-      |> list.map(fn(_) { Client(model.init(), True, [], 0) }),
+      |> list.index_map(fn(_, id) { Client(model.init(id), True, [], 0) }),
   )
 }
 
@@ -167,8 +185,9 @@ pub type Command(op) {
   /// Sequence everything, deliver everything to every client, then validate.
   Synchronize
   /// Fully deliver client 0's backlog, then join a new connected client
-  /// built from `capabilities.load_from_synced(client_0.state)` — a summary
-  /// round trip. Cursor starts at the log end, matching a client that just
+  /// built from `capabilities.load_from_synced(client_0.state, new_id)` —
+  /// a summary round trip under the joiner's own fresh identity. Cursor
+  /// starts at the log end, matching a client that just
   /// loaded a snapshot and has nothing more to catch up on. Errors loudly
   /// (rather than a silent no-op) when the model has no `load_from_synced`
   /// capability, since that is always a harness/model wiring gap.
@@ -187,9 +206,10 @@ pub type Command(op) {
   /// `rollback` capability, rather than silently no-op-ing.
   RollbackOp(client: Int, op: op)
   /// Apply `op` via `capabilities.apply_stashed` (as if resuming a stashed
-  /// local op after reconnect) instead of `submit`, then route it to the
-  /// inbox/resend queue exactly like `ClientOp`. Errors loudly when the
-  /// model has no `apply_stashed` capability.
+  /// local op after reconnect) instead of `submit`, then route the op it
+  /// returned (possibly a rewrite of the generated one) to the inbox/resend
+  /// queue exactly like `ClientOp`. Errors loudly when the model has no
+  /// `apply_stashed` capability.
   StashedOp(client: Int, op: op)
 }
 
@@ -483,9 +503,12 @@ fn add_client(
       let pending = list.length(sim.log) - client0.delivered
       use sim <- result.try(deliver_n(model, sim, 0, pending))
       let client0 = get_client(sim, 0)
+      // The joiner's identity is its index: clients are append-only and
+      // never removed, so the current length is fresh and never reused.
+      let new_id = list.length(sim.clients)
       let new_client =
         Client(
-          state: load_from_synced(client0.state),
+          state: load_from_synced(client0.state, new_id),
           connected: True,
           resend: [],
           delivered: list.length(sim.log),
@@ -559,8 +582,9 @@ fn rollback_op(
 }
 
 /// Apply `op` via `capabilities.apply_stashed` instead of `submit`, then
-/// route it to the inbox/resend queue exactly like `ClientOp`. Errors
-/// loudly when the model has no `apply_stashed` capability.
+/// route the op it returned — which may be a rewrite of the generated one,
+/// mirroring `submit` — to the inbox/resend queue exactly like `ClientOp`.
+/// Errors loudly when the model has no `apply_stashed` capability.
 fn stashed_op(
   model: KernelModel(state, op, view),
   sim: Sim(state, op),
@@ -576,16 +600,16 @@ fn stashed_op(
       )
     Some(apply_stashed) -> {
       let client = get_client(sim, index)
-      let new_state = apply_stashed(client.state, op)
+      let #(new_state, routed) = apply_stashed(client.state, op)
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)
         })
       let sim = case client.connected {
-        True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, op)]))
+        True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
         False ->
           update_client(sim, index, fn(client) {
-            Client(..client, resend: list.append(client.resend, [op]))
+            Client(..client, resend: list.append(client.resend, [routed]))
           })
       }
       Ok(sim)
@@ -625,7 +649,8 @@ fn interpret(
         None -> sim
         Some(routed) ->
           case existing.connected {
-            True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
+            True ->
+              Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
             False ->
               update_client(sim, index, fn(client) {
                 Client(..client, resend: list.append(client.resend, [routed]))

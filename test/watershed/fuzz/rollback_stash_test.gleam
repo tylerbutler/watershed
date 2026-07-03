@@ -37,7 +37,7 @@ fn expect_error(result: Result(Nil, String), because message: String) -> Nil {
 fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
-    init: fn() { [] },
+    init: fn(_id) { [] },
     submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
     apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
@@ -71,6 +71,35 @@ pub fn stashed_op_errors_without_apply_stashed_capability_test() {
     kernel_fuzz.try_run_script(model_without_capabilities(), 2, script),
     because: "expected StashedOp to fail loudly without an apply_stashed capability",
   )
+}
+
+/// PN0/H2: `apply_stashed` rewrites the routed op (`op + 1000`), standing
+/// in for a kernel whose wire ops carry apply-time-computed content (a
+/// pn_counter delta). The applying client records the rewritten op, so the
+/// script converges only if the harness routes the *returned* op to the
+/// inbox — routing the generated one leaves peers with `op` while the
+/// author holds `op + 1000`. The oracle additionally pins the log itself
+/// to the rewritten op.
+fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
+  KernelModel(
+    ..model_without_capabilities(),
+    name: "toy-stash-rewrite",
+    capabilities: Capabilities(
+      ..model_without_capabilities().capabilities,
+      oracle: Some(fn(log: List(#(Int, Int))) {
+        list.map(log, fn(entry) { entry.1 })
+      }),
+      apply_stashed: Some(fn(state, op) {
+        let rewritten = op + 1000
+        #(list.append(state, [rewritten]), rewritten)
+      }),
+    ),
+  )
+}
+
+pub fn stashed_op_routes_the_rewritten_op_test() {
+  let script = [StashedOp(0, 5), Synchronize]
+  expect_ok(kernel_fuzz.try_run_script(rewriting_stash_model(), 3, script))
 }
 
 /// Rolling back a counter increment must leave every client's observed

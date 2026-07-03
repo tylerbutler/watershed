@@ -30,7 +30,7 @@ import watershed/fuzz/kernel_fuzz.{
 fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
-    init: fn() { [] },
+    init: fn(_id) { [] },
     submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
     apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
@@ -44,7 +44,7 @@ fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
     capabilities: Capabilities(
       // Correct summary join: a fresh client built from the log-so-far
       // observes exactly that log, in order.
-      load_from_synced: Some(fn(state) { state }),
+      load_from_synced: Some(fn(state, _id) { state }),
       oracle: None,
       rollback: None,
       apply_stashed: None,
@@ -69,9 +69,50 @@ fn model_with_buggy_load_from_synced() -> KernelModel(List(Int), Int, List(Int))
     ..ordered_log_model(),
     capabilities: Capabilities(
       ..ordered_log_model().capabilities,
-      load_from_synced: Some(fn(state) { list.reverse(state) }),
+      load_from_synced: Some(fn(state, _id) { list.reverse(state) }),
     ),
   )
+}
+
+/// PN0/H1: `load_from_synced` only produces a convergent state when the
+/// joiner identity the harness passes is in `accepted` — any other id
+/// yields an empty state, which the next convergence check flags. Lets the
+/// tests below pin the exact identities `AddClient` hands out.
+fn model_accepting_joiner_ids(
+  accepted: List(Int),
+) -> KernelModel(List(Int), Int, List(Int)) {
+  KernelModel(
+    ..ordered_log_model(),
+    capabilities: Capabilities(
+      ..ordered_log_model().capabilities,
+      load_from_synced: Some(fn(state, id) {
+        case list.contains(accepted, id) {
+          True -> state
+          False -> []
+        }
+      }),
+    ),
+  )
+}
+
+/// With 3 initial clients, the first joiner's identity must be exactly 3 —
+/// the client count before the join.
+pub fn add_client_passes_fresh_identity_test() {
+  let script = [ClientOp(1, 1), Synchronize, AddClient]
+  kernel_fuzz.try_run_script(model_accepting_joiner_ids([3]), 3, script)
+  |> expect_ok
+}
+
+/// Identities are append-only and never reused: the second joiner gets 4,
+/// not 3 again — a model accepting only 3 must fail on the second join.
+pub fn add_client_identities_are_never_reused_test() {
+  let script = [ClientOp(1, 1), Synchronize, AddClient, AddClient]
+  kernel_fuzz.try_run_script(model_accepting_joiner_ids([3, 4]), 3, script)
+  |> expect_ok
+  case kernel_fuzz.try_run_script(model_accepting_joiner_ids([3]), 3, script) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected the second joiner's identity to be 4, not 3"
+  }
 }
 
 pub fn add_client_joins_and_converges_test() {

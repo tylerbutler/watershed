@@ -24,7 +24,7 @@ import watershed/fuzz/kernel_fuzz.{
 fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
-    init: fn() { [] },
+    init: fn(_id) { [] },
     submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
     apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
@@ -36,7 +36,7 @@ fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
     op_to_json: json.int,
     op_decoder: decode.int,
     capabilities: Capabilities(
-      load_from_synced: Some(fn(state) { state }),
+      load_from_synced: Some(fn(state, _id) { state }),
       oracle: None,
       rollback: None,
       apply_stashed: None,

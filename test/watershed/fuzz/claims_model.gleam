@@ -52,10 +52,13 @@ fn to_claim(cmd: ClaimCommand) -> claims_kernel.ClaimOp {
 
 fn op_to_json(cmd: ClaimCommand) -> Json {
   json.object([
-    #("kind", json.string(case cmd.kind {
-      TrySet -> "try"
-      Cas -> "cas"
-    })),
+    #(
+      "kind",
+      json.string(case cmd.kind {
+        TrySet -> "try"
+        Cas -> "cas"
+      }),
+    ),
     #("key", json.string(cmd.key)),
     #("value", cmd.value),
     #("ref_seq", json.int(cmd.ref_seq)),
@@ -76,7 +79,10 @@ fn op_decoder() -> decode.Decoder(ClaimCommand) {
 
 /// Two keys keep races frequent; small integer values shrink well.
 fn op_generator() -> qcheck.Generator(ClaimCommand) {
-  qcheck.tuple2(qcheck.small_non_negative_int(), qcheck.small_non_negative_int())
+  qcheck.tuple2(
+    qcheck.small_non_negative_int(),
+    qcheck.small_non_negative_int(),
+  )
   |> qcheck.map(fn(pair) {
     let #(a, b) = pair
     let kind = case a % 2 {
@@ -180,14 +186,18 @@ fn oracle(log: List(#(Int, ClaimCommand))) -> List(#(String, Json, Int)) {
   })
 }
 
-fn load_from_synced(state: ClaimsState) -> ClaimsState {
+fn load_from_synced(state: ClaimsState, _id: Int) -> ClaimsState {
   claims_kernel.from_summary(claims_kernel.summary_entries(state))
 }
 
-pub fn model() -> KernelModel(ClaimsState, ClaimCommand, List(#(String, Json, Int))) {
+pub fn model() -> KernelModel(
+  ClaimsState,
+  ClaimCommand,
+  List(#(String, Json, Int)),
+) {
   KernelModel(
     name: "claims",
-    init: claims_kernel.new,
+    init: fn(_id) { claims_kernel.new() },
     submit: submit,
     apply_remote: apply_remote,
     ack_local: ack_local,

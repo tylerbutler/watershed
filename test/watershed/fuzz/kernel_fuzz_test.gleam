@@ -24,7 +24,7 @@ fn config() -> qcheck.Config {
 fn sum_model() -> KernelModel(Int, Int, Int) {
   KernelModel(
     name: "toy-sum",
-    init: fn() { 0 },
+    init: fn(_id) { 0 },
     submit: fn(state, op, _meta) { #(state + op, Some(op)) },
     apply_remote: fn(state, op, _meta) { state + op },
     ack_local: fn(state, _op, _meta) { Ok(state) },
@@ -75,6 +75,80 @@ pub fn check_hook_passes_when_invariant_holds_test() {
   let script = [ClientOp(0, 1), Synchronize]
   kernel_fuzz.try_run_script(sum_model_with_check(), 1, script)
   |> expect.to_be_ok
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PN0/H1: `init` receives each client's identity (its index), distinct and
+// covering 0..n−1.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// State is `#(my_init_id, ops_applied_in_order)`. `submit` ignores the
+/// generated op and routes the client's own init id instead, so the log —
+/// and every converged view — is exactly the sequence of identities the
+/// harness handed to `init`. The oracle maps the log to its *author
+/// indices*, so each op (an init id) must equal the index of the client
+/// that submitted it: any duplicate or shifted assignment fails.
+fn id_echo_model() -> KernelModel(#(Int, List(Int)), Int, List(Int)) {
+  KernelModel(
+    name: "toy-id-echo",
+    init: fn(id) { #(id, []) },
+    submit: fn(state, _op, _meta) {
+      #(#(state.0, list.append(state.1, [state.0])), Some(state.0))
+    },
+    apply_remote: fn(state, op, _meta) {
+      #(state.0, list.append(state.1, [op]))
+    },
+    ack_local: fn(state, _op, _meta) { Ok(state) },
+    observe: fn(state) { state.1 },
+    gen_op: qcheck.constant(0),
+    check: None,
+    canonicalize: None,
+    ack_preserves_view: True,
+    op_to_json: json.int,
+    op_decoder: decode.int,
+    capabilities: Capabilities(
+      load_from_synced: None,
+      oracle: Some(fn(log: List(#(Int, Int))) {
+        list.map(log, fn(entry) { entry.0 })
+      }),
+      rollback: None,
+      apply_stashed: None,
+    ),
+  )
+}
+
+pub fn init_receives_distinct_client_indices_test() {
+  // One op per client, synchronized between each so every client applies
+  // them in the same (log) order.
+  let script = [
+    ClientOp(0, 0),
+    Synchronize,
+    ClientOp(1, 0),
+    Synchronize,
+    ClientOp(2, 0),
+    Synchronize,
+  ]
+  kernel_fuzz.try_run_script(id_echo_model(), 3, script)
+  |> expect.to_be_ok
+}
+
+/// Teeth check: an `init` that ignores its identity (every client gets the
+/// same replica id — precisely the pre-H1 world a lattice kernel cannot
+/// survive) must be caught by the same script.
+pub fn constant_init_identity_is_caught_test() {
+  let model = KernelModel(..id_echo_model(), init: fn(_id) { #(7, []) })
+  let script = [
+    ClientOp(0, 0),
+    Synchronize,
+    ClientOp(1, 0),
+    Synchronize,
+    ClientOp(2, 0),
+    Synchronize,
+  ]
+  case kernel_fuzz.try_run_script(model, 3, script) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected a constant init identity to fail the oracle"
+  }
 }
 
 pub fn fixed_script_converges_test() {

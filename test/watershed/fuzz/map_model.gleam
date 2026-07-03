@@ -182,14 +182,14 @@ fn canonicalize(entries: List(#(String, Json))) -> List(#(String, Json)) {
 /// Summary round-trip: a fresh client sees exactly the sequenced entries a
 /// summary snapshot would capture, in the same insertion order — no pending
 /// local edits carry over (client 0, the summary source, never authors any).
-fn load_from_synced(state: MapState) -> MapState {
+fn load_from_synced(state: MapState, _id: Int) -> MapState {
   map_kernel.from_sequenced(map_kernel.sequenced_entries(state))
 }
 
 pub fn model() -> KernelModel(MapState, MapOp, List(#(String, Json))) {
   KernelModel(
     name: "map",
-    init: map_kernel.new,
+    init: fn(_id) { map_kernel.new() },
     submit: submit,
     apply_remote: apply_remote,
     ack_local: ack_local,
