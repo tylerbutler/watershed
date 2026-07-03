@@ -55,7 +55,10 @@ runtimes sit on top:
 The erlang-only modules are gated with `@target(erlang)` so
 `gleam build --target javascript` compiles just the pure core plus the JS
 runtime. See [`examples/dice_lustre`](examples/dice_lustre) for a Lustre SPA
-whose entire client is Gleam, verified converging against a live `just server`.
+whose entire client is Gleam, verified converging against a live `just server`,
+[`examples/dice_cli`](examples/dice_cli) for its Erlang-target CLI counterpart,
+and [`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
+scoreboard built on nested SharedMaps (`create_map` / `handle_of` / `resolve`).
 
 ## Development
 
