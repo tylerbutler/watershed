@@ -582,16 +582,13 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
         Ok(message) ->
           case apply_ops(core, message.ops) {
             Ok(#(core, events, request_from)) -> {
-              fan_out(state.subscribers, events)
-              maybe_request_ops(state.channel, request_from)
+              // Commit the new core before fan-out (see fan_out's contract).
               case resubmit_at {
                 Some(checkpoint) -> settle_reconnect(cell, core, checkpoint)
-                None ->
-                  cell_set(
-                    cell,
-                    State(..cell_get(cell), phase: Ready(core, None)),
-                  )
+                None -> cell_set(cell, State(..state, phase: Ready(core, None)))
               }
+              fan_out(state.subscribers, events)
+              maybe_request_ops(state.channel, request_from)
             }
             Error(core_error) ->
               fail(
@@ -702,6 +699,8 @@ fn edit(
         Error(core_error) ->
           panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, outbound)) -> {
+          // Commit the new core before fan-out (see fan_out's contract).
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
           // Push immediately only when fully synced with a live channel;
           // otherwise the op stays in-flight and `resubmit` sends it once, so a
           // reconnect can't drop or duplicate it.
@@ -710,7 +709,6 @@ fn edit(
             _ -> Nil
           }
           fan_out(state.subscribers, events)
-          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
         }
       }
     }
@@ -719,8 +717,8 @@ fn edit(
         Error(core_error) ->
           panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, _outbound)) -> {
-          fan_out(state.subscribers, events)
           cell_set(cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
         }
       }
     }
@@ -830,6 +828,10 @@ fn http_base_from_socket_url(url: String) -> String {
 @target(javascript)
 /// Route each address-tagged event to the subscribers registered for that
 /// channel address.
+///
+/// Contract: callers must commit the updated core to the cell before fanning
+/// out, so a handler that reads the map during the event observes the
+/// just-applied state (local edits, remote ops, and reconnects alike).
 fn fan_out(
   subscribers: List(#(String, fn(MapEvent) -> Nil)),
   events: List(#(String, MapEvent)),

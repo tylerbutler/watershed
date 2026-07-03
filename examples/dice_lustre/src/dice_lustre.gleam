@@ -36,6 +36,9 @@ const document_id = "dice"
 
 const die_key = "die"
 
+@external(javascript, "./dice_lustre_ffi.mjs", "queue_microtask")
+fn queue_microtask(action: fn() -> Nil) -> Nil
+
 pub fn main() {
   let app = lustre.application(init, update, view)
   let assert Ok(_) = lustre.start(app, "#app", Nil)
@@ -106,7 +109,12 @@ fn connect_effect(user_id: String) -> Effect(Msg) {
       )
     let map = watershed_js.root(doc)
     // Local and remote edits both surface here; we re-read the map on each.
-    watershed_js.subscribe(map, fn(_event: MapEvent) { dispatch(MapChanged) })
+    // Local edits fire synchronously from inside `update` (Roll → set →
+    // event), and a dispatch nested in a running update is clobbered when the
+    // outer update returns — so defer it to a microtask.
+    watershed_js.subscribe(map, fn(_event: MapEvent) {
+      queue_microtask(fn() { dispatch(MapChanged) })
+    })
     dispatch(GotHandle(doc))
   }
   Nil

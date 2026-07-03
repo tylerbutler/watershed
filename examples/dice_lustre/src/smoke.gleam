@@ -11,6 +11,8 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
 
+import watershed/map_kernel
+import watershed/transport_js
 import watershed_js.{type Document, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -68,10 +70,34 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   let map_a = watershed_js.root(doc_a)
   let map_b = watershed_js.root(doc_b)
 
+  // The runtime must commit an edit before notifying subscribers: a handler
+  // that reads the map during the event must observe the just-applied value,
+  // for local edits and remote ops alike (the Lustre app re-reads the map from
+  // inside the subscription callback).
+  let local_probe = transport_js.new_cell(False)
+  let remote_probe = transport_js.new_cell(False)
+  watershed_js.subscribe(map_a, fn(event) {
+    case event {
+      map_kernel.ValueChanged("local_probe", _, True) ->
+        transport_js.set_cell(
+          local_probe,
+          watershed_js.get(map_a, "local_probe") == Some(json.int(7)),
+        )
+      map_kernel.ValueChanged("remote_probe", _, False) ->
+        transport_js.set_cell(
+          remote_probe,
+          watershed_js.get(map_a, "remote_probe") == Some(json.int(9)),
+        )
+      _ -> Nil
+    }
+  })
+
   // Give both clients time to handshake, then issue concurrent edits including
   // a same-key LWW race the server must resolve identically on both sides.
   use <- delay(2000)
   log("smoke: editing")
+  watershed_js.set(map_a, "local_probe", json.int(7))
+  watershed_js.set(map_b, "remote_probe", json.int(9))
   watershed_js.set(map_a, "die", json.int(4))
   watershed_js.set(map_b, "color", json.string("blue"))
   watershed_js.set(map_a, "shared", json.string("from-a"))
@@ -101,8 +127,10 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   let color_ok = color == Some(json.string("blue"))
   let after_ok = after == Some(json.bool(True))
   let lww_ok = shared_a == shared_b && shared_a != None
+  let events_ok =
+    transport_js.get_cell(local_probe) && transport_js.get_cell(remote_probe)
 
-  case converged && die_deleted && color_ok && after_ok && lww_ok {
+  case converged && die_deleted && color_ok && after_ok && lww_ok && events_ok {
     True -> {
       log("SMOKE PASS: clients converged across a reconnect")
       exit(0)
@@ -118,7 +146,11 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
         <> " after_ok="
         <> bool_str(after_ok)
         <> " lww_ok="
-        <> bool_str(lww_ok),
+        <> bool_str(lww_ok)
+        <> " local_event_read_ok="
+        <> bool_str(transport_js.get_cell(local_probe))
+        <> " remote_event_read_ok="
+        <> bool_str(transport_js.get_cell(remote_probe)),
       )
       exit(1)
     }
