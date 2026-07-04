@@ -920,13 +920,12 @@ export function initDemo() {
 
   function localRegisterWrite(clientId, key) {
     const client = clients[clientId];
-    const [next, op] = registerKernel.write(
+    const op = registerKernel.write(
       client.registers,
       key,
       json.string(REGISTER_VALUES[clientId]),
       client.lastSeq,
     );
-    client.registers = next;
     registerPending[clientId].add(key);
     registerNotes[clientId][key] = "revision filed";
     render(client);
