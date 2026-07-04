@@ -81,8 +81,10 @@ kernels toward connection-state behavior, hierarchy, and sequence CRDTs:
 5. ~~ordered-collection~~ (4) — ✅ done: consensus queue lifecycle.
    Plan: `2026-07-03-ordered-collection-kernel-plan.md`.
 6. **task-manager** (5) — connection-state-dependent behavior. This is now the
-   next low-to-mid-complexity Fluid DDS rung.
+   next low-to-mid-complexity Fluid DDS rung. Plan:
+   `2026-07-04-task-manager-kernel-plan.md`.
 7. **map: SharedDirectory** (5) — hierarchical namespace on the existing map kernel.
+   Plan: `2026-07-04-shared-directory-kernel-plan.md`.
 8. **merge-tree redesign** (9) — persistent sequence CRDT; unlocks sequence (9→~6) and matrix (7).
 9. **tree** (10) — only if there's a compelling product need.
 
