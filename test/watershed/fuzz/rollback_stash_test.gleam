@@ -39,7 +39,7 @@ fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
     name: "toy-ordered-log",
     init: fn(_id) { [] },
     submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
-    apply_remote: fn(state, op, _meta) { list.append(state, [op]) },
+    apply_remote: fn(state, op, _meta) { Ok(list.append(state, [op])) },
     ack_local: fn(state, _op, _meta) { Ok(state) },
     observe: fn(state) { state },
     gen_op: qcheck.bounded_int(from: 0, to: 5),
@@ -53,6 +53,8 @@ fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
       oracle: None,
       rollback: None,
       apply_stashed: None,
+      react: None,
+      remove_member: None,
     ),
   )
 }
@@ -86,8 +88,8 @@ fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
     name: "toy-stash-rewrite",
     capabilities: Capabilities(
       ..model_without_capabilities().capabilities,
-      oracle: Some(fn(log: List(#(Int, Int))) {
-        list.map(log, fn(entry) { entry.1 })
+      oracle: Some(fn(entries) {
+        list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.1 })
       }),
       apply_stashed: Some(fn(state, op, _meta) {
         let rewritten = op + 1000
@@ -120,8 +122,8 @@ fn stash_meta_model() -> KernelModel(List(Int), Int, List(Int)) {
     name: "toy-stash-meta",
     capabilities: Capabilities(
       ..model_without_capabilities().capabilities,
-      oracle: Some(fn(log: List(#(Int, Int))) {
-        list.map(log, fn(entry) { entry.1 })
+      oracle: Some(fn(entries) {
+        list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.1 })
       }),
       apply_stashed: Some(apply_stashed_recording_meta),
     ),

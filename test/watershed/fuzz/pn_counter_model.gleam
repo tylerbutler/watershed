@@ -30,7 +30,9 @@ import gleam/option.{type Option, None, Some}
 import lattice_core/replica_id.{type ReplicaId}
 import lattice_counters/pn_counter.{type PNCounter}
 import qcheck
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 import watershed/pn_counter_kernel.{type PnCounterState, PendingDelta, Update}
 
 /// The generated op. `delta` is a slot filled by `submit`/`apply_stashed`
@@ -125,10 +127,10 @@ fn apply_remote(
   state: PnCounterState,
   cmd: PnCommand,
   _meta: kernel_fuzz.SequencedMeta,
-) -> PnCounterState {
+) -> Result(PnCounterState, String) {
   let #(state, _events) =
     pn_counter_kernel.apply_remote(state, to_kernel_op(cmd, "apply_remote"))
-  state
+  Ok(state)
 }
 
 fn ack_local(
@@ -145,8 +147,10 @@ fn ack_local(
 
 /// Sum of sequenced intent amounts — see the module doc for why this equals
 /// the merged CRDT value without touching `merge`.
-fn oracle(log: List(#(Int, PnCommand))) -> Int {
-  list.fold(log, 0, fn(total, entry) { total + { entry.1 }.amount })
+fn oracle(entries: List(LogEntry(PnCommand))) -> Int {
+  list.fold(kernel_fuzz.log_ops(entries), 0, fn(total, entry) {
+    total + { entry.1 }.amount
+  })
 }
 
 /// Rolls back the newest pending delta, using its message id from
@@ -218,6 +222,8 @@ pub fn model() -> KernelModel(PnCounterState, PnCommand, Int) {
       oracle: Some(oracle),
       rollback: Some(rollback),
       apply_stashed: Some(apply_stashed),
+      react: None,
+      remove_member: None,
     ),
   )
 }

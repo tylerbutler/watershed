@@ -11,7 +11,7 @@ import gleam/string
 import lattice_core/replica_id
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
-  Capabilities, ClientOp, KernelModel, Synchronize,
+  type LogEntry, Capabilities, ClientOp, KernelModel, Synchronize,
 }
 import watershed/fuzz/or_map_model.{type OrMapCommand, CmdIncrement, CmdRemove}
 import watershed/fuzz/script_gen
@@ -56,10 +56,10 @@ pub fn op_json_round_trips_with_and_without_delta_test() {
 }
 
 fn authorless_remove_oracle(
-  log: List(#(Int, OrMapCommand)),
+  entries: List(LogEntry(OrMapCommand)),
 ) -> List(#(String, Int)) {
   let #(dots, tallies) =
-    log
+    kernel_fuzz.log_ops(entries)
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(#(dict.new(), dict.new()), fn(state, item) {
       let #(dots, tallies) = state

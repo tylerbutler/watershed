@@ -45,7 +45,7 @@ import simplifile
 /// client has processed — server SNs are 1-based log positions, so a client
 /// that has delivered N ops has last seen SN N; 0 before it has seen any).
 pub type SubmitMeta {
-  SubmitMeta(last_seen_seq: Int)
+  SubmitMeta(client_id: Int, last_seen_seq: Int)
 }
 
 /// Metadata threaded through `apply_remote`/`ack_local` from day one. Counter
@@ -54,9 +54,13 @@ pub type SubmitMeta {
 /// right from F1 rather than retrofitted later.
 pub type SequencedMeta {
   SequencedMeta(
+    /// The client currently processing this log entry.
+    self_id: Int,
+    /// The client that authored the op, or the client that left for a leave.
     client_id: Int,
     sequence_number: Int,
     min_sequence_number: Int,
+    /// Connected-client snapshot captured when this entry was sequenced.
     connected_clients: List(Int),
   )
 }
@@ -72,7 +76,7 @@ pub type Capabilities(state, op, view) {
     // joiner's own identity, not the summarizer's. Identity-free kernels
     // ignore it.
     load_from_synced: Option(fn(state, Int) -> state),
-    oracle: Option(fn(List(#(Int, op))) -> view),
+    oracle: Option(fn(List(LogEntry(op))) -> view),
     rollback: Option(fn(state, op) -> state),
     // Re-applies a stashed op, returning the (possibly rewritten) op to
     // route onto the wire — mirroring `submit`, which may also rewrite.
@@ -81,6 +85,11 @@ pub type Capabilities(state, op, view) {
     // rewritten op or every peer would receive an unusable one; kernels
     // without that need return the op unchanged.
     apply_stashed: Option(fn(state, op, SubmitMeta) -> #(state, op)),
+    /// After applying a sequenced op, the delivering client may owe follow-on
+    /// ops. Returned ops are routed from that client without optimistic apply.
+    react: Option(fn(state, op, SequencedMeta, Int, Bool) -> List(op)),
+    /// Apply a membership leave at its sequence point.
+    remove_member: Option(fn(state, Int, SequencedMeta) -> state),
   )
 }
 
@@ -103,7 +112,7 @@ pub type KernelModel(state, op, view) {
     // whose contents were computed at submit time from `SubmitMeta` (claims
     // fills in `ref_seq` from the client's delivered cursor).
     submit: fn(state, op, SubmitMeta) -> #(state, Option(op)),
-    apply_remote: fn(state, op, SequencedMeta) -> state,
+    apply_remote: fn(state, op, SequencedMeta) -> Result(state, String),
     ack_local: fn(state, op, SequencedMeta) -> Result(state, String),
     observe: fn(state) -> view,
     gen_op: qcheck.Generator(op),
@@ -146,10 +155,15 @@ pub type Client(state, op) {
   Client(state: state, connected: Bool, resend: List(op), delivered: Int)
 }
 
+pub type LogEntry(op) {
+  OpEntry(client: Int, op: op, connected_clients: List(Int))
+  LeaveEntry(client: Int)
+}
+
 pub type Sim(state, op) {
   Sim(
-    inbox: List(#(Int, op)),
-    log: List(#(Int, op)),
+    inbox: List(LogEntry(op)),
+    log: List(LogEntry(op)),
     clients: List(Client(state, op)),
   )
 }
@@ -257,12 +271,18 @@ fn connected_indices(sim: Sim(state, op)) -> List(Int) {
   })
 }
 
-fn meta_for(sim: Sim(state, op), sequence_number: Int) -> SequencedMeta {
-  let author = case list.take(sim.log, sequence_number) |> list.last {
-    Ok(item) -> item.0
+fn meta_for(
+  sim: Sim(state, op),
+  sequence_number: Int,
+  self_id: Int,
+) -> SequencedMeta {
+  let #(author, connected) = case
+    list.take(sim.log, sequence_number) |> list.last
+  {
+    Ok(OpEntry(client, _, connected)) -> #(client, connected)
+    Ok(LeaveEntry(client)) -> #(client, connected_indices(sim))
     Error(_) -> panic as "meta requested for an unsequenced op"
   }
-  let connected = connected_indices(sim)
   let min_delivered =
     list.fold(connected, sequence_number, fn(acc, index) {
       let client = get_client(sim, index)
@@ -272,11 +292,50 @@ fn meta_for(sim: Sim(state, op), sequence_number: Int) -> SequencedMeta {
       }
     })
   SequencedMeta(
+    self_id: self_id,
     client_id: author,
     sequence_number: sequence_number,
     min_sequence_number: min_delivered,
     connected_clients: connected,
   )
+}
+
+pub fn log_ops(entries: List(LogEntry(op))) -> List(#(Int, op)) {
+  entries
+  |> list.filter_map(fn(entry) {
+    case entry {
+      OpEntry(client, op, _) -> Ok(#(client, op))
+      LeaveEntry(_) -> Error(Nil)
+    }
+  })
+}
+
+fn route_op(sim: Sim(state, op), index: Int, op: op) -> Sim(state, op) {
+  let client = get_client(sim, index)
+  case client.connected {
+    True -> Sim(..sim, inbox: list.append(sim.inbox, [OpEntry(index, op, [])]))
+    False ->
+      update_client(sim, index, fn(client) {
+        Client(..client, resend: list.append(client.resend, [op]))
+      })
+  }
+}
+
+fn route_reactions(
+  model: KernelModel(state, op, view),
+  sim: Sim(state, op),
+  index: Int,
+  state: state,
+  op: op,
+  meta: SequencedMeta,
+  is_local: Bool,
+) -> Sim(state, op) {
+  case model.capabilities.react {
+    None -> sim
+    Some(react) ->
+      react(state, op, meta, index, is_local)
+      |> list.fold(sim, fn(sim, op) { route_op(sim, index, op) })
+  }
 }
 
 /// Deliver `log[client.delivered]` (0-indexed) to `client`: `ack_local` if
@@ -293,11 +352,26 @@ fn deliver_one(
   case client.delivered >= list.length(sim.log) {
     True -> Ok(sim)
     False -> {
-      let assert Ok(#(author, op)) =
+      let assert Ok(entry) =
         list.take(sim.log, client.delivered + 1) |> list.last
-      let meta = meta_for(sim, client.delivered + 1)
-      case author == index {
-        True -> {
+      let meta = meta_for(sim, client.delivered + 1, index)
+      case entry {
+        LeaveEntry(leaver) -> {
+          let new_state = case model.capabilities.remove_member {
+            None -> client.state
+            Some(remove_member) -> remove_member(client.state, leaver, meta)
+          }
+          Ok(
+            update_client(sim, index, fn(client) {
+              Client(
+                ..client,
+                state: new_state,
+                delivered: client.delivered + 1,
+              )
+            }),
+          )
+        }
+        OpEntry(author, op, _) if author == index -> {
           let before = model.observe(client.state)
           case model.ack_local(client.state, op, meta) {
             Error(detail) ->
@@ -318,6 +392,16 @@ fn deliver_one(
                     delivered: client.delivered + 1,
                   )
                 })
+              let advanced =
+                route_reactions(
+                  model,
+                  advanced,
+                  index,
+                  new_state,
+                  op,
+                  meta,
+                  True,
+                )
               // Non-optimistic kernels (claims) legitimately change `observe`
               // when acking a winning op, so they opt out of this assertion.
               case model.ack_preserves_view {
@@ -349,16 +433,38 @@ fn deliver_one(
             }
           }
         }
-        False ->
-          Ok(
-            update_client(sim, index, fn(client) {
-              Client(
-                ..client,
-                state: model.apply_remote(client.state, op, meta),
-                delivered: client.delivered + 1,
+        OpEntry(_author, op, _) -> {
+          case model.apply_remote(client.state, op, meta) {
+            Error(detail) ->
+              Error(
+                "apply_remote rejected op for client "
+                <> int.to_string(index)
+                <> " at sequence number "
+                <> int.to_string(meta.sequence_number)
+                <> ": "
+                <> detail,
               )
-            }),
-          )
+            Ok(new_state) -> {
+              let advanced =
+                update_client(sim, index, fn(client) {
+                  Client(
+                    ..client,
+                    state: new_state,
+                    delivered: client.delivered + 1,
+                  )
+                })
+              Ok(route_reactions(
+                model,
+                advanced,
+                index,
+                new_state,
+                op,
+                meta,
+                False,
+              ))
+            }
+          }
+        }
       }
     }
   }
@@ -385,11 +491,17 @@ fn sequence_n(sim: Sim(state, op), n: Int) -> Sim(state, op) {
     False ->
       case sim.inbox {
         [] -> sim
-        [head, ..rest] ->
+        [head, ..rest] -> {
+          let head = case head {
+            OpEntry(client, op, _) ->
+              OpEntry(client, op, connected_indices(sim))
+            LeaveEntry(client) -> LeaveEntry(client)
+          }
           sequence_n(
             Sim(..sim, inbox: rest, log: list.append(sim.log, [head])),
             n - 1,
           )
+        }
       }
   }
 }
@@ -521,15 +633,37 @@ fn add_client(
 /// Move `index`'s in-flight inbox entries (submitted, never sequenced) to
 /// its `resend` queue, in order, and mark it disconnected. Other clients'
 /// inbox entries and anything already in the log are untouched.
-fn disconnect(sim: Sim(state, op), index: Int) -> Sim(state, op) {
+fn disconnect(
+  model: KernelModel(state, op, view),
+  sim: Sim(state, op),
+  index: Int,
+) -> Sim(state, op) {
   let #(mine, others) =
-    list.partition(sim.inbox, fn(entry) { entry.0 == index })
-  let sim = Sim(..sim, inbox: others)
+    list.partition(sim.inbox, fn(entry) {
+      case entry {
+        OpEntry(client, _, _) -> client == index
+        LeaveEntry(_) -> False
+      }
+    })
+  let inbox = case model.capabilities.remove_member {
+    Some(_) -> list.append(others, [LeaveEntry(index)])
+    None -> others
+  }
+  let sim = Sim(..sim, inbox: inbox)
   update_client(sim, index, fn(client) {
     Client(
       ..client,
       connected: False,
-      resend: list.append(client.resend, list.map(mine, fn(entry) { entry.1 })),
+      resend: list.append(
+        client.resend,
+        mine
+          |> list.filter_map(fn(entry) {
+            case entry {
+              OpEntry(_, op, _) -> Ok(op)
+              LeaveEntry(_) -> Error(Nil)
+            }
+          }),
+      ),
     )
   })
 }
@@ -538,7 +672,7 @@ fn disconnect(sim: Sim(state, op), index: Int) -> Sim(state, op) {
 /// order, clearing the queue.
 fn reconnect(sim: Sim(state, op), index: Int) -> Sim(state, op) {
   let client = get_client(sim, index)
-  let entries = list.map(client.resend, fn(op) { #(index, op) })
+  let entries = list.map(client.resend, fn(op) { OpEntry(index, op, []) })
   let sim =
     update_client(sim, index, fn(client) {
       Client(..client, connected: True, resend: [])
@@ -565,7 +699,11 @@ fn rollback_op(
     Some(rollback) -> {
       let client = get_client(sim, index)
       let #(after_submit, maybe_op) =
-        model.submit(client.state, op, SubmitMeta(client.delivered))
+        model.submit(
+          client.state,
+          op,
+          SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+        )
       // A submit that produced no op (a consensus-kernel no-op) has nothing to
       // roll back; otherwise roll back the op the submit actually routed.
       let rolled_back = case maybe_op {
@@ -601,17 +739,18 @@ fn stashed_op(
     Some(apply_stashed) -> {
       let client = get_client(sim, index)
       let #(new_state, routed) =
-        apply_stashed(client.state, op, SubmitMeta(client.delivered))
+        apply_stashed(
+          client.state,
+          op,
+          SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+        )
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)
         })
       let sim = case client.connected {
-        True -> Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
-        False ->
-          update_client(sim, index, fn(client) {
-            Client(..client, resend: list.append(client.resend, [routed]))
-          })
+        True -> route_op(sim, index, routed)
+        False -> route_op(sim, index, routed)
       }
       Ok(sim)
     }
@@ -622,10 +761,38 @@ fn synchronize(
   model: KernelModel(state, op, view),
   sim: Sim(state, op),
 ) -> Result(Sim(state, op), String) {
-  let sim = sequence_n(sim, list.length(sim.inbox))
-  use sim <- result.try(deliver_all_connected(model, sim))
+  use sim <- result.try(synchronize_loop(model, sim, 0))
   use _ <- result.try(validate_convergence(model, sim))
   Ok(sim)
+}
+
+const synchronize_round_cap = 32
+
+fn all_connected_delivered(sim: Sim(state, op)) -> Bool {
+  connected_indices(sim)
+  |> list.all(fn(index) {
+    let client = get_client(sim, index)
+    client.delivered >= list.length(sim.log)
+  })
+}
+
+fn synchronize_loop(
+  model: KernelModel(state, op, view),
+  sim: Sim(state, op),
+  rounds: Int,
+) -> Result(Sim(state, op), String) {
+  case list.is_empty(sim.inbox) && all_connected_delivered(sim) {
+    True -> Ok(sim)
+    False ->
+      case rounds >= synchronize_round_cap {
+        True -> Error("did not reach quiescence")
+        False -> {
+          let sim = sequence_n(sim, list.length(sim.inbox))
+          use sim <- result.try(deliver_all_connected(model, sim))
+          synchronize_loop(model, sim, rounds + 1)
+        }
+      }
+  }
 }
 
 fn interpret(
@@ -639,7 +806,11 @@ fn interpret(
       let index = client_index(client, client_count)
       let existing = get_client(sim, index)
       let #(new_state, maybe_op) =
-        model.submit(existing.state, op, SubmitMeta(existing.delivered))
+        model.submit(
+          existing.state,
+          op,
+          SubmitMeta(client_id: index, last_seen_seq: existing.delivered),
+        )
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)
@@ -650,12 +821,8 @@ fn interpret(
         None -> sim
         Some(routed) ->
           case existing.connected {
-            True ->
-              Sim(..sim, inbox: list.append(sim.inbox, [#(index, routed)]))
-            False ->
-              update_client(sim, index, fn(client) {
-                Client(..client, resend: list.append(client.resend, [routed]))
-              })
+            True -> route_op(sim, index, routed)
+            False -> route_op(sim, index, routed)
           }
       }
       Ok(sim)
@@ -668,7 +835,7 @@ fn interpret(
     Synchronize -> synchronize(model, sim)
     AddClient -> add_client(model, sim)
     Disconnect(client) ->
-      Ok(disconnect(sim, client_index(client, client_count)))
+      Ok(disconnect(model, sim, client_index(client, client_count)))
     Reconnect(client) -> Ok(reconnect(sim, client_index(client, client_count)))
     RollbackOp(client, op) ->
       rollback_op(model, sim, client_index(client, client_count), op)

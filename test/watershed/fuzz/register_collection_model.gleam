@@ -9,7 +9,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import qcheck
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 import watershed/register_collection_kernel.{
   type Register, type RegisterState, Register, VersionedValue, Write,
 }
@@ -71,14 +73,14 @@ fn apply_remote(
   state: RegisterState,
   cmd: WriteCommand,
   meta: kernel_fuzz.SequencedMeta,
-) -> RegisterState {
+) -> Result(RegisterState, String) {
   let #(state, _events) =
     register_collection_kernel.apply_remote(
       state,
       to_write(cmd),
       meta.sequence_number,
     )
-  state
+  Ok(state)
 }
 
 fn ack_local(
@@ -95,30 +97,34 @@ fn ack_local(
   Ok(state)
 }
 
-fn oracle(log: List(#(Int, WriteCommand))) -> List(#(String, Register)) {
-  list.index_fold(log, dict.new(), fn(registers, entry, i) {
-    let cmd = entry.1
-    let seq = i + 1
-    let version = VersionedValue(cmd.value, seq)
-    let #(register, _is_winner) = case dict.get(registers, cmd.key) {
-      Error(_) -> #(Register(version, [version]), True)
-      Ok(Register(atomic, versions)) -> {
-        let is_winner = cmd.ref_seq >= atomic.sequence_number
-        let atomic = case is_winner {
-          True -> version
-          False -> atomic
+fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
+  list.index_fold(
+    kernel_fuzz.log_ops(entries),
+    dict.new(),
+    fn(registers, entry, i) {
+      let cmd = entry.1
+      let seq = i + 1
+      let version = VersionedValue(cmd.value, seq)
+      let #(register, _is_winner) = case dict.get(registers, cmd.key) {
+        Error(_) -> #(Register(version, [version]), True)
+        Ok(Register(atomic, versions)) -> {
+          let is_winner = cmd.ref_seq >= atomic.sequence_number
+          let atomic = case is_winner {
+            True -> version
+            False -> atomic
+          }
+          let versions =
+            versions
+            |> list.drop_while(fn(existing) {
+              existing.sequence_number <= cmd.ref_seq
+            })
+            |> list.append([version])
+          #(Register(atomic, versions), is_winner)
         }
-        let versions =
-          versions
-          |> list.drop_while(fn(existing) {
-            existing.sequence_number <= cmd.ref_seq
-          })
-          |> list.append([version])
-        #(Register(atomic, versions), is_winner)
       }
-    }
-    dict.insert(registers, cmd.key, register)
-  })
+      dict.insert(registers, cmd.key, register)
+    },
+  )
   |> dict.to_list
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
@@ -168,6 +174,8 @@ pub fn model() -> KernelModel(
       oracle: Some(oracle),
       rollback: Some(rollback),
       apply_stashed: Some(apply_stashed),
+      react: None,
+      remove_member: None,
     ),
   )
 }

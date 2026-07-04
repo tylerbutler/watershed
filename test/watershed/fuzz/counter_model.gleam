@@ -11,7 +11,9 @@ import qcheck
 import watershed/counter_kernel.{
   type CounterOp, type CounterState, Increment, PendingIncrement,
 }
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 
 /// `CounterOp` has one constructor wrapping one `Int`, so the JSON shape is
 /// just that int — no tag needed since `kernel_fuzz`'s `Command` wrapper
@@ -54,9 +56,9 @@ fn apply_remote(
   state: CounterState,
   op: CounterOp,
   _meta: kernel_fuzz.SequencedMeta,
-) -> CounterState {
+) -> Result(CounterState, String) {
   let #(state, _) = counter_kernel.apply_remote(state, op)
-  state
+  Ok(state)
 }
 
 fn ack_local(
@@ -71,8 +73,8 @@ fn ack_local(
   }
 }
 
-fn oracle(log: List(#(Int, CounterOp))) -> Int {
-  list.fold(log, 0, fn(total, item) {
+fn oracle(entries: List(LogEntry(CounterOp))) -> Int {
+  list.fold(kernel_fuzz.log_ops(entries), 0, fn(total, item) {
     case item.1 {
       Increment(amount) -> total + amount
     }
@@ -132,6 +134,8 @@ pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
       oracle: Some(oracle),
       rollback: Some(rollback),
       apply_stashed: Some(apply_stashed),
+      react: None,
+      remove_member: None,
     ),
   )
 }

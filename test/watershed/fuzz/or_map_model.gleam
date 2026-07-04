@@ -26,7 +26,9 @@ import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
 import lattice_maps/or_map.{type ORMapDelta}
 import qcheck
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 import watershed/or_map_kernel.{
   type OrMapState, Increment, PendingOp, Remove, TallyMode,
 }
@@ -166,10 +168,13 @@ fn apply_remote(
   state: OrMapState,
   cmd: OrMapCommand,
   _meta: kernel_fuzz.SequencedMeta,
-) -> OrMapState {
+) -> Result(OrMapState, String) {
   case or_map_kernel.apply_remote(state, to_kernel_op(cmd, "apply_remote")) {
-    Ok(#(state, _events)) -> state
-    Error(_) -> panic as "apply_remote rejected a routed OR-map op"
+    Ok(#(state, _events)) -> Ok(state)
+    Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
+    Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
+    Error(or_map_kernel.ModeMismatch(detail)) -> Error(detail)
+    Error(or_map_kernel.CorruptDelta(detail)) -> Error(detail)
   }
 }
 
@@ -267,9 +272,9 @@ fn apply_oracle_op(
   }
 }
 
-pub fn oracle(log: List(#(Int, OrMapCommand))) -> List(#(String, Int)) {
+pub fn oracle(entries: List(LogEntry(OrMapCommand))) -> List(#(String, Int)) {
   let state =
-    log
+    kernel_fuzz.log_ops(entries)
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(
       OracleState(dots: dict.new(), tallies: dict.new()),
@@ -323,6 +328,8 @@ pub fn model() -> KernelModel(OrMapState, OrMapCommand, List(#(String, Int))) {
       oracle: Some(oracle),
       rollback: Some(rollback),
       apply_stashed: Some(apply_stashed),
+      react: None,
+      remove_member: None,
     ),
   )
 }

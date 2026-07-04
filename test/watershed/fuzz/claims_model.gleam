@@ -33,7 +33,9 @@ import qcheck
 import watershed/claims_kernel.{
   type ClaimsState, AlreadyClaimed, Claim, Submitted,
 }
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 
 pub type ClaimKind {
   TrySet
@@ -141,10 +143,10 @@ fn apply_remote(
   state: ClaimsState,
   cmd: ClaimCommand,
   meta: kernel_fuzz.SequencedMeta,
-) -> ClaimsState {
+) -> Result(ClaimsState, String) {
   let #(state, _events) =
     claims_kernel.apply_remote(state, to_claim(cmd), meta.sequence_number)
-  state
+  Ok(state)
 }
 
 fn ack_local(
@@ -165,19 +167,23 @@ fn ack_local(
 /// producing the same `(key, value, sequence_number)` view as
 /// `claims_kernel.summary_entries`. Reimplemented here, NOT delegated to the
 /// kernel, so a kernel bug in the accept/store step diverges from it.
-fn oracle(log: List(#(Int, ClaimCommand))) -> List(#(String, Json, Int)) {
-  list.index_fold(log, dict.new(), fn(claims, entry, i) {
-    let cmd = entry.1
-    let seq = i + 1
-    let accepted = case dict.get(claims, cmd.key) {
-      Error(_) -> True
-      Ok(#(_value, entry_seq)) -> cmd.ref_seq == entry_seq
-    }
-    case accepted {
-      True -> dict.insert(claims, cmd.key, #(cmd.value, seq))
-      False -> claims
-    }
-  })
+fn oracle(entries: List(LogEntry(ClaimCommand))) -> List(#(String, Json, Int)) {
+  list.index_fold(
+    kernel_fuzz.log_ops(entries),
+    dict.new(),
+    fn(claims, entry, i) {
+      let cmd = entry.1
+      let seq = i + 1
+      let accepted = case dict.get(claims, cmd.key) {
+        Error(_) -> True
+        Ok(#(_value, entry_seq)) -> cmd.ref_seq == entry_seq
+      }
+      case accepted {
+        True -> dict.insert(claims, cmd.key, #(cmd.value, seq))
+        False -> claims
+      }
+    },
+  )
   |> dict.to_list
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
   |> list.map(fn(entry) {
@@ -213,6 +219,8 @@ pub fn model() -> KernelModel(
       oracle: Some(oracle),
       rollback: None,
       apply_stashed: None,
+      react: None,
+      remove_member: None,
     ),
   )
 }

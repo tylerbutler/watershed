@@ -12,7 +12,9 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import qcheck
-import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
+import watershed/fuzz/kernel_fuzz.{
+  type KernelModel, type LogEntry, Capabilities, KernelModel,
+}
 import watershed/map_kernel.{
   type MapOp, type MapState, Clear, Delete, PendingClear, PendingDelete,
   PendingLifetime, Set,
@@ -108,9 +110,9 @@ fn apply_remote(
   state: MapState,
   op: MapOp,
   _meta: kernel_fuzz.SequencedMeta,
-) -> MapState {
+) -> Result(MapState, String) {
   let #(state, _) = map_kernel.apply_remote(state, op)
-  state
+  Ok(state)
 }
 
 fn ack_local(
@@ -124,8 +126,8 @@ fn ack_local(
   }
 }
 
-fn oracle(log: List(#(Int, MapOp))) -> List(#(String, Json)) {
-  list.fold(log, map_kernel.new(), fn(state, item) {
+fn oracle(entries: List(LogEntry(MapOp))) -> List(#(String, Json)) {
+  list.fold(kernel_fuzz.log_ops(entries), map_kernel.new(), fn(state, item) {
     let #(state, _) = map_kernel.apply_remote(state, item.1)
     state
   })
@@ -205,6 +207,8 @@ pub fn model() -> KernelModel(MapState, MapOp, List(#(String, Json))) {
       oracle: Some(oracle),
       rollback: None,
       apply_stashed: None,
+      react: None,
+      remove_member: None,
     ),
   )
 }
