@@ -59,6 +59,7 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, InitCounter, InitMap, InitOrMap,
+  InitRegisterCollection,
 } as _watershed_channel
 @target(erlang)
 import watershed/git_storage
@@ -66,6 +67,8 @@ import watershed/git_storage
 import watershed/ids
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(erlang)
+import watershed/register_collection_kernel.{type ReadPolicy}
 @target(erlang)
 import watershed/runtime_core
 @target(erlang)
@@ -101,6 +104,7 @@ pub type Msg {
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
+  WriteRegister(address: String, key: String, value: Json)
   /// Create a new detached map channel: local-only until its handle is first
   /// stored into an attached map. Replies with the generated address.
   CreateMap(reply: Subject(Result(String, String)))
@@ -108,6 +112,7 @@ pub type Msg {
   CreateCounter(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
+  CreateRegisterCollection(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
@@ -136,6 +141,18 @@ pub type Msg {
   )
   GetOrMapEntries(address: String, reply: Subject(List(#(String, OrMapValue))))
   GetOrMapKeys(address: String, reply: Subject(List(String)))
+  GetRegisterValue(
+    address: String,
+    key: String,
+    policy: ReadPolicy,
+    reply: Subject(Option(Json)),
+  )
+  GetRegisterVersions(
+    address: String,
+    key: String,
+    reply: Subject(Option(List(Json))),
+  )
+  GetRegisterKeys(address: String, reply: Subject(List(String)))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
@@ -391,12 +408,23 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     RemoveOrMapKey(address, key) ->
       edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
+    WriteRegister(address, key, value) ->
+      edit(state, fn(core) {
+        runtime_core.register_write(core, address, key, value)
+      })
 
     CreateMap(reply) -> create_channel(state, reply, InitMap, "create_map")
     CreateCounter(reply) ->
       create_channel(state, reply, InitCounter, "create_counter")
     CreateOrMap(mode, reply) ->
       create_channel(state, reply, InitOrMap(mode), "create_or_map")
+    CreateRegisterCollection(reply) ->
+      create_channel(
+        state,
+        reply,
+        InitRegisterCollection,
+        "create_register_collection",
+      )
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -451,6 +479,27 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
     GetOrMapKeys(address, reply) -> {
       process.send(reply, read(state, [], runtime_core.or_map_keys(_, address)))
+      actor.continue(state)
+    }
+    GetRegisterValue(address, key, policy, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.register_read(_, address, key, policy)),
+      )
+      actor.continue(state)
+    }
+    GetRegisterVersions(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.register_versions(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetRegisterKeys(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.register_keys(_, address)),
+      )
       actor.continue(state)
     }
     GetEntries(address, reply) -> {

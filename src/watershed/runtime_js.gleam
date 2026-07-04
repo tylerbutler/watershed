@@ -45,6 +45,8 @@ import watershed/ids
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
+import watershed/register_collection_kernel.{type ReadPolicy}
+@target(javascript)
 import watershed/runtime_core
 @target(javascript)
 import watershed/transport_js.{type Cell, type Channel}
@@ -242,6 +244,42 @@ pub fn or_map_keys(runtime: Runtime, address: String) -> List(String) {
 }
 
 @target(javascript)
+pub fn register_write(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.register_write(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn register_read(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  policy: ReadPolicy,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.register_read(_, address, key, policy))
+}
+
+@target(javascript)
+pub fn register_versions(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(List(Json)) {
+  read(runtime.cell, None, runtime_core.register_versions(_, address, key))
+}
+
+@target(javascript)
+pub fn register_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.register_keys(_, address))
+}
+
+@target(javascript)
 /// Create a new detached map channel: local-only until its handle is first
 /// stored into an attached map. Returns the generated address.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
@@ -260,6 +298,15 @@ pub fn create_or_map(
   mode: OrMapMode,
 ) -> Result(String, String) {
   create_channel(runtime, channel.InitOrMap(mode), "create_or_map")
+}
+
+@target(javascript)
+pub fn create_register_collection(runtime: Runtime) -> Result(String, String) {
+  create_channel(
+    runtime,
+    channel.InitRegisterCollection,
+    "create_register_collection",
+  )
 }
 
 @target(javascript)

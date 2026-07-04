@@ -30,6 +30,7 @@ import watershed/channel
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
+import watershed/register_collection_kernel.{type WriteOp, Write}
 import watershed/wire.{type OutboundOp}
 
 /// Contents of a sequenced `"op"`: either a kernel channel op — its payload
@@ -126,6 +127,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.MapOp(op) -> encode_map_op(op)
     channel.CounterOp(op) -> encode_counter_op(op)
     channel.OrMapOp(op) -> encode_or_map_op(op)
+    channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
   }
 }
 
@@ -139,6 +141,9 @@ pub fn channel_op_decoder(
     channel.CounterChannel ->
       counter_op_decoder() |> decode.map(channel.CounterOp)
     channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
+    channel.RegisterCollectionChannel ->
+      register_collection_op_decoder()
+      |> decode.map(channel.RegisterCollectionOp)
   }
 }
 
@@ -225,6 +230,34 @@ pub fn encode_or_map_op(op: OrMapOp) -> Json {
   }
 }
 
+pub fn encode_register_collection_envelope(
+  address: String,
+  op: WriteOp,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_register_collection_op(op)),
+  ])
+}
+
+pub fn encode_register_collection_op(op: WriteOp) -> Json {
+  case op {
+    Write(key, value, ref_seq) ->
+      json.object([
+        #("type", json.string("registerWrite")),
+        #("key", json.string(key)),
+        #(
+          "value",
+          json.object([
+            #("type", json.string("Plain")),
+            #("value", value),
+          ]),
+        ),
+        #("refSeq", json.int(ref_seq)),
+      ])
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -294,6 +327,7 @@ pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
       use delta <- decode.field("delta", or_map_delta_decoder())
       decode.success(or_map_kernel.Increment(key, amount, delta))
     }
+
     "orMapSet" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", decode.string)
@@ -311,6 +345,19 @@ pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
         or_map_kernel.Remove("", default_or_map_delta()),
         "OrMapOp",
       )
+  }
+}
+
+pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "registerWrite" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", plain_value_decoder())
+      use ref_seq <- decode.field("refSeq", decode.int)
+      decode.success(Write(key, value, ref_seq))
+    }
+    _ -> decode.failure(Write("", json.null(), 0), "RegisterCollectionOp")
   }
 }
 

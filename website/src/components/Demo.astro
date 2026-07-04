@@ -16,6 +16,11 @@ const claimSlots = [
   { key: "spillway-gate", holder: null },
   { key: "pump-house", holder: "Survey" },
 ];
+const registerSlots = [
+  { key: "north-bench", atomic: "Survey", lww: "Survey" },
+  { key: "gate-setpoint", atomic: "—", lww: "—" },
+  { key: "pump-mode", atomic: "—", lww: "—" },
+];
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
@@ -34,13 +39,14 @@ const pnFillSteps = [2, 6];
       instantly in <strong class="k-pending">magenta</strong>, then set in
       <strong class="k-seq">ink</strong> when a Fluid-compatible server assigns
       a sequence number. Both clients run the real Gleam kernels — maps,
-      counters, PN counters, OR-maps, and claims — compiled to JavaScript and
-      sharing one ordered stream.
+      counters, PN counters, OR-maps, claims, and register collections —
+      compiled to JavaScript and sharing one ordered stream.
     </p>
     <p class="demo-hint">
       Nudge the gauges, tally the sandbags, balance the earthwork, strike a
-      stockpile, stake a claim, stretch the link latency, race a concurrent
-      write. The replicas always converge — each structure by its own rule.
+      stockpile, stake a claim, revise a register, stretch the link latency,
+      race a concurrent write. The replicas always converge — each structure by
+      its own rule.
     </p>
   </div>
 
@@ -66,6 +72,10 @@ const pnFillSteps = [2, 6];
       <label>
         <input type="radio" name="dds" value="claims" data-dds-pick disabled />
         <span>Claims</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="registers" data-dds-pick disabled />
+        <span>Registers</span>
       </label>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
@@ -96,6 +106,12 @@ const pnFillSteps = [2, 6];
       removes stockpile entries the striker had seen. Race a strike against a
       concurrent delivery and the row survives — with every logged yard.
       Re-opening a struck pile brings its ledger back.
+    </p>
+    <p class="merge-rule" data-merge-rule="registers" hidden>
+      <strong>Merge rule — atomic plus retained versions.</strong> A write that
+      knew the current atomic sequence wins the linearizable slot. Concurrent
+      losers still append a version, so LWW reads can intentionally diverge from
+      atomic reads.
     </p>
   </div>
 
@@ -309,6 +325,47 @@ const pnFillSteps = [2, 6];
               ))}
             </tbody>
           </table>
+          <table class="gauge-table register-table dds-registers">
+            <caption class="visually-hidden">
+              Register collection replica on {c.name}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">register</th>
+                <th scope="col">atomic</th>
+                <th scope="col">LWW</th>
+                <th scope="col">revise</th>
+              </tr>
+            </thead>
+            <tbody>
+              {registerSlots.map((r) => (
+                <tr data-key={r.key}>
+                  <th scope="row">
+                    <code>{r.key}</code>
+                    <span class="annot register-note" data-register-note></span>
+                  </th>
+                  <td class="register-value">
+                    <output data-register-atomic>{r.atomic}</output>
+                  </td>
+                  <td class="register-value">
+                    <output data-register-lww>{r.lww}</output>
+                    <span class="annot register-versions" data-register-versions>
+                    </span>
+                  </td>
+                  <td class="gauge-actions register-actions">
+                    <button
+                      type="button"
+                      data-register-write
+                      aria-label={`Revise ${r.key} on ${c.name}`}
+                      disabled
+                    >
+                      Revise
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       ))
     }
@@ -378,9 +435,10 @@ const pnFillSteps = [2, 6];
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
       <code>map_kernel</code>, <code>counter_kernel</code>,
-      <code>pn_counter_kernel</code>, <code>or_map_kernel</code>, and
-      <code>claims_kernel</code> in your browser. The rest of the page works
-      fine without it.
+      <code>pn_counter_kernel</code>, <code>or_map_kernel</code>,
+      <code>claims_kernel</code>, and
+      <code>register_collection_kernel</code> in your browser. The rest of the
+      page works fine without it.
     </p>
   </noscript>
 
@@ -619,27 +677,37 @@ const pnFillSteps = [2, 6];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, five structures: the picker swaps which replica view is printed */
+  /* one rig, six structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
   .rig[data-dds="map"] .dds-ormap,
   .rig[data-dds="map"] .dds-claims,
+  .rig[data-dds="map"] .dds-registers,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
   .rig[data-dds="counter"] .dds-ormap,
   .rig[data-dds="counter"] .dds-claims,
+  .rig[data-dds="counter"] .dds-registers,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
   .rig[data-dds="pn"] .dds-ormap,
   .rig[data-dds="pn"] .dds-claims,
+  .rig[data-dds="pn"] .dds-registers,
   .rig[data-dds="ormap"] .dds-map,
   .rig[data-dds="ormap"] .dds-counter,
   .rig[data-dds="ormap"] .dds-pn,
   .rig[data-dds="ormap"] .dds-claims,
+  .rig[data-dds="ormap"] .dds-registers,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
   .rig[data-dds="claims"] .dds-pn,
-  .rig[data-dds="claims"] .dds-ormap {
+  .rig[data-dds="claims"] .dds-ormap,
+  .rig[data-dds="claims"] .dds-registers,
+  .rig[data-dds="registers"] .dds-map,
+  .rig[data-dds="registers"] .dds-counter,
+  .rig[data-dds="registers"] .dds-pn,
+  .rig[data-dds="registers"] .dds-ormap,
+  .rig[data-dds="registers"] .dds-claims {
     display: none;
   }
 
@@ -804,6 +872,47 @@ const pnFillSteps = [2, 6];
 
   .ormap-table tr.struck [data-ormap-reopen] {
     display: inline-block;
+  }
+
+  .register-table thead th {
+    padding: var(--space-xs) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .register-value output {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--ink);
+  }
+
+  .register-table tr.filed .register-value output {
+    border-bottom: 1px dashed var(--overprint-deep);
+  }
+
+  .register-note,
+  .register-versions {
+    display: block;
+    min-height: 1.2em;
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  .register-versions {
+    color: var(--muted);
+  }
+
+  .register-actions button {
+    inline-size: auto;
+    padding-inline: 0.7rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
   }
 
   .channel {

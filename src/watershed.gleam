@@ -49,6 +49,8 @@ import watershed/handle
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
+import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
+@target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/wire/summary_blob.{type SummaryBlob}
@@ -79,6 +81,11 @@ pub opaque type SharedCounter {
 @target(erlang)
 pub opaque type SharedOrMap {
   SharedOrMap(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedRegisterCollection {
+  SharedRegisterCollection(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -363,6 +370,112 @@ pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
 pub fn subscribe_or_map(or_map: SharedOrMap) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(or_map.runtime, runtime.Subscribe(or_map.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Register collections
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new consensus register collection. Like other non-root channels it
+/// starts detached until its handle is stored in an attached map.
+pub fn create_register_collection(
+  document: Document,
+) -> Result(SharedRegisterCollection, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateRegisterCollection,
+  )
+  |> result.map(fn(address) {
+    SharedRegisterCollection(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn register_collection_handle_of(
+  collection: SharedRegisterCollection,
+) -> Json {
+  handle.encode_handle(collection.address)
+}
+
+@target(erlang)
+pub fn resolve_register_collection(
+  document: Document,
+  value: Json,
+) -> Result(SharedRegisterCollection, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedRegisterCollection(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn register_write(
+  collection: SharedRegisterCollection,
+  key: String,
+  value: Json,
+) -> Nil {
+  process.send(
+    collection.runtime,
+    runtime.WriteRegister(collection.address, key, value),
+  )
+}
+
+@target(erlang)
+pub fn register_read(
+  collection: SharedRegisterCollection,
+  key: String,
+  policy: ReadPolicy,
+) -> Option(Json) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetRegisterValue(collection.address, key, policy, reply)
+  })
+}
+
+@target(erlang)
+pub fn register_get(
+  collection: SharedRegisterCollection,
+  key: String,
+) -> Option(Json) {
+  register_read(collection, key, Atomic)
+}
+
+@target(erlang)
+pub fn register_versions(
+  collection: SharedRegisterCollection,
+  key: String,
+) -> Option(List(Json)) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetRegisterVersions(collection.address, key, reply)
+  })
+}
+
+@target(erlang)
+pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetRegisterKeys(collection.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn subscribe_register_collection(
+  collection: SharedRegisterCollection,
+) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(
+    collection.runtime,
+    runtime.Subscribe(collection.address, subscriber),
+  )
   subscriber
 }
 

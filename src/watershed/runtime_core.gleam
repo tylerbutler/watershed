@@ -25,6 +25,7 @@ import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/or_map_kernel
+import watershed/register_collection_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -897,6 +898,7 @@ pub fn or_map_remove(
         ),
       )
     }
+
     Ok(Attached(kernel)) -> {
       let #(kernel, events, op, message_id) = or_map_kernel.remove(kernel, key)
       Ok(stamp_attached(
@@ -907,6 +909,52 @@ pub fn or_map_remove(
         channel.OrMapOp(op),
         channel.OrMapMeta(message_id),
       ))
+    }
+  }
+}
+
+pub fn register_write(
+  core: Core,
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_register_collection(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events) =
+        register_collection_kernel.write_detached(kernel, key, value)
+      Ok(
+        #(
+          put_detached_channel(
+            core,
+            address,
+            channel.RegisterCollectionState(kernel),
+          ),
+          tag_register_collection_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(_)) -> {
+      let #(core, attach_outbound) = attach_dependencies(core, value)
+      let assert Ok(channel.RegisterCollectionState(kernel)) =
+        dict.get(core.channels, address)
+      let op =
+        register_collection_kernel.write(kernel, key, value, core.last_seen_sn)
+      let #(core, events, outbound) =
+        stamp_attached(
+          core,
+          address,
+          channel.RegisterCollectionState(kernel),
+          [],
+          channel.RegisterCollectionOp(op),
+          channel.NoMeta,
+        )
+      Ok(#(core, events, list.append(attach_outbound, outbound)))
     }
   }
 }
@@ -963,6 +1011,23 @@ fn locate_or_map(
       Error(WrongChannelType(
         address,
         expected: channel.OrMapChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_register_collection(
+  core: Core,
+  address: String,
+) -> Result(Located(register_collection_kernel.RegisterState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.RegisterCollectionState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.RegisterCollectionState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.RegisterCollectionChannel,
         actual: channel.channel_type(other),
       ))
   }
@@ -1142,6 +1207,15 @@ fn tag_or_map_events(
   list.map(events, fn(event) { #(address, channel.OrMapEvent(event)) })
 }
 
+fn tag_register_collection_events(
+  address: String,
+  events: List(register_collection_kernel.RegisterEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) {
+    #(address, channel.RegisterCollectionEvent(event))
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1211,6 +1285,39 @@ pub fn or_map_entries(
 ) -> List(#(String, or_map_kernel.OrMapValue)) {
   case find_channel(core, address) {
     Some(channel.OrMapState(kernel)) -> or_map_kernel.entries(kernel)
+    _ -> []
+  }
+}
+
+pub fn register_read(
+  core: Core,
+  address: String,
+  key: String,
+  policy: register_collection_kernel.ReadPolicy,
+) -> Option(Json) {
+  case find_channel(core, address) {
+    Some(channel.RegisterCollectionState(kernel)) ->
+      register_collection_kernel.read(kernel, key, policy)
+    _ -> None
+  }
+}
+
+pub fn register_versions(
+  core: Core,
+  address: String,
+  key: String,
+) -> Option(List(Json)) {
+  case find_channel(core, address) {
+    Some(channel.RegisterCollectionState(kernel)) ->
+      register_collection_kernel.read_versions(kernel, key)
+    _ -> None
+  }
+}
+
+pub fn register_keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.RegisterCollectionState(kernel)) ->
+      register_collection_kernel.keys(kernel)
     _ -> []
   }
 }

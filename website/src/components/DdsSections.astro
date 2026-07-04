@@ -40,6 +40,14 @@ const structures = [
     pending: "reads stay non-optimistic until the filed claim resolves",
     summary: "holder values reload with their sequence numbers intact",
   },
+  {
+    name: "Register collection",
+    module: "register_collection_kernel",
+    terrain: "gauge revisions",
+    rule: "atomic reads pick the first non-concurrent write; LWW reads pick the latest version",
+    pending: "writes stay invisible until sequenced, then resolve as atomic winners or retained versions",
+    summary: "atomic and concurrent versions persist with sequence numbers",
+  },
 ];
 
 const flow = [
@@ -73,7 +81,7 @@ const flow = [
 <section class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
-      <h2 id="dds-field-title">Five DDS field sheets, one ordered stream</h2>
+      <h2 id="dds-field-title">Six DDS field sheets, one ordered stream</h2>
       <p>
         watershed does not hide every conflict behind the same merge story. Each
         DDS has a small, explicit rule: what can be applied optimistically, what
@@ -118,9 +126,10 @@ const flow = [
   <div class="flow-inner">
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Maps, counters, OR-maps, and claims all ride one ordered document stream.
-      The picker in the live demo changes the visible field sheet; the kernels
-      stay hosted together, just like DDSes sharing a Fluid container.
+      Maps, counters, OR-maps, claims, and register collections all ride one
+      ordered document stream. The picker in the live demo changes the visible
+      field sheet; the kernels stay hosted together, just like DDSes sharing a
+      Fluid container.
     </p>
 
     <ol class="flow-steps">

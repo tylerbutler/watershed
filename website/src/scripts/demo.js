@@ -1,9 +1,9 @@
 // Live convergence demo. The two "clients" here each own real watershed
 // kernel states — `map_kernel`, `counter_kernel`, `pn_counter_kernel`,
-// `or_map_kernel`, and `claims_kernel`, the same pure Gleam modules the BEAM runtime uses,
+// `or_map_kernel`, `claims_kernel`, and `register_collection_kernel`, the same pure Gleam modules the BEAM runtime uses,
 // compiled with `gleam build --target javascript` — and talk through a tiny
 // in-page sequencer that stamps sequence numbers (SNs) and broadcasts in
-// order, the same protocol shape as a live levee server. All structures ride
+// order, the same protocol shape as a Fluid-compatible service. All structures ride
 // the one op stream, like DDSes sharing a container; the picker only changes
 // which replica view is shown.
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
@@ -11,6 +11,7 @@ import * as counterKernel from "../../../build/dev/javascript/watershed/watershe
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
+import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
 import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
 import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
 import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
@@ -67,10 +68,21 @@ function orMapBaselineSummary() {
 const SLOTS = ["north-levee", "spillway-gate", "pump-house"];
 const CLAIMANTS = { a: "A", b: "B" };
 const CLAIMS_BASELINE = [["pump-house", "Survey", 0]];
+const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"];
+const REGISTER_VALUES = { a: "A revision", b: "B revision" };
 
 function claimsBaseline() {
   return claimsKernel.from_summary(
     toList(CLAIMS_BASELINE.map(([k, who, seq]) => [k, json.string(who), seq])),
+  );
+}
+
+function registersBaseline() {
+  const version = new registerKernel.VersionedValue(json.string("Survey"), 0);
+  return registerKernel.from_summary(
+    toList([
+      ["north-bench", new registerKernel.Register(version, toList([version]))],
+    ]),
   );
 }
 
@@ -92,6 +104,13 @@ function readInt(optionValue) {
 function readClaimant(optionValue) {
   // Claim values are `json.string`, so the encoder yields quoted JSON;
   // JSON.parse unquotes it back to the claimant name.
+  if (optionValue && optionValue[0] !== undefined) {
+    return JSON.parse(json.to_string(optionValue[0]));
+  }
+  return null;
+}
+
+function readJsonString(optionValue) {
   if (optionValue && optionValue[0] !== undefined) {
     return JSON.parse(json.to_string(optionValue[0]));
   }
@@ -132,6 +151,9 @@ function describeOp(ddsId, op) {
     // The op carries the ref SN it was filed against — printing it shows
     // why the sequencer accepts or rejects the claim.
     return `claim ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
+  }
+  if (ddsId === "registers") {
+    return `revise ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
   }
   if (op instanceof mapKernel.Set) {
     return `set ${op.key} = ${json.to_string(op.value)}`;
@@ -193,6 +215,7 @@ export function initDemo() {
       pn: pnLoaded[0],
       ormap: orMapLoaded[0],
       claims: claimsBaseline(),
+      registers: registersBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
       lastSeq: 0, // last delivered container SN — the runtime's job, done here
@@ -208,7 +231,10 @@ export function initDemo() {
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
   let lastOrMap = null; // the most recently *sequenced* OR-map op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
+  let registersEpoch = 0; // same guard for out-of-band register-sheet reset
   const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
+  const registerNotes = { a: {}, b: {} };
+  const registerPending = { a: new Set(), b: new Set() };
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -307,10 +333,43 @@ export function initDemo() {
     }
   }
 
+  function registerVersions(state, key) {
+    const versions = registerKernel.read_versions(state, key);
+    if (!versions || versions[0] === undefined) return [];
+    return versions[0]
+      .toArray()
+      .map((value) => JSON.parse(json.to_string(value)));
+  }
+
+  function renderRegisters(client) {
+    for (const key of REGISTERS) {
+      const row = client.el.querySelector(`.dds-registers tr[data-key="${key}"]`);
+      const atomic = readJsonString(
+        registerKernel.read(client.registers, key, new registerKernel.Atomic()),
+      );
+      const lww = readJsonString(
+        registerKernel.read(client.registers, key, new registerKernel.Lww()),
+      );
+      const versions = registerVersions(client.registers, key);
+      const filed = registerPending[client.id].has(key);
+      row.querySelector("[data-register-atomic]").textContent = atomic ?? "—";
+      row.querySelector("[data-register-lww]").textContent = lww ?? "—";
+      row.classList.toggle("filed", filed);
+      row.querySelector("[data-register-note]").textContent = filed
+        ? "revision filed · atomic outcome unknown"
+        : (registerNotes[client.id][key] ?? "");
+      row.querySelector("[data-register-versions]").textContent =
+        versions.length > 1 ? `${versions.length} concurrent versions` : "";
+      row.querySelector("[data-register-write]").disabled = filed;
+    }
+  }
+
   function renderBadge(client) {
     const count =
       activeDds === "claims"
         ? gdict.size(client.claims.pending)
+        : activeDds === "registers"
+          ? registerPending[client.id].size
         : activeDds === "ormap"
           ? client.ormap.pending.toArray().length
         : client[activeDds].pending.toArray().length;
@@ -326,6 +385,7 @@ export function initDemo() {
     renderPn(client);
     renderOrMap(client);
     renderClaims(client);
+    renderRegisters(client);
     renderBadge(client);
   }
 
@@ -337,6 +397,7 @@ export function initDemo() {
       total += client.pn.pending.toArray().length;
       total += client.ormap.pending.toArray().length;
       total += gdict.size(client.claims.pending);
+      total += registerPending[client.id].size;
     }
     return total;
   }
@@ -352,7 +413,9 @@ export function initDemo() {
         JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
           JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
         JSON.stringify(claimsSnapshot(clients.a.claims)) ===
-          JSON.stringify(claimsSnapshot(clients.b.claims));
+          JSON.stringify(claimsSnapshot(clients.b.claims)) &&
+        JSON.stringify(registerSnapshot(clients.a.registers)) ===
+          JSON.stringify(registerSnapshot(clients.b.registers));
       statusEl.innerHTML = same
         ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
@@ -380,6 +443,23 @@ export function initDemo() {
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, v[0]]);
+  }
+
+  function registerSnapshot(state) {
+    return registerKernel
+      .summary_registers(state)
+      .toArray()
+      .map(([key, register]) => [
+        key,
+        json.to_string(register.atomic.value),
+        register.atomic.sequence_number,
+        register.versions
+          .toArray()
+          .map((version) => [
+            json.to_string(version.value),
+            version.sequence_number,
+          ]),
+      ]);
   }
 
   function logRejected(stampedSn, key) {
@@ -483,6 +563,22 @@ export function initDemo() {
         const [next] = claimsKernel.apply_remote(target.claims, op, seq);
         target.claims = next;
       }
+    } else if (ddsId === "registers") {
+      if (target.id === originId) {
+        const [next, _events, isWinner] = registerKernel.ack_local(
+          target.registers,
+          op,
+          seq,
+        );
+        target.registers = next;
+        registerPending[target.id].delete(op.key);
+        registerNotes[target.id][op.key] = isWinner
+          ? "atomic winner"
+          : "atomic lost · version retained";
+      } else {
+        const [next] = registerKernel.apply_remote(target.registers, op, seq);
+        target.registers = next;
+      }
     } else {
       if (target.id === originId) {
         const result = counterKernel.ack_local(target.counter, op);
@@ -501,7 +597,12 @@ export function initDemo() {
     // and bumps the epoch; a claim still in flight is dropped rather than
     // stamped, or it would commit on one replica and fail to ack on the
     // other.
-    const epoch = claimsEpoch;
+    const epoch =
+      ddsId === "claims"
+        ? claimsEpoch
+        : ddsId === "registers"
+          ? registersEpoch
+          : 0;
     inFlight += 1;
     renderStatus();
     animateDot(origin.el, seqNode, latency, false);
@@ -513,7 +614,10 @@ export function initDemo() {
     seqLastArrival = arrival;
 
     setTimeout(() => {
-      if (ddsId === "claims" && epoch !== claimsEpoch) {
+      if (
+        (ddsId === "claims" && epoch !== claimsEpoch) ||
+        (ddsId === "registers" && epoch !== registersEpoch)
+      ) {
         inFlight -= 1;
         renderStatus();
         return;
@@ -536,7 +640,10 @@ export function initDemo() {
         target.lastArrival = tArrival;
         inFlight += 1;
         setTimeout(() => {
-          if (ddsId === "claims" && epoch !== claimsEpoch) {
+          if (
+            (ddsId === "claims" && epoch !== claimsEpoch) ||
+            (ddsId === "registers" && epoch !== registersEpoch)
+          ) {
             inFlight -= 1;
             renderStatus();
             return;
@@ -631,6 +738,21 @@ export function initDemo() {
     submit(clientId, "claims", result[0].op);
   }
 
+  function localRegisterWrite(clientId, key) {
+    const client = clients[clientId];
+    const [next, op] = registerKernel.write(
+      client.registers,
+      key,
+      json.string(REGISTER_VALUES[clientId]),
+      client.lastSeq,
+    );
+    client.registers = next;
+    registerPending[clientId].add(key);
+    registerNotes[clientId][key] = "revision filed";
+    render(client);
+    submit(clientId, "registers", op);
+  }
+
   // Claims are write-once — there is no unclaim op — so reset tears off a
   // fresh sheet: both replicas reload the baseline summary locally, and the
   // epoch bump makes the sequencer drop anything still in flight.
@@ -639,6 +761,17 @@ export function initDemo() {
     for (const client of Object.values(clients)) {
       client.claims = claimsBaseline();
       claimNotes[client.id] = {};
+      render(client);
+    }
+    renderStatus();
+  }
+
+  function resetRegisters() {
+    registersEpoch += 1;
+    for (const client of Object.values(clients)) {
+      client.registers = registersBaseline();
+      registerNotes[client.id] = {};
+      registerPending[client.id].clear();
       render(client);
     }
     renderStatus();
@@ -714,6 +847,15 @@ export function initDemo() {
         localClaim(client.id, claimBtn.closest("tr").dataset.key);
         return;
       }
+      const registerBtn = event.target.closest("button[data-register-write]");
+      if (registerBtn) {
+        hasInteracted = true;
+        localRegisterWrite(
+          client.id,
+          registerBtn.closest("tr").dataset.key,
+        );
+        return;
+      }
       const orMapLogBtn = event.target.closest("button[data-ormap-log]");
       if (orMapLogBtn) {
         hasInteracted = true;
@@ -744,6 +886,7 @@ export function initDemo() {
     pn: "Race fill against cut",
     ormap: "Race a strike against a delivery",
     claims: "Race two claims for one slot",
+    registers: "Race two revisions for one register",
   };
   const RESET_LABELS = {
     map: "Reset all gauges to their surveyed baseline values",
@@ -751,6 +894,7 @@ export function initDemo() {
     pn: "Reset the earthwork balance to its surveyed baseline",
     ormap: "Reset the stockpile ledger to its surveyed baseline",
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
+    registers: "Reload both register collections from the surveyed baseline summary",
   };
 
   for (const pick of ddsPicks) {
@@ -825,6 +969,9 @@ export function initDemo() {
       }
       localClaim("a", key);
       localClaim("b", key);
+    } else if (activeDds === "registers") {
+      localRegisterWrite("a", "gate-setpoint");
+      localRegisterWrite("b", "gate-setpoint");
     } else {
       // Both clients increment inside one latency window. Neither op wins:
       // increments commute, so every replica lands on the sum (+13).
@@ -866,6 +1013,8 @@ export function initDemo() {
       }
     } else if (activeDds === "claims") {
       resetClaims();
+    } else if (activeDds === "registers") {
+      resetRegisters();
     } else {
       // A counter has no "set" — the reset is itself an increment that
       // compensates for the drift.

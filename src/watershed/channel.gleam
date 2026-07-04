@@ -22,6 +22,7 @@ import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/or_map_kernel
+import watershed/register_collection_kernel
 import watershed/wire
 
 /// The kinds of channel a document can host. Maps to/from the wire's
@@ -30,6 +31,7 @@ pub type ChannelType {
   MapChannel
   CounterChannel
   OrMapChannel
+  RegisterCollectionChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -38,6 +40,7 @@ pub type ChannelInit {
   InitMap
   InitCounter
   InitOrMap(mode: or_map_kernel.OrMapMode)
+  InitRegisterCollection
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -45,6 +48,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     MapChannel -> wire.channel_type_map
     CounterChannel -> wire.channel_type_counter
     OrMapChannel -> wire.channel_type_or_map
+    RegisterCollectionChannel -> wire.channel_type_register_collection
   }
 }
 
@@ -53,6 +57,8 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_map -> Ok(MapChannel)
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
+    _ if raw == wire.channel_type_register_collection ->
+      Ok(RegisterCollectionChannel)
     _ -> Error(Nil)
   }
 }
@@ -62,6 +68,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitMap -> MapChannel
     InitCounter -> CounterChannel
     InitOrMap(_) -> OrMapChannel
+    InitRegisterCollection -> RegisterCollectionChannel
   }
 }
 
@@ -70,6 +77,7 @@ pub type ChannelState {
   MapState(map_kernel.MapState)
   CounterState(counter_kernel.CounterState)
   OrMapState(or_map_kernel.OrMapState)
+  RegisterCollectionState(register_collection_kernel.RegisterState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -78,6 +86,7 @@ pub type ChannelOp {
   MapOp(map_kernel.MapOp)
   CounterOp(counter_kernel.CounterOp)
   OrMapOp(or_map_kernel.OrMapOp)
+  RegisterCollectionOp(register_collection_kernel.WriteOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -85,6 +94,7 @@ pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
   CounterEvent(counter_kernel.CounterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
+  RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -93,6 +103,9 @@ pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
   OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
+  RegisterCollectionSnapshot(
+    registers: List(#(String, register_collection_kernel.Register)),
+  )
 }
 
 /// Per-kernel *local* metadata an in-flight op carries alongside the wire
@@ -105,7 +118,7 @@ pub type LocalOpMeta {
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
-/// it; kernels that persist sequence numbers (claims) consume `seq`.
+/// it; kernels that persist sequence numbers consume `seq`.
 /// Threaded from day one so adding such a kernel is additive.
 pub type SequencedMeta {
   SequencedMeta(seq: Int, last_seen_sn: Int)
@@ -127,6 +140,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     MapState(_) -> MapChannel
     CounterState(_) -> CounterChannel
     OrMapState(_) -> OrMapChannel
+    RegisterCollectionState(_) -> RegisterCollectionChannel
   }
 }
 
@@ -135,6 +149,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     MapSnapshot(_) -> MapChannel
     CounterSnapshot(_) -> CounterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
+    RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
   }
 }
 
@@ -149,6 +164,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitCounter -> CounterState(counter_kernel.new())
     InitOrMap(mode) ->
       OrMapState(or_map_kernel.new(replica_id.new(replica), mode))
+    InitRegisterCollection ->
+      RegisterCollectionState(register_collection_kernel.new())
   }
 }
 
@@ -166,6 +183,8 @@ pub fn from_snapshot(
         or_map_kernel.from_sequenced(state, mode, replica_id.new(replica))
       OrMapState(kernel)
     }
+    RegisterCollectionSnapshot(registers) ->
+      RegisterCollectionState(register_collection_kernel.from_summary(registers))
   }
 }
 
@@ -175,6 +194,10 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
+    RegisterCollectionState(kernel) ->
+      RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
+        kernel,
+      ))
   }
 }
 
@@ -194,6 +217,10 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
     CounterState(kernel) -> CounterSnapshot(kernel.value)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
+    RegisterCollectionState(kernel) ->
+      RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
+        kernel,
+      ))
   }
 }
 
@@ -203,6 +230,8 @@ pub fn attach_state(
 ) -> ChannelState {
   case state {
     OrMapState(kernel) -> OrMapState(or_map_kernel.promote_attach(kernel))
+    RegisterCollectionState(_) ->
+      from_snapshot(attach_snapshot(state), replica:)
     _ -> from_snapshot(attach_snapshot(state), replica: replica)
   }
 }
@@ -211,7 +240,7 @@ pub fn attach_state(
 pub fn apply_remote(
   state: ChannelState,
   op: ChannelOp,
-  _meta: SequencedMeta,
+  meta: SequencedMeta,
 ) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
   case state, op {
     MapState(kernel), MapOp(op) -> {
@@ -233,6 +262,14 @@ pub fn apply_remote(
         | Error(or_map_kernel.UnexpectedRollback(detail)) ->
           Error(UnexpectedAck(detail))
       }
+    RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
+      let #(kernel, events) =
+        register_collection_kernel.apply_remote(kernel, op, meta.seq)
+      Ok(#(
+        RegisterCollectionState(kernel),
+        list.map(events, RegisterCollectionEvent),
+      ))
+    }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -242,7 +279,7 @@ pub fn ack_local(
   state: ChannelState,
   op: ChannelOp,
   local: LocalOpMeta,
-  _meta: SequencedMeta,
+  meta: SequencedMeta,
 ) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
   case state, op {
     MapState(kernel), MapOp(op) ->
@@ -281,6 +318,14 @@ pub fn ack_local(
         NoMeta | CounterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
       }
+    RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
+      let #(kernel, events, _is_winner) =
+        register_collection_kernel.ack_local(kernel, op, meta.seq)
+      Ok(#(
+        RegisterCollectionState(kernel),
+        list.map(events, RegisterCollectionEvent),
+      ))
+    }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -303,6 +348,10 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       CounterOp(counter_kernel.Increment(echoed))
     -> ours == echoed
     OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
+    RegisterCollectionOp(ours), RegisterCollectionOp(echoed) ->
+      ours.key == echoed.key
+      && ours.value == echoed.value
+      && ours.ref_seq == echoed.ref_seq
     _, _ -> False
   }
 }
@@ -343,6 +392,8 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
     OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
       our_mode == echoed_mode && ours == echoed
+    RegisterCollectionSnapshot(ours), RegisterCollectionSnapshot(echoed) ->
+      ours == echoed
     _, _ -> False
   }
 }
@@ -398,6 +449,19 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
           })
           |> list.unique
       }
+    RegisterCollectionState(kernel) ->
+      list.flat_map(
+        register_collection_kernel.summary_registers(kernel),
+        fn(entry) {
+          let #(_, register_collection_kernel.Register(atomic, versions)) =
+            entry
+          [atomic, ..versions]
+          |> list.flat_map(fn(version) {
+            handle.collect_handle_addresses(version.value)
+          })
+        },
+      )
+      |> list.unique
   }
 }
 
@@ -408,6 +472,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     MapSnapshot(entries) -> wire.encode_entries(entries)
     CounterSnapshot(value) -> json.int(value)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
+    RegisterCollectionSnapshot(registers) -> encode_registers(registers)
   }
 }
 
@@ -418,7 +483,50 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
     CounterChannel -> decode.int |> decode.map(CounterSnapshot)
     OrMapChannel -> or_map_snapshot_decoder()
+    RegisterCollectionChannel ->
+      decode.list(register_entry_decoder())
+      |> decode.map(RegisterCollectionSnapshot)
   }
+}
+
+fn encode_registers(
+  registers: List(#(String, register_collection_kernel.Register)),
+) -> Json {
+  json.array(registers, fn(entry) {
+    let #(key, register_collection_kernel.Register(atomic, versions)) = entry
+    json.object([
+      #("key", json.string(key)),
+      #("atomic", encode_versioned(atomic)),
+      #("versions", json.array(versions, encode_versioned)),
+    ])
+  })
+}
+
+fn encode_versioned(
+  version: register_collection_kernel.VersionedValue,
+) -> Json {
+  json.object([
+    #("value", version.value),
+    #("sequenceNumber", json.int(version.sequence_number)),
+  ])
+}
+
+fn register_entry_decoder() -> Decoder(
+  #(String, register_collection_kernel.Register),
+) {
+  use key <- decode.field("key", decode.string)
+  use atomic <- decode.field("atomic", versioned_decoder())
+  use versions <- decode.field("versions", decode.list(versioned_decoder()))
+  decode.success(#(key, register_collection_kernel.Register(atomic, versions)))
+}
+
+fn versioned_decoder() -> Decoder(register_collection_kernel.VersionedValue) {
+  use value <- decode.field("value", wire.json_value_decoder())
+  use sequence_number <- decode.field("sequenceNumber", decode.int)
+  decode.success(register_collection_kernel.VersionedValue(
+    value,
+    sequence_number,
+  ))
 }
 
 fn or_map_snapshot_decoder() -> Decoder(Snapshot) {

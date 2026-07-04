@@ -54,6 +54,8 @@ import watershed/handle
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
+import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
+@target(javascript)
 import watershed/runtime_js
 @target(javascript)
 import watershed/transport_js
@@ -93,6 +95,11 @@ pub opaque type SharedCounter {
 @target(javascript)
 pub opaque type SharedOrMap {
   SharedOrMap(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedRegisterCollection {
+  SharedRegisterCollection(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -325,6 +332,87 @@ pub fn subscribe_or_map(
   handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   runtime_js.subscribe(or_map.runtime, or_map.address, handler)
+}
+
+// ── Register collections ─────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_register_collection(
+  document: Document,
+) -> Result(SharedRegisterCollection, String) {
+  runtime_js.create_register_collection(document.runtime)
+  |> result.map(fn(address) {
+    SharedRegisterCollection(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn register_collection_handle_of(
+  collection: SharedRegisterCollection,
+) -> Json {
+  handle.encode_handle(collection.address)
+}
+
+@target(javascript)
+pub fn resolve_register_collection(
+  document: Document,
+  value: Json,
+) -> Result(SharedRegisterCollection, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedRegisterCollection(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+pub fn register_write(
+  collection: SharedRegisterCollection,
+  key: String,
+  value: Json,
+) -> Nil {
+  runtime_js.register_write(collection.runtime, collection.address, key, value)
+}
+
+@target(javascript)
+pub fn register_read(
+  collection: SharedRegisterCollection,
+  key: String,
+  policy: ReadPolicy,
+) -> Option(Json) {
+  runtime_js.register_read(collection.runtime, collection.address, key, policy)
+}
+
+@target(javascript)
+pub fn register_get(
+  collection: SharedRegisterCollection,
+  key: String,
+) -> Option(Json) {
+  register_read(collection, key, Atomic)
+}
+
+@target(javascript)
+pub fn register_versions(
+  collection: SharedRegisterCollection,
+  key: String,
+) -> Option(List(Json)) {
+  runtime_js.register_versions(collection.runtime, collection.address, key)
+}
+
+@target(javascript)
+pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
+  runtime_js.register_keys(collection.runtime, collection.address)
+}
+
+@target(javascript)
+pub fn subscribe_register_collection(
+  collection: SharedRegisterCollection,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(collection.runtime, collection.address, handler)
 }
 
 @target(javascript)

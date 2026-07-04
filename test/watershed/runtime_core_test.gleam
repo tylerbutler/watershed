@@ -23,6 +23,7 @@ import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/or_map_kernel
+import watershed/register_collection_kernel
 import watershed/runtime_core.{type Core}
 import watershed/wire
 import watershed/wire/ops
@@ -309,12 +310,17 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
           case
             decode.run(contents, ops.channel_op_decoder(channel.MapChannel)),
             decode.run(contents, ops.channel_op_decoder(channel.CounterChannel)),
-            decode.run(contents, ops.channel_op_decoder(channel.OrMapChannel))
+            decode.run(contents, ops.channel_op_decoder(channel.OrMapChannel)),
+            decode.run(
+              contents,
+              ops.channel_op_decoder(channel.RegisterCollectionChannel),
+            )
           {
-            Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
-            _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
-            _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
-            Error(_), Error(_), Error(_) ->
+            Ok(op), _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_), Error(_), Error(_), Error(_) ->
               panic as "failed to decode outbound op contents"
           }
         Error(_) -> panic as "failed to decode outbound contents"
@@ -2268,4 +2274,270 @@ pub fn bootstrap_from_summary_with_counter_channel_test() {
     #("tally", channel.CounterEvent(counter_kernel.Incremented(2, 11))),
   ])
   runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(11))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Register collection channels
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn register_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: register_collection_kernel.WriteOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_register_collection_envelope(address, op)),
+  )
+}
+
+fn register_attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  registers registers: List(#(String, register_collection_kernel.Register)),
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_attach(
+      address,
+      channel.RegisterCollectionSnapshot(registers),
+    )),
+  )
+}
+
+fn register_version(
+  value: Json,
+  seq: Int,
+) -> register_collection_kernel.VersionedValue {
+  register_collection_kernel.VersionedValue(value, seq)
+}
+
+pub fn detached_register_write_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "registers",
+      channel.InitRegisterCollection,
+    )
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.register_write(core, "registers", "station", json.string("A"))
+  events
+  |> expect.to_equal([
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
+        "station",
+        json.string("A"),
+        True,
+      )),
+    ),
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
+        "station",
+        json.string("A"),
+        True,
+      )),
+    ),
+  ])
+  outbound |> expect.to_equal([])
+  runtime_core.register_read(
+    core,
+    "registers",
+    "station",
+    register_collection_kernel.Atomic,
+  )
+  |> expect.to_equal(Some(json.string("A")))
+}
+
+pub fn register_collection_attached_write_round_trips_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      register_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "registers",
+        registers: [],
+      ),
+    )
+
+  let assert Ok(#(core, events, [outbound])) =
+    runtime_core.register_write(core, "registers", "station", json.string("A"))
+  events |> expect.to_equal([])
+  decode_outbound_contents(outbound)
+  |> expect.to_equal(DecodedChannelOp(
+    address: "registers",
+    op: channel.RegisterCollectionOp(register_collection_kernel.Write(
+      "station",
+      json.string("A"),
+      ref_seq: 2,
+    )),
+  ))
+  runtime_core.register_read(
+    core,
+    "registers",
+    "station",
+    register_collection_kernel.Atomic,
+  )
+  |> expect.to_equal(None)
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      register_op_message(
+        address: "registers",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 1,
+        op: register_collection_kernel.Write(
+          "station",
+          json.string("A"),
+          ref_seq: 2,
+        ),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
+        "station",
+        json.string("A"),
+        True,
+      )),
+    ),
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
+        "station",
+        json.string("A"),
+        True,
+      )),
+    ),
+  ])
+  runtime_core.register_read(
+    core,
+    "registers",
+    "station",
+    register_collection_kernel.Atomic,
+  )
+  |> expect.to_equal(Some(json.string("A")))
+  core.in_flight |> expect.to_equal([])
+}
+
+pub fn register_collection_ack_with_wrong_shape_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      register_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "registers",
+        registers: [],
+      ),
+    )
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.register_write(core, "registers", "station", json.string("A"))
+
+  runtime_core.handle_sequenced(
+    core,
+    register_op_message(
+      address: "registers",
+      client_id: our_client_id,
+      sn: 3,
+      csn: 1,
+      op: register_collection_kernel.Write(
+        "station",
+        json.string("B"),
+        ref_seq: 2,
+      ),
+    ),
+  )
+  |> expect_error(fn(core_error) {
+    case core_error {
+      runtime_core.AckMismatch(_) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn bootstrap_from_summary_with_register_collection_test() {
+  let version = register_version(json.string("Survey"), 5)
+  let summary =
+    runtime_core.Summary(sequence_number: 5, channels: [
+      #("root", channel.MapSnapshot([])),
+      #(
+        "registers",
+        channel.RegisterCollectionSnapshot([
+          #("station", register_collection_kernel.Register(version, [version])),
+        ]),
+      ),
+    ])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to complete"
+  }
+  runtime_core.register_read(
+    core,
+    "registers",
+    "station",
+    register_collection_kernel.Atomic,
+  )
+  |> expect.to_equal(Some(json.string("Survey")))
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      register_op_message(
+        address: "registers",
+        client_id: other_client_id,
+        sn: 6,
+        csn: 1,
+        op: register_collection_kernel.Write(
+          "station",
+          json.string("Remote"),
+          ref_seq: 5,
+        ),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
+        "station",
+        json.string("Remote"),
+        False,
+      )),
+    ),
+    #(
+      "registers",
+      channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
+        "station",
+        json.string("Remote"),
+        False,
+      )),
+    ),
+  ])
+  runtime_core.register_versions(core, "registers", "station")
+  |> expect.to_equal(Some([json.string("Remote")]))
 }

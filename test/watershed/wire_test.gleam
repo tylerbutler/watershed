@@ -28,6 +28,7 @@ import watershed/channel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
+import watershed/register_collection_kernel
 import watershed/wire
 import watershed/wire/ops
 import watershed/wire/socket
@@ -849,6 +850,73 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
       or_map_kernel.entries(kernel)
       |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
     }
+
     Error(_) -> panic as "mixed summary decode failed"
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Register collection channels
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn register_collection_op_round_trip_test() {
+  let op =
+    register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
+  let encoded =
+    ops.encode_register_collection_envelope("registers", op)
+    |> json.to_string
+  let decoded = parse(encoded, register_collection_envelope_decoder())
+  decoded |> expect.to_equal(#("registers", op))
+}
+
+fn register_collection_envelope_decoder() -> decode.Decoder(
+  #(String, register_collection_kernel.WriteOp),
+) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", ops.register_collection_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn register_collection_channel_op_stage_two_decode_test() {
+  let op =
+    register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
+  let encoded =
+    ops.encode_channel_envelope("registers", channel.RegisterCollectionOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.ChannelOp(address, payload)) -> {
+      address |> expect.to_equal("registers")
+      decode.run(
+        payload,
+        ops.channel_op_decoder(channel.RegisterCollectionChannel),
+      )
+      |> expect.to_equal(Ok(channel.RegisterCollectionOp(op)))
+      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      |> expect.to_be_error()
+      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      |> expect.to_be_error()
+      Nil
+    }
+    _ -> panic as "register collection channel op decode failed"
+  }
+}
+
+pub fn register_collection_snapshot_round_trip_test() {
+  let version = register_collection_kernel.VersionedValue(json.string("A"), 5)
+  let snapshot =
+    channel.RegisterCollectionSnapshot([
+      #("station", register_collection_kernel.Register(version, [version])),
+    ])
+  let encoded = ops.encode_attach("registers", snapshot) |> json.to_string
+  string_contains(encoded, "\"channelType\":\"registerCollection\"")
+  |> expect.to_be_true()
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.AttachOp(address, decoded)) -> {
+      address |> expect.to_equal("registers")
+      decoded |> expect.to_equal(snapshot)
+    }
+    _ -> panic as "register collection attach decode failed"
   }
 }
