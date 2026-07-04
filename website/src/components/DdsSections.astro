@@ -1,0 +1,335 @@
+---
+const structures = [
+  {
+    name: "SharedMap",
+    module: "map_kernel",
+    terrain: "river gauges",
+    rule: "server-sequenced last write wins per key",
+    pending: "optimistic value overprints in magenta until the sequencer stamps it",
+    summary: "JSON entries reload with the same keys the Fluid wire op names",
+  },
+  {
+    name: "SharedCounter",
+    module: "counter_kernel",
+    terrain: "sandbag tally",
+    rule: "increments commute, so concurrent adds converge on the sum",
+    pending: "local deltas print beside the committed value",
+    summary: "a scalar summary is enough because every op is additive",
+  },
+  {
+    name: "PN Counter",
+    module: "pn_counter_kernel",
+    terrain: "cut-and-fill balance",
+    rule: "positive and negative grow-only ledgers join as a CRDT lattice",
+    pending: "fill and cut deltas can be replayed without double-counting",
+    summary: "replica-tagged tallies survive reconnect and duplicate delivery",
+  },
+  {
+    name: "OR-Map",
+    module: "or_map_kernel",
+    terrain: "stockpile ledger",
+    rule: "observed-remove with add-wins delivery under concurrent strike",
+    pending: "struck rows stay readable until the op is ordered",
+    summary: "entries retain their causal dots, not just their visible value",
+  },
+  {
+    name: "Claims",
+    module: "claims_kernel",
+    terrain: "duty stations",
+    rule: "first writer wins against the sequenced holder and reference SN",
+    pending: "reads stay non-optimistic; only the filed claim note is magenta",
+    summary: "holder values reload with their sequence numbers intact",
+  },
+];
+
+const flow = [
+  {
+    step: "1",
+    title: "Submit",
+    detail:
+      "The client kernel emits an op and updates only the local pending layer.",
+  },
+  {
+    step: "2",
+    title: "Sequence",
+    detail:
+      "levee orders the Fluid Framework-shaped op stream and broadcasts one SN to every replica.",
+  },
+  {
+    step: "3",
+    title: "Ack / apply",
+    detail:
+      "The author promotes pending state; peers apply remote state through the same pure kernel.",
+  },
+  {
+    step: "4",
+    title: "Summarize",
+    detail:
+      "A summary reloads through the same from_summary path used after reconnect.",
+  },
+];
+---
+
+<section class="dds-field" aria-labelledby="dds-field-title">
+  <div class="dds-inner">
+    <div class="dds-copy">
+      <h2 id="dds-field-title">Five DDS field sheets, one sequenced river</h2>
+      <p>
+        watershed does not hide every conflict behind the same merge story. Each
+        DDS has a small, explicit rule: what may be shown optimistically, what
+        must wait for the sequencer, and what shape can be persisted in a
+        summary.
+      </p>
+    </div>
+
+    <div class="sheet-stack" aria-label="Supported DDS kernels">
+      {
+        structures.map((dds) => (
+          <article class="field-sheet" data-reveal="rise">
+            <header>
+              <div>
+                <h3>{dds.name}</h3>
+                <p class="terrain">{dds.terrain}</p>
+              </div>
+              <code>{dds.module}</code>
+            </header>
+            <dl>
+              <div>
+                <dt>Merge rule</dt>
+                <dd>{dds.rule}</dd>
+              </div>
+              <div>
+                <dt>Pending mark</dt>
+                <dd>{dds.pending}</dd>
+              </div>
+              <div>
+                <dt>Summary bedrock</dt>
+                <dd>{dds.summary}</dd>
+              </div>
+            </dl>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<section class="dds-flow" aria-labelledby="dds-flow-title">
+  <div class="flow-inner">
+    <h2 id="dds-flow-title">The same channel carries every structure</h2>
+    <p>
+      Maps, counters, OR-maps, and claims all ride one ordered document stream.
+      The picker in the live demo changes the visible field sheet; the kernels
+      stay hosted together, just like DDSes sharing a Fluid container.
+    </p>
+
+    <ol class="flow-steps">
+      {
+        flow.map((item) => (
+          <li data-reveal="settle">
+            <span class="flow-step annot">SN {item.step}</span>
+            <h3>{item.title}</h3>
+            <p>{item.detail}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>
+
+<style>
+  .dds-field,
+  .dds-flow {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .dds-field {
+    background:
+      linear-gradient(var(--hairline-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline-faint) 1px, transparent 1px),
+      var(--surface);
+    background-size: 3.5rem 3.5rem;
+  }
+
+  .dds-inner,
+  .flow-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .dds-inner {
+    display: grid;
+    grid-template-columns: minmax(15rem, 0.8fr) minmax(0, 1.5fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    align-items: start;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .dds-copy p,
+  .flow-inner > p {
+    margin-top: var(--space-lg);
+  }
+
+  .sheet-stack {
+    display: grid;
+    gap: var(--space-md);
+  }
+
+  .field-sheet {
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--ink);
+    padding: var(--space-lg);
+  }
+
+  .field-sheet:nth-child(even) {
+    margin-left: clamp(0rem, 2vw, 1.35rem);
+  }
+
+  .field-sheet::after {
+    content: "";
+    position: absolute;
+    inset: var(--space-sm);
+    border: 1px dashed var(--hairline);
+    pointer-events: none;
+  }
+
+  .field-sheet header {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  h3 {
+    font-size: var(--text-h3);
+    font-weight: 650;
+    font-stretch: 115%;
+    line-height: 1.15;
+  }
+
+  .terrain {
+    margin-top: var(--space-2xs);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .field-sheet header code {
+    color: var(--overprint-deep);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .field-sheet dl {
+    position: relative;
+    z-index: 1;
+    margin: var(--space-lg) 0 0;
+    display: grid;
+    gap: var(--space-sm);
+  }
+
+  .field-sheet dl div {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .field-sheet dt {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .field-sheet dd {
+    margin: 0;
+    color: var(--ink);
+    font-size: var(--text-sm);
+    text-wrap: pretty;
+  }
+
+  .flow-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    align-items: start;
+  }
+
+  .flow-inner > p {
+    grid-column: 1;
+  }
+
+  .flow-steps {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .flow-steps li {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    column-gap: var(--space-lg);
+    padding: var(--space-lg);
+  }
+
+  .flow-steps li + li {
+    border-top: 1px solid var(--hairline);
+  }
+
+  .flow-step {
+    color: var(--overprint-deep);
+  }
+
+  .flow-steps p {
+    margin-top: var(--space-xs);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 860px) {
+    .dds-inner,
+    .flow-inner {
+      grid-template-columns: 1fr;
+    }
+
+    .flow-inner > p,
+    .flow-steps {
+      grid-column: auto;
+      grid-row: auto;
+    }
+
+    .field-sheet:nth-child(even) {
+      margin-left: 0;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .field-sheet header,
+    .field-sheet dl div,
+    .flow-steps li {
+      grid-template-columns: 1fr;
+    }
+
+    .field-sheet header {
+      display: grid;
+      gap: var(--space-sm);
+    }
+  }
+</style>
