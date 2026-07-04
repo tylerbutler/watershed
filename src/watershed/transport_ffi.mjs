@@ -76,6 +76,10 @@ export function setCell(cell, value) {
   return undefined;
 }
 
+export function nowMs() {
+  return Date.now();
+}
+
 // Mint an HS256 dev JWT matching levee's JOSE verification, so the Lustre
 // example works against `just server` with no backend token endpoint. Web
 // Crypto's subtle.sign is async, so this returns a Promise<string>.

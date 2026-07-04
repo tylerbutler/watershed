@@ -60,6 +60,10 @@ pub fn get_cell(cell: Cell(a)) -> a
 pub fn set_cell(cell: Cell(a), value: a) -> Nil
 
 @target(javascript)
+@external(javascript, "./transport_ffi.mjs", "nowMs")
+pub fn now_ms() -> Int
+
+@target(javascript)
 /// Mint an HS256 dev JWT matching levee's dev-mode verification. Signs with
 /// Web Crypto, so the token resolves asynchronously.
 @external(javascript, "./transport_ffi.mjs", "mintDevToken")

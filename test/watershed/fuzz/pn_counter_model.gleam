@@ -178,6 +178,7 @@ fn rollback(state: PnCounterState, cmd: PnCommand) -> PnCounterState {
 fn apply_stashed(
   state: PnCounterState,
   cmd: PnCommand,
+  _meta: kernel_fuzz.SubmitMeta,
 ) -> #(PnCounterState, PnCommand) {
   let #(state, _events, op, _message_id) =
     pn_counter_kernel.update(state, cmd.amount)

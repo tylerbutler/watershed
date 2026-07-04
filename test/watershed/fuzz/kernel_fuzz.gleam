@@ -77,10 +77,10 @@ pub type Capabilities(state, op, view) {
     // Re-applies a stashed op, returning the (possibly rewritten) op to
     // route onto the wire — mirroring `submit`, which may also rewrite.
     // Kernels whose wire ops carry content computed at apply time (a
-    // pn_counter delta) must hand back the rewritten op or every peer
-    // would receive an unusable one; kernels without that need return the
-    // op unchanged.
-    apply_stashed: Option(fn(state, op) -> #(state, op)),
+    // pn_counter delta, or a remove's observed cursor) must hand back the
+    // rewritten op or every peer would receive an unusable one; kernels
+    // without that need return the op unchanged.
+    apply_stashed: Option(fn(state, op, SubmitMeta) -> #(state, op)),
   )
 }
 
@@ -600,7 +600,8 @@ fn stashed_op(
       )
     Some(apply_stashed) -> {
       let client = get_client(sim, index)
-      let #(new_state, routed) = apply_stashed(client.state, op)
+      let #(new_state, routed) =
+        apply_stashed(client.state, op, SubmitMeta(client.delivered))
       let sim =
         update_client(sim, index, fn(client) {
           Client(..client, state: new_state)

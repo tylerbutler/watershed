@@ -16,9 +16,12 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 
+import lattice_core/replica_id
+import lattice_maps/or_map.{type ORMap}
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
+import watershed/or_map_kernel
 import watershed/wire
 
 /// The kinds of channel a document can host. Maps to/from the wire's
@@ -26,12 +29,22 @@ import watershed/wire
 pub type ChannelType {
   MapChannel
   CounterChannel
+  OrMapChannel
+}
+
+/// Creation parameters for a channel. Most channel types need only their
+/// channel type; OR-map also needs its value mode.
+pub type ChannelInit {
+  InitMap
+  InitCounter
+  InitOrMap(mode: or_map_kernel.OrMapMode)
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
   case channel_type {
     MapChannel -> wire.channel_type_map
     CounterChannel -> wire.channel_type_counter
+    OrMapChannel -> wire.channel_type_or_map
   }
 }
 
@@ -39,7 +52,16 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
   case raw {
     _ if raw == wire.channel_type_map -> Ok(MapChannel)
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
+    _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ -> Error(Nil)
+  }
+}
+
+pub fn init_type(init: ChannelInit) -> ChannelType {
+  case init {
+    InitMap -> MapChannel
+    InitCounter -> CounterChannel
+    InitOrMap(_) -> OrMapChannel
   }
 }
 
@@ -47,6 +69,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
 pub type ChannelState {
   MapState(map_kernel.MapState)
   CounterState(counter_kernel.CounterState)
+  OrMapState(or_map_kernel.OrMapState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -54,12 +77,14 @@ pub type ChannelState {
 pub type ChannelOp {
   MapOp(map_kernel.MapOp)
   CounterOp(counter_kernel.CounterOp)
+  OrMapOp(or_map_kernel.OrMapOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
 pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
   CounterEvent(counter_kernel.CounterEvent)
+  OrMapEvent(or_map_kernel.OrMapEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -67,6 +92,7 @@ pub type ChannelEvent {
 pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
+  OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
 }
 
 /// Per-kernel *local* metadata an in-flight op carries alongside the wire
@@ -75,6 +101,7 @@ pub type Snapshot {
 pub type LocalOpMeta {
   NoMeta
   CounterMeta(message_id: Int)
+  OrMapMeta(message_id: Int)
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
@@ -92,12 +119,14 @@ pub type ChannelError {
   /// Fatal: ops are decoded against the registry's type for their address,
   /// so a mismatch here is a routing bug, not bad input.
   WrongChannelType(detail: String)
+  CorruptRemoteOp(detail: String)
 }
 
 pub fn channel_type(state: ChannelState) -> ChannelType {
   case state {
     MapState(_) -> MapChannel
     CounterState(_) -> CounterChannel
+    OrMapState(_) -> OrMapChannel
   }
 }
 
@@ -105,22 +134,38 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
   case snapshot {
     MapSnapshot(_) -> MapChannel
     CounterSnapshot(_) -> CounterChannel
+    OrMapSnapshot(_, _) -> OrMapChannel
   }
 }
 
-pub fn new(channel_type: ChannelType) -> ChannelState {
-  case channel_type {
-    MapChannel -> MapState(map_kernel.new())
-    CounterChannel -> CounterState(counter_kernel.new())
+/// Build an empty channel for a client identity. Map/counter ignore
+/// `replica`; replica-identified kernels use it for their local CRDT author.
+/// Reconnect keeps existing channel states under their original identities,
+/// while summary/attach loads call `from_snapshot` with the joining client's
+/// current id so future deltas are authored by the loader.
+pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
+  case init {
+    InitMap -> MapState(map_kernel.new())
+    InitCounter -> CounterState(counter_kernel.new())
+    InitOrMap(mode) ->
+      OrMapState(or_map_kernel.new(replica_id.new(replica), mode))
   }
 }
 
 /// Rebuild a channel from a persisted snapshot, `from_sequenced` semantics:
 /// the snapshot's contents become confirmed state with nothing pending.
-pub fn from_snapshot(snapshot: Snapshot) -> ChannelState {
+pub fn from_snapshot(
+  snapshot: Snapshot,
+  replica replica: String,
+) -> ChannelState {
   case snapshot {
     MapSnapshot(entries) -> MapState(map_kernel.from_sequenced(entries))
     CounterSnapshot(value) -> CounterState(counter_kernel.from_summary(value))
+    OrMapSnapshot(mode, state) -> {
+      let assert Ok(kernel) =
+        or_map_kernel.from_sequenced(state, mode, replica_id.new(replica))
+      OrMapState(kernel)
+    }
   }
 }
 
@@ -129,6 +174,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
+    OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
   }
 }
 
@@ -147,6 +193,17 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
     CounterState(kernel) -> CounterSnapshot(kernel.value)
+    OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
+  }
+}
+
+pub fn attach_state(
+  state: ChannelState,
+  replica replica: String,
+) -> ChannelState {
+  case state {
+    OrMapState(kernel) -> OrMapState(or_map_kernel.promote_attach(kernel))
+    _ -> from_snapshot(attach_snapshot(state), replica: replica)
   }
 }
 
@@ -165,6 +222,17 @@ pub fn apply_remote(
       let #(kernel, events) = counter_kernel.apply_remote(kernel, op)
       Ok(#(CounterState(kernel), list.map(events, CounterEvent)))
     }
+    OrMapState(kernel), OrMapOp(op) ->
+      case or_map_kernel.apply_remote(kernel, op) {
+        Ok(#(kernel, events)) ->
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent)))
+        Error(or_map_kernel.CorruptDelta(detail))
+        | Error(or_map_kernel.ModeMismatch(detail)) ->
+          Error(CorruptRemoteOp(detail))
+        Error(or_map_kernel.UnexpectedAck(detail))
+        | Error(or_map_kernel.UnexpectedRollback(detail)) ->
+          Error(UnexpectedAck(detail))
+      }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -196,6 +264,22 @@ pub fn ack_local(
           }
         NoMeta ->
           Error(UnexpectedAck("counter ack is missing its local message id"))
+        OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
+      }
+    OrMapState(kernel), OrMapOp(op) ->
+      case local {
+        OrMapMeta(message_id) ->
+          case or_map_kernel.ack_local_with_message_id(kernel, op, message_id) {
+            Ok(kernel) -> Ok(#(OrMapState(kernel), []))
+            Error(or_map_kernel.UnexpectedAck(detail))
+            | Error(or_map_kernel.UnexpectedRollback(detail)) ->
+              Error(UnexpectedAck(detail))
+            Error(or_map_kernel.ModeMismatch(detail))
+            | Error(or_map_kernel.CorruptDelta(detail)) ->
+              Error(CorruptRemoteOp(detail))
+          }
+        NoMeta | CounterMeta(_) ->
+          Error(UnexpectedAck("or-map ack is missing its local message id"))
       }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
@@ -218,6 +302,7 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     CounterOp(counter_kernel.Increment(ours)),
       CounterOp(counter_kernel.Increment(echoed))
     -> ours == echoed
+    OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
     _, _ -> False
   }
 }
@@ -233,12 +318,31 @@ fn same_map_shape(ours: map_kernel.MapOp, echoed: map_kernel.MapOp) -> Bool {
   }
 }
 
+fn same_or_map_shape(
+  ours: or_map_kernel.OrMapOp,
+  echoed: or_map_kernel.OrMapOp,
+) -> Bool {
+  case ours, echoed {
+    or_map_kernel.Increment(our_key, our_amount, _),
+      or_map_kernel.Increment(echoed_key, echoed_amount, _)
+    -> our_key == echoed_key && our_amount == echoed_amount
+    or_map_kernel.SetRegister(our_key, our_value, our_ts, _),
+      or_map_kernel.SetRegister(echoed_key, echoed_value, echoed_ts, _)
+    -> our_key == echoed_key && our_value == echoed_value && our_ts == echoed_ts
+    or_map_kernel.Remove(our_key, _), or_map_kernel.Remove(echoed_key, _) ->
+      our_key == echoed_key
+    _, _ -> False
+  }
+}
+
 /// Whether a sequenced echo of our own attach carries the snapshot we
 /// submitted (values compared structurally, not byte-wise).
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
+    OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
+      our_mode == echoed_mode && ours == echoed
     _, _ -> False
   }
 }
@@ -278,6 +382,22 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       })
       |> list.unique
     CounterState(_) -> []
+    OrMapState(kernel) ->
+      case kernel.mode {
+        or_map_kernel.TallyMode -> []
+        or_map_kernel.RegisterMode ->
+          list.flat_map(or_map_kernel.entries(kernel), fn(entry) {
+            case entry.1 {
+              or_map_kernel.Register(raw) ->
+                case json.parse(raw, wire.json_value_decoder()) {
+                  Ok(value) -> handle.collect_handle_addresses(value)
+                  Error(_) -> []
+                }
+              or_map_kernel.Tally(_) -> []
+            }
+          })
+          |> list.unique
+      }
   }
 }
 
@@ -287,6 +407,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   case snapshot {
     MapSnapshot(entries) -> wire.encode_entries(entries)
     CounterSnapshot(value) -> json.int(value)
+    OrMapSnapshot(_, state) -> or_map.to_json(state)
   }
 }
 
@@ -296,5 +417,23 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
   case channel_type {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
     CounterChannel -> decode.int |> decode.map(CounterSnapshot)
+    OrMapChannel -> or_map_snapshot_decoder()
+  }
+}
+
+fn or_map_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string)) {
+    Ok(spec) ->
+      case
+        or_map_kernel.mode_from_spec_string(spec),
+        or_map.from_json(encoded)
+      {
+        Ok(mode), Ok(state) -> decode.success(OrMapSnapshot(mode, state))
+        Error(_), _ -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
+        _, Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
+      }
+    Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
   }
 }

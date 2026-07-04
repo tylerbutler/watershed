@@ -35,6 +35,8 @@ pub const channel_type_map = "map"
 
 pub const channel_type_counter = "counter"
 
+pub const channel_type_or_map = "ormap"
+
 /// Encode map entries as the ordered `[{key, value}]` array shared by attach
 /// snapshots and summary blob channels.
 pub fn encode_entries(entries: List(#(String, Json))) -> Json {

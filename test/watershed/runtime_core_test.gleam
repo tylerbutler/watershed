@@ -17,10 +17,12 @@ import startest/expect
 import spillway/message
 import spillway/types
 
+import lattice_core/replica_id
 import watershed/channel
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
+import watershed/or_map_kernel
 import watershed/runtime_core.{type Core}
 import watershed/wire
 import watershed/wire/ops
@@ -306,11 +308,13 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
         Ok(ops.ChannelOp(address, contents)) ->
           case
             decode.run(contents, ops.channel_op_decoder(channel.MapChannel)),
-            decode.run(contents, ops.channel_op_decoder(channel.CounterChannel))
+            decode.run(contents, ops.channel_op_decoder(channel.CounterChannel)),
+            decode.run(contents, ops.channel_op_decoder(channel.OrMapChannel))
           {
-            Ok(op), _ -> DecodedChannelOp(address: address, op: op)
-            _, Ok(op) -> DecodedChannelOp(address: address, op: op)
-            Error(_), Error(_) ->
+            Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
+            _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
+            _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_), Error(_), Error(_) ->
               panic as "failed to decode outbound op contents"
           }
         Error(_) -> panic as "failed to decode outbound contents"
@@ -1247,7 +1251,7 @@ pub fn duplicate_attach_is_fatal_test() {
 
 pub fn detached_edits_produce_no_outbound_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
 
   case runtime_core.set(core, "child", "a", json.int(1)) {
     Ok(#(core, events, outbound)) -> {
@@ -1273,8 +1277,8 @@ pub fn detached_edits_produce_no_outbound_test() {
 
 pub fn handle_set_emits_recursive_attach_post_order_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
-  let core = runtime_core.create_detached(core, "grand", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core = runtime_core.create_detached(core, "grand", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "grand", "g", json.int(1))
   let assert Ok(#(core, _, [])) =
@@ -1315,8 +1319,8 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
 
 pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "a", channel.MapChannel)
-  let core = runtime_core.create_detached(core, "b", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "a", channel.InitMap)
+  let core = runtime_core.create_detached(core, "b", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "a", "peer", handle.encode_handle("b"))
   let assert Ok(#(core, _, [])) =
@@ -1344,7 +1348,7 @@ pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
 
 pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, initial_outbound)) =
@@ -1436,7 +1440,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
 
 pub fn attach_ack_pops_with_no_events_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, outbound)) =
@@ -1484,7 +1488,7 @@ pub fn attach_ack_pops_with_no_events_test() {
 
 pub fn attach_ack_mismatch_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1510,7 +1514,7 @@ pub fn attach_ack_mismatch_is_fatal_test() {
 
 pub fn attach_ack_value_mismatch_is_fatal_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1536,7 +1540,7 @@ pub fn attach_ack_value_mismatch_is_fatal_test() {
 
 pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.MapChannel)
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
     runtime_core.set(core, "child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
@@ -1720,7 +1724,7 @@ fn counter_attach_message(
 
 pub fn detached_counter_increment_produces_no_outbound_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.increment(core, "tally", 3)
@@ -1735,7 +1739,7 @@ pub fn detached_counter_increment_produces_no_outbound_test() {
 
 pub fn counter_attach_via_handle_then_ops_round_trip_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
   let assert Ok(#(core, _, [])) = runtime_core.increment(core, "tally", 2)
 
   // Storing the handle attaches the counter with its optimistic value.
@@ -1926,9 +1930,240 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
   runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-map channels (OM4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn or_map_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: or_map_kernel.OrMapOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_or_map_envelope(address, op)),
+  )
+}
+
+fn or_map_attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  snapshot snapshot: channel.Snapshot,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_attach(address, snapshot)),
+  )
+}
+
+fn remote_tally_op(key: String, amount: Int) -> or_map_kernel.OrMapOp {
+  let state =
+    or_map_kernel.new(replica_id.new(other_client_id), or_map_kernel.TallyMode)
+  let assert Ok(#(_, _, op, _)) = or_map_kernel.increment(state, key, amount)
+  op
+}
+
+fn or_map_snapshot_entries(
+  snapshot: channel.Snapshot,
+) -> List(#(String, or_map_kernel.OrMapValue)) {
+  let assert channel.OrMapSnapshot(mode, raw_state) = snapshot
+  let assert Ok(kernel) =
+    or_map_kernel.from_sequenced(raw_state, mode, replica_id.new("test-loader"))
+  or_map_kernel.entries(kernel)
+}
+
+pub fn detached_or_map_increment_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "scores",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.or_map_increment(core, "scores", "score", 3)
+  events
+  |> expect.to_equal([
+    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 3, 3))),
+  ])
+  outbound |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.or_map_value(core, "scores", "score")
+  |> expect.to_equal(Some(or_map_kernel.Tally(3)))
+}
+
+pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "scores",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+  let assert Ok(#(core, _, [])) =
+    runtime_core.or_map_increment(core, "scores", "score", 2)
+
+  let assert Ok(#(core, _, outbound)) =
+    runtime_core.set(core, "root", "scores", handle.encode_handle("scores"))
+  let assert [attach_outbound, root_outbound] =
+    list.map(outbound, decode_outbound_contents)
+  let assert DecodedAttach(address: "scores", snapshot: attach_snapshot) =
+    attach_outbound
+  or_map_snapshot_entries(attach_snapshot)
+  |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
+  root_outbound
+  |> expect.to_equal(DecodedChannelOp(
+    address: "root",
+    op: channel.MapOp(Set("scores", handle.encode_handle("scores"))),
+  ))
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      or_map_attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "scores",
+        snapshot: attach_snapshot,
+      ),
+    )
+  events |> expect.to_equal([])
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "root",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("scores", handle.encode_handle("scores")),
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+
+  let assert Ok(#(core, events, [outbound_op])) =
+    runtime_core.or_map_increment(core, "scores", "score", 5)
+  events
+  |> expect.to_equal([
+    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 5, 7))),
+  ])
+  outbound_op.client_sequence_number |> expect.to_equal(3)
+  let assert DecodedChannelOp(address: "scores", op: channel.OrMapOp(own_op)) =
+    decode_outbound_contents(outbound_op)
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      or_map_op_message(
+        address: "scores",
+        client_id: other_client_id,
+        sn: 4,
+        csn: 1,
+        op: remote_tally_op("score", 10),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 10, 17))),
+  ])
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      or_map_op_message(
+        address: "scores",
+        client_id: our_client_id,
+        sn: 5,
+        csn: 3,
+        op: own_op,
+      ),
+    )
+  events |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.or_map_value(core, "scores", "score")
+  |> expect.to_equal(Some(or_map_kernel.Tally(17)))
+}
+
+pub fn or_map_mode_mismatch_edits_are_rejected_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "registers",
+      channel.InitOrMap(or_map_kernel.RegisterMode),
+    )
+  case runtime_core.or_map_increment(core, "registers", "k", 1) {
+    Error(runtime_core.OrMapModeMismatch(address: "registers", ..)) -> Nil
+    _ -> panic as "expected increment on RegisterMode to be rejected"
+  }
+
+  let core =
+    runtime_core.create_detached(
+      core,
+      "scores",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+  case runtime_core.or_map_set(core, "scores", "k", "v", 10) {
+    Error(runtime_core.OrMapModeMismatch(address: "scores", ..)) -> Nil
+    _ -> panic as "expected set on TallyMode to be rejected"
+  }
+}
+
+pub fn or_map_register_set_attaches_handle_dependencies_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      or_map_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "registers",
+        snapshot: channel.attach_snapshot(channel.new(
+          channel.InitOrMap(or_map_kernel.RegisterMode),
+          replica: other_client_id,
+        )),
+      ),
+    )
+  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let assert Ok(#(core, _, [])) =
+    runtime_core.set(core, "child", "k", json.int(1))
+
+  let encoded_handle = json.to_string(handle.encode_handle("child"))
+  let assert Ok(#(_core, _events, outbound)) =
+    runtime_core.or_map_set(core, "registers", "child", encoded_handle, 99)
+  let assert [attach, op] = list.map(outbound, decode_outbound_contents)
+  attach
+  |> expect.to_equal(DecodedAttach(
+    address: "child",
+    snapshot: channel.MapSnapshot([#("k", json.int(1))]),
+  ))
+  let assert DecodedChannelOp(
+    address: "registers",
+    op: channel.OrMapOp(or_map_op),
+  ) = op
+  case or_map_op {
+    or_map_kernel.SetRegister("child", value, 99, _) ->
+      value |> expect.to_equal(encoded_handle)
+    _ -> panic as "expected register set op"
+  }
+}
+
 pub fn wrong_channel_type_edits_are_rejected_test() {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.CounterChannel)
+  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
   // Map verbs on a counter channel are rejected, not applied or crashed.
   case runtime_core.set(core, "tally", "k", json.int(1)) {

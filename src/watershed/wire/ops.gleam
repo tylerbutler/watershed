@@ -23,9 +23,13 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/option.{None}
 
+import lattice_core/replica_id
+import lattice_maps/crdt
+import lattice_maps/or_map
 import watershed/channel
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
+import watershed/or_map_kernel.{type OrMapOp}
 import watershed/wire.{type OutboundOp}
 
 /// Contents of a sequenced `"op"`: either a kernel channel op — its payload
@@ -121,6 +125,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
   case op {
     channel.MapOp(op) -> encode_map_op(op)
     channel.CounterOp(op) -> encode_counter_op(op)
+    channel.OrMapOp(op) -> encode_or_map_op(op)
   }
 }
 
@@ -133,6 +138,7 @@ pub fn channel_op_decoder(
     channel.MapChannel -> map_op_decoder() |> decode.map(channel.MapOp)
     channel.CounterChannel ->
       counter_op_decoder() |> decode.map(channel.CounterOp)
+    channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
   }
 }
 
@@ -183,6 +189,44 @@ pub fn encode_counter_op(op: CounterOp) -> Json {
         #("incrementAmount", json.int(increment_amount)),
       ])
   }
+}
+
+/// `{address, contents}` document envelope around a SharedOrMap op.
+pub fn encode_or_map_envelope(address: String, op: OrMapOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_or_map_op(op)),
+  ])
+}
+
+pub fn encode_or_map_op(op: OrMapOp) -> Json {
+  case op {
+    or_map_kernel.Increment(key, amount, delta) ->
+      json.object([
+        #("type", json.string("orMapIncrement")),
+        #("key", json.string(key)),
+        #("amount", json.int(amount)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.SetRegister(key, value, timestamp, delta) ->
+      json.object([
+        #("type", json.string("orMapSet")),
+        #("key", json.string(key)),
+        #("value", json.string(value)),
+        #("timestamp", json.int(timestamp)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.Remove(key, delta) ->
+      json.object([
+        #("type", json.string("orMapRemove")),
+        #("key", json.string(key)),
+        #("delta", delta_json(delta)),
+      ])
+  }
+}
+
+fn delta_json(delta: or_map.ORMapDelta) -> Json {
+  json.string(json.to_string(or_map.delta_to_json(delta)))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -239,6 +283,48 @@ pub fn counter_op_decoder() -> Decoder(CounterOp) {
     }
     _ -> decode.failure(Increment(0), "CounterOp")
   }
+}
+
+pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "orMapIncrement" -> {
+      use key <- decode.field("key", decode.string)
+      use amount <- decode.field("amount", decode.int)
+      use delta <- decode.field("delta", or_map_delta_decoder())
+      decode.success(or_map_kernel.Increment(key, amount, delta))
+    }
+    "orMapSet" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", decode.string)
+      use timestamp <- decode.field("timestamp", decode.int)
+      use delta <- decode.field("delta", or_map_delta_decoder())
+      decode.success(or_map_kernel.SetRegister(key, value, timestamp, delta))
+    }
+    "orMapRemove" -> {
+      use key <- decode.field("key", decode.string)
+      use delta <- decode.field("delta", or_map_delta_decoder())
+      decode.success(or_map_kernel.Remove(key, delta))
+    }
+    _ ->
+      decode.failure(
+        or_map_kernel.Remove("", default_or_map_delta()),
+        "OrMapOp",
+      )
+  }
+}
+
+fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
+  use encoded <- decode.then(decode.string)
+  case or_map.delta_from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_or_map_delta(), "ORMapDelta")
+  }
+}
+
+fn default_or_map_delta() -> or_map.ORMapDelta {
+  or_map.new(replica_id.new(""), crdt.PnCounterSpec)
+  |> or_map.empty_delta
 }
 
 /// `Plain` values carry an opaque kernel `Json` payload. Handle-like markers

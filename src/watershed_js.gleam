@@ -52,6 +52,8 @@ import watershed/git_storage.{type SummaryVersion}
 @target(javascript)
 import watershed/handle
 @target(javascript)
+import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(javascript)
 import watershed/runtime_js
 @target(javascript)
 import watershed/transport_js
@@ -86,6 +88,11 @@ pub opaque type SharedMap {
 @target(javascript)
 pub opaque type SharedCounter {
   SharedCounter(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedOrMap {
+  SharedOrMap(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -240,6 +247,84 @@ pub fn subscribe_counter(
   handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   runtime_js.subscribe(counter.runtime, counter.address, handler)
+}
+
+// ── OR-maps ──────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new OR-map channel in tally or register mode. Same detached
+/// lifecycle as `create_map`.
+pub fn create_or_map(
+  document: Document,
+  mode: OrMapMode,
+) -> Result(SharedOrMap, String) {
+  runtime_js.create_or_map(document.runtime, mode)
+  |> result.map(fn(address) {
+    SharedOrMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
+  handle.encode_handle(or_map.address)
+}
+
+@target(javascript)
+pub fn resolve_or_map(
+  document: Document,
+  value: Json,
+) -> Result(SharedOrMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedOrMap(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+pub fn or_map_increment(or_map: SharedOrMap, key: String, amount: Int) -> Nil {
+  runtime_js.or_map_increment(or_map.runtime, or_map.address, key, amount)
+}
+
+@target(javascript)
+pub fn or_map_set(or_map: SharedOrMap, key: String, value: String) -> Nil {
+  runtime_js.or_map_set(or_map.runtime, or_map.address, key, value)
+}
+
+@target(javascript)
+pub fn or_map_set_json(or_map: SharedOrMap, key: String, value: Json) -> Nil {
+  or_map_set(or_map, key, json.to_string(value))
+}
+
+@target(javascript)
+pub fn or_map_remove(or_map: SharedOrMap, key: String) -> Nil {
+  runtime_js.or_map_remove(or_map.runtime, or_map.address, key)
+}
+
+@target(javascript)
+pub fn or_map_value(or_map: SharedOrMap, key: String) -> Option(OrMapValue) {
+  runtime_js.or_map_value(or_map.runtime, or_map.address, key)
+}
+
+@target(javascript)
+pub fn or_map_entries(or_map: SharedOrMap) -> List(#(String, OrMapValue)) {
+  runtime_js.or_map_entries(or_map.runtime, or_map.address)
+}
+
+@target(javascript)
+pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
+  runtime_js.or_map_keys(or_map.runtime, or_map.address)
+}
+
+@target(javascript)
+pub fn subscribe_or_map(
+  or_map: SharedOrMap,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(or_map.runtime, or_map.address, handler)
 }
 
 @target(javascript)

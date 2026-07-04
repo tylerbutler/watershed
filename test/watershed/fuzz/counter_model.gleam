@@ -103,6 +103,7 @@ fn rollback(state: CounterState, op: CounterOp) -> CounterState {
 fn apply_stashed(
   state: CounterState,
   op: CounterOp,
+  _meta: kernel_fuzz.SubmitMeta,
 ) -> #(CounterState, CounterOp) {
   let #(state, _, _, _) = counter_kernel.apply_stashed_op(state, op)
   #(state, op)

@@ -47,6 +47,8 @@ import watershed/git_storage.{type SummaryVersion}
 @target(erlang)
 import watershed/handle
 @target(erlang)
+import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/wire/summary_blob.{type SummaryBlob}
@@ -72,6 +74,11 @@ pub opaque type SharedMap {
 @target(erlang)
 pub opaque type SharedCounter {
   SharedCounter(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedOrMap {
+  SharedOrMap(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -261,6 +268,101 @@ pub fn counter_value(counter: SharedCounter) -> Option(Int) {
 pub fn subscribe_counter(counter: SharedCounter) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(counter.runtime, runtime.Subscribe(counter.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-maps
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new OR-map channel in tally or register mode. Same detached
+/// lifecycle as `create_map`: local-only until its handle is stored into an
+/// attached container.
+pub fn create_or_map(
+  document: Document,
+  mode: OrMapMode,
+) -> Result(SharedOrMap, String) {
+  process.call(document.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.CreateOrMap(mode, reply)
+  })
+  |> result.map(fn(address) {
+    SharedOrMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
+  handle.encode_handle(or_map.address)
+}
+
+@target(erlang)
+pub fn resolve_or_map(
+  document: Document,
+  value: Json,
+) -> Result(SharedOrMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedOrMap(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn or_map_increment(or_map: SharedOrMap, key: String, amount: Int) -> Nil {
+  process.send(
+    or_map.runtime,
+    runtime.IncrementOrMap(or_map.address, key, amount),
+  )
+}
+
+@target(erlang)
+pub fn or_map_set(or_map: SharedOrMap, key: String, value: String) -> Nil {
+  process.send(or_map.runtime, runtime.SetOrMapKey(or_map.address, key, value))
+}
+
+@target(erlang)
+pub fn or_map_set_json(or_map: SharedOrMap, key: String, value: Json) -> Nil {
+  or_map_set(or_map, key, json.to_string(value))
+}
+
+@target(erlang)
+pub fn or_map_remove(or_map: SharedOrMap, key: String) -> Nil {
+  process.send(or_map.runtime, runtime.RemoveOrMapKey(or_map.address, key))
+}
+
+@target(erlang)
+pub fn or_map_value(or_map: SharedOrMap, key: String) -> Option(OrMapValue) {
+  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrMapValue(or_map.address, key, reply)
+  })
+}
+
+@target(erlang)
+pub fn or_map_entries(or_map: SharedOrMap) -> List(#(String, OrMapValue)) {
+  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrMapEntries(or_map.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
+  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrMapKeys(or_map.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn subscribe_or_map(or_map: SharedOrMap) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(or_map.runtime, runtime.Subscribe(or_map.address, subscriber))
   subscriber
 }
 

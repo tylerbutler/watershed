@@ -58,12 +58,14 @@ import spillway/types.{type SequencedDocumentMessage}
 
 @target(erlang)
 import watershed/channel.{
-  type ChannelEvent, type ChannelType, CounterChannel, MapChannel,
+  type ChannelEvent, type ChannelInit, InitCounter, InitMap, InitOrMap,
 } as _watershed_channel
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
 import watershed/ids
+@target(erlang)
+import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/runtime_core
 @target(erlang)
@@ -96,11 +98,16 @@ pub type Msg {
   Remove(address: String, key: String)
   RemoveAll(address: String)
   IncrementCounter(address: String, amount: Int)
+  IncrementOrMap(address: String, key: String, amount: Int)
+  SetOrMapKey(address: String, key: String, value: String)
+  RemoveOrMapKey(address: String, key: String)
   /// Create a new detached map channel: local-only until its handle is first
   /// stored into an attached map. Replies with the generated address.
   CreateMap(reply: Subject(Result(String, String)))
   /// Create a new detached counter channel, same lifecycle as `CreateMap`.
   CreateCounter(reply: Subject(Result(String, String)))
+  /// Create a new detached OR-map channel in the requested value mode.
+  CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
@@ -122,6 +129,13 @@ pub type Msg {
   /// The counter's optimistic value, `None` when the address is missing or
   /// not a counter channel.
   GetCounterValue(address: String, reply: Subject(Option(Int)))
+  GetOrMapValue(
+    address: String,
+    key: String,
+    reply: Subject(Option(OrMapValue)),
+  )
+  GetOrMapEntries(address: String, reply: Subject(List(#(String, OrMapValue))))
+  GetOrMapKeys(address: String, reply: Subject(List(String)))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
@@ -367,10 +381,22 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) { runtime_core.clear(core, address) })
     IncrementCounter(address, amount) ->
       edit(state, fn(core) { runtime_core.increment(core, address, amount) })
+    IncrementOrMap(address, key, amount) ->
+      edit(state, fn(core) {
+        runtime_core.or_map_increment(core, address, key, amount)
+      })
+    SetOrMapKey(address, key, value) ->
+      edit(state, fn(core) {
+        runtime_core.or_map_set(core, address, key, value, now_ms())
+      })
+    RemoveOrMapKey(address, key) ->
+      edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
 
-    CreateMap(reply) -> create_channel(state, reply, MapChannel, "create_map")
+    CreateMap(reply) -> create_channel(state, reply, InitMap, "create_map")
     CreateCounter(reply) ->
-      create_channel(state, reply, CounterChannel, "create_counter")
+      create_channel(state, reply, InitCounter, "create_counter")
+    CreateOrMap(mode, reply) ->
+      create_channel(state, reply, InitOrMap(mode), "create_or_map")
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -407,6 +433,24 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         reply,
         read(state, None, runtime_core.counter_value(_, address)),
       )
+      actor.continue(state)
+    }
+    GetOrMapValue(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.or_map_value(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetOrMapEntries(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.or_map_entries(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetOrMapKeys(address, reply) -> {
+      process.send(reply, read(state, [], runtime_core.or_map_keys(_, address)))
       actor.continue(state)
     }
     GetEntries(address, reply) -> {
@@ -482,19 +526,19 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 fn create_channel(
   state: State,
   reply: Subject(Result(String, String)),
-  channel_type: ChannelType,
+  init: ChannelInit,
   verb: String,
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, resubmit_at) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel_type)
+      let core = runtime_core.create_detached(core, address, init)
       process.send(reply, Ok(address))
       actor.continue(State(..state, phase: Ready(core, resubmit_at)))
     }
     Reconnecting(core) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel_type)
+      let core = runtime_core.create_detached(core, address, init)
       process.send(reply, Ok(address))
       actor.continue(State(..state, phase: Reconnecting(core)))
     }
@@ -1026,3 +1070,17 @@ fn require(result: Result(t, e), context: String) -> t {
       panic as { "failed to decode " <> context <> ": " <> string.inspect(err) }
   }
 }
+
+@target(erlang)
+fn now_ms() -> Int {
+  system_time(Millisecond)
+}
+
+@target(erlang)
+type TimeUnit {
+  Millisecond
+}
+
+@target(erlang)
+@external(erlang, "os", "system_time")
+fn system_time(unit: TimeUnit) -> Int

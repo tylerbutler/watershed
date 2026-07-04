@@ -89,7 +89,7 @@ fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
       oracle: Some(fn(log: List(#(Int, Int))) {
         list.map(log, fn(entry) { entry.1 })
       }),
-      apply_stashed: Some(fn(state, op) {
+      apply_stashed: Some(fn(state, op, _meta) {
         let rewritten = op + 1000
         #(list.append(state, [rewritten]), rewritten)
       }),
@@ -100,6 +100,37 @@ fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
 pub fn stashed_op_routes_the_rewritten_op_test() {
   let script = [StashedOp(0, 5), Synchronize]
   expect_ok(kernel_fuzz.try_run_script(rewriting_stash_model(), 3, script))
+}
+
+fn apply_stashed_recording_meta(
+  state: List(Int),
+  op: Int,
+  meta: kernel_fuzz.SubmitMeta,
+) -> #(List(Int), Int) {
+  #(list.append(state, [meta.last_seen_seq]), op)
+}
+
+/// H3: `apply_stashed` gets the submitting client's delivered cursor, same
+/// as `submit`. The stash handler records that meta in local state but routes
+/// the generated op unchanged; passing the wrong cursor would diverge from
+/// peers, which apply the routed op.
+fn stash_meta_model() -> KernelModel(List(Int), Int, List(Int)) {
+  KernelModel(
+    ..model_without_capabilities(),
+    name: "toy-stash-meta",
+    capabilities: Capabilities(
+      ..model_without_capabilities().capabilities,
+      oracle: Some(fn(log: List(#(Int, Int))) {
+        list.map(log, fn(entry) { entry.1 })
+      }),
+      apply_stashed: Some(apply_stashed_recording_meta),
+    ),
+  )
+}
+
+pub fn stashed_op_receives_submit_meta_test() {
+  let script = [ClientOp(0, 10), Synchronize, StashedOp(1, 1), Synchronize]
+  expect_ok(kernel_fuzz.try_run_script(stash_meta_model(), 3, script))
 }
 
 /// Rolling back a counter increment must leave every client's observed

@@ -24,6 +24,7 @@ import watershed/channel.{
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
+import watershed/or_map_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -71,6 +72,7 @@ pub type CoreError {
     expected: channel.ChannelType,
     actual: channel.ChannelType,
   )
+  OrMapModeMismatch(address: String, detail: String)
 }
 
 pub type Bootstrapped {
@@ -96,7 +98,7 @@ pub fn bootstrap(
 ) -> Result(Bootstrapped, CoreError) {
   let Summary(sequence_number: last_seen, channels: seeded) =
     option.unwrap(summary, Summary(sequence_number: 0, channels: []))
-  let #(channels, channel_order) = seed_channels(seeded)
+  let #(channels, channel_order) = seed_channels(seeded, connected.client_id)
 
   let core =
     Core(
@@ -194,13 +196,18 @@ pub fn build_summarize(
 
 fn seed_channels(
   seeded: List(#(String, Snapshot)),
+  replica replica: String,
 ) -> #(Dict(String, ChannelState), List(String)) {
   let #(channels, channel_order) =
     list.fold(seeded, #(dict.new(), []), fn(acc, entry) {
       let #(channels, channel_order) = acc
       let #(address, snapshot) = entry
       #(
-        dict.insert(channels, address, channel.from_snapshot(snapshot)),
+        dict.insert(
+          channels,
+          address,
+          channel.from_snapshot(snapshot, replica: replica),
+        ),
         list.unique(list.append(channel_order, [address])),
       )
     })
@@ -208,7 +215,11 @@ fn seed_channels(
   case dict.has_key(channels, root_address) {
     True -> #(channels, channel_order)
     False -> #(
-      dict.insert(channels, root_address, channel.new(channel.MapChannel)),
+      dict.insert(
+        channels,
+        root_address,
+        channel.new(channel.InitMap, replica: replica),
+      ),
       [root_address, ..channel_order],
     )
   }
@@ -435,7 +446,11 @@ fn remote_attach(
     False ->
       Ok(
         #(
-          add_attached_channel(core, address, channel.from_snapshot(snapshot)),
+          add_attached_channel(
+            core,
+            address,
+            channel.from_snapshot(snapshot, replica: core.client_id),
+          ),
           [],
         ),
       )
@@ -458,7 +473,8 @@ fn apply_remote_channel(
         tag_events(address, events),
       ))
     Error(channel.UnexpectedAck(detail))
-    | Error(channel.WrongChannelType(detail)) -> Error(AckMismatch(detail))
+    | Error(channel.WrongChannelType(detail))
+    | Error(channel.CorruptRemoteOp(detail)) -> Error(AckMismatch(detail))
   }
 }
 
@@ -565,7 +581,8 @@ fn ack_own_op(
                     tag_events(address, events),
                   ))
                 Error(channel.UnexpectedAck(detail))
-                | Error(channel.WrongChannelType(detail)) ->
+                | Error(channel.WrongChannelType(detail))
+                | Error(channel.CorruptRemoteOp(detail)) ->
                   Error(AckMismatch(detail))
               }
             }
@@ -588,14 +605,18 @@ fn ack_own_op(
 pub fn create_detached(
   core: Core,
   address: String,
-  channel_type: channel.ChannelType,
+  init: channel.ChannelInit,
 ) -> Core {
   case address == root_address || has_channel(core, address) {
     True -> core
     False ->
       Core(
         ..core,
-        detached: dict.insert(core.detached, address, channel.new(channel_type)),
+        detached: dict.insert(
+          core.detached,
+          address,
+          channel.new(init, replica: core.client_id),
+        ),
       )
   }
 }
@@ -748,6 +769,148 @@ pub fn increment(
   }
 }
 
+pub fn or_map_increment(
+  core: Core,
+  address: String,
+  key: String,
+  amount: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_or_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case or_map_kernel.increment(kernel, key, amount) {
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.OrMapState(kernel)),
+              tag_or_map_events(address, events),
+              [],
+            ),
+          )
+        Error(or_map_kernel.ModeMismatch(detail)) ->
+          Error(OrMapModeMismatch(address, detail))
+        Error(or_map_kernel.UnexpectedAck(detail))
+        | Error(or_map_kernel.UnexpectedRollback(detail))
+        | Error(or_map_kernel.CorruptDelta(detail)) ->
+          Error(AckMismatch(detail))
+      }
+    Ok(Attached(kernel)) ->
+      case or_map_kernel.increment(kernel, key, amount) {
+        Ok(#(kernel, events, op, message_id)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.OrMapState(kernel),
+            tag_or_map_events(address, events),
+            channel.OrMapOp(op),
+            channel.OrMapMeta(message_id),
+          ))
+        Error(or_map_kernel.ModeMismatch(detail)) ->
+          Error(OrMapModeMismatch(address, detail))
+        Error(or_map_kernel.UnexpectedAck(detail))
+        | Error(or_map_kernel.UnexpectedRollback(detail))
+        | Error(or_map_kernel.CorruptDelta(detail)) ->
+          Error(AckMismatch(detail))
+      }
+  }
+}
+
+pub fn or_map_set(
+  core: Core,
+  address: String,
+  key: String,
+  value: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_or_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case or_map_kernel.set_register(kernel, key, value, timestamp) {
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.OrMapState(kernel)),
+              tag_or_map_events(address, events),
+              [],
+            ),
+          )
+        Error(or_map_kernel.ModeMismatch(detail)) ->
+          Error(OrMapModeMismatch(address, detail))
+        Error(or_map_kernel.UnexpectedAck(detail))
+        | Error(or_map_kernel.UnexpectedRollback(detail))
+        | Error(or_map_kernel.CorruptDelta(detail)) ->
+          Error(AckMismatch(detail))
+      }
+    Ok(Attached(_)) -> {
+      let #(core, attach_outbound) =
+        attach_dependencies_from_register_string(core, value)
+      let assert Ok(channel.OrMapState(kernel)) =
+        dict.get(core.channels, address)
+      case or_map_kernel.set_register(kernel, key, value, timestamp) {
+        Ok(#(kernel, events, op, message_id)) -> {
+          let #(core, events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.OrMapState(kernel),
+              tag_or_map_events(address, events),
+              channel.OrMapOp(op),
+              channel.OrMapMeta(message_id),
+            )
+          Ok(#(core, events, list.append(attach_outbound, outbound)))
+        }
+        Error(or_map_kernel.ModeMismatch(detail)) ->
+          Error(OrMapModeMismatch(address, detail))
+        Error(or_map_kernel.UnexpectedAck(detail))
+        | Error(or_map_kernel.UnexpectedRollback(detail))
+        | Error(or_map_kernel.CorruptDelta(detail)) ->
+          Error(AckMismatch(detail))
+      }
+    }
+  }
+}
+
+pub fn or_map_remove(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_or_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        or_map_kernel.remove(kernel, key)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.OrMapState(kernel)),
+          tag_or_map_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) = or_map_kernel.remove(kernel, key)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrMapState(kernel),
+        tag_or_map_events(address, events),
+        channel.OrMapOp(op),
+        channel.OrMapMeta(message_id),
+      ))
+    }
+  }
+}
+
 /// Where an edit's target channel lives, holding the type-checked kernel.
 type Located(kernel) {
   Detached(kernel)
@@ -788,6 +951,23 @@ fn locate_counter(
   }
 }
 
+fn locate_or_map(
+  core: Core,
+  address: String,
+) -> Result(Located(or_map_kernel.OrMapState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.OrMapState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.OrMapState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.OrMapChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_channel(
   core: Core,
   address: String,
@@ -809,6 +989,16 @@ fn attach_dependencies(
   let #(order, _) =
     collect_attach_order(core, handle.collect_handle_addresses(value), [])
   submit_attaches(core, order)
+}
+
+fn attach_dependencies_from_register_string(
+  core: Core,
+  value: String,
+) -> #(Core, List(wire.OutboundOp)) {
+  case json.parse(value, wire.json_value_decoder()) {
+    Ok(json_value) -> attach_dependencies(core, json_value)
+    Error(_) -> #(core, [])
+  }
 }
 
 fn collect_attach_order(
@@ -868,7 +1058,7 @@ fn submit_attaches(
             channels: dict.insert(
               core.channels,
               address,
-              channel.from_snapshot(snapshot),
+              channel.attach_state(state, replica: core.client_id),
             ),
             channel_order: list.unique(
               list.append(core.channel_order, [address]),
@@ -945,6 +1135,13 @@ fn tag_counter_events(
   list.map(events, fn(event) { #(address, channel.CounterEvent(event)) })
 }
 
+fn tag_or_map_events(
+  address: String,
+  events: List(or_map_kernel.OrMapEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.OrMapEvent(event)) })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
@@ -987,6 +1184,34 @@ pub fn counter_value(core: Core, address: String) -> Option(Int) {
   case find_channel(core, address) {
     Some(channel.CounterState(kernel)) -> Some(kernel.value)
     _ -> None
+  }
+}
+
+pub fn or_map_value(
+  core: Core,
+  address: String,
+  key: String,
+) -> Option(or_map_kernel.OrMapValue) {
+  case find_channel(core, address) {
+    Some(channel.OrMapState(kernel)) -> or_map_kernel.get(kernel, key)
+    _ -> None
+  }
+}
+
+pub fn or_map_keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.OrMapState(kernel)) -> or_map_kernel.keys(kernel)
+    _ -> []
+  }
+}
+
+pub fn or_map_entries(
+  core: Core,
+  address: String,
+) -> List(#(String, or_map_kernel.OrMapValue)) {
+  case find_channel(core, address) {
+    Some(channel.OrMapState(kernel)) -> or_map_kernel.entries(kernel)
+    _ -> []
   }
 }
 

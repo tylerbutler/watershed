@@ -43,6 +43,8 @@ import watershed/git_storage
 @target(javascript)
 import watershed/ids
 @target(javascript)
+import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(javascript)
 import watershed/runtime_core
 @target(javascript)
 import watershed/transport_js.{type Cell, type Channel}
@@ -189,35 +191,94 @@ pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
 }
 
 @target(javascript)
+pub fn or_map_increment(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  amount: Int,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_increment(core, address, key, amount)
+  })
+}
+
+@target(javascript)
+pub fn or_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_set(core, address, key, value, transport_js.now_ms())
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove(runtime: Runtime, address: String, key: String) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.or_map_remove(core, address, key) })
+}
+
+@target(javascript)
+pub fn or_map_value(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(OrMapValue) {
+  read(runtime.cell, None, runtime_core.or_map_value(_, address, key))
+}
+
+@target(javascript)
+pub fn or_map_entries(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, OrMapValue)) {
+  read(runtime.cell, [], runtime_core.or_map_entries(_, address))
+}
+
+@target(javascript)
+pub fn or_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.or_map_keys(_, address))
+}
+
+@target(javascript)
 /// Create a new detached map channel: local-only until its handle is first
 /// stored into an attached map. Returns the generated address.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
-  create_channel(runtime, channel.MapChannel, "create_map")
+  create_channel(runtime, channel.InitMap, "create_map")
 }
 
 @target(javascript)
 /// Create a new detached counter channel, same lifecycle as `create_map`.
 pub fn create_counter(runtime: Runtime) -> Result(String, String) {
-  create_channel(runtime, channel.CounterChannel, "create_counter")
+  create_channel(runtime, channel.InitCounter, "create_counter")
+}
+
+@target(javascript)
+pub fn create_or_map(
+  runtime: Runtime,
+  mode: OrMapMode,
+) -> Result(String, String) {
+  create_channel(runtime, channel.InitOrMap(mode), "create_or_map")
 }
 
 @target(javascript)
 fn create_channel(
   runtime: Runtime,
-  channel_type: channel.ChannelType,
+  init: channel.ChannelInit,
   verb: String,
 ) -> Result(String, String) {
   let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel_type)
+      let core = runtime_core.create_detached(core, address, init)
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
     Reconnecting(core) -> {
       let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, channel_type)
+      let core = runtime_core.create_detached(core, address, init)
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }

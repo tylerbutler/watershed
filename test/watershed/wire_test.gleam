@@ -23,9 +23,11 @@ import spillway/message
 import spillway/nack
 import spillway/types
 
+import lattice_core/replica_id
 import watershed/channel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
+import watershed/or_map_kernel
 import watershed/wire
 import watershed/wire/ops
 import watershed/wire/socket
@@ -709,28 +711,143 @@ pub fn counter_channel_op_stage_two_decode_test() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-map channels (OM4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn sample_tally_op() -> or_map_kernel.OrMapOp {
+  let state =
+    or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
+  let assert Ok(#(_, _, op, _)) = or_map_kernel.increment(state, "score", 4)
+  op
+}
+
+fn sample_register_op() -> or_map_kernel.OrMapOp {
+  let state =
+    or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.RegisterMode)
+  let assert Ok(#(_, _, op, _)) =
+    or_map_kernel.set_register(state, "name", "Ada", 123)
+  op
+}
+
+fn sample_remove_op() -> or_map_kernel.OrMapOp {
+  let state =
+    or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
+  let assert Ok(#(state, _, _, _)) = or_map_kernel.increment(state, "score", 4)
+  let #(_, _, op, _) = or_map_kernel.remove(state, "score")
+  op
+}
+
+fn round_trip_or_map_op(op: or_map_kernel.OrMapOp) {
+  let encoded = ops.encode_or_map_envelope("scores", op) |> json.to_string
+  let decoded = parse(encoded, or_map_envelope_decoder())
+  decoded |> expect.to_equal(#("scores", op))
+}
+
+fn or_map_envelope_decoder() -> decode.Decoder(#(String, or_map_kernel.OrMapOp)) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", ops.or_map_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn or_map_increment_op_round_trip_test() {
+  round_trip_or_map_op(sample_tally_op())
+}
+
+pub fn or_map_register_op_round_trip_test() {
+  round_trip_or_map_op(sample_register_op())
+}
+
+pub fn or_map_remove_op_round_trip_test() {
+  round_trip_or_map_op(sample_remove_op())
+}
+
+pub fn or_map_channel_op_stage_two_decode_test() {
+  let op = sample_tally_op()
+  let encoded =
+    ops.encode_channel_envelope("scores", channel.OrMapOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.ChannelOp(address, payload)) -> {
+      address |> expect.to_equal("scores")
+      decode.run(payload, ops.channel_op_decoder(channel.OrMapChannel))
+      |> expect.to_equal(Ok(channel.OrMapOp(op)))
+      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      |> expect.to_be_error()
+      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      |> expect.to_be_error()
+      Nil
+    }
+    _ -> panic as "or-map channel op decode failed"
+  }
+}
+
+pub fn or_map_attach_codec_round_trip_test() {
+  let state =
+    or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
+  let assert Ok(#(state, _, _, _)) = or_map_kernel.increment(state, "score", 4)
+  let encoded =
+    ops.encode_attach(
+      "scores",
+      channel.OrMapSnapshot(state.mode, state.optimistic),
+    )
+    |> json.to_string
+  string_contains(encoded, "\"channelType\":\"ormap\"") |> expect.to_be_true()
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.AttachOp(address, channel.OrMapSnapshot(mode, snapshot))) -> {
+      address |> expect.to_equal("scores")
+      mode |> expect.to_equal(or_map_kernel.TallyMode)
+      let assert Ok(kernel) =
+        or_map_kernel.from_sequenced(snapshot, mode, replica_id.new("loader"))
+      or_map_kernel.entries(kernel)
+      |> expect.to_equal([#("score", or_map_kernel.Tally(4))])
+    }
+    _ -> panic as "or-map attach decode failed"
+  }
+}
+
 pub fn summary_blob_mixed_channel_types_round_trip_test() {
+  let or_map =
+    or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
+  let assert Ok(#(or_map, _, _, _)) =
+    or_map_kernel.increment(or_map, "score", 2)
   let encoded =
     summary_blob.encode_channels(9, [
       #("root", channel.MapSnapshot([#("k", json.int(1))])),
       #("tally", channel.CounterSnapshot(7)),
+      #("scores", channel.OrMapSnapshot(or_map.mode, or_map.optimistic)),
     ])
     |> json.to_string
   string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
+  string_contains(encoded, "\"type\":\"ormap\"") |> expect.to_be_true()
   case summary_blob.decode(encoded) {
     Ok(blob) -> {
       blob.sequence_number |> expect.to_equal(9)
-      blob.channels
-      |> expect.to_equal([
+      let assert [
+        root,
+        tally,
         summary_blob.ChannelSnapshot(
-          address: "root",
-          snapshot: channel.MapSnapshot([#("k", json.int(1))]),
+          address: "scores",
+          snapshot: channel.OrMapSnapshot(mode, snapshot),
         ),
-        summary_blob.ChannelSnapshot(
-          address: "tally",
-          snapshot: channel.CounterSnapshot(7),
-        ),
-      ])
+      ] = blob.channels
+      root
+      |> expect.to_equal(summary_blob.ChannelSnapshot(
+        address: "root",
+        snapshot: channel.MapSnapshot([#("k", json.int(1))]),
+      ))
+      tally
+      |> expect.to_equal(summary_blob.ChannelSnapshot(
+        address: "tally",
+        snapshot: channel.CounterSnapshot(7),
+      ))
+      mode |> expect.to_equal(or_map_kernel.TallyMode)
+      let assert Ok(kernel) =
+        or_map_kernel.from_sequenced(snapshot, mode, replica_id.new("loader"))
+      or_map_kernel.entries(kernel)
+      |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
     }
     Error(_) -> panic as "mixed summary decode failed"
   }
