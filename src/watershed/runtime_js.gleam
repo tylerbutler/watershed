@@ -9,6 +9,8 @@
 //// JavaScript target only (gated with `@target(javascript)`).
 
 @target(javascript)
+import gleam/dict.{type Dict}
+@target(javascript)
 import gleam/dynamic.{type Dynamic}
 @target(javascript)
 import gleam/dynamic/decode
@@ -37,7 +39,9 @@ import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 @target(javascript)
-import watershed/channel.{type ChannelEvent}
+import watershed/channel.{type ChannelEvent, type Resolution, ClaimResolved}
+@target(javascript)
+import watershed/claims_kernel
 @target(javascript)
 import watershed/git_storage
 @target(javascript)
@@ -62,6 +66,14 @@ import watershed/wire/summary_blob
 const max_ops_per_submission = 100
 
 @target(javascript)
+pub type ClaimSubmitReply {
+  Pending(outcome: Promise(claims_kernel.ClaimOutcome))
+  AlreadyClaimed(current_value: Json)
+  AlreadyPendingLocally
+  WrongChannelType
+}
+
+@target(javascript)
 type Phase {
   Connecting
   /// Socket down and re-handshaking; holds the pre-reconnect core.
@@ -83,6 +95,10 @@ type State {
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    claim_waiters: Dict(
+      #(String, String),
+      fn(claims_kernel.ClaimOutcome) -> Nil,
+    ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
   )
@@ -111,6 +127,7 @@ pub fn start(
       channel: None,
       phase: Connecting,
       subscribers: [],
+      claim_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
     ))
@@ -280,6 +297,44 @@ pub fn register_keys(runtime: Runtime, address: String) -> List(String) {
 }
 
 @target(javascript)
+pub fn get_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.get_claim(_, address, key))
+}
+
+@target(javascript)
+pub fn has_claim(runtime: Runtime, address: String, key: String) -> Bool {
+  read(runtime.cell, False, runtime_core.has_claim(_, address, key))
+}
+
+@target(javascript)
+pub fn try_set_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  claim_submit(runtime.cell, address, key, fn(core) {
+    runtime_core.try_set_claim(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn compare_and_set_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  claim_submit(runtime.cell, address, key, fn(core) {
+    runtime_core.compare_and_set_claim(core, address, key, value)
+  })
+}
+
+@target(javascript)
 /// Create a new detached map channel: local-only until its handle is first
 /// stored into an attached map. Returns the generated address.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
@@ -307,6 +362,73 @@ pub fn create_register_collection(runtime: Runtime) -> Result(String, String) {
     channel.InitRegisterCollection,
     "create_register_collection",
   )
+}
+
+@target(javascript)
+pub fn create_claims(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitClaims, "create_claims")
+}
+
+@target(javascript)
+fn claim_submit(
+  cell: Cell(State),
+  address: String,
+  key: String,
+  operate: fn(runtime_core.Core) ->
+    Result(runtime_core.ClaimSubmitResult, runtime_core.CoreError),
+) -> ClaimSubmitReply {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
+          AlreadyClaimed(current_value)
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
+        Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
+          let #(promise_outcome, resolve_outcome) = promise.start()
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              resolve_outcome,
+              immediate_outcome,
+            )
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
+          }
+          Pending(promise_outcome)
+        }
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
+          AlreadyClaimed(current_value)
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
+        Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
+          let #(promise_outcome, resolve_outcome) = promise.start()
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              resolve_outcome,
+              immediate_outcome,
+            )
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          Pending(promise_outcome)
+        }
+      }
+    _ -> WrongChannelType
+  }
 }
 
 @target(javascript)
@@ -381,7 +503,9 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
 
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
-  case cell_get(runtime.cell).channel {
+  let state = abort_claim_waiters(cell_get(runtime.cell))
+  cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
+  case state.channel {
     Some(channel) -> transport_js.close(channel)
     None -> Nil
   }
@@ -722,10 +846,14 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) ->
           case apply_ops(core, message.ops) {
-            Ok(#(core, events, request_from)) -> {
+            Ok(#(core, events, resolutions, request_from)) -> {
+              let state = resolve_claim_waiters(state, resolutions)
               // Commit the new core before fan-out (see fan_out's contract).
               case resubmit_at {
-                Some(checkpoint) -> settle_reconnect(cell, core, checkpoint)
+                Some(checkpoint) -> {
+                  cell_set(cell, state)
+                  settle_reconnect(cell, core, checkpoint)
+                }
                 None -> cell_set(cell, State(..state, phase: Ready(core, None)))
               }
               fan_out(state.subscribers, events)
@@ -792,10 +920,15 @@ fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
 ) -> Result(
-  #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)),
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    Option(Int),
+  ),
   runtime_core.CoreError,
 ) {
-  do_apply_ops(core, ops, [], None)
+  do_apply_ops(core, ops, [], [], None)
 }
 
 @target(javascript)
@@ -803,13 +936,25 @@ fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
+  resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
 ) -> Result(
-  #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)),
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    Option(Int),
+  ),
   runtime_core.CoreError,
 ) {
   case ops {
-    [] -> Ok(#(core, list.reverse(events) |> list.flatten, request_from))
+    [] ->
+      Ok(#(
+        core,
+        list.reverse(events) |> list.flatten,
+        list.reverse(resolutions) |> list.flatten,
+        request_from,
+      ))
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
         Ok(#(core, ingested)) ->
@@ -817,11 +962,66 @@ fn do_apply_ops(
             core,
             rest,
             [ingested.events, ..events],
+            [ingested.resolutions, ..resolutions],
             option.or(request_from, ingested.request_ops_from),
           )
         Error(core_error) -> Error(core_error)
       }
   }
+}
+
+@target(javascript)
+fn register_claim_waiter(
+  state: State,
+  address: String,
+  key: String,
+  resolve_outcome: fn(claims_kernel.ClaimOutcome) -> Nil,
+  immediate_outcome: Option(claims_kernel.ClaimOutcome),
+) -> State {
+  case immediate_outcome {
+    Some(outcome) -> {
+      resolve_outcome(outcome)
+      state
+    }
+    None ->
+      State(
+        ..state,
+        claim_waiters: dict.insert(
+          state.claim_waiters,
+          #(address, key),
+          resolve_outcome,
+        ),
+      )
+  }
+}
+
+@target(javascript)
+fn resolve_claim_waiters(
+  state: State,
+  resolutions: List(#(String, Resolution)),
+) -> State {
+  let claim_waiters =
+    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
+      let #(address, resolution) = item
+      case resolution {
+        ClaimResolved(key, outcome) ->
+          case dict.get(acc, #(address, key)) {
+            Ok(resolve_outcome) -> {
+              resolve_outcome(outcome)
+              dict.delete(acc, #(address, key))
+            }
+            Error(_) -> acc
+          }
+      }
+    })
+  State(..state, claim_waiters: claim_waiters)
+}
+
+@target(javascript)
+fn abort_claim_waiters(state: State) -> State {
+  dict.values(state.claim_waiters)
+  |> list.each(fn(resolve_outcome) { resolve_outcome(claims_kernel.Aborted) })
+  State(..state, claim_waiters: dict.new())
 }
 
 @target(javascript)
@@ -990,8 +1190,9 @@ fn fan_out(
 
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
+  let state = abort_claim_waiters(cell_get(cell))
   fire_ready(cell, Error(reason))
-  cell_set(cell, State(..cell_get(cell), phase: Failed(reason)))
+  cell_set(cell, State(..state, phase: Failed(reason)))
 }
 
 @target(javascript)

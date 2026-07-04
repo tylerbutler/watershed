@@ -27,6 +27,7 @@ import lattice_core/replica_id
 import lattice_maps/crdt
 import lattice_maps/or_map
 import watershed/channel
+import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
@@ -128,6 +129,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.CounterOp(op) -> encode_counter_op(op)
     channel.OrMapOp(op) -> encode_or_map_op(op)
     channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
+    channel.ClaimsOp(op) -> encode_claim_op(op)
   }
 }
 
@@ -144,6 +146,7 @@ pub fn channel_op_decoder(
     channel.RegisterCollectionChannel ->
       register_collection_op_decoder()
       |> decode.map(channel.RegisterCollectionOp)
+    channel.ClaimsChannel -> claim_op_decoder() |> decode.map(channel.ClaimsOp)
   }
 }
 
@@ -258,6 +261,31 @@ pub fn encode_register_collection_op(op: WriteOp) -> Json {
   }
 }
 
+pub fn encode_claim_envelope(address: String, op: ClaimOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_claim_op(op)),
+  ])
+}
+
+pub fn encode_claim_op(op: ClaimOp) -> Json {
+  case op {
+    Claim(key, value, ref_seq) ->
+      json.object([
+        #("type", json.string("claim")),
+        #("key", json.string(key)),
+        #(
+          "value",
+          json.object([
+            #("type", json.string("Plain")),
+            #("value", value),
+          ]),
+        ),
+        #("refSeq", json.int(ref_seq)),
+      ])
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -358,6 +386,19 @@ pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
       decode.success(Write(key, value, ref_seq))
     }
     _ -> decode.failure(Write("", json.null(), 0), "RegisterCollectionOp")
+  }
+}
+
+pub fn claim_op_decoder() -> Decoder(ClaimOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "claim" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", plain_value_decoder())
+      use ref_seq <- decode.field("refSeq", decode.int)
+      decode.success(Claim(key, value, ref_seq))
+    }
+    _ -> decode.failure(Claim("", json.null(), 0), "ClaimOp")
   }
 }
 

@@ -103,6 +103,11 @@ pub opaque type SharedRegisterCollection {
 }
 
 @target(javascript)
+pub opaque type SharedClaims {
+  SharedClaims(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
 /// Connect to a document. Returns the handle immediately and invokes
 /// `on_ready` once the handshake and history replay complete (`Ok(Nil)`) or
 /// the connection is rejected (`Error(reason)`).
@@ -413,6 +418,72 @@ pub fn subscribe_register_collection(
   handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   runtime_js.subscribe(collection.runtime, collection.address, handler)
+}
+
+// ── Claims ───────────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_claims(document: Document) -> Result(SharedClaims, String) {
+  runtime_js.create_claims(document.runtime)
+  |> result.map(fn(address) {
+    SharedClaims(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn claims_handle_of(claims: SharedClaims) -> Json {
+  handle.encode_handle(claims.address)
+}
+
+@target(javascript)
+pub fn resolve_claims(
+  document: Document,
+  value: Json,
+) -> Result(SharedClaims, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedClaims(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+pub fn try_set_claim(
+  claims: SharedClaims,
+  key: String,
+  value: Json,
+) -> runtime_js.ClaimSubmitReply {
+  runtime_js.try_set_claim(claims.runtime, claims.address, key, value)
+}
+
+@target(javascript)
+pub fn compare_and_set_claim(
+  claims: SharedClaims,
+  key: String,
+  value: Json,
+) -> runtime_js.ClaimSubmitReply {
+  runtime_js.compare_and_set_claim(claims.runtime, claims.address, key, value)
+}
+
+@target(javascript)
+pub fn get_claim(claims: SharedClaims, key: String) -> Option(Json) {
+  runtime_js.get_claim(claims.runtime, claims.address, key)
+}
+
+@target(javascript)
+pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
+  runtime_js.has_claim(claims.runtime, claims.address, key)
+}
+
+@target(javascript)
+pub fn subscribe_claims(
+  claims: SharedClaims,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(claims.runtime, claims.address, handler)
 }
 
 @target(javascript)

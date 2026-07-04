@@ -22,6 +22,8 @@
 //// - **Heartbeat** — a periodic `noop` advances the server's MSN while idle.
 
 @target(erlang)
+import gleam/dict.{type Dict}
+@target(erlang)
 import gleam/dynamic/decode
 @target(erlang)
 import gleam/erlang/process.{type Subject}
@@ -58,9 +60,11 @@ import spillway/types.{type SequencedDocumentMessage}
 
 @target(erlang)
 import watershed/channel.{
-  type ChannelEvent, type ChannelInit, InitCounter, InitMap, InitOrMap,
-  InitRegisterCollection,
+  type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
+  InitClaims, InitCounter, InitMap, InitOrMap, InitRegisterCollection,
 } as _watershed_channel
+@target(erlang)
+import watershed/claims_kernel
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
@@ -89,6 +93,14 @@ const heartbeat_interval_ms = 30_000
 const max_ops_per_submission = 100
 
 @target(erlang)
+pub type ClaimSubmitReply {
+  Pending(outcome: Subject(claims_kernel.ClaimOutcome))
+  AlreadyClaimed(current_value: Json)
+  AlreadyPendingLocally
+  WrongChannelType
+}
+
+@target(erlang)
 pub type Msg {
   Heartbeat
   // Receiver-process lifecycle
@@ -105,6 +117,20 @@ pub type Msg {
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
   WriteRegister(address: String, key: String, value: Json)
+  TrySetClaim(
+    address: String,
+    key: String,
+    value: Json,
+    outcome: Subject(claims_kernel.ClaimOutcome),
+    reply: Subject(ClaimSubmitReply),
+  )
+  CompareAndSetClaim(
+    address: String,
+    key: String,
+    value: Json,
+    outcome: Subject(claims_kernel.ClaimOutcome),
+    reply: Subject(ClaimSubmitReply),
+  )
   /// Create a new detached map channel: local-only until its handle is first
   /// stored into an attached map. Replies with the generated address.
   CreateMap(reply: Subject(Result(String, String)))
@@ -113,6 +139,7 @@ pub type Msg {
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateRegisterCollection(reply: Subject(Result(String, String)))
+  CreateClaims(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
@@ -153,6 +180,8 @@ pub type Msg {
     reply: Subject(Option(List(Json))),
   )
   GetRegisterKeys(address: String, reply: Subject(List(String)))
+  GetClaim(address: String, key: String, reply: Subject(Option(Json)))
+  HasClaim(address: String, key: String, reply: Subject(Bool))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
@@ -193,6 +222,7 @@ type State {
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(#(String, Subject(ChannelEvent))),
+    claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     self: Subject(Msg),
   )
 }
@@ -226,6 +256,7 @@ pub fn start(
         channel: None,
         phase: Connecting([]),
         subscribers: [],
+        claim_waiters: dict.new(),
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
@@ -256,6 +287,50 @@ pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
 /// the server, so the confirmed state is complete and stable.
 pub fn is_synced(runtime: Subject(Msg)) -> Bool {
   process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
+}
+
+@target(erlang)
+pub fn try_set_claim(
+  runtime: Subject(Msg),
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  let outcome = process.new_subject()
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    TrySetClaim(address, key, value, outcome, reply)
+  })
+}
+
+@target(erlang)
+pub fn compare_and_set_claim(
+  runtime: Subject(Msg),
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  let outcome = process.new_subject()
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    CompareAndSetClaim(address, key, value, outcome, reply)
+  })
+}
+
+@target(erlang)
+pub fn get_claim(
+  runtime: Subject(Msg),
+  address: String,
+  key: String,
+) -> Option(Json) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    GetClaim(address, key, reply)
+  })
+}
+
+@target(erlang)
+pub fn has_claim(runtime: Subject(Msg), address: String, key: String) -> Bool {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    HasClaim(address, key, reply)
+  })
 }
 
 @target(erlang)
@@ -412,6 +487,14 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.register_write(core, address, key, value)
       })
+    TrySetClaim(address, key, value, outcome, reply) ->
+      handle_claim_submit(state, address, key, outcome, reply, fn(core) {
+        runtime_core.try_set_claim(core, address, key, value)
+      })
+    CompareAndSetClaim(address, key, value, outcome, reply) ->
+      handle_claim_submit(state, address, key, outcome, reply, fn(core) {
+        runtime_core.compare_and_set_claim(core, address, key, value)
+      })
 
     CreateMap(reply) -> create_channel(state, reply, InitMap, "create_map")
     CreateCounter(reply) ->
@@ -425,6 +508,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         InitRegisterCollection,
         "create_register_collection",
       )
+    CreateClaims(reply) ->
+      create_channel(state, reply, InitClaims, "create_claims")
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -502,6 +587,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
       actor.continue(state)
     }
+    GetClaim(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.get_claim(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    HasClaim(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.has_claim(_, address, key)),
+      )
+      actor.continue(state)
+    }
     GetEntries(address, reply) -> {
       process.send(reply, read(state, [], runtime_core.entries(_, address)))
       actor.continue(state)
@@ -556,6 +655,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       }
 
     Shutdown -> {
+      let state = abort_claim_waiters(state)
       case state.channel {
         Some(channel) -> {
           let _ = aquamarine.close(channel)
@@ -656,8 +756,9 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "op" ->
       case state.phase {
         Ready(core, resubmit_at) -> {
-          let #(core, events, request_from) =
+          let #(core, events, resolutions, request_from) =
             apply_ops(core, op_message(incoming))
+          let state = resolve_claim_waiters(state, resolutions)
           fan_out(state.subscribers, events)
           maybe_request_ops(state.channel, request_from)
           case resubmit_at {
@@ -728,8 +829,13 @@ fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
 fn apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
-) -> #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)) {
-  do_apply_ops(core, ops, [], None)
+) -> #(
+  runtime_core.Core,
+  List(#(String, ChannelEvent)),
+  List(#(String, Resolution)),
+  Option(Int),
+) {
+  do_apply_ops(core, ops, [], [], None)
 }
 
 @target(erlang)
@@ -737,10 +843,21 @@ fn do_apply_ops(
   core: runtime_core.Core,
   ops: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
+  resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
-) -> #(runtime_core.Core, List(#(String, ChannelEvent)), Option(Int)) {
+) -> #(
+  runtime_core.Core,
+  List(#(String, ChannelEvent)),
+  List(#(String, Resolution)),
+  Option(Int),
+) {
   case ops {
-    [] -> #(core, list.reverse(events) |> list.flatten, request_from)
+    [] -> #(
+      core,
+      list.reverse(events) |> list.flatten,
+      list.reverse(resolutions) |> list.flatten,
+      request_from,
+    )
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
         Ok(#(core, ingested)) ->
@@ -748,6 +865,7 @@ fn do_apply_ops(
             core,
             rest,
             [ingested.events, ..events],
+            [ingested.resolutions, ..resolutions],
             option.or(request_from, ingested.request_ops_from),
           )
         Error(core_error) ->
@@ -756,6 +874,134 @@ fn do_apply_ops(
           }
       }
   }
+}
+
+@target(erlang)
+fn handle_claim_submit(
+  state: State,
+  address: String,
+  key: String,
+  outcome: Subject(claims_kernel.ClaimOutcome),
+  reply: Subject(ClaimSubmitReply),
+  operate: fn(runtime_core.Core) ->
+    Result(runtime_core.ClaimSubmitResult, runtime_core.CoreError),
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> {
+          process.send(reply, WrongChannelType)
+          actor.continue(state)
+        }
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
+          process.send(reply, AlreadyClaimed(current_value))
+          actor.continue(state)
+        }
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> {
+          process.send(reply, AlreadyPendingLocally)
+          actor.continue(state)
+        }
+        Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
+          process.send(reply, Pending(outcome))
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              outcome,
+              immediate_outcome,
+            )
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> {
+          process.send(reply, WrongChannelType)
+          actor.continue(state)
+        }
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
+          process.send(reply, AlreadyClaimed(current_value))
+          actor.continue(state)
+        }
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> {
+          process.send(reply, AlreadyPendingLocally)
+          actor.continue(state)
+        }
+        Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
+          process.send(reply, Pending(outcome))
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              outcome,
+              immediate_outcome,
+            )
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+      }
+    _ -> panic as "claim submit before the document connection is ready"
+  }
+}
+
+@target(erlang)
+fn register_claim_waiter(
+  state: State,
+  address: String,
+  key: String,
+  waiter: Subject(claims_kernel.ClaimOutcome),
+  immediate_outcome: Option(claims_kernel.ClaimOutcome),
+) -> State {
+  case immediate_outcome {
+    Some(outcome) -> {
+      process.send(waiter, outcome)
+      state
+    }
+    None ->
+      State(
+        ..state,
+        claim_waiters: dict.insert(state.claim_waiters, #(address, key), waiter),
+      )
+  }
+}
+
+@target(erlang)
+fn resolve_claim_waiters(
+  state: State,
+  resolutions: List(#(String, Resolution)),
+) -> State {
+  let claim_waiters =
+    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
+      let #(address, resolution) = item
+      case resolution {
+        ClaimResolved(key, outcome) ->
+          case dict.get(acc, #(address, key)) {
+            Ok(waiter) -> {
+              process.send(waiter, outcome)
+              dict.delete(acc, #(address, key))
+            }
+            Error(_) -> acc
+          }
+      }
+    })
+  State(..state, claim_waiters: claim_waiters)
+}
+
+@target(erlang)
+fn abort_claim_waiters(state: State) -> State {
+  dict.values(state.claim_waiters)
+  |> list.each(fn(waiter) { process.send(waiter, claims_kernel.Aborted) })
+  State(..state, claim_waiters: dict.new())
 }
 
 @target(erlang)
@@ -1099,6 +1345,7 @@ fn fan_out(
 
 @target(erlang)
 fn fail(state: State, reason: String) -> State {
+  let state = abort_claim_waiters(state)
   notify_waiters(state.phase, Error(reason))
   State(..state, phase: Failed(reason))
 }

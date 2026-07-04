@@ -89,6 +89,11 @@ pub opaque type SharedRegisterCollection {
 }
 
 @target(erlang)
+pub opaque type SharedClaims {
+  SharedClaims(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
 /// Connect to a document, blocking until the handshake completes and the
 /// full op history has been replayed locally.
 pub fn connect(
@@ -476,6 +481,81 @@ pub fn subscribe_register_collection(
     collection.runtime,
     runtime.Subscribe(collection.address, subscriber),
   )
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Claims
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+pub fn create_claims(document: Document) -> Result(SharedClaims, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateClaims,
+  )
+  |> result.map(fn(address) {
+    SharedClaims(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn claims_handle_of(claims: SharedClaims) -> Json {
+  handle.encode_handle(claims.address)
+}
+
+@target(erlang)
+pub fn resolve_claims(
+  document: Document,
+  value: Json,
+) -> Result(SharedClaims, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedClaims(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn try_set_claim(
+  claims: SharedClaims,
+  key: String,
+  value: Json,
+) -> runtime.ClaimSubmitReply {
+  runtime.try_set_claim(claims.runtime, claims.address, key, value)
+}
+
+@target(erlang)
+pub fn compare_and_set_claim(
+  claims: SharedClaims,
+  key: String,
+  value: Json,
+) -> runtime.ClaimSubmitReply {
+  runtime.compare_and_set_claim(claims.runtime, claims.address, key, value)
+}
+
+@target(erlang)
+pub fn get_claim(claims: SharedClaims, key: String) -> Option(Json) {
+  runtime.get_claim(claims.runtime, claims.address, key)
+}
+
+@target(erlang)
+pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
+  runtime.has_claim(claims.runtime, claims.address, key)
+}
+
+@target(erlang)
+pub fn subscribe_claims(claims: SharedClaims) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(claims.runtime, runtime.Subscribe(claims.address, subscriber))
   subscriber
 }
 

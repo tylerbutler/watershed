@@ -35,9 +35,13 @@ import watershed
 @target(erlang)
 import watershed/channel
 @target(erlang)
+import watershed/claims_kernel
+@target(erlang)
 import watershed/git_storage
 @target(erlang)
 import watershed/handle
+@target(erlang)
+import watershed/runtime
 
 @target(erlang)
 const tenant = "dev-tenant"
@@ -122,6 +126,15 @@ pub fn nested_map_converges_test() {
 pub fn mixed_counter_converges_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_mixed_counter_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// R3 exit criterion: two runtimes race on one claim key; loser resolves Lost.
+pub fn claims_race_outcome_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_claims_race_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -272,6 +285,101 @@ fn run_mixed_counter_test() -> Nil {
   watershed.close(doc_a)
   watershed.close(doc_b)
   watershed.close(doc_c)
+}
+
+@target(erlang)
+fn run_claims_race_test() -> Nil {
+  let document = "watershed-clm-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(claims_a) = watershed.create_claims(doc_a)
+  watershed.set(map_a, "locks", watershed.claims_handle_of(claims_a))
+
+  let claims_b = resolve_claims_key_or_panic(doc_b, map_b, "locks")
+  wait_until(50, fn() {
+    watershed.has_claim(claims_a, "owner") == False
+    && watershed.has_claim(claims_b, "owner") == False
+  })
+  |> expect.to_be_true()
+
+  let outcome_a =
+    watershed.try_set_claim(claims_a, "owner", json.string("A"))
+    |> await_claim_reply_or_panic("A")
+  let outcome_b =
+    watershed.try_set_claim(claims_b, "owner", json.string("B"))
+    |> await_claim_reply_or_panic("B")
+
+  let winner = case outcome_a, outcome_b {
+    claims_kernel.Accepted(value), claims_kernel.Lost(Some(current)) -> {
+      current |> expect.to_equal(value)
+      value
+    }
+    claims_kernel.Lost(Some(current)), claims_kernel.Accepted(value) -> {
+      current |> expect.to_equal(value)
+      value
+    }
+    _, _ -> panic as "expected one Accepted and one Lost claim outcome"
+  }
+
+  wait_until(50, fn() {
+    watershed.get_claim(claims_a, "owner") == Some(winner)
+    && watershed.get_claim(claims_b, "owner") == Some(winner)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn await_claim_reply_or_panic(
+  reply: runtime.ClaimSubmitReply,
+  label: String,
+) -> claims_kernel.ClaimOutcome {
+  case reply {
+    runtime.Pending(outcome_subject) ->
+      case process.receive(from: outcome_subject, within: 5000) {
+        Ok(outcome) -> outcome
+        Error(_) ->
+          panic as { "timed out waiting for claim outcome from " <> label }
+      }
+    runtime.AlreadyClaimed(current) ->
+      panic as {
+        "expected pending claim for "
+        <> label
+        <> ", got AlreadyClaimed("
+        <> json.to_string(current)
+        <> ")"
+      }
+    runtime.AlreadyPendingLocally ->
+      panic as { "unexpected AlreadyPendingLocally for " <> label }
+    runtime.WrongChannelType ->
+      panic as { "unexpected WrongChannelType for " <> label }
+  }
+}
+
+@target(erlang)
+fn resolve_claims_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedClaims {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_claims(doc, value)
+      }
+    })
+  case resolved {
+    Ok(claims) -> claims
+    Error(reason) ->
+      panic as { "resolving claims at key " <> key <> " failed: " <> reason }
+  }
 }
 
 @target(erlang)

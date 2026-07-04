@@ -25,6 +25,7 @@ import spillway/types
 
 import lattice_core/replica_id
 import watershed/channel
+import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
@@ -713,6 +714,58 @@ pub fn counter_channel_op_stage_two_decode_test() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Claims channels (R3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn claim_op_round_trip_test() {
+  let op = claims_kernel.Claim("owner", json.string("alice"), 9)
+  let encoded = ops.encode_claim_envelope("locks", op) |> json.to_string
+  let decoded = parse(encoded, claim_envelope_decoder())
+  decoded |> expect.to_equal(#("locks", op))
+}
+
+fn claim_envelope_decoder() -> decode.Decoder(#(String, claims_kernel.ClaimOp)) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", ops.claim_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn claim_channel_op_stage_two_decode_test() {
+  let op = claims_kernel.Claim("owner", json.string("alice"), 9)
+  let encoded =
+    ops.encode_channel_envelope("locks", channel.ClaimsOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.ChannelOp(address, payload)) -> {
+      address |> expect.to_equal("locks")
+      decode.run(payload, ops.channel_op_decoder(channel.ClaimsChannel))
+      |> expect.to_equal(Ok(channel.ClaimsOp(op)))
+      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      |> expect.to_be_error()
+      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      |> expect.to_be_error()
+      Nil
+    }
+    _ -> panic as "claim channel op decode failed"
+  }
+}
+
+pub fn claims_attach_codec_round_trip_test() {
+  let snapshot = channel.ClaimsSnapshot([#("owner", json.string("alice"), 7)])
+  let encoded = ops.encode_attach("locks", snapshot) |> json.to_string
+  string_contains(encoded, "\"channelType\":\"claims\"") |> expect.to_be_true()
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.AttachOp(address, decoded)) -> {
+      address |> expect.to_equal("locks")
+      decoded |> expect.to_equal(snapshot)
+    }
+    _ -> panic as "claims attach decode failed"
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // OR-map channels (OM4)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -819,10 +872,12 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
       #("root", channel.MapSnapshot([#("k", json.int(1))])),
       #("tally", channel.CounterSnapshot(7)),
       #("scores", channel.OrMapSnapshot(or_map.mode, or_map.optimistic)),
+      #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 9)])),
     ])
     |> json.to_string
   string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
   string_contains(encoded, "\"type\":\"ormap\"") |> expect.to_be_true()
+  string_contains(encoded, "\"type\":\"claims\"") |> expect.to_be_true()
   case summary_blob.decode(encoded) {
     Ok(blob) -> {
       blob.sequence_number |> expect.to_equal(9)
@@ -833,6 +888,7 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
           address: "scores",
           snapshot: channel.OrMapSnapshot(mode, snapshot),
         ),
+        locks,
       ] = blob.channels
       root
       |> expect.to_equal(summary_blob.ChannelSnapshot(
@@ -849,6 +905,13 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
         or_map_kernel.from_sequenced(snapshot, mode, replica_id.new("loader"))
       or_map_kernel.entries(kernel)
       |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
+      locks
+      |> expect.to_equal(summary_blob.ChannelSnapshot(
+        address: "locks",
+        snapshot: channel.ClaimsSnapshot([
+          #("owner", json.string("alice"), 9),
+        ]),
+      ))
     }
 
     Error(_) -> panic as "mixed summary decode failed"

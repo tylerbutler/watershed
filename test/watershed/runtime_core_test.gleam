@@ -19,6 +19,7 @@ import spillway/types
 
 import lattice_core/replica_id
 import watershed/channel
+import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
@@ -314,13 +315,15 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
             decode.run(
               contents,
               ops.channel_op_decoder(channel.RegisterCollectionChannel),
-            )
+            ),
+            decode.run(contents, ops.channel_op_decoder(channel.ClaimsChannel))
           {
-            Ok(op), _, _, _ -> DecodedChannelOp(address: address, op: op)
-            _, Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
-            _, _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
-            _, _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
-            Error(_), Error(_), Error(_), Error(_) ->
+            Ok(op), _, _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, Ok(op), _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_), Error(_), Error(_), Error(_), Error(_) ->
               panic as "failed to decode outbound op contents"
           }
         Error(_) -> panic as "failed to decode outbound contents"
@@ -1934,6 +1937,180 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
     )
   core.in_flight |> expect.to_equal([])
   runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Claims channels (R3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn claim_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: claims_kernel.ClaimOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_claim_envelope(address, op)),
+  )
+}
+
+fn claim_attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  entries entries: List(#(String, Json, Int)),
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_attach(
+      address,
+      channel.ClaimsSnapshot(entries),
+    )),
+  )
+}
+
+pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _) =
+    apply_tagged(
+      core,
+      claim_attach_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "locks",
+        entries: [],
+      ),
+    )
+
+  let assert Ok(runtime_core.ClaimPending(
+    core: core,
+    outbound: [first],
+    immediate_outcome: None,
+  )) = runtime_core.try_set_claim(core, "locks", "owner", json.string("alice"))
+  decode_outbound_contents(first)
+  |> expect.to_equal(DecodedChannelOp(
+    address: "locks",
+    op: channel.ClaimsOp(claims_kernel.Claim(
+      key: "owner",
+      value: json.string("alice"),
+      ref_seq: 2,
+    )),
+  ))
+
+  let core =
+    runtime_core.adopt_reconnect(
+      core,
+      reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
+    )
+  let #(core, _) =
+    apply(core, join_message(sn: 3, joining: reconnect_client_id))
+  let #(core, outbound) = runtime_core.resubmit(core)
+  let assert [resubmitted] = outbound
+  resubmitted.client_sequence_number |> expect.to_equal(2)
+  resubmitted.reference_sequence_number |> expect.to_equal(3)
+  decode_outbound_contents(resubmitted)
+  |> expect.to_equal(DecodedChannelOp(
+    address: "locks",
+    op: channel.ClaimsOp(claims_kernel.Claim(
+      key: "owner",
+      value: json.string("alice"),
+      ref_seq: 2,
+    )),
+  ))
+
+  let ack =
+    claim_op_message(
+      address: "locks",
+      client_id: reconnect_client_id,
+      sn: 4,
+      csn: 2,
+      op: claims_kernel.Claim("owner", json.string("alice"), 2),
+    )
+  let assert Ok(#(core, ingested)) = runtime_core.handle_sequenced(core, ack)
+  ingested.events
+  |> expect.to_equal([
+    #("locks", channel.ClaimsEvent(claims_kernel.Claimed("owner", True))),
+  ])
+  ingested.resolutions
+  |> expect.to_equal([
+    #(
+      "locks",
+      channel.ClaimResolved(
+        "owner",
+        claims_kernel.Accepted(json.string("alice")),
+      ),
+    ),
+  ])
+  runtime_core.get_claim(core, "locks", "owner")
+  |> expect.to_equal(Some(json.string("alice")))
+  core.in_flight |> expect.to_equal([])
+}
+
+pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
+  let summary =
+    runtime_core.Summary(sequence_number: 5, channels: [
+      #("root", channel.MapSnapshot([])),
+      #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)])),
+    ])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to complete"
+  }
+  runtime_core.summary_channels(core)
+  |> expect.to_equal([
+    #("root", channel.MapSnapshot([])),
+    #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)])),
+  ])
+
+  let #(core, stale_events) =
+    apply_tagged(
+      core,
+      claim_op_message(
+        address: "locks",
+        client_id: other_client_id,
+        sn: 6,
+        csn: 1,
+        op: claims_kernel.Claim("owner", json.string("stale"), 0),
+      ),
+    )
+  stale_events |> expect.to_equal([])
+  runtime_core.get_claim(core, "locks", "owner")
+  |> expect.to_equal(Some(json.string("alice")))
+
+  let #(core, events) =
+    apply_tagged(
+      core,
+      claim_op_message(
+        address: "locks",
+        client_id: other_client_id,
+        sn: 7,
+        csn: 2,
+        op: claims_kernel.Claim("owner", json.string("carol"), 5),
+      ),
+    )
+  events
+  |> expect.to_equal([
+    #("locks", channel.ClaimsEvent(claims_kernel.Claimed("owner", False))),
+  ])
+  runtime_core.get_claim(core, "locks", "owner")
+  |> expect.to_equal(Some(json.string("carol")))
+  runtime_core.summary_channels(core)
+  |> expect.to_equal([
+    #("root", channel.MapSnapshot([])),
+    #("locks", channel.ClaimsSnapshot([#("owner", json.string("carol"), 7)])),
+  ])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

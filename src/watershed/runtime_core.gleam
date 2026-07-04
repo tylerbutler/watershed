@@ -19,8 +19,10 @@ import spillway/message.{type ConnectedMessage}
 import spillway/types.{type SequencedDocumentMessage}
 
 import watershed/channel.{
-  type ChannelEvent, type ChannelState, type Snapshot, SequencedMeta,
+  type ChannelEvent, type ChannelState, type Resolution, type Snapshot,
+  SequencedMeta,
 }
+import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
@@ -82,7 +84,11 @@ pub type Bootstrapped {
 }
 
 pub type Ingested {
-  Ingested(events: List(#(String, ChannelEvent)), request_ops_from: Option(Int))
+  Ingested(
+    events: List(#(String, ChannelEvent)),
+    resolutions: List(#(String, Resolution)),
+    request_ops_from: Option(Int),
+  )
 }
 
 pub type Summary {
@@ -297,7 +303,7 @@ pub fn handle_sequenced(
 ) -> Result(#(Core, Ingested), CoreError) {
   let next = core.last_seen_sn + 1
   case msg.sequence_number {
-    sn if sn < next -> Ok(#(core, Ingested([], None)))
+    sn if sn < next -> Ok(#(core, Ingested([], [], None)))
     sn if sn > next -> {
       let request = case core.out_of_order {
         [] -> Some(core.last_seen_sn)
@@ -305,12 +311,19 @@ pub fn handle_sequenced(
       }
       let core =
         Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
-      Ok(#(core, Ingested([], request)))
+      Ok(#(core, Ingested([], [], request)))
     }
     _ -> {
-      use #(core, events) <- result.try(apply_one(core, msg))
-      use #(core, drained) <- result.try(drain_buffer(core))
-      Ok(#(core, Ingested(list.append(events, drained), None)))
+      use #(core, events, resolutions) <- result.try(apply_one(core, msg))
+      use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
+      Ok(#(
+        core,
+        Ingested(
+          events: list.append(events, drained),
+          resolutions: list.append(resolutions, drained_resolutions),
+          request_ops_from: None,
+        ),
+      ))
     }
   }
 }
@@ -318,29 +331,39 @@ pub fn handle_sequenced(
 fn apply_one(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_op(core, msg)
-    _ -> Ok(#(core, []))
+    _ -> Ok(#(core, [], []))
   }
 }
 
 fn drain_buffer(
   core: Core,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   case core.out_of_order {
     [head, ..rest] if head.sequence_number <= core.last_seen_sn ->
       drain_buffer(Core(..core, out_of_order: rest))
     [head, ..rest] if head.sequence_number == core.last_seen_sn + 1 -> {
-      use #(core, events) <- result.try(apply_one(
+      use #(core, events, resolutions) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
         head,
       ))
-      use #(core, more) <- result.try(drain_buffer(core))
-      Ok(#(core, list.append(events, more)))
+      use #(core, more, more_resolutions) <- result.try(drain_buffer(core))
+      Ok(#(
+        core,
+        list.append(events, more),
+        list.append(resolutions, more_resolutions),
+      ))
     }
-    _ -> Ok(#(core, []))
+    _ -> Ok(#(core, [], []))
   }
 }
 
@@ -362,7 +385,10 @@ fn buffer_insert(
 fn handle_op(
   core: Core,
   msg: SequencedDocumentMessage,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   case ops.decode_op_contents(msg.contents) {
     Error(_) -> Error(BadOpContents(msg.sequence_number))
     Ok(ops.AttachOp(address, snapshot)) ->
@@ -441,7 +467,10 @@ fn remote_attach(
   sequence_number: Int,
   address: String,
   snapshot: Snapshot,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   case has_channel(core, address) {
     True -> Error(DuplicateAttach(address, sequence_number))
     False ->
@@ -452,6 +481,7 @@ fn remote_attach(
             address,
             channel.from_snapshot(snapshot, replica: core.client_id),
           ),
+          [],
           [],
         ),
       )
@@ -464,15 +494,21 @@ fn apply_remote_channel(
   address: String,
   state: ChannelState,
   op: channel.ChannelOp,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   let meta =
     SequencedMeta(seq: sequence_number, last_seen_sn: core.last_seen_sn)
   case channel.apply_remote(state, op, meta) {
     Ok(#(state, events)) ->
-      Ok(#(
-        put_attached_channel(core, address, state),
-        tag_events(address, events),
-      ))
+      Ok(
+        #(
+          put_attached_channel(core, address, state),
+          tag_events(address, events),
+          [],
+        ),
+      )
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
     | Error(channel.CorruptRemoteOp(detail)) -> Error(AckMismatch(detail))
@@ -485,7 +521,10 @@ fn ack_own_attach(
   csn: Int,
   address: String,
   echoed: Snapshot,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   case core.in_flight {
     [] ->
       Error(AckMismatch(
@@ -507,7 +546,7 @@ fn ack_own_attach(
             && head_address == address
             && channel.same_snapshot(snapshot, echoed)
           {
-            True -> Ok(#(Core(..core, in_flight: rest), []))
+            True -> Ok(#(Core(..core, in_flight: rest), [], []))
             False ->
               Error(AckMismatch(
                 "expected attach ack for csn "
@@ -535,7 +574,10 @@ fn ack_own_op(
   state: ChannelState,
   echoed: channel.ChannelOp,
   sequence_number: Int,
-) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
   case core.in_flight {
     [] ->
       Error(AckMismatch(
@@ -572,7 +614,7 @@ fn ack_own_op(
                   last_seen_sn: core.last_seen_sn,
                 )
               case channel.ack_local(state, op, meta, sequenced_meta) {
-                Ok(#(state, events)) ->
+                Ok(#(state, events, resolution)) ->
                   Ok(#(
                     Core(
                       ..core,
@@ -580,6 +622,7 @@ fn ack_own_op(
                       in_flight: rest,
                     ),
                     tag_events(address, events),
+                    tag_resolution(address, resolution),
                   ))
                 Error(channel.UnexpectedAck(detail))
                 | Error(channel.WrongChannelType(detail))
@@ -959,6 +1002,123 @@ pub fn register_write(
   }
 }
 
+pub type ClaimSubmitResult {
+  ClaimPending(
+    core: Core,
+    outbound: List(wire.OutboundOp),
+    immediate_outcome: Option(claims_kernel.ClaimOutcome),
+  )
+  ClaimAlreadyClaimed(current_value: Json)
+  ClaimAlreadyPendingLocally
+}
+
+pub fn try_set_claim(
+  core: Core,
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(ClaimSubmitResult, CoreError) {
+  case locate_claims(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case claims_kernel.get(kernel, key) {
+        Some(current_value) -> Ok(ClaimAlreadyClaimed(current_value))
+        None -> {
+          let kernel = claims_kernel.set_detached(kernel, key, value)
+          let core =
+            put_detached_channel(core, address, channel.ClaimsState(kernel))
+          Ok(ClaimPending(
+            core: core,
+            outbound: [],
+            immediate_outcome: Some(claims_kernel.Accepted(value)),
+          ))
+        }
+      }
+    Ok(Attached(kernel)) ->
+      case claims_kernel.try_set_claim(kernel, key, value, core.last_seen_sn) {
+        Ok(claims_kernel.AlreadyClaimed(current_value)) ->
+          Ok(ClaimAlreadyClaimed(current_value))
+        Ok(claims_kernel.Submitted(kernel, op)) -> {
+          let #(core, attach_outbound) = attach_dependencies(core, value)
+          let #(core, _events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.ClaimsState(kernel),
+              [],
+              channel.ClaimsOp(op),
+              channel.NoMeta,
+            )
+          Ok(ClaimPending(
+            core: core,
+            outbound: list.append(attach_outbound, outbound),
+            immediate_outcome: None,
+          ))
+        }
+        Error(claims_kernel.AlreadyPendingLocally(_)) ->
+          Ok(ClaimAlreadyPendingLocally)
+        Error(claims_kernel.UnexpectedAck(_, detail))
+        | Error(claims_kernel.UnexpectedRollback(_, detail)) ->
+          Error(AckMismatch(detail))
+      }
+  }
+}
+
+pub fn compare_and_set_claim(
+  core: Core,
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(ClaimSubmitResult, CoreError) {
+  case locate_claims(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let kernel = claims_kernel.set_detached(kernel, key, value)
+      let core =
+        put_detached_channel(core, address, channel.ClaimsState(kernel))
+      Ok(ClaimPending(
+        core: core,
+        outbound: [],
+        immediate_outcome: Some(claims_kernel.Accepted(value)),
+      ))
+    }
+    Ok(Attached(kernel)) ->
+      case
+        claims_kernel.compare_and_set_claim(
+          kernel,
+          key,
+          value,
+          core.last_seen_sn,
+        )
+      {
+        Ok(claims_kernel.Submitted(kernel, op)) -> {
+          let #(core, attach_outbound) = attach_dependencies(core, value)
+          let #(core, _events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.ClaimsState(kernel),
+              [],
+              channel.ClaimsOp(op),
+              channel.NoMeta,
+            )
+          Ok(ClaimPending(
+            core: core,
+            outbound: list.append(attach_outbound, outbound),
+            immediate_outcome: None,
+          ))
+        }
+        Ok(claims_kernel.AlreadyClaimed(current_value)) ->
+          Ok(ClaimAlreadyClaimed(current_value))
+        Error(claims_kernel.AlreadyPendingLocally(_)) ->
+          Ok(ClaimAlreadyPendingLocally)
+        Error(claims_kernel.UnexpectedAck(_, detail))
+        | Error(claims_kernel.UnexpectedRollback(_, detail)) ->
+          Error(AckMismatch(detail))
+      }
+  }
+}
+
 /// Where an edit's target channel lives, holding the type-checked kernel.
 type Located(kernel) {
   Detached(kernel)
@@ -1028,6 +1188,23 @@ fn locate_register_collection(
       Error(WrongChannelType(
         address,
         expected: channel.RegisterCollectionChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_claims(
+  core: Core,
+  address: String,
+) -> Result(Located(claims_kernel.ClaimsState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.ClaimsState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.ClaimsState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.ClaimsChannel,
         actual: channel.channel_type(other),
       ))
   }
@@ -1186,6 +1363,16 @@ fn tag_events(
   list.map(events, fn(event) { #(address, event) })
 }
 
+fn tag_resolution(
+  address: String,
+  resolution: Option(Resolution),
+) -> List(#(String, Resolution)) {
+  case resolution {
+    Some(resolution) -> [#(address, resolution)]
+    None -> []
+  }
+}
+
 fn tag_map_events(
   address: String,
   events: List(map_kernel.MapEvent),
@@ -1319,6 +1506,20 @@ pub fn register_keys(core: Core, address: String) -> List(String) {
     Some(channel.RegisterCollectionState(kernel)) ->
       register_collection_kernel.keys(kernel)
     _ -> []
+  }
+}
+
+pub fn get_claim(core: Core, address: String, key: String) -> Option(Json) {
+  case find_channel(core, address) {
+    Some(channel.ClaimsState(kernel)) -> claims_kernel.get(kernel, key)
+    _ -> None
+  }
+}
+
+pub fn has_claim(core: Core, address: String, key: String) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.ClaimsState(kernel)) -> claims_kernel.has(kernel, key)
+    _ -> False
   }
 }
 

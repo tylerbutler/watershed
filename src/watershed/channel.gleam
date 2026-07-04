@@ -15,9 +15,11 @@
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 
 import lattice_core/replica_id
 import lattice_maps/or_map.{type ORMap}
+import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
@@ -32,6 +34,7 @@ pub type ChannelType {
   CounterChannel
   OrMapChannel
   RegisterCollectionChannel
+  ClaimsChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -41,6 +44,7 @@ pub type ChannelInit {
   InitCounter
   InitOrMap(mode: or_map_kernel.OrMapMode)
   InitRegisterCollection
+  InitClaims
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -49,6 +53,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     CounterChannel -> wire.channel_type_counter
     OrMapChannel -> wire.channel_type_or_map
     RegisterCollectionChannel -> wire.channel_type_register_collection
+    ClaimsChannel -> wire.channel_type_claims
   }
 }
 
@@ -59,6 +64,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ if raw == wire.channel_type_register_collection ->
       Ok(RegisterCollectionChannel)
+    _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
     _ -> Error(Nil)
   }
 }
@@ -69,6 +75,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitCounter -> CounterChannel
     InitOrMap(_) -> OrMapChannel
     InitRegisterCollection -> RegisterCollectionChannel
+    InitClaims -> ClaimsChannel
   }
 }
 
@@ -78,6 +85,7 @@ pub type ChannelState {
   CounterState(counter_kernel.CounterState)
   OrMapState(or_map_kernel.OrMapState)
   RegisterCollectionState(register_collection_kernel.RegisterState)
+  ClaimsState(claims_kernel.ClaimsState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -87,6 +95,7 @@ pub type ChannelOp {
   CounterOp(counter_kernel.CounterOp)
   OrMapOp(or_map_kernel.OrMapOp)
   RegisterCollectionOp(register_collection_kernel.WriteOp)
+  ClaimsOp(claims_kernel.ClaimOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -95,6 +104,7 @@ pub type ChannelEvent {
   CounterEvent(counter_kernel.CounterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
   RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
+  ClaimsEvent(claims_kernel.ClaimEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -106,6 +116,11 @@ pub type Snapshot {
   RegisterCollectionSnapshot(
     registers: List(#(String, register_collection_kernel.Register)),
   )
+  ClaimsSnapshot(entries: List(#(String, Json, Int)))
+}
+
+pub type Resolution {
+  ClaimResolved(key: String, outcome: claims_kernel.ClaimOutcome)
 }
 
 /// Per-kernel *local* metadata an in-flight op carries alongside the wire
@@ -141,6 +156,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     CounterState(_) -> CounterChannel
     OrMapState(_) -> OrMapChannel
     RegisterCollectionState(_) -> RegisterCollectionChannel
+    ClaimsState(_) -> ClaimsChannel
   }
 }
 
@@ -150,6 +166,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     CounterSnapshot(_) -> CounterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
     RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
+    ClaimsSnapshot(_) -> ClaimsChannel
   }
 }
 
@@ -166,6 +183,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
       OrMapState(or_map_kernel.new(replica_id.new(replica), mode))
     InitRegisterCollection ->
       RegisterCollectionState(register_collection_kernel.new())
+    InitClaims -> ClaimsState(claims_kernel.new())
   }
 }
 
@@ -185,6 +203,7 @@ pub fn from_snapshot(
     }
     RegisterCollectionSnapshot(registers) ->
       RegisterCollectionState(register_collection_kernel.from_summary(registers))
+    ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
   }
 }
 
@@ -198,6 +217,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
       RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
         kernel,
       ))
+    ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
   }
 }
 
@@ -221,6 +241,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
       RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
         kernel,
       ))
+    ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
   }
 }
 
@@ -270,6 +291,10 @@ pub fn apply_remote(
         list.map(events, RegisterCollectionEvent),
       ))
     }
+    ClaimsState(kernel), ClaimsOp(op) -> {
+      let #(kernel, events) = claims_kernel.apply_remote(kernel, op, meta.seq)
+      Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent)))
+    }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -280,11 +305,14 @@ pub fn ack_local(
   op: ChannelOp,
   local: LocalOpMeta,
   meta: SequencedMeta,
-) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
+) -> Result(
+  #(ChannelState, List(ChannelEvent), Option(Resolution)),
+  ChannelError,
+) {
   case state, op {
     MapState(kernel), MapOp(op) ->
       case map_kernel.ack_local(kernel, op) {
-        Ok(kernel) -> Ok(#(MapState(kernel), []))
+        Ok(kernel) -> Ok(#(MapState(kernel), [], None))
         Error(map_kernel.UnexpectedAck(_, detail)) ->
           Error(UnexpectedAck(detail))
       }
@@ -294,7 +322,7 @@ pub fn ack_local(
           case
             counter_kernel.ack_local_with_message_id(kernel, op, message_id)
           {
-            Ok(kernel) -> Ok(#(CounterState(kernel), []))
+            Ok(kernel) -> Ok(#(CounterState(kernel), [], None))
             Error(counter_kernel.UnexpectedAck(_, detail))
             | Error(counter_kernel.UnexpectedRollback(_, detail)) ->
               Error(UnexpectedAck(detail))
@@ -307,7 +335,7 @@ pub fn ack_local(
       case local {
         OrMapMeta(message_id) ->
           case or_map_kernel.ack_local_with_message_id(kernel, op, message_id) {
-            Ok(kernel) -> Ok(#(OrMapState(kernel), []))
+            Ok(kernel) -> Ok(#(OrMapState(kernel), [], None))
             Error(or_map_kernel.UnexpectedAck(detail))
             | Error(or_map_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
@@ -324,8 +352,22 @@ pub fn ack_local(
       Ok(#(
         RegisterCollectionState(kernel),
         list.map(events, RegisterCollectionEvent),
+        None,
       ))
     }
+    ClaimsState(kernel), ClaimsOp(op) ->
+      case claims_kernel.ack_local(kernel, op, meta.seq) {
+        Ok(#(kernel, events, outcome)) ->
+          Ok(#(
+            ClaimsState(kernel),
+            list.map(events, ClaimsEvent),
+            Some(ClaimResolved(op.key, outcome)),
+          ))
+        Error(claims_kernel.UnexpectedAck(_, detail))
+        | Error(claims_kernel.UnexpectedRollback(_, detail))
+        | Error(claims_kernel.AlreadyPendingLocally(detail)) ->
+          Error(UnexpectedAck(detail))
+      }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -349,6 +391,10 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     -> ours == echoed
     OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
     RegisterCollectionOp(ours), RegisterCollectionOp(echoed) ->
+      ours.key == echoed.key
+      && ours.value == echoed.value
+      && ours.ref_seq == echoed.ref_seq
+    ClaimsOp(ours), ClaimsOp(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
       && ours.ref_seq == echoed.ref_seq
@@ -394,6 +440,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
       our_mode == echoed_mode && ours == echoed
     RegisterCollectionSnapshot(ours), RegisterCollectionSnapshot(echoed) ->
       ours == echoed
+    ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
     _, _ -> False
   }
 }
@@ -462,6 +509,16 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
         },
       )
       |> list.unique
+    ClaimsState(kernel) ->
+      list.append(
+        claims_kernel.summary_entries(kernel)
+          |> list.flat_map(fn(entry) {
+            handle.collect_handle_addresses(entry.1)
+          }),
+        claims_kernel.pending_values(kernel)
+          |> list.flat_map(handle.collect_handle_addresses),
+      )
+      |> list.unique
   }
 }
 
@@ -473,6 +530,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     CounterSnapshot(value) -> json.int(value)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
     RegisterCollectionSnapshot(registers) -> encode_registers(registers)
+    ClaimsSnapshot(entries) -> encode_claims(entries)
   }
 }
 
@@ -486,6 +544,8 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     RegisterCollectionChannel ->
       decode.list(register_entry_decoder())
       |> decode.map(RegisterCollectionSnapshot)
+    ClaimsChannel ->
+      decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot)
   }
 }
 
@@ -500,6 +560,24 @@ fn encode_registers(
       #("versions", json.array(versions, encode_versioned)),
     ])
   })
+}
+
+fn encode_claims(entries: List(#(String, Json, Int))) -> Json {
+  json.array(entries, fn(entry) {
+    let #(key, value, sequence_number) = entry
+    json.object([
+      #("key", json.string(key)),
+      #("value", value),
+      #("sequenceNumber", json.int(sequence_number)),
+    ])
+  })
+}
+
+fn claim_entry_decoder() -> Decoder(#(String, Json, Int)) {
+  use key <- decode.field("key", decode.string)
+  use value <- decode.field("value", wire.json_value_decoder())
+  use sequence_number <- decode.field("sequenceNumber", decode.int)
+  decode.success(#(key, value, sequence_number))
 }
 
 fn encode_versioned(
