@@ -42,7 +42,9 @@ pub fn object_insert_test() {
 }
 
 pub fn object_delete_test() {
-  apply_ok(parse("{\"x\":\"a\"}"), [json_ot.obj_delete([Key("x")], VString("a"))])
+  apply_ok(parse("{\"x\":\"a\"}"), [
+    json_ot.obj_delete([Key("x")], VString("a")),
+  ])
   |> expect.to_equal(parse("{}"))
 }
 
@@ -63,17 +65,23 @@ pub fn nested_object_edit_test() {
 // ── list ────────────────────────────────────────────────────────────────────
 
 pub fn list_insert_front_test() {
-  apply_ok(parse("[\"b\",\"c\"]"), [json_ot.list_insert([Index(0)], VString("a"))])
+  apply_ok(parse("[\"b\",\"c\"]"), [
+    json_ot.list_insert([Index(0)], VString("a")),
+  ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
 pub fn list_insert_middle_test() {
-  apply_ok(parse("[\"a\",\"c\"]"), [json_ot.list_insert([Index(1)], VString("b"))])
+  apply_ok(parse("[\"a\",\"c\"]"), [
+    json_ot.list_insert([Index(1)], VString("b")),
+  ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
 pub fn list_insert_end_test() {
-  apply_ok(parse("[\"a\",\"b\"]"), [json_ot.list_insert([Index(2)], VString("c"))])
+  apply_ok(parse("[\"a\",\"b\"]"), [
+    json_ot.list_insert([Index(2)], VString("c")),
+  ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
@@ -111,10 +119,11 @@ pub fn multi_component_op_test() {
 
 pub fn object_keys_are_sorted_test() {
   // Insertion order differs from sorted order; equality must be canonical.
-  let a = apply_ok(parse("{}"), [
-    json_ot.obj_insert([Key("z")], VNumber(NInt(1))),
-    json_ot.obj_insert([Key("a")], VNumber(NInt(2))),
-  ])
+  let a =
+    apply_ok(parse("{}"), [
+      json_ot.obj_insert([Key("z")], VNumber(NInt(1))),
+      json_ot.obj_insert([Key("a")], VNumber(NInt(2))),
+    ])
   let assert VObject([#("a", _), #("z", _)]) = a
   Nil
 }
