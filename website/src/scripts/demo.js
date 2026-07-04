@@ -1,22 +1,24 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// kernel states — `map_kernel`, `counter_kernel`, `pn_counter_kernel`,
-// `or_map_kernel`, `claims_kernel`, and `register_collection_kernel`, the same pure Gleam modules the BEAM runtime uses,
-// compiled with `gleam build --target javascript` — and talk through a tiny
-// in-page sequencer that stamps sequence numbers (SNs) and broadcasts in
-// order, the same protocol shape as a Fluid-compatible service. All structures ride
-// the one op stream, like DDSes sharing a container; the picker only changes
-// which replica view is shown.
+// state — map/PN/OR-map/claims/register kernels plus the runtime counter
+// channel, compiled with `gleam build --target javascript` — and talk through
+// a tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
+// in order, the same protocol shape as a Fluid-compatible service. All
+// structures ride the one op stream, like DDSes sharing a container; the
+// picker only changes which replica view is shown.
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
-import * as counterKernel from "../../../build/dev/javascript/watershed/watershed/counter_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
+import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
+import * as runtimeCore from "../../../build/dev/javascript/watershed/watershed/runtime_core.mjs";
 import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
+import * as decode from "../../../build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
 import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
 import * as replicaId from "../../../build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
+import { None, Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
 
 const GAUGES = ["mill-race", "kettle-run", "low-ford"];
@@ -26,6 +28,7 @@ const INITIAL = [
   ["low-ford", 42],
 ];
 const COUNTER_BASE = 120;
+const COUNTER_ADDRESS = "sandbags-counter";
 // The PN counter baseline: 74 yd³ of fill placed, 30 yd³ cut — net +44.
 // Built as a real CRDT summary under a "survey" replica id, then loaded per
 // client via `from_summary`, the same path a reconnecting client takes.
@@ -84,6 +87,51 @@ function registersBaseline() {
       ["north-bench", new registerKernel.Register(version, toList([version]))],
     ]),
   );
+}
+
+function toDynamic(value) {
+  const parsed = json.parse(json.to_string(value), decode.dynamic);
+  if (!parsed.isOk()) throw new Error("failed to convert JSON to Dynamic");
+  return parsed[0];
+}
+
+function bootstrapCounterCore(clientId) {
+  const summary = new runtimeCore.Summary(
+    0,
+    toList([[COUNTER_ADDRESS, new channel.CounterSnapshot(COUNTER_BASE)]]),
+  );
+  const connected = {
+    client_id: `demo-client-${clientId}`,
+    initial_messages: toList([]),
+    checkpoint_sequence_number: new Some(0),
+  };
+  const bootstrapped = runtimeCore.bootstrap(connected, new Some(summary));
+  if (!bootstrapped.isOk()) throw new Error("counter runtime bootstrap failed");
+  const outcome = bootstrapped[0];
+  if (!(outcome instanceof runtimeCore.Complete)) {
+    throw new Error("counter runtime bootstrap requested catch-up unexpectedly");
+  }
+  return {
+    clientId: connected.client_id,
+    core: outcome.core,
+  };
+}
+
+function counterPending(client) {
+  let count = 0;
+  let delta = 0;
+  for (const entry of client.counterCore.in_flight.toArray()) {
+    if (entry.address !== COUNTER_ADDRESS) continue;
+    if (!(entry.op instanceof channel.CounterOp)) continue;
+    count += 1;
+    delta += entry.op[0].increment_amount;
+  }
+  return { count, delta };
+}
+
+function counterValue(client) {
+  const value = runtimeCore.counter_value(client.counterCore, COUNTER_ADDRESS);
+  return value instanceof Some ? value[0] : COUNTER_BASE;
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -208,10 +256,12 @@ export function initDemo() {
     if (!orMapLoaded.isOk()) {
       throw new Error("or-map baseline summary failed to load");
     }
+    const counterChannel = bootstrapCounterCore(id);
     clients[id] = {
       id,
       map: mapKernel.from_sequenced(initial),
-      counter: counterKernel.from_summary(COUNTER_BASE),
+      counterClientId: counterChannel.clientId,
+      counterCore: counterChannel.core,
       pn: pnLoaded[0],
       ormap: orMapLoaded[0],
       claims: claimsBaseline(),
@@ -250,14 +300,13 @@ export function initDemo() {
   }
 
   function renderCounter(client) {
-    const pending = client.counter.pending.toArray();
+    const pending = counterPending(client);
     const valueEl = client.el.querySelector("[data-counter-value]");
-    valueEl.textContent = String(client.counter.value);
-    valueEl.classList.toggle("pending", pending.length > 0);
-    const deltaSum = pending.reduce((sum, p) => sum + p.increment_amount, 0);
+    valueEl.textContent = String(counterValue(client));
+    valueEl.classList.toggle("pending", pending.count > 0);
     const deltaEl = client.el.querySelector("[data-counter-delta]");
     deltaEl.textContent =
-      pending.length > 0 ? `Δ ${signed(deltaSum)} unsequenced` : "";
+      pending.count > 0 ? `Δ ${signed(pending.delta)} unsequenced` : "";
   }
 
   function renderPn(client) {
@@ -368,6 +417,8 @@ export function initDemo() {
     const count =
       activeDds === "claims"
         ? gdict.size(client.claims.pending)
+        : activeDds === "counter"
+          ? counterPending(client).count
         : activeDds === "registers"
           ? registerPending[client.id].size
         : activeDds === "ormap"
@@ -393,7 +444,7 @@ export function initDemo() {
     let total = 0;
     for (const client of Object.values(clients)) {
       total += client.map.pending.toArray().length;
-      total += client.counter.pending.toArray().length;
+      total += counterPending(client).count;
       total += client.pn.pending.toArray().length;
       total += client.ormap.pending.toArray().length;
       total += gdict.size(client.claims.pending);
@@ -408,7 +459,7 @@ export function initDemo() {
       const same =
         JSON.stringify(mapSnapshot(clients.a.map)) ===
           JSON.stringify(mapSnapshot(clients.b.map)) &&
-        clients.a.counter.value === clients.b.counter.value &&
+        counterValue(clients.a) === counterValue(clients.b) &&
         pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
         JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
           JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
@@ -580,14 +631,25 @@ export function initDemo() {
         target.registers = next;
       }
     } else {
-      if (target.id === originId) {
-        const result = counterKernel.ack_local(target.counter, op);
-        if (result.isOk()) target.counter = result[0];
-        else console.error("unexpected ack", result[0]);
-      } else {
-        const [next] = counterKernel.apply_remote(target.counter, op);
-        target.counter = next;
-      }
+      const origin = clients[originId];
+      const { outbound, contents } = op;
+      const result = runtimeCore.handle_sequenced(target.counterCore, {
+        client_id: new Some(origin.counterClientId),
+        sequence_number: seq,
+        minimum_sequence_number: 0,
+        client_sequence_number: outbound.client_sequence_number,
+        reference_sequence_number: outbound.reference_sequence_number,
+        message_type: outbound.op_type,
+        contents,
+        metadata: outbound.metadata,
+        server_metadata: new None(),
+        origin: new None(),
+        traces: new None(),
+        timestamp: 0,
+        data: new None(),
+      });
+      if (result.isOk()) target.counterCore = result[0][0];
+      else console.error("unexpected counter channel ingest failure", result[0]);
     }
   }
 
@@ -624,7 +686,12 @@ export function initDemo() {
       }
       sn += 1;
       const stamped = sn;
-      logOp(stamped, originId, ddsId, op);
+      logOp(
+        stamped,
+        originId,
+        ddsId,
+        ddsId === "counter" ? { increment_amount: op.amount } : op,
+      );
       if (ddsId === "pn") {
         lastPn = { op, sn: stamped };
         replayBtn.disabled = false;
@@ -670,10 +737,24 @@ export function initDemo() {
 
   function localIncrement(clientId, amount) {
     const client = clients[clientId];
-    const [next, _events, op] = counterKernel.increment(client.counter, amount);
-    client.counter = next;
+    const result = runtimeCore.increment(client.counterCore, COUNTER_ADDRESS, amount);
+    if (!result.isOk()) {
+      console.error("unexpected counter channel increment refusal", result[0]);
+      return;
+    }
+    const [next, _events, outbound] = result[0];
+    const [outboundOp] = outbound.toArray();
+    if (outboundOp === undefined) {
+      console.error("counter channel increment produced no outbound op");
+      return;
+    }
+    client.counterCore = next;
     render(client);
-    submit(clientId, "counter", op);
+    submit(clientId, "counter", {
+      amount,
+      outbound: outboundOp,
+      contents: toDynamic(outboundOp.contents),
+    });
   }
 
   function localPnUpdate(clientId, amount) {
@@ -1018,7 +1099,7 @@ export function initDemo() {
     } else {
       // A counter has no "set" — the reset is itself an increment that
       // compensates for the drift.
-      const drift = clients.a.counter.value - COUNTER_BASE;
+      const drift = counterValue(clients.a) - COUNTER_BASE;
       if (drift !== 0) localIncrement("a", -drift);
     }
   });

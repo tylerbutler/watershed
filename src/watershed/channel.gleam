@@ -5,10 +5,12 @@
 //// The runtime routes everything through these sums instead of naming a
 //// kernel directly, so onboarding a kernel is: add a variant to each sum
 //// here, then follow the compiler to every dispatch site. The compiler
-//// can't point at the non-type sites — the op codec in `wire/ops`, the
-//// summary payload codec here (`encode_snapshot`/`snapshot_decoder`), the
-//// actor verbs in `runtime`/`runtime_js`, and the fuzz model — those need
-//// a manual pass.
+//// can't point at the non-type sites. Adding a kernel checklist:
+//// - `wire/ops`: add the channel-op wire codec.
+//// - `channel`: extend summary payload encode/decode
+////   (`encode_snapshot`/`snapshot_decoder`).
+//// - `runtime` and `runtime_js`: add actor/runtime verbs for edits + reads.
+//// - fuzz model: extend generators/oracles for the new channel behavior.
 ////
 //// Kernels stay pure and runtime-unaware; this module only wraps them.
 

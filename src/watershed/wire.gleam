@@ -1,11 +1,12 @@
-//// Shared primitives for levee's document-channel payloads.
+//// Shared primitives for watershed's Fluid-compatible document-channel
+//// payloads.
 ////
 //// Types are reused from `spillway/types` and `spillway/message` so the
 //// client and server can't drift; watershed only owns the JSON codecs.
 //// Those live in submodules, split by vocabulary:
 ////
 //// - `wire/socket` — connection-level frames and spillway envelope codecs
-//// - `wire/ops` — op contents: map ops, attach envelopes, summarize ops
+//// - `wire/ops` — op contents: channel ops, attach envelopes, summarize ops
 //// - `wire/summary_blob` — the versioned summary storage format
 ////
 //// This module holds only what those vocabularies share.
@@ -31,6 +32,7 @@ pub type OutboundOp {
 
 /// Wire names for the channel types watershed speaks (the attach envelope's
 /// and summary blob's `channelType`/`type` fields).
+/// The map tag is one variant in that multi-channel set.
 pub const channel_type_map = "map"
 
 pub const channel_type_counter = "counter"

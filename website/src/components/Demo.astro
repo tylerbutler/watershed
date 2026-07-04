@@ -35,12 +35,11 @@ const pnFillSteps = [2, 6];
     <h2 id="demo-title">Photorevision, live</h2>
     <p>
       On a photorevised survey sheet, magenta marks updates not yet
-      field-checked. The demos below borrow that convention: local edits appear
-      instantly in <strong class="k-pending">magenta</strong>, then set in
-      <strong class="k-seq">ink</strong> when a Fluid-compatible server assigns
-      a sequence number. Both clients run the real Gleam kernels — maps,
-      counters, PN counters, OR-maps, claims, and register collections —
-      compiled to JavaScript and sharing one ordered stream.
+      field-checked. This demo borrows that color code: pending edits are drawn
+      in <strong class="k-pending">magenta</strong> and sequenced state in
+      <strong class="k-seq">ink</strong>. Both clients run watershed’s real
+      Gleam code in one ordered stream — map/PN/OR-map/claims/register kernels
+      plus the runtime counter channel.
     </p>
     <p class="demo-hint">
       Nudge the gauges, tally the sandbags, balance the earthwork, strike a
@@ -434,18 +433,18 @@ const pnFillSteps = [2, 6];
   <noscript>
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
-      <code>map_kernel</code>, <code>counter_kernel</code>,
-      <code>pn_counter_kernel</code>, <code>or_map_kernel</code>,
-      <code>claims_kernel</code>, and
+      <code>runtime_core</code> counter channel plus
+      <code>map_kernel</code>, <code>pn_counter_kernel</code>,
+      <code>or_map_kernel</code>, <code>claims_kernel</code>, and
       <code>register_collection_kernel</code> in your browser. The rest of the
       page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-demo-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s actual kernels as
-    compiled JavaScript modules, and this browser didn’t load them. The rest
-    of the page works fine without it.
+    The live demo couldn’t start — it runs watershed’s runtime counter channel
+    and kernels as compiled JavaScript modules, and this browser didn’t load
+    them. The rest of the page works fine without it.
   </p>
 </section>
 

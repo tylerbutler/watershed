@@ -3,8 +3,9 @@
 //// Owns the client half of spillway's sequencing discipline: CSN strictly
 //// increasing per connection, RSN = last seen sequence number, dedupe by SN,
 //// FIFO ack matching, and optimistic local state for attached and detached
-//// channels. Kernel state, ops, and events flow through the closed sums in
-//// `watershed/channel`; the sequencing discipline itself is kernel-agnostic.
+//// channels. Kernel state, ops, and events (map/counter/OR-map/registers/
+//// claims) flow through the closed sums in `watershed/channel`; the
+//// sequencing discipline itself is kernel-agnostic.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
