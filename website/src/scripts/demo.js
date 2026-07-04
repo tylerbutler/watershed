@@ -19,6 +19,7 @@ import * as pactKernel from "../../../build/dev/javascript/watershed/watershed/p
 import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
 import * as runtimeCore from "../../../build/dev/javascript/watershed/watershed/runtime_core.mjs";
 import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
+import * as gset from "../../../build/dev/javascript/gleam_stdlib/gleam/set.mjs";
 import * as decode from "../../../build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
 import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
@@ -664,7 +665,7 @@ export function initDemo() {
   }
 
   function twoPSetTombstones(state) {
-    return new Set(state.optimistic.removed.toArray());
+    return new Set(gset.to_list(state.optimistic.removed).toArray());
   }
 
   function pendingTwoPSetElements(state) {
@@ -1066,7 +1067,7 @@ export function initDemo() {
   function twoPSetSnapshot(state) {
     return [
       twoPSetKernel.sequenced_values(state).toArray(),
-      state.sequenced.removed.toArray(),
+      gset.to_list(state.sequenced.removed).toArray(),
     ];
   }
 
