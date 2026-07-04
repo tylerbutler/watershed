@@ -275,6 +275,7 @@ export function initDemo() {
   let activeDds = "map";
   let latency = Number(latencyInput.value);
   let sn = 0;
+  let counterSn = 0;
   let inFlight = 0;
   let seqLastArrival = 0; // FIFO into the sequencer too
   let hasInteracted = false;
@@ -562,7 +563,7 @@ export function initDemo() {
 
   // ── protocol: client → sequencer → broadcast ──────────────────────────────
 
-  function deliver(target, originId, ddsId, op, seq) {
+  function deliver(target, originId, ddsId, op, seq, counterSeq = seq) {
     // Every op advances the container SN on every replica — all structures
     // ride the one stream. Claims file their `ref_seq` against this.
     target.lastSeq = seq;
@@ -635,7 +636,7 @@ export function initDemo() {
       const { outbound, contents } = op;
       const result = runtimeCore.handle_sequenced(target.counterCore, {
         client_id: new Some(origin.counterClientId),
-        sequence_number: seq,
+        sequence_number: counterSeq,
         minimum_sequence_number: 0,
         client_sequence_number: outbound.client_sequence_number,
         reference_sequence_number: outbound.reference_sequence_number,
@@ -686,6 +687,7 @@ export function initDemo() {
       }
       sn += 1;
       const stamped = sn;
+      const stampedCounter = ddsId === "counter" ? ++counterSn : null;
       logOp(
         stamped,
         originId,
@@ -715,7 +717,7 @@ export function initDemo() {
             renderStatus();
             return;
           }
-          deliver(target, originId, ddsId, op, stamped);
+          deliver(target, originId, ddsId, op, stamped, stampedCounter ?? stamped);
           inFlight -= 1;
           render(target);
           renderStatus();
