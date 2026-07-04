@@ -29,14 +29,13 @@ const pnFillSteps = [2, 6];
   <div class="demo-head">
     <h2 id="demo-title">Photorevision, live</h2>
     <p>
-      On a photorevised survey sheet, magenta marks updates that haven’t been
-      field-checked yet. watershed prints its state the same way: a local edit
-      applies instantly and shows <strong class="k-pending">magenta</strong> while
-      it is pending, then sets in <strong class="k-seq">ink</strong> once the
-      server assigns it a sequence number. The two clients below run the real
-      watershed kernels — maps, counters, PN counters, OR-maps, and claims —
-      the same Gleam modules the BEAM runtime uses, compiled to JavaScript and
-      riding one sequencer on this page.
+      On a photorevised survey sheet, magenta marks updates not yet
+      field-checked. The demos below borrow that convention: local edits appear
+      instantly in <strong class="k-pending">magenta</strong>, then set in
+      <strong class="k-seq">ink</strong> when a Fluid-compatible server assigns
+      a sequence number. Both clients run the real Gleam kernels — maps,
+      counters, PN counters, OR-maps, and claims — compiled to JavaScript and
+      sharing one ordered stream.
     </p>
     <p class="demo-hint">
       Nudge the gauges, tally the sandbags, balance the earthwork, strike a

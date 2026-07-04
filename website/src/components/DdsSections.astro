@@ -5,7 +5,7 @@ const structures = [
     module: "map_kernel",
     terrain: "river gauges",
     rule: "server-sequenced last write wins per key",
-    pending: "optimistic value overprints in magenta until the sequencer stamps it",
+    pending: "local writes can render optimistically until the sequencer stamps them",
     summary: "JSON entries reload with the same keys the Fluid wire op names",
   },
   {
@@ -13,7 +13,7 @@ const structures = [
     module: "counter_kernel",
     terrain: "sandbag tally",
     rule: "increments commute, so concurrent adds converge on the sum",
-    pending: "local deltas print beside the committed value",
+    pending: "local deltas can be shown beside the committed value",
     summary: "a scalar summary is enough because every op is additive",
   },
   {
@@ -29,7 +29,7 @@ const structures = [
     module: "or_map_kernel",
     terrain: "stockpile ledger",
     rule: "observed-remove with add-wins delivery under concurrent strike",
-    pending: "struck rows stay readable until the op is ordered",
+    pending: "struck rows can stay readable until the op is ordered",
     summary: "entries retain their causal dots, not just their visible value",
   },
   {
@@ -37,7 +37,7 @@ const structures = [
     module: "claims_kernel",
     terrain: "duty stations",
     rule: "first writer wins against the sequenced holder and reference SN",
-    pending: "reads stay non-optimistic; only the filed claim note is magenta",
+    pending: "reads stay non-optimistic until the filed claim resolves",
     summary: "holder values reload with their sequence numbers intact",
   },
 ];
@@ -53,7 +53,7 @@ const flow = [
     step: "2",
     title: "Sequence",
     detail:
-      "levee orders the Fluid Framework-shaped op stream and broadcasts one SN to every replica.",
+      "A Fluid-compatible server like levee orders the op stream and broadcasts one SN to every replica.",
   },
   {
     step: "3",
@@ -73,11 +73,11 @@ const flow = [
 <section class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
-      <h2 id="dds-field-title">Five DDS field sheets, one sequenced river</h2>
+      <h2 id="dds-field-title">Five DDS field sheets, one ordered stream</h2>
       <p>
         watershed does not hide every conflict behind the same merge story. Each
-        DDS has a small, explicit rule: what may be shown optimistically, what
-        must wait for the sequencer, and what shape can be persisted in a
+        DDS has a small, explicit rule: what can be applied optimistically, what
+        must wait for sequencing, and what shape can be persisted in a
         summary.
       </p>
     </div>
@@ -99,7 +99,7 @@ const flow = [
                 <dd>{dds.rule}</dd>
               </div>
               <div>
-                <dt>Pending mark</dt>
+                <dt>Optimistic behavior</dt>
                 <dd>{dds.pending}</dd>
               </div>
               <div>
