@@ -21,15 +21,19 @@ import gleam/option.{type Option, None, Some}
 
 import lattice_core/replica_id
 import lattice_maps/or_map.{type ORMap}
+import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
+import lattice_sets/two_p_set.{type TwoPSet}
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/g_set_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/register_collection_kernel
 import watershed/task_manager_kernel
+import watershed/two_p_set_kernel
 import watershed/wire
 
 /// The kinds of channel a document can host. Maps to/from the wire's
@@ -39,6 +43,8 @@ pub type ChannelType {
   CounterChannel
   OrMapChannel
   OrSetChannel
+  GSetChannel
+  TwoPSetChannel
   RegisterCollectionChannel
   ClaimsChannel
   TaskManagerChannel
@@ -51,6 +57,8 @@ pub type ChannelInit {
   InitCounter
   InitOrMap(mode: or_map_kernel.OrMapMode)
   InitOrSet
+  InitGSet
+  InitTwoPSet
   InitRegisterCollection
   InitClaims
   InitTaskManager
@@ -62,6 +70,8 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     CounterChannel -> wire.channel_type_counter
     OrMapChannel -> wire.channel_type_or_map
     OrSetChannel -> wire.channel_type_or_set
+    GSetChannel -> wire.channel_type_g_set
+    TwoPSetChannel -> wire.channel_type_two_p_set
     RegisterCollectionChannel -> wire.channel_type_register_collection
     ClaimsChannel -> wire.channel_type_claims
     TaskManagerChannel -> wire.channel_type_task_manager
@@ -74,6 +84,8 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ if raw == wire.channel_type_or_set -> Ok(OrSetChannel)
+    _ if raw == wire.channel_type_g_set -> Ok(GSetChannel)
+    _ if raw == wire.channel_type_two_p_set -> Ok(TwoPSetChannel)
     _ if raw == wire.channel_type_register_collection ->
       Ok(RegisterCollectionChannel)
     _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
@@ -88,6 +100,8 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitCounter -> CounterChannel
     InitOrMap(_) -> OrMapChannel
     InitOrSet -> OrSetChannel
+    InitGSet -> GSetChannel
+    InitTwoPSet -> TwoPSetChannel
     InitRegisterCollection -> RegisterCollectionChannel
     InitClaims -> ClaimsChannel
     InitTaskManager -> TaskManagerChannel
@@ -100,6 +114,8 @@ pub type ChannelState {
   CounterState(counter_kernel.CounterState)
   OrMapState(or_map_kernel.OrMapState)
   OrSetState(or_set_kernel.OrSetState)
+  GSetState(g_set_kernel.GSetState)
+  TwoPSetState(two_p_set_kernel.TwoPSetState)
   RegisterCollectionState(register_collection_kernel.RegisterState)
   ClaimsState(claims_kernel.ClaimsState)
   TaskManagerState(task_manager_kernel.TaskManagerState)
@@ -112,6 +128,8 @@ pub type ChannelOp {
   CounterOp(counter_kernel.CounterOp)
   OrMapOp(or_map_kernel.OrMapOp)
   OrSetOp(or_set_kernel.OrSetOp)
+  GSetOp(g_set_kernel.GSetOp)
+  TwoPSetOp(two_p_set_kernel.TwoPSetOp)
   RegisterCollectionOp(register_collection_kernel.WriteOp)
   ClaimsOp(claims_kernel.ClaimOp)
   TaskManagerOp(task_manager_kernel.TaskManagerOp)
@@ -123,6 +141,8 @@ pub type ChannelEvent {
   CounterEvent(counter_kernel.CounterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
   OrSetEvent(or_set_kernel.OrSetEvent)
+  GSetEvent(g_set_kernel.GSetEvent)
+  TwoPSetEvent(two_p_set_kernel.TwoPSetEvent)
   RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
   ClaimsEvent(claims_kernel.ClaimEvent)
   TaskManagerEvent(task_manager_kernel.TaskManagerEvent)
@@ -135,6 +155,8 @@ pub type Snapshot {
   CounterSnapshot(value: Int)
   OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
   OrSetSnapshot(state: ORSet(String))
+  GSetSnapshot(state: GSet(String))
+  TwoPSetSnapshot(state: TwoPSet(String))
   RegisterCollectionSnapshot(
     registers: List(#(String, register_collection_kernel.Register)),
   )
@@ -154,6 +176,8 @@ pub type LocalOpMeta {
   CounterMeta(message_id: Int)
   OrMapMeta(message_id: Int)
   OrSetMeta(message_id: Int)
+  GSetMeta(message_id: Int)
+  TwoPSetMeta(message_id: Int)
   TaskManagerMeta(message_id: Int)
 }
 
@@ -187,6 +211,8 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     CounterState(_) -> CounterChannel
     OrMapState(_) -> OrMapChannel
     OrSetState(_) -> OrSetChannel
+    GSetState(_) -> GSetChannel
+    TwoPSetState(_) -> TwoPSetChannel
     RegisterCollectionState(_) -> RegisterCollectionChannel
     ClaimsState(_) -> ClaimsChannel
     TaskManagerState(_) -> TaskManagerChannel
@@ -199,6 +225,8 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     CounterSnapshot(_) -> CounterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
     OrSetSnapshot(_) -> OrSetChannel
+    GSetSnapshot(_) -> GSetChannel
+    TwoPSetSnapshot(_) -> TwoPSetChannel
     RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
     ClaimsSnapshot(_) -> ClaimsChannel
     TaskManagerSnapshot(_) -> TaskManagerChannel
@@ -217,6 +245,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitOrMap(mode) ->
       OrMapState(or_map_kernel.new(replica_id.new(replica), mode))
     InitOrSet -> OrSetState(or_set_kernel.new(replica_id.new(replica)))
+    InitGSet -> GSetState(g_set_kernel.new())
+    InitTwoPSet -> TwoPSetState(two_p_set_kernel.new())
     InitRegisterCollection ->
       RegisterCollectionState(register_collection_kernel.new())
     InitClaims -> ClaimsState(claims_kernel.new())
@@ -240,6 +270,9 @@ pub fn from_snapshot(
     }
     OrSetSnapshot(state) ->
       OrSetState(or_set_kernel.from_sequenced(state, replica_id.new(replica)))
+    GSetSnapshot(state) -> GSetState(g_set_kernel.from_sequenced(state))
+    TwoPSetSnapshot(state) ->
+      TwoPSetState(two_p_set_kernel.from_sequenced(state))
     RegisterCollectionSnapshot(registers) ->
       RegisterCollectionState(register_collection_kernel.from_summary(registers))
     ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
@@ -255,6 +288,8 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
     OrSetState(kernel) -> OrSetSnapshot(kernel.sequenced)
+    GSetState(kernel) -> GSetSnapshot(kernel.sequenced)
+    TwoPSetState(kernel) -> TwoPSetSnapshot(kernel.sequenced)
     RegisterCollectionState(kernel) ->
       RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
         kernel,
@@ -282,6 +317,8 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     CounterState(kernel) -> CounterSnapshot(kernel.value)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
     OrSetState(kernel) -> OrSetSnapshot(kernel.optimistic)
+    GSetState(kernel) -> GSetSnapshot(kernel.optimistic)
+    TwoPSetState(kernel) -> TwoPSetSnapshot(kernel.optimistic)
     RegisterCollectionState(kernel) ->
       RegisterCollectionSnapshot(register_collection_kernel.summary_registers(
         kernel,
@@ -299,6 +336,9 @@ pub fn attach_state(
   case state {
     OrMapState(kernel) -> OrMapState(or_map_kernel.promote_attach(kernel))
     OrSetState(kernel) -> OrSetState(or_set_kernel.promote_attach(kernel))
+    GSetState(kernel) -> GSetState(g_set_kernel.promote_attach(kernel))
+    TwoPSetState(kernel) ->
+      TwoPSetState(two_p_set_kernel.promote_attach(kernel))
     RegisterCollectionState(_) ->
       from_snapshot(attach_snapshot(state), replica:)
     _ -> from_snapshot(attach_snapshot(state), replica: replica)
@@ -334,6 +374,14 @@ pub fn apply_remote(
     OrSetState(kernel), OrSetOp(op) -> {
       let #(kernel, events) = or_set_kernel.apply_remote(kernel, op)
       Ok(#(OrSetState(kernel), list.map(events, OrSetEvent)))
+    }
+    GSetState(kernel), GSetOp(op) -> {
+      let #(kernel, events) = g_set_kernel.apply_remote(kernel, op)
+      Ok(#(GSetState(kernel), list.map(events, GSetEvent)))
+    }
+    TwoPSetState(kernel), TwoPSetOp(op) -> {
+      let #(kernel, events) = two_p_set_kernel.apply_remote(kernel, op)
+      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent)))
     }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
       let #(kernel, events) =
@@ -388,6 +436,9 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack is missing its local message id"))
         OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
         OrSetMeta(_) -> Error(UnexpectedAck("counter ack has or-set metadata"))
+        GSetMeta(_) -> Error(UnexpectedAck("counter ack has g-set metadata"))
+        TwoPSetMeta(_) ->
+          Error(UnexpectedAck("counter ack has two-p-set metadata"))
         TaskManagerMeta(_) ->
           Error(UnexpectedAck("counter ack has task-manager metadata"))
       }
@@ -406,6 +457,9 @@ pub fn ack_local(
         NoMeta | CounterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
         OrSetMeta(_) -> Error(UnexpectedAck("or-map ack has or-set metadata"))
+        GSetMeta(_) -> Error(UnexpectedAck("or-map ack has g-set metadata"))
+        TwoPSetMeta(_) ->
+          Error(UnexpectedAck("or-map ack has two-p-set metadata"))
         TaskManagerMeta(_) ->
           Error(UnexpectedAck("or-map ack has task-manager metadata"))
       }
@@ -418,8 +472,49 @@ pub fn ack_local(
             | Error(or_set_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
           }
-        NoMeta | CounterMeta(_) | OrMapMeta(_) | TaskManagerMeta(_) ->
+        NoMeta
+        | CounterMeta(_)
+        | OrMapMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
+      }
+    GSetState(kernel), GSetOp(op) ->
+      case local {
+        GSetMeta(message_id) ->
+          case g_set_kernel.ack_local_with_message_id(kernel, op, message_id) {
+            Ok(kernel) -> Ok(#(GSetState(kernel), [], None))
+            Error(g_set_kernel.UnexpectedAck(detail))
+            | Error(g_set_kernel.UnexpectedRollback(detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        NoMeta
+        | CounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_) ->
+          Error(UnexpectedAck("g-set ack is missing its local message id"))
+      }
+    TwoPSetState(kernel), TwoPSetOp(op) ->
+      case local {
+        TwoPSetMeta(message_id) ->
+          case
+            two_p_set_kernel.ack_local_with_message_id(kernel, op, message_id)
+          {
+            Ok(kernel) -> Ok(#(TwoPSetState(kernel), [], None))
+            Error(two_p_set_kernel.UnexpectedAck(detail))
+            | Error(two_p_set_kernel.UnexpectedRollback(detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        NoMeta
+        | CounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TaskManagerMeta(_) ->
+          Error(UnexpectedAck("two-p-set ack is missing its local message id"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
       let #(kernel, events, _is_winner) =
@@ -495,6 +590,8 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     -> ours == echoed
     OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
     OrSetOp(ours), OrSetOp(echoed) -> same_or_set_shape(ours, echoed)
+    GSetOp(ours), GSetOp(echoed) -> same_g_set_shape(ours, echoed)
+    TwoPSetOp(ours), TwoPSetOp(echoed) -> same_two_p_set_shape(ours, echoed)
     RegisterCollectionOp(ours), RegisterCollectionOp(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
@@ -551,6 +648,31 @@ fn same_or_set_shape(
   }
 }
 
+fn same_g_set_shape(
+  ours: g_set_kernel.GSetOp,
+  echoed: g_set_kernel.GSetOp,
+) -> Bool {
+  case ours, echoed {
+    g_set_kernel.Add(our_element, _), g_set_kernel.Add(echoed_element, _) ->
+      our_element == echoed_element
+  }
+}
+
+fn same_two_p_set_shape(
+  ours: two_p_set_kernel.TwoPSetOp,
+  echoed: two_p_set_kernel.TwoPSetOp,
+) -> Bool {
+  case ours, echoed {
+    two_p_set_kernel.Add(our_element, _),
+      two_p_set_kernel.Add(echoed_element, _)
+    -> our_element == echoed_element
+    two_p_set_kernel.Remove(our_element, _),
+      two_p_set_kernel.Remove(echoed_element, _)
+    -> our_element == echoed_element
+    _, _ -> False
+  }
+}
+
 fn same_task_manager_shape(
   ours: task_manager_kernel.TaskManagerOp,
   echoed: task_manager_kernel.TaskManagerOp,
@@ -578,6 +700,8 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
       our_mode == echoed_mode && ours == echoed
     OrSetSnapshot(ours), OrSetSnapshot(echoed) -> ours == echoed
+    GSetSnapshot(ours), GSetSnapshot(echoed) -> ours == echoed
+    TwoPSetSnapshot(ours), TwoPSetSnapshot(echoed) -> ours == echoed
     RegisterCollectionSnapshot(ours), RegisterCollectionSnapshot(echoed) ->
       ours == echoed
     ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
@@ -638,6 +762,8 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
           |> list.unique
       }
     OrSetState(_) -> []
+    GSetState(_) -> []
+    TwoPSetState(_) -> []
     RegisterCollectionState(kernel) ->
       list.flat_map(
         register_collection_kernel.summary_registers(kernel),
@@ -673,6 +799,8 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     CounterSnapshot(value) -> json.int(value)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
     OrSetSnapshot(state) -> or_set.to_json(state)
+    GSetSnapshot(state) -> g_set.to_json(state)
+    TwoPSetSnapshot(state) -> two_p_set.to_json(state)
     RegisterCollectionSnapshot(registers) -> encode_registers(registers)
     ClaimsSnapshot(entries) -> encode_claims(entries)
     TaskManagerSnapshot(queues) -> encode_task_queues(queues)
@@ -687,6 +815,8 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     CounterChannel -> decode.int |> decode.map(CounterSnapshot)
     OrMapChannel -> or_map_snapshot_decoder()
     OrSetChannel -> or_set_snapshot_decoder()
+    GSetChannel -> g_set_snapshot_decoder()
+    TwoPSetChannel -> two_p_set_snapshot_decoder()
     RegisterCollectionChannel ->
       decode.list(register_entry_decoder())
       |> decode.map(RegisterCollectionSnapshot)
@@ -794,5 +924,23 @@ fn or_set_snapshot_decoder() -> Decoder(Snapshot) {
   case or_set.from_json(encoded) {
     Ok(state) -> decode.success(OrSetSnapshot(state))
     Error(_) -> decode.failure(MapSnapshot([]), "ORSetSnapshot")
+  }
+}
+
+fn g_set_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case g_set.from_json(encoded) {
+    Ok(state) -> decode.success(GSetSnapshot(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "GSetSnapshot")
+  }
+}
+
+fn two_p_set_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case two_p_set.from_json(encoded) {
+    Ok(state) -> decode.success(TwoPSetSnapshot(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "TwoPSetSnapshot")
   }
 }

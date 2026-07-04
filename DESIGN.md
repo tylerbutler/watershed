@@ -82,24 +82,26 @@ sections themselves get plain headings — no per-section eyebrows.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.
 - The demo imports the real compiled kernels from
-  `../../../build/dev/javascript/watershed/watershed/{map_kernel,pn_counter_kernel,or_map_kernel,or_set_kernel,claims_kernel,register_collection_kernel,ordered_collection_kernel,pact_map_kernel}.mjs`
+  `../../../build/dev/javascript/watershed/watershed/{map_kernel,pn_counter_kernel,or_map_kernel,or_set_kernel,g_set_kernel,two_p_set_kernel,claims_kernel,register_collection_kernel,ordered_collection_kernel,pact_map_kernel}.mjs`
   plus the runtime counter channel and lattice modules
   (`lattice_counters/{pn_counter,g_counter}`, `lattice_core/replica_id`)
   (`gleam build --target javascript` runs via `predev`/`prebuild`).
-- The demo hosts all nine DDS/CRDT sheets on one sequencer/SN stream, like DDSes
+- The demo hosts all twelve DDS/CRDT sheets on one sequencer/SN stream, like DDSes
   sharing a container. A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below
   640px) swaps the replica view between the shared map (gauge table), the
-  shared counter, the PN counter, the OR-map stockpile ledger, OR-set markers,
-  claims, registers, ordered collection, and pact map; all kernels stay live
+  shared counter, the G-counter inspection tally, the PN counter, the OR-map
+  stockpile ledger, OR-set markers, G-set permanent benchmarks, 2P-set retired markers, claims, registers,
+  ordered collection, TaskManager, and pact map; all kernels stay live
   regardless of which is shown. Counter-family pending state is a *delta*,
   annotated in magenta beside the value
   (`Δ +8 unsequenced`). The race button relabels per structure — map races
   show last-write-wins, counter races converge on the sum, PN races converge
-  on fill − cut, OR-map/OR-set races show add-wins observed-remove, claims
-  races resolve first-writer-wins, register races preserve LWW versions,
-  ordered races give the first acquire the queued item, and pact races accept
-  the first quorum proposal — and counter/PN/OR-map reset is compensating CRDT
+  on fill − cut, OR-map/OR-set races   show add-wins observed-remove, G-counter races show per-replica max merge, G-set races
+  show grow-only union, 2P-set races show permanent tombstone wins, claims races resolve first-writer-wins, register races
+  preserve LWW versions, ordered races give the first acquire the queued item,
+  TaskManager races assign then queue volunteers, and pact races accept the
+  first quorum proposal — and counter/PN/OR-map reset is compensating CRDT
   growth rather than an overwrite.
 - The PN counter is framed as an **earthwork balance** (cut & fill, yd³):
   the CRDT's two monotone tallies print as a `fill Σ / cut Σ` ledger under
@@ -112,6 +114,10 @@ sections themselves get plain headings — no per-section eyebrows.
   with no new SN, the merge absorbs it, and the op log prints the duplicate
   as an italic muted non-event (`#04 again cut −5 yd³ · absorbed`) —
   idempotency witnessed live, which the op-based counter could not survive.
+- The G-counter is framed as an **inspection tally**:
+  each client owns one monotone count (`A Σ` / `B Σ`) and the total is their
+  sum. Increment controls only add; the race files independent A/B increments,
+  and duplicate replay shows pairwise-max merge absorbing a re-delivered delta.
 - The OR-map is framed as a **stockpile & borrow-pit ledger**:
   `spoil-north`, `borrow-pit-7`, and `wash-fill` rows carry signed yd³
   tallies. Striking a row hides it with muted strikethrough linework; re-open
@@ -119,6 +125,12 @@ sections themselves get plain headings — no per-section eyebrows.
   the add-wins proof: A strikes an observed pile while B logs a concurrent
   delivery, and the row survives with every logged yard. OR-map mode also
   shares the duplicate-delta replay affordance with PN mode.
+- The 2P-set is framed as a **retired marker ledger**:
+  `stake-3`, `gate-pin`, and `silt-flag` rows print active, unplaced, or
+  retired state. Retire is irreversible: the race files A retiring `stake-3`
+  while B concurrently re-places it, and the tombstone wins on every replica.
+  Reset tears off a fresh surveyed ledger because no compensating op can shrink
+  a tombstone set.
 - Claims are framed as **duty stations** (`north-levee`, `spillway-gate`,
   `pump-house`) on a claim sheet: first writer wins, write-once
   (`try_set_claim` only — CAS re-claim is an explicit non-goal for the demo).

@@ -1,5 +1,5 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// state — map/PN/OR-map/OR-set/claims/register kernels plus the runtime counter
+// state — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register kernels plus the runtime counter
 // channel, compiled with `gleam build --target javascript` — and talk through
 // a tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
 // in order, the same protocol shape as a Fluid-compatible service. All
@@ -9,6 +9,8 @@ import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/ma
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
+import * as gSetKernel from "../../../build/dev/javascript/watershed/watershed/g_set_kernel.mjs";
+import * as twoPSetKernel from "../../../build/dev/javascript/watershed/watershed/two_p_set_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
 import * as orderedKernel from "../../../build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
@@ -33,6 +35,8 @@ const INITIAL = [
 ];
 const COUNTER_BASE = 120;
 const COUNTER_ADDRESS = "sandbags-counter";
+const GCOUNTER_BASE = 18;
+const GCOUNTER_BASE_BY_REPLICA = { a: 9, b: 9 };
 // The PN counter baseline: 74 yd³ of fill placed, 30 yd³ cut — net +44.
 // Built as a real CRDT summary under a "survey" replica id, then loaded per
 // client via `from_summary`, the same path a reconnecting client takes.
@@ -47,12 +51,38 @@ const ORMAP_BASELINE = [
 ];
 const MARKERS = ["north-stake", "sluice-tag", "borrow-flag"];
 const ORSET_BASELINE = ["north-stake", "sluice-tag"];
+const BENCHMARKS = ["BM-17", "BM-22", "BM-31"];
+const GSET_BASELINE = ["BM-17"];
+const RETIRED_MARKERS = ["stake-3", "gate-pin", "silt-flag"];
+const TWO_P_SET_ACTIVE_BASELINE = ["stake-3"];
+const TWO_P_SET_RETIRED_BASELINE = ["silt-flag"];
 
 function pnBaselineSummary() {
   let base = pnLattice.new$(replicaId.new$("survey-baseline"));
   base = pnLattice.increment(base, PN_FILL_BASE);
   base = pnLattice.decrement(base, PN_CUT_BASE);
   return json.to_string(pnLattice.to_json(base));
+}
+
+function gCounterBaselineSummary() {
+  let base = gCounter.new$(replicaId.new$("survey-baseline"));
+  for (const [id, amount] of Object.entries(GCOUNTER_BASE_BY_REPLICA)) {
+    const replica = gCounter.new$(replicaId.new$(`client-${id}`));
+    const delta = gCounter.increment(replica, amount);
+    base = gCounter.merge(base, delta);
+  }
+  return json.to_string(gCounter.to_json(base));
+}
+
+function gCounterStateFromSummary(summary, clientId) {
+  const parsed = gCounter.from_json(summary);
+  if (!parsed.isOk()) throw new Error("G-counter baseline summary failed to load");
+  const sequenced = gCounter.merge(gCounter.new$(replicaId.new$(`client-${clientId}`)), parsed[0]);
+  return { sequenced, optimistic: sequenced, pending: [], nextMessageId: 0 };
+}
+
+function gCounterReplayPending(sequenced, pending) {
+  return pending.reduce((acc, item) => gCounter.merge(acc, item.delta), sequenced);
 }
 
 function orMapBaselineSummary() {
@@ -80,6 +110,38 @@ function orSetBaselineSummary() {
     base = acked[0];
   }
   return json.to_string(orSetKernel.summary(base));
+}
+
+function gSetBaselineSummary() {
+  let base = gSetKernel.new$();
+  for (const element of GSET_BASELINE) {
+    const [next, _events, op] = gSetKernel.add(base, element);
+    const acked = gSetKernel.ack_local(next, op);
+    if (!acked.isOk()) throw new Error("g-set baseline ack failed");
+    base = acked[0];
+  }
+  return json.to_string(gSetKernel.summary(base));
+}
+
+function twoPSetBaselineSummary() {
+  let base = twoPSetKernel.new$();
+  for (const element of TWO_P_SET_ACTIVE_BASELINE) {
+    const [next, _events, op] = twoPSetKernel.add(base, element);
+    const acked = twoPSetKernel.ack_local(next, op);
+    if (!acked.isOk()) throw new Error("2P-set baseline add ack failed");
+    base = acked[0];
+  }
+  for (const element of TWO_P_SET_RETIRED_BASELINE) {
+    let result = twoPSetKernel.add(base, element);
+    let acked = twoPSetKernel.ack_local(result[0], result[2]);
+    if (!acked.isOk()) throw new Error("2P-set retired add ack failed");
+    base = acked[0];
+    result = twoPSetKernel.remove(base, element);
+    acked = twoPSetKernel.ack_local(result[0], result[2]);
+    if (!acked.isOk()) throw new Error("2P-set retired remove ack failed");
+    base = acked[0];
+  }
+  return json.to_string(twoPSetKernel.summary(base));
 }
 
 // The claims baseline: three duty stations, one already claimed by the
@@ -240,6 +302,7 @@ function signed(n) {
 
 function describeOp(ddsId, op) {
   if (ddsId === "counter") return `inc ${signed(op.increment_amount)}`;
+  if (ddsId === "gcounter") return `inspect +${op.amount}`;
   if (ddsId === "pn") {
     return op.amount >= 0
       ? `fill +${op.amount} yd³`
@@ -257,6 +320,11 @@ function describeOp(ddsId, op) {
   if (ddsId === "orset") {
     if (op instanceof orSetKernel.Add) return `mark ${op.element}`;
     return `clear ${op.element}`;
+  }
+  if (ddsId === "gset") return `record ${op.element}`;
+  if (ddsId === "twopset") {
+    if (op instanceof twoPSetKernel.Add) return `place ${op.element}`;
+    return `retire ${op.element}`;
   }
   if (ddsId === "claims") {
     // The op carries the ref SN it was filed against — printing it shows
@@ -321,9 +389,12 @@ export function initDemo() {
   replayBtn.disabled = true;
 
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
+  const gCounterBaseline = gCounterBaselineSummary();
   const pnBaseline = pnBaselineSummary();
   const orMapBaseline = orMapBaselineSummary();
   const orSetBaseline = orSetBaselineSummary();
+  const gSetBaseline = gSetBaselineSummary();
+  const twoPSetBaseline = twoPSetBaselineSummary();
 
   const clients = {};
   for (const id of ["a", "b"]) {
@@ -348,15 +419,26 @@ export function initDemo() {
     if (!orSetLoaded.isOk()) {
       throw new Error("or-set baseline summary failed to load");
     }
+    const gSetLoaded = gSetKernel.from_summary(gSetBaseline);
+    if (!gSetLoaded.isOk()) {
+      throw new Error("g-set baseline summary failed to load");
+    }
+    const twoPSetLoaded = twoPSetKernel.from_summary(twoPSetBaseline);
+    if (!twoPSetLoaded.isOk()) {
+      throw new Error("2P-set baseline summary failed to load");
+    }
     const counterChannel = bootstrapCounterCore(id);
     clients[id] = {
       id,
       map: mapKernel.from_sequenced(initial),
+      gcounter: gCounterStateFromSummary(gCounterBaseline, id),
       counterClientId: counterChannel.clientId,
       counterCore: counterChannel.core,
       pn: pnLoaded[0],
       ormap: orMapLoaded[0],
       orset: orSetLoaded[0],
+      gset: gSetLoaded[0],
+      twopset: twoPSetLoaded[0],
       claims: claimsBaseline(),
       registers: registersBaseline(),
       ordered: orderedBaseline(),
@@ -376,9 +458,13 @@ export function initDemo() {
   let seqLastArrival = 0; // FIFO into the sequencer too
   let hasInteracted = false;
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
+  let lastGCounter = null; // the most recently *sequenced* G-counter delta
   let lastOrMap = null; // the most recently *sequenced* OR-map op
   let lastOrSet = null; // the most recently *sequenced* OR-set op
+  let lastGSet = null; // the most recently *sequenced* G-set op
+  let lastTwoPSet = null; // the most recently *sequenced* 2P-set op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
+  let twoPSetEpoch = 0; // 2P-set reset reloads because tombstones cannot shrink
   let registersEpoch = 0; // same guard for out-of-band register-sheet reset
   let orderedEpoch = 0; // ordered-collection resets also drop in-flight ops
   let taskEpoch = 0; // task-manager resets drop outstanding queue ops
@@ -416,6 +502,41 @@ export function initDemo() {
     const deltaEl = client.el.querySelector("[data-counter-delta]");
     deltaEl.textContent =
       pending.count > 0 ? `Δ ${signed(pending.delta)} unsequenced` : "";
+  }
+
+  function gCounterPendingTotal(state) {
+    return state.pending.reduce((sum, item) => sum + item.amount, 0);
+  }
+
+  function gCounterCounts(state) {
+    const [counts] = gCounter.to_parts(state.optimistic);
+    return {
+      a: gdict.get(counts, replicaId.new$("client-a")),
+      b: gdict.get(counts, replicaId.new$("client-b")),
+    };
+  }
+
+  function readCount(result) {
+    return result.isOk() ? result[0] : 0;
+  }
+
+  function renderGCounter(client) {
+    const pending = client.gcounter.pending;
+    const valueEl = client.el.querySelector("[data-gcounter-value]");
+    valueEl.textContent = String(gCounter.value(client.gcounter.optimistic));
+    valueEl.classList.toggle("pending", pending.length > 0);
+    const deltaEl = client.el.querySelector("[data-gcounter-delta]");
+    deltaEl.textContent =
+      pending.length > 0
+        ? `Δ +${gCounterPendingTotal(client.gcounter)} unsequenced`
+        : "";
+    const counts = gCounterCounts(client.gcounter);
+    client.el.querySelector("[data-gcounter-a]").textContent = String(
+      readCount(counts.a),
+    );
+    client.el.querySelector("[data-gcounter-b]").textContent = String(
+      readCount(counts.b),
+    );
   }
 
   function renderPn(client) {
@@ -502,6 +623,98 @@ export function initDemo() {
         : present
           ? "live tag observed"
           : "no live tags";
+    }
+  }
+
+  function gSetValues(state) {
+    return new Set(gSetKernel.values(state).toArray());
+  }
+
+  function pendingGSetElements(state) {
+    const elements = new Set();
+    for (const pending of state.pending.toArray()) {
+      elements.add(pending.op.element);
+    }
+    return elements;
+  }
+
+  function renderGSet(client) {
+    const values = gSetValues(client.gset);
+    const pending = pendingGSetElements(client.gset);
+    for (const element of BENCHMARKS) {
+      const row = client.el.querySelector(`.dds-gset tr[data-key="${element}"]`);
+      const recorded = values.has(element);
+      row.classList.toggle("absent", !recorded);
+      row.classList.toggle("pending", pending.has(element));
+      row.querySelector("[data-gset-value]").textContent = recorded
+        ? "recorded"
+        : "unrecorded";
+      row.querySelector("[data-gset-note]").textContent = pending.has(element)
+        ? "unsequenced permanent fact"
+        : recorded
+          ? "in the registry"
+          : "not yet observed";
+      row.querySelector("[data-gset-add]").disabled =
+        recorded || pending.has(element);
+    }
+  }
+
+  function twoPSetValues(state) {
+    return new Set(twoPSetKernel.values(state).toArray());
+  }
+
+  function twoPSetTombstones(state) {
+    return new Set(state.optimistic.removed.toArray());
+  }
+
+  function pendingTwoPSetElements(state) {
+    const pending = new Map();
+    for (const entry of state.pending.toArray()) {
+      pending.set(
+        entry.op.element,
+        entry.op instanceof twoPSetKernel.Remove ? "retire" : "place",
+      );
+    }
+    return pending;
+  }
+
+  function renderTwoPSet(client) {
+    const values = twoPSetValues(client.twopset);
+    const tombstones = twoPSetTombstones(client.twopset);
+    const pending = pendingTwoPSetElements(client.twopset);
+    for (const element of RETIRED_MARKERS) {
+      const row = client.el.querySelector(
+        `.dds-twopset tr[data-key="${element}"]`,
+      );
+      const active = values.has(element);
+      const retired = tombstones.has(element);
+      const pendingKind = pending.get(element);
+      row.classList.toggle("absent", !active && !retired);
+      row.classList.toggle("retired", retired);
+      row.classList.toggle("pending", pending.has(element));
+      row.querySelector("[data-twopset-value]").textContent = retired
+        ? "retired"
+        : active
+          ? "active"
+          : "unplaced";
+      row.querySelector("[data-twopset-note]").textContent = pendingKind
+        ? `unsequenced ${pendingKind}`
+        : retired
+          ? "tombstone wins"
+          : active
+          ? "active marker"
+          : "not placed";
+      row.querySelector("[data-twopset-add]").disabled =
+        active || pending.has(element);
+      row.querySelector("[data-twopset-add]").textContent = retired
+        ? "Try place"
+        : "Place";
+      row.querySelector("[data-twopset-add]").setAttribute(
+        "aria-label",
+        `${retired ? "Try to re-place retired marker" : "Place marker"} ${element} on ${client.id.toUpperCase()}`,
+      );
+      row.querySelector("[data-twopset-remove]").disabled =
+        retired || pendingKind === "retire";
     }
   }
 
@@ -723,8 +936,14 @@ export function initDemo() {
           ? taskPendingKeys(client.taskmanager).size
         : activeDds === "pact"
           ? pactPending[client.id].size
+        : activeDds === "gcounter"
+          ? client.gcounter.pending.length
         : activeDds === "orset"
           ? client.orset.pending.toArray().length
+        : activeDds === "gset"
+          ? client.gset.pending.toArray().length
+        : activeDds === "twopset"
+          ? client.twopset.pending.toArray().length
         : activeDds === "ormap"
           ? client.ormap.pending.toArray().length
         : client[activeDds].pending.toArray().length;
@@ -737,9 +956,12 @@ export function initDemo() {
   function render(client) {
     renderMap(client);
     renderCounter(client);
+    renderGCounter(client);
     renderPn(client);
     renderOrMap(client);
     renderOrSet(client);
+    renderGSet(client);
+    renderTwoPSet(client);
     renderClaims(client);
     renderRegisters(client);
     renderOrdered(client);
@@ -753,9 +975,12 @@ export function initDemo() {
     for (const client of Object.values(clients)) {
       total += client.map.pending.toArray().length;
       total += counterPending(client).count;
+      total += client.gcounter.pending.length;
       total += client.pn.pending.toArray().length;
       total += client.ormap.pending.toArray().length;
       total += client.orset.pending.toArray().length;
+      total += client.gset.pending.toArray().length;
+      total += client.twopset.pending.toArray().length;
       total += gdict.size(client.claims.pending);
       total += registerPending[client.id].size;
       total += orderedPending[client.id].size;
@@ -772,11 +997,17 @@ export function initDemo() {
         JSON.stringify(mapSnapshot(clients.a.map)) ===
           JSON.stringify(mapSnapshot(clients.b.map)) &&
         counterValue(clients.a) === counterValue(clients.b) &&
+        JSON.stringify(gCounterSnapshot(clients.a.gcounter)) ===
+          JSON.stringify(gCounterSnapshot(clients.b.gcounter)) &&
         pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
         JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
           JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
         JSON.stringify(orSetSnapshot(clients.a.orset)) ===
           JSON.stringify(orSetSnapshot(clients.b.orset)) &&
+        JSON.stringify(gSetSnapshot(clients.a.gset)) ===
+          JSON.stringify(gSetSnapshot(clients.b.gset)) &&
+        JSON.stringify(twoPSetSnapshot(clients.a.twopset)) ===
+          JSON.stringify(twoPSetSnapshot(clients.b.twopset)) &&
         JSON.stringify(claimsSnapshot(clients.a.claims)) ===
           JSON.stringify(claimsSnapshot(clients.b.claims)) &&
         JSON.stringify(registerSnapshot(clients.a.registers)) ===
@@ -802,6 +1033,14 @@ export function initDemo() {
       .map(([k, v]) => [k, json.to_string(v)]);
   }
 
+  function gCounterSnapshot(state) {
+    const [counts] = gCounter.to_parts(state.sequenced);
+    return [
+      readCount(gdict.get(counts, replicaId.new$("client-a"))),
+      readCount(gdict.get(counts, replicaId.new$("client-b"))),
+    ];
+  }
+
   function claimsSnapshot(state) {
     return claimsKernel
       .summary_entries(state)
@@ -818,6 +1057,17 @@ export function initDemo() {
 
   function orSetSnapshot(state) {
     return orSetKernel.sequenced_values(state).toArray();
+  }
+
+  function gSetSnapshot(state) {
+    return gSetKernel.sequenced_values(state).toArray();
+  }
+
+  function twoPSetSnapshot(state) {
+    return [
+      twoPSetKernel.sequenced_values(state).toArray(),
+      state.sequenced.removed.toArray(),
+    ];
   }
 
   function registerSnapshot(state) {
@@ -948,6 +1198,18 @@ export function initDemo() {
         const [next] = pnKernel.apply_remote(target.pn, op);
         target.pn = next;
       }
+    } else if (ddsId === "gcounter") {
+      const sequenced = gCounter.merge(target.gcounter.sequenced, op.delta);
+      const pending =
+        target.id === originId
+          ? target.gcounter.pending.filter((item) => item.messageId !== op.messageId)
+          : target.gcounter.pending;
+      target.gcounter = {
+        ...target.gcounter,
+        sequenced,
+        optimistic: gCounterReplayPending(sequenced, pending),
+        pending,
+      };
     } else if (ddsId === "ormap") {
       if (target.id === originId) {
         const result = orMapKernel.ack_local(target.ormap, op);
@@ -966,6 +1228,24 @@ export function initDemo() {
       } else {
         const [next] = orSetKernel.apply_remote(target.orset, op);
         target.orset = next;
+      }
+    } else if (ddsId === "gset") {
+      if (target.id === originId) {
+        const result = gSetKernel.ack_local(target.gset, op);
+        if (result.isOk()) target.gset = result[0];
+        else console.error("unexpected G-set ack", result[0]);
+      } else {
+        const [next] = gSetKernel.apply_remote(target.gset, op);
+        target.gset = next;
+      }
+    } else if (ddsId === "twopset") {
+      if (target.id === originId) {
+        const result = twoPSetKernel.ack_local(target.twopset, op);
+        if (result.isOk()) target.twopset = result[0];
+        else console.error("unexpected 2P-set ack", result[0]);
+      } else {
+        const [next] = twoPSetKernel.apply_remote(target.twopset, op);
+        target.twopset = next;
       }
     } else if (ddsId === "claims") {
       if (target.id === originId) {
@@ -1142,6 +1422,8 @@ export function initDemo() {
     const epoch =
       ddsId === "claims"
         ? claimsEpoch
+        : ddsId === "twopset"
+          ? twoPSetEpoch
         : ddsId === "registers"
           ? registersEpoch
         : ddsId === "ordered"
@@ -1164,6 +1446,7 @@ export function initDemo() {
     setTimeout(() => {
       if (
         (ddsId === "claims" && epoch !== claimsEpoch) ||
+        (ddsId === "twopset" && epoch !== twoPSetEpoch) ||
         (ddsId === "registers" && epoch !== registersEpoch) ||
         (ddsId === "ordered" && epoch !== orderedEpoch) ||
         (ddsId === "tasks" && epoch !== taskEpoch) ||
@@ -1185,11 +1468,20 @@ export function initDemo() {
       if (ddsId === "pn") {
         lastPn = { op, sn: stamped };
         replayBtn.disabled = false;
+      } else if (ddsId === "gcounter") {
+        lastGCounter = { op, sn: stamped };
+        replayBtn.disabled = false;
       } else if (ddsId === "ormap") {
         lastOrMap = { op, sn: stamped };
         replayBtn.disabled = false;
       } else if (ddsId === "orset") {
         lastOrSet = { op, sn: stamped };
+        replayBtn.disabled = false;
+      } else if (ddsId === "gset") {
+        lastGSet = { op, sn: stamped };
+        replayBtn.disabled = false;
+      } else if (ddsId === "twopset") {
+        lastTwoPSet = { op, sn: stamped };
         replayBtn.disabled = false;
       }
 
@@ -1202,6 +1494,7 @@ export function initDemo() {
         setTimeout(() => {
           if (
             (ddsId === "claims" && epoch !== claimsEpoch) ||
+            (ddsId === "twopset" && epoch !== twoPSetEpoch) ||
             (ddsId === "registers" && epoch !== registersEpoch) ||
             (ddsId === "ordered" && epoch !== orderedEpoch) ||
             (ddsId === "tasks" && epoch !== taskEpoch) ||
@@ -1253,6 +1546,23 @@ export function initDemo() {
     });
   }
 
+  function localGCounterIncrement(clientId, amount) {
+    const client = clients[clientId];
+    const [optimistic, delta] = gCounter.increment_with_delta(
+      client.gcounter.optimistic,
+      amount,
+    );
+    const messageId = client.gcounter.nextMessageId;
+    client.gcounter = {
+      ...client.gcounter,
+      optimistic,
+      pending: [...client.gcounter.pending, { delta, amount, messageId }],
+      nextMessageId: messageId + 1,
+    };
+    render(client);
+    submit(clientId, "gcounter", { delta, amount, messageId });
+  }
+
   function localPnUpdate(clientId, amount) {
     const client = clients[clientId];
     // `update` also returns the local message id; the demo's sequencer acks
@@ -1298,6 +1608,30 @@ export function initDemo() {
     client.orset = next;
     render(client);
     submit(clientId, "orset", op);
+  }
+
+  function localGSetAdd(clientId, element) {
+    const client = clients[clientId];
+    const [next, _events, op] = gSetKernel.add(client.gset, element);
+    client.gset = next;
+    render(client);
+    submit(clientId, "gset", op);
+  }
+
+  function localTwoPSetAdd(clientId, element) {
+    const client = clients[clientId];
+    const [next, _events, op] = twoPSetKernel.add(client.twopset, element);
+    client.twopset = next;
+    render(client);
+    submit(clientId, "twopset", op);
+  }
+
+  function localTwoPSetRemove(clientId, element) {
+    const client = clients[clientId];
+    const [next, _events, op] = twoPSetKernel.remove(client.twopset, element);
+    client.twopset = next;
+    render(client);
+    submit(clientId, "twopset", op);
   }
 
   function localClaim(clientId, key) {
@@ -1545,6 +1879,34 @@ export function initDemo() {
     }
   }
 
+  function resetGSet() {
+    const current = gSetValues(clients.a.gset);
+    for (const element of GSET_BASELINE) {
+      if (!current.has(element)) localGSetAdd("a", element);
+    }
+  }
+
+  function resetGCounter() {
+    const drift = gCounter.value(clients.a.gcounter.optimistic) - GCOUNTER_BASE;
+    if (drift < 0) {
+      localGCounterIncrement("a", 0 - drift);
+    }
+  }
+
+  function resetTwoPSet() {
+    twoPSetEpoch += 1;
+    lastTwoPSet = null;
+    const baseline = twoPSetBaselineSummary();
+    for (const client of Object.values(clients)) {
+      const loaded = twoPSetKernel.from_summary(baseline);
+      if (!loaded.isOk()) throw new Error("2P-set reset summary failed to load");
+      client.twopset = loaded[0];
+      render(client);
+    }
+    if (activeDds === "twopset") replayBtn.disabled = true;
+    renderStatus();
+  }
+
   // The sequencer re-sends an already-sequenced delta to every replica. No
   // new SN is stamped — this is duplicate delivery, the failure mode resends
   // and stash replays produce — and the lattice absorbs it: merge is
@@ -1552,7 +1914,17 @@ export function initDemo() {
   function redeliverLastDelta() {
     const ddsId = activeDds;
     const last =
-      ddsId === "ormap" ? lastOrMap : ddsId === "orset" ? lastOrSet : lastPn;
+      ddsId === "ormap"
+        ? lastOrMap
+        : ddsId === "orset"
+          ? lastOrSet
+        : ddsId === "gset"
+          ? lastGSet
+        : ddsId === "gcounter"
+          ? lastGCounter
+        : ddsId === "twopset"
+          ? lastTwoPSet
+          : lastPn;
     const { op, sn: originalSn } = last;
     const li = document.createElement("li");
     li.className = "replay";
@@ -1577,6 +1949,19 @@ export function initDemo() {
         } else if (ddsId === "orset") {
           const [next] = orSetKernel.apply_remote(target.orset, op);
           target.orset = next;
+        } else if (ddsId === "gset") {
+          const [next] = gSetKernel.apply_remote(target.gset, op);
+          target.gset = next;
+        } else if (ddsId === "gcounter") {
+          const sequenced = gCounter.merge(target.gcounter.sequenced, op.delta);
+          target.gcounter = {
+            ...target.gcounter,
+            sequenced,
+            optimistic: gCounterReplayPending(sequenced, target.gcounter.pending),
+          };
+        } else if (ddsId === "twopset") {
+          const [next] = twoPSetKernel.apply_remote(target.twopset, op);
+          target.twopset = next;
         } else {
           const [next] = pnKernel.apply_remote(target.pn, op);
           target.pn = next;
@@ -1605,6 +1990,15 @@ export function initDemo() {
       if (incBtn) {
         hasInteracted = true;
         localIncrement(client.id, Number(incBtn.dataset.inc));
+        return;
+      }
+      const gCounterIncBtn = event.target.closest("button[data-gcounter-inc]");
+      if (gCounterIncBtn) {
+        hasInteracted = true;
+        localGCounterIncrement(
+          client.id,
+          Number(gCounterIncBtn.dataset.gcounterInc),
+        );
         return;
       }
       const pnBtn = event.target.closest("button[data-pn-inc]");
@@ -1714,6 +2108,24 @@ export function initDemo() {
       if (orSetRemoveBtn) {
         hasInteracted = true;
         localOrSetRemove(client.id, orSetRemoveBtn.closest("tr").dataset.key);
+        return;
+      }
+      const gSetAddBtn = event.target.closest("button[data-gset-add]");
+      if (gSetAddBtn) {
+        hasInteracted = true;
+        localGSetAdd(client.id, gSetAddBtn.closest("tr").dataset.key);
+        return;
+      }
+      const twoPSetAddBtn = event.target.closest("button[data-twopset-add]");
+      if (twoPSetAddBtn) {
+        hasInteracted = true;
+        localTwoPSetAdd(client.id, twoPSetAddBtn.closest("tr").dataset.key);
+        return;
+      }
+      const twoPSetRemoveBtn = event.target.closest("button[data-twopset-remove]");
+      if (twoPSetRemoveBtn) {
+        hasInteracted = true;
+        localTwoPSetRemove(client.id, twoPSetRemoveBtn.closest("tr").dataset.key);
       }
     });
   }
@@ -1721,9 +2133,12 @@ export function initDemo() {
   const RACE_LABELS = {
     map: "Race a concurrent write",
     counter: "Race concurrent increments",
+    gcounter: "Race grow-only inspections",
     pn: "Race fill against cut",
     ormap: "Race a strike against a delivery",
     orset: "Race clear against re-mark",
+    gset: "Race two permanent marks",
+    twopset: "Race retire against re-place",
     claims: "Race two claims for one slot",
     registers: "Race two revisions for one register",
     ordered: "Race two acquires for one queued task",
@@ -1733,9 +2148,12 @@ export function initDemo() {
   const RESET_LABELS = {
     map: "Reset all gauges to their surveyed baseline values",
     counter: "Reset the counter to its surveyed baseline value",
+    gcounter: "Ensure the inspection counter is at least its surveyed baseline",
     pn: "Reset the earthwork balance to its surveyed baseline",
     ormap: "Reset the stockpile ledger to its surveyed baseline",
     orset: "Reset the marker roster to its surveyed baseline",
+    gset: "Ensure the permanent benchmark registry includes its surveyed baseline",
+    twopset: "Reload the retired marker ledger from the surveyed tombstone baseline",
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
     registers: "Reload both register collections from the surveyed baseline summary",
     ordered: "Reload both ordered collections from the queued-task baseline summary",
@@ -1753,12 +2171,25 @@ export function initDemo() {
       }
       raceBtn.textContent = RACE_LABELS[activeDds];
       resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
-      replayBtn.hidden = !["pn", "ormap", "orset"].includes(activeDds);
+      replayBtn.hidden = ![
+        "gcounter",
+        "pn",
+        "ormap",
+        "orset",
+        "gset",
+        "twopset",
+      ].includes(activeDds);
       replayBtn.disabled =
-        activeDds === "ormap"
+        activeDds === "gcounter"
+          ? !lastGCounter
+        : activeDds === "ormap"
           ? !lastOrMap
           : activeDds === "orset"
             ? !lastOrSet
+          : activeDds === "gset"
+            ? !lastGSet
+          : activeDds === "twopset"
+            ? !lastTwoPSet
             : !lastPn;
       renderBadge(clients.a);
       renderBadge(clients.b);
@@ -1786,6 +2217,12 @@ export function initDemo() {
       // on the same net balance (+3).
       localPnUpdate("a", 8);
       localPnUpdate("b", -5);
+    } else if (activeDds === "gcounter") {
+      // Each client owns one monotone inspection tally. The join keeps the
+      // maximum observed count for A and B, so both increments survive and
+      // duplicate delivery is harmless.
+      localGCounterIncrement("a", 7);
+      localGCounterIncrement("b", 3);
     } else if (activeDds === "ormap") {
       // A strikes what it has observed while B logs a delivery concurrently.
       // The strike cannot remove B's unseen dot, so the stockpile survives and
@@ -1818,6 +2255,17 @@ export function initDemo() {
       }
       localOrSetRemove("a", key);
       localOrSetAdd("b", key);
+    } else if (activeDds === "gset") {
+      // G-set has no remove and no winner: A and B permanently record different
+      // benchmark IDs, and both IDs remain after the deltas join.
+      localGSetAdd("a", "BM-22");
+      localGSetAdd("b", "BM-31");
+    } else if (activeDds === "twopset") {
+      // A retires an active marker while B concurrently re-places it. The add
+      // is recorded, but the remove tombstone wins forever.
+      resetTwoPSet();
+      localTwoPSetRemove("a", "stake-3");
+      localTwoPSetAdd("b", "stake-3");
     } else if (activeDds === "claims") {
       // Both clients file for the same free slot inside one latency window.
       // FIFO stamping sequences A's claim first, so A wins on every replica;
@@ -1870,6 +2318,9 @@ export function initDemo() {
     if (
       (activeDds === "ormap" && lastOrMap) ||
       (activeDds === "orset" && lastOrSet) ||
+      (activeDds === "gset" && lastGSet) ||
+      (activeDds === "gcounter" && lastGCounter) ||
+      (activeDds === "twopset" && lastTwoPSet) ||
       (activeDds === "pn" && lastPn)
     ) {
       redeliverLastDelta();
@@ -1891,6 +2342,8 @@ export function initDemo() {
       // (or fill) whatever the balance has drifted from baseline.
       const drift = pnKernel.value(clients.a.pn) - PN_BASE;
       if (drift !== 0) localPnUpdate("a", -drift);
+    } else if (activeDds === "gcounter") {
+      resetGCounter();
     } else if (activeDds === "ormap") {
       for (const [key, base] of ORMAP_BASELINE) {
         if (!orMapEntries(clients.a.ormap).has(key)) {
@@ -1902,6 +2355,8 @@ export function initDemo() {
       }
     } else if (activeDds === "claims") {
       resetClaims();
+    } else if (activeDds === "twopset") {
+      resetTwoPSet();
     } else if (activeDds === "registers") {
       resetRegisters();
     } else if (activeDds === "ordered") {
@@ -1912,6 +2367,8 @@ export function initDemo() {
       resetPact();
     } else if (activeDds === "orset") {
       resetOrSet();
+    } else if (activeDds === "gset") {
+      resetGSet();
     } else {
       // A counter has no "set" — the reset is itself an increment that
       // compensates for the drift.

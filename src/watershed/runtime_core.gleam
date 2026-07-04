@@ -26,12 +26,14 @@ import watershed/channel.{
 }
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/g_set_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/register_collection_kernel
 import watershed/task_manager_kernel
+import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -1123,6 +1125,113 @@ pub fn or_set_remove(
   }
 }
 
+pub fn g_set_add(
+  core: Core,
+  address: String,
+  element: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_g_set(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        g_set_kernel.add(kernel, element)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.GSetState(kernel)),
+          tag_g_set_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) = g_set_kernel.add(kernel, element)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.GSetState(kernel),
+        tag_g_set_events(address, events),
+        channel.GSetOp(op),
+        channel.GSetMeta(message_id),
+      ))
+    }
+  }
+}
+
+pub fn two_p_set_add(
+  core: Core,
+  address: String,
+  element: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_two_p_set(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        two_p_set_kernel.add(kernel, element)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.TwoPSetState(kernel)),
+          tag_two_p_set_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) =
+        two_p_set_kernel.add(kernel, element)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.TwoPSetState(kernel),
+        tag_two_p_set_events(address, events),
+        channel.TwoPSetOp(op),
+        channel.TwoPSetMeta(message_id),
+      ))
+    }
+  }
+}
+
+pub fn two_p_set_remove(
+  core: Core,
+  address: String,
+  element: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_two_p_set(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        two_p_set_kernel.remove(kernel, element)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.TwoPSetState(kernel)),
+          tag_two_p_set_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) =
+        two_p_set_kernel.remove(kernel, element)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.TwoPSetState(kernel),
+        tag_two_p_set_events(address, events),
+        channel.TwoPSetOp(op),
+        channel.TwoPSetMeta(message_id),
+      ))
+    }
+  }
+}
+
 pub fn register_write(
   core: Core,
   address: String,
@@ -1555,6 +1664,40 @@ fn locate_or_set(
   }
 }
 
+fn locate_g_set(
+  core: Core,
+  address: String,
+) -> Result(Located(g_set_kernel.GSetState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.GSetState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.GSetState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.GSetChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_two_p_set(
+  core: Core,
+  address: String,
+) -> Result(Located(two_p_set_kernel.TwoPSetState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.TwoPSetState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.TwoPSetState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.TwoPSetChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_register_collection(
   core: Core,
   address: String,
@@ -1797,6 +1940,20 @@ fn tag_or_set_events(
   list.map(events, fn(event) { #(address, channel.OrSetEvent(event)) })
 }
 
+fn tag_g_set_events(
+  address: String,
+  events: List(g_set_kernel.GSetEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.GSetEvent(event)) })
+}
+
+fn tag_two_p_set_events(
+  address: String,
+  events: List(two_p_set_kernel.TwoPSetEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.TwoPSetEvent(event)) })
+}
+
 fn tag_register_collection_events(
   address: String,
   events: List(register_collection_kernel.RegisterEvent),
@@ -1896,6 +2053,39 @@ pub fn or_set_contains(core: Core, address: String, element: String) -> Bool {
 pub fn or_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.OrSetState(kernel)) -> or_set_kernel.values(kernel)
+    _ -> []
+  }
+}
+
+pub fn g_set_contains(core: Core, address: String, element: String) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.GSetState(kernel)) -> g_set_kernel.contains(kernel, element)
+    _ -> False
+  }
+}
+
+pub fn g_set_values(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.GSetState(kernel)) -> g_set_kernel.values(kernel)
+    _ -> []
+  }
+}
+
+pub fn two_p_set_contains(
+  core: Core,
+  address: String,
+  element: String,
+) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.TwoPSetState(kernel)) ->
+      two_p_set_kernel.contains(kernel, element)
+    _ -> False
+  }
+}
+
+pub fn two_p_set_values(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.TwoPSetState(kernel)) -> two_p_set_kernel.values(kernel)
     _ -> []
   }
 }

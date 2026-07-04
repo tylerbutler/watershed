@@ -41,6 +41,10 @@ pub const channel_type_or_map = "ormap"
 
 pub const channel_type_or_set = "orset"
 
+pub const channel_type_g_set = "g-set"
+
+pub const channel_type_two_p_set = "two-p-set"
+
 pub const channel_type_register_collection = "registerCollection"
 
 pub const channel_type_claims = "claims"

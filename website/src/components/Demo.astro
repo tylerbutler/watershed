@@ -5,6 +5,7 @@ const gauges = [
   { key: "low-ford", value: 42 },
 ];
 const counter = { key: "sandbags-placed", value: 120 };
+const gCounter = { key: "inspection-count", value: 18 };
 const pn = { key: "earthwork-balance", fill: 74, cut: 30 };
 const stockpiles = [
   { key: "spoil-north", value: 18 },
@@ -15,6 +16,16 @@ const markers = [
   { key: "north-stake", value: "marked" },
   { key: "sluice-tag", value: "marked" },
   { key: "borrow-flag", value: "clear" },
+];
+const benchmarks = [
+  { key: "BM-17", value: "recorded" },
+  { key: "BM-22", value: "unrecorded" },
+  { key: "BM-31", value: "unrecorded" },
+];
+const retiredMarkers = [
+  { key: "stake-3", value: "active" },
+  { key: "gate-pin", value: "unplaced" },
+  { key: "silt-flag", value: "retired" },
 ];
 const claimSlots = [
   { key: "north-levee", holder: null },
@@ -41,6 +52,7 @@ const clients = [
   { id: "b", name: "Client B" },
 ];
 const counterSteps = [-5, -1, 1, 5];
+const gCounterSteps = [1, 3, 7];
 const pnCutSteps = [-6, -2];
 const pnFillSteps = [2, 6];
 ---
@@ -53,14 +65,15 @@ const pnFillSteps = [2, 6];
       field-checked. This demo borrows that color code: pending edits are drawn
       in <strong class="k-pending">magenta</strong> and sequenced state in
       <strong class="k-seq">ink</strong>. Both clients run watershed’s real
-      Gleam code in one ordered stream — map/PN/OR-map/OR-set/claims/register
+      Gleam code in one ordered stream — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
       kernels, TaskManager, plus the runtime counter channel.
     </p>
     <p class="demo-hint">
-      Nudge the gauges, tally the sandbags, balance the earthwork, strike a
-      stockpile, clear a field marker, stake a claim, revise a register, queue
-      task volunteers, stretch the link latency, race a concurrent write. The
-      replicas always converge — each structure by its own rule.
+      Nudge the gauges, tally inspections, tally the sandbags, balance the earthwork, strike a
+      stockpile, clear a field marker, record a permanent benchmark, retire a
+      marker forever, stake a claim, revise a register, queue task volunteers,
+      stretch the link latency, race a concurrent write. The replicas always
+      converge — each structure by its own rule.
     </p>
   </div>
 
@@ -76,6 +89,10 @@ const pnFillSteps = [2, 6];
         <span>Shared counter <b>DDS</b></span>
       </label>
       <label>
+        <input type="radio" name="dds" value="gcounter" data-dds-pick disabled />
+        <span>G-counter <b>CRDT</b></span>
+      </label>
+      <label>
         <input type="radio" name="dds" value="pn" data-dds-pick disabled />
         <span>PN counter <b>CRDT</b></span>
       </label>
@@ -86,6 +103,14 @@ const pnFillSteps = [2, 6];
       <label>
         <input type="radio" name="dds" value="orset" data-dds-pick disabled />
         <span>OR-set <b>CRDT</b></span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="gset" data-dds-pick disabled />
+        <span>G-set <b>CRDT</b></span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="twopset" data-dds-pick disabled />
+        <span>2P-set <b>CRDT</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="claims" data-dds-pick disabled />
@@ -118,6 +143,12 @@ const pnFillSteps = [2, 6];
       and both apply. The counter converges on the sum; nothing is
       overwritten.
     </p>
+    <p class="merge-rule" data-merge-rule="gcounter" hidden>
+      <strong>Merge rule — grow-only max per replica.</strong> Each client owns
+      one monotonically increasing tally. Race two inspections or deliver a
+      delta twice: replicas converge by keeping the maximum count seen for
+      each author.
+    </p>
     <p class="merge-rule" data-merge-rule="pn" hidden>
       <strong>Merge rule — deltas join a lattice.</strong> Every update
       travels as a CRDT delta; merging is commutative and idempotent. Race
@@ -142,6 +173,16 @@ const pnFillSteps = [2, 6];
       removes only the add tags this replica had observed. Race a clear against
       a concurrent re-mark and the marker remains present because the fresh tag
       was unseen by the clear.
+    </p>
+    <p class="merge-rule" data-merge-rule="gset" hidden>
+      <strong>Merge rule — grow-only union.</strong> Marking a benchmark is a
+      permanent fact. Race two marks or deliver one twice: the registry only
+      grows, and duplicate deltas are absorbed.
+    </p>
+    <p class="merge-rule" data-merge-rule="twopset" hidden>
+      <strong>Merge rule — tombstone wins.</strong> A retired marker can never
+      become active again. Race a re-place against a retire: both replicas keep
+      the tombstone, and duplicate retire deltas are absorbed.
     </p>
     <p class="merge-rule" data-merge-rule="registers" hidden>
       <strong>Merge rule — atomic plus retained versions.</strong> A write that
@@ -296,6 +337,43 @@ const pnFillSteps = [2, 6];
               <span class="annot" aria-hidden="true">fill</span>
             </div>
           </div>
+          <div
+            class="counter-panel dds-gcounter"
+            role="group"
+            aria-label={`G-counter replica on ${c.name}`}
+          >
+            <code class="counter-key">{gCounter.key}</code>
+            <output class="counter-value" data-gcounter-value>
+              {gCounter.value}
+            </output>
+            <span
+              class="counter-delta annot"
+              data-gcounter-delta
+              aria-label="Pending unsequenced increment"
+            ></span>
+            <dl class="pn-ledger gcounter-ledger">
+              <div>
+                <dt class="annot">A Σ</dt>
+                <dd data-gcounter-a>9</dd>
+              </div>
+              <div>
+                <dt class="annot">B Σ</dt>
+                <dd data-gcounter-b>9</dd>
+              </div>
+            </dl>
+            <div class="counter-actions">
+              {gCounterSteps.map((step) => (
+                <button
+                  type="button"
+                  data-gcounter-inc={step}
+                  aria-label={`Add ${step} inspections on ${c.name}`}
+                  disabled
+                >
+                  +{step}
+                </button>
+              ))}
+            </div>
+          </div>
           <table class="gauge-table claims-table dds-claims">
             <caption class="visually-hidden">
               Claims replica on {c.name}
@@ -406,6 +484,70 @@ const pnFillSteps = [2, 6];
                       disabled
                     >
                       Clear
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <table class="gauge-table gset-table dds-gset">
+            <caption class="visually-hidden">
+              G-set permanent benchmark registry replica on {c.name}
+            </caption>
+            <tbody>
+              {benchmarks.map((b) => (
+                <tr data-key={b.key}>
+                  <th scope="row">
+                    <code>{b.key}</code>
+                    <span class="annot gset-note" data-gset-note></span>
+                  </th>
+                  <td class="gauge-value gset-value">
+                    <output data-gset-value>{b.value}</output>
+                  </td>
+                  <td class="gauge-actions gset-actions">
+                    <button
+                      type="button"
+                      data-gset-add
+                      aria-label={`Record benchmark ${b.key} on ${c.name}`}
+                      disabled
+                    >
+                      Record
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <table class="gauge-table twopset-table dds-twopset">
+            <caption class="visually-hidden">
+              2P-set retired marker ledger replica on {c.name}
+            </caption>
+            <tbody>
+              {retiredMarkers.map((m) => (
+                <tr data-key={m.key}>
+                  <th scope="row">
+                    <code>{m.key}</code>
+                    <span class="annot twopset-note" data-twopset-note></span>
+                  </th>
+                  <td class="gauge-value twopset-value">
+                    <output data-twopset-value>{m.value}</output>
+                  </td>
+                  <td class="gauge-actions twopset-actions">
+                    <button
+                      type="button"
+                      data-twopset-add
+                      aria-label={`Place marker ${m.key} on ${c.name}`}
+                      disabled
+                    >
+                      Place
+                    </button>
+                    <button
+                      type="button"
+                      data-twopset-remove
+                      aria-label={`Retire marker ${m.key} on ${c.name}`}
+                      disabled
+                    >
+                      Retire
                     </button>
                   </td>
                 </tr>
@@ -660,8 +802,10 @@ const pnFillSteps = [2, 6];
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
       <code>runtime_core</code> counter channel plus
-      <code>map_kernel</code>, <code>pn_counter_kernel</code>,
+      <code>map_kernel</code>, <code>lattice_counters/g_counter</code>,
+      <code>pn_counter_kernel</code>,
       <code>or_map_kernel</code>, <code>or_set_kernel</code>,
+      <code>g_set_kernel</code>, <code>two_p_set_kernel</code>,
       <code>claims_kernel</code>, <code>register_collection_kernel</code>,
       <code>ordered_collection_kernel</code>, <code>task_manager_kernel</code>,
       and <code>pact_map_kernel</code> in your browser. The rest of the page
@@ -902,6 +1046,8 @@ const pnFillSteps = [2, 6];
   .claim-actions,
   .ormap-actions,
   .orset-actions,
+  .gset-actions,
+  .twopset-actions,
   .register-actions,
   .ordered-actions,
   .task-actions,
@@ -944,6 +1090,8 @@ const pnFillSteps = [2, 6];
   .claim-actions button + button,
   .ormap-actions button + button,
   .orset-actions button + button,
+  .gset-actions button + button,
+  .twopset-actions button + button,
   .register-actions button + button,
   .ordered-actions button + button,
   .task-actions button + button,
@@ -951,29 +1099,50 @@ const pnFillSteps = [2, 6];
     margin-inline-start: 0;
   }
 
-  /* one rig, ten structures: the picker swaps which replica view is printed */
+  /* one rig, eleven structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
+  .rig[data-dds="map"] .dds-gcounter,
   .rig[data-dds="map"] .dds-pn,
   .rig[data-dds="map"] .dds-ormap,
   .rig[data-dds="map"] .dds-orset,
+  .rig[data-dds="map"] .dds-gset,
+  .rig[data-dds="map"] .dds-twopset,
   .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="map"] .dds-registers,
   .rig[data-dds="map"] .dds-ordered,
   .rig[data-dds="map"] .dds-tasks,
   .rig[data-dds="map"] .dds-pact,
   .rig[data-dds="counter"] .dds-map,
+  .rig[data-dds="counter"] .dds-gcounter,
   .rig[data-dds="counter"] .dds-pn,
   .rig[data-dds="counter"] .dds-ormap,
   .rig[data-dds="counter"] .dds-orset,
+  .rig[data-dds="counter"] .dds-gset,
+  .rig[data-dds="counter"] .dds-twopset,
   .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="counter"] .dds-registers,
   .rig[data-dds="counter"] .dds-ordered,
   .rig[data-dds="counter"] .dds-tasks,
   .rig[data-dds="counter"] .dds-pact,
+  .rig[data-dds="gcounter"] .dds-map,
+  .rig[data-dds="gcounter"] .dds-counter,
+  .rig[data-dds="gcounter"] .dds-pn,
+  .rig[data-dds="gcounter"] .dds-ormap,
+  .rig[data-dds="gcounter"] .dds-orset,
+  .rig[data-dds="gcounter"] .dds-gset,
+  .rig[data-dds="gcounter"] .dds-twopset,
+  .rig[data-dds="gcounter"] .dds-claims,
+  .rig[data-dds="gcounter"] .dds-registers,
+  .rig[data-dds="gcounter"] .dds-ordered,
+  .rig[data-dds="gcounter"] .dds-tasks,
+  .rig[data-dds="gcounter"] .dds-pact,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
+  .rig[data-dds="pn"] .dds-gcounter,
   .rig[data-dds="pn"] .dds-ormap,
   .rig[data-dds="pn"] .dds-orset,
+  .rig[data-dds="pn"] .dds-gset,
+  .rig[data-dds="pn"] .dds-twopset,
   .rig[data-dds="pn"] .dds-claims,
   .rig[data-dds="pn"] .dds-registers,
   .rig[data-dds="pn"] .dds-ordered,
@@ -981,8 +1150,11 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="pn"] .dds-pact,
   .rig[data-dds="ormap"] .dds-map,
   .rig[data-dds="ormap"] .dds-counter,
+  .rig[data-dds="ormap"] .dds-gcounter,
   .rig[data-dds="ormap"] .dds-pn,
   .rig[data-dds="ormap"] .dds-orset,
+  .rig[data-dds="ormap"] .dds-gset,
+  .rig[data-dds="ormap"] .dds-twopset,
   .rig[data-dds="ormap"] .dds-claims,
   .rig[data-dds="ormap"] .dds-registers,
   .rig[data-dds="ormap"] .dds-ordered,
@@ -990,54 +1162,96 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="ormap"] .dds-pact,
   .rig[data-dds="orset"] .dds-map,
   .rig[data-dds="orset"] .dds-counter,
+  .rig[data-dds="orset"] .dds-gcounter,
   .rig[data-dds="orset"] .dds-pn,
   .rig[data-dds="orset"] .dds-ormap,
+  .rig[data-dds="orset"] .dds-gset,
+  .rig[data-dds="orset"] .dds-twopset,
   .rig[data-dds="orset"] .dds-claims,
+  .rig[data-dds="gset"] .dds-map,
+  .rig[data-dds="gset"] .dds-counter,
+  .rig[data-dds="gset"] .dds-gcounter,
+  .rig[data-dds="gset"] .dds-pn,
+  .rig[data-dds="gset"] .dds-ormap,
+  .rig[data-dds="gset"] .dds-orset,
+  .rig[data-dds="gset"] .dds-twopset,
+  .rig[data-dds="gset"] .dds-claims,
+  .rig[data-dds="gset"] .dds-registers,
+  .rig[data-dds="gset"] .dds-ordered,
+  .rig[data-dds="gset"] .dds-tasks,
+  .rig[data-dds="gset"] .dds-pact,
+  .rig[data-dds="twopset"] .dds-map,
+  .rig[data-dds="twopset"] .dds-counter,
+  .rig[data-dds="twopset"] .dds-gcounter,
+  .rig[data-dds="twopset"] .dds-pn,
+  .rig[data-dds="twopset"] .dds-ormap,
+  .rig[data-dds="twopset"] .dds-orset,
+  .rig[data-dds="twopset"] .dds-gset,
+  .rig[data-dds="twopset"] .dds-claims,
+  .rig[data-dds="twopset"] .dds-registers,
+  .rig[data-dds="twopset"] .dds-ordered,
+  .rig[data-dds="twopset"] .dds-tasks,
+  .rig[data-dds="twopset"] .dds-pact,
   .rig[data-dds="orset"] .dds-registers,
   .rig[data-dds="orset"] .dds-ordered,
   .rig[data-dds="orset"] .dds-tasks,
   .rig[data-dds="orset"] .dds-pact,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
+  .rig[data-dds="claims"] .dds-gcounter,
   .rig[data-dds="claims"] .dds-pn,
   .rig[data-dds="claims"] .dds-ormap,
   .rig[data-dds="claims"] .dds-orset,
+  .rig[data-dds="claims"] .dds-gset,
+  .rig[data-dds="claims"] .dds-twopset,
   .rig[data-dds="claims"] .dds-registers,
   .rig[data-dds="claims"] .dds-ordered,
   .rig[data-dds="claims"] .dds-tasks,
   .rig[data-dds="claims"] .dds-pact,
   .rig[data-dds="registers"] .dds-map,
   .rig[data-dds="registers"] .dds-counter,
+  .rig[data-dds="registers"] .dds-gcounter,
   .rig[data-dds="registers"] .dds-pn,
   .rig[data-dds="registers"] .dds-ormap,
   .rig[data-dds="registers"] .dds-orset,
+  .rig[data-dds="registers"] .dds-gset,
+  .rig[data-dds="registers"] .dds-twopset,
   .rig[data-dds="registers"] .dds-claims,
   .rig[data-dds="registers"] .dds-ordered,
   .rig[data-dds="registers"] .dds-tasks,
   .rig[data-dds="registers"] .dds-pact,
   .rig[data-dds="ordered"] .dds-map,
   .rig[data-dds="ordered"] .dds-counter,
+  .rig[data-dds="ordered"] .dds-gcounter,
   .rig[data-dds="ordered"] .dds-pn,
   .rig[data-dds="ordered"] .dds-ormap,
   .rig[data-dds="ordered"] .dds-orset,
+  .rig[data-dds="ordered"] .dds-gset,
+  .rig[data-dds="ordered"] .dds-twopset,
   .rig[data-dds="ordered"] .dds-claims,
   .rig[data-dds="ordered"] .dds-registers,
   .rig[data-dds="ordered"] .dds-tasks,
   .rig[data-dds="ordered"] .dds-pact,
   .rig[data-dds="tasks"] .dds-map,
   .rig[data-dds="tasks"] .dds-counter,
+  .rig[data-dds="tasks"] .dds-gcounter,
   .rig[data-dds="tasks"] .dds-pn,
   .rig[data-dds="tasks"] .dds-ormap,
   .rig[data-dds="tasks"] .dds-orset,
+  .rig[data-dds="tasks"] .dds-gset,
+  .rig[data-dds="tasks"] .dds-twopset,
   .rig[data-dds="tasks"] .dds-claims,
   .rig[data-dds="tasks"] .dds-registers,
   .rig[data-dds="tasks"] .dds-ordered,
   .rig[data-dds="tasks"] .dds-pact,
   .rig[data-dds="pact"] .dds-map,
   .rig[data-dds="pact"] .dds-counter,
+  .rig[data-dds="pact"] .dds-gcounter,
   .rig[data-dds="pact"] .dds-pn,
   .rig[data-dds="pact"] .dds-ormap,
   .rig[data-dds="pact"] .dds-orset,
+  .rig[data-dds="pact"] .dds-gset,
+  .rig[data-dds="pact"] .dds-twopset,
   .rig[data-dds="pact"] .dds-claims,
   .rig[data-dds="pact"] .dds-registers,
   .rig[data-dds="pact"] .dds-ordered,
@@ -1217,24 +1431,34 @@ const pnFillSteps = [2, 6];
   }
 
   .orset-table tr.absent th code,
-  .orset-table tr.absent .orset-value output {
+  .orset-table tr.absent .orset-value output,
+  .gset-table tr.absent th code,
+  .gset-table tr.absent .gset-value output,
+  .twopset-table tr.absent th code,
+  .twopset-table tr.absent .twopset-value output {
     color: var(--muted);
     text-decoration: line-through;
     text-decoration-thickness: 1px;
   }
 
-  .orset-table tr.absent .orset-value {
+  .orset-table tr.absent .orset-value,
+  .gset-table tr.absent .gset-value,
+  .twopset-table tr.absent .twopset-value {
     font-style: italic;
   }
 
-  .orset-note {
+  .orset-note,
+  .gset-note,
+  .twopset-note {
     display: block;
     min-height: 1.2em;
     color: var(--overprint-deep);
     font-style: italic;
   }
 
-  .orset-actions button {
+  .orset-actions button,
+  .gset-actions button,
+  .twopset-actions button {
     inline-size: auto;
     min-inline-size: 2.4rem;
     block-size: auto;
@@ -1247,6 +1471,23 @@ const pnFillSteps = [2, 6];
   }
 
   .orset-table tr.absent [data-orset-remove] {
+    display: none;
+  }
+
+  .gset-table tr:not(.absent) [data-gset-add] {
+    display: none;
+  }
+
+  .twopset-table tr.retired th code,
+  .twopset-table tr.retired .twopset-value output {
+    color: var(--overprint-deep);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+
+  .twopset-table tr.retired [data-twopset-remove],
+  .twopset-table tr:not(.retired):not(.absent) [data-twopset-add],
+  .twopset-table tr.absent [data-twopset-remove] {
     display: none;
   }
 
@@ -1568,6 +1809,7 @@ const pnFillSteps = [2, 6];
     .claim-actions button,
     .ormap-actions button,
     .orset-actions button,
+    .gset-actions button,
     .register-actions button,
     .ordered-actions button,
     .task-actions button,

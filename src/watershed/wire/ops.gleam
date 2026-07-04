@@ -26,15 +26,19 @@ import gleam/option.{None}
 import lattice_core/replica_id
 import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_sets/g_set
 import lattice_sets/or_set
+import lattice_sets/two_p_set
 import watershed/channel
 import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
+import watershed/g_set_kernel.{type GSetOp}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
 import watershed/or_set_kernel.{type OrSetOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
 import watershed/task_manager_kernel.{type TaskManagerOp}
+import watershed/two_p_set_kernel.{type TwoPSetOp}
 import watershed/wire.{type OutboundOp}
 
 /// Contents of a sequenced `"op"`: either a kernel channel op — its payload
@@ -132,6 +136,8 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.CounterOp(op) -> encode_counter_op(op)
     channel.OrMapOp(op) -> encode_or_map_op(op)
     channel.OrSetOp(op) -> encode_or_set_op(op)
+    channel.GSetOp(op) -> encode_g_set_op(op)
+    channel.TwoPSetOp(op) -> encode_two_p_set_op(op)
     channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
     channel.ClaimsOp(op) -> encode_claim_op(op)
     channel.TaskManagerOp(op) -> encode_task_manager_op(op)
@@ -149,6 +155,9 @@ pub fn channel_op_decoder(
       counter_op_decoder() |> decode.map(channel.CounterOp)
     channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
     channel.OrSetChannel -> or_set_op_decoder() |> decode.map(channel.OrSetOp)
+    channel.GSetChannel -> g_set_op_decoder() |> decode.map(channel.GSetOp)
+    channel.TwoPSetChannel ->
+      two_p_set_op_decoder() |> decode.map(channel.TwoPSetOp)
     channel.RegisterCollectionChannel ->
       register_collection_op_decoder()
       |> decode.map(channel.RegisterCollectionOp)
@@ -265,6 +274,48 @@ pub fn encode_or_set_op(op: OrSetOp) -> Json {
   }
 }
 
+pub fn encode_g_set_envelope(address: String, op: GSetOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_g_set_op(op)),
+  ])
+}
+
+pub fn encode_g_set_op(op: GSetOp) -> Json {
+  case op {
+    g_set_kernel.Add(element, delta) ->
+      json.object([
+        #("type", json.string("gSetAdd")),
+        #("element", json.string(element)),
+        #("delta", g_set_delta_json(delta)),
+      ])
+  }
+}
+
+pub fn encode_two_p_set_envelope(address: String, op: TwoPSetOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_two_p_set_op(op)),
+  ])
+}
+
+pub fn encode_two_p_set_op(op: TwoPSetOp) -> Json {
+  case op {
+    two_p_set_kernel.Add(element, delta) ->
+      json.object([
+        #("type", json.string("twoPSetAdd")),
+        #("element", json.string(element)),
+        #("delta", two_p_set_delta_json(delta)),
+      ])
+    two_p_set_kernel.Remove(element, delta) ->
+      json.object([
+        #("type", json.string("twoPSetRemove")),
+        #("element", json.string(element)),
+        #("delta", two_p_set_delta_json(delta)),
+      ])
+  }
+}
+
 pub fn encode_register_collection_envelope(
   address: String,
   op: WriteOp,
@@ -354,6 +405,14 @@ fn delta_json(delta: or_map.ORMapDelta) -> Json {
 
 fn or_set_delta_json(delta: or_set.ORSet(String)) -> Json {
   json.string(json.to_string(or_set.to_json(delta)))
+}
+
+fn g_set_delta_json(delta: g_set.GSet(String)) -> Json {
+  json.string(json.to_string(g_set.to_json(delta)))
+}
+
+fn two_p_set_delta_json(delta: two_p_set.TwoPSet(String)) -> Json {
+  json.string(json.to_string(two_p_set.to_json(delta)))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -465,6 +524,42 @@ pub fn or_set_op_decoder() -> Decoder(OrSetOp) {
   }
 }
 
+pub fn g_set_op_decoder() -> Decoder(GSetOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "gSetAdd" -> {
+      use element <- decode.field("element", decode.string)
+      use delta <- decode.field("delta", g_set_delta_decoder())
+      let op: GSetOp = g_set_kernel.Add(element, delta)
+      decode.success(op)
+    }
+    _ -> decode.failure(g_set_kernel.Add("", default_g_set_delta()), "GSetOp")
+  }
+}
+
+pub fn two_p_set_op_decoder() -> Decoder(TwoPSetOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "twoPSetAdd" -> {
+      use element <- decode.field("element", decode.string)
+      use delta <- decode.field("delta", two_p_set_delta_decoder())
+      let op: TwoPSetOp = two_p_set_kernel.Add(element, delta)
+      decode.success(op)
+    }
+    "twoPSetRemove" -> {
+      use element <- decode.field("element", decode.string)
+      use delta <- decode.field("delta", two_p_set_delta_decoder())
+      let op: TwoPSetOp = two_p_set_kernel.Remove(element, delta)
+      decode.success(op)
+    }
+    _ ->
+      decode.failure(
+        two_p_set_kernel.Add("", default_two_p_set_delta()),
+        "TwoPSetOp",
+      )
+  }
+}
+
 pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
   use op_type <- decode.field("type", decode.string)
   case op_type {
@@ -533,6 +628,30 @@ fn or_set_delta_decoder() -> Decoder(or_set.ORSet(String)) {
 
 fn default_or_set_delta() -> or_set.ORSet(String) {
   or_set.new(replica_id.new(""))
+}
+
+fn g_set_delta_decoder() -> Decoder(g_set.GSet(String)) {
+  use encoded <- decode.then(decode.string)
+  case g_set.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_g_set_delta(), "GSetDelta")
+  }
+}
+
+fn default_g_set_delta() -> g_set.GSet(String) {
+  g_set.new()
+}
+
+fn two_p_set_delta_decoder() -> Decoder(two_p_set.TwoPSet(String)) {
+  use encoded <- decode.then(decode.string)
+  case two_p_set.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_two_p_set_delta(), "TwoPSetDelta")
+  }
+}
+
+fn default_two_p_set_delta() -> two_p_set.TwoPSet(String) {
+  two_p_set.new()
 }
 
 /// `Plain` values carry an opaque kernel `Json` payload. Handle-like markers

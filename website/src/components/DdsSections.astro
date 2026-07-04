@@ -25,6 +25,14 @@ const structures = [
     summary: "replica-tagged tallies survive reconnect and duplicate delivery",
   },
   {
+    name: "G-Counter",
+    module: "lattice_counters/g_counter",
+    terrain: "inspection tally",
+    rule: "per-replica grow-only counts merge by pairwise maximum",
+    pending: "local increments overprint the total until their delta is sequenced",
+    summary: "the counts dictionary reloads with each replica’s monotone tally",
+  },
+  {
     name: "OR-Map",
     module: "or_map_kernel",
     terrain: "stockpile ledger",
@@ -39,6 +47,22 @@ const structures = [
     rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
     pending: "local marker changes overprint the roster until their delta is sequenced",
     summary: "live tags and tombstones reload under the joining replica identity",
+  },
+  {
+    name: "G-Set",
+    module: "g_set_kernel",
+    terrain: "permanent benchmark registry",
+    rule: "grow-only set union; every recorded benchmark remains forever",
+    pending: "local marks print as magenta overprint until their add delta is sequenced",
+    summary: "the sequenced set reloads as permanent registry facts",
+  },
+  {
+    name: "2P-Set",
+    module: "two_p_set_kernel",
+    terrain: "retired marker ledger",
+    rule: "two grow-only sets join; tombstones permanently beat active membership",
+    pending: "local place or retire deltas overprint the ledger until sequenced",
+    summary: "active markers and retired tombstones reload together",
   },
   {
     name: "Claims",
@@ -105,7 +129,7 @@ const flow = [
 <section class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
-      <h2 id="dds-field-title">Nine DDS field sheets, one ordered stream</h2>
+      <h2 id="dds-field-title">Twelve DDS field sheets, one ordered stream</h2>
       <p>
         watershed does not hide every conflict behind the same merge story. Each
         DDS has a small, explicit rule: what can be applied optimistically, what
@@ -150,8 +174,8 @@ const flow = [
   <div class="flow-inner">
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Maps, counters, OR-maps, OR-sets, claims, register collections, ordered
-      collections, and pact maps all ride one ordered document stream. The
+      Maps, counters, G-counters, OR-maps, OR-sets, G-sets, 2P-sets, claims, register collections,
+      ordered collections, and pact maps all ride one ordered document stream. The
       picker in the live demo changes the visible field sheet; the kernels stay
       hosted together, just like DDSes sharing a Fluid container.
     </p>

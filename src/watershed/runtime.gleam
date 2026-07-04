@@ -61,8 +61,8 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
-  InitClaims, InitCounter, InitMap, InitOrMap, InitOrSet, InitRegisterCollection,
-  InitTaskManager,
+  InitClaims, InitCounter, InitGSet, InitMap, InitOrMap, InitOrSet,
+  InitRegisterCollection, InitTaskManager, InitTwoPSet,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -121,6 +121,9 @@ pub type Msg {
   RemoveOrMapKey(address: String, key: String)
   AddOrSetElement(address: String, element: String)
   RemoveOrSetElement(address: String, element: String)
+  AddGSetElement(address: String, element: String)
+  AddTwoPSetElement(address: String, element: String)
+  RemoveTwoPSetElement(address: String, element: String)
   WriteRegister(address: String, key: String, value: Json)
   VolunteerTask(
     address: String,
@@ -155,6 +158,8 @@ pub type Msg {
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateOrSet(reply: Subject(Result(String, String)))
+  CreateGSet(reply: Subject(Result(String, String)))
+  CreateTwoPSet(reply: Subject(Result(String, String)))
   CreateRegisterCollection(reply: Subject(Result(String, String)))
   CreateClaims(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
@@ -188,6 +193,10 @@ pub type Msg {
   GetOrMapKeys(address: String, reply: Subject(List(String)))
   OrSetContains(address: String, element: String, reply: Subject(Bool))
   GetOrSetValues(address: String, reply: Subject(List(String)))
+  GSetContains(address: String, element: String, reply: Subject(Bool))
+  GetGSetValues(address: String, reply: Subject(List(String)))
+  TwoPSetContains(address: String, element: String, reply: Subject(Bool))
+  GetTwoPSetValues(address: String, reply: Subject(List(String)))
   GetRegisterValue(
     address: String,
     key: String,
@@ -575,6 +584,16 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.or_set_remove(core, address, element)
       })
+    AddGSetElement(address, element) ->
+      edit(state, fn(core) { runtime_core.g_set_add(core, address, element) })
+    AddTwoPSetElement(address, element) ->
+      edit(state, fn(core) {
+        runtime_core.two_p_set_add(core, address, element)
+      })
+    RemoveTwoPSetElement(address, element) ->
+      edit(state, fn(core) {
+        runtime_core.two_p_set_remove(core, address, element)
+      })
     WriteRegister(address, key, value) ->
       edit(state, fn(core) {
         runtime_core.register_write(core, address, key, value)
@@ -603,6 +622,9 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitOrMap(mode), "create_or_map")
     CreateOrSet(reply) ->
       create_channel(state, reply, InitOrSet, "create_or_set")
+    CreateGSet(reply) -> create_channel(state, reply, InitGSet, "create_g_set")
+    CreateTwoPSet(reply) ->
+      create_channel(state, reply, InitTwoPSet, "create_two_p_set")
     CreateRegisterCollection(reply) ->
       create_channel(
         state,
@@ -681,6 +703,34 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, [], runtime_core.or_set_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    GSetContains(address, element, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.g_set_contains(_, address, element)),
+      )
+      actor.continue(state)
+    }
+    GetGSetValues(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.g_set_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    TwoPSetContains(address, element, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.two_p_set_contains(_, address, element)),
+      )
+      actor.continue(state)
+    }
+    GetTwoPSetValues(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.two_p_set_values(_, address)),
       )
       actor.continue(state)
     }
