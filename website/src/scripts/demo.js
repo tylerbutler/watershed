@@ -563,8 +563,8 @@ export function initDemo() {
     const jobs = orderedJobs(client.ordered);
     const localJob = firstOwnedOrderedJob(client);
     const filed = orderedPending[client.id].size > 0;
-    const queueRow = client.el.querySelector(".dds-ordered tr:first-child");
-    const jobsRow = client.el.querySelector(".dds-ordered tr:last-child");
+    const queueRow = client.el.querySelector(".dds-ordered tbody tr:first-child");
+    const jobsRow = client.el.querySelector(".dds-ordered tbody tr:last-child");
     queueRow.classList.toggle("filed", filed);
     jobsRow.classList.toggle("filed", filed);
     queueRow.querySelector("[data-ordered-queue]").textContent =
