@@ -613,7 +613,8 @@ export function initDemo() {
 
   function taskPendingKeys(state) {
     return new Set(
-      state.pending
+      gdict
+        .to_list(state.pending)
         .toArray()
         .filter(([_task, pending]) => pending.toArray().length > 0)
         .map(([task]) => task),
