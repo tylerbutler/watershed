@@ -1,14 +1,16 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// kernel states — `map_kernel`, `counter_kernel`, and `pn_counter_kernel`,
-// the same pure Gleam modules the BEAM runtime uses, compiled with
-// `gleam build --target javascript` — and talk through a tiny in-page
-// sequencer that stamps sequence numbers (SNs) and broadcasts in order, the
-// same protocol shape as a live levee server. All structures ride the one op
-// stream, like DDSes sharing a container; the picker only changes which
-// replica view is shown.
+// kernel states — `map_kernel`, `counter_kernel`, `pn_counter_kernel`, and
+// `claims_kernel`, the same pure Gleam modules the BEAM runtime uses,
+// compiled with `gleam build --target javascript` — and talk through a tiny
+// in-page sequencer that stamps sequence numbers (SNs) and broadcasts in
+// order, the same protocol shape as a live levee server. All structures ride
+// the one op stream, like DDSes sharing a container; the picker only changes
+// which replica view is shown.
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as counterKernel from "../../../build/dev/javascript/watershed/watershed/counter_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
+import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
+import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
 import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
 import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
 import * as replicaId from "../../../build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
@@ -36,6 +38,19 @@ function pnBaselineSummary() {
   return json.to_string(pnLattice.to_json(base));
 }
 
+// The claims baseline: three duty stations, one already claimed by the
+// survey crew at seq 0, loaded per client via `from_summary` — sequence
+// numbers persist so first-writer-wins keeps working after load.
+const SLOTS = ["north-levee", "spillway-gate", "pump-house"];
+const CLAIMANTS = { a: "A", b: "B" };
+const CLAIMS_BASELINE = [["pump-house", "Survey", 0]];
+
+function claimsBaseline() {
+  return claimsKernel.from_summary(
+    toList(CLAIMS_BASELINE.map(([k, who, seq]) => [k, json.string(who), seq])),
+  );
+}
+
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 function jsonInt(n) {
@@ -47,6 +62,15 @@ function readInt(optionValue) {
   // stringify via the gleam encoder, so ints round-trip through Number().
   if (optionValue && optionValue[0] !== undefined) {
     return Number(json.to_string(optionValue[0]));
+  }
+  return null;
+}
+
+function readClaimant(optionValue) {
+  // Claim values are `json.string`, so the encoder yields quoted JSON;
+  // JSON.parse unquotes it back to the claimant name.
+  if (optionValue && optionValue[0] !== undefined) {
+    return JSON.parse(json.to_string(optionValue[0]));
   }
   return null;
 }
@@ -71,6 +95,11 @@ function describeOp(ddsId, op) {
     return op.amount >= 0
       ? `fill +${op.amount} yd³`
       : `cut −${-op.amount} yd³`;
+  }
+  if (ddsId === "claims") {
+    // The op carries the ref SN it was filed against — printing it shows
+    // why the sequencer accepts or rejects the claim.
+    return `claim ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
   }
   if (op instanceof mapKernel.Set) {
     return `set ${op.key} = ${json.to_string(op.value)}`;
@@ -122,8 +151,10 @@ export function initDemo() {
       map: mapKernel.from_sequenced(initial),
       counter: counterKernel.from_summary(COUNTER_BASE),
       pn: pnLoaded[0],
+      claims: claimsBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
+      lastSeq: 0, // last delivered container SN — the runtime's job, done here
     };
   }
 
@@ -134,6 +165,8 @@ export function initDemo() {
   let seqLastArrival = 0; // FIFO into the sequencer too
   let hasInteracted = false;
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
+  let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
+  const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -179,8 +212,28 @@ export function initDemo() {
     );
   }
 
+  function renderClaims(client) {
+    for (const key of SLOTS) {
+      const row = client.el.querySelector(`.dds-claims tr[data-key="${key}"]`);
+      const holder = readClaimant(claimsKernel.get(client.claims, key));
+      const filed = gdict.has_key(client.claims.pending, key);
+      // Non-optimistic by design: a filed claim never prints as the holder —
+      // the row shows "—" in ink until the claim round-trips as won or lost.
+      row.querySelector("[data-holder]").textContent = holder ?? "—";
+      row.classList.toggle("filed", filed);
+      row.querySelector("[data-claim-note]").textContent = filed
+        ? "claim filed · outcome unknown"
+        : (claimNotes[client.id][key] ??
+          (holder === CLAIMANTS[client.id] ? "yours" : ""));
+      row.querySelector("[data-claim]").disabled = filed;
+    }
+  }
+
   function renderBadge(client) {
-    const count = client[activeDds].pending.toArray().length;
+    const count =
+      activeDds === "claims"
+        ? gdict.size(client.claims.pending)
+        : client[activeDds].pending.toArray().length;
     const badge = client.el.querySelector("[data-pending-count]");
     badge.textContent = `${count} pending`;
     if (count === 0) badge.setAttribute("data-zero", "");
@@ -191,6 +244,7 @@ export function initDemo() {
     renderMap(client);
     renderCounter(client);
     renderPn(client);
+    renderClaims(client);
     renderBadge(client);
   }
 
@@ -200,6 +254,7 @@ export function initDemo() {
       total += client.map.pending.toArray().length;
       total += client.counter.pending.toArray().length;
       total += client.pn.pending.toArray().length;
+      total += gdict.size(client.claims.pending);
     }
     return total;
   }
@@ -211,7 +266,9 @@ export function initDemo() {
         JSON.stringify(mapSnapshot(clients.a.map)) ===
           JSON.stringify(mapSnapshot(clients.b.map)) &&
         clients.a.counter.value === clients.b.counter.value &&
-        pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn);
+        pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
+        JSON.stringify(claimsSnapshot(clients.a.claims)) ===
+          JSON.stringify(claimsSnapshot(clients.b.claims));
       statusEl.innerHTML = same
         ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
@@ -225,6 +282,21 @@ export function initDemo() {
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, json.to_string(v)]);
+  }
+
+  function claimsSnapshot(state) {
+    return claimsKernel
+      .summary_entries(state)
+      .toArray()
+      .map(([k, v, s]) => [k, json.to_string(v), s]);
+  }
+
+  function logRejected(stampedSn, key) {
+    const li = document.createElement("li");
+    li.className = "rejected";
+    li.textContent = `#${String(stampedSn).padStart(2, "0")} rejected — ${key} held · first writer wins`;
+    opLog.prepend(li);
+    while (opLog.children.length > 14) opLog.lastChild.remove();
   }
 
   function logOp(stampedSn, origin, ddsId, op) {
@@ -268,7 +340,10 @@ export function initDemo() {
 
   // ── protocol: client → sequencer → broadcast ──────────────────────────────
 
-  function deliver(target, originId, ddsId, op) {
+  function deliver(target, originId, ddsId, op, seq) {
+    // Every op advances the container SN on every replica — all structures
+    // ride the one stream. Claims file their `ref_seq` against this.
+    target.lastSeq = seq;
     if (ddsId === "map") {
       if (target.id === originId) {
         const result = mapKernel.ack_local(target.map, op);
@@ -287,6 +362,26 @@ export function initDemo() {
         const [next] = pnKernel.apply_remote(target.pn, op);
         target.pn = next;
       }
+    } else if (ddsId === "claims") {
+      if (target.id === originId) {
+        // The ack resolves the deferred outcome: only now does the origin
+        // learn whether its claim won or lost the race.
+        const result = claimsKernel.ack_local(target.claims, op, seq);
+        if (result.isOk()) {
+          const [next, _events, outcome] = result[0];
+          target.claims = next;
+          if (outcome instanceof claimsKernel.Lost) {
+            const holder = readClaimant(outcome.current_value);
+            claimNotes[target.id][op.key] = holder
+              ? `lost — ${holder} holds it`
+              : "lost";
+            logRejected(seq, op.key);
+          }
+        } else console.error("unexpected ack", result[0]);
+      } else {
+        const [next] = claimsKernel.apply_remote(target.claims, op, seq);
+        target.claims = next;
+      }
     } else {
       if (target.id === originId) {
         const result = counterKernel.ack_local(target.counter, op);
@@ -301,6 +396,11 @@ export function initDemo() {
 
   function submit(originId, ddsId, op) {
     const origin = clients[originId];
+    // Claims have no compensating op, so reset reloads replicas out of band
+    // and bumps the epoch; a claim still in flight is dropped rather than
+    // stamped, or it would commit on one replica and fail to ack on the
+    // other.
+    const epoch = claimsEpoch;
     inFlight += 1;
     renderStatus();
     animateDot(origin.el, seqNode, latency, false);
@@ -312,6 +412,11 @@ export function initDemo() {
     seqLastArrival = arrival;
 
     setTimeout(() => {
+      if (ddsId === "claims" && epoch !== claimsEpoch) {
+        inFlight -= 1;
+        renderStatus();
+        return;
+      }
       sn += 1;
       const stamped = sn;
       logOp(stamped, originId, ddsId, op);
@@ -327,7 +432,12 @@ export function initDemo() {
         target.lastArrival = tArrival;
         inFlight += 1;
         setTimeout(() => {
-          deliver(target, originId, ddsId, op);
+          if (ddsId === "claims" && epoch !== claimsEpoch) {
+            inFlight -= 1;
+            renderStatus();
+            return;
+          }
+          deliver(target, originId, ddsId, op, stamped);
           inFlight -= 1;
           render(target);
           renderStatus();
@@ -363,6 +473,50 @@ export function initDemo() {
     client.pn = next;
     render(client);
     submit(clientId, "pn", op);
+  }
+
+  function localClaim(clientId, key) {
+    const client = clients[clientId];
+    const result = claimsKernel.try_set_claim(
+      client.claims,
+      key,
+      json.string(CLAIMANTS[clientId]),
+      client.lastSeq,
+    );
+    if (!result.isOk()) {
+      // AlreadyPendingLocally — unreachable while the button disables itself.
+      console.error("unexpected claim refusal", result[0]);
+      return;
+    }
+    if (result[0] instanceof claimsKernel.AlreadyClaimed) {
+      // Write-once: the kernel refuses a claim on a committed slot locally
+      // and synchronously — no op travels, no SN is spent.
+      claimNotes[clientId][key] = "already claimed — nothing sent";
+      render(client);
+      setTimeout(() => {
+        if (claimNotes[clientId][key] === "already claimed — nothing sent") {
+          delete claimNotes[clientId][key];
+          render(client);
+        }
+      }, 2200);
+      return;
+    }
+    client.claims = result[0].state;
+    render(client);
+    submit(clientId, "claims", result[0].op);
+  }
+
+  // Claims are write-once — there is no unclaim op — so reset tears off a
+  // fresh sheet: both replicas reload the baseline summary locally, and the
+  // epoch bump makes the sequencer drop anything still in flight.
+  function resetClaims() {
+    claimsEpoch += 1;
+    for (const client of Object.values(clients)) {
+      client.claims = claimsBaseline();
+      claimNotes[client.id] = {};
+      render(client);
+    }
+    renderStatus();
   }
 
   // The sequencer re-sends an already-sequenced delta to every replica. No
@@ -419,6 +573,12 @@ export function initDemo() {
       if (pnBtn) {
         hasInteracted = true;
         localPnUpdate(client.id, Number(pnBtn.dataset.pnInc));
+        return;
+      }
+      const claimBtn = event.target.closest("button[data-claim]");
+      if (claimBtn) {
+        hasInteracted = true;
+        localClaim(client.id, claimBtn.closest("tr").dataset.key);
       }
     });
   }
@@ -427,11 +587,13 @@ export function initDemo() {
     map: "Race a concurrent write",
     counter: "Race concurrent increments",
     pn: "Race fill against cut",
+    claims: "Race two claims for one slot",
   };
   const RESET_LABELS = {
     map: "Reset all gauges to their surveyed baseline values",
     counter: "Reset the counter to its surveyed baseline value",
     pn: "Reset the earthwork balance to its surveyed baseline",
+    claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
   };
 
   for (const pick of ddsPicks) {
@@ -471,6 +633,24 @@ export function initDemo() {
       // on the same net balance (+3).
       localPnUpdate("a", 8);
       localPnUpdate("b", -5);
+    } else if (activeDds === "claims") {
+      // Both clients file for the same free slot inside one latency window.
+      // FIFO stamping sequences A's claim first, so A wins on every replica;
+      // B's op still gets an SN, is rejected identically everywhere, and B's
+      // own ack resolves Lost.
+      let key = SLOTS.find(
+        (k) =>
+          readClaimant(claimsKernel.get(clients.a.claims, k)) === null &&
+          readClaimant(claimsKernel.get(clients.b.claims, k)) === null &&
+          !gdict.has_key(clients.a.claims.pending, k) &&
+          !gdict.has_key(clients.b.claims.pending, k),
+      );
+      if (key === undefined) {
+        resetClaims();
+        key = SLOTS[0];
+      }
+      localClaim("a", key);
+      localClaim("b", key);
     } else {
       // Both clients increment inside one latency window. Neither op wins:
       // increments commute, so every replica lands on the sum (+13).
@@ -499,6 +679,8 @@ export function initDemo() {
       // (or fill) whatever the balance has drifted from baseline.
       const drift = pnKernel.value(clients.a.pn) - PN_BASE;
       if (drift !== 0) localPnUpdate("a", -drift);
+    } else if (activeDds === "claims") {
+      resetClaims();
     } else {
       // A counter has no "set" — the reset is itself an increment that
       // compensates for the drift.

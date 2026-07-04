@@ -6,6 +6,11 @@ const gauges = [
 ];
 const counter = { key: "sandbags-placed", value: 120 };
 const pn = { key: "earthwork-balance", fill: 74, cut: 30 };
+const claimSlots = [
+  { key: "north-levee", holder: null },
+  { key: "spillway-gate", holder: null },
+  { key: "pump-house", holder: "Survey" },
+];
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
@@ -24,14 +29,15 @@ const pnFillSteps = [2, 6];
       applies instantly and shows <strong class="k-pending">magenta</strong> while
       it is pending, then sets in <strong class="k-seq">ink</strong> once the
       server assigns it a sequence number. The two clients below run the real
-      <code>map_kernel</code>, <code>counter_kernel</code>, and
-      <code>pn_counter_kernel</code> — the same Gleam modules the BEAM runtime
-      uses, compiled to JavaScript — riding one sequencer on this page.
+      <code>map_kernel</code>, <code>counter_kernel</code>,
+      <code>pn_counter_kernel</code>, and <code>claims_kernel</code> — the
+      same Gleam modules the BEAM runtime uses, compiled to JavaScript —
+      riding one sequencer on this page.
     </p>
     <p class="demo-hint">
-      Nudge the gauges, tally the sandbags, balance the earthwork, stretch the
-      link latency, race a concurrent write. The replicas always converge —
-      each structure by its own rule.
+      Nudge the gauges, tally the sandbags, balance the earthwork, stake a
+      claim, stretch the link latency, race a concurrent write. The replicas
+      always converge — each structure by its own rule.
     </p>
   </div>
 
@@ -50,6 +56,10 @@ const pnFillSteps = [2, 6];
         <input type="radio" name="dds" value="pn" data-dds-pick disabled />
         <span>PN counter</span>
       </label>
+      <label>
+        <input type="radio" name="dds" value="claims" data-dds-pick disabled />
+        <span>Claims</span>
+      </label>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
       <strong>Merge rule — last write wins.</strong> Race two writes to the
@@ -66,6 +76,13 @@ const pnFillSteps = [2, 6];
       travels as a CRDT delta; merging is commutative and idempotent. Race
       it, resend it, deliver it twice — it counts exactly once, and the
       balance converges on fill&nbsp;−&nbsp;cut.
+    </p>
+    <p class="merge-rule" data-merge-rule="claims" hidden>
+      <strong>Merge rule — first writer wins.</strong> A claim commits only
+      if the slot is still unclaimed when the sequencer stamps it (or its
+      reference SN matches the holder&rsquo;s exactly). Nothing prints
+      optimistically: a filed claim is invisible — even to you — until it
+      round-trips as won or lost.
     </p>
   </div>
 
@@ -199,6 +216,34 @@ const pnFillSteps = [2, 6];
               <span class="annot" aria-hidden="true">fill</span>
             </div>
           </div>
+          <table class="gauge-table claims-table dds-claims">
+            <caption class="visually-hidden">
+              Claims replica on {c.name}
+            </caption>
+            <tbody>
+              {claimSlots.map((s) => (
+                <tr data-key={s.key}>
+                  <th scope="row">
+                    <code>{s.key}</code>
+                  </th>
+                  <td class="claim-holder">
+                    <output data-holder>{s.holder ?? "—"}</output>
+                    <span class="annot claim-note" data-claim-note></span>
+                  </td>
+                  <td class="gauge-actions claim-actions">
+                    <button
+                      type="button"
+                      data-claim
+                      aria-label={`Claim ${s.key} for ${c.name}`}
+                      disabled
+                    >
+                      Claim
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       ))
     }
@@ -267,9 +312,9 @@ const pnFillSteps = [2, 6];
   <noscript>
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
-      <code>map_kernel</code>, <code>counter_kernel</code>, and
-      <code>pn_counter_kernel</code> in your browser. The rest of the page
-      works fine without it.
+      <code>map_kernel</code>, <code>counter_kernel</code>,
+      <code>pn_counter_kernel</code>, and <code>claims_kernel</code> in your
+      browser. The rest of the page works fine without it.
     </p>
   </noscript>
 
@@ -508,13 +553,19 @@ const pnFillSteps = [2, 6];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, three structures: the picker swaps which replica view is printed */
+  /* one rig, four structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
+  .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
+  .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="pn"] .dds-map,
-  .rig[data-dds="pn"] .dds-counter {
+  .rig[data-dds="pn"] .dds-counter,
+  .rig[data-dds="pn"] .dds-claims,
+  .rig[data-dds="claims"] .dds-map,
+  .rig[data-dds="claims"] .dds-counter,
+  .rig[data-dds="claims"] .dds-pn {
     display: none;
   }
 
@@ -614,6 +665,34 @@ const pnFillSteps = [2, 6];
     font-size: 0.7rem;
   }
 
+  /* claims read non-optimistically: the holder always prints in ink, and
+     magenta annotates only the filed op — the inverse of the other views */
+  .claim-holder output {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+    color: var(--ink);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  tr.filed .claim-holder output {
+    border-bottom: 1px dashed var(--overprint-deep);
+  }
+
+  .claim-note {
+    display: block;
+    color: var(--overprint-deep);
+    font-style: italic;
+    min-height: 1.2em;
+  }
+
+  .claim-actions button {
+    inline-size: auto;
+    padding-inline: 0.7rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
   .channel {
     display: flex;
     flex-direction: column;
@@ -684,6 +763,12 @@ const pnFillSteps = [2, 6];
   /* a re-delivered duplicate is a non-event: logged, absorbed, italic */
   .op-log :global(li.replay) {
     color: var(--muted);
+    font-style: italic;
+  }
+
+  /* a rejected claim is sequenced but changes nothing: logged in overprint */
+  .op-log :global(li.rejected) {
+    color: var(--overprint-deep);
     font-style: italic;
   }
 
@@ -838,9 +923,9 @@ const pnFillSteps = [2, 6];
     }
   }
 
-  /* three picker cells no longer fit one row on narrow sheets: stack them
+  /* four picker cells no longer fit one row on narrow sheets: stack them
      like a printed legend column */
-  @media (max-width: 560px) {
+  @media (max-width: 640px) {
     .dds-picker {
       flex-direction: column;
       width: 100%;
@@ -857,6 +942,11 @@ const pnFillSteps = [2, 6];
     .gauge-actions button {
       inline-size: 2.75rem;
       block-size: 2.75rem;
+    }
+
+    .claim-actions button {
+      inline-size: auto;
+      min-inline-size: 2.75rem;
     }
 
     .counter-actions button {

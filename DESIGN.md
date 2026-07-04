@@ -76,19 +76,20 @@ sections themselves get plain headings — no per-section eyebrows.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.
 - The demo imports the real compiled kernels from
-  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel,pn_counter_kernel}.mjs`
+  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel,pn_counter_kernel,claims_kernel}.mjs`
   plus the lattice modules (`lattice_counters/{pn_counter,g_counter}`,
   `lattice_core/replica_id`) (`gleam build --target javascript` runs via
   `predev`/`prebuild`).
-- The demo hosts all three DDSes on one sequencer/SN stream, like DDSes
+- The demo hosts all four DDSes on one sequencer/SN stream, like DDSes
   sharing a container. A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below
-  560px) swaps the replica view between the shared map (gauge table), the
-  shared counter, and the PN counter; all kernels stay live regardless of
-  which is shown. Counter-family pending state is a *delta*, annotated in
-  magenta beside the value (`Δ +8 unsequenced`). The race button relabels
-  per structure — map races show last-write-wins, counter races converge on
-  the sum, PN races converge on fill − cut — and counter/PN reset is a
+  640px) swaps the replica view between the shared map (gauge table), the
+  shared counter, the PN counter, and the claims sheet; all kernels stay
+  live regardless of which is shown. Counter-family pending state is a
+  *delta*, annotated in magenta beside the value (`Δ +8 unsequenced`). The
+  race button relabels per structure — map races show last-write-wins,
+  counter races converge on the sum, PN races converge on fill − cut,
+  claims races resolve first-writer-wins — and counter/PN reset is a
   compensating update (neither has a set).
 - The PN counter is framed as an **earthwork balance** (cut & fill, yd³):
   the CRDT's two monotone tallies print as a `fill Σ / cut Σ` ledger under
@@ -101,3 +102,22 @@ sections themselves get plain headings — no per-section eyebrows.
   with no new SN, the merge absorbs it, and the op log prints the duplicate
   as an italic muted non-event (`#04 again cut −5 yd³ · absorbed`) —
   idempotency witnessed live, which the op-based counter could not survive.
+- Claims are framed as **duty stations** (`north-levee`, `spillway-gate`,
+  `pump-house`) on a claim sheet: first writer wins, write-once
+  (`try_set_claim` only — CAS re-claim is an explicit non-goal for the demo).
+  Reads are **non-optimistic**, so the holder cell always prints in ink and
+  a filed claim never shows as the holder — magenta annotates only the op in
+  flight (`claim filed · outcome unknown`, dashed underline on the `—`),
+  the inverse of the other views where magenta marks an optimistic value.
+  Claiming a committed slot is refused locally and synchronously (`already
+  claimed — nothing sent`: no dot, no SN, note self-clears). The deferred
+  outcome resolves at `ack_local`: a losing claim leaves a persistent
+  magenta margin note (`lost — A holds it`) and logs an overprint-italic
+  non-event (`#06 rejected — spillway-gate held · first writer wins`). Ops
+  print their `ref_seq` in the log (`claim north-levee → A (ref 0)`), fed
+  from a per-client last-delivered SN. Baseline pre-claims `pump-house` by
+  `Survey` via `from_summary` (persisted seq numbers keep CAS honest after
+  load). Claims have no unclaim op, so reset tears off a fresh sheet — both
+  replicas reload the baseline summary locally — guarded by an epoch counter
+  that makes the sequencer drop claims still in flight (otherwise a reset
+  mid-flight would commit on one replica and fail to ack on the other).
