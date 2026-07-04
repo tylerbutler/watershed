@@ -20,6 +20,7 @@ lattice_core = ">= 1.0.0 and < 2.0.0"
 lattice_counters = ">= 1.1.0 and < 2.0.0"
 lattice_maps = ">= 1.1.0 and < 2.0.0"
 lattice_registers = ">= 1.1.0 and < 2.0.0"
+lattice_sets = ">= 1.1.0 and < 2.0.0"
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
 aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
 

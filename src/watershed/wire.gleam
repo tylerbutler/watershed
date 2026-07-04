@@ -39,6 +39,8 @@ pub const channel_type_counter = "counter"
 
 pub const channel_type_or_map = "ormap"
 
+pub const channel_type_or_set = "orset"
+
 pub const channel_type_register_collection = "registerCollection"
 
 pub const channel_type_claims = "claims"

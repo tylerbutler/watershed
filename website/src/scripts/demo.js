@@ -1,5 +1,5 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// state — map/PN/OR-map/claims/register kernels plus the runtime counter
+// state — map/PN/OR-map/OR-set/claims/register kernels plus the runtime counter
 // channel, compiled with `gleam build --target javascript` — and talk through
 // a tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
 // in order, the same protocol shape as a Fluid-compatible service. All
@@ -8,6 +8,7 @@
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
+import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
 import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
@@ -41,6 +42,8 @@ const ORMAP_BASELINE = [
   ["borrow-pit-7", -6],
   ["wash-fill", 12],
 ];
+const MARKERS = ["north-stake", "sluice-tag", "borrow-flag"];
+const ORSET_BASELINE = ["north-stake", "sluice-tag"];
 
 function pnBaselineSummary() {
   let base = pnLattice.new$(replicaId.new$("survey-baseline"));
@@ -63,6 +66,17 @@ function orMapBaselineSummary() {
     base = acked[0];
   }
   return json.to_string(orMapKernel.summary(base));
+}
+
+function orSetBaselineSummary() {
+  let base = orSetKernel.new$(replicaId.new$("survey-baseline"));
+  for (const element of ORSET_BASELINE) {
+    const [next, _events, op] = orSetKernel.add(base, element);
+    const acked = orSetKernel.ack_local(next, op);
+    if (!acked.isOk()) throw new Error("or-set baseline ack failed");
+    base = acked[0];
+  }
+  return json.to_string(orSetKernel.summary(base));
 }
 
 // The claims baseline: three duty stations, one already claimed by the
@@ -195,6 +209,10 @@ function describeOp(ddsId, op) {
     if (op instanceof orMapKernel.Remove) return `strike ${op.key}`;
     return `set register ${op.key}`;
   }
+  if (ddsId === "orset") {
+    if (op instanceof orSetKernel.Add) return `mark ${op.element}`;
+    return `clear ${op.element}`;
+  }
   if (ddsId === "claims") {
     // The op carries the ref SN it was filed against — printing it shows
     // why the sequencer accepts or rejects the claim.
@@ -239,6 +257,7 @@ export function initDemo() {
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
   const pnBaseline = pnBaselineSummary();
   const orMapBaseline = orMapBaselineSummary();
+  const orSetBaseline = orSetBaselineSummary();
 
   const clients = {};
   for (const id of ["a", "b"]) {
@@ -256,6 +275,13 @@ export function initDemo() {
     if (!orMapLoaded.isOk()) {
       throw new Error("or-map baseline summary failed to load");
     }
+    const orSetLoaded = orSetKernel.from_summary(
+      orSetBaseline,
+      replicaId.new$(`client-${id}`),
+    );
+    if (!orSetLoaded.isOk()) {
+      throw new Error("or-set baseline summary failed to load");
+    }
     const counterChannel = bootstrapCounterCore(id);
     clients[id] = {
       id,
@@ -264,6 +290,7 @@ export function initDemo() {
       counterCore: counterChannel.core,
       pn: pnLoaded[0],
       ormap: orMapLoaded[0],
+      orset: orSetLoaded[0],
       claims: claimsBaseline(),
       registers: registersBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
@@ -281,6 +308,7 @@ export function initDemo() {
   let hasInteracted = false;
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
   let lastOrMap = null; // the most recently *sequenced* OR-map op
+  let lastOrSet = null; // the most recently *sequenced* OR-set op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
   let registersEpoch = 0; // same guard for out-of-band register-sheet reset
   const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
@@ -366,6 +394,37 @@ export function initDemo() {
     }
   }
 
+  function orSetValues(state) {
+    return new Set(orSetKernel.values(state).toArray());
+  }
+
+  function pendingOrSetElements(state) {
+    const elements = new Set();
+    for (const pending of state.pending.toArray()) {
+      elements.add(pending.op.element);
+    }
+    return elements;
+  }
+
+  function renderOrSet(client) {
+    const values = orSetValues(client.orset);
+    const pending = pendingOrSetElements(client.orset);
+    for (const element of MARKERS) {
+      const row = client.el.querySelector(`.dds-orset tr[data-key="${element}"]`);
+      const present = values.has(element);
+      row.classList.toggle("absent", !present);
+      row.classList.toggle("pending", pending.has(element));
+      row.querySelector("[data-orset-value]").textContent = present
+        ? "marked"
+        : "clear";
+      row.querySelector("[data-orset-note]").textContent = pending.has(element)
+        ? "unsequenced tag"
+        : present
+          ? "live tag observed"
+          : "no live tags";
+    }
+  }
+
   function renderClaims(client) {
     for (const key of SLOTS) {
       const row = client.el.querySelector(`.dds-claims tr[data-key="${key}"]`);
@@ -422,6 +481,8 @@ export function initDemo() {
           ? counterPending(client).count
         : activeDds === "registers"
           ? registerPending[client.id].size
+        : activeDds === "orset"
+          ? client.orset.pending.toArray().length
         : activeDds === "ormap"
           ? client.ormap.pending.toArray().length
         : client[activeDds].pending.toArray().length;
@@ -436,6 +497,7 @@ export function initDemo() {
     renderCounter(client);
     renderPn(client);
     renderOrMap(client);
+    renderOrSet(client);
     renderClaims(client);
     renderRegisters(client);
     renderBadge(client);
@@ -448,6 +510,7 @@ export function initDemo() {
       total += counterPending(client).count;
       total += client.pn.pending.toArray().length;
       total += client.ormap.pending.toArray().length;
+      total += client.orset.pending.toArray().length;
       total += gdict.size(client.claims.pending);
       total += registerPending[client.id].size;
     }
@@ -464,6 +527,8 @@ export function initDemo() {
         pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
         JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
           JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
+        JSON.stringify(orSetSnapshot(clients.a.orset)) ===
+          JSON.stringify(orSetSnapshot(clients.b.orset)) &&
         JSON.stringify(claimsSnapshot(clients.a.claims)) ===
           JSON.stringify(claimsSnapshot(clients.b.claims)) &&
         JSON.stringify(registerSnapshot(clients.a.registers)) ===
@@ -495,6 +560,10 @@ export function initDemo() {
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, v[0]]);
+  }
+
+  function orSetSnapshot(state) {
+    return orSetKernel.sequenced_values(state).toArray();
   }
 
   function registerSnapshot(state) {
@@ -594,6 +663,15 @@ export function initDemo() {
         const result = orMapKernel.apply_remote(target.ormap, op);
         if (result.isOk()) target.ormap = result[0][0];
         else console.error("unexpected remote OR-map op", result[0]);
+      }
+    } else if (ddsId === "orset") {
+      if (target.id === originId) {
+        const result = orSetKernel.ack_local(target.orset, op);
+        if (result.isOk()) target.orset = result[0];
+        else console.error("unexpected OR-set ack", result[0]);
+      } else {
+        const [next] = orSetKernel.apply_remote(target.orset, op);
+        target.orset = next;
       }
     } else if (ddsId === "claims") {
       if (target.id === originId) {
@@ -700,6 +778,9 @@ export function initDemo() {
       } else if (ddsId === "ormap") {
         lastOrMap = { op, sn: stamped };
         replayBtn.disabled = false;
+      } else if (ddsId === "orset") {
+        lastOrSet = { op, sn: stamped };
+        replayBtn.disabled = false;
       }
 
       for (const target of Object.values(clients)) {
@@ -790,6 +871,22 @@ export function initDemo() {
     submit(clientId, "ormap", op);
   }
 
+  function localOrSetAdd(clientId, element) {
+    const client = clients[clientId];
+    const [next, _events, op] = orSetKernel.add(client.orset, element);
+    client.orset = next;
+    render(client);
+    submit(clientId, "orset", op);
+  }
+
+  function localOrSetRemove(clientId, element) {
+    const client = clients[clientId];
+    const [next, _events, op] = orSetKernel.remove(client.orset, element);
+    client.orset = next;
+    render(client);
+    submit(clientId, "orset", op);
+  }
+
   function localClaim(clientId, key) {
     const client = clients[clientId];
     const result = claimsKernel.try_set_claim(
@@ -860,13 +957,24 @@ export function initDemo() {
     renderStatus();
   }
 
+  function resetOrSet() {
+    const current = orSetValues(clients.a.orset);
+    for (const element of MARKERS) {
+      const shouldBePresent = ORSET_BASELINE.includes(element);
+      const isPresent = current.has(element);
+      if (shouldBePresent && !isPresent) localOrSetAdd("a", element);
+      if (!shouldBePresent && isPresent) localOrSetRemove("a", element);
+    }
+  }
+
   // The sequencer re-sends an already-sequenced delta to every replica. No
   // new SN is stamped — this is duplicate delivery, the failure mode resends
   // and stash replays produce — and the lattice absorbs it: merge is
   // idempotent, so nothing changes anywhere.
   function redeliverLastDelta() {
     const ddsId = activeDds;
-    const last = ddsId === "ormap" ? lastOrMap : lastPn;
+    const last =
+      ddsId === "ormap" ? lastOrMap : ddsId === "orset" ? lastOrSet : lastPn;
     const { op, sn: originalSn } = last;
     const li = document.createElement("li");
     li.className = "replay";
@@ -888,6 +996,9 @@ export function initDemo() {
           const result = orMapKernel.apply_remote(target.ormap, op);
           if (result.isOk()) target.ormap = result[0][0];
           else console.error("unexpected duplicate OR-map op", result[0]);
+        } else if (ddsId === "orset") {
+          const [next] = orSetKernel.apply_remote(target.orset, op);
+          target.orset = next;
         } else {
           const [next] = pnKernel.apply_remote(target.pn, op);
           target.pn = next;
@@ -959,6 +1070,18 @@ export function initDemo() {
       if (orMapReopenBtn) {
         hasInteracted = true;
         localOrMapLog(client.id, orMapReopenBtn.closest("tr").dataset.key, 0);
+        return;
+      }
+      const orSetAddBtn = event.target.closest("button[data-orset-add]");
+      if (orSetAddBtn) {
+        hasInteracted = true;
+        localOrSetAdd(client.id, orSetAddBtn.closest("tr").dataset.key);
+        return;
+      }
+      const orSetRemoveBtn = event.target.closest("button[data-orset-remove]");
+      if (orSetRemoveBtn) {
+        hasInteracted = true;
+        localOrSetRemove(client.id, orSetRemoveBtn.closest("tr").dataset.key);
       }
     });
   }
@@ -968,6 +1091,7 @@ export function initDemo() {
     counter: "Race concurrent increments",
     pn: "Race fill against cut",
     ormap: "Race a strike against a delivery",
+    orset: "Race clear against re-mark",
     claims: "Race two claims for one slot",
     registers: "Race two revisions for one register",
   };
@@ -976,6 +1100,7 @@ export function initDemo() {
     counter: "Reset the counter to its surveyed baseline value",
     pn: "Reset the earthwork balance to its surveyed baseline",
     ormap: "Reset the stockpile ledger to its surveyed baseline",
+    orset: "Reset the marker roster to its surveyed baseline",
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
     registers: "Reload both register collections from the surveyed baseline summary",
   };
@@ -990,8 +1115,13 @@ export function initDemo() {
       }
       raceBtn.textContent = RACE_LABELS[activeDds];
       resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
-      replayBtn.hidden = !["pn", "ormap"].includes(activeDds);
-      replayBtn.disabled = activeDds === "ormap" ? !lastOrMap : !lastPn;
+      replayBtn.hidden = !["pn", "ormap", "orset"].includes(activeDds);
+      replayBtn.disabled =
+        activeDds === "ormap"
+          ? !lastOrMap
+          : activeDds === "orset"
+            ? !lastOrSet
+            : !lastPn;
       renderBadge(clients.a);
       renderBadge(clients.b);
     });
@@ -1034,6 +1164,22 @@ export function initDemo() {
       }
       localOrMapStrike("a", key);
       localOrMapLog("b", key, 6);
+    } else if (activeDds === "orset") {
+      // A clears the tags it has observed while B concurrently adds a fresh
+      // tag for the same marker. The remove cannot see B's tag, so the marker
+      // remains present after both deltas converge.
+      let key = MARKERS.find(
+        (marker) =>
+          orSetValues(clients.a.orset).has(marker) &&
+          orSetValues(clients.b.orset).has(marker),
+      );
+      if (key === undefined) {
+        key = MARKERS[0];
+        localOrSetAdd("a", key);
+        localOrSetAdd("b", key);
+      }
+      localOrSetRemove("a", key);
+      localOrSetAdd("b", key);
     } else if (activeDds === "claims") {
       // Both clients file for the same free slot inside one latency window.
       // FIFO stamping sequences A's claim first, so A wins on every replica;
@@ -1065,7 +1211,11 @@ export function initDemo() {
 
   replayBtn.addEventListener("click", () => {
     hasInteracted = true;
-    if ((activeDds === "ormap" && lastOrMap) || (activeDds === "pn" && lastPn)) {
+    if (
+      (activeDds === "ormap" && lastOrMap) ||
+      (activeDds === "orset" && lastOrSet) ||
+      (activeDds === "pn" && lastPn)
+    ) {
       redeliverLastDelta();
     }
   });
@@ -1098,6 +1248,8 @@ export function initDemo() {
       resetClaims();
     } else if (activeDds === "registers") {
       resetRegisters();
+    } else if (activeDds === "orset") {
+      resetOrSet();
     } else {
       // A counter has no "set" — the reset is itself an increment that
       // compensates for the drift.

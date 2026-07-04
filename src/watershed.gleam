@@ -84,6 +84,11 @@ pub opaque type SharedOrMap {
 }
 
 @target(erlang)
+pub opaque type SharedOrSet {
+  SharedOrSet(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
 pub opaque type SharedRegisterCollection {
   SharedRegisterCollection(runtime: Subject(runtime.Msg), address: String)
 }
@@ -375,6 +380,81 @@ pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
 pub fn subscribe_or_map(or_map: SharedOrMap) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(or_map.runtime, runtime.Subscribe(or_map.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-sets
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new observed-remove set channel for string elements.
+pub fn create_or_set(document: Document) -> Result(SharedOrSet, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateOrSet,
+  )
+  |> result.map(fn(address) {
+    SharedOrSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
+  handle.encode_handle(or_set.address)
+}
+
+@target(erlang)
+pub fn resolve_or_set(
+  document: Document,
+  value: Json,
+) -> Result(SharedOrSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedOrSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn or_set_add(or_set: SharedOrSet, element: String) -> Nil {
+  process.send(or_set.runtime, runtime.AddOrSetElement(or_set.address, element))
+}
+
+@target(erlang)
+pub fn or_set_remove(or_set: SharedOrSet, element: String) -> Nil {
+  process.send(
+    or_set.runtime,
+    runtime.RemoveOrSetElement(or_set.address, element),
+  )
+}
+
+@target(erlang)
+pub fn or_set_contains(or_set: SharedOrSet, element: String) -> Bool {
+  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.OrSetContains(or_set.address, element, reply)
+  })
+}
+
+@target(erlang)
+pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
+  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrSetValues(or_set.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn subscribe_or_set(or_set: SharedOrSet) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(or_set.runtime, runtime.Subscribe(or_set.address, subscriber))
   subscriber
 }
 

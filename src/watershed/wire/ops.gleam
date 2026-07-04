@@ -26,11 +26,13 @@ import gleam/option.{None}
 import lattice_core/replica_id
 import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_sets/or_set
 import watershed/channel
 import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
+import watershed/or_set_kernel.{type OrSetOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
 import watershed/wire.{type OutboundOp}
 
@@ -128,6 +130,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.MapOp(op) -> encode_map_op(op)
     channel.CounterOp(op) -> encode_counter_op(op)
     channel.OrMapOp(op) -> encode_or_map_op(op)
+    channel.OrSetOp(op) -> encode_or_set_op(op)
     channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
     channel.ClaimsOp(op) -> encode_claim_op(op)
   }
@@ -143,6 +146,7 @@ pub fn channel_op_decoder(
     channel.CounterChannel ->
       counter_op_decoder() |> decode.map(channel.CounterOp)
     channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
+    channel.OrSetChannel -> or_set_op_decoder() |> decode.map(channel.OrSetOp)
     channel.RegisterCollectionChannel ->
       register_collection_op_decoder()
       |> decode.map(channel.RegisterCollectionOp)
@@ -233,6 +237,30 @@ pub fn encode_or_map_op(op: OrMapOp) -> Json {
   }
 }
 
+pub fn encode_or_set_envelope(address: String, op: OrSetOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_or_set_op(op)),
+  ])
+}
+
+pub fn encode_or_set_op(op: OrSetOp) -> Json {
+  case op {
+    or_set_kernel.Add(element, delta) ->
+      json.object([
+        #("type", json.string("orSetAdd")),
+        #("element", json.string(element)),
+        #("delta", or_set_delta_json(delta)),
+      ])
+    or_set_kernel.Remove(element, delta) ->
+      json.object([
+        #("type", json.string("orSetRemove")),
+        #("element", json.string(element)),
+        #("delta", or_set_delta_json(delta)),
+      ])
+  }
+}
+
 pub fn encode_register_collection_envelope(
   address: String,
   op: WriteOp,
@@ -288,6 +316,10 @@ pub fn encode_claim_op(op: ClaimOp) -> Json {
 
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
+}
+
+fn or_set_delta_json(delta: or_set.ORSet(String)) -> Json {
+  json.string(json.to_string(or_set.to_json(delta)))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -376,6 +408,29 @@ pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
   }
 }
 
+pub fn or_set_op_decoder() -> Decoder(OrSetOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "orSetAdd" -> {
+      use element <- decode.field("element", decode.string)
+      use delta <- decode.field("delta", or_set_delta_decoder())
+      let op: OrSetOp = or_set_kernel.Add(element, delta)
+      decode.success(op)
+    }
+    "orSetRemove" -> {
+      use element <- decode.field("element", decode.string)
+      use delta <- decode.field("delta", or_set_delta_decoder())
+      let op: OrSetOp = or_set_kernel.Remove(element, delta)
+      decode.success(op)
+    }
+    _ ->
+      decode.failure(
+        or_set_kernel.Remove("", default_or_set_delta()),
+        "OrSetOp",
+      )
+  }
+}
+
 pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
   use op_type <- decode.field("type", decode.string)
   case op_type {
@@ -413,6 +468,18 @@ fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
 fn default_or_map_delta() -> or_map.ORMapDelta {
   or_map.new(replica_id.new(""), crdt.PnCounterSpec)
   |> or_map.empty_delta
+}
+
+fn or_set_delta_decoder() -> Decoder(or_set.ORSet(String)) {
+  use encoded <- decode.then(decode.string)
+  case or_set.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_or_set_delta(), "ORSetDelta")
+  }
+}
+
+fn default_or_set_delta() -> or_set.ORSet(String) {
+  or_set.new(replica_id.new(""))
 }
 
 /// `Plain` values carry an opaque kernel `Json` payload. Handle-like markers

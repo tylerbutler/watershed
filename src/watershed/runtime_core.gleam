@@ -28,6 +28,7 @@ import watershed/counter_kernel
 import watershed/handle
 import watershed/map_kernel
 import watershed/or_map_kernel
+import watershed/or_set_kernel
 import watershed/register_collection_kernel
 import watershed/wire
 import watershed/wire/ops
@@ -957,6 +958,77 @@ pub fn or_map_remove(
   }
 }
 
+pub fn or_set_add(
+  core: Core,
+  address: String,
+  element: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_or_set(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        or_set_kernel.add(kernel, element)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.OrSetState(kernel)),
+          tag_or_set_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) = or_set_kernel.add(kernel, element)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrSetState(kernel),
+        tag_or_set_events(address, events),
+        channel.OrSetOp(op),
+        channel.OrSetMeta(message_id),
+      ))
+    }
+  }
+}
+
+pub fn or_set_remove(
+  core: Core,
+  address: String,
+  element: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_or_set(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        or_set_kernel.remove(kernel, element)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.OrSetState(kernel)),
+          tag_or_set_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) =
+        or_set_kernel.remove(kernel, element)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrSetState(kernel),
+        tag_or_set_events(address, events),
+        channel.OrSetOp(op),
+        channel.OrSetMeta(message_id),
+      ))
+    }
+  }
+}
+
 pub fn register_write(
   core: Core,
   address: String,
@@ -1172,6 +1244,23 @@ fn locate_or_map(
       Error(WrongChannelType(
         address,
         expected: channel.OrMapChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_or_set(
+  core: Core,
+  address: String,
+) -> Result(Located(or_set_kernel.OrSetState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.OrSetState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.OrSetState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.OrSetChannel,
         actual: channel.channel_type(other),
       ))
   }
@@ -1395,6 +1484,13 @@ fn tag_or_map_events(
   list.map(events, fn(event) { #(address, channel.OrMapEvent(event)) })
 }
 
+fn tag_or_set_events(
+  address: String,
+  events: List(or_set_kernel.OrSetEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.OrSetEvent(event)) })
+}
+
 fn tag_register_collection_events(
   address: String,
   events: List(register_collection_kernel.RegisterEvent),
@@ -1473,6 +1569,20 @@ pub fn or_map_entries(
 ) -> List(#(String, or_map_kernel.OrMapValue)) {
   case find_channel(core, address) {
     Some(channel.OrMapState(kernel)) -> or_map_kernel.entries(kernel)
+    _ -> []
+  }
+}
+
+pub fn or_set_contains(core: Core, address: String, element: String) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.OrSetState(kernel)) -> or_set_kernel.contains(kernel, element)
+    _ -> False
+  }
+}
+
+pub fn or_set_values(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.OrSetState(kernel)) -> or_set_kernel.values(kernel)
     _ -> []
   }
 }

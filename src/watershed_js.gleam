@@ -98,6 +98,11 @@ pub opaque type SharedOrMap {
 }
 
 @target(javascript)
+pub opaque type SharedOrSet {
+  SharedOrSet(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
 pub opaque type SharedRegisterCollection {
   SharedRegisterCollection(runtime: runtime_js.Runtime, address: String)
 }
@@ -337,6 +342,65 @@ pub fn subscribe_or_map(
   handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   runtime_js.subscribe(or_map.runtime, or_map.address, handler)
+}
+
+// ── OR-sets ──────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new observed-remove set channel for string elements.
+pub fn create_or_set(document: Document) -> Result(SharedOrSet, String) {
+  runtime_js.create_or_set(document.runtime)
+  |> result.map(fn(address) {
+    SharedOrSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
+  handle.encode_handle(or_set.address)
+}
+
+@target(javascript)
+pub fn resolve_or_set(
+  document: Document,
+  value: Json,
+) -> Result(SharedOrSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedOrSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+pub fn or_set_add(or_set: SharedOrSet, element: String) -> Nil {
+  runtime_js.or_set_add(or_set.runtime, or_set.address, element)
+}
+
+@target(javascript)
+pub fn or_set_remove(or_set: SharedOrSet, element: String) -> Nil {
+  runtime_js.or_set_remove(or_set.runtime, or_set.address, element)
+}
+
+@target(javascript)
+pub fn or_set_contains(or_set: SharedOrSet, element: String) -> Bool {
+  runtime_js.or_set_contains(or_set.runtime, or_set.address, element)
+}
+
+@target(javascript)
+pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
+  runtime_js.or_set_values(or_set.runtime, or_set.address)
+}
+
+@target(javascript)
+pub fn subscribe_or_set(
+  or_set: SharedOrSet,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(or_set.runtime, or_set.address, handler)
 }
 
 // ── Register collections ─────────────────────────────────────────────────────

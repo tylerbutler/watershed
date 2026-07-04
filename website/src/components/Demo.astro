@@ -11,6 +11,11 @@ const stockpiles = [
   { key: "borrow-pit-7", value: -6 },
   { key: "wash-fill", value: 12 },
 ];
+const markers = [
+  { key: "north-stake", value: "marked" },
+  { key: "sluice-tag", value: "marked" },
+  { key: "borrow-flag", value: "clear" },
+];
 const claimSlots = [
   { key: "north-levee", holder: null },
   { key: "spillway-gate", holder: null },
@@ -38,14 +43,14 @@ const pnFillSteps = [2, 6];
       field-checked. This demo borrows that color code: pending edits are drawn
       in <strong class="k-pending">magenta</strong> and sequenced state in
       <strong class="k-seq">ink</strong>. Both clients run watershed’s real
-      Gleam code in one ordered stream — map/PN/OR-map/claims/register kernels
-      plus the runtime counter channel.
+      Gleam code in one ordered stream — map/PN/OR-map/OR-set/claims/register
+      kernels plus the runtime counter channel.
     </p>
     <p class="demo-hint">
       Nudge the gauges, tally the sandbags, balance the earthwork, strike a
-      stockpile, stake a claim, revise a register, stretch the link latency,
-      race a concurrent write. The replicas always converge — each structure by
-      its own rule.
+      stockpile, clear a field marker, stake a claim, revise a register, stretch
+      the link latency, race a concurrent write. The replicas always converge —
+      each structure by its own rule.
     </p>
   </div>
 
@@ -67,6 +72,10 @@ const pnFillSteps = [2, 6];
       <label>
         <input type="radio" name="dds" value="ormap" data-dds-pick disabled />
         <span>OR-map</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="orset" data-dds-pick disabled />
+        <span>OR-set</span>
       </label>
       <label>
         <input type="radio" name="dds" value="claims" data-dds-pick disabled />
@@ -105,6 +114,12 @@ const pnFillSteps = [2, 6];
       removes stockpile entries the striker had seen. Race a strike against a
       concurrent delivery and the row survives — with every logged yard.
       Re-opening a struck pile brings its ledger back.
+    </p>
+    <p class="merge-rule" data-merge-rule="orset" hidden>
+      <strong>Merge rule — add-wins, observed-remove.</strong> Clearing a marker
+      removes only the add tags this replica had observed. Race a clear against
+      a concurrent re-mark and the marker remains present because the fresh tag
+      was unseen by the clear.
     </p>
     <p class="merge-rule" data-merge-rule="registers" hidden>
       <strong>Merge rule — atomic plus retained versions.</strong> A write that
@@ -324,6 +339,42 @@ const pnFillSteps = [2, 6];
               ))}
             </tbody>
           </table>
+          <table class="gauge-table orset-table dds-orset">
+            <caption class="visually-hidden">
+              OR-set field marker roster replica on {c.name}
+            </caption>
+            <tbody>
+              {markers.map((m) => (
+                <tr data-key={m.key}>
+                  <th scope="row">
+                    <code>{m.key}</code>
+                    <span class="annot orset-note" data-orset-note></span>
+                  </th>
+                  <td class="gauge-value orset-value">
+                    <output data-orset-value>{m.value}</output>
+                  </td>
+                  <td class="gauge-actions orset-actions">
+                    <button
+                      type="button"
+                      data-orset-add
+                      aria-label={`Mark ${m.key} on ${c.name}`}
+                      disabled
+                    >
+                      Mark
+                    </button>
+                    <button
+                      type="button"
+                      data-orset-remove
+                      aria-label={`Clear ${m.key} on ${c.name}`}
+                      disabled
+                    >
+                      Clear
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           <table class="gauge-table register-table dds-registers">
             <caption class="visually-hidden">
               Register collection replica on {c.name}
@@ -435,9 +486,9 @@ const pnFillSteps = [2, 6];
       The live demo needs JavaScript — it runs watershed’s actual
       <code>runtime_core</code> counter channel plus
       <code>map_kernel</code>, <code>pn_counter_kernel</code>,
-      <code>or_map_kernel</code>, <code>claims_kernel</code>, and
-      <code>register_collection_kernel</code> in your browser. The rest of the
-      page works fine without it.
+      <code>or_map_kernel</code>, <code>or_set_kernel</code>,
+      <code>claims_kernel</code>, and <code>register_collection_kernel</code> in
+      your browser. The rest of the page works fine without it.
     </p>
   </noscript>
 
@@ -676,36 +727,48 @@ const pnFillSteps = [2, 6];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, six structures: the picker swaps which replica view is printed */
+  /* one rig, seven structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
   .rig[data-dds="map"] .dds-ormap,
+  .rig[data-dds="map"] .dds-orset,
   .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="map"] .dds-registers,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
   .rig[data-dds="counter"] .dds-ormap,
+  .rig[data-dds="counter"] .dds-orset,
   .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="counter"] .dds-registers,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
   .rig[data-dds="pn"] .dds-ormap,
+  .rig[data-dds="pn"] .dds-orset,
   .rig[data-dds="pn"] .dds-claims,
   .rig[data-dds="pn"] .dds-registers,
   .rig[data-dds="ormap"] .dds-map,
   .rig[data-dds="ormap"] .dds-counter,
   .rig[data-dds="ormap"] .dds-pn,
+  .rig[data-dds="ormap"] .dds-orset,
   .rig[data-dds="ormap"] .dds-claims,
   .rig[data-dds="ormap"] .dds-registers,
+  .rig[data-dds="orset"] .dds-map,
+  .rig[data-dds="orset"] .dds-counter,
+  .rig[data-dds="orset"] .dds-pn,
+  .rig[data-dds="orset"] .dds-ormap,
+  .rig[data-dds="orset"] .dds-claims,
+  .rig[data-dds="orset"] .dds-registers,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
   .rig[data-dds="claims"] .dds-pn,
   .rig[data-dds="claims"] .dds-ormap,
+  .rig[data-dds="claims"] .dds-orset,
   .rig[data-dds="claims"] .dds-registers,
   .rig[data-dds="registers"] .dds-map,
   .rig[data-dds="registers"] .dds-counter,
   .rig[data-dds="registers"] .dds-pn,
   .rig[data-dds="registers"] .dds-ormap,
+  .rig[data-dds="registers"] .dds-orset,
   .rig[data-dds="registers"] .dds-claims {
     display: none;
   }
@@ -871,6 +934,36 @@ const pnFillSteps = [2, 6];
 
   .ormap-table tr.struck [data-ormap-reopen] {
     display: inline-block;
+  }
+
+  .orset-table tr.absent th code,
+  .orset-table tr.absent .orset-value output {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+
+  .orset-table tr.absent .orset-value {
+    font-style: italic;
+  }
+
+  .orset-note {
+    display: block;
+    min-height: 1.2em;
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  .orset-actions button {
+    inline-size: auto;
+    min-inline-size: 2.4rem;
+    padding-inline: 0.55rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .orset-table tr.absent [data-orset-remove] {
+    display: none;
   }
 
   .register-table thead th {

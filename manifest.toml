@@ -59,6 +59,7 @@ lattice_core = { version = ">= 1.0.0 and < 2.0.0" }
 lattice_counters = { version = ">= 1.1.0 and < 2.0.0" }
 lattice_maps = { version = ">= 1.1.0 and < 2.0.0" }
 lattice_registers = { version = ">= 1.1.0 and < 2.0.0" }
+lattice_sets = { version = ">= 1.1.0 and < 2.0.0" }
 qcheck = { version = ">= 1.0.0 and < 2.0.0" }
 simplifile = { version = ">= 2.5.0 and < 3.0.0" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }

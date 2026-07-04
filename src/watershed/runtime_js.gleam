@@ -261,6 +261,38 @@ pub fn or_map_keys(runtime: Runtime, address: String) -> List(String) {
 }
 
 @target(javascript)
+pub fn or_set_add(runtime: Runtime, address: String, element: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_set_add(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn or_set_remove(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_set_remove(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn or_set_contains(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.or_set_contains(_, address, element))
+}
+
+@target(javascript)
+pub fn or_set_values(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.or_set_values(_, address))
+}
+
+@target(javascript)
 pub fn register_write(
   runtime: Runtime,
   address: String,
@@ -353,6 +385,11 @@ pub fn create_or_map(
   mode: OrMapMode,
 ) -> Result(String, String) {
   create_channel(runtime, channel.InitOrMap(mode), "create_or_map")
+}
+
+@target(javascript)
+pub fn create_or_set(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitOrSet, "create_or_set")
 }
 
 @target(javascript)

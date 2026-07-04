@@ -61,7 +61,7 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
-  InitClaims, InitCounter, InitMap, InitOrMap, InitRegisterCollection,
+  InitClaims, InitCounter, InitMap, InitOrMap, InitOrSet, InitRegisterCollection,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -116,6 +116,8 @@ pub type Msg {
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
+  AddOrSetElement(address: String, element: String)
+  RemoveOrSetElement(address: String, element: String)
   WriteRegister(address: String, key: String, value: Json)
   TrySetClaim(
     address: String,
@@ -138,6 +140,7 @@ pub type Msg {
   CreateCounter(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
+  CreateOrSet(reply: Subject(Result(String, String)))
   CreateRegisterCollection(reply: Subject(Result(String, String)))
   CreateClaims(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
@@ -168,6 +171,8 @@ pub type Msg {
   )
   GetOrMapEntries(address: String, reply: Subject(List(#(String, OrMapValue))))
   GetOrMapKeys(address: String, reply: Subject(List(String)))
+  OrSetContains(address: String, element: String, reply: Subject(Bool))
+  GetOrSetValues(address: String, reply: Subject(List(String)))
   GetRegisterValue(
     address: String,
     key: String,
@@ -483,6 +488,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     RemoveOrMapKey(address, key) ->
       edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
+    AddOrSetElement(address, element) ->
+      edit(state, fn(core) { runtime_core.or_set_add(core, address, element) })
+    RemoveOrSetElement(address, element) ->
+      edit(state, fn(core) {
+        runtime_core.or_set_remove(core, address, element)
+      })
     WriteRegister(address, key, value) ->
       edit(state, fn(core) {
         runtime_core.register_write(core, address, key, value)
@@ -501,6 +512,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitCounter, "create_counter")
     CreateOrMap(mode, reply) ->
       create_channel(state, reply, InitOrMap(mode), "create_or_map")
+    CreateOrSet(reply) ->
+      create_channel(state, reply, InitOrSet, "create_or_set")
     CreateRegisterCollection(reply) ->
       create_channel(
         state,
@@ -564,6 +577,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
     GetOrMapKeys(address, reply) -> {
       process.send(reply, read(state, [], runtime_core.or_map_keys(_, address)))
+      actor.continue(state)
+    }
+    OrSetContains(address, element, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.or_set_contains(_, address, element)),
+      )
+      actor.continue(state)
+    }
+    GetOrSetValues(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.or_set_values(_, address)),
+      )
       actor.continue(state)
     }
     GetRegisterValue(address, key, policy, reply) -> {
