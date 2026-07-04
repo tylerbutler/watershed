@@ -6,6 +6,11 @@ const gauges = [
 ];
 const counter = { key: "sandbags-placed", value: 120 };
 const pn = { key: "earthwork-balance", fill: 74, cut: 30 };
+const stockpiles = [
+  { key: "spoil-north", value: 18 },
+  { key: "borrow-pit-7", value: -6 },
+  { key: "wash-fill", value: 12 },
+];
 const claimSlots = [
   { key: "north-levee", holder: null },
   { key: "spillway-gate", holder: null },
@@ -29,15 +34,14 @@ const pnFillSteps = [2, 6];
       applies instantly and shows <strong class="k-pending">magenta</strong> while
       it is pending, then sets in <strong class="k-seq">ink</strong> once the
       server assigns it a sequence number. The two clients below run the real
-      <code>map_kernel</code>, <code>counter_kernel</code>,
-      <code>pn_counter_kernel</code>, and <code>claims_kernel</code> — the
-      same Gleam modules the BEAM runtime uses, compiled to JavaScript —
+      watershed kernels — maps, counters, PN counters, OR-maps, and claims —
+      the same Gleam modules the BEAM runtime uses, compiled to JavaScript and
       riding one sequencer on this page.
     </p>
     <p class="demo-hint">
-      Nudge the gauges, tally the sandbags, balance the earthwork, stake a
-      claim, stretch the link latency, race a concurrent write. The replicas
-      always converge — each structure by its own rule.
+      Nudge the gauges, tally the sandbags, balance the earthwork, strike a
+      stockpile, stake a claim, stretch the link latency, race a concurrent
+      write. The replicas always converge — each structure by its own rule.
     </p>
   </div>
 
@@ -55,6 +59,10 @@ const pnFillSteps = [2, 6];
       <label>
         <input type="radio" name="dds" value="pn" data-dds-pick disabled />
         <span>PN counter</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="ormap" data-dds-pick disabled />
+        <span>OR-map</span>
       </label>
       <label>
         <input type="radio" name="dds" value="claims" data-dds-pick disabled />
@@ -83,6 +91,12 @@ const pnFillSteps = [2, 6];
       reference SN matches the holder&rsquo;s exactly). Nothing prints
       optimistically: a filed claim is invisible — even to you — until it
       round-trips as won or lost.
+    </p>
+    <p class="merge-rule" data-merge-rule="ormap" hidden>
+      <strong>Merge rule — add-wins, observed-remove.</strong> A strike only
+      removes stockpile entries the striker had seen. Race a strike against a
+      concurrent delivery and the row survives — with every logged yard.
+      Re-opening a struck pile brings its ledger back.
     </p>
   </div>
 
@@ -244,6 +258,58 @@ const pnFillSteps = [2, 6];
               ))}
             </tbody>
           </table>
+          <table class="gauge-table ormap-table dds-ormap">
+            <caption class="visually-hidden">
+              OR-map stockpile ledger replica on {c.name}
+            </caption>
+            <tbody>
+              {stockpiles.map((s) => (
+                <tr data-key={s.key}>
+                  <th scope="row">
+                    <code>{s.key}</code>
+                  </th>
+                  <td class="gauge-value ormap-value">
+                    <output data-ormap-value>{s.value}</output>
+                    <span class="annot ormap-note" data-ormap-note></span>
+                  </td>
+                  <td class="gauge-actions ormap-actions">
+                    <button
+                      type="button"
+                      data-ormap-log="2"
+                      aria-label={`Log 2 cubic yards into ${s.key} on ${c.name}`}
+                      disabled
+                    >
+                      +2
+                    </button>
+                    <button
+                      type="button"
+                      data-ormap-log="6"
+                      aria-label={`Log 6 cubic yards into ${s.key} on ${c.name}`}
+                      disabled
+                    >
+                      +6
+                    </button>
+                    <button
+                      type="button"
+                      data-ormap-strike
+                      aria-label={`Strike ${s.key} on ${c.name}`}
+                      disabled
+                    >
+                      ×
+                    </button>
+                    <button
+                      type="button"
+                      data-ormap-reopen
+                      aria-label={`Re-open ${s.key} on ${c.name}`}
+                      disabled
+                    >
+                      Re-open
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       ))
     }
@@ -313,8 +379,9 @@ const pnFillSteps = [2, 6];
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
       <code>map_kernel</code>, <code>counter_kernel</code>,
-      <code>pn_counter_kernel</code>, and <code>claims_kernel</code> in your
-      browser. The rest of the page works fine without it.
+      <code>pn_counter_kernel</code>, <code>or_map_kernel</code>, and
+      <code>claims_kernel</code> in your browser. The rest of the page works
+      fine without it.
     </p>
   </noscript>
 
@@ -553,19 +620,27 @@ const pnFillSteps = [2, 6];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, four structures: the picker swaps which replica view is printed */
+  /* one rig, five structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
+  .rig[data-dds="map"] .dds-ormap,
   .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
+  .rig[data-dds="counter"] .dds-ormap,
   .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
+  .rig[data-dds="pn"] .dds-ormap,
   .rig[data-dds="pn"] .dds-claims,
+  .rig[data-dds="ormap"] .dds-map,
+  .rig[data-dds="ormap"] .dds-counter,
+  .rig[data-dds="ormap"] .dds-pn,
+  .rig[data-dds="ormap"] .dds-claims,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
-  .rig[data-dds="claims"] .dds-pn {
+  .rig[data-dds="claims"] .dds-pn,
+  .rig[data-dds="claims"] .dds-ormap {
     display: none;
   }
 
@@ -691,6 +766,45 @@ const pnFillSteps = [2, 6];
     padding-inline: 0.7rem;
     font-size: var(--text-sm);
     font-weight: 600;
+  }
+
+  .ormap-table tr.struck th code,
+  .ormap-table tr.struck .ormap-value output {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
+
+  .ormap-table tr.struck .ormap-value {
+    font-style: italic;
+  }
+
+  .ormap-note {
+    display: block;
+    min-height: 1.2em;
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  .ormap-actions button {
+    inline-size: auto;
+    min-inline-size: 2.4rem;
+    padding-inline: 0.55rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+
+  .ormap-actions [data-ormap-reopen] {
+    display: none;
+  }
+
+  .ormap-table tr.struck [data-ormap-log],
+  .ormap-table tr.struck [data-ormap-strike] {
+    display: none;
+  }
+
+  .ormap-table tr.struck [data-ormap-reopen] {
+    display: inline-block;
   }
 
   .channel {
@@ -923,7 +1037,7 @@ const pnFillSteps = [2, 6];
     }
   }
 
-  /* four picker cells no longer fit one row on narrow sheets: stack them
+  /* five picker cells no longer fit one row on narrow sheets: stack them
      like a printed legend column */
   @media (max-width: 640px) {
     .dds-picker {

@@ -1,6 +1,6 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// kernel states — `map_kernel`, `counter_kernel`, `pn_counter_kernel`, and
-// `claims_kernel`, the same pure Gleam modules the BEAM runtime uses,
+// kernel states — `map_kernel`, `counter_kernel`, `pn_counter_kernel`,
+// `or_map_kernel`, and `claims_kernel`, the same pure Gleam modules the BEAM runtime uses,
 // compiled with `gleam build --target javascript` — and talk through a tiny
 // in-page sequencer that stamps sequence numbers (SNs) and broadcasts in
 // order, the same protocol shape as a live levee server. All structures ride
@@ -9,6 +9,7 @@
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as counterKernel from "../../../build/dev/javascript/watershed/watershed/counter_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
+import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
 import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
@@ -30,12 +31,34 @@ const COUNTER_BASE = 120;
 const PN_FILL_BASE = 74;
 const PN_CUT_BASE = 30;
 const PN_BASE = PN_FILL_BASE - PN_CUT_BASE;
+const STOCKPILES = ["spoil-north", "borrow-pit-7", "wash-fill"];
+const ORMAP_BASELINE = [
+  ["spoil-north", 18],
+  ["borrow-pit-7", -6],
+  ["wash-fill", 12],
+];
 
 function pnBaselineSummary() {
   let base = pnLattice.new$(replicaId.new$("survey-baseline"));
   base = pnLattice.increment(base, PN_FILL_BASE);
   base = pnLattice.decrement(base, PN_CUT_BASE);
   return json.to_string(pnLattice.to_json(base));
+}
+
+function orMapBaselineSummary() {
+  let base = orMapKernel.new$(
+    replicaId.new$("survey-baseline"),
+    new orMapKernel.TallyMode(),
+  );
+  for (const [key, amount] of ORMAP_BASELINE) {
+    const result = orMapKernel.increment(base, key, amount);
+    if (!result.isOk()) throw new Error("or-map baseline increment failed");
+    const [next, _events, op] = result[0];
+    const acked = orMapKernel.ack_local(next, op);
+    if (!acked.isOk()) throw new Error("or-map baseline ack failed");
+    base = acked[0];
+  }
+  return json.to_string(orMapKernel.summary(base));
 }
 
 // The claims baseline: three duty stations, one already claimed by the
@@ -96,6 +119,15 @@ function describeOp(ddsId, op) {
       ? `fill +${op.amount} yd³`
       : `cut −${-op.amount} yd³`;
   }
+  if (ddsId === "ormap") {
+    if (op instanceof orMapKernel.Increment) {
+      return op.amount === 0
+        ? `re-open ${op.key}`
+        : `log ${signed(op.amount)} yd³ → ${op.key}`;
+    }
+    if (op instanceof orMapKernel.Remove) return `strike ${op.key}`;
+    return `set register ${op.key}`;
+  }
   if (ddsId === "claims") {
     // The op carries the ref SN it was filed against — printing it shows
     // why the sequencer accepts or rejects the claim.
@@ -131,11 +163,12 @@ export function initDemo() {
   for (const el of demoSection.querySelectorAll("button, input")) {
     el.disabled = false;
   }
-  // Re-deliver stays dark until a PN delta has actually been sequenced.
+  // Re-deliver stays dark until a CRDT delta has actually been sequenced.
   replayBtn.disabled = true;
 
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
   const pnBaseline = pnBaselineSummary();
+  const orMapBaseline = orMapBaselineSummary();
 
   const clients = {};
   for (const id of ["a", "b"]) {
@@ -146,11 +179,19 @@ export function initDemo() {
       replicaId.new$(`client-${id}`),
     );
     if (!pnLoaded.isOk()) throw new Error("pn baseline summary failed to load");
+    const orMapLoaded = orMapKernel.from_summary(
+      orMapBaseline,
+      replicaId.new$(`client-${id}`),
+    );
+    if (!orMapLoaded.isOk()) {
+      throw new Error("or-map baseline summary failed to load");
+    }
     clients[id] = {
       id,
       map: mapKernel.from_sequenced(initial),
       counter: counterKernel.from_summary(COUNTER_BASE),
       pn: pnLoaded[0],
+      ormap: orMapLoaded[0],
       claims: claimsBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
@@ -165,6 +206,7 @@ export function initDemo() {
   let seqLastArrival = 0; // FIFO into the sequencer too
   let hasInteracted = false;
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
+  let lastOrMap = null; // the most recently *sequenced* OR-map op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
   const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
 
@@ -212,6 +254,42 @@ export function initDemo() {
     );
   }
 
+  function orMapEntries(state) {
+    const entries = new Map();
+    for (const [key, value] of orMapKernel.entries(state).toArray()) {
+      entries.set(key, value[0]);
+    }
+    return entries;
+  }
+
+  function pendingOrMapKeys(state) {
+    const keys = new Set();
+    for (const pending of state.pending.toArray()) {
+      keys.add(pending.op.key);
+    }
+    return keys;
+  }
+
+  function renderOrMap(client) {
+    const entries = orMapEntries(client.ormap);
+    const pending = pendingOrMapKeys(client.ormap);
+    for (const key of STOCKPILES) {
+      const row = client.el.querySelector(`.dds-ormap tr[data-key="${key}"]`);
+      const value = entries.get(key);
+      const struck = value === undefined;
+      row.classList.toggle("struck", struck);
+      row.classList.toggle("pending", pending.has(key));
+      row.querySelector("[data-ormap-value]").textContent = struck
+        ? "struck"
+        : signed(value);
+      row.querySelector("[data-ormap-note]").textContent = pending.has(key)
+        ? "unsequenced delta"
+        : struck
+          ? "hidden, not erased"
+          : "";
+    }
+  }
+
   function renderClaims(client) {
     for (const key of SLOTS) {
       const row = client.el.querySelector(`.dds-claims tr[data-key="${key}"]`);
@@ -233,6 +311,8 @@ export function initDemo() {
     const count =
       activeDds === "claims"
         ? gdict.size(client.claims.pending)
+        : activeDds === "ormap"
+          ? client.ormap.pending.toArray().length
         : client[activeDds].pending.toArray().length;
     const badge = client.el.querySelector("[data-pending-count]");
     badge.textContent = `${count} pending`;
@@ -244,6 +324,7 @@ export function initDemo() {
     renderMap(client);
     renderCounter(client);
     renderPn(client);
+    renderOrMap(client);
     renderClaims(client);
     renderBadge(client);
   }
@@ -254,6 +335,7 @@ export function initDemo() {
       total += client.map.pending.toArray().length;
       total += client.counter.pending.toArray().length;
       total += client.pn.pending.toArray().length;
+      total += client.ormap.pending.toArray().length;
       total += gdict.size(client.claims.pending);
     }
     return total;
@@ -267,6 +349,8 @@ export function initDemo() {
           JSON.stringify(mapSnapshot(clients.b.map)) &&
         clients.a.counter.value === clients.b.counter.value &&
         pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
+        JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
+          JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
         JSON.stringify(claimsSnapshot(clients.a.claims)) ===
           JSON.stringify(claimsSnapshot(clients.b.claims));
       statusEl.innerHTML = same
@@ -289,6 +373,13 @@ export function initDemo() {
       .summary_entries(state)
       .toArray()
       .map(([k, v, s]) => [k, json.to_string(v), s]);
+  }
+
+  function orMapSnapshot(state) {
+    return orMapKernel
+      .sequenced_entries(state)
+      .toArray()
+      .map(([k, v]) => [k, v[0]]);
   }
 
   function logRejected(stampedSn, key) {
@@ -362,6 +453,16 @@ export function initDemo() {
         const [next] = pnKernel.apply_remote(target.pn, op);
         target.pn = next;
       }
+    } else if (ddsId === "ormap") {
+      if (target.id === originId) {
+        const result = orMapKernel.ack_local(target.ormap, op);
+        if (result.isOk()) target.ormap = result[0];
+        else console.error("unexpected ack", result[0]);
+      } else {
+        const result = orMapKernel.apply_remote(target.ormap, op);
+        if (result.isOk()) target.ormap = result[0][0];
+        else console.error("unexpected remote OR-map op", result[0]);
+      }
     } else if (ddsId === "claims") {
       if (target.id === originId) {
         // The ack resolves the deferred outcome: only now does the origin
@@ -423,6 +524,9 @@ export function initDemo() {
       if (ddsId === "pn") {
         lastPn = { op, sn: stamped };
         replayBtn.disabled = false;
+      } else if (ddsId === "ormap") {
+        lastOrMap = { op, sn: stamped };
+        replayBtn.disabled = false;
       }
 
       for (const target of Object.values(clients)) {
@@ -475,6 +579,27 @@ export function initDemo() {
     submit(clientId, "pn", op);
   }
 
+  function localOrMapLog(clientId, key, amount) {
+    const client = clients[clientId];
+    const result = orMapKernel.increment(client.ormap, key, amount);
+    if (!result.isOk()) {
+      console.error("unexpected OR-map increment refusal", result[0]);
+      return;
+    }
+    const [next, _events, op] = result[0];
+    client.ormap = next;
+    render(client);
+    submit(clientId, "ormap", op);
+  }
+
+  function localOrMapStrike(clientId, key) {
+    const client = clients[clientId];
+    const [next, _events, op] = orMapKernel.remove(client.ormap, key);
+    client.ormap = next;
+    render(client);
+    submit(clientId, "ormap", op);
+  }
+
   function localClaim(clientId, key) {
     const client = clients[clientId];
     const result = claimsKernel.try_set_claim(
@@ -523,11 +648,13 @@ export function initDemo() {
   // new SN is stamped — this is duplicate delivery, the failure mode resends
   // and stash replays produce — and the lattice absorbs it: merge is
   // idempotent, so nothing changes anywhere.
-  function redeliverLastPn() {
-    const { op, sn: originalSn } = lastPn;
+  function redeliverLastDelta() {
+    const ddsId = activeDds;
+    const last = ddsId === "ormap" ? lastOrMap : lastPn;
+    const { op, sn: originalSn } = last;
     const li = document.createElement("li");
     li.className = "replay";
-    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp("pn", op)} · absorbed`;
+    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
     opLog.prepend(li);
     while (opLog.children.length > 14) opLog.lastChild.remove();
 
@@ -541,8 +668,14 @@ export function initDemo() {
         // Both replicas take the duplicate through `apply_remote` — even the
         // origin, whose acked delta is already merged. Idempotence makes
         // both a no-op.
-        const [next] = pnKernel.apply_remote(target.pn, op);
-        target.pn = next;
+        if (ddsId === "ormap") {
+          const result = orMapKernel.apply_remote(target.ormap, op);
+          if (result.isOk()) target.ormap = result[0][0];
+          else console.error("unexpected duplicate OR-map op", result[0]);
+        } else {
+          const [next] = pnKernel.apply_remote(target.pn, op);
+          target.pn = next;
+        }
         inFlight -= 1;
         render(target);
         renderStatus();
@@ -579,6 +712,28 @@ export function initDemo() {
       if (claimBtn) {
         hasInteracted = true;
         localClaim(client.id, claimBtn.closest("tr").dataset.key);
+        return;
+      }
+      const orMapLogBtn = event.target.closest("button[data-ormap-log]");
+      if (orMapLogBtn) {
+        hasInteracted = true;
+        localOrMapLog(
+          client.id,
+          orMapLogBtn.closest("tr").dataset.key,
+          Number(orMapLogBtn.dataset.ormapLog),
+        );
+        return;
+      }
+      const orMapStrikeBtn = event.target.closest("button[data-ormap-strike]");
+      if (orMapStrikeBtn) {
+        hasInteracted = true;
+        localOrMapStrike(client.id, orMapStrikeBtn.closest("tr").dataset.key);
+        return;
+      }
+      const orMapReopenBtn = event.target.closest("button[data-ormap-reopen]");
+      if (orMapReopenBtn) {
+        hasInteracted = true;
+        localOrMapLog(client.id, orMapReopenBtn.closest("tr").dataset.key, 0);
       }
     });
   }
@@ -587,12 +742,14 @@ export function initDemo() {
     map: "Race a concurrent write",
     counter: "Race concurrent increments",
     pn: "Race fill against cut",
+    ormap: "Race a strike against a delivery",
     claims: "Race two claims for one slot",
   };
   const RESET_LABELS = {
     map: "Reset all gauges to their surveyed baseline values",
     counter: "Reset the counter to its surveyed baseline value",
     pn: "Reset the earthwork balance to its surveyed baseline",
+    ormap: "Reset the stockpile ledger to its surveyed baseline",
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
   };
 
@@ -606,7 +763,8 @@ export function initDemo() {
       }
       raceBtn.textContent = RACE_LABELS[activeDds];
       resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
-      replayBtn.hidden = activeDds !== "pn";
+      replayBtn.hidden = !["pn", "ormap"].includes(activeDds);
+      replayBtn.disabled = activeDds === "ormap" ? !lastOrMap : !lastPn;
       renderBadge(clients.a);
       renderBadge(clients.b);
     });
@@ -633,6 +791,22 @@ export function initDemo() {
       // on the same net balance (+3).
       localPnUpdate("a", 8);
       localPnUpdate("b", -5);
+    } else if (activeDds === "ormap") {
+      // A strikes what it has observed while B logs a delivery concurrently.
+      // The strike cannot remove B's unseen dot, so the stockpile survives and
+      // the retained tally includes every logged yard.
+      let key = STOCKPILES.find(
+        (k) =>
+          orMapEntries(clients.a.ormap).has(k) &&
+          orMapEntries(clients.b.ormap).has(k),
+      );
+      if (key === undefined) {
+        key = STOCKPILES[0];
+        localOrMapLog("a", key, 0);
+        localOrMapLog("b", key, 0);
+      }
+      localOrMapStrike("a", key);
+      localOrMapLog("b", key, 6);
     } else if (activeDds === "claims") {
       // Both clients file for the same free slot inside one latency window.
       // FIFO stamping sequences A's claim first, so A wins on every replica;
@@ -661,7 +835,9 @@ export function initDemo() {
 
   replayBtn.addEventListener("click", () => {
     hasInteracted = true;
-    if (lastPn) redeliverLastPn();
+    if ((activeDds === "ormap" && lastOrMap) || (activeDds === "pn" && lastPn)) {
+      redeliverLastDelta();
+    }
   });
 
   resetBtn.addEventListener("click", () => {
@@ -679,6 +855,15 @@ export function initDemo() {
       // (or fill) whatever the balance has drifted from baseline.
       const drift = pnKernel.value(clients.a.pn) - PN_BASE;
       if (drift !== 0) localPnUpdate("a", -drift);
+    } else if (activeDds === "ormap") {
+      for (const [key, base] of ORMAP_BASELINE) {
+        if (!orMapEntries(clients.a.ormap).has(key)) {
+          localOrMapLog("a", key, 0);
+        }
+        const value = orMapEntries(clients.a.ormap).get(key) ?? 0;
+        const drift = value - base;
+        if (drift !== 0) localOrMapLog("a", key, -drift);
+      }
     } else if (activeDds === "claims") {
       resetClaims();
     } else {

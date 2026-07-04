@@ -82,21 +82,22 @@ sections themselves get plain headings — no per-section eyebrows.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.
 - The demo imports the real compiled kernels from
-  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel,pn_counter_kernel,claims_kernel}.mjs`
+  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel,pn_counter_kernel,or_map_kernel,claims_kernel}.mjs`
   plus the lattice modules (`lattice_counters/{pn_counter,g_counter}`,
   `lattice_core/replica_id`) (`gleam build --target javascript` runs via
   `predev`/`prebuild`).
-- The demo hosts all four DDSes on one sequencer/SN stream, like DDSes
+- The demo hosts all five DDSes on one sequencer/SN stream, like DDSes
   sharing a container. A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below
   640px) swaps the replica view between the shared map (gauge table), the
-  shared counter, the PN counter, and the claims sheet; all kernels stay
-  live regardless of which is shown. Counter-family pending state is a
-  *delta*, annotated in magenta beside the value (`Δ +8 unsequenced`). The
-  race button relabels per structure — map races show last-write-wins,
-  counter races converge on the sum, PN races converge on fill − cut,
-  claims races resolve first-writer-wins — and counter/PN reset is a
-  compensating update (neither has a set).
+  shared counter, the PN counter, the OR-map stockpile ledger, and the claims
+  sheet; all kernels stay live regardless of which is shown. Counter-family
+  pending state is a *delta*, annotated in magenta beside the value
+  (`Δ +8 unsequenced`). The race button relabels per structure — map races
+  show last-write-wins, counter races converge on the sum, PN races converge
+  on fill − cut, OR-map races show add-wins observed-remove, and claims races
+  resolve first-writer-wins — and counter/PN/OR-map reset is compensating
+  CRDT growth rather than an overwrite.
 - The PN counter is framed as an **earthwork balance** (cut & fill, yd³):
   the CRDT's two monotone tallies print as a `fill Σ / cut Σ` ledger under
   the signed net value, with mono `cut`/`fill` margin labels flanking the
@@ -108,6 +109,13 @@ sections themselves get plain headings — no per-section eyebrows.
   with no new SN, the merge absorbs it, and the op log prints the duplicate
   as an italic muted non-event (`#04 again cut −5 yd³ · absorbed`) —
   idempotency witnessed live, which the op-based counter could not survive.
+- The OR-map is framed as a **stockpile & borrow-pit ledger**:
+  `spoil-north`, `borrow-pit-7`, and `wash-fill` rows carry signed yd³
+  tallies. Striking a row hides it with muted strikethrough linework; re-open
+  submits a `+0` delta, making the retained tally visible again. Its race is
+  the add-wins proof: A strikes an observed pile while B logs a concurrent
+  delivery, and the row survives with every logged yard. OR-map mode also
+  shares the duplicate-delta replay affordance with PN mode.
 - Claims are framed as **duty stations** (`north-levee`, `spillway-gate`,
   `pump-house`) on a claim sheet: first writer wins, write-once
   (`try_set_claim` only — CAS re-claim is an explicit non-goal for the demo).
