@@ -2,28 +2,43 @@
 const system = [
   {
     name: "levee",
-    role: "the server — sequencing, broadcast, summaries",
+    role: "the service — documents, sequencing, broadcast, summaries",
     href: "https://github.com/tylerbutler/levee",
   },
   {
+    name: "beryl",
+    role: "the channel runtime — rooms, presence, server transports",
+    href: "https://github.com/tylerbutler/beryl",
+  },
+  {
     name: "watershed",
-    role: "this toolkit — DDS clients for BEAM and browser",
+    role: "this basin — DDS clients and runtime for BEAM and browser",
     href: "https://github.com/tylerbutler/watershed",
   },
   {
     name: "spillway",
-    role: "the protocol — shared wire types",
+    role: "the protocol — Fluid ops, sessions, sequencing, summaries",
     href: "https://github.com/tylerbutler/spillway",
   },
   {
+    name: "dewdrop",
+    role: "the adapter — Fluid event codecs for channel clients and servers",
+    href: "https://github.com/tylerbutler/dewdrop",
+  },
+  {
     name: "aquamarine",
-    role: "the channel client — Phoenix Channels on the BEAM",
+    role: "the channel client — Beryl-style realtime channels in Gleam",
     href: "https://github.com/tylerbutler/aquamarine",
   },
   {
     name: "roost",
     role: "the codec — Phoenix V2 frames in Gleam",
     href: "https://github.com/tylerbutler/roost",
+  },
+  {
+    name: "windsock",
+    role: "the frame primitives — Socket.IO and Engine.IO envelopes",
+    href: "https://github.com/tylerbutler/windsock",
   },
 ];
 ---
@@ -32,8 +47,9 @@ const system = [
   <div class="eco-inner">
     <h2 id="eco-title">The water system</h2>
     <p>
-      watershed is one basin in a connected system: every piece is named for
-      how water actually moves, because that is how the data actually moves.
+      watershed is one basin in a connected system: channel runtimes, protocol
+      codecs, DDS kernels, and the levee service all have names that match how
+      the data actually moves.
     </p>
     <ul class="eco-list">
       {
