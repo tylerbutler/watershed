@@ -7,9 +7,11 @@ Visual system for the watershed website (`website/`). Register: brand.
 The site is styled as a USGS-style survey sheet. The metaphor is load-bearing:
 on photorevised quadrangles, magenta overprint marks revisions not yet
 field-checked — on this site, magenta marks *pending, unsequenced* state, and
-ink marks state the server has sequenced. Every decorative element maps to a
-real protocol concept (contours labeled with server sequence numbers, the architecture drawn as a
-geological cross-section, milestones as a revision ledger).
+ink marks state the server has sequenced. The roadmap ledger uses the same
+grammar: implemented work prints in ink; planned or researching work prints as
+magenta overprint. Every decorative element maps to a real protocol concept
+(contours labeled with server sequence numbers, the architecture drawn as a
+geological cross-section, roadmap entries as a revision ledger).
 
 ## Color (OKLCH, light theme only)
 
@@ -70,6 +72,10 @@ sections themselves get plain headings — no per-section eyebrows.
 
 - Panels and tables: 1px `--ink` borders, no border-radius, no shadows —
   everything sits flat on the sheet like printed linework.
+- Architecture cross-section: keep target-specific facades/runtimes/transports
+  in the left/right columns (`watershed`/`runtime`/`aquamarine` vs
+  `watershed_js`/`runtime_js`/`transport_js`); keep `runtime_core`, `channel`,
+  `wire`, and kernel modules in the shared bedrock layer.
 - "Stamps" (`.stamp`, `.pure-stamp`): mono uppercase in a 1.5px
   `currentColor` box, rotated ~2deg, like a hand inspection stamp.
 - Bedrock hatching: `repeating-linear-gradient(-45deg, …)` hairline diagonal.

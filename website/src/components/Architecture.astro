@@ -15,23 +15,34 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
   <div class="arch-inner">
     <h2 id="arch-title">One pure core, two runtimes</h2>
     <p class="arch-intro">
-      The kernel, the wire codecs, and the connection state machine are pure
-      Gleam — no processes, no side effects, every function returning new state
-      plus the events it produced. Everything target-specific sits above or
-      below that stratum. Drill down from either target and you pass through
-      the same rock.
+      The shared layer is real code, not a diagram convenience:
+      <code>runtime_core</code>, <code>channel</code>, <code>wire</code>, and
+      the kernels compile for both targets. Erlang and JavaScript keep separate
+      facades, runtimes, and socket bindings only where the host platform forces
+      them to differ.
     </p>
 
-    <div class="strata" role="img" aria-label="Cross-section of the watershed architecture: a shared public API and pure core, with target-specific runtime and transport layers for the BEAM and the browser.">
+    <div class="strata" role="img" aria-label="Cross-section of the watershed architecture: target-specific public APIs, runtimes, and transports over a shared pure core of runtime_core, channel, wire, and kernel modules.">
       <div class="target-heads" aria-hidden="true">
         <span class="annot">◍ BEAM target</span>
         <span class="annot">◍ Browser target</span>
       </div>
 
-      <div class="stratum span" data-reveal="settle">
-        <h3>Public API</h3>
-        <p><code>connect</code> · <code>root</code> · <code>set</code> / <code>get</code> / <code>subscribe</code> · nested maps via handles</p>
-        <span class="stratum-note annot">watershed · watershed_js</span>
+      <div class="stratum split" data-reveal="settle">
+        <div>
+          <h3>Facade — <code>watershed</code></h3>
+          <p>
+            Erlang-only API: blocking <code>connect</code>, OTP subject calls,
+            map/counter handles, summaries, and subscriptions.
+          </p>
+        </div>
+        <div>
+          <h3>Facade — <code>watershed_js</code></h3>
+          <p>
+            JavaScript-only API: immediate document handle, <code>on_ready</code>
+            callback, promises, the same map/counter verbs.
+          </p>
+        </div>
       </div>
 
       <svg class="wave" viewBox="0 0 1200 14" preserveAspectRatio="none" aria-hidden="true">
@@ -40,12 +51,18 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
 
       <div class="stratum split" data-reveal="settle">
         <div>
-          <h3>Runtime — OTP actor</h3>
-          <p>handshake · CSN/RSN · inbound ordering · catch-up · resubmit · nack policy · heartbeat</p>
+          <h3>Runtime — <code>runtime</code></h3>
+          <p>
+            OTP actor, receiver process, process calls, heartbeat timer, and
+            reconnect orchestration.
+          </p>
         </div>
         <div>
-          <h3>Runtime — callbacks</h3>
-          <p>the same state machine, driven by callbacks over a mutable cell</p>
+          <h3>Runtime — <code>runtime_js</code></h3>
+          <p>
+            Callback-driven shell over a mutable cell; same bootstrap,
+            ordering, catch-up, and resubmit discipline.
+          </p>
         </div>
       </div>
 
@@ -54,10 +71,17 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
       </svg>
 
       <div class="stratum span bedrock" data-reveal="settle">
-        <h3>Pure core</h3>
+        <h3>Shared pure core</h3>
         <p>
-          <code>map_kernel</code> · <code>wire</code> · <code>runtime_core</code>
-          — sequenced + pending state, LWW merge, ack matching, payload codecs
+          <code>runtime_core</code> owns CSN/RSN, ack matching, gap detection,
+          detached attach, and resubmit. <code>channel</code> dispatches the
+          kernels hosted by the document runtime. <code>wire</code> and
+          <code>wire/*</code> encode the same Fluid-compatible payloads on both
+          targets.
+        </p>
+        <p class="core-modules">
+          <code>map_kernel</code> · <code>counter_kernel</code> ·
+          <code>pn_counter_kernel</code> · <code>claims_kernel</code>
         </p>
         <span class="pure-stamp" aria-label="Pure and target-agnostic">Pure · shared</span>
       </div>
@@ -68,21 +92,28 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
 
       <div class="stratum split" data-reveal="settle">
         <div>
-          <h3>aquamarine</h3>
-          <p>channel client over gun, roost codec</p>
+          <h3>Transport — <code>aquamarine</code></h3>
+          <p>
+            Phoenix channel client over Gun, with Roost decoding; gated to
+            Erlang with <code>@target(erlang)</code>.
+          </p>
         </div>
         <div>
-          <h3>phoenix.js</h3>
-          <p>Phoenix Channels via FFI</p>
+          <h3>Transport — <code>transport_js</code></h3>
+          <p>
+            Phoenix.js FFI, socket callbacks, mutable cell helpers, and browser
+            Web Crypto dev-token signing.
+          </p>
         </div>
       </div>
     </div>
 
     <p class="arch-note">
-      The Erlang-only modules are gated with <code>@target(erlang)</code>, so
-      <code>gleam build --target javascript</code> compiles just the pure core
-      and the JS runtime — that compiled core is what’s running in the demo
-      above.
+      The boundary is enforced by target gates: <code>watershed</code> and
+      <code>runtime</code> are <code>@target(erlang)</code>;
+      <code>watershed_js</code>, <code>runtime_js</code>, and
+      <code>transport_js</code> are <code>@target(javascript)</code>. The
+      ungated core underneath is the compiled code running in the browser demo.
     </p>
   </div>
 </section>
