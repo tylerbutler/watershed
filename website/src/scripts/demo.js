@@ -1511,15 +1511,15 @@ export function initDemo() {
       orderedPending[client.id].clear();
       render(client);
     }
+    renderStatus();
+  }
 
-    function resetTaskManager() {
-      taskEpoch += 1;
-      for (const client of Object.values(clients)) {
-        client.taskmanager = taskManagerBaseline();
-        taskNotes[client.id] = {};
-        render(client);
-      }
-      renderStatus();
+  function resetTaskManager() {
+    taskEpoch += 1;
+    for (const client of Object.values(clients)) {
+      client.taskmanager = taskManagerBaseline();
+      taskNotes[client.id] = {};
+      render(client);
     }
     renderStatus();
   }

@@ -735,26 +735,28 @@ const pnFillSteps = [2, 6];
   }
 
   .dds-picker {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr));
     border: 1px solid var(--ink);
     padding: 0;
     margin: 0;
-    width: max-content;
+    width: 100%;
+    max-width: 68rem;
   }
 
   .dds-picker label {
     position: relative;
     padding: 0.55rem 1.15rem;
+    box-shadow:
+      1px 0 0 var(--ink),
+      0 1px 0 var(--ink);
     font-size: var(--text-sm);
     font-weight: 600;
+    text-align: center;
     cursor: pointer;
     transition:
       background var(--dur-feedback) var(--ease-out-quart),
       color var(--dur-feedback) var(--ease-out-quart);
-  }
-
-  .dds-picker label + label {
-    border-inline-start: 1px solid var(--ink);
   }
 
   /* radio stays in the tree (focusable, arrow-key switchable), drawn by label */
@@ -890,7 +892,7 @@ const pnFillSteps = [2, 6];
     justify-content: flex-end;
     gap: var(--space-2xs);
     width: auto;
-    min-width: max-content;
+    min-width: 0;
     white-space: normal;
   }
 
@@ -1291,6 +1293,14 @@ const pnFillSteps = [2, 6];
     white-space: nowrap;
   }
 
+  .task-actions {
+    max-width: 14rem;
+  }
+
+  .task-actions button {
+    flex: 1 1 6.4rem;
+  }
+
   .channel {
     display: flex;
     flex-direction: column;
@@ -1510,7 +1520,7 @@ const pnFillSteps = [2, 6];
     white-space: nowrap;
   }
 
-  @media (max-width: 860px) {
+  @media (max-width: 1080px) {
     .rig {
       grid-template-areas: "a" "seq" "b";
       grid-template-columns: 1fr;
@@ -1521,17 +1531,11 @@ const pnFillSteps = [2, 6];
     }
   }
 
-  /* five picker cells no longer fit one row on narrow sheets: stack them
-     like a printed legend column */
+  /* Picker cells reflow into a printed legend instead of overflowing the sheet. */
   @media (max-width: 640px) {
     .dds-picker {
-      flex-direction: column;
       width: 100%;
-    }
-
-    .dds-picker label + label {
-      border-inline-start: 0;
-      border-block-start: 1px solid var(--ink);
+      grid-template-columns: 1fr;
     }
   }
 
@@ -1547,6 +1551,7 @@ const pnFillSteps = [2, 6];
     .orset-actions button,
     .register-actions button,
     .ordered-actions button,
+    .task-actions button,
     .pact-actions button {
       inline-size: auto;
       min-inline-size: 2.75rem;
