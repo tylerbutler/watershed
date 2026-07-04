@@ -12,6 +12,7 @@ import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
 import * as orderedKernel from "../../../build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
+import * as taskManagerKernel from "../../../build/dev/javascript/watershed/watershed/task_manager_kernel.mjs";
 import * as pactKernel from "../../../build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
 import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
 import * as runtimeCore from "../../../build/dev/javascript/watershed/watershed/runtime_core.mjs";
@@ -91,6 +92,8 @@ const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"];
 const REGISTER_VALUES = { a: "A revision", b: "B revision" };
 const ORDERED_BASELINE = ["grade-stakes", "pump-check"];
 const ORDERED_ADDS = ["silt-sample", "crest-photo", "gate-oiling"];
+const TASKS = ["sluice-inspection", "pump-watch", "crest-walk"];
+const TASK_BASELINE = [["sluice-inspection", [1]]];
 const PACT_KEYS = ["datum-grid", "gate-policy", "inspection-window"];
 const PACT_VALUES = { a: "A proposal", b: "B proposal" };
 const CLIENT_NUMBERS = { a: 1, b: 2 };
@@ -115,6 +118,12 @@ function orderedBaseline(items = ORDERED_BASELINE) {
   return orderedKernel.from_summary(
     toList(items.map((item) => json.string(item))),
     toList([]),
+  );
+}
+
+function taskManagerBaseline() {
+  return taskManagerKernel.from_summary(
+    toList(TASK_BASELINE.map(([task, queue]) => [task, toList(queue)])),
   );
 }
 
@@ -265,6 +274,12 @@ function describeOp(ddsId, op) {
     if (op instanceof orderedKernel.Complete) return `complete ${op.acquire_id}`;
     return `release ${op.acquire_id}`;
   }
+  if (ddsId === "tasks") {
+    const taskId = op.op.task_id;
+    if (op.op instanceof taskManagerKernel.Volunteer) return `volunteer → ${taskId}`;
+    if (op.op instanceof taskManagerKernel.Abandon) return `abandon ${taskId}`;
+    return `complete ${taskId}`;
+  }
   if (ddsId === "pact") {
     if (op instanceof pactKernel.Set) {
       const value = readOptionalJsonString(op.value) ?? "deleted";
@@ -345,6 +360,7 @@ export function initDemo() {
       claims: claimsBaseline(),
       registers: registersBaseline(),
       ordered: orderedBaseline(),
+      taskmanager: taskManagerBaseline(),
       pact: pactBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
@@ -365,14 +381,17 @@ export function initDemo() {
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
   let registersEpoch = 0; // same guard for out-of-band register-sheet reset
   let orderedEpoch = 0; // ordered-collection resets also drop in-flight ops
+  let taskEpoch = 0; // task-manager resets drop outstanding queue ops
   let pactEpoch = 0; // pact-map resets drop outstanding proposals/accepts
   let orderedAcquireSerial = 0;
   let orderedAddSerial = 0;
+  let taskMessageSerial = 0;
   const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
   const registerNotes = { a: {}, b: {} };
   const registerPending = { a: new Set(), b: new Set() };
   const orderedNotes = { a: "", b: "" };
   const orderedPending = { a: new Set(), b: new Set() };
+  const taskNotes = { a: {}, b: {} };
   const pactNotes = { a: {}, b: {} };
   const pactPending = { a: new Set(), b: new Set() };
 
@@ -584,6 +603,62 @@ export function initDemo() {
     jobsRow.querySelector("[data-ordered-release]").disabled = filed || !localJob;
   }
 
+  function taskQueues(state) {
+    const queues = new Map();
+    for (const [task, queue] of taskManagerKernel.summary_queues(state).toArray()) {
+      queues.set(task, queue.toArray());
+    }
+    return queues;
+  }
+
+  function taskPendingKeys(state) {
+    return new Set(
+      state.pending
+        .toArray()
+        .filter(([_task, pending]) => pending.toArray().length > 0)
+        .map(([task]) => task),
+    );
+  }
+
+  function renderTaskManager(client) {
+    const queues = taskQueues(client.taskmanager);
+    const pending = taskPendingKeys(client.taskmanager);
+    for (const task of TASKS) {
+      const row = client.el.querySelector(`.dds-tasks tr[data-key="${task}"]`);
+      const queue = queues.get(task) ?? [];
+      const assignee = queue[0] ?? null;
+      const waiters = queue.slice(1);
+      const assignedHere = taskManagerKernel.assigned(
+        client.taskmanager,
+        task,
+        CLIENT_NUMBERS[client.id],
+        true,
+      );
+      const queuedHere = taskManagerKernel.queued_optimistically(
+        client.taskmanager,
+        task,
+        CLIENT_NUMBERS[client.id],
+      );
+      row.classList.toggle("filed", pending.has(task));
+      row.querySelector("[data-task-assignee]").textContent =
+        assignee === null ? "—" : CLIENT_NAMES[assignee];
+      row.querySelector("[data-task-waiters]").textContent =
+        waiters.length === 0
+          ? "empty"
+          : waiters.map((id) => CLIENT_NAMES[id]).join(" → ");
+      row.querySelector("[data-task-note]").textContent = pending.has(task)
+        ? (taskNotes[client.id][task] ?? "op filed · waiting for SN")
+        : taskNotes[client.id][task] ??
+          (assignedHere ? "yours" : queuedHere ? "waiting" : "");
+      row.querySelector("[data-task-volunteer]").disabled =
+        pending.has(task) || queuedHere;
+      row.querySelector("[data-task-abandon]").disabled =
+        pending.has(task) || !queuedHere;
+      row.querySelector("[data-task-complete]").disabled =
+        pending.has(task) || !assignedHere;
+    }
+  }
+
   function pactAccepted(state, key) {
     const accepted = pactKernel.get_with_details(state, key);
     if (!(accepted instanceof Some)) return null;
@@ -643,6 +718,8 @@ export function initDemo() {
           ? registerPending[client.id].size
         : activeDds === "ordered"
           ? orderedPending[client.id].size
+        : activeDds === "tasks"
+          ? taskPendingKeys(client.taskmanager).size
         : activeDds === "pact"
           ? pactPending[client.id].size
         : activeDds === "orset"
@@ -665,6 +742,7 @@ export function initDemo() {
     renderClaims(client);
     renderRegisters(client);
     renderOrdered(client);
+    renderTaskManager(client);
     renderPact(client);
     renderBadge(client);
   }
@@ -680,6 +758,7 @@ export function initDemo() {
       total += gdict.size(client.claims.pending);
       total += registerPending[client.id].size;
       total += orderedPending[client.id].size;
+      total += taskPendingKeys(client.taskmanager).size;
       total += pactPending[client.id].size;
     }
     return total;
@@ -703,6 +782,8 @@ export function initDemo() {
           JSON.stringify(registerSnapshot(clients.b.registers)) &&
         JSON.stringify(orderedSnapshot(clients.a.ordered)) ===
           JSON.stringify(orderedSnapshot(clients.b.ordered)) &&
+        JSON.stringify(taskManagerSnapshot(clients.a.taskmanager)) ===
+          JSON.stringify(taskManagerSnapshot(clients.b.taskmanager)) &&
         JSON.stringify(pactSnapshot(clients.a.pact)) ===
           JSON.stringify(pactSnapshot(clients.b.pact));
       statusEl.innerHTML = same
@@ -760,6 +841,13 @@ export function initDemo() {
       orderedQueue(state),
       orderedJobs(state).map((job) => [job.id, job.value, job.owner]),
     ];
+  }
+
+  function taskManagerSnapshot(state) {
+    return taskManagerKernel
+      .summary_queues(state)
+      .toArray()
+      .map(([task, queue]) => [task, queue.toArray()]);
   }
 
   function pactSnapshot(state) {
@@ -943,6 +1031,43 @@ export function initDemo() {
         );
         target.ordered = next;
       }
+    } else if (ddsId === "tasks") {
+      const quorum = toList([1, 2]);
+      if (target.id === originId) {
+        const result = taskManagerKernel.ack_local(
+          target.taskmanager,
+          op.op,
+          CLIENT_NUMBERS[target.id],
+          op.messageId,
+          quorum,
+        );
+        if (result.isOk()) {
+          const [next] = result[0];
+          target.taskmanager = next;
+          if (op.op instanceof taskManagerKernel.Volunteer) {
+            taskNotes[target.id][op.op.task_id] = taskManagerKernel.assigned(
+              target.taskmanager,
+              op.op.task_id,
+              CLIENT_NUMBERS[target.id],
+              true,
+            )
+              ? "assigned"
+              : "waiting";
+          } else if (op.op instanceof taskManagerKernel.Abandon) {
+            taskNotes[target.id][op.op.task_id] = "abandoned";
+          } else {
+            taskNotes[target.id][op.op.task_id] = "completed";
+          }
+        } else console.error("unexpected TaskManager ack", result[0]);
+      } else {
+        const [next] = taskManagerKernel.apply_remote(
+          target.taskmanager,
+          op.op,
+          CLIENT_NUMBERS[originId],
+          quorum,
+        );
+        target.taskmanager = next;
+      }
     } else if (ddsId === "pact") {
       if (op instanceof pactKernel.Set) {
         const [next, _events, reaction] = pactKernel.apply_set(
@@ -1020,6 +1145,8 @@ export function initDemo() {
           ? registersEpoch
         : ddsId === "ordered"
           ? orderedEpoch
+        : ddsId === "tasks"
+          ? taskEpoch
         : ddsId === "pact"
           ? pactEpoch
           : 0;
@@ -1038,6 +1165,7 @@ export function initDemo() {
         (ddsId === "claims" && epoch !== claimsEpoch) ||
         (ddsId === "registers" && epoch !== registersEpoch) ||
         (ddsId === "ordered" && epoch !== orderedEpoch) ||
+        (ddsId === "tasks" && epoch !== taskEpoch) ||
         (ddsId === "pact" && epoch !== pactEpoch)
       ) {
         inFlight -= 1;
@@ -1075,6 +1203,7 @@ export function initDemo() {
             (ddsId === "claims" && epoch !== claimsEpoch) ||
             (ddsId === "registers" && epoch !== registersEpoch) ||
             (ddsId === "ordered" && epoch !== orderedEpoch) ||
+            (ddsId === "tasks" && epoch !== taskEpoch) ||
             (ddsId === "pact" && epoch !== pactEpoch)
           ) {
             inFlight -= 1;
@@ -1258,6 +1387,64 @@ export function initDemo() {
     submit(clientId, "ordered", op);
   }
 
+  function localTaskVolunteer(clientId, taskId) {
+    const client = clients[clientId];
+    const messageId = ++taskMessageSerial;
+    const [next, maybeOp, outcome] = taskManagerKernel.volunteer(
+      client.taskmanager,
+      taskId,
+      CLIENT_NUMBERS[clientId],
+      messageId,
+    );
+    client.taskmanager = next;
+    taskNotes[clientId][taskId] =
+      outcome instanceof taskManagerKernel.AssignedNow
+        ? "assigned locally · filing"
+        : "volunteer filed";
+    render(client);
+    if (maybeOp instanceof Some) {
+      submit(clientId, "tasks", { op: maybeOp[0], messageId });
+    }
+  }
+
+  function localTaskAbandon(clientId, taskId) {
+    const client = clients[clientId];
+    const messageId = ++taskMessageSerial;
+    const [next, maybeOp] = taskManagerKernel.abandon(
+      client.taskmanager,
+      taskId,
+      CLIENT_NUMBERS[clientId],
+      messageId,
+    );
+    client.taskmanager = next;
+    taskNotes[clientId][taskId] = "abandon filed";
+    render(client);
+    if (maybeOp instanceof Some) {
+      submit(clientId, "tasks", { op: maybeOp[0], messageId });
+    }
+  }
+
+  function localTaskComplete(clientId, taskId) {
+    const client = clients[clientId];
+    const messageId = ++taskMessageSerial;
+    const result = taskManagerKernel.complete(
+      client.taskmanager,
+      taskId,
+      CLIENT_NUMBERS[clientId],
+      messageId,
+    );
+    if (!result.isOk()) {
+      taskNotes[clientId][taskId] = "not assigned here";
+      render(client);
+      return;
+    }
+    const [next, op] = result[0];
+    client.taskmanager = next;
+    taskNotes[clientId][taskId] = "complete filed";
+    render(client);
+    submit(clientId, "tasks", { op, messageId });
+  }
+
   function localPactSet(clientId, key) {
     const client = clients[clientId];
     const op = pactKernel.set(
@@ -1322,6 +1509,16 @@ export function initDemo() {
       orderedNotes[client.id] = "";
       orderedPending[client.id].clear();
       render(client);
+    }
+
+    function resetTaskManager() {
+      taskEpoch += 1;
+      for (const client of Object.values(clients)) {
+        client.taskmanager = taskManagerBaseline();
+        taskNotes[client.id] = {};
+        render(client);
+      }
+      renderStatus();
     }
     renderStatus();
   }
@@ -1454,6 +1651,24 @@ export function initDemo() {
         localOrderedRelease(client.id);
         return;
       }
+      const taskVolunteerBtn = event.target.closest("button[data-task-volunteer]");
+      if (taskVolunteerBtn) {
+        hasInteracted = true;
+        localTaskVolunteer(client.id, taskVolunteerBtn.closest("tr").dataset.key);
+        return;
+      }
+      const taskAbandonBtn = event.target.closest("button[data-task-abandon]");
+      if (taskAbandonBtn) {
+        hasInteracted = true;
+        localTaskAbandon(client.id, taskAbandonBtn.closest("tr").dataset.key);
+        return;
+      }
+      const taskCompleteBtn = event.target.closest("button[data-task-complete]");
+      if (taskCompleteBtn) {
+        hasInteracted = true;
+        localTaskComplete(client.id, taskCompleteBtn.closest("tr").dataset.key);
+        return;
+      }
       const pactSetBtn = event.target.closest("button[data-pact-set]");
       if (pactSetBtn) {
         hasInteracted = true;
@@ -1511,6 +1726,7 @@ export function initDemo() {
     claims: "Race two claims for one slot",
     registers: "Race two revisions for one register",
     ordered: "Race two acquires for one queued task",
+    tasks: "Race two volunteers for one task",
     pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
@@ -1522,6 +1738,7 @@ export function initDemo() {
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
     registers: "Reload both register collections from the surveyed baseline summary",
     ordered: "Reload both ordered collections from the queued-task baseline summary",
+    tasks: "Reload both task managers from the crew baseline summary",
     pact: "Reload both pact maps from the accepted datum baseline summary",
   };
 
@@ -1627,6 +1844,12 @@ export function initDemo() {
       resetOrdered(["flood-watch"]);
       localOrderedAcquire("a");
       localOrderedAcquire("b");
+    } else if (activeDds === "tasks") {
+      // Both clients volunteer for the same unassigned task. The first SN gets
+      // the assignment and the second becomes the waiter; abandoning promotes.
+      resetTaskManager();
+      localTaskVolunteer("a", "pump-watch");
+      localTaskVolunteer("b", "pump-watch");
     } else if (activeDds === "pact") {
       // The first set that sequences freezes the quorum signoff list. The
       // concurrent set is dropped while that pact is pending.
@@ -1682,6 +1905,8 @@ export function initDemo() {
       resetRegisters();
     } else if (activeDds === "ordered") {
       resetOrdered();
+    } else if (activeDds === "tasks") {
+      resetTaskManager();
     } else if (activeDds === "pact") {
       resetPact();
     } else if (activeDds === "orset") {

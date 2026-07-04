@@ -31,6 +31,11 @@ const pactSlots = [
   { key: "gate-policy", accepted: "—" },
   { key: "inspection-window", accepted: "—" },
 ];
+const taskSlots = [
+  { key: "sluice-inspection" },
+  { key: "pump-watch" },
+  { key: "crest-walk" },
+];
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
@@ -49,13 +54,13 @@ const pnFillSteps = [2, 6];
       in <strong class="k-pending">magenta</strong> and sequenced state in
       <strong class="k-seq">ink</strong>. Both clients run watershed’s real
       Gleam code in one ordered stream — map/PN/OR-map/OR-set/claims/register
-      kernels plus the runtime counter channel.
+      kernels, TaskManager, plus the runtime counter channel.
     </p>
     <p class="demo-hint">
       Nudge the gauges, tally the sandbags, balance the earthwork, strike a
-      stockpile, clear a field marker, stake a claim, revise a register, stretch
-      the link latency, race a concurrent write. The replicas always converge —
-      each structure by its own rule.
+      stockpile, clear a field marker, stake a claim, revise a register, queue
+      task volunteers, stretch the link latency, race a concurrent write. The
+      replicas always converge — each structure by its own rule.
     </p>
   </div>
 
@@ -93,6 +98,10 @@ const pnFillSteps = [2, 6];
       <label>
         <input type="radio" name="dds" value="ordered" data-dds-pick disabled />
         <span>Ordered collection</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="tasks" data-dds-pick disabled />
+        <span>TaskManager</span>
       </label>
       <label>
         <input type="radio" name="dds" value="pact" data-dds-pick disabled />
@@ -144,6 +153,11 @@ const pnFillSteps = [2, 6];
       <strong>Merge rule — FIFO by sequence.</strong> Adds enter the queue in
       server order. Acquires remove the front item when their op sequences; a
       racing acquire may come back empty because the earlier SN already took it.
+    </p>
+    <p class="merge-rule" data-merge-rule="tasks" hidden>
+      <strong>Merge rule — one assignee, FIFO waiters.</strong> Volunteers join
+      a per-task queue in sequenced order. The first connected volunteer owns the
+      task; abandon promotes the next waiter, and complete clears the queue.
     </p>
     <p class="merge-rule" data-merge-rule="pact" hidden>
       <strong>Merge rule — quorum acceptance.</strong> A set first prints as
@@ -524,6 +538,59 @@ const pnFillSteps = [2, 6];
               ))}
             </tbody>
           </table>
+          <table class="gauge-table task-table dds-tasks">
+            <caption class="visually-hidden">TaskManager replica on {c.name}</caption>
+            <thead>
+              <tr>
+                <th scope="col">task</th>
+                <th scope="col">assigned</th>
+                <th scope="col">waiters</th>
+                <th scope="col">op</th>
+              </tr>
+            </thead>
+            <tbody>
+              {taskSlots.map((t) => (
+                <tr data-key={t.key}>
+                  <th scope="row">
+                    <code>{t.key}</code>
+                    <span class="annot task-note" data-task-note></span>
+                  </th>
+                  <td class="task-value">
+                    <output data-task-assignee>—</output>
+                  </td>
+                  <td class="task-value">
+                    <output data-task-waiters>empty</output>
+                  </td>
+                  <td class="gauge-actions task-actions">
+                    <button
+                      type="button"
+                      data-task-volunteer
+                      aria-label={`Volunteer for ${t.key} on ${c.name}`}
+                      disabled
+                    >
+                      Volunteer
+                    </button>
+                    <button
+                      type="button"
+                      data-task-abandon
+                      aria-label={`Abandon ${t.key} on ${c.name}`}
+                      disabled
+                    >
+                      Abandon
+                    </button>
+                    <button
+                      type="button"
+                      data-task-complete
+                      aria-label={`Complete ${t.key} on ${c.name}`}
+                      disabled
+                    >
+                      Complete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       ))
     }
@@ -596,8 +663,9 @@ const pnFillSteps = [2, 6];
       <code>map_kernel</code>, <code>pn_counter_kernel</code>,
       <code>or_map_kernel</code>, <code>or_set_kernel</code>,
       <code>claims_kernel</code>, <code>register_collection_kernel</code>,
-      <code>ordered_collection_kernel</code>, and <code>pact_map_kernel</code>
-      in your browser. The rest of the page works fine without it.
+      <code>ordered_collection_kernel</code>, <code>task_manager_kernel</code>,
+      and <code>pact_map_kernel</code> in your browser. The rest of the page
+      works fine without it.
     </p>
   </noscript>
 
@@ -815,6 +883,7 @@ const pnFillSteps = [2, 6];
   .orset-actions,
   .register-actions,
   .ordered-actions,
+  .task-actions,
   .pact-actions {
     display: flex;
     flex-wrap: wrap;
@@ -856,11 +925,12 @@ const pnFillSteps = [2, 6];
   .orset-actions button + button,
   .register-actions button + button,
   .ordered-actions button + button,
+  .task-actions button + button,
   .pact-actions button + button {
     margin-inline-start: 0;
   }
 
-  /* one rig, nine structures: the picker swaps which replica view is printed */
+  /* one rig, ten structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
   .rig[data-dds="map"] .dds-ormap,
@@ -868,6 +938,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="map"] .dds-registers,
   .rig[data-dds="map"] .dds-ordered,
+  .rig[data-dds="map"] .dds-tasks,
   .rig[data-dds="map"] .dds-pact,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
@@ -876,6 +947,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="counter"] .dds-registers,
   .rig[data-dds="counter"] .dds-ordered,
+  .rig[data-dds="counter"] .dds-tasks,
   .rig[data-dds="counter"] .dds-pact,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
@@ -884,6 +956,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="pn"] .dds-claims,
   .rig[data-dds="pn"] .dds-registers,
   .rig[data-dds="pn"] .dds-ordered,
+  .rig[data-dds="pn"] .dds-tasks,
   .rig[data-dds="pn"] .dds-pact,
   .rig[data-dds="ormap"] .dds-map,
   .rig[data-dds="ormap"] .dds-counter,
@@ -892,6 +965,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="ormap"] .dds-claims,
   .rig[data-dds="ormap"] .dds-registers,
   .rig[data-dds="ormap"] .dds-ordered,
+  .rig[data-dds="ormap"] .dds-tasks,
   .rig[data-dds="ormap"] .dds-pact,
   .rig[data-dds="orset"] .dds-map,
   .rig[data-dds="orset"] .dds-counter,
@@ -900,6 +974,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="orset"] .dds-claims,
   .rig[data-dds="orset"] .dds-registers,
   .rig[data-dds="orset"] .dds-ordered,
+  .rig[data-dds="orset"] .dds-tasks,
   .rig[data-dds="orset"] .dds-pact,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
@@ -908,6 +983,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="claims"] .dds-orset,
   .rig[data-dds="claims"] .dds-registers,
   .rig[data-dds="claims"] .dds-ordered,
+  .rig[data-dds="claims"] .dds-tasks,
   .rig[data-dds="claims"] .dds-pact,
   .rig[data-dds="registers"] .dds-map,
   .rig[data-dds="registers"] .dds-counter,
@@ -916,6 +992,7 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="registers"] .dds-orset,
   .rig[data-dds="registers"] .dds-claims,
   .rig[data-dds="registers"] .dds-ordered,
+  .rig[data-dds="registers"] .dds-tasks,
   .rig[data-dds="registers"] .dds-pact,
   .rig[data-dds="ordered"] .dds-map,
   .rig[data-dds="ordered"] .dds-counter,
@@ -924,7 +1001,17 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="ordered"] .dds-orset,
   .rig[data-dds="ordered"] .dds-claims,
   .rig[data-dds="ordered"] .dds-registers,
+  .rig[data-dds="ordered"] .dds-tasks,
   .rig[data-dds="ordered"] .dds-pact,
+  .rig[data-dds="tasks"] .dds-map,
+  .rig[data-dds="tasks"] .dds-counter,
+  .rig[data-dds="tasks"] .dds-pn,
+  .rig[data-dds="tasks"] .dds-ormap,
+  .rig[data-dds="tasks"] .dds-orset,
+  .rig[data-dds="tasks"] .dds-claims,
+  .rig[data-dds="tasks"] .dds-registers,
+  .rig[data-dds="tasks"] .dds-ordered,
+  .rig[data-dds="tasks"] .dds-pact,
   .rig[data-dds="pact"] .dds-map,
   .rig[data-dds="pact"] .dds-counter,
   .rig[data-dds="pact"] .dds-pn,
@@ -932,7 +1019,8 @@ const pnFillSteps = [2, 6];
   .rig[data-dds="pact"] .dds-orset,
   .rig[data-dds="pact"] .dds-claims,
   .rig[data-dds="pact"] .dds-registers,
-  .rig[data-dds="pact"] .dds-ordered {
+  .rig[data-dds="pact"] .dds-ordered,
+  .rig[data-dds="pact"] .dds-tasks {
     display: none;
   }
 
@@ -1143,6 +1231,7 @@ const pnFillSteps = [2, 6];
 
   .register-table thead th,
   .ordered-table thead th,
+  .task-table thead th,
   .pact-table thead th {
     padding: var(--space-xs) var(--space-md);
     border-bottom: 1px solid var(--hairline);
@@ -1156,6 +1245,7 @@ const pnFillSteps = [2, 6];
 
   .register-value output,
   .ordered-value output,
+  .task-value output,
   .pact-value output {
     display: inline-block;
     font-family: var(--font-mono);
@@ -1165,6 +1255,7 @@ const pnFillSteps = [2, 6];
 
   .register-table tr.filed .register-value output,
   .ordered-table tr.filed .ordered-value output,
+  .task-table tr.filed .task-value output,
   .pact-table tr.filed .pact-value output {
     border-bottom: 1px dashed var(--overprint-deep);
   }
@@ -1172,6 +1263,7 @@ const pnFillSteps = [2, 6];
   .register-note,
   .register-versions,
   .ordered-note,
+  .task-note,
   .pact-note,
   .pact-signoffs {
     display: block;
@@ -1187,6 +1279,7 @@ const pnFillSteps = [2, 6];
 
   .register-actions button,
   .ordered-actions button,
+  .task-actions button,
   .pact-actions button {
     inline-size: auto;
     block-size: auto;

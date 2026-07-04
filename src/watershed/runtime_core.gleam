@@ -15,6 +15,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
+import gleam/string
 
 import spillway/message.{type ConnectedMessage}
 import spillway/types.{type SequencedDocumentMessage}
@@ -30,6 +31,7 @@ import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/register_collection_kernel
+import watershed/task_manager_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -78,6 +80,7 @@ pub type CoreError {
     actual: channel.ChannelType,
   )
   OrMapModeMismatch(address: String, detail: String)
+  TaskNotAssigned(address: String, task_id: String)
 }
 
 pub type Bootstrapped {
@@ -243,14 +246,16 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
 }
 
 pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOp)) {
-  let #(next_csn, new_in_flight, outbound) =
-    list.fold(core.in_flight, #(core.next_csn, [], []), fn(acc, entry) {
-      let #(csn, entries, outbounds) = acc
-      let #(restamped, outbound) = restamp_in_flight(core, entry, csn)
+  let #(core, next_csn, new_in_flight, outbound) =
+    list.fold(core.in_flight, #(core, core.next_csn, [], []), fn(acc, entry) {
+      let #(core, csn, entries, outbounds) = acc
+      let #(core, next_csn, restamped, outbound) =
+        restamp_in_flight(core, entry, csn)
       #(
-        csn + 1,
-        list.append(entries, [restamped]),
-        list.append(outbounds, [outbound]),
+        core,
+        next_csn,
+        list.append(entries, restamped),
+        list.append(outbounds, outbound),
       )
     })
 
@@ -261,37 +266,111 @@ fn restamp_in_flight(
   core: Core,
   entry: InFlight,
   csn: Int,
-) -> #(InFlight, wire.OutboundOp) {
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
   case entry {
+    InFlightOp(address: address, op: channel.TaskManagerOp(op), meta: meta, ..) ->
+      restamp_task_manager(core, address, op, meta, csn)
     InFlightOp(address: address, op: op, meta: meta, ..) -> #(
-      InFlightOp(
-        client_id: core.client_id,
-        csn: csn,
-        address: address,
-        op: op,
-        meta: meta,
-      ),
-      ops.outbound_channel_op(
-        address: address,
-        client_sequence_number: csn,
-        reference_sequence_number: core.last_seen_sn,
-        op: op,
-      ),
+      core,
+      csn + 1,
+      [
+        InFlightOp(
+          client_id: core.client_id,
+          csn: csn,
+          address: address,
+          op: op,
+          meta: meta,
+        ),
+      ],
+      [
+        ops.outbound_channel_op(
+          address: address,
+          client_sequence_number: csn,
+          reference_sequence_number: core.last_seen_sn,
+          op: op,
+        ),
+      ],
     )
     InFlightAttach(address: address, snapshot: snapshot, ..) -> #(
-      InFlightAttach(
-        client_id: core.client_id,
-        csn: csn,
-        address: address,
-        snapshot: snapshot,
-      ),
-      ops.outbound_attach_op(
-        address: address,
-        client_sequence_number: csn,
-        reference_sequence_number: core.last_seen_sn,
-        snapshot: snapshot,
-      ),
+      core,
+      csn + 1,
+      [
+        InFlightAttach(
+          client_id: core.client_id,
+          csn: csn,
+          address: address,
+          snapshot: snapshot,
+        ),
+      ],
+      [
+        ops.outbound_attach_op(
+          address: address,
+          client_sequence_number: csn,
+          reference_sequence_number: core.last_seen_sn,
+          snapshot: snapshot,
+        ),
+      ],
     )
+  }
+}
+
+fn restamp_task_manager(
+  core: Core,
+  address: String,
+  op: task_manager_kernel.TaskManagerOp,
+  meta: channel.LocalOpMeta,
+  csn: Int,
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
+  case meta, dict.get(core.channels, address) {
+    channel.TaskManagerMeta(message_id), Ok(channel.TaskManagerState(kernel)) -> {
+      case task_manager_kernel.resubmit(kernel, op, message_id, csn) {
+        Ok(#(kernel, Some(next_op), Some(pending))) -> {
+          let next_channel_op = channel.TaskManagerOp(next_op)
+          let next_meta = channel.TaskManagerMeta(pending.message_id)
+          let core =
+            put_attached_channel(
+              core,
+              address,
+              channel.TaskManagerState(kernel),
+            )
+          #(
+            core,
+            csn + 1,
+            [
+              InFlightOp(
+                client_id: core.client_id,
+                csn: csn,
+                address: address,
+                op: next_channel_op,
+                meta: next_meta,
+              ),
+            ],
+            [
+              ops.outbound_channel_op(
+                address: address,
+                client_sequence_number: csn,
+                reference_sequence_number: core.last_seen_sn,
+                op: next_channel_op,
+              ),
+            ],
+          )
+        }
+        Ok(#(kernel, None, None)) -> {
+          let core =
+            put_attached_channel(
+              core,
+              address,
+              channel.TaskManagerState(kernel),
+            )
+          #(core, csn, [], [])
+        }
+        Ok(#(_, _, _)) ->
+          panic as "task-manager resubmit returned inconsistent op metadata"
+        Error(err) ->
+          panic as { "task-manager resubmit failed: " <> string.inspect(err) }
+      }
+    }
+    _, _ -> panic as "task-manager resubmit missing channel state or metadata"
   }
 }
 
@@ -434,6 +513,7 @@ fn handle_op(
                 False ->
                   apply_remote_channel(
                     core,
+                    msg.client_id,
                     msg.sequence_number,
                     address,
                     state,
@@ -492,6 +572,7 @@ fn remote_attach(
 
 fn apply_remote_channel(
   core: Core,
+  message_client_id: Option(String),
   sequence_number: Int,
   address: String,
   state: ChannelState,
@@ -501,7 +582,17 @@ fn apply_remote_channel(
   CoreError,
 ) {
   let meta =
-    SequencedMeta(seq: sequence_number, last_seen_sn: core.last_seen_sn)
+    SequencedMeta(
+      seq: sequence_number,
+      last_seen_sn: core.last_seen_sn,
+      author: option.map(message_client_id, client_id_to_int)
+        |> option.unwrap(0),
+      self: client_id_to_int(core.client_id),
+      quorum: [
+        client_id_to_int(core.client_id),
+        option.map(message_client_id, client_id_to_int) |> option.unwrap(0),
+      ],
+    )
   case channel.apply_remote(state, op, meta) {
     Ok(#(state, events)) ->
       Ok(
@@ -614,6 +705,9 @@ fn ack_own_op(
                 SequencedMeta(
                   seq: sequence_number,
                   last_seen_sn: core.last_seen_sn,
+                  author: client_id_to_int(core.client_id),
+                  self: client_id_to_int(core.client_id),
+                  quorum: [client_id_to_int(core.client_id)],
                 )
               case channel.ack_local(state, op, meta, sequenced_meta) {
                 Ok(#(state, events, resolution)) ->
@@ -1192,6 +1286,201 @@ pub fn compare_and_set_claim(
   }
 }
 
+pub fn task_manager_volunteer(
+  core: Core,
+  address: String,
+  task_id: String,
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(wire.OutboundOp),
+    task_manager_kernel.VolunteerOutcome,
+  ),
+  CoreError,
+) {
+  case locate_task_manager(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, outcome) =
+        task_manager_kernel.volunteer_detached(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+        )
+      Ok(#(
+        put_detached_channel(core, address, channel.TaskManagerState(kernel)),
+        tag_task_manager_events(address, events),
+        [],
+        outcome,
+      ))
+    }
+    Ok(Attached(kernel)) -> {
+      let message_id = core.next_csn
+      let #(kernel, op, outcome) =
+        task_manager_kernel.volunteer(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+          message_id,
+        )
+      case op {
+        None ->
+          Ok(#(
+            put_attached_channel(
+              core,
+              address,
+              channel.TaskManagerState(kernel),
+            ),
+            [],
+            [],
+            outcome,
+          ))
+        Some(op) -> {
+          let #(core, events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.TaskManagerState(kernel),
+              [],
+              channel.TaskManagerOp(op),
+              channel.TaskManagerMeta(message_id),
+            )
+          Ok(#(core, events, outbound, outcome))
+        }
+      }
+    }
+  }
+}
+
+pub fn task_manager_abandon(
+  core: Core,
+  address: String,
+  task_id: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_task_manager(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events) =
+        task_manager_kernel.abandon_detached(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+        )
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.TaskManagerState(kernel)),
+          tag_task_manager_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let message_id = core.next_csn
+      let #(kernel, op, events) =
+        task_manager_kernel.abandon(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+          message_id,
+        )
+      case op {
+        None ->
+          Ok(
+            #(
+              put_attached_channel(
+                core,
+                address,
+                channel.TaskManagerState(kernel),
+              ),
+              tag_task_manager_events(address, events),
+              [],
+            ),
+          )
+        Some(op) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.TaskManagerState(kernel),
+            tag_task_manager_events(address, events),
+            channel.TaskManagerOp(op),
+            channel.TaskManagerMeta(message_id),
+          ))
+      }
+    }
+  }
+}
+
+pub fn task_manager_complete(
+  core: Core,
+  address: String,
+  task_id: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_task_manager(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      case
+        task_manager_kernel.assigned(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+          True,
+        )
+      {
+        False -> Error(TaskNotAssigned(address, task_id))
+        True -> {
+          let #(kernel, events) =
+            task_manager_kernel.complete_detached(kernel, task_id)
+          Ok(
+            #(
+              put_detached_channel(
+                core,
+                address,
+                channel.TaskManagerState(kernel),
+              ),
+              tag_task_manager_events(address, events),
+              [],
+            ),
+          )
+        }
+      }
+    }
+    Ok(Attached(kernel)) -> {
+      let message_id = core.next_csn
+      case
+        task_manager_kernel.complete(
+          kernel,
+          task_id,
+          client_id_to_int(core.client_id),
+          message_id,
+        )
+      {
+        Ok(#(kernel, op)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.TaskManagerState(kernel),
+            [],
+            channel.TaskManagerOp(op),
+            channel.TaskManagerMeta(message_id),
+          ))
+        Error(task_manager_kernel.NotAssigned(_)) ->
+          Error(TaskNotAssigned(address, task_id))
+        Error(task_manager_kernel.UnexpectedAck(_, detail))
+        | Error(task_manager_kernel.UnexpectedRollback(_, detail))
+        | Error(task_manager_kernel.UnexpectedResubmit(_, detail)) ->
+          Error(AckMismatch(detail))
+      }
+    }
+  }
+}
+
 /// Where an edit's target channel lives, holding the type-checked kernel.
 type Located(kernel) {
   Detached(kernel)
@@ -1295,6 +1584,23 @@ fn locate_claims(
       Error(WrongChannelType(
         address,
         expected: channel.ClaimsChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_task_manager(
+  core: Core,
+  address: String,
+) -> Result(Located(task_manager_kernel.TaskManagerState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.TaskManagerState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.TaskManagerState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.TaskManagerChannel,
         actual: channel.channel_type(other),
       ))
   }
@@ -1500,6 +1806,13 @@ fn tag_register_collection_events(
   })
 }
 
+fn tag_task_manager_events(
+  address: String,
+  events: List(task_manager_kernel.TaskManagerEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.TaskManagerEvent(event)) })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1634,6 +1947,51 @@ pub fn has_claim(core: Core, address: String, key: String) -> Bool {
   }
 }
 
+pub fn task_manager_assigned(
+  core: Core,
+  address: String,
+  task_id: String,
+) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.TaskManagerState(kernel)) ->
+      task_manager_kernel.assigned(
+        kernel,
+        task_id,
+        client_id_to_int(core.client_id),
+        True,
+      )
+    _ -> False
+  }
+}
+
+pub fn task_manager_queued(
+  core: Core,
+  address: String,
+  task_id: String,
+) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.TaskManagerState(kernel)) ->
+      task_manager_kernel.queued(
+        kernel,
+        task_id,
+        client_id_to_int(core.client_id),
+        True,
+      )
+    _ -> False
+  }
+}
+
+pub fn task_manager_queues(
+  core: Core,
+  address: String,
+) -> List(#(String, List(Int))) {
+  case find_channel(core, address) {
+    Some(channel.TaskManagerState(kernel)) ->
+      task_manager_kernel.summary_queues(kernel)
+    _ -> []
+  }
+}
+
 fn find_channel(core: Core, address: String) -> Option(ChannelState) {
   case dict.get(core.channels, address) {
     Ok(state) -> Some(state)
@@ -1671,4 +2029,30 @@ fn add_attached_channel(
     channels: dict.insert(core.channels, address, state),
     channel_order: list.unique(list.append(core.channel_order, [address])),
   )
+}
+
+fn client_id_to_int(client_id: String) -> Int {
+  let suffix =
+    string.split(client_id, "_")
+    |> list.last
+  case suffix {
+    Ok(raw) ->
+      case int.parse(raw) {
+        Ok(parsed) -> parsed
+        Error(_) -> stable_client_hash(client_id)
+      }
+    Error(_) -> stable_client_hash(client_id)
+  }
+}
+
+fn stable_client_hash(client_id: String) -> Int {
+  string.to_utf_codepoints(client_id)
+  |> list.fold(216_613_626, fn(acc, cp) {
+    let next =
+      { acc * 16_777_619 + string.utf_codepoint_to_int(cp) } % 2_147_483_647
+    case next < 0 {
+      True -> 0 - next
+      False -> next
+    }
+  })
 }

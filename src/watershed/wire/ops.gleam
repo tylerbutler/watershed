@@ -34,6 +34,7 @@ import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
 import watershed/or_set_kernel.{type OrSetOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
+import watershed/task_manager_kernel.{type TaskManagerOp}
 import watershed/wire.{type OutboundOp}
 
 /// Contents of a sequenced `"op"`: either a kernel channel op — its payload
@@ -133,6 +134,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.OrSetOp(op) -> encode_or_set_op(op)
     channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
     channel.ClaimsOp(op) -> encode_claim_op(op)
+    channel.TaskManagerOp(op) -> encode_task_manager_op(op)
   }
 }
 
@@ -151,6 +153,8 @@ pub fn channel_op_decoder(
       register_collection_op_decoder()
       |> decode.map(channel.RegisterCollectionOp)
     channel.ClaimsChannel -> claim_op_decoder() |> decode.map(channel.ClaimsOp)
+    channel.TaskManagerChannel ->
+      task_manager_op_decoder() |> decode.map(channel.TaskManagerOp)
   }
 }
 
@@ -314,6 +318,36 @@ pub fn encode_claim_op(op: ClaimOp) -> Json {
   }
 }
 
+pub fn encode_task_manager_envelope(
+  address: String,
+  op: TaskManagerOp,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_task_manager_op(op)),
+  ])
+}
+
+pub fn encode_task_manager_op(op: TaskManagerOp) -> Json {
+  case op {
+    task_manager_kernel.Volunteer(task_id) ->
+      json.object([
+        #("type", json.string("taskVolunteer")),
+        #("taskId", json.string(task_id)),
+      ])
+    task_manager_kernel.Abandon(task_id) ->
+      json.object([
+        #("type", json.string("taskAbandon")),
+        #("taskId", json.string(task_id)),
+      ])
+    task_manager_kernel.Complete(task_id) ->
+      json.object([
+        #("type", json.string("taskComplete")),
+        #("taskId", json.string(task_id)),
+      ])
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -454,6 +488,25 @@ pub fn claim_op_decoder() -> Decoder(ClaimOp) {
       decode.success(Claim(key, value, ref_seq))
     }
     _ -> decode.failure(Claim("", json.null(), 0), "ClaimOp")
+  }
+}
+
+pub fn task_manager_op_decoder() -> Decoder(TaskManagerOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "taskVolunteer" -> {
+      use task_id <- decode.field("taskId", decode.string)
+      decode.success(task_manager_kernel.Volunteer(task_id))
+    }
+    "taskAbandon" -> {
+      use task_id <- decode.field("taskId", decode.string)
+      decode.success(task_manager_kernel.Abandon(task_id))
+    }
+    "taskComplete" -> {
+      use task_id <- decode.field("taskId", decode.string)
+      decode.success(task_manager_kernel.Complete(task_id))
+    }
+    _ -> decode.failure(task_manager_kernel.Volunteer(""), "TaskManagerOp")
   }
 }
 

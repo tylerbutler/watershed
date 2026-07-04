@@ -53,6 +53,8 @@ import watershed/register_collection_kernel.{type ReadPolicy}
 @target(javascript)
 import watershed/runtime_core
 @target(javascript)
+import watershed/task_manager_kernel
+@target(javascript)
 import watershed/transport_js.{type Cell, type Channel}
 @target(javascript)
 import watershed/wire
@@ -367,6 +369,133 @@ pub fn compare_and_set_claim(
 }
 
 @target(javascript)
+pub fn task_manager_volunteer(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> task_manager_kernel.VolunteerOutcome {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound, outcome)) -> {
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          outcome
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound, outcome)) -> {
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          outcome
+        }
+      }
+    _ -> task_manager_kernel.DisconnectedBeforeAssignment
+  }
+}
+
+@target(javascript)
+pub fn task_manager_abandon(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.task_manager_abandon(core, address, task_id)
+  })
+}
+
+@target(javascript)
+pub fn task_manager_complete(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.task_manager_complete(core, address, task_id) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) ->
+          Error("task is not assigned: " <> task_id)
+        Error(core_error) ->
+          panic as { "complete_task failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound)) -> {
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.task_manager_complete(core, address, task_id) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) ->
+          Error("task is not assigned: " <> task_id)
+        Error(core_error) ->
+          panic as { "complete_task failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound)) -> {
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+      }
+    _ -> Error("complete_task requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn task_manager_assigned(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.task_manager_assigned(
+    _,
+    address,
+    task_id,
+  ))
+}
+
+@target(javascript)
+pub fn task_manager_queued(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.task_manager_queued(
+    _,
+    address,
+    task_id,
+  ))
+}
+
+@target(javascript)
+pub fn task_manager_queues(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, List(Int))) {
+  read(runtime.cell, [], runtime_core.task_manager_queues(_, address))
+}
+
+@target(javascript)
 /// Create a new detached map channel: local-only until its handle is first
 /// stored into an attached map. Returns the generated address.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
@@ -404,6 +533,11 @@ pub fn create_register_collection(runtime: Runtime) -> Result(String, String) {
 @target(javascript)
 pub fn create_claims(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitClaims, "create_claims")
+}
+
+@target(javascript)
+pub fn create_task_manager(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitTaskManager, "create_task_manager")
 }
 
 @target(javascript)

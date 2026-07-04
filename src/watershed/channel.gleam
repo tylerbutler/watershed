@@ -29,6 +29,7 @@ import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/register_collection_kernel
+import watershed/task_manager_kernel
 import watershed/wire
 
 /// The kinds of channel a document can host. Maps to/from the wire's
@@ -40,6 +41,7 @@ pub type ChannelType {
   OrSetChannel
   RegisterCollectionChannel
   ClaimsChannel
+  TaskManagerChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -51,6 +53,7 @@ pub type ChannelInit {
   InitOrSet
   InitRegisterCollection
   InitClaims
+  InitTaskManager
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -61,6 +64,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     OrSetChannel -> wire.channel_type_or_set
     RegisterCollectionChannel -> wire.channel_type_register_collection
     ClaimsChannel -> wire.channel_type_claims
+    TaskManagerChannel -> wire.channel_type_task_manager
   }
 }
 
@@ -73,6 +77,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_register_collection ->
       Ok(RegisterCollectionChannel)
     _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
+    _ if raw == wire.channel_type_task_manager -> Ok(TaskManagerChannel)
     _ -> Error(Nil)
   }
 }
@@ -85,6 +90,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitOrSet -> OrSetChannel
     InitRegisterCollection -> RegisterCollectionChannel
     InitClaims -> ClaimsChannel
+    InitTaskManager -> TaskManagerChannel
   }
 }
 
@@ -96,6 +102,7 @@ pub type ChannelState {
   OrSetState(or_set_kernel.OrSetState)
   RegisterCollectionState(register_collection_kernel.RegisterState)
   ClaimsState(claims_kernel.ClaimsState)
+  TaskManagerState(task_manager_kernel.TaskManagerState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -107,6 +114,7 @@ pub type ChannelOp {
   OrSetOp(or_set_kernel.OrSetOp)
   RegisterCollectionOp(register_collection_kernel.WriteOp)
   ClaimsOp(claims_kernel.ClaimOp)
+  TaskManagerOp(task_manager_kernel.TaskManagerOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -117,6 +125,7 @@ pub type ChannelEvent {
   OrSetEvent(or_set_kernel.OrSetEvent)
   RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
   ClaimsEvent(claims_kernel.ClaimEvent)
+  TaskManagerEvent(task_manager_kernel.TaskManagerEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -130,6 +139,7 @@ pub type Snapshot {
     registers: List(#(String, register_collection_kernel.Register)),
   )
   ClaimsSnapshot(entries: List(#(String, Json, Int)))
+  TaskManagerSnapshot(queues: List(#(String, List(Int))))
 }
 
 pub type Resolution {
@@ -144,13 +154,20 @@ pub type LocalOpMeta {
   CounterMeta(message_id: Int)
   OrMapMeta(message_id: Int)
   OrSetMeta(message_id: Int)
+  TaskManagerMeta(message_id: Int)
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
 /// it; kernels that persist sequence numbers consume `seq`.
 /// Threaded from day one so adding such a kernel is additive.
 pub type SequencedMeta {
-  SequencedMeta(seq: Int, last_seen_sn: Int)
+  SequencedMeta(
+    seq: Int,
+    last_seen_sn: Int,
+    author: Int,
+    self: Int,
+    quorum: List(Int),
+  )
 }
 
 pub type ChannelError {
@@ -172,6 +189,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     OrSetState(_) -> OrSetChannel
     RegisterCollectionState(_) -> RegisterCollectionChannel
     ClaimsState(_) -> ClaimsChannel
+    TaskManagerState(_) -> TaskManagerChannel
   }
 }
 
@@ -183,6 +201,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     OrSetSnapshot(_) -> OrSetChannel
     RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
     ClaimsSnapshot(_) -> ClaimsChannel
+    TaskManagerSnapshot(_) -> TaskManagerChannel
   }
 }
 
@@ -201,6 +220,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitRegisterCollection ->
       RegisterCollectionState(register_collection_kernel.new())
     InitClaims -> ClaimsState(claims_kernel.new())
+    InitTaskManager -> TaskManagerState(task_manager_kernel.new())
   }
 }
 
@@ -223,6 +243,8 @@ pub fn from_snapshot(
     RegisterCollectionSnapshot(registers) ->
       RegisterCollectionState(register_collection_kernel.from_summary(registers))
     ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
+    TaskManagerSnapshot(queues) ->
+      TaskManagerState(task_manager_kernel.from_summary(queues))
   }
 }
 
@@ -238,6 +260,8 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
         kernel,
       ))
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
+    TaskManagerState(kernel) ->
+      TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
   }
 }
 
@@ -263,6 +287,8 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
         kernel,
       ))
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
+    TaskManagerState(kernel) ->
+      TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
   }
 }
 
@@ -321,6 +347,11 @@ pub fn apply_remote(
       let #(kernel, events) = claims_kernel.apply_remote(kernel, op, meta.seq)
       Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent)))
     }
+    TaskManagerState(kernel), TaskManagerOp(op) -> {
+      let #(kernel, events) =
+        task_manager_kernel.apply_remote(kernel, op, meta.author, meta.quorum)
+      Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent)))
+    }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -357,6 +388,8 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack is missing its local message id"))
         OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
         OrSetMeta(_) -> Error(UnexpectedAck("counter ack has or-set metadata"))
+        TaskManagerMeta(_) ->
+          Error(UnexpectedAck("counter ack has task-manager metadata"))
       }
     OrMapState(kernel), OrMapOp(op) ->
       case local {
@@ -373,6 +406,8 @@ pub fn ack_local(
         NoMeta | CounterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
         OrSetMeta(_) -> Error(UnexpectedAck("or-map ack has or-set metadata"))
+        TaskManagerMeta(_) ->
+          Error(UnexpectedAck("or-map ack has task-manager metadata"))
       }
     OrSetState(kernel), OrSetOp(op) ->
       case local {
@@ -383,7 +418,7 @@ pub fn ack_local(
             | Error(or_set_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
           }
-        NoMeta | CounterMeta(_) | OrMapMeta(_) ->
+        NoMeta | CounterMeta(_) | OrMapMeta(_) | TaskManagerMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
@@ -407,6 +442,35 @@ pub fn ack_local(
         | Error(claims_kernel.UnexpectedRollback(_, detail))
         | Error(claims_kernel.AlreadyPendingLocally(detail)) ->
           Error(UnexpectedAck(detail))
+      }
+    TaskManagerState(kernel), TaskManagerOp(op) ->
+      case local {
+        TaskManagerMeta(message_id) ->
+          case
+            task_manager_kernel.ack_local(
+              kernel,
+              op,
+              meta.self,
+              message_id,
+              meta.quorum,
+            )
+          {
+            Ok(#(kernel, events)) ->
+              Ok(#(
+                TaskManagerState(kernel),
+                list.map(events, TaskManagerEvent),
+                None,
+              ))
+            Error(task_manager_kernel.UnexpectedAck(_, detail))
+            | Error(task_manager_kernel.UnexpectedRollback(_, detail))
+            | Error(task_manager_kernel.UnexpectedResubmit(_, detail))
+            | Error(task_manager_kernel.NotAssigned(detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        _ ->
+          Error(UnexpectedAck(
+            "task-manager ack is missing its local message id",
+          ))
       }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
@@ -439,6 +503,8 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       ours.key == echoed.key
       && ours.value == echoed.value
       && ours.ref_seq == echoed.ref_seq
+    TaskManagerOp(ours), TaskManagerOp(echoed) ->
+      same_task_manager_shape(ours, echoed)
     _, _ -> False
   }
 }
@@ -485,6 +551,24 @@ fn same_or_set_shape(
   }
 }
 
+fn same_task_manager_shape(
+  ours: task_manager_kernel.TaskManagerOp,
+  echoed: task_manager_kernel.TaskManagerOp,
+) -> Bool {
+  case ours, echoed {
+    task_manager_kernel.Volunteer(our_task),
+      task_manager_kernel.Volunteer(echoed_task)
+    -> our_task == echoed_task
+    task_manager_kernel.Abandon(our_task),
+      task_manager_kernel.Abandon(echoed_task)
+    -> our_task == echoed_task
+    task_manager_kernel.Complete(our_task),
+      task_manager_kernel.Complete(echoed_task)
+    -> our_task == echoed_task
+    _, _ -> False
+  }
+}
+
 /// Whether a sequenced echo of our own attach carries the snapshot we
 /// submitted (values compared structurally, not byte-wise).
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
@@ -497,6 +581,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     RegisterCollectionSnapshot(ours), RegisterCollectionSnapshot(echoed) ->
       ours == echoed
     ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
+    TaskManagerSnapshot(ours), TaskManagerSnapshot(echoed) -> ours == echoed
     _, _ -> False
   }
 }
@@ -576,6 +661,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
           |> list.flat_map(handle.collect_handle_addresses),
       )
       |> list.unique
+    TaskManagerState(_) -> []
   }
 }
 
@@ -589,6 +675,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     OrSetSnapshot(state) -> or_set.to_json(state)
     RegisterCollectionSnapshot(registers) -> encode_registers(registers)
     ClaimsSnapshot(entries) -> encode_claims(entries)
+    TaskManagerSnapshot(queues) -> encode_task_queues(queues)
   }
 }
 
@@ -605,7 +692,25 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
       |> decode.map(RegisterCollectionSnapshot)
     ClaimsChannel ->
       decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot)
+    TaskManagerChannel ->
+      decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot)
   }
+}
+
+fn encode_task_queues(queues: List(#(String, List(Int)))) -> Json {
+  json.array(queues, fn(entry) {
+    let #(task_id, queue) = entry
+    json.object([
+      #("taskId", json.string(task_id)),
+      #("queue", json.array(queue, json.int)),
+    ])
+  })
+}
+
+fn task_queue_decoder() -> Decoder(#(String, List(Int))) {
+  use task_id <- decode.field("taskId", decode.string)
+  use queue <- decode.field("queue", decode.list(decode.int))
+  decode.success(#(task_id, queue))
 }
 
 fn encode_registers(

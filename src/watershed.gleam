@@ -53,6 +53,8 @@ import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
 import watershed/runtime
 @target(erlang)
+import watershed/task_manager_kernel
+@target(erlang)
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(erlang)
@@ -96,6 +98,11 @@ pub opaque type SharedRegisterCollection {
 @target(erlang)
 pub opaque type SharedClaims {
   SharedClaims(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedTaskManager {
+  SharedTaskManager(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -636,6 +643,93 @@ pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
 pub fn subscribe_claims(claims: SharedClaims) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(claims.runtime, runtime.Subscribe(claims.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task managers
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+pub fn create_task_manager(
+  document: Document,
+) -> Result(SharedTaskManager, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateTaskManager,
+  )
+  |> result.map(fn(address) {
+    SharedTaskManager(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
+  handle.encode_handle(manager.address)
+}
+
+@target(erlang)
+pub fn resolve_task_manager(
+  document: Document,
+  value: Json,
+) -> Result(SharedTaskManager, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedTaskManager(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn volunteer_for_task(
+  manager: SharedTaskManager,
+  task_id: String,
+) -> task_manager_kernel.VolunteerOutcome {
+  runtime.volunteer_task(manager.runtime, manager.address, task_id)
+}
+
+@target(erlang)
+pub fn abandon_task(manager: SharedTaskManager, task_id: String) -> Nil {
+  runtime.abandon_task(manager.runtime, manager.address, task_id)
+}
+
+@target(erlang)
+pub fn complete_task(
+  manager: SharedTaskManager,
+  task_id: String,
+) -> Result(Nil, String) {
+  runtime.complete_task(manager.runtime, manager.address, task_id)
+}
+
+@target(erlang)
+pub fn task_assigned(manager: SharedTaskManager, task_id: String) -> Bool {
+  runtime.task_assigned(manager.runtime, manager.address, task_id)
+}
+
+@target(erlang)
+pub fn task_queued(manager: SharedTaskManager, task_id: String) -> Bool {
+  runtime.task_queued(manager.runtime, manager.address, task_id)
+}
+
+@target(erlang)
+pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
+  runtime.task_queues(manager.runtime, manager.address)
+}
+
+@target(erlang)
+pub fn subscribe_task_manager(
+  manager: SharedTaskManager,
+) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(manager.runtime, runtime.Subscribe(manager.address, subscriber))
   subscriber
 }
 

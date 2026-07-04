@@ -62,6 +62,7 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitMap, InitOrMap, InitOrSet, InitRegisterCollection,
+  InitTaskManager,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -75,6 +76,8 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 import watershed/register_collection_kernel.{type ReadPolicy}
 @target(erlang)
 import watershed/runtime_core
+@target(erlang)
+import watershed/task_manager_kernel
 @target(erlang)
 import watershed/wire
 @target(erlang)
@@ -119,6 +122,17 @@ pub type Msg {
   AddOrSetElement(address: String, element: String)
   RemoveOrSetElement(address: String, element: String)
   WriteRegister(address: String, key: String, value: Json)
+  VolunteerTask(
+    address: String,
+    task_id: String,
+    reply: Subject(task_manager_kernel.VolunteerOutcome),
+  )
+  AbandonTask(address: String, task_id: String)
+  CompleteTask(
+    address: String,
+    task_id: String,
+    reply: Subject(Result(Nil, String)),
+  )
   TrySetClaim(
     address: String,
     key: String,
@@ -143,6 +157,7 @@ pub type Msg {
   CreateOrSet(reply: Subject(Result(String, String)))
   CreateRegisterCollection(reply: Subject(Result(String, String)))
   CreateClaims(reply: Subject(Result(String, String)))
+  CreateTaskManager(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
@@ -187,6 +202,9 @@ pub type Msg {
   GetRegisterKeys(address: String, reply: Subject(List(String)))
   GetClaim(address: String, key: String, reply: Subject(Option(Json)))
   HasClaim(address: String, key: String, reply: Subject(Bool))
+  TaskAssigned(address: String, task_id: String, reply: Subject(Bool))
+  TaskQueued(address: String, task_id: String, reply: Subject(Bool))
+  TaskQueues(address: String, reply: Subject(List(#(String, List(Int)))))
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
@@ -335,6 +353,69 @@ pub fn get_claim(
 pub fn has_claim(runtime: Subject(Msg), address: String, key: String) -> Bool {
   process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
     HasClaim(address, key, reply)
+  })
+}
+
+@target(erlang)
+pub fn volunteer_task(
+  runtime: Subject(Msg),
+  address: String,
+  task_id: String,
+) -> task_manager_kernel.VolunteerOutcome {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    VolunteerTask(address, task_id, reply)
+  })
+}
+
+@target(erlang)
+pub fn abandon_task(
+  runtime: Subject(Msg),
+  address: String,
+  task_id: String,
+) -> Nil {
+  process.send(runtime, AbandonTask(address, task_id))
+}
+
+@target(erlang)
+pub fn complete_task(
+  runtime: Subject(Msg),
+  address: String,
+  task_id: String,
+) -> Result(Nil, String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    CompleteTask(address, task_id, reply)
+  })
+}
+
+@target(erlang)
+pub fn task_assigned(
+  runtime: Subject(Msg),
+  address: String,
+  task_id: String,
+) -> Bool {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    TaskAssigned(address, task_id, reply)
+  })
+}
+
+@target(erlang)
+pub fn task_queued(
+  runtime: Subject(Msg),
+  address: String,
+  task_id: String,
+) -> Bool {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    TaskQueued(address, task_id, reply)
+  })
+}
+
+@target(erlang)
+pub fn task_queues(
+  runtime: Subject(Msg),
+  address: String,
+) -> List(#(String, List(Int))) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    TaskQueues(address, reply)
   })
 }
 
@@ -498,6 +579,14 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.register_write(core, address, key, value)
       })
+    VolunteerTask(address, task_id, reply) ->
+      handle_task_volunteer(state, address, task_id, reply)
+    AbandonTask(address, task_id) ->
+      edit(state, fn(core) {
+        runtime_core.task_manager_abandon(core, address, task_id)
+      })
+    CompleteTask(address, task_id, reply) ->
+      handle_task_complete(state, address, task_id, reply)
     TrySetClaim(address, key, value, outcome, reply) ->
       handle_claim_submit(state, address, key, outcome, reply, fn(core) {
         runtime_core.try_set_claim(core, address, key, value)
@@ -523,6 +612,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
     CreateClaims(reply) ->
       create_channel(state, reply, InitClaims, "create_claims")
+    CreateTaskManager(reply) ->
+      create_channel(state, reply, InitTaskManager, "create_task_manager")
 
     ResolveAddress(address, reply) -> {
       let known = read(state, False, runtime_core.has_channel(_, address))
@@ -625,6 +716,31 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, False, runtime_core.has_claim(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    TaskAssigned(address, task_id, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.task_manager_assigned(
+          _,
+          address,
+          task_id,
+        )),
+      )
+      actor.continue(state)
+    }
+    TaskQueued(address, task_id, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.task_manager_queued(_, address, task_id)),
+      )
+      actor.continue(state)
+    }
+    TaskQueues(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.task_manager_queues(_, address)),
       )
       actor.continue(state)
     }
@@ -948,6 +1064,7 @@ fn handle_claim_submit(
           actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
       }
+
     Reconnecting(core) ->
       case operate(core) {
         Error(runtime_core.WrongChannelType(..)) -> {
@@ -977,6 +1094,7 @@ fn handle_claim_submit(
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
+
     _ -> panic as "claim submit before the document connection is ready"
   }
 }
@@ -1032,6 +1150,58 @@ fn abort_claim_waiters(state: State) -> State {
 }
 
 @target(erlang)
+fn handle_task_volunteer(
+  state: State,
+  address: String,
+  task_id: String,
+  reply: Subject(task_manager_kernel.VolunteerOutcome),
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound, outcome)) -> {
+          process.send(reply, outcome)
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound, outcome)) -> {
+          process.send(reply, outcome)
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+      }
+    _ -> panic as "task volunteer before the document connection is ready"
+  }
+}
+
+@target(erlang)
+fn handle_task_complete(
+  state: State,
+  address: String,
+  task_id: String,
+  reply: Subject(Result(Nil, String)),
+) -> actor.Next(State, Msg) {
+  edit_with_result(
+    state,
+    reply,
+    fn(core) { runtime_core.task_manager_complete(core, address, task_id) },
+    "complete_task",
+  )
+}
+
+@target(erlang)
 fn edit(
   state: State,
   operate: fn(runtime_core.Core) ->
@@ -1072,6 +1242,57 @@ fn edit(
     // Edits are only reachable through handles returned after await_ready,
     // so this is either a race with a failure or API misuse.
     _ -> panic as "edit before the document connection is ready"
+  }
+}
+
+@target(erlang)
+fn edit_with_result(
+  state: State,
+  reply: Subject(Result(Nil, String)),
+  operate: fn(runtime_core.Core) ->
+    Result(
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
+  verb: String,
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) -> {
+      case operate(core) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) -> {
+          process.send(reply, Error("task is not assigned: " <> task_id))
+          actor.continue(state)
+        }
+        Error(core_error) ->
+          panic as { verb <> " failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound)) -> {
+          process.send(reply, Ok(Nil))
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+      }
+    }
+    Reconnecting(core) -> {
+      case operate(core) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) -> {
+          process.send(reply, Error("task is not assigned: " <> task_id))
+          actor.continue(state)
+        }
+        Error(core_error) ->
+          panic as { verb <> " failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound)) -> {
+          process.send(reply, Ok(Nil))
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+      }
+    }
+    _ -> panic as { verb <> " before the document connection is ready" }
   }
 }
 

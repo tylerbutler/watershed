@@ -58,6 +58,8 @@ import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
+import watershed/task_manager_kernel
+@target(javascript)
 import watershed/transport_js
 @target(javascript)
 import watershed/wire/summary_blob.{type SummaryBlob}
@@ -110,6 +112,11 @@ pub opaque type SharedRegisterCollection {
 @target(javascript)
 pub opaque type SharedClaims {
   SharedClaims(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedTaskManager {
+  SharedTaskManager(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -548,6 +555,82 @@ pub fn subscribe_claims(
   handler: fn(ChannelEvent) -> Nil,
 ) -> Nil {
   runtime_js.subscribe(claims.runtime, claims.address, handler)
+}
+
+// ── Task managers ─────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_task_manager(
+  document: Document,
+) -> Result(SharedTaskManager, String) {
+  runtime_js.create_task_manager(document.runtime)
+  |> result.map(fn(address) {
+    SharedTaskManager(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
+  handle.encode_handle(manager.address)
+}
+
+@target(javascript)
+pub fn resolve_task_manager(
+  document: Document,
+  value: Json,
+) -> Result(SharedTaskManager, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedTaskManager(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+pub fn volunteer_for_task(
+  manager: SharedTaskManager,
+  task_id: String,
+) -> task_manager_kernel.VolunteerOutcome {
+  runtime_js.task_manager_volunteer(manager.runtime, manager.address, task_id)
+}
+
+@target(javascript)
+pub fn abandon_task(manager: SharedTaskManager, task_id: String) -> Nil {
+  runtime_js.task_manager_abandon(manager.runtime, manager.address, task_id)
+}
+
+@target(javascript)
+pub fn complete_task(
+  manager: SharedTaskManager,
+  task_id: String,
+) -> Result(Nil, String) {
+  runtime_js.task_manager_complete(manager.runtime, manager.address, task_id)
+}
+
+@target(javascript)
+pub fn task_assigned(manager: SharedTaskManager, task_id: String) -> Bool {
+  runtime_js.task_manager_assigned(manager.runtime, manager.address, task_id)
+}
+
+@target(javascript)
+pub fn task_queued(manager: SharedTaskManager, task_id: String) -> Bool {
+  runtime_js.task_manager_queued(manager.runtime, manager.address, task_id)
+}
+
+@target(javascript)
+pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
+  runtime_js.task_manager_queues(manager.runtime, manager.address)
+}
+
+@target(javascript)
+pub fn subscribe_task_manager(
+  manager: SharedTaskManager,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  runtime_js.subscribe(manager.runtime, manager.address, handler)
 }
 
 @target(javascript)
