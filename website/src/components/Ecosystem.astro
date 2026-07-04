@@ -1,44 +1,67 @@
 ---
-const system = [
+const flows = [
   {
-    name: "levee",
-    role: "the Fluid Framework service — documents, sequencing, broadcast, summaries",
-    href: "https://github.com/tylerbutler/levee",
+    label: "BEAM client",
+    source: "watershed",
+    sourceHref: "https://github.com/tylerbutler/watershed",
+    verb: "opens Phoenix channels with",
+    path: [
+      {
+        name: "aquamarine",
+        href: "https://github.com/tylerbutler/aquamarine",
+      },
+      {
+        name: "roost",
+        href: "https://github.com/tylerbutler/roost",
+      },
+    ],
+    target: "levee",
+    targetHref: "https://github.com/tylerbutler/levee",
+    note: "OTP runtime, Gun transport, Roost Phoenix V2 frame codec.",
   },
   {
-    name: "beryl",
-    role: "the channel runtime — rooms, presence, server transports",
-    href: "https://github.com/tylerbutler/beryl",
+    label: "Browser client",
+    source: "watershed_js",
+    sourceHref: "https://github.com/tylerbutler/watershed",
+    verb: "opens Phoenix channels with",
+    path: [{ name: "Phoenix.js", href: "https://hexdocs.pm/phoenix/js/" }],
+    target: "levee",
+    targetHref: "https://github.com/tylerbutler/levee",
+    note: "Gleam JavaScript runtime over transport_js and the browser Web Crypto API.",
   },
   {
-    name: "watershed",
-    role: "this basin — DDS clients and runtime for BEAM and browser",
-    href: "https://github.com/tylerbutler/watershed",
+    label: "Protocol layer",
+    source: "watershed core",
+    sourceHref: "https://github.com/tylerbutler/watershed",
+    verb: "encodes Fluid messages through",
+    path: [
+      {
+        name: "spillway",
+        href: "https://github.com/tylerbutler/spillway",
+      },
+    ],
+    target: "levee",
+    targetHref: "https://github.com/tylerbutler/levee",
+    note: "Shared operation, session, sequencing, and summary types.",
   },
   {
-    name: "spillway",
-    role: "the protocol — Fluid ops, sessions, sequencing, summaries",
-    href: "https://github.com/tylerbutler/spillway",
-  },
-  {
-    name: "dewdrop",
-    role: "the adapter — Fluid event codecs for channel clients and servers",
-    href: "https://github.com/tylerbutler/dewdrop",
-  },
-  {
-    name: "aquamarine",
-    role: "the channel client — Beryl-style realtime channels in Gleam",
-    href: "https://github.com/tylerbutler/aquamarine",
-  },
-  {
-    name: "roost",
-    role: "the codec — Phoenix V2 frames in Gleam",
-    href: "https://github.com/tylerbutler/roost",
-  },
-  {
-    name: "windsock",
-    role: "the frame primitives — Socket.IO and Engine.IO envelopes",
-    href: "https://github.com/tylerbutler/windsock",
+    label: "Server side",
+    source: "levee",
+    sourceHref: "https://github.com/tylerbutler/levee",
+    verb: "hosts rooms and broadcasts through",
+    path: [
+      {
+        name: "beryl",
+        href: "https://github.com/tylerbutler/beryl",
+      },
+      {
+        name: "dewdrop",
+        href: "https://github.com/tylerbutler/dewdrop",
+      },
+    ],
+    target: "clients",
+    targetHref: "https://github.com/tylerbutler/watershed",
+    note: "Channel runtime plus Fluid event adapters on the service side.",
   },
 ];
 ---
@@ -47,22 +70,46 @@ const system = [
   <div class="eco-inner">
     <h2 id="eco-title">The water system</h2>
     <p>
-      watershed is one basin in a connected system: channel runtimes, protocol
-      codecs, DDS kernels, and the levee service all have names that match how
-      the data actually moves.
+      watershed is one basin in a connected system. The important line is not
+      the package list; it is who speaks to whom, and where each target swaps
+      transport without changing the shared DDS core.
     </p>
-    <ul class="eco-list">
+    <ol class="flow-list" aria-label="Package relationships">
       {
-        system.map((p) => (
-          <li>
-            <a href={p.href}>
-              <code>{p.name}</code>
-            </a>
-            <span class="eco-role">{p.role}</span>
+        flows.map((flow) => (
+          <li class="flow-row">
+            <span class="flow-label annot">{flow.label}</span>
+            <div class="flow-line">
+              <a href={flow.sourceHref}>
+                <code>{flow.source}</code>
+              </a>
+              <span>{flow.verb}</span>
+              <span class="flow-path">
+                {flow.path.map((pkg, index) => (
+                  <>
+                    <a href={pkg.href}>
+                      <code>{pkg.name}</code>
+                    </a>
+                    {index < flow.path.length - 1 && (
+                      <span aria-hidden="true">→</span>
+                    )}
+                  </>
+                ))}
+              </span>
+              <span aria-hidden="true">→</span>
+              <a href={flow.targetHref}>
+                <code>{flow.target}</code>
+              </a>
+            </div>
+            <p>{flow.note}</p>
           </li>
         ))
       }
-    </ul>
+    </ol>
+    <p class="eco-note">
+      <code>windsock</code> is not in the active watershed path. <code>roost</code>
+      appears only under the Erlang transport, through <code>aquamarine</code>.
+    </p>
     <div class="eco-close">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
         Read the source
@@ -95,32 +142,72 @@ const system = [
     margin-top: var(--space-lg);
   }
 
-  .eco-list {
+  .flow-list {
     list-style: none;
     margin: var(--space-2xl) 0 0;
     padding: 0;
+    border-top: 1px solid var(--ink);
   }
 
-  .eco-list li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-md);
-    padding: var(--space-md) 0;
+  .flow-row {
+    display: grid;
+    grid-template-columns: minmax(9rem, 0.34fr) 1fr;
+    gap: var(--space-md) var(--space-xl);
+    padding: var(--space-lg) 0;
     border-top: 1px solid var(--hairline);
   }
 
-  .eco-list li:last-child {
-    border-bottom: 1px solid var(--hairline);
+  .flow-row:first-child {
+    border-top: 0;
   }
 
-  .eco-list code {
+  .flow-row:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .flow-label {
+    color: var(--overprint-deep);
+    padding-top: 0.08rem;
+  }
+
+  .flow-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-sm);
+    max-width: 54rem;
+  }
+
+  .flow-line code {
     font-size: 1.0625rem;
   }
 
-  .eco-role {
+  .flow-path {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs);
+    color: var(--muted);
+  }
+
+  .flow-row p,
+  .eco-note {
     color: var(--muted);
     font-size: var(--text-sm);
+  }
+
+  .flow-row p {
+    grid-column: 2;
+    margin-top: calc(-1 * var(--space-xs));
+  }
+
+  .eco-note {
+    margin-top: var(--space-lg);
+  }
+
+  .eco-note code {
+    color: var(--ink);
+    font-size: 0.9em;
   }
 
   .eco-close {
@@ -145,5 +232,17 @@ const system = [
   .cta-primary:hover {
     background: var(--overprint-deep);
     color: oklch(100% 0 0);
+  }
+
+  @media (max-width: 760px) {
+    .flow-row {
+      grid-template-columns: 1fr;
+      gap: var(--space-sm);
+    }
+
+    .flow-row p {
+      grid-column: auto;
+      margin-top: 0;
+    }
   }
 </style>
