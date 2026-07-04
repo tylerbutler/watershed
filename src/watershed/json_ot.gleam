@@ -1281,23 +1281,374 @@ fn invert_subtype(name: String, op: JsonValue) -> JsonValue {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// text0 subtype — a full port of ottypes/json0's `lib/text0.js` (+ the
+// `bootstrapTransform` N² driver). The document is a `VString`; a text0 op is a
+// `VArray` of components, each a `VObject` carrying `p` (position) and exactly
+// one of `i` (insert) / `d` (delete). Internally we parse to a typed `TextComp`
+// list, run the algebra, and serialize back.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type TextComp {
+  TIns(p: Int, s: String)
+  TDel(p: Int, s: String)
+}
+
+fn text0_parse_op(op: JsonValue) -> Result(List(TextComp), OtError) {
+  case op {
+    VArray(items) -> list.try_map(items, text0_parse_component)
+    _ -> Error(BadValue("text0 op must be an array"))
+  }
+}
+
+fn text0_parse_component(c: JsonValue) -> Result(TextComp, OtError) {
+  case c {
+    VObject(members) -> {
+      let pos = case list.key_find(members, "p") {
+        Ok(VNumber(NInt(n))) -> Ok(n)
+        _ -> Error(BadValue("text0 component missing integer position"))
+      }
+      use p <- result.try(pos)
+      case p < 0 {
+        True -> Error(BadValue("text0 position cannot be negative"))
+        False ->
+          case list.key_find(members, "i"), list.key_find(members, "d") {
+            Ok(VString(s)), Error(_) -> Ok(TIns(p, s))
+            Error(_), Ok(VString(s)) -> Ok(TDel(p, s))
+            _, _ -> Error(BadValue("text0 component needs an i or d field"))
+          }
+      }
+    }
+    _ -> Error(BadValue("text0 component must be an object"))
+  }
+}
+
+fn text0_serialize_op(op: List(TextComp)) -> JsonValue {
+  VArray(list.map(op, text0_serialize_component))
+}
+
+fn text0_serialize_component(c: TextComp) -> JsonValue {
+  // Object members are kept key-sorted for canonical equality; "d"/"i" both
+  // sort before "p".
+  case c {
+    TIns(p, s) -> VObject([#("i", VString(s)), #("p", VNumber(NInt(p)))])
+    TDel(p, s) -> VObject([#("d", VString(s)), #("p", VNumber(NInt(p)))])
+  }
+}
+
+/// Insert `s2` into `s1` at `pos`.
+fn str_inject(s1: String, pos: Int, s2: String) -> String {
+  string.slice(s1, 0, pos) <> s2 <> string.drop_start(s1, pos)
+}
+
+fn text0_is_empty_component(c: TextComp) -> Bool {
+  case c {
+    TIns(_, "") | TDel(_, "") -> True
+    _ -> False
+  }
+}
+
+/// Append `c` to `op`, dropping no-ops and composing adjacent inserts/deletes
+/// the way json0's `text._append` does. `op` is in normal (execution) order.
+fn text0_append(op: List(TextComp), c: TextComp) -> List(TextComp) {
+  case text0_is_empty_component(c) {
+    True -> op
+    False ->
+      case text0_split_last(op) {
+        None -> [c]
+        Some(#(init, last)) ->
+          case text0_merge(last, c) {
+            Ok(merged) -> list.append(init, [merged])
+            Error(Nil) -> list.append(op, [c])
+          }
+      }
+  }
+}
+
+fn text0_split_last(
+  op: List(TextComp),
+) -> option.Option(#(List(TextComp), TextComp)) {
+  case list.reverse(op) {
+    [] -> None
+    [last, ..rest] -> Some(#(list.reverse(rest), last))
+  }
+}
+
+/// Compose `c` onto the trailing component `last` when they are adjacent edits
+/// of the same kind (two overlapping inserts, or two overlapping deletes).
+fn text0_merge(last: TextComp, c: TextComp) -> Result(TextComp, Nil) {
+  case last, c {
+    TIns(lp, li), TIns(cp, ci) ->
+      case lp <= cp && cp <= lp + string.length(li) {
+        True -> Ok(TIns(lp, str_inject(li, cp - lp, ci)))
+        False -> Error(Nil)
+      }
+    TDel(lp, ld), TDel(cp, cd) ->
+      case cp <= lp && lp <= cp + string.length(cd) {
+        True -> Ok(TDel(cp, str_inject(cd, lp - cp, ld)))
+        False -> Error(Nil)
+      }
+    _, _ -> Error(Nil)
+  }
+}
+
+/// Shift `pos` to account for a concurrent component `c`. For an insert,
+/// `insert_after` decides whether a position exactly at the insert is pushed
+/// past it.
+fn text0_transform_position(pos: Int, c: TextComp, insert_after: Bool) -> Int {
+  case c {
+    TIns(cp, cs) ->
+      case cp < pos || { cp == pos && insert_after } {
+        True -> pos + string.length(cs)
+        False -> pos
+      }
+    TDel(cp, cs) -> {
+      let clen = string.length(cs)
+      case pos <= cp {
+        True -> pos
+        False ->
+          case pos <= cp + clen {
+            True -> cp
+            False -> pos - clen
+          }
+      }
+    }
+  }
+}
+
+/// Transform component `c` by `other`, appending the result(s) to `dest`
+/// (normal order). Asymmetric; `side` breaks insert-vs-insert ties.
+fn text0_transform_component(
+  dest: List(TextComp),
+  c: TextComp,
+  other: TextComp,
+  side: Side,
+) -> Result(List(TextComp), OtError) {
+  case c {
+    TIns(cp, cs) ->
+      Ok(text0_append(
+        dest,
+        TIns(text0_transform_position(cp, other, side == Rgt), cs),
+      ))
+    TDel(cp, cs) ->
+      case other {
+        TIns(op, os) -> {
+          // Delete vs insert: split the delete around the inserted text.
+          let #(dest, remaining) = case cp < op {
+            True -> #(
+              text0_append(dest, TDel(cp, string.slice(cs, 0, op - cp))),
+              string.drop_start(cs, op - cp),
+            )
+            False -> #(dest, cs)
+          }
+          case remaining == "" {
+            True -> Ok(dest)
+            False ->
+              Ok(text0_append(dest, TDel(cp + string.length(os), remaining)))
+          }
+        }
+        TDel(op, os) -> {
+          let clen = string.length(cs)
+          let olen = string.length(os)
+          case cp >= op + olen {
+            True -> Ok(text0_append(dest, TDel(cp - olen, cs)))
+            False ->
+              case cp + clen <= op {
+                True -> Ok(text0_append(dest, c))
+                False -> {
+                  // The deletes overlap: keep only the portions `other` did not
+                  // already remove.
+                  let part1 = case cp < op {
+                    True -> string.slice(cs, 0, op - cp)
+                    False -> ""
+                  }
+                  let part2 = case cp + clen > op + olen {
+                    True -> string.drop_start(cs, op + olen - cp)
+                    False -> ""
+                  }
+                  let new_d = part1 <> part2
+                  let intersect_start = int.max(cp, op)
+                  let intersect_end = int.min(cp + clen, op + olen)
+                  let intersect_len = intersect_end - intersect_start
+                  let c_intersect =
+                    string.slice(cs, intersect_start - cp, intersect_len)
+                  let o_intersect =
+                    string.slice(os, intersect_start - op, intersect_len)
+                  use _ <- result.try(case c_intersect == o_intersect {
+                    True -> Ok(Nil)
+                    False ->
+                      Error(BadValue(
+                        "text0 deletes disagree in the overlapping region",
+                      ))
+                  })
+                  case new_d == "" {
+                    True -> Ok(dest)
+                    False ->
+                      Ok(text0_append(
+                        dest,
+                        TDel(text0_transform_position(cp, other, False), new_d),
+                      ))
+                  }
+                }
+              }
+          }
+        }
+      }
+  }
+}
+
+/// The recursive N² transform driver (json0's `bootstrapTransform.transformX`):
+/// returns `#(left', right')`, each op transformed past the other.
+fn text0_transform_x(
+  left_op: List(TextComp),
+  right_op: List(TextComp),
+) -> Result(#(List(TextComp), List(TextComp)), OtError) {
+  text0_tx_outer(left_op, right_op, [])
+}
+
+fn text0_tx_outer(
+  left_op: List(TextComp),
+  right_op: List(TextComp),
+  new_right_op: List(TextComp),
+) -> Result(#(List(TextComp), List(TextComp)), OtError) {
+  case right_op {
+    [] -> Ok(#(left_op, new_right_op))
+    [right_component, ..right_rest] -> {
+      use #(new_left_op, new_right_op) <- result.try(text0_tx_inner(
+        left_op,
+        right_component,
+        [],
+        new_right_op,
+      ))
+      text0_tx_outer(new_left_op, right_rest, new_right_op)
+    }
+  }
+}
+
+/// Compose one `right_component` against the whole (remaining) left op,
+/// mirroring the inner `while` loop of `transformX` including its split-and-
+/// recurse branch.
+fn text0_tx_inner(
+  left: List(TextComp),
+  right_component: TextComp,
+  new_left_op: List(TextComp),
+  new_right_op: List(TextComp),
+) -> Result(#(List(TextComp), List(TextComp)), OtError) {
+  case left {
+    [] -> Ok(#(new_left_op, text0_append(new_right_op, right_component)))
+    [lc, ..lrest] -> {
+      use new_left_op <- result.try(text0_transform_component(
+        new_left_op,
+        lc,
+        right_component,
+        Lft,
+      ))
+      use next_c <- result.try(text0_transform_component(
+        [],
+        right_component,
+        lc,
+        Rgt,
+      ))
+      case next_c {
+        [only] -> text0_tx_inner(lrest, only, new_left_op, new_right_op)
+        [] -> Ok(#(list.fold(lrest, new_left_op, text0_append), new_right_op))
+        _ -> {
+          use #(pair_left, pair_right) <- result.try(text0_transform_x(
+            lrest,
+            next_c,
+          ))
+          Ok(#(
+            list.fold(pair_left, new_left_op, text0_append),
+            list.fold(pair_right, new_right_op, text0_append),
+          ))
+        }
+      }
+    }
+  }
+}
+
+fn text0_transform_ops(
+  op: List(TextComp),
+  other: List(TextComp),
+  side: Side,
+) -> Result(List(TextComp), OtError) {
+  case other, op {
+    [], _ -> Ok(op)
+    [single_other], [single] ->
+      text0_transform_component([], single, single_other, side)
+    _, _ ->
+      case side {
+        Lft -> {
+          use #(left, _right) <- result.try(text0_transform_x(op, other))
+          Ok(left)
+        }
+        Rgt -> {
+          use #(_left, right) <- result.try(text0_transform_x(other, op))
+          Ok(right)
+        }
+      }
+  }
+}
+
 fn text0_apply(
-  _value: JsonValue,
-  _sub_op: JsonValue,
+  value: JsonValue,
+  sub_op: JsonValue,
 ) -> Result(JsonValue, OtError) {
-  Error(UnknownSubtype("text0 (not yet implemented)"))
+  case value {
+    VString(s) -> {
+      use op <- result.try(text0_parse_op(sub_op))
+      use result <- result.try(
+        list.try_fold(op, s, fn(snapshot, component) {
+          case component {
+            TIns(p, i) -> Ok(str_inject(snapshot, p, i))
+            TDel(p, d) -> {
+              let deleted = string.slice(snapshot, p, string.length(d))
+              case deleted == d {
+                True ->
+                  Ok(
+                    string.slice(snapshot, 0, p)
+                    <> string.drop_start(snapshot, p + string.length(d)),
+                  )
+                False ->
+                  Error(BadValue(
+                    "text0 delete does not match the document text",
+                  ))
+              }
+            }
+          }
+        }),
+      )
+      Ok(VString(result))
+    }
+    _ -> Error(BadValue("text0 op can only apply to a string"))
+  }
 }
 
 fn text0_transform(
-  _a: JsonValue,
-  _b: JsonValue,
-  _side: Side,
+  a: JsonValue,
+  b: JsonValue,
+  side: Side,
 ) -> Result(JsonValue, OtError) {
-  Error(UnknownSubtype("text0 (not yet implemented)"))
+  use aop <- result.try(text0_parse_op(a))
+  use bop <- result.try(text0_parse_op(b))
+  use result <- result.try(text0_transform_ops(aop, bop, side))
+  Ok(text0_serialize_op(result))
 }
 
 fn text0_invert(op: JsonValue) -> JsonValue {
-  op
+  case text0_parse_op(op) {
+    Error(_) -> op
+    Ok(components) ->
+      components
+      |> list.reverse
+      |> list.map(fn(c) {
+        case c {
+          TIns(p, s) -> TDel(p, s)
+          TDel(p, s) -> TIns(p, s)
+        }
+      })
+      |> text0_serialize_op
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

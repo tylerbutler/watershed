@@ -366,22 +366,78 @@ fn gen_structural(
         }
       }
     }
-    // String / Bool / Null leaves: replace at parent if we can, else skip.
-    _ ->
+    // Strings: usually an in-place text0 subtype edit, sometimes a full
+    // replace. Both need a parent to attach to.
+    VString(s) ->
       case is_root {
         True -> #(None, rng)
         False -> {
-          let #(newv, rng) = random_thing(rng, 1)
-          case parent {
-            Some(True) -> #(
-              Some(json_ot.list_replace(path, operand, newv)),
-              rng,
-            )
-            _ -> #(Some(json_ot.obj_replace(path, operand, newv)), rng)
+          let #(coin, rng) = rand_real(rng)
+          case coin <. 0.6 {
+            True -> gen_text0_component(path, s, rng)
+            False -> gen_leaf_replace(path, operand, parent, rng)
           }
         }
       }
+    // Bool / Null leaves: replace at parent if we can, else skip.
+    _ ->
+      case is_root {
+        True -> #(None, rng)
+        False -> gen_leaf_replace(path, operand, parent, rng)
+      }
   }
+}
+
+/// Replace a leaf value with a fresh random value, at either a list or object
+/// slot depending on the parent.
+fn gen_leaf_replace(
+  path: List(PathKey),
+  operand: JsonValue,
+  parent: Option(Bool),
+  rng: Rng,
+) -> #(Option(Component), Rng) {
+  let #(newv, rng) = random_thing(rng, 1)
+  case parent {
+    Some(True) -> #(Some(json_ot.list_replace(path, operand, newv)), rng)
+    _ -> #(Some(json_ot.obj_replace(path, operand, newv)), rng)
+  }
+}
+
+/// A random valid text0 subtype op over the string `s`: an insert of a word at
+/// a random position, or a delete of a real substring. Deletes reference the
+/// actual text so they always apply.
+fn gen_text0_component(
+  path: List(PathKey),
+  s: String,
+  rng: Rng,
+) -> #(Option(Component), Rng) {
+  let len = string.length(s)
+  let #(coin, rng) = rand_real(rng)
+  case coin <. 0.5 || len == 0 {
+    True -> {
+      let #(pos, rng) = rand_int(rng, len + 1)
+      let #(w, rng) = random_word(rng)
+      #(Some(json_ot.subtype_component(path, "text0", text0_ins(pos, w))), rng)
+    }
+    False -> {
+      let #(pos, rng) = rand_int(rng, len)
+      let #(count, rng) = rand_int(rng, len - pos)
+      let dlen = count + 1
+      let removed = string.slice(s, pos, dlen)
+      #(
+        Some(json_ot.subtype_component(path, "text0", text0_del(pos, removed))),
+        rng,
+      )
+    }
+  }
+}
+
+fn text0_ins(pos: Int, s: String) -> JsonValue {
+  VArray([VObject([#("i", VString(s)), #("p", VNumber(NInt(pos)))])])
+}
+
+fn text0_del(pos: Int, s: String) -> JsonValue {
+  VArray([VObject([#("d", VString(s)), #("p", VNumber(NInt(pos)))])])
 }
 
 fn drop_last(path: List(PathKey)) -> List(PathKey) {
