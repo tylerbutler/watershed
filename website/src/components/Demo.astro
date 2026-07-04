@@ -26,6 +26,11 @@ const registerSlots = [
   { key: "gate-setpoint", atomic: "—", lww: "—" },
   { key: "pump-mode", atomic: "—", lww: "—" },
 ];
+const pactSlots = [
+  { key: "datum-grid", accepted: "Survey datum" },
+  { key: "gate-policy", accepted: "—" },
+  { key: "inspection-window", accepted: "—" },
+];
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
@@ -85,6 +90,14 @@ const pnFillSteps = [2, 6];
         <input type="radio" name="dds" value="registers" data-dds-pick disabled />
         <span>Registers</span>
       </label>
+      <label>
+        <input type="radio" name="dds" value="ordered" data-dds-pick disabled />
+        <span>Ordered collection</span>
+      </label>
+      <label>
+        <input type="radio" name="dds" value="pact" data-dds-pick disabled />
+        <span>Pact map</span>
+      </label>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
       <strong>Merge rule — last write wins.</strong> Race two writes to the
@@ -126,6 +139,16 @@ const pnFillSteps = [2, 6];
       knew the current atomic sequence wins the linearizable slot. Concurrent
       losers still append a version, so LWW reads can intentionally diverge from
       atomic reads.
+    </p>
+    <p class="merge-rule" data-merge-rule="ordered" hidden>
+      <strong>Merge rule — FIFO by sequence.</strong> Adds enter the queue in
+      server order. Acquires remove the front item when their op sequences; a
+      racing acquire may come back empty because the earlier SN already took it.
+    </p>
+    <p class="merge-rule" data-merge-rule="pact" hidden>
+      <strong>Merge rule — quorum acceptance.</strong> A set first prints as
+      pending with a frozen signoff list. It becomes accepted only after every
+      connected client signs off, or leaves drain the list.
     </p>
   </div>
 
@@ -416,6 +439,91 @@ const pnFillSteps = [2, 6];
               ))}
             </tbody>
           </table>
+          <table class="gauge-table ordered-table dds-ordered">
+            <caption class="visually-hidden">
+              Ordered collection replica on {c.name}
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">sheet</th>
+                <th scope="col">state</th>
+                <th scope="col">op</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th scope="row">
+                  <code>queue</code>
+                  <span class="annot ordered-note" data-ordered-note></span>
+                </th>
+                <td class="ordered-value">
+                  <output data-ordered-queue>grade-stakes, pump-check</output>
+                </td>
+                <td class="gauge-actions ordered-actions">
+                  <button type="button" data-ordered-add disabled>Add task</button>
+                  <button type="button" data-ordered-acquire disabled>Acquire</button>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">
+                  <code>held jobs</code>
+                </th>
+                <td class="ordered-value">
+                  <output data-ordered-jobs>none</output>
+                </td>
+                <td class="gauge-actions ordered-actions">
+                  <button type="button" data-ordered-complete disabled>Complete</button>
+                  <button type="button" data-ordered-release disabled>Release</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <table class="gauge-table pact-table dds-pact">
+            <caption class="visually-hidden">Pact map replica on {c.name}</caption>
+            <thead>
+              <tr>
+                <th scope="col">pact</th>
+                <th scope="col">accepted</th>
+                <th scope="col">pending</th>
+                <th scope="col">op</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pactSlots.map((p) => (
+                <tr data-key={p.key}>
+                  <th scope="row">
+                    <code>{p.key}</code>
+                    <span class="annot pact-note" data-pact-note></span>
+                  </th>
+                  <td class="pact-value">
+                    <output data-pact-accepted>{p.accepted}</output>
+                  </td>
+                  <td class="pact-value">
+                    <output data-pact-pending>—</output>
+                    <span class="annot pact-signoffs" data-pact-signoffs></span>
+                  </td>
+                  <td class="gauge-actions pact-actions">
+                    <button
+                      type="button"
+                      data-pact-set
+                      aria-label={`Propose pact ${p.key} on ${c.name}`}
+                      disabled
+                    >
+                      Propose
+                    </button>
+                    <button
+                      type="button"
+                      data-pact-delete
+                      aria-label={`Delete pact ${p.key} on ${c.name}`}
+                      disabled
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </article>
       ))
     }
@@ -487,8 +595,9 @@ const pnFillSteps = [2, 6];
       <code>runtime_core</code> counter channel plus
       <code>map_kernel</code>, <code>pn_counter_kernel</code>,
       <code>or_map_kernel</code>, <code>or_set_kernel</code>,
-      <code>claims_kernel</code>, and <code>register_collection_kernel</code> in
-      your browser. The rest of the page works fine without it.
+      <code>claims_kernel</code>, <code>register_collection_kernel</code>,
+      <code>ordered_collection_kernel</code>, and <code>pact_map_kernel</code>
+      in your browser. The rest of the page works fine without it.
     </p>
   </noscript>
 
@@ -727,49 +836,79 @@ const pnFillSteps = [2, 6];
     margin-inline-start: var(--space-2xs);
   }
 
-  /* one rig, seven structures: the picker swaps which replica view is printed */
+  /* one rig, nine structures: the picker swaps which replica view is printed */
   .rig[data-dds="map"] .dds-counter,
   .rig[data-dds="map"] .dds-pn,
   .rig[data-dds="map"] .dds-ormap,
   .rig[data-dds="map"] .dds-orset,
   .rig[data-dds="map"] .dds-claims,
   .rig[data-dds="map"] .dds-registers,
+  .rig[data-dds="map"] .dds-ordered,
+  .rig[data-dds="map"] .dds-pact,
   .rig[data-dds="counter"] .dds-map,
   .rig[data-dds="counter"] .dds-pn,
   .rig[data-dds="counter"] .dds-ormap,
   .rig[data-dds="counter"] .dds-orset,
   .rig[data-dds="counter"] .dds-claims,
   .rig[data-dds="counter"] .dds-registers,
+  .rig[data-dds="counter"] .dds-ordered,
+  .rig[data-dds="counter"] .dds-pact,
   .rig[data-dds="pn"] .dds-map,
   .rig[data-dds="pn"] .dds-counter,
   .rig[data-dds="pn"] .dds-ormap,
   .rig[data-dds="pn"] .dds-orset,
   .rig[data-dds="pn"] .dds-claims,
   .rig[data-dds="pn"] .dds-registers,
+  .rig[data-dds="pn"] .dds-ordered,
+  .rig[data-dds="pn"] .dds-pact,
   .rig[data-dds="ormap"] .dds-map,
   .rig[data-dds="ormap"] .dds-counter,
   .rig[data-dds="ormap"] .dds-pn,
   .rig[data-dds="ormap"] .dds-orset,
   .rig[data-dds="ormap"] .dds-claims,
   .rig[data-dds="ormap"] .dds-registers,
+  .rig[data-dds="ormap"] .dds-ordered,
+  .rig[data-dds="ormap"] .dds-pact,
   .rig[data-dds="orset"] .dds-map,
   .rig[data-dds="orset"] .dds-counter,
   .rig[data-dds="orset"] .dds-pn,
   .rig[data-dds="orset"] .dds-ormap,
   .rig[data-dds="orset"] .dds-claims,
   .rig[data-dds="orset"] .dds-registers,
+  .rig[data-dds="orset"] .dds-ordered,
+  .rig[data-dds="orset"] .dds-pact,
   .rig[data-dds="claims"] .dds-map,
   .rig[data-dds="claims"] .dds-counter,
   .rig[data-dds="claims"] .dds-pn,
   .rig[data-dds="claims"] .dds-ormap,
   .rig[data-dds="claims"] .dds-orset,
   .rig[data-dds="claims"] .dds-registers,
+  .rig[data-dds="claims"] .dds-ordered,
+  .rig[data-dds="claims"] .dds-pact,
   .rig[data-dds="registers"] .dds-map,
   .rig[data-dds="registers"] .dds-counter,
   .rig[data-dds="registers"] .dds-pn,
   .rig[data-dds="registers"] .dds-ormap,
   .rig[data-dds="registers"] .dds-orset,
-  .rig[data-dds="registers"] .dds-claims {
+  .rig[data-dds="registers"] .dds-claims,
+  .rig[data-dds="registers"] .dds-ordered,
+  .rig[data-dds="registers"] .dds-pact,
+  .rig[data-dds="ordered"] .dds-map,
+  .rig[data-dds="ordered"] .dds-counter,
+  .rig[data-dds="ordered"] .dds-pn,
+  .rig[data-dds="ordered"] .dds-ormap,
+  .rig[data-dds="ordered"] .dds-orset,
+  .rig[data-dds="ordered"] .dds-claims,
+  .rig[data-dds="ordered"] .dds-registers,
+  .rig[data-dds="ordered"] .dds-pact,
+  .rig[data-dds="pact"] .dds-map,
+  .rig[data-dds="pact"] .dds-counter,
+  .rig[data-dds="pact"] .dds-pn,
+  .rig[data-dds="pact"] .dds-ormap,
+  .rig[data-dds="pact"] .dds-orset,
+  .rig[data-dds="pact"] .dds-claims,
+  .rig[data-dds="pact"] .dds-registers,
+  .rig[data-dds="pact"] .dds-ordered {
     display: none;
   }
 
@@ -966,7 +1105,9 @@ const pnFillSteps = [2, 6];
     display: none;
   }
 
-  .register-table thead th {
+  .register-table thead th,
+  .ordered-table thead th,
+  .pact-table thead th {
     padding: var(--space-xs) var(--space-md);
     border-bottom: 1px solid var(--hairline);
     font-family: var(--font-mono);
@@ -977,30 +1118,40 @@ const pnFillSteps = [2, 6];
     font-weight: 400;
   }
 
-  .register-value output {
+  .register-value output,
+  .ordered-value output,
+  .pact-value output {
     display: inline-block;
     font-family: var(--font-mono);
     font-size: 1rem;
     color: var(--ink);
   }
 
-  .register-table tr.filed .register-value output {
+  .register-table tr.filed .register-value output,
+  .ordered-table tr.filed .ordered-value output,
+  .pact-table tr.filed .pact-value output {
     border-bottom: 1px dashed var(--overprint-deep);
   }
 
   .register-note,
-  .register-versions {
+  .register-versions,
+  .ordered-note,
+  .pact-note,
+  .pact-signoffs {
     display: block;
     min-height: 1.2em;
     color: var(--overprint-deep);
     font-style: italic;
   }
 
-  .register-versions {
+  .register-versions,
+  .pact-signoffs {
     color: var(--muted);
   }
 
-  .register-actions button {
+  .register-actions button,
+  .ordered-actions button,
+  .pact-actions button {
     inline-size: auto;
     padding-inline: 0.7rem;
     font-size: var(--text-sm);

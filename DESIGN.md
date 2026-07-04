@@ -82,22 +82,25 @@ sections themselves get plain headings — no per-section eyebrows.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.
 - The demo imports the real compiled kernels from
-  `../../../build/dev/javascript/watershed/watershed/{map_kernel,counter_kernel,pn_counter_kernel,or_map_kernel,claims_kernel}.mjs`
-  plus the lattice modules (`lattice_counters/{pn_counter,g_counter}`,
-  `lattice_core/replica_id`) (`gleam build --target javascript` runs via
-  `predev`/`prebuild`).
-- The demo hosts all five DDSes on one sequencer/SN stream, like DDSes
+  `../../../build/dev/javascript/watershed/watershed/{map_kernel,pn_counter_kernel,or_map_kernel,or_set_kernel,claims_kernel,register_collection_kernel,ordered_collection_kernel,pact_map_kernel}.mjs`
+  plus the runtime counter channel and lattice modules
+  (`lattice_counters/{pn_counter,g_counter}`, `lattice_core/replica_id`)
+  (`gleam build --target javascript` runs via `predev`/`prebuild`).
+- The demo hosts all nine DDS/CRDT sheets on one sequencer/SN stream, like DDSes
   sharing a container. A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below
   640px) swaps the replica view between the shared map (gauge table), the
-  shared counter, the PN counter, the OR-map stockpile ledger, and the claims
-  sheet; all kernels stay live regardless of which is shown. Counter-family
-  pending state is a *delta*, annotated in magenta beside the value
+  shared counter, the PN counter, the OR-map stockpile ledger, OR-set markers,
+  claims, registers, ordered collection, and pact map; all kernels stay live
+  regardless of which is shown. Counter-family pending state is a *delta*,
+  annotated in magenta beside the value
   (`Δ +8 unsequenced`). The race button relabels per structure — map races
   show last-write-wins, counter races converge on the sum, PN races converge
-  on fill − cut, OR-map races show add-wins observed-remove, and claims races
-  resolve first-writer-wins — and counter/PN/OR-map reset is compensating
-  CRDT growth rather than an overwrite.
+  on fill − cut, OR-map/OR-set races show add-wins observed-remove, claims
+  races resolve first-writer-wins, register races preserve LWW versions,
+  ordered races give the first acquire the queued item, and pact races accept
+  the first quorum proposal — and counter/PN/OR-map reset is compensating CRDT
+  growth rather than an overwrite.
 - The PN counter is framed as an **earthwork balance** (cut & fill, yd³):
   the CRDT's two monotone tallies print as a `fill Σ / cut Σ` ledger under
   the signed net value, with mono `cut`/`fill` margin labels flanking the
@@ -135,3 +138,14 @@ sections themselves get plain headings — no per-section eyebrows.
   replicas reload the baseline summary locally — guarded by an epoch counter
   that makes the sequencer drop claims still in flight (otherwise a reset
   mid-flight would commit on one replica and fail to ack on the other).
+- The ordered collection is framed as a **task queue**: queued work prints in
+  FIFO order, acquired jobs move into a held-job row with their owner (`A`/`B`),
+  and add/acquire/complete/release are non-optimistic until sequenced. Its race
+  reloads a one-item queue, then both clients acquire; the first SN holds the
+  task and the second resolves `QueueEmpty` on every replica.
+- The pact map is framed as a **quorum pact board**: accepted values print in
+  ink, pending proposals print in magenta with an `awaiting A + B` signoff
+  annotation, and every sequenced set auto-submits the accept ops each connected
+  client owes. Its race files two concurrent proposals for the same pact; the
+  first sequenced set freezes the signoff list and the competing set is dropped
+  while the accepted value converges after both accepts.

@@ -11,6 +11,8 @@ import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
 import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
 import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
+import * as orderedKernel from "../../../build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
+import * as pactKernel from "../../../build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
 import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
 import * as runtimeCore from "../../../build/dev/javascript/watershed/watershed/runtime_core.mjs";
 import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
@@ -87,6 +89,12 @@ const CLAIMANTS = { a: "A", b: "B" };
 const CLAIMS_BASELINE = [["pump-house", "Survey", 0]];
 const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"];
 const REGISTER_VALUES = { a: "A revision", b: "B revision" };
+const ORDERED_BASELINE = ["grade-stakes", "pump-check"];
+const ORDERED_ADDS = ["silt-sample", "crest-photo", "gate-oiling"];
+const PACT_KEYS = ["datum-grid", "gate-policy", "inspection-window"];
+const PACT_VALUES = { a: "A proposal", b: "B proposal" };
+const CLIENT_NUMBERS = { a: 1, b: 2 };
+const CLIENT_NAMES = { 1: "A", 2: "B" };
 
 function claimsBaseline() {
   return claimsKernel.from_summary(
@@ -99,6 +107,29 @@ function registersBaseline() {
   return registerKernel.from_summary(
     toList([
       ["north-bench", new registerKernel.Register(version, toList([version]))],
+    ]),
+  );
+}
+
+function orderedBaseline(items = ORDERED_BASELINE) {
+  return orderedKernel.from_summary(
+    toList(items.map((item) => json.string(item))),
+    toList([]),
+  );
+}
+
+function pactBaseline() {
+  return pactKernel.from_summary(
+    toList([
+      [
+        "datum-grid",
+        new pactKernel.Pact(
+          new Some(
+            new pactKernel.Accepted(new Some(json.string("Survey datum")), 0),
+          ),
+          new None(),
+        ),
+      ],
     ]),
   );
 }
@@ -179,6 +210,11 @@ function readJsonString(optionValue) {
   return null;
 }
 
+function readOptionalJsonString(optionValue) {
+  if (optionValue instanceof Some) return JSON.parse(json.to_string(optionValue[0]));
+  return null;
+}
+
 function pendingMapKeys(state) {
   const keys = new Set();
   for (const entry of state.pending.toArray()) {
@@ -220,6 +256,21 @@ function describeOp(ddsId, op) {
   }
   if (ddsId === "registers") {
     return `revise ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
+  }
+  if (ddsId === "ordered") {
+    if (op instanceof orderedKernel.Add) {
+      return `queue ${JSON.parse(json.to_string(op.value))}`;
+    }
+    if (op instanceof orderedKernel.Acquire) return `acquire ${op.acquire_id}`;
+    if (op instanceof orderedKernel.Complete) return `complete ${op.acquire_id}`;
+    return `release ${op.acquire_id}`;
+  }
+  if (ddsId === "pact") {
+    if (op instanceof pactKernel.Set) {
+      const value = readOptionalJsonString(op.value) ?? "deleted";
+      return `propose ${op.key} → ${value} (ref ${op.ref_seq})`;
+    }
+    return `accept ${op.key}`;
   }
   if (op instanceof mapKernel.Set) {
     return `set ${op.key} = ${json.to_string(op.value)}`;
@@ -293,6 +344,8 @@ export function initDemo() {
       orset: orSetLoaded[0],
       claims: claimsBaseline(),
       registers: registersBaseline(),
+      ordered: orderedBaseline(),
+      pact: pactBaseline(),
       el: rig.querySelector(`[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
       lastSeq: 0, // last delivered container SN — the runtime's job, done here
@@ -311,9 +364,17 @@ export function initDemo() {
   let lastOrSet = null; // the most recently *sequenced* OR-set op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
   let registersEpoch = 0; // same guard for out-of-band register-sheet reset
+  let orderedEpoch = 0; // ordered-collection resets also drop in-flight ops
+  let pactEpoch = 0; // pact-map resets drop outstanding proposals/accepts
+  let orderedAcquireSerial = 0;
+  let orderedAddSerial = 0;
   const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
   const registerNotes = { a: {}, b: {} };
   const registerPending = { a: new Set(), b: new Set() };
+  const orderedNotes = { a: "", b: "" };
+  const orderedPending = { a: new Set(), b: new Set() };
+  const pactNotes = { a: {}, b: {} };
+  const pactPending = { a: new Set(), b: new Set() };
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -473,6 +534,105 @@ export function initDemo() {
     }
   }
 
+  function orderedQueue(state) {
+    return orderedKernel
+      .summary_queue(state)
+      .toArray()
+      .map((value) => JSON.parse(json.to_string(value)));
+  }
+
+  function orderedJobs(state) {
+    return orderedKernel
+      .summary_jobs(state)
+      .toArray()
+      .map(([id, job]) => ({
+        id,
+        value: JSON.parse(json.to_string(job.value)),
+        owner: job.owner instanceof Some ? job.owner[0] : null,
+      }));
+  }
+
+  function firstOwnedOrderedJob(client) {
+    return orderedJobs(client.ordered).find(
+      (job) => job.owner === CLIENT_NUMBERS[client.id],
+    );
+  }
+
+  function renderOrdered(client) {
+    const queue = orderedQueue(client.ordered);
+    const jobs = orderedJobs(client.ordered);
+    const localJob = firstOwnedOrderedJob(client);
+    const filed = orderedPending[client.id].size > 0;
+    const queueRow = client.el.querySelector(".dds-ordered tr:first-child");
+    const jobsRow = client.el.querySelector(".dds-ordered tr:last-child");
+    queueRow.classList.toggle("filed", filed);
+    jobsRow.classList.toggle("filed", filed);
+    queueRow.querySelector("[data-ordered-queue]").textContent =
+      queue.length === 0 ? "empty" : queue.join(", ");
+    jobsRow.querySelector("[data-ordered-jobs]").textContent =
+      jobs.length === 0
+        ? "none"
+        : jobs
+            .map((job) => `${job.value} · ${CLIENT_NAMES[job.owner] ?? "local"}`)
+            .join(", ");
+    queueRow.querySelector("[data-ordered-note]").textContent = filed
+      ? "op filed · waiting for SN"
+      : orderedNotes[client.id];
+    queueRow.querySelector("[data-ordered-add]").disabled = filed;
+    queueRow.querySelector("[data-ordered-acquire]").disabled = filed;
+    jobsRow.querySelector("[data-ordered-complete]").disabled = filed || !localJob;
+    jobsRow.querySelector("[data-ordered-release]").disabled = filed || !localJob;
+  }
+
+  function pactAccepted(state, key) {
+    const accepted = pactKernel.get_with_details(state, key);
+    if (!(accepted instanceof Some)) return null;
+    return {
+      value: readOptionalJsonString(accepted[0].value),
+      sequence: accepted[0].sequence_number,
+    };
+  }
+
+  function pactPendingValue(state, key) {
+    const pending = pactKernel.get_pending(state, key);
+    if (!(pending instanceof Some)) return null;
+    return readOptionalJsonString(pending[0]) ?? "delete";
+  }
+
+  function pactSignoffs(state, key) {
+    const entry = pactKernel
+      .summary_entries(state)
+      .toArray()
+      .find(([entryKey]) => entryKey === key);
+    if (!entry || !(entry[1].pending instanceof Some)) return [];
+    return entry[1].pending[0].expected_signoffs.toArray();
+  }
+
+  function renderPact(client) {
+    for (const key of PACT_KEYS) {
+      const row = client.el.querySelector(`.dds-pact tr[data-key="${key}"]`);
+      const accepted = pactAccepted(client.pact, key);
+      const pending = pactPendingValue(client.pact, key);
+      const signoffs = pactSignoffs(client.pact, key);
+      const filed = pactPending[client.id].has(key);
+      row.classList.toggle("filed", filed || pending !== null);
+      row.querySelector("[data-pact-accepted]").textContent =
+        accepted?.value ?? "—";
+      row.querySelector("[data-pact-pending]").textContent = pending ?? "—";
+      row.querySelector("[data-pact-signoffs]").textContent =
+        signoffs.length > 0
+          ? `awaiting ${signoffs.map((id) => CLIENT_NAMES[id]).join(" + ")}`
+          : "";
+      row.querySelector("[data-pact-note]").textContent = filed
+        ? (pactNotes[client.id][key] ?? "proposal filed")
+        : (pactNotes[client.id][key] ?? "");
+      row.querySelector("[data-pact-set]").disabled =
+        filed || pending !== null;
+      row.querySelector("[data-pact-delete]").disabled =
+        filed || pending !== null || accepted === null || accepted.value === null;
+    }
+  }
+
   function renderBadge(client) {
     const count =
       activeDds === "claims"
@@ -481,6 +641,10 @@ export function initDemo() {
           ? counterPending(client).count
         : activeDds === "registers"
           ? registerPending[client.id].size
+        : activeDds === "ordered"
+          ? orderedPending[client.id].size
+        : activeDds === "pact"
+          ? pactPending[client.id].size
         : activeDds === "orset"
           ? client.orset.pending.toArray().length
         : activeDds === "ormap"
@@ -500,6 +664,8 @@ export function initDemo() {
     renderOrSet(client);
     renderClaims(client);
     renderRegisters(client);
+    renderOrdered(client);
+    renderPact(client);
     renderBadge(client);
   }
 
@@ -513,6 +679,8 @@ export function initDemo() {
       total += client.orset.pending.toArray().length;
       total += gdict.size(client.claims.pending);
       total += registerPending[client.id].size;
+      total += orderedPending[client.id].size;
+      total += pactPending[client.id].size;
     }
     return total;
   }
@@ -532,7 +700,11 @@ export function initDemo() {
         JSON.stringify(claimsSnapshot(clients.a.claims)) ===
           JSON.stringify(claimsSnapshot(clients.b.claims)) &&
         JSON.stringify(registerSnapshot(clients.a.registers)) ===
-          JSON.stringify(registerSnapshot(clients.b.registers));
+          JSON.stringify(registerSnapshot(clients.b.registers)) &&
+        JSON.stringify(orderedSnapshot(clients.a.ordered)) ===
+          JSON.stringify(orderedSnapshot(clients.b.ordered)) &&
+        JSON.stringify(pactSnapshot(clients.a.pact)) ===
+          JSON.stringify(pactSnapshot(clients.b.pact));
       statusEl.innerHTML = same
         ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
@@ -583,6 +755,34 @@ export function initDemo() {
       ]);
   }
 
+  function orderedSnapshot(state) {
+    return [
+      orderedQueue(state),
+      orderedJobs(state).map((job) => [job.id, job.value, job.owner]),
+    ];
+  }
+
+  function pactSnapshot(state) {
+    return pactKernel
+      .summary_entries(state)
+      .toArray()
+      .map(([key, pact]) => [
+        key,
+        pact.accepted instanceof Some
+          ? [
+              readOptionalJsonString(pact.accepted[0].value),
+              pact.accepted[0].sequence_number,
+            ]
+          : null,
+        pact.pending instanceof Some
+          ? [
+              readOptionalJsonString(pact.pending[0].value),
+              pact.pending[0].expected_signoffs.toArray(),
+            ]
+          : null,
+      ]);
+  }
+
   function logRejected(stampedSn, key) {
     const li = document.createElement("li");
     li.className = "rejected";
@@ -600,6 +800,11 @@ export function initDemo() {
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
     seqCounter.classList.add("stamped");
+  }
+
+  function describeOrderedPending(op) {
+    if (op instanceof orderedKernel.Add) return `add:${json.to_string(op.value)}`;
+    return `${op.constructor.name}:${op.acquire_id}`;
   }
 
   // ── op flow animation ─────────────────────────────────────────────────────
@@ -709,6 +914,76 @@ export function initDemo() {
         const [next] = registerKernel.apply_remote(target.registers, op, seq);
         target.registers = next;
       }
+    } else if (ddsId === "ordered") {
+      if (target.id === originId) {
+        const [next, _events, outcome] = orderedKernel.ack_local(
+          target.ordered,
+          op,
+          CLIENT_NUMBERS[target.id],
+        );
+        target.ordered = next;
+        orderedPending[target.id].delete(describeOrderedPending(op));
+        if (outcome instanceof Some) {
+          orderedNotes[target.id] =
+            outcome[0] instanceof orderedKernel.AcquiredItem
+              ? `acquired ${JSON.parse(json.to_string(outcome[0].value))}`
+              : "queue empty";
+        } else if (op instanceof orderedKernel.Complete) {
+          orderedNotes[target.id] = "completed";
+        } else if (op instanceof orderedKernel.Release) {
+          orderedNotes[target.id] = "released to back";
+        } else {
+          orderedNotes[target.id] = "queued";
+        }
+      } else {
+        const [next] = orderedKernel.apply_remote(
+          target.ordered,
+          op,
+          CLIENT_NUMBERS[originId],
+        );
+        target.ordered = next;
+      }
+    } else if (ddsId === "pact") {
+      if (op instanceof pactKernel.Set) {
+        const [next, _events, reaction] = pactKernel.apply_set(
+          target.pact,
+          op,
+          seq,
+          toList([1, 2]),
+          CLIENT_NUMBERS[target.id],
+        );
+        target.pact = next;
+        if (target.id === originId) {
+          pactPending[target.id].delete(op.key);
+          pactNotes[target.id][op.key] =
+            pactPendingValue(target.pact, op.key) ===
+            readOptionalJsonString(op.value)
+              ? "pending quorum"
+              : "proposal dropped";
+        }
+        if (reaction instanceof pactKernel.OweAccept) {
+          pactPending[target.id].add(op.key);
+          pactNotes[target.id][op.key] = "signoff owed";
+          submit(target.id, "pact", reaction.op);
+        }
+      } else {
+        const result = pactKernel.apply_accept(
+          target.pact,
+          op.key,
+          CLIENT_NUMBERS[originId],
+          seq,
+        );
+        if (result.isOk()) {
+          const [next] = result[0];
+          target.pact = next;
+          if (target.id === originId) {
+            pactPending[target.id].delete(op.key);
+            pactNotes[target.id][op.key] = "signed off";
+          }
+        } else {
+          console.error("unexpected pact accept", result[0]);
+        }
+      }
     } else {
       const origin = clients[originId];
       const { outbound, contents } = op;
@@ -743,6 +1018,10 @@ export function initDemo() {
         ? claimsEpoch
         : ddsId === "registers"
           ? registersEpoch
+        : ddsId === "ordered"
+          ? orderedEpoch
+        : ddsId === "pact"
+          ? pactEpoch
           : 0;
     inFlight += 1;
     renderStatus();
@@ -757,7 +1036,9 @@ export function initDemo() {
     setTimeout(() => {
       if (
         (ddsId === "claims" && epoch !== claimsEpoch) ||
-        (ddsId === "registers" && epoch !== registersEpoch)
+        (ddsId === "registers" && epoch !== registersEpoch) ||
+        (ddsId === "ordered" && epoch !== orderedEpoch) ||
+        (ddsId === "pact" && epoch !== pactEpoch)
       ) {
         inFlight -= 1;
         renderStatus();
@@ -792,7 +1073,9 @@ export function initDemo() {
         setTimeout(() => {
           if (
             (ddsId === "claims" && epoch !== claimsEpoch) ||
-            (ddsId === "registers" && epoch !== registersEpoch)
+            (ddsId === "registers" && epoch !== registersEpoch) ||
+            (ddsId === "ordered" && epoch !== orderedEpoch) ||
+            (ddsId === "pact" && epoch !== pactEpoch)
           ) {
             inFlight -= 1;
             renderStatus();
@@ -932,6 +1215,82 @@ export function initDemo() {
     submit(clientId, "registers", op);
   }
 
+  function localOrderedAdd(clientId) {
+    const client = clients[clientId];
+    const value = ORDERED_ADDS[orderedAddSerial % ORDERED_ADDS.length];
+    orderedAddSerial += 1;
+    const op = orderedKernel.add(client.ordered, json.string(value));
+    orderedPending[clientId].add(describeOrderedPending(op));
+    orderedNotes[clientId] = "add filed";
+    render(client);
+    submit(clientId, "ordered", op);
+  }
+
+  function localOrderedAcquire(clientId) {
+    const client = clients[clientId];
+    orderedAcquireSerial += 1;
+    const op = orderedKernel.acquire(`${clientId}${orderedAcquireSerial}`);
+    orderedPending[clientId].add(describeOrderedPending(op));
+    orderedNotes[clientId] = "acquire filed";
+    render(client);
+    submit(clientId, "ordered", op);
+  }
+
+  function localOrderedComplete(clientId) {
+    const client = clients[clientId];
+    const job = firstOwnedOrderedJob(client);
+    if (!job) return;
+    const op = orderedKernel.complete(job.id);
+    orderedPending[clientId].add(describeOrderedPending(op));
+    orderedNotes[clientId] = "complete filed";
+    render(client);
+    submit(clientId, "ordered", op);
+  }
+
+  function localOrderedRelease(clientId) {
+    const client = clients[clientId];
+    const job = firstOwnedOrderedJob(client);
+    if (!job) return;
+    const op = orderedKernel.release(job.id);
+    orderedPending[clientId].add(describeOrderedPending(op));
+    orderedNotes[clientId] = "release filed";
+    render(client);
+    submit(clientId, "ordered", op);
+  }
+
+  function localPactSet(clientId, key) {
+    const client = clients[clientId];
+    const op = pactKernel.set(
+      client.pact,
+      key,
+      new Some(json.string(PACT_VALUES[clientId])),
+      client.lastSeq,
+    );
+    if (!(op instanceof Some)) {
+      pactNotes[clientId][key] = "pending pact blocks new proposal";
+      render(client);
+      return;
+    }
+    pactPending[clientId].add(key);
+    pactNotes[clientId][key] = "proposal filed";
+    render(client);
+    submit(clientId, "pact", op[0]);
+  }
+
+  function localPactDelete(clientId, key) {
+    const client = clients[clientId];
+    const op = pactKernel.delete$(client.pact, key, client.lastSeq);
+    if (!(op instanceof Some)) {
+      pactNotes[clientId][key] = "nothing accepted to delete";
+      render(client);
+      return;
+    }
+    pactPending[clientId].add(key);
+    pactNotes[clientId][key] = "delete filed";
+    render(client);
+    submit(clientId, "pact", op[0]);
+  }
+
   // Claims are write-once — there is no unclaim op — so reset tears off a
   // fresh sheet: both replicas reload the baseline summary locally, and the
   // epoch bump makes the sequencer drop anything still in flight.
@@ -951,6 +1310,28 @@ export function initDemo() {
       client.registers = registersBaseline();
       registerNotes[client.id] = {};
       registerPending[client.id].clear();
+      render(client);
+    }
+    renderStatus();
+  }
+
+  function resetOrdered(items = ORDERED_BASELINE) {
+    orderedEpoch += 1;
+    for (const client of Object.values(clients)) {
+      client.ordered = orderedBaseline(items);
+      orderedNotes[client.id] = "";
+      orderedPending[client.id].clear();
+      render(client);
+    }
+    renderStatus();
+  }
+
+  function resetPact() {
+    pactEpoch += 1;
+    for (const client of Object.values(clients)) {
+      client.pact = pactBaseline();
+      pactNotes[client.id] = {};
+      pactPending[client.id].clear();
       render(client);
     }
     renderStatus();
@@ -1049,6 +1430,42 @@ export function initDemo() {
         );
         return;
       }
+      const orderedAddBtn = event.target.closest("button[data-ordered-add]");
+      if (orderedAddBtn) {
+        hasInteracted = true;
+        localOrderedAdd(client.id);
+        return;
+      }
+      const orderedAcquireBtn = event.target.closest("button[data-ordered-acquire]");
+      if (orderedAcquireBtn) {
+        hasInteracted = true;
+        localOrderedAcquire(client.id);
+        return;
+      }
+      const orderedCompleteBtn = event.target.closest("button[data-ordered-complete]");
+      if (orderedCompleteBtn) {
+        hasInteracted = true;
+        localOrderedComplete(client.id);
+        return;
+      }
+      const orderedReleaseBtn = event.target.closest("button[data-ordered-release]");
+      if (orderedReleaseBtn) {
+        hasInteracted = true;
+        localOrderedRelease(client.id);
+        return;
+      }
+      const pactSetBtn = event.target.closest("button[data-pact-set]");
+      if (pactSetBtn) {
+        hasInteracted = true;
+        localPactSet(client.id, pactSetBtn.closest("tr").dataset.key);
+        return;
+      }
+      const pactDeleteBtn = event.target.closest("button[data-pact-delete]");
+      if (pactDeleteBtn) {
+        hasInteracted = true;
+        localPactDelete(client.id, pactDeleteBtn.closest("tr").dataset.key);
+        return;
+      }
       const orMapLogBtn = event.target.closest("button[data-ormap-log]");
       if (orMapLogBtn) {
         hasInteracted = true;
@@ -1093,6 +1510,8 @@ export function initDemo() {
     orset: "Race clear against re-mark",
     claims: "Race two claims for one slot",
     registers: "Race two revisions for one register",
+    ordered: "Race two acquires for one queued task",
+    pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
     map: "Reset all gauges to their surveyed baseline values",
@@ -1102,6 +1521,8 @@ export function initDemo() {
     orset: "Reset the marker roster to its surveyed baseline",
     claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
     registers: "Reload both register collections from the surveyed baseline summary",
+    ordered: "Reload both ordered collections from the queued-task baseline summary",
+    pact: "Reload both pact maps from the accepted datum baseline summary",
   };
 
   for (const pick of ddsPicks) {
@@ -1200,6 +1621,18 @@ export function initDemo() {
     } else if (activeDds === "registers") {
       localRegisterWrite("a", "gate-setpoint");
       localRegisterWrite("b", "gate-setpoint");
+    } else if (activeDds === "ordered") {
+      // One queued task, two acquires. FIFO sequencing gives the first SN the
+      // job and the second acquire resolves QueueEmpty on both replicas.
+      resetOrdered(["flood-watch"]);
+      localOrderedAcquire("a");
+      localOrderedAcquire("b");
+    } else if (activeDds === "pact") {
+      // The first set that sequences freezes the quorum signoff list. The
+      // concurrent set is dropped while that pact is pending.
+      resetPact();
+      localPactSet("a", "gate-policy");
+      localPactSet("b", "gate-policy");
     } else {
       // Both clients increment inside one latency window. Neither op wins:
       // increments commute, so every replica lands on the sum (+13).
@@ -1247,6 +1680,10 @@ export function initDemo() {
       resetClaims();
     } else if (activeDds === "registers") {
       resetRegisters();
+    } else if (activeDds === "ordered") {
+      resetOrdered();
+    } else if (activeDds === "pact") {
+      resetPact();
     } else if (activeDds === "orset") {
       resetOrSet();
     } else {
