@@ -149,18 +149,18 @@ function twoPSetBaselineSummary() {
 // survey crew at seq 0, loaded per client via `from_summary` — sequence
 // numbers persist so first-writer-wins keeps working after load.
 const SLOTS = ["north-levee", "spillway-gate", "pump-house"];
-const CLAIMANTS = { a: "A", b: "B" };
+const CLAIMANTS = { a: "A", b: "B", c: "C" };
 const CLAIMS_BASELINE = [["pump-house", "Survey", 0]];
 const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"];
-const REGISTER_VALUES = { a: "A revision", b: "B revision" };
+const REGISTER_VALUES = { a: "A revision", b: "B revision", c: "C revision" };
 const ORDERED_BASELINE = ["grade-stakes", "pump-check"];
 const ORDERED_ADDS = ["silt-sample", "crest-photo", "gate-oiling"];
 const TASKS = ["sluice-inspection", "pump-watch", "crest-walk"];
 const TASK_BASELINE = [["sluice-inspection", [1]]];
 const PACT_KEYS = ["datum-grid", "gate-policy", "inspection-window"];
-const PACT_VALUES = { a: "A proposal", b: "B proposal" };
-const CLIENT_NUMBERS = { a: 1, b: 2 };
-const CLIENT_NAMES = { 1: "A", 2: "B" };
+const PACT_VALUES = { a: "A proposal", b: "B proposal", c: "C proposal" };
+const CLIENT_NUMBERS = { a: 1, b: 2, c: 3 };
+const CLIENT_NAMES = { 1: "A", 2: "B", 3: "C" };
 
 function claimsBaseline() {
   return claimsKernel.from_summary(
@@ -398,7 +398,7 @@ export function initDemo() {
   const twoPSetBaseline = twoPSetBaselineSummary();
 
   const clients = {};
-  for (const id of ["a", "b"]) {
+  for (const id of ["a", "b", "c"]) {
     // The PN kernel is replica-identified: each client loads the shared
     // summary under its own id, exactly like a client joining a session.
     const pnLoaded = pnKernel.from_summary(
@@ -473,14 +473,14 @@ export function initDemo() {
   let orderedAcquireSerial = 0;
   let orderedAddSerial = 0;
   let taskMessageSerial = 0;
-  const claimNotes = { a: {}, b: {} }; // per-slot margin notes (lost, refused)
-  const registerNotes = { a: {}, b: {} };
-  const registerPending = { a: new Set(), b: new Set() };
-  const orderedNotes = { a: "", b: "" };
-  const orderedPending = { a: new Set(), b: new Set() };
-  const taskNotes = { a: {}, b: {} };
-  const pactNotes = { a: {}, b: {} };
-  const pactPending = { a: new Set(), b: new Set() };
+  const claimNotes = { a: {}, b: {}, c: {} }; // per-slot margin notes (lost, refused)
+  const registerNotes = { a: {}, b: {}, c: {} };
+  const registerPending = { a: new Set(), b: new Set(), c: new Set() };
+  const orderedNotes = { a: "", b: "", c: "" };
+  const orderedPending = { a: new Set(), b: new Set(), c: new Set() };
+  const taskNotes = { a: {}, b: {}, c: {} };
+  const pactNotes = { a: {}, b: {}, c: {} };
+  const pactPending = { a: new Set(), b: new Set(), c: new Set() };
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -511,10 +511,11 @@ export function initDemo() {
 
   function gCounterCounts(state) {
     const [counts] = gCounter.to_parts(state.optimistic);
-    return {
-      a: gdict.get(counts, replicaId.new$("client-a")),
-      b: gdict.get(counts, replicaId.new$("client-b")),
-    };
+    const perAuthor = {};
+    for (const id of Object.keys(clients)) {
+      perAuthor[id] = gdict.get(counts, replicaId.new$(`client-${id}`));
+    }
+    return perAuthor;
   }
 
   function readCount(result) {
@@ -532,12 +533,10 @@ export function initDemo() {
         ? `Δ +${gCounterPendingTotal(client.gcounter)} unsequenced`
         : "";
     const counts = gCounterCounts(client.gcounter);
-    client.el.querySelector("[data-gcounter-a]").textContent = String(
-      readCount(counts.a),
-    );
-    client.el.querySelector("[data-gcounter-b]").textContent = String(
-      readCount(counts.b),
-    );
+    for (const [id, count] of Object.entries(counts)) {
+      const cell = client.el.querySelector(`[data-gcounter-author="${id}"]`);
+      if (cell) cell.textContent = String(readCount(count));
+    }
   }
 
   function renderPn(client) {
@@ -991,34 +990,29 @@ export function initDemo() {
     return total;
   }
 
+  function replicaSignature(client) {
+    return JSON.stringify([
+      mapSnapshot(client.map),
+      counterValue(client),
+      gCounterSnapshot(client.gcounter),
+      pnKernel.value(client.pn),
+      orMapSnapshot(client.ormap),
+      orSetSnapshot(client.orset),
+      gSetSnapshot(client.gset),
+      twoPSetSnapshot(client.twopset),
+      claimsSnapshot(client.claims),
+      registerSnapshot(client.registers),
+      orderedSnapshot(client.ordered),
+      taskManagerSnapshot(client.taskmanager),
+      pactSnapshot(client.pact),
+    ]);
+  }
+
   function renderStatus() {
     const pending = pendingTotal();
     if (inFlight === 0 && pending === 0) {
-      const same =
-        JSON.stringify(mapSnapshot(clients.a.map)) ===
-          JSON.stringify(mapSnapshot(clients.b.map)) &&
-        counterValue(clients.a) === counterValue(clients.b) &&
-        JSON.stringify(gCounterSnapshot(clients.a.gcounter)) ===
-          JSON.stringify(gCounterSnapshot(clients.b.gcounter)) &&
-        pnKernel.value(clients.a.pn) === pnKernel.value(clients.b.pn) &&
-        JSON.stringify(orMapSnapshot(clients.a.ormap)) ===
-          JSON.stringify(orMapSnapshot(clients.b.ormap)) &&
-        JSON.stringify(orSetSnapshot(clients.a.orset)) ===
-          JSON.stringify(orSetSnapshot(clients.b.orset)) &&
-        JSON.stringify(gSetSnapshot(clients.a.gset)) ===
-          JSON.stringify(gSetSnapshot(clients.b.gset)) &&
-        JSON.stringify(twoPSetSnapshot(clients.a.twopset)) ===
-          JSON.stringify(twoPSetSnapshot(clients.b.twopset)) &&
-        JSON.stringify(claimsSnapshot(clients.a.claims)) ===
-          JSON.stringify(claimsSnapshot(clients.b.claims)) &&
-        JSON.stringify(registerSnapshot(clients.a.registers)) ===
-          JSON.stringify(registerSnapshot(clients.b.registers)) &&
-        JSON.stringify(orderedSnapshot(clients.a.ordered)) ===
-          JSON.stringify(orderedSnapshot(clients.b.ordered)) &&
-        JSON.stringify(taskManagerSnapshot(clients.a.taskmanager)) ===
-          JSON.stringify(taskManagerSnapshot(clients.b.taskmanager)) &&
-        JSON.stringify(pactSnapshot(clients.a.pact)) ===
-          JSON.stringify(pactSnapshot(clients.b.pact));
+      const signatures = Object.values(clients).map(replicaSignature);
+      const same = signatures.every((sig) => sig === signatures[0]);
       statusEl.innerHTML = same
         ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
@@ -1314,7 +1308,7 @@ export function initDemo() {
         target.ordered = next;
       }
     } else if (ddsId === "tasks") {
-      const quorum = toList([1, 2]);
+      const quorum = toList([1, 2, 3]);
       if (target.id === originId) {
         const result = taskManagerKernel.ack_local(
           target.taskmanager,
@@ -1356,7 +1350,7 @@ export function initDemo() {
           target.pact,
           op,
           seq,
-          toList([1, 2]),
+          toList([1, 2, 3]),
           CLIENT_NUMBERS[target.id],
         );
         target.pact = next;
@@ -2155,11 +2149,11 @@ export function initDemo() {
     orset: "Reset the marker roster to its surveyed baseline",
     gset: "Ensure the permanent benchmark registry includes its surveyed baseline",
     twopset: "Reload the retired marker ledger from the surveyed tombstone baseline",
-    claims: "Tear off a fresh claim sheet, reloading both replicas from the baseline summary",
-    registers: "Reload both register collections from the surveyed baseline summary",
-    ordered: "Reload both ordered collections from the queued-task baseline summary",
-    tasks: "Reload both task managers from the crew baseline summary",
-    pact: "Reload both pact maps from the accepted datum baseline summary",
+    claims: "Tear off a fresh claim sheet, reloading all replicas from the baseline summary",
+    registers: "Reload all register collections from the surveyed baseline summary",
+    ordered: "Reload all ordered collections from the queued-task baseline summary",
+    tasks: "Reload all task managers from the crew baseline summary",
+    pact: "Reload all pact maps from the accepted datum baseline summary",
   };
 
   for (const pick of ddsPicks) {
@@ -2194,6 +2188,7 @@ export function initDemo() {
             : !lastPn;
       renderBadge(clients.a);
       renderBadge(clients.b);
+      renderBadge(clients.c);
     });
   }
 
@@ -2400,5 +2395,6 @@ export function initDemo() {
 
   render(clients.a);
   render(clients.b);
+  render(clients.c);
   renderStatus();
 }

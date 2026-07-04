@@ -50,6 +50,7 @@ const taskSlots = [
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
+  { id: "c", name: "Client C" },
 ];
 const counterSteps = [-5, -1, 1, 5];
 const gCounterSteps = [1, 3, 7];
@@ -64,7 +65,7 @@ const pnFillSteps = [2, 6];
       On a photorevised survey sheet, magenta marks updates not yet
       field-checked. This demo borrows that color code: pending edits are drawn
       in <strong class="k-pending">magenta</strong> and sequenced state in
-      <strong class="k-seq">ink</strong>. Both clients run watershed’s real
+      <strong class="k-seq">ink</strong>. All three clients run watershed’s real
       Gleam code in one ordered stream — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
       kernels, TaskManager, plus the runtime counter channel.
     </p>
@@ -79,7 +80,7 @@ const pnFillSteps = [2, 6];
 
   <div class="dds-switch">
     <fieldset class="dds-picker" data-dds-picker>
-      <legend class="visually-hidden">Data structure shown in both clients</legend>
+      <legend class="visually-hidden">Data structure shown in all clients</legend>
       <label>
         <input type="radio" name="dds" value="map" checked data-dds-pick disabled />
         <span>Shared map <b>DDS</b></span>
@@ -352,14 +353,12 @@ const pnFillSteps = [2, 6];
               aria-label="Pending unsequenced increment"
             ></span>
             <dl class="pn-ledger gcounter-ledger">
-              <div>
-                <dt class="annot">A Σ</dt>
-                <dd data-gcounter-a>9</dd>
-              </div>
-              <div>
-                <dt class="annot">B Σ</dt>
-                <dd data-gcounter-b>9</dd>
-              </div>
+              {clients.map((author) => (
+                <div>
+                  <dt class="annot">{author.id.toUpperCase()} Σ</dt>
+                  <dd data-gcounter-author={author.id}>0</dd>
+                </div>
+              ))}
             </dl>
             <div class="counter-actions">
               {gCounterSteps.map((step) => (
@@ -777,7 +776,7 @@ const pnFillSteps = [2, 6];
       type="button"
       class="race-btn"
       data-replay
-      aria-label="Deliver the most recently sequenced delta a second time to both replicas"
+      aria-label="Deliver the most recently sequenced delta a second time to every replica"
       hidden
       disabled
     >
@@ -965,10 +964,19 @@ const pnFillSteps = [2, 6];
     max-width: 68rem;
     margin: var(--space-lg) auto 0;
     display: grid;
-    grid-template-areas: "a seq b";
+    grid-template-areas:
+      "a seq b"
+      "c c   c";
     grid-template-columns: 1fr minmax(11rem, 0.7fr) 1fr;
     gap: var(--space-lg);
     align-items: stretch;
+  }
+
+  /* Client C is a full peer replica; it sits centred below the A ⇄ seq ⇄ B row
+     at the same card width as the others rather than stretching edge to edge. */
+  .rig .client[data-client="c"] {
+    justify-self: center;
+    width: min(100%, 20rem);
   }
 
   .client {
@@ -1782,8 +1790,13 @@ const pnFillSteps = [2, 6];
 
   @media (max-width: 1080px) {
     .rig {
-      grid-template-areas: "a" "seq" "b";
+      grid-template-areas: "a" "seq" "b" "c";
       grid-template-columns: 1fr;
+    }
+
+    .rig .client[data-client="c"] {
+      justify-self: stretch;
+      width: auto;
     }
 
     .op-log {
