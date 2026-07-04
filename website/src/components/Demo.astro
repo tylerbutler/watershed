@@ -69,43 +69,43 @@ const pnFillSteps = [2, 6];
       <legend class="visually-hidden">Data structure shown in both clients</legend>
       <label>
         <input type="radio" name="dds" value="map" checked data-dds-pick disabled />
-        <span>Shared map</span>
+        <span>Shared map <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="counter" data-dds-pick disabled />
-        <span>Shared counter</span>
+        <span>Shared counter <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="pn" data-dds-pick disabled />
-        <span>PN counter</span>
+        <span>PN counter <b>CRDT</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="ormap" data-dds-pick disabled />
-        <span>OR-map</span>
+        <span>OR-map <b>CRDT</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="orset" data-dds-pick disabled />
-        <span>OR-set</span>
+        <span>OR-set <b>CRDT</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="claims" data-dds-pick disabled />
-        <span>Claims</span>
+        <span>Claims <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="registers" data-dds-pick disabled />
-        <span>Registers</span>
+        <span>Registers <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="ordered" data-dds-pick disabled />
-        <span>Ordered collection</span>
+        <span>Ordered collection <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="tasks" data-dds-pick disabled />
-        <span>TaskManager</span>
+        <span>TaskManager <b>DDS</b></span>
       </label>
       <label>
         <input type="radio" name="dds" value="pact" data-dds-pick disabled />
-        <span>Pact map</span>
+        <span>Pact map <b>DDS</b></span>
       </label>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
@@ -757,6 +757,25 @@ const pnFillSteps = [2, 6];
     transition:
       background var(--dur-feedback) var(--ease-out-quart),
       color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .dds-picker span {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .dds-picker b {
+    padding: 0.05rem 0.28rem 0;
+    border: 1px solid currentColor;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    line-height: 1.25;
+    text-transform: uppercase;
   }
 
   /* radio stays in the tree (focusable, arrow-key switchable), drawn by label */
