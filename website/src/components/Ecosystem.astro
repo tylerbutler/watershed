@@ -8,7 +8,7 @@ const flows = [
     path: [
       {
         name: "aquamarine",
-        href: "https://github.com/tylerbutler/aquamarine",
+        href: "https://aquamarine.tylerbutler.com",
       },
       {
         name: "roost",
@@ -37,7 +37,7 @@ const flows = [
     path: [
       {
         name: "spillway",
-        href: "https://github.com/tylerbutler/spillway",
+        href: "https://spillway.tylerbutler.com",
       },
     ],
     target: "levee",
@@ -52,11 +52,11 @@ const flows = [
     path: [
       {
         name: "beryl",
-        href: "https://github.com/tylerbutler/beryl",
+        href: "https://beryl.tylerbutler.com",
       },
       {
         name: "dewdrop",
-        href: "https://github.com/tylerbutler/dewdrop",
+        href: "https://dewdrop.tylerbutler.com",
       },
     ],
     target: "clients",
@@ -106,10 +106,6 @@ const flows = [
         ))
       }
     </ol>
-    <p class="eco-note">
-      <code>windsock</code> is not in the active watershed path. <code>roost</code>
-      appears only under the Erlang transport, through <code>aquamarine</code>.
-    </p>
     <div class="eco-close">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
         Read the source
@@ -190,8 +186,7 @@ const flows = [
     color: var(--muted);
   }
 
-  .flow-row p,
-  .eco-note {
+  .flow-row p {
     color: var(--muted);
     font-size: var(--text-sm);
   }
@@ -199,15 +194,6 @@ const flows = [
   .flow-row p {
     grid-column: 2;
     margin-top: calc(-1 * var(--space-xs));
-  }
-
-  .eco-note {
-    margin-top: var(--space-lg);
-  }
-
-  .eco-note code {
-    color: var(--ink);
-    font-size: 0.9em;
   }
 
   .eco-close {
