@@ -1520,6 +1520,9 @@ export function initDemo() {
           inFlight -= 1;
           render(target);
           renderStatus();
+          if (fieldNotes.active && ddsId === activeDds && target.id === "a") {
+            fieldNotes.pulse();
+          }
         }, tArrival - tNow);
       }
 
@@ -1981,6 +1984,9 @@ export function initDemo() {
         inFlight -= 1;
         render(target);
         renderStatus();
+        if (fieldNotes.active && ddsId === activeDds && target.id === "a") {
+          fieldNotes.pulse();
+        }
       }, tArrival - tNow);
     }
     renderStatus();

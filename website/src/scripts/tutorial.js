@@ -57,6 +57,22 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     annotations = [];
   }
 
+  // The op log is the live narration — a new line prints as each op is
+  // sequenced. Bracketing the log block draws the eye to the running
+  // explanation while the flow animates. Drawn for every structure (the log is
+  // structure-agnostic) and re-drawn on each pulse, so it tracks the animation.
+  function markNarration() {
+    const log = rig.querySelector("[data-op-log]");
+    if (!log || log.childElementCount === 0) return;
+    mark(log, {
+      type: "bracket",
+      brackets: ["left"],
+      color: ink(),
+      strokeWidth: 2.5,
+      padding: 8,
+    });
+  }
+
   // Each recipe draws 1–2 marks and sets the margin caption. The mark points at
   // *where on the sheet* the merge rule is visible; the caption names the rule.
   const RECIPES = {
@@ -123,6 +139,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
         "Field notes cover Shared map, Shared counter, and PN counter so far — switch to one of those to see its defining behavior marked up.",
       );
     }
+    markNarration();
   }
 
   function setActive(on) {
@@ -135,6 +152,11 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     setActive,
     get active() {
       return active;
+    },
+    // Redraw the active structure's marks with the draw-in animation, so they
+    // appear in sync with the demo's flow when an op converges.
+    pulse() {
+      if (active) render(currentDds);
     },
     // Rough-notation marks are absolutely positioned; redraw after a resize.
     reflow() {
