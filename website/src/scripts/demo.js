@@ -28,6 +28,10 @@ import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { None, Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
 import { createFieldNotes } from "./tutorial.js";
+import { createFlowLayer } from "./demo/flow-dots.ts";
+import { createLatencyControls } from "./demo/controls.ts";
+import { createOpLog } from "./demo/op-log.ts";
+import { createSequencer } from "./demo/sequencer.ts";
 
 const GAUGES = ["mill-race", "kettle-run", "low-ford"];
 const INITIAL = [
@@ -378,13 +382,16 @@ export function initDemo() {
   const flowLayer = rig.querySelector("[data-flow-layer]");
   const seqNode = rig.querySelector("[data-seq-node]");
   const seqCounter = rig.querySelector("[data-seq-counter]");
-  const opLog = rig.querySelector("[data-op-log]");
+  const opLogEl = rig.querySelector("[data-op-log]");
   const statusEl = document.querySelector("[data-status]");
   const latencyInput = document.querySelector("[data-latency]");
   const latencyOut = document.querySelector("[data-latency-out]");
   const paceInput = document.querySelector("[data-pace]");
   const paceOut = document.querySelector("[data-pace-out]");
   const fieldNotesToggle = document.querySelector("[data-field-notes]");
+  const latencyVarianceToggle = document.querySelector(
+    "[data-latency-variance]",
+  );
   const raceBtn = document.querySelector("[data-race]");
   const resetBtn = document.querySelector("[data-reset]");
   const replayBtn = document.querySelector("[data-replay]");
@@ -474,17 +481,26 @@ export function initDemo() {
     "gset",
     "twopset",
   ]);
-  let latency = Number(latencyInput.value);
-  // Global playback speed for every demo animation and choreography delay. 1×
-  // is the original pace; the control ships at 0.5× so the demo reads at half
-  // speed. `paced` converts a base duration/delay into wall-clock ms at the
-  // current speed (lower speed → longer durations).
-  let animSpeed = paceInput ? Number(paceInput.value) : 0.5;
-  const paced = (ms) => ms / animSpeed;
-  let sn = 0;
+  // Shared demo infrastructure: latency/pace/jitter controls, the flow-dot
+  // layer, the op-log, and the FIFO sequencer transport. Latency and jitter
+  // change the simulation; animation speed only scales how fast you watch it.
+  const controls = createLatencyControls({
+    latencyInput,
+    latencyOut,
+    paceInput,
+    paceOut,
+    varianceToggle: latencyVarianceToggle,
+  });
+  const flow = createFlowLayer(flowLayer, () => reducedMotion.matches);
+  const opLog = createOpLog(opLogEl, { max: 14 });
+  const sequencer = createSequencer({
+    clients,
+    seqNode,
+    flow,
+    controls,
+    onChange: renderStatus,
+  });
   let counterSn = 0;
-  let inFlight = 0;
-  let seqLastArrival = 0; // FIFO into the sequencer too
   let hasInteracted = false;
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
   let lastGCounter = null; // the most recently *sequenced* G-counter delta
@@ -1038,6 +1054,7 @@ export function initDemo() {
 
   function renderStatus() {
     const pending = pendingTotal();
+    const inFlight = sequencer.inFlight;
     if (inFlight === 0 && pending === 0) {
       const signatures = Object.values(clients).map(replicaSignature);
       const same = signatures.every((sig) => sig === signatures[0]);
@@ -1149,15 +1166,13 @@ export function initDemo() {
     const li = document.createElement("li");
     li.className = "rejected";
     li.textContent = `#${String(stampedSn).padStart(2, "0")} rejected — ${key} held · first writer wins`;
-    opLog.prepend(li);
-    while (opLog.children.length > 14) opLog.lastChild.remove();
+    opLog.push(li);
   }
 
   function logOp(stampedSn, origin, ddsId, op) {
     const li = document.createElement("li");
     li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(ddsId, op)} · from ${origin.toUpperCase()}`;
-    opLog.prepend(li);
-    while (opLog.children.length > 14) opLog.lastChild.remove();
+    opLog.push(li);
     seqCounter.textContent = `SN ${stampedSn}`;
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
@@ -1173,32 +1188,7 @@ export function initDemo() {
   }
 
   // ── op flow animation ─────────────────────────────────────────────────────
-
-  function anchor(el) {
-    const layerBox = flowLayer.getBoundingClientRect();
-    const box = el.getBoundingClientRect();
-    return [
-      box.left + box.width / 2 - layerBox.left,
-      box.top + box.height / 2 - layerBox.top,
-    ];
-  }
-
-  function animateDot(fromEl, toEl, duration, sequenced) {
-    if (reducedMotion.matches) return;
-    const dot = document.createElement("span");
-    dot.className = sequenced ? "flow-dot sequenced" : "flow-dot";
-    flowLayer.append(dot);
-    const [x0, y0] = anchor(fromEl);
-    const [x1, y1] = anchor(toEl);
-    const anim = dot.animate(
-      [
-        { transform: `translate(${x0 - 5}px, ${y0 - 5}px)`, opacity: 0.3 },
-        { transform: `translate(${x1 - 5}px, ${y1 - 5}px)`, opacity: 1 },
-      ],
-      { duration: Math.max(180, duration), easing: "ease-in-out" },
-    );
-    anim.onfinish = () => dot.remove();
-  }
+  // (Flow-dot rendering lives in the shared `flow` layer created above.)
 
   // ── protocol: client → sequencer → broadcast ──────────────────────────────
 
@@ -1440,12 +1430,11 @@ export function initDemo() {
   }
 
   function submit(originId, ddsId, op) {
-    const origin = clients[originId];
     // Claims have no compensating op, so reset reloads replicas out of band
     // and bumps the epoch; a claim still in flight is dropped rather than
     // stamped, or it would commit on one replica and fail to ack on the
-    // other.
-    const epoch =
+    // other. Each DDS that resets out of band carries its own epoch.
+    const epochFor = () =>
       ddsId === "claims"
         ? claimsEpoch
         : ddsId === "twopset"
@@ -1459,99 +1448,59 @@ export function initDemo() {
         : ddsId === "pact"
           ? pactEpoch
           : 0;
-    inFlight += 1;
-    renderStatus();
-    animateDot(origin.el, seqNode, paced(latency), false);
 
-    // FIFO into the sequencer: an op may not overtake an earlier one even if
-    // the latency slider moved while it was in flight.
-    const now = performance.now();
-    const arrival = Math.max(now + paced(latency), seqLastArrival + paced(25));
-    seqLastArrival = arrival;
-
-    setTimeout(() => {
-      if (
-        (ddsId === "claims" && epoch !== claimsEpoch) ||
-        (ddsId === "twopset" && epoch !== twoPSetEpoch) ||
-        (ddsId === "registers" && epoch !== registersEpoch) ||
-        (ddsId === "ordered" && epoch !== orderedEpoch) ||
-        (ddsId === "tasks" && epoch !== taskEpoch) ||
-        (ddsId === "pact" && epoch !== pactEpoch)
-      ) {
-        inFlight -= 1;
-        renderStatus();
-        return;
-      }
-      sn += 1;
-      const stamped = sn;
-      const stampedCounter = ddsId === "counter" ? ++counterSn : null;
-      logOp(
-        stamped,
-        originId,
-        ddsId,
-        ddsId === "counter" ? { increment_amount: op.amount } : op,
-      );
-      if (ddsId === "pn") {
-        lastPn = { op, sn: stamped };
-        replayBtn.disabled = false;
-      } else if (ddsId === "gcounter") {
-        lastGCounter = { op, sn: stamped };
-        replayBtn.disabled = false;
-      } else if (ddsId === "ormap") {
-        lastOrMap = { op, sn: stamped };
-        replayBtn.disabled = false;
-      } else if (ddsId === "orset") {
-        lastOrSet = { op, sn: stamped };
-        replayBtn.disabled = false;
-      } else if (ddsId === "gset") {
-        lastGSet = { op, sn: stamped };
-        replayBtn.disabled = false;
-      } else if (ddsId === "twopset") {
-        lastTwoPSet = { op, sn: stamped };
-        replayBtn.disabled = false;
-      }
-
-      for (const target of Object.values(clients)) {
-        animateDot(seqNode, target.el, paced(latency), true);
-        const tNow = performance.now();
-        const tArrival = Math.max(tNow + paced(latency), target.lastArrival + paced(25));
-        target.lastArrival = tArrival;
-        inFlight += 1;
-        setTimeout(() => {
-          if (
-            (ddsId === "claims" && epoch !== claimsEpoch) ||
-            (ddsId === "twopset" && epoch !== twoPSetEpoch) ||
-            (ddsId === "registers" && epoch !== registersEpoch) ||
-            (ddsId === "ordered" && epoch !== orderedEpoch) ||
-            (ddsId === "tasks" && epoch !== taskEpoch) ||
-            (ddsId === "pact" && epoch !== pactEpoch)
-          ) {
-            inFlight -= 1;
-            renderStatus();
-            return;
-          }
-          deliver(target, originId, ddsId, op, stamped, stampedCounter ?? stamped);
-          inFlight -= 1;
-          if (FIELD_FLASH.has(ddsId)) {
-            fieldNotes.trackChange(ddsId, target.el, false, () => render(target));
-          } else {
-            render(target);
-          }
-          renderStatus();
-          if (
-            fieldNotes.active &&
-            ddsId === activeDds &&
-            !FIELD_FLASH.has(ddsId) &&
-            target.id === "a"
-          ) {
-            fieldNotes.pulse();
-          }
-        }, tArrival - tNow);
-      }
-
-      inFlight -= 1;
-      renderStatus();
-    }, arrival - now);
+    sequencer.send({
+      originId,
+      guard: () => {
+        const snapshot = epochFor();
+        return () => snapshot !== epochFor();
+      },
+      onSequence: (stamped) => {
+        const stampedCounter = ddsId === "counter" ? ++counterSn : null;
+        logOp(
+          stamped,
+          originId,
+          ddsId,
+          ddsId === "counter" ? { increment_amount: op.amount } : op,
+        );
+        if (ddsId === "pn") {
+          lastPn = { op, sn: stamped };
+          replayBtn.disabled = false;
+        } else if (ddsId === "gcounter") {
+          lastGCounter = { op, sn: stamped };
+          replayBtn.disabled = false;
+        } else if (ddsId === "ormap") {
+          lastOrMap = { op, sn: stamped };
+          replayBtn.disabled = false;
+        } else if (ddsId === "orset") {
+          lastOrSet = { op, sn: stamped };
+          replayBtn.disabled = false;
+        } else if (ddsId === "gset") {
+          lastGSet = { op, sn: stamped };
+          replayBtn.disabled = false;
+        } else if (ddsId === "twopset") {
+          lastTwoPSet = { op, sn: stamped };
+          replayBtn.disabled = false;
+        }
+        return { stampedCounter };
+      },
+      onDeliver: (target, { seq, extra }) => {
+        deliver(target, originId, ddsId, op, seq, extra.stampedCounter ?? seq);
+        if (FIELD_FLASH.has(ddsId)) {
+          fieldNotes.trackChange(ddsId, target.el, false, () => render(target));
+        } else {
+          render(target);
+        }
+        if (
+          fieldNotes.active &&
+          ddsId === activeDds &&
+          !FIELD_FLASH.has(ddsId) &&
+          target.id === "a"
+        ) {
+          fieldNotes.pulse();
+        }
+      },
+    });
   }
 
   function localSet(clientId, key, value) {
@@ -1695,7 +1644,7 @@ export function initDemo() {
           delete claimNotes[clientId][key];
           render(client);
         }
-      }, paced(2200));
+      }, controls.paced(2200));
       return;
     }
     client.claims = result[0].state;
@@ -1967,19 +1916,13 @@ export function initDemo() {
     const li = document.createElement("li");
     li.className = "replay";
     li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
-    opLog.prepend(li);
-    while (opLog.children.length > 14) opLog.lastChild.remove();
+    opLog.push(li);
     if (fieldNotes.active && ddsId === activeDds && FIELD_FLASH.has(ddsId)) {
       fieldNotes.flashLog();
     }
 
-    for (const target of Object.values(clients)) {
-      animateDot(seqNode, target.el, paced(latency), true);
-      const tNow = performance.now();
-      const tArrival = Math.max(tNow + paced(latency), target.lastArrival + paced(25));
-      target.lastArrival = tArrival;
-      inFlight += 1;
-      setTimeout(() => {
+    sequencer.broadcast({
+      onDeliver: (target) => {
         // Both replicas take the duplicate through `apply_remote` — even the
         // origin, whose acked delta is already merged. Idempotence makes
         // both a no-op.
@@ -2007,9 +1950,7 @@ export function initDemo() {
           const [next] = pnKernel.apply_remote(target.pn, op);
           target.pn = next;
         }
-        inFlight -= 1;
         render(target);
-        renderStatus();
         if (
           fieldNotes.active &&
           ddsId === activeDds &&
@@ -2018,8 +1959,8 @@ export function initDemo() {
         ) {
           fieldNotes.pulse();
         }
-      }, tArrival - tNow);
-    }
+      },
+    });
     renderStatus();
   }
 
@@ -2248,7 +2189,7 @@ export function initDemo() {
   const fieldNotes = createFieldNotes({
     rig,
     prefersReducedMotion: () => reducedMotion.matches,
-    duration: paced,
+    duration: controls.paced,
   });
 
   for (const pick of ddsPicks) {
@@ -2262,20 +2203,6 @@ export function initDemo() {
   // Initialise labels / merge-rule visibility / replay state for the starting
   // view (which may not be "map" on a scoped /structures/* page).
   applyActiveView();
-
-  latencyInput.addEventListener("input", () => {
-    latency = Number(latencyInput.value);
-    latencyOut.textContent = `${latency} ms`;
-  });
-
-  if (paceInput) {
-    const fmtPace = (v) => `${v}×`;
-    paceOut.textContent = fmtPace(animSpeed);
-    paceInput.addEventListener("input", () => {
-      animSpeed = Number(paceInput.value);
-      paceOut.textContent = fmtPace(animSpeed);
-    });
-  }
 
   if (fieldNotesToggle) {
     fieldNotesToggle.addEventListener("change", () => {
@@ -2486,7 +2413,7 @@ export function initDemo() {
           const current =
             readInt(mapKernel.get(clients.b.map, "kettle-run")) ?? 0;
           localSet("b", "kettle-run", current + 1);
-        }, paced(600));
+        }, controls.paced(600));
       },
       { threshold: 0.45 },
     );

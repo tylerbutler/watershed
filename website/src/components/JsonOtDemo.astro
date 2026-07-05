@@ -142,6 +142,29 @@ const clients = [
       />
       <output data-jot-latency-out>700 ms</output>
     </label>
+    <label class="pace">
+      <span class="annot">Animation speed</span>
+      <input
+        type="range"
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="0.5"
+        data-jot-pace
+        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        disabled
+      />
+      <output data-jot-pace-out>0.5×</output>
+    </label>
+    <label class="field-notes-toggle">
+      <input
+        type="checkbox"
+        data-jot-latency-variance
+        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step. Models an unstable network where arrival order can shuffle."
+        disabled
+      />
+      <span class="annot">Jitter ±50&nbsp;ms</span>
+    </label>
     <button type="button" class="race-btn" data-jot-race disabled>
       Race two inserts at index 0
     </button>
@@ -159,6 +182,15 @@ const clients = [
       replicas identical · nothing pending
     </p>
   </div>
+
+  <p class="controls-hint">
+    <strong>Link latency</strong> is the simulated network delay — the demo's
+    physics. <strong>Animation speed</strong> just scales how fast that plays
+    on screen (on-screen time = latency ÷ speed). <strong>Jitter</strong> adds
+    random ±50&nbsp;ms per hop, so ops stop travelling in lock-step and their
+    arrival order can shuffle. Only latency and jitter change the outcome —
+    animation speed only changes how fast you watch.
+  </p>
 
   <noscript>
     <p class="demo-noscript">
@@ -178,7 +210,7 @@ const clients = [
 
 <script>
   try {
-    const { initJsonOtDemo } = await import("../scripts/json-ot-demo.js");
+    const { initJsonOtDemo } = await import("../scripts/json-ot-demo.ts");
     initJsonOtDemo();
   } catch (error) {
     console.error("watershed json-ot demo failed to start", error);
@@ -610,6 +642,46 @@ const clients = [
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     min-width: 5ch;
+  }
+
+  .pace {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .pace input {
+    accent-color: var(--overprint);
+    width: clamp(8rem, 18vw, 14rem);
+  }
+
+  .pace output {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    min-width: 5ch;
+  }
+
+  .field-notes-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+  }
+
+  .field-notes-toggle input {
+    accent-color: var(--overprint);
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
+  }
+
+  .controls-hint {
+    max-width: 68rem;
+    margin: var(--space-sm) auto 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
   }
 
   .race-btn {

@@ -788,6 +788,7 @@ const PICKER_CELLS = [
         step="100"
         value="700"
         data-latency
+        title="Simulated network delay — how long an op spends travelling client → sequencer → replicas. This is the demo's physics: it changes ordering and which writes collide."
         disabled
       />
       <output data-latency-out>700 ms</output>
@@ -801,9 +802,19 @@ const PICKER_CELLS = [
         step="0.25"
         value="0.5"
         data-pace
+        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
         disabled
       />
       <output data-pace-out>0.5×</output>
+    </label>
+    <label class="field-notes-toggle">
+      <input
+        type="checkbox"
+        data-latency-variance
+        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step. Models an unstable network where arrival order can shuffle."
+        disabled
+      />
+      <span class="annot">Jitter ±50&nbsp;ms</span>
     </label>
     <label class="field-notes-toggle">
       <input type="checkbox" data-field-notes disabled />
@@ -836,6 +847,14 @@ const PICKER_CELLS = [
       booting watershed kernels…
     </p>
   </div>
+
+  <p class="controls-hint">
+    <strong>Link latency</strong> is the simulated network delay — the demo's
+    physics. <strong>Animation speed</strong> just scales how fast that plays
+    on screen (on-screen time = latency ÷ speed). Slowing the animation only
+    stretches the playback; it never changes ordering or which writes collide —
+    only latency does that.
+  </p>
 
   <noscript>
     <p class="demo-noscript">
@@ -1879,6 +1898,14 @@ const PICKER_CELLS = [
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     min-width: 5ch;
+  }
+
+  .controls-hint {
+    max-width: 68rem;
+    margin: var(--space-sm) auto 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
   }
 
   .field-notes-toggle {

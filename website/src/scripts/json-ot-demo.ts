@@ -13,6 +13,11 @@ import * as kernel from "../../../build/dev/javascript/watershed/watershed/json_
 import * as jsonOt from "../../../build/dev/javascript/watershed/watershed/json_ot.mjs";
 import { None, Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import { prefersReducedMotion } from "./demo/timing.ts";
+import { createFlowLayer } from "./demo/flow-dots.ts";
+import { createLatencyControls } from "./demo/controls.ts";
+import { createOpLog } from "./demo/op-log.ts";
+import { createSequencer } from "./demo/sequencer.ts";
 
 // ── value / component builders ─────────────────────────────────────────────
 const S = (s) => new jsonOt.VString(s);
@@ -84,13 +89,17 @@ export function initJsonOtDemo() {
   const flowLayer = rig.querySelector("[data-flow-layer]");
   const seqNode = rig.querySelector("[data-seq-node]");
   const seqCounter = rig.querySelector("[data-seq-counter]");
-  const opLog = rig.querySelector("[data-op-log]");
+  const opLogEl = rig.querySelector("[data-op-log]");
   const statusEl = document.querySelector("[data-jot-status]");
   const latencyInput = document.querySelector("[data-jot-latency]");
   const latencyOut = document.querySelector("[data-jot-latency-out]");
+  const paceInput = document.querySelector("[data-jot-pace]");
+  const paceOut = document.querySelector("[data-jot-pace-out]");
+  const latencyVarianceToggle = document.querySelector(
+    "[data-jot-latency-variance]",
+  );
   const raceBtn = document.querySelector("[data-jot-race]");
   const resetBtn = document.querySelector("[data-jot-reset]");
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
   // Controls ship disabled so nothing is interactive before the kernel loads.
   const section = document.querySelector("#jot-demo");
@@ -108,43 +117,29 @@ export function initJsonOtDemo() {
     };
   }
 
-  let latency = Number(latencyInput.value);
-  let sn = 0; // global sequence number stamped by the sequencer
-  let inFlight = 0; // ops travelling on the wire, for the status line
-  let seqLastArrival = 0; // FIFO into the sequencer
   let epoch = 0; // bumped on reset so stale timers bail out
   const nameCursor = { a: 0, b: 0, c: 0 };
   const siteCursor = { a: 0, b: 0, c: 0 };
   const trendCursor = { a: 0, b: 0, c: 0 };
 
-  latencyOut.textContent = `${latency} ms`;
-
-  // ── flow dots ─────────────────────────────────────────────────────────────
-  function anchor(el) {
-    const layerBox = flowLayer.getBoundingClientRect();
-    const box = el.getBoundingClientRect();
-    return [
-      box.left + box.width / 2 - layerBox.left,
-      box.top + box.height / 2 - layerBox.top,
-    ];
-  }
-
-  function animateDot(fromEl, toEl, duration, sequenced) {
-    if (reducedMotion.matches) return;
-    const dot = document.createElement("span");
-    dot.className = sequenced ? "flow-dot sequenced" : "flow-dot";
-    flowLayer.append(dot);
-    const [x0, y0] = anchor(fromEl);
-    const [x1, y1] = anchor(toEl);
-    const anim = dot.animate(
-      [
-        { transform: `translate(${x0 - 5}px, ${y0 - 5}px)`, opacity: 0.3 },
-        { transform: `translate(${x1 - 5}px, ${y1 - 5}px)`, opacity: 1 },
-      ],
-      { duration: Math.max(180, duration), easing: "ease-in-out" },
-    );
-    anim.onfinish = () => dot.remove();
-  }
+  // Shared demo infrastructure: latency/pace/jitter controls, the flow-dot
+  // layer, the op-log, and the FIFO sequencer transport.
+  const controls = createLatencyControls({
+    latencyInput,
+    latencyOut,
+    paceInput,
+    paceOut,
+    varianceToggle: latencyVarianceToggle,
+  });
+  const flow = createFlowLayer(flowLayer, prefersReducedMotion);
+  const opLog = createOpLog(opLogEl, { max: 24 });
+  const sequencer = createSequencer({
+    clients,
+    seqNode,
+    flow,
+    controls,
+    onChange: renderStatus,
+  });
 
   // ── rendering ──────────────────────────────────────────────────────────────
   function optimistic(client) {
@@ -256,7 +251,7 @@ export function initJsonOtDemo() {
     const sigs = CLIENT_IDS.map((id) => JSON.stringify(sequenced(clients[id])));
     const pending = CLIENT_IDS.some((id) => pendingCount(clients[id]) > 0);
     const identical = sigs.every((s) => s === sigs[0]);
-    return identical && !pending && inFlight === 0;
+    return identical && !pending && sequencer.inFlight === 0;
   }
 
   function renderStatus() {
@@ -267,8 +262,8 @@ export function initJsonOtDemo() {
     statusEl.innerHTML = stamp;
   }
 
-  function stampSeqCounter() {
-    seqCounter.textContent = `SN\u00a0${sn}`;
+  function stampSeqCounter(seq) {
+    seqCounter.textContent = `SN\u00a0${seq}`;
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
     seqCounter.classList.add("stamped");
@@ -290,47 +285,27 @@ export function initJsonOtDemo() {
     kindEl.textContent = spot.value ? `${spot.kind} ${spot.value}` : spot.kind;
 
     li.append(meta, pathEl, kindEl);
-    opLog.prepend(li);
-    while (opLog.children.length > 24) opLog.lastChild.remove();
+    opLog.push(li);
   }
 
   // ── protocol: client → sequencer → broadcast ───────────────────────────────
   function sendToSequencer(client, wire, spot, authorId) {
-    inFlight += 1;
-    renderStatus();
-    animateDot(client.el, seqNode, latency, false);
-    const now = performance.now();
-    const arrival = Math.max(now + latency, seqLastArrival + 25);
-    seqLastArrival = arrival;
-    const myEpoch = epoch;
-    setTimeout(() => {
-      if (myEpoch !== epoch) return;
-      sn += 1;
-      const seq = sn;
-      stampSeqCounter();
-      logOp(seq, authorId, spot);
-      for (const target of Object.values(clients)) {
-        animateDot(seqNode, target.el, latency, true);
-        const tNow = performance.now();
-        const tArrival = Math.max(tNow + latency, target.lastArrival + 25);
-        target.lastArrival = tArrival;
-        inFlight += 1;
-        setTimeout(() => {
-          if (myEpoch !== epoch) {
-            inFlight -= 1;
-            renderStatus();
-            return;
-          }
-          deliver(target, client.num, wire, seq, spot, authorId);
-          inFlight -= 1;
-          render(target);
-          pulseNode(target, spot.node, true);
-          renderStatus();
-        }, tArrival - tNow);
-      }
-      inFlight -= 1;
-      renderStatus();
-    }, arrival - now);
+    sequencer.send({
+      originId: client.id,
+      guard: () => {
+        const myEpoch = epoch;
+        return () => myEpoch !== epoch;
+      },
+      onSequence: (seq) => {
+        stampSeqCounter(seq);
+        logOp(seq, authorId, spot);
+      },
+      onDeliver: (target, { seq }) => {
+        deliver(target, client.num, wire, seq, spot, authorId);
+        render(target);
+        pulseNode(target, spot.node, true);
+      },
+    });
   }
 
   const MSN = 0; // demo keeps the whole concurrency window (never GCs the log)
@@ -458,11 +433,6 @@ export function initJsonOtDemo() {
     el.querySelector("[data-crew-add]").addEventListener("click", () => localCrewAdd(id));
   }
 
-  latencyInput.addEventListener("input", () => {
-    latency = Number(latencyInput.value);
-    latencyOut.textContent = `${latency} ms`;
-  });
-
   // Two clients insert a surveyor at the front of the crew list at the same
   // instant. The sequencer picks an order; OT transforms the loser's index past
   // the winner so both names survive and every replica lands the same array.
@@ -485,9 +455,7 @@ export function initJsonOtDemo() {
 
   resetBtn.addEventListener("click", () => {
     epoch += 1; // strand any timers still in flight
-    sn = 0;
-    inFlight = 0;
-    seqLastArrival = 0;
+    sequencer.reset();
     for (const id of CLIENT_IDS) {
       const client = clients[id];
       client.state = kernel.from_value(client.num, baselineDoc());
@@ -499,7 +467,7 @@ export function initJsonOtDemo() {
       render(client);
     }
     seqCounter.textContent = "SN\u00a00";
-    opLog.replaceChildren();
+    opLog.clear();
     renderStatus();
   });
 

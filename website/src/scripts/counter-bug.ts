@@ -20,6 +20,8 @@ import { annotate } from "rough-notation";
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import { prefersReducedMotion, wait } from "./demo/timing.ts";
+import { createOpLog } from "./demo/op-log.ts";
 
 const KEY = "boats-locked";
 const BASE = 41; // both houses agree the day started at 41 boats locked through
@@ -40,14 +42,6 @@ function readInt(optionValue) {
 const cssVar = (name) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-const prefersReducedMotion = () =>
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const wait = (ms) =>
-  prefersReducedMotion()
-    ? Promise.resolve()
-    : new Promise((resolve) => setTimeout(resolve, ms));
-
 // ── the shared engine ───────────────────────────────────────────────────────
 // One `map_kernel` state per client, plus a FIFO sequencer. `mode` decides
 // whether the two houses write the same key (bug) or their own key (fix).
@@ -61,6 +55,7 @@ function makeRig(root, mode) {
     b: root.querySelector('[data-total="b"]'),
   };
   const log = root.querySelector("[data-log]");
+  const opLog = createOpLog(log, { mode: "append" });
   const caption = root.querySelector("[data-caption]");
   const seqTrack = root.querySelector("[data-seq]");
 
@@ -122,8 +117,7 @@ function makeRig(root, mode) {
     const li = document.createElement("li");
     li.textContent = text;
     if (tone) li.dataset.tone = tone;
-    log.appendChild(li);
-    log.scrollTop = log.scrollHeight;
+    opLog.push(li);
     return li;
   }
 
@@ -167,7 +161,7 @@ function makeRig(root, mode) {
     clients.b.map = mapKernel.from_sequenced(seedEntries("b"));
     clients.a.pending = null;
     clients.b.pending = null;
-    log.replaceChildren();
+    opLog.clear();
     seqTrack.replaceChildren();
     const verdict = root.querySelector("[data-verdict]");
     if (verdict) verdict.hidden = true;
