@@ -13,7 +13,7 @@
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.5",
     "@fontsource/fragment-mono": "^5.2.5",
-    "astro": "^5.7.0",
+    "astro": "^6.4.6",
     "rough-notation": "^0.5.1"
   },
   "devDependencies": {
