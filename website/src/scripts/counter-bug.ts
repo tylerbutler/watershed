@@ -54,6 +54,11 @@ function makeRig(root, mode) {
     a: root.querySelector('[data-total="a"]'),
     b: root.querySelector('[data-total="b"]'),
   };
+  // Fix rig only: the small per-column readout under each house's big number.
+  const subcols = {
+    a: root.querySelector('[data-subcol="a"]'),
+    b: root.querySelector('[data-subcol="b"]'),
+  };
   const log = root.querySelector("[data-log]");
   const opLog = createOpLog(log, { mode: "append" });
   const caption = root.querySelector("[data-caption]");
@@ -119,8 +124,16 @@ function makeRig(root, mode) {
       const client = clients[id];
       const cell = cells[id];
       const pending = client.pending;
-      cell.textContent = pending == null ? String(cellValue(client, id)) : String(pending);
-      cell.classList.toggle("pending", pending != null);
+      if (mode === "fix") {
+        // The big number is the combined tally the SharedCounter reports; the
+        // small label underneath keeps this house's own column visible.
+        cell.textContent = String(total(client));
+        cell.classList.remove("pending");
+        if (subcols[id]) subcols[id].textContent = String(cellValue(client, id));
+      } else {
+        cell.textContent = pending == null ? String(cellValue(client, id)) : String(pending);
+        cell.classList.toggle("pending", pending != null);
+      }
       if (totals[id]) totals[id].textContent = String(total(client));
     }
   }

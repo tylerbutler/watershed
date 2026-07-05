@@ -120,8 +120,12 @@
         <div class="cb-house" data-house="a">
           <header><h3>Upstream house</h3><span class="annot">Client A</span></header>
           <div class="cb-tally">
-            <span class="annot">boats-locked/a</span>
-            <span class="cb-value" data-cell="a">20</span>
+            <span class="annot">boats-locked · sum</span>
+            <span class="cb-value" data-cell="a">41</span>
+            <span class="cb-subcol">
+              <span class="annot">boats-locked/a</span>
+              <span class="cb-subcol-num" data-subcol="a">20</span>
+            </span>
           </div>
         </div>
 
@@ -133,8 +137,12 @@
         <div class="cb-house" data-house="b">
           <header><h3>Downstream house</h3><span class="annot">Client B</span></header>
           <div class="cb-tally">
-            <span class="annot">boats-locked/b</span>
-            <span class="cb-value" data-cell="b">21</span>
+            <span class="annot">boats-locked · sum</span>
+            <span class="cb-value" data-cell="b">41</span>
+            <span class="cb-subcol">
+              <span class="annot">boats-locked/b</span>
+              <span class="cb-subcol-num" data-subcol="b">21</span>
+            </span>
           </div>
         </div>
       </div>
@@ -335,6 +343,21 @@
   .cb-value.pending {
     color: var(--overprint-deep);
     font-style: italic;
+  }
+
+  /* fix rig: small per-column readout beneath the combined-sum big number */
+  .cb-subcol {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-2xs);
+    margin-top: var(--space-2xs);
+    color: var(--muted);
+  }
+
+  .cb-subcol-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--waterline);
   }
 
   .cb-seq-col {
