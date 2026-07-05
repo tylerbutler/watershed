@@ -792,6 +792,23 @@ const PICKER_CELLS = [
       />
       <output data-latency-out>700 ms</output>
     </label>
+    <label class="pace">
+      <span class="annot">Animation speed</span>
+      <input
+        type="range"
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="0.5"
+        data-pace
+        disabled
+      />
+      <output data-pace-out>0.5×</output>
+    </label>
+    <label class="field-notes-toggle">
+      <input type="checkbox" data-field-notes disabled />
+      <span class="annot">Field notes</span>
+    </label>
     <button type="button" class="race-btn" data-race disabled>
       Race a concurrent write
     </button>
@@ -1843,22 +1860,39 @@ const PICKER_CELLS = [
     gap: var(--space-xl);
   }
 
-  .latency {
+  .latency,
+  .pace {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
   }
 
-  .latency input {
+  .latency input,
+  .pace input {
     accent-color: var(--overprint);
     width: clamp(8rem, 18vw, 14rem);
   }
 
-  .latency output {
+  .latency output,
+  .pace output {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     min-width: 5ch;
+  }
+
+  .field-notes-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+  }
+
+  .field-notes-toggle input {
+    accent-color: var(--overprint);
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
   }
 
   .race-btn {
@@ -1909,6 +1943,32 @@ const PICKER_CELLS = [
   .reset-btn:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+
+  /* Field-notes caption: an inspector's note above the replicas. The magenta
+     lives only in the small marker label; the sentence stays readable ink. */
+  :global(.field-note) {
+    max-width: 60ch;
+    margin: var(--space-l) auto 0;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    line-height: 1.55;
+    text-align: center;
+    text-wrap: pretty;
+  }
+
+  :global(.field-note)::before {
+    content: "field notes";
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--overprint-deep);
+    margin-bottom: 0.3rem;
   }
 
   .status {

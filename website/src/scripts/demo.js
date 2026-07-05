@@ -27,6 +27,7 @@ import * as replicaId from "../../../build/dev/javascript/lattice_core/lattice_c
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { None, Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import { createFieldNotes } from "./tutorial.js";
 
 const GAUGES = ["mill-race", "kettle-run", "low-ford"];
 const INITIAL = [
@@ -381,6 +382,9 @@ export function initDemo() {
   const statusEl = document.querySelector("[data-status]");
   const latencyInput = document.querySelector("[data-latency]");
   const latencyOut = document.querySelector("[data-latency-out]");
+  const paceInput = document.querySelector("[data-pace]");
+  const paceOut = document.querySelector("[data-pace-out]");
+  const fieldNotesToggle = document.querySelector("[data-field-notes]");
   const raceBtn = document.querySelector("[data-race]");
   const resetBtn = document.querySelector("[data-reset]");
   const replayBtn = document.querySelector("[data-replay]");
@@ -460,6 +464,12 @@ export function initDemo() {
 
   let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
   let latency = Number(latencyInput.value);
+  // Global playback speed for every demo animation and choreography delay. 1×
+  // is the original pace; the control ships at 0.5× so the demo reads at half
+  // speed. `paced` converts a base duration/delay into wall-clock ms at the
+  // current speed (lower speed → longer durations).
+  let animSpeed = paceInput ? Number(paceInput.value) : 0.5;
+  const paced = (ms) => ms / animSpeed;
   let sn = 0;
   let counterSn = 0;
   let inFlight = 0;
@@ -1437,12 +1447,12 @@ export function initDemo() {
           : 0;
     inFlight += 1;
     renderStatus();
-    animateDot(origin.el, seqNode, latency, false);
+    animateDot(origin.el, seqNode, paced(latency), false);
 
     // FIFO into the sequencer: an op may not overtake an earlier one even if
     // the latency slider moved while it was in flight.
     const now = performance.now();
-    const arrival = Math.max(now + latency, seqLastArrival + 25);
+    const arrival = Math.max(now + paced(latency), seqLastArrival + paced(25));
     seqLastArrival = arrival;
 
     setTimeout(() => {
@@ -1488,9 +1498,9 @@ export function initDemo() {
       }
 
       for (const target of Object.values(clients)) {
-        animateDot(seqNode, target.el, latency, true);
+        animateDot(seqNode, target.el, paced(latency), true);
         const tNow = performance.now();
-        const tArrival = Math.max(tNow + latency, target.lastArrival + 25);
+        const tArrival = Math.max(tNow + paced(latency), target.lastArrival + paced(25));
         target.lastArrival = tArrival;
         inFlight += 1;
         setTimeout(() => {
@@ -1659,7 +1669,7 @@ export function initDemo() {
           delete claimNotes[clientId][key];
           render(client);
         }
-      }, 2200);
+      }, paced(2200));
       return;
     }
     client.claims = result[0].state;
@@ -1935,9 +1945,9 @@ export function initDemo() {
     while (opLog.children.length > 14) opLog.lastChild.remove();
 
     for (const target of Object.values(clients)) {
-      animateDot(seqNode, target.el, latency, true);
+      animateDot(seqNode, target.el, paced(latency), true);
       const tNow = performance.now();
-      const tArrival = Math.max(tNow + latency, target.lastArrival + 25);
+      const tArrival = Math.max(tNow + paced(latency), target.lastArrival + paced(25));
       target.lastArrival = tArrival;
       inFlight += 1;
       setTimeout(() => {
@@ -2195,7 +2205,14 @@ export function initDemo() {
     renderBadge(clients.a);
     renderBadge(clients.b);
     renderBadge(clients.c);
+    fieldNotes.render(activeDds);
   }
+
+  const fieldNotes = createFieldNotes({
+    rig,
+    prefersReducedMotion: () => reducedMotion.matches,
+    duration: paced,
+  });
 
   for (const pick of ddsPicks) {
     pick.addEventListener("change", () => {
@@ -2212,6 +2229,30 @@ export function initDemo() {
   latencyInput.addEventListener("input", () => {
     latency = Number(latencyInput.value);
     latencyOut.textContent = `${latency} ms`;
+  });
+
+  if (paceInput) {
+    const fmtPace = (v) => `${v}×`;
+    paceOut.textContent = fmtPace(animSpeed);
+    paceInput.addEventListener("input", () => {
+      animSpeed = Number(paceInput.value);
+      paceOut.textContent = fmtPace(animSpeed);
+    });
+  }
+
+  if (fieldNotesToggle) {
+    fieldNotesToggle.addEventListener("change", () => {
+      fieldNotes.setActive(fieldNotesToggle.checked);
+    });
+  }
+
+  // Rough-notation marks are absolutely positioned, so redraw them when the
+  // layout shifts under a resize.
+  let reflowTimer = null;
+  window.addEventListener("resize", () => {
+    if (!fieldNotes.active) return;
+    clearTimeout(reflowTimer);
+    reflowTimer = setTimeout(() => fieldNotes.reflow(), 150);
   });
 
   raceBtn.addEventListener("click", () => {
@@ -2408,7 +2449,7 @@ export function initDemo() {
           const current =
             readInt(mapKernel.get(clients.b.map, "kettle-run")) ?? 0;
           localSet("b", "kettle-run", current + 1);
-        }, 600);
+        }, paced(600));
       },
       { threshold: 0.45 },
     );
