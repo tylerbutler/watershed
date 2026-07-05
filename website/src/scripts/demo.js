@@ -1151,6 +1151,9 @@ export function initDemo() {
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
     seqCounter.classList.add("stamped");
+    if (fieldNotes.active && ddsId === "gcounter" && ddsId === activeDds) {
+      fieldNotes.flashLog();
+    }
   }
 
   function describeOrderedPending(op) {
@@ -1520,8 +1523,12 @@ export function initDemo() {
           inFlight -= 1;
           render(target);
           renderStatus();
-          if (fieldNotes.active && ddsId === activeDds && target.id === "a") {
-            fieldNotes.pulse();
+          if (fieldNotes.active && ddsId === activeDds) {
+            if (ddsId === "gcounter") {
+              fieldNotes.flashGCounterChange(target.el, originId, false);
+            } else if (target.id === "a") {
+              fieldNotes.pulse();
+            }
           }
         }, tArrival - tNow);
       }
@@ -1575,6 +1582,9 @@ export function initDemo() {
       nextMessageId: messageId + 1,
     };
     render(client);
+    if (fieldNotes.active && activeDds === "gcounter") {
+      fieldNotes.flashGCounterChange(client.el, clientId, true);
+    }
     submit(clientId, "gcounter", { delta, amount, messageId });
   }
 
@@ -1946,6 +1956,9 @@ export function initDemo() {
     li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
     opLog.prepend(li);
     while (opLog.children.length > 14) opLog.lastChild.remove();
+    if (fieldNotes.active && ddsId === "gcounter" && ddsId === activeDds) {
+      fieldNotes.flashLog();
+    }
 
     for (const target of Object.values(clients)) {
       animateDot(seqNode, target.el, paced(latency), true);
@@ -1984,7 +1997,12 @@ export function initDemo() {
         inFlight -= 1;
         render(target);
         renderStatus();
-        if (fieldNotes.active && ddsId === activeDds && target.id === "a") {
+        if (
+          fieldNotes.active &&
+          ddsId === activeDds &&
+          ddsId !== "gcounter" &&
+          target.id === "a"
+        ) {
           fieldNotes.pulse();
         }
       }, tArrival - tNow);
