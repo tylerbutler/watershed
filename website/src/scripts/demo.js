@@ -463,6 +463,9 @@ export function initDemo() {
   }
 
   let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
+  // Structures whose field notes flash the values that change (see tutorial.js
+  // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
+  const FIELD_FLASH = new Set(["map", "counter", "pn", "gcounter"]);
   let latency = Number(latencyInput.value);
   // Global playback speed for every demo animation and choreography delay. 1×
   // is the original pace; the control ships at 0.5× so the demo reads at half
@@ -1151,7 +1154,7 @@ export function initDemo() {
     seqCounter.classList.remove("stamped");
     void seqCounter.offsetWidth;
     seqCounter.classList.add("stamped");
-    if (fieldNotes.active && ddsId === "gcounter" && ddsId === activeDds) {
+    if (fieldNotes.active && ddsId === activeDds && FIELD_FLASH.has(ddsId)) {
       fieldNotes.flashLog();
     }
   }
@@ -1521,14 +1524,19 @@ export function initDemo() {
           }
           deliver(target, originId, ddsId, op, stamped, stampedCounter ?? stamped);
           inFlight -= 1;
-          render(target);
+          if (FIELD_FLASH.has(ddsId)) {
+            fieldNotes.trackChange(ddsId, target.el, false, () => render(target));
+          } else {
+            render(target);
+          }
           renderStatus();
-          if (fieldNotes.active && ddsId === activeDds) {
-            if (ddsId === "gcounter") {
-              fieldNotes.flashGCounterChange(target.el, originId, false);
-            } else if (target.id === "a") {
-              fieldNotes.pulse();
-            }
+          if (
+            fieldNotes.active &&
+            ddsId === activeDds &&
+            !FIELD_FLASH.has(ddsId) &&
+            target.id === "a"
+          ) {
+            fieldNotes.pulse();
           }
         }, tArrival - tNow);
       }
@@ -1542,7 +1550,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = mapKernel.set(client.map, key, jsonInt(value));
     client.map = next;
-    render(client);
+    fieldNotes.trackChange("map", client.el, true, () => render(client));
     submit(clientId, "map", op);
   }
 
@@ -1560,7 +1568,7 @@ export function initDemo() {
       return;
     }
     client.counterCore = next;
-    render(client);
+    fieldNotes.trackChange("counter", client.el, true, () => render(client));
     submit(clientId, "counter", {
       amount,
       outbound: outboundOp,
@@ -1581,10 +1589,7 @@ export function initDemo() {
       pending: [...client.gcounter.pending, { delta, amount, messageId }],
       nextMessageId: messageId + 1,
     };
-    render(client);
-    if (fieldNotes.active && activeDds === "gcounter") {
-      fieldNotes.flashGCounterChange(client.el, clientId, true);
-    }
+    fieldNotes.trackChange("gcounter", client.el, true, () => render(client));
     submit(clientId, "gcounter", { delta, amount, messageId });
   }
 
@@ -1594,7 +1599,7 @@ export function initDemo() {
     // in FIFO order, so only the op needs to travel.
     const [next, _events, op] = pnKernel.update(client.pn, amount);
     client.pn = next;
-    render(client);
+    fieldNotes.trackChange("pn", client.el, true, () => render(client));
     submit(clientId, "pn", op);
   }
 
@@ -1956,7 +1961,7 @@ export function initDemo() {
     li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
     opLog.prepend(li);
     while (opLog.children.length > 14) opLog.lastChild.remove();
-    if (fieldNotes.active && ddsId === "gcounter" && ddsId === activeDds) {
+    if (fieldNotes.active && ddsId === activeDds && FIELD_FLASH.has(ddsId)) {
       fieldNotes.flashLog();
     }
 
@@ -2000,7 +2005,7 @@ export function initDemo() {
         if (
           fieldNotes.active &&
           ddsId === activeDds &&
-          ddsId !== "gcounter" &&
+          !FIELD_FLASH.has(ddsId) &&
           target.id === "a"
         ) {
           fieldNotes.pulse();

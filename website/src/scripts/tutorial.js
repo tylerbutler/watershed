@@ -6,13 +6,16 @@
 // inspector's annotation over the precise printed survey sheet, not as chrome.
 //
 // Two models coexist:
-//   • Static structures (map / counter / pn) draw one or two persistent marks on
+//   • Static structures (e.g. Shared map) draw one or two persistent marks on
 //     client A plus a bracket on the op log, re-drawn (pulsed) as ops converge.
-//   • G-counter is event-driven: it draws no static marks and instead *flashes*
-//     each element as it changes through the flow — the origin's tally + total
-//     (magenta, pending), the log line as it is sequenced, then the tally +
-//     total on each replica as the delta lands (ink) — via transient marks that
-//     remove themselves.
+//   • Counters (Shared counter / PN counter / G-counter) are event-driven: they
+//     draw no static marks and instead *flash* each value element as it changes
+//     through the flow — magenta while pending on the origin, then ink as the op
+//     is sequenced and applied to each replica — plus a box on the log line as it
+//     is sequenced. Flash marks are transient and remove themselves.
+//
+// To add a structure to the event-driven set, register its live value selectors
+// in CHANGE_TARGETS and add a caption-only recipe. See docs/field-notes.md.
 import { annotate } from "rough-notation";
 
 const cssVar = (name) =>
@@ -26,9 +29,6 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
 
   const ink = () => cssVar("--ink");
   const magenta = () => cssVar("--overprint");
-
-  // Query inside client A's panel only — one replica carries every mark.
-  const q = (sel) => rig.querySelector(`[data-client="a"] ${sel}`);
 
   function ensureNote() {
     if (noteEl) return noteEl;
@@ -88,24 +88,57 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     flashes = [];
   }
 
-  // Circle the two elements a G-counter change touches on one replica: the
-  // author's own tally and the derived total. Magenta while the value is a
-  // pending local edit; ink once the delta has been sequenced/applied.
-  function flashGCounterChange(clientEl, authorId, pending) {
-    if (!clientEl) return;
+  // Structures whose field notes are event-driven: instead of static marks, the
+  // listed elements are snapshotted before an op is applied and any whose text
+  // changed are flashed. One selector set per structure — list every element
+  // that carries a live value the user should watch converge.
+  const CHANGE_TARGETS = {
+    map: [".dds-map tbody [data-value]"],
+    counter: ["[data-counter-value]"],
+    pn: ["[data-pn-value]", "[data-pn-fill]", "[data-pn-cut]"],
+    gcounter: ["[data-gcounter-value]", "[data-gcounter-author]"],
+  };
+
+  function isEventDriven(ddsId) {
+    return Object.prototype.hasOwnProperty.call(CHANGE_TARGETS, ddsId);
+  }
+
+  // Snapshot the current text of every live-value element in one client's panel,
+  // keyed by node (render mutates these nodes in place, so identity is stable).
+  function snapshot(ddsId, clientEl) {
+    const snap = new Map();
+    const sels = CHANGE_TARGETS[ddsId];
+    if (!sels || !clientEl) return snap;
+    for (const sel of sels)
+      for (const el of clientEl.querySelectorAll(sel))
+        snap.set(el, el.textContent);
+    return snap;
+  }
+
+  // After the op is applied, circle every value element whose text differs from
+  // the snapshot. Magenta while the change is a pending local edit; ink once the
+  // op is sequenced/applied.
+  function flashChanged(ddsId, clientEl, snap, pending) {
+    const sels = CHANGE_TARGETS[ddsId];
+    if (!sels || !clientEl) return;
     const color = pending ? magenta() : ink();
-    flash(clientEl.querySelector(`[data-gcounter-author="${authorId}"]`), {
-      type: "circle",
-      color,
-      strokeWidth: 2,
-      padding: 5,
-    });
-    flash(clientEl.querySelector("[data-gcounter-value]"), {
-      type: "circle",
-      color,
-      strokeWidth: 2,
-      padding: 7,
-    });
+    for (const sel of sels)
+      for (const el of clientEl.querySelectorAll(sel))
+        if (snap.get(el) !== el.textContent)
+          flash(el, { type: "circle", color, strokeWidth: 2, padding: 6 });
+  }
+
+  // Wrap a state-mutating render so the elements it changes get flashed. Takes
+  // the before snapshot, runs applyFn (the demo's render), then flashes diffs.
+  // A no-op passthrough unless field notes are on and this is the active view.
+  function trackChange(ddsId, clientEl, pending, applyFn) {
+    if (!active || ddsId !== currentDds || !isEventDriven(ddsId)) {
+      applyFn();
+      return;
+    }
+    const snap = snapshot(ddsId, clientEl);
+    applyFn();
+    flashChanged(ddsId, clientEl, snap, pending);
   }
 
   // Highlight the newest op-log line as it is sequenced.
@@ -136,56 +169,30 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   // Each recipe draws 1–2 marks and sets the margin caption. The mark points at
   // *where on the sheet* the merge rule is visible; the caption names the rule.
   const RECIPES = {
+    // Shared map is event-driven (see CHANGE_TARGETS): no static marks. Each
+    // cell holds a whole value, so last-write-wins is visible as an overwrite —
+    // the cell flashes magenta on a local edit, ink when a remote write lands.
     map() {
       setNote(
-        "Shared map — one key, last write wins. The circled cell holds a whole value: a race replaces it outright, it never merges.",
+        "Shared map — one key, last write wins. Each cell holds a whole value: watch a cell flash magenta the moment a client edits it, then ink when a remote write overwrites it outright. It is replaced, never merged.",
       );
-      mark(q(".dds-map tbody tr:first-child [data-value]"), {
-        type: "circle",
-        color: ink(),
-        strokeWidth: 2,
-        padding: 6,
-      });
     },
+    // Counters are event-driven (see CHANGE_TARGETS): no static marks. Every
+    // value that changes is circled as it changes — magenta while pending on the
+    // origin, ink as the op is sequenced and applied to each replica.
     counter() {
       setNote(
-        "Shared counter — increments commute. Each bracketed ± is a delta that prints magenta until sequenced; the circled total converges on the sum, nothing overwritten.",
+        "Shared counter — increments commute, so nothing is overwritten. Watch the total: it flashes magenta the moment a client edits it, then ink on every replica as the increment is sequenced and applied.",
       );
-      mark(q(".dds-counter [data-counter-value]"), {
-        type: "circle",
-        color: ink(),
-        strokeWidth: 2,
-        padding: 8,
-      });
-      mark(q(".dds-counter .counter-actions"), {
-        type: "bracket",
-        brackets: ["bottom"],
-        color: magenta(),
-        strokeWidth: 3,
-        padding: 6,
-      });
     },
     pn() {
       setNote(
-        "PN counter — net = fill − cut. The boxed ledger holds two monotone tallies that only ever grow; re-delivering a delta is absorbed, so it counts exactly once.",
+        "PN counter — net = fill − cut, two monotone tallies that only ever grow. Watch the changed tally and the net value flash magenta on edit, then ink as the delta is sequenced and applied; a re-delivered delta is absorbed, so nothing moves.",
       );
-      mark(q(".dds-pn .pn-ledger"), {
-        type: "box",
-        color: ink(),
-        strokeWidth: 2,
-        padding: 4,
-      });
-      mark(q(".dds-pn [data-pn-value]"), {
-        type: "circle",
-        color: ink(),
-        strokeWidth: 2,
-        padding: 8,
-      });
     },
-    // G-counter is fully event-driven: no static marks. Every element that
-    // changes during the flow is circled as it changes — the author tally and
-    // total on the origin (magenta, pending), the log line as it is sequenced,
-    // then the tally and total on each replica as the delta lands (ink).
+    // G-counter is event-driven too: each client owns one tally, the total is
+    // their sum. The origin's tally and total flash magenta on edit, then ink on
+    // each replica as the delta lands.
     gcounter() {
       setNote(
         "G-counter — each client owns one tally; the total is their sum. Watch every value that changes get circled as the delta flows: magenta while pending on the origin, ink as it is sequenced and applied to each replica.",
@@ -209,9 +216,9 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
         "Field notes cover Shared map, Shared counter, PN counter, and G-counter so far — switch to one of those to see its behavior marked up.",
       );
     }
-    // The persistent narration bracket is for the static structures; G-counter
-    // flashes its log line per op instead.
-    if (ddsId !== "gcounter") markNarration();
+    // The persistent narration bracket is for the static structures; the
+    // event-driven counters flash their log line per op instead.
+    if (!isEventDriven(ddsId)) markNarration();
   }
 
   function setActive(on) {
@@ -226,7 +233,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     get active() {
       return active;
     },
-    flashGCounterChange,
+    trackChange,
     flashLog,
     // Redraw the active structure's marks with the draw-in animation, so they
     // appear in sync with the demo's flow when an op converges.
