@@ -88,6 +88,13 @@ const structures = [
   },
 ];
 
+// One representative sheet per family — the homepage teases the breadth without
+// enumerating all twelve. The full catalog lives on the /structures/* pages.
+const featuredNames = ["SharedMap", "SharedCounter", "OR-Set", "Claims"];
+const featured = featuredNames.map(
+  (name) => structures.find((dds) => dds.name === name)!,
+);
+
 const flow = [
   {
     step: "1",
@@ -119,12 +126,15 @@ const flow = [
 <section class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
-      <h2 id="dds-field-title">Twelve DDS field sheets, one ordered stream</h2>
+      <h2 id="dds-field-title">One ordered stream, one explicit rule per DDS</h2>
       <p>
         watershed does not hide every conflict behind the same merge story. Each
         DDS has a small, explicit rule: what can be applied optimistically, what
-        must wait for sequencing, and what shape can be persisted in a
-        summary.
+        must wait for sequencing, and what shape can be persisted in a summary.
+      </p>
+      <p class="dds-atlas-note">
+        Four of the twelve kernels are shown here. The rest — grouped by family —
+        live in the field atlas, each with its own live demo.
       </p>
       <nav class="family-nav" aria-label="Data structures in depth">
         <span class="annot">Zoom in by family</span>
@@ -136,9 +146,9 @@ const flow = [
       </nav>
     </div>
 
-    <div class="sheet-stack" aria-label="Supported DDS kernels">
+    <div class="sheet-stack" aria-label="Featured DDS kernels">
       {
-        structures.map((dds) => (
+        featured.map((dds) => (
           <article class="field-sheet" data-reveal="rise">
             <header>
               <div>
@@ -178,9 +188,10 @@ const flow = [
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
       Maps, counters, G-counters, OR-maps, OR-sets, G-sets, 2P-sets, claims, register collections,
-      ordered collections, and pact maps all ride one ordered document stream. The
-      picker in the live demo changes the visible field sheet; the kernels stay
-      hosted together, just like DDSes sharing a Fluid container.
+      ordered collections, and pact maps all ride one ordered document stream — the
+      same one the live SharedMap demo above runs on. Open any family to switch the
+      visible kernel; they stay hosted together, just like DDSes sharing a Fluid
+      container.
     </p>
 
     <ol class="flow-steps">
@@ -223,6 +234,16 @@ const flow = [
     grid-template-columns: minmax(15rem, 0.8fr) minmax(0, 1.5fr);
     gap: clamp(var(--space-xl), 6vw, 6rem);
     align-items: start;
+  }
+
+  .dds-copy {
+    position: sticky;
+    top: clamp(var(--space-xl), 12vh, 8rem);
+  }
+
+  .dds-atlas-note {
+    color: var(--muted);
+    font-size: var(--text-sm);
   }
 
   h2 {

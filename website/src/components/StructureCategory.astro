@@ -1,6 +1,7 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
+import Demo from "../components/Demo.astro";
 import { categories, structuresBySlug } from "../data/structures";
 
 interface Props {
@@ -17,6 +18,9 @@ const idx = categories.findIndex((c) => c.slug === slug);
 const prev = idx > 0 ? categories[idx - 1] : categories[categories.length - 1];
 const next =
   idx < categories.length - 1 ? categories[idx + 1] : categories[0];
+
+// Scope the shared live demo to this family's structures.
+const familyViews = category.structures.map((s) => s.id);
 ---
 
 <Sheet
@@ -52,6 +56,28 @@ const next =
       </nav>
     </div>
   </header>
+
+  <Demo
+    views={familyViews}
+    initial={familyViews[0]}
+    heading={`Watch ${category.name.toLowerCase()} converge`}
+    otJump={false}
+  >
+    <Fragment slot="intro">
+      <p>
+        Every structure in this family runs live below, on watershed’s real
+        Gleam kernels. Pending edits print in
+        <strong class="k-pending">magenta</strong>; once the sequencer stamps an
+        SN, every replica lands the same <strong class="k-seq">ink</strong>
+        state. Switch structures with the picker — all of them share one ordered
+        stream, exactly like DDSes in a single container.
+      </p>
+      <p class="demo-hint">
+        Nudge a value, race a concurrent write, or stretch the link latency to
+        watch each merge rule hold.
+      </p>
+    </Fragment>
+  </Demo>
 
   <main class="plates">
     {

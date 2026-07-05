@@ -56,165 +56,182 @@ const counterSteps = [-5, -1, 1, 5];
 const gCounterSteps = [1, 3, 7];
 const pnCutSteps = [-6, -2];
 const pnFillSteps = [2, 6];
+
+// ── instance configuration ────────────────────────────────────────────────
+// The demo hosts every kernel on one shared sequencer; `views` selects which
+// structures this instance offers in its picker. The homepage runs a focused
+// SharedMap proof (`views={["map"]}`); each /structures/* page scopes the
+// picker to its own family. All kernels still boot on every instance — the
+// picker just decides which are reachable, matching DDSes sharing a container.
+const ALL_VIEWS = [
+  "map", "counter", "gcounter", "pn", "ormap", "orset", "gset",
+  "twopset", "claims", "registers", "ordered", "tasks", "pact",
+] as const;
+
+interface Props {
+  views?: readonly string[];
+  initial?: string;
+  showPicker?: boolean;
+  otJump?: boolean;
+  heading?: string;
+}
+
+const {
+  views = ALL_VIEWS,
+  initial = views[0] ?? "map",
+  showPicker = views.length > 1,
+  otJump = views.includes("map"),
+  heading = "Watch three clients converge",
+} = Astro.props;
+
+const show = (value: string) => views.includes(value);
+
+const PICKER_CELLS = [
+  { value: "map", label: "Shared map", kind: "DDS" },
+  { value: "counter", label: "Shared counter", kind: "DDS" },
+  { value: "gcounter", label: "G-counter", kind: "CRDT" },
+  { value: "pn", label: "PN counter", kind: "CRDT" },
+  { value: "ormap", label: "OR-map", kind: "CRDT" },
+  { value: "orset", label: "OR-set", kind: "CRDT" },
+  { value: "gset", label: "G-set", kind: "CRDT" },
+  { value: "twopset", label: "2P-set", kind: "CRDT" },
+  { value: "claims", label: "Claims", kind: "DDS" },
+  { value: "registers", label: "Registers", kind: "DDS" },
+  { value: "ordered", label: "Ordered collection", kind: "DDS" },
+  { value: "tasks", label: "TaskManager", kind: "DDS" },
+  { value: "pact", label: "Pact map", kind: "DDS" },
+].filter((cell) => show(cell.value));
 ---
 
 <section id="demo" class="demo" aria-labelledby="demo-title">
   <div class="demo-head">
-    <h2 id="demo-title">Watch three clients converge</h2>
-    <p>
-      On a photorevised survey sheet, magenta marks updates not yet
-      field-checked. This demo borrows that color code: pending edits are drawn
-      in <strong class="k-pending">magenta</strong> and sequenced state in
-      <strong class="k-seq">ink</strong>. All three clients run watershed’s real
-      Gleam code in one ordered stream — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
-      kernels, TaskManager, plus the runtime counter channel.
-    </p>
-    <p class="demo-hint">
-      Nudge a gauge, race a concurrent write, stretch the link latency — the
-      replicas always converge, each structure by its own rule.
-    </p>
-    <p class="demo-hint">
-      These structures converge by merge rules. For the other family —
-      operational transform over a shared JSON document, where concurrent edits
-      are <em>transformed</em> past one another — see the
-      <a href="/json-ot">JSON OT demo →</a>
-    </p>
+    <h2 id="demo-title">{heading}</h2>
+    <slot name="intro">
+      <p>
+        On a photorevised survey sheet, magenta marks updates not yet
+        field-checked. This demo borrows that color code: pending edits are drawn
+        in <strong class="k-pending">magenta</strong> and sequenced state in
+        <strong class="k-seq">ink</strong>. All three clients run watershed’s real
+        Gleam code in one ordered stream — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
+        kernels, TaskManager, plus the runtime counter channel.
+      </p>
+      <p class="demo-hint">
+        Nudge a gauge, race a concurrent write, stretch the link latency — the
+        replicas always converge, each structure by its own rule.
+      </p>
+      <p class="demo-hint">
+        These structures converge by merge rules. For the other family —
+        operational transform over a shared JSON document, where concurrent edits
+        are <em>transformed</em> past one another — see the
+        <a href="/json-ot">JSON OT demo →</a>
+      </p>
+    </slot>
+    <ol class="demo-legend annot" aria-label="How an edit converges">
+      <li><span class="k-pending">1 · local edit</span> prints in magenta</li>
+      <li><span class="k-flow">2 · the sequencer</span> stamps it with an SN</li>
+      <li><span class="k-seq">3 · every client</span> lands the same ink state</li>
+    </ol>
   </div>
 
   <div class="dds-switch">
-    <fieldset class="dds-picker" data-dds-picker>
-      <legend class="visually-hidden">Data structure shown in all clients</legend>
-      <label>
-        <input type="radio" name="dds" value="map" checked data-dds-pick disabled />
-        <span>Shared map <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="counter" data-dds-pick disabled />
-        <span>Shared counter <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="gcounter" data-dds-pick disabled />
-        <span>G-counter <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="pn" data-dds-pick disabled />
-        <span>PN counter <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="ormap" data-dds-pick disabled />
-        <span>OR-map <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="orset" data-dds-pick disabled />
-        <span>OR-set <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="gset" data-dds-pick disabled />
-        <span>G-set <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="twopset" data-dds-pick disabled />
-        <span>2P-set <b>CRDT</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="claims" data-dds-pick disabled />
-        <span>Claims <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="registers" data-dds-pick disabled />
-        <span>Registers <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="ordered" data-dds-pick disabled />
-        <span>Ordered collection <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="tasks" data-dds-pick disabled />
-        <span>TaskManager <b>DDS</b></span>
-      </label>
-      <label>
-        <input type="radio" name="dds" value="pact" data-dds-pick disabled />
-        <span>Pact map <b>DDS</b></span>
-      </label>
-      <a class="dds-jump" href="/json-ot" aria-label="Open the JSON operational transform demo on its own page">
-        <span>JSON OT <b>OT</b></span>
-      </a>
-    </fieldset>
-    <p class="merge-rule" data-merge-rule="map">
+    {showPicker && (
+      <fieldset class="dds-picker" data-dds-picker>
+        <legend class="visually-hidden">Data structure shown in all clients</legend>
+        {PICKER_CELLS.map((cell) => (
+          <label>
+            <input
+              type="radio"
+              name="dds"
+              value={cell.value}
+              checked={cell.value === initial}
+              data-dds-pick
+              disabled
+            />
+            <span>{cell.label} <b>{cell.kind}</b></span>
+          </label>
+        ))}
+        {otJump && (
+          <a class="dds-jump" href="/json-ot" aria-label="Open the JSON operational transform demo on its own page">
+            <span>JSON OT <b>OT</b></span>
+          </a>
+        )}
+      </fieldset>
+    )}
+    <p class="merge-rule" data-merge-rule="map" hidden={initial !== "map"}>
       <strong>Merge rule — last write wins.</strong> Race two writes to the
       same key and the op the sequencer stamps later overwrites the earlier
       one, identically on every replica.
     </p>
-    <p class="merge-rule" data-merge-rule="counter" hidden>
+    <p class="merge-rule" data-merge-rule="counter" hidden={initial !== "counter"}>
       <strong>Merge rule — increments commute.</strong> Race two increments
       and both apply. The counter converges on the sum; nothing is
       overwritten.
     </p>
-    <p class="merge-rule" data-merge-rule="gcounter" hidden>
+    <p class="merge-rule" data-merge-rule="gcounter" hidden={initial !== "gcounter"}>
       <strong>Merge rule — grow-only max per replica.</strong> Each client owns
       one monotonically increasing tally. Race two inspections or deliver a
       delta twice: replicas converge by keeping the maximum count seen for
       each author.
     </p>
-    <p class="merge-rule" data-merge-rule="pn" hidden>
+    <p class="merge-rule" data-merge-rule="pn" hidden={initial !== "pn"}>
       <strong>Merge rule — deltas join a lattice.</strong> Every update
       travels as a CRDT delta; merging is commutative and idempotent. Race
       it, resend it, deliver it twice — it counts exactly once, and the
       balance converges on fill&nbsp;−&nbsp;cut.
     </p>
-    <p class="merge-rule" data-merge-rule="claims" hidden>
+    <p class="merge-rule" data-merge-rule="claims" hidden={initial !== "claims"}>
       <strong>Merge rule — first writer wins.</strong> A claim commits only
       if the slot is still unclaimed when the sequencer stamps it (or its
       reference SN matches the holder&rsquo;s exactly). Nothing prints
       optimistically: a filed claim is invisible — even to you — until it
       round-trips as won or lost.
     </p>
-    <p class="merge-rule" data-merge-rule="ormap" hidden>
+    <p class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
       <strong>Merge rule — add-wins, observed-remove.</strong> A strike only
       removes stockpile entries the striker had seen. Race a strike against a
       concurrent delivery and the row survives — with every logged yard.
       Re-opening a struck pile brings its ledger back.
     </p>
-    <p class="merge-rule" data-merge-rule="orset" hidden>
+    <p class="merge-rule" data-merge-rule="orset" hidden={initial !== "orset"}>
       <strong>Merge rule — add-wins, observed-remove.</strong> Clearing a marker
       removes only the add tags this replica had observed. Race a clear against
       a concurrent re-mark and the marker remains present because the fresh tag
       was unseen by the clear.
     </p>
-    <p class="merge-rule" data-merge-rule="gset" hidden>
+    <p class="merge-rule" data-merge-rule="gset" hidden={initial !== "gset"}>
       <strong>Merge rule — grow-only union.</strong> Marking a benchmark is a
       permanent fact. Race two marks or deliver one twice: the registry only
       grows, and duplicate deltas are absorbed.
     </p>
-    <p class="merge-rule" data-merge-rule="twopset" hidden>
+    <p class="merge-rule" data-merge-rule="twopset" hidden={initial !== "twopset"}>
       <strong>Merge rule — tombstone wins.</strong> A retired marker can never
       become active again. Race a re-place against a retire: both replicas keep
       the tombstone, and duplicate retire deltas are absorbed.
     </p>
-    <p class="merge-rule" data-merge-rule="registers" hidden>
+    <p class="merge-rule" data-merge-rule="registers" hidden={initial !== "registers"}>
       <strong>Merge rule — atomic plus retained versions.</strong> A write that
       knew the current atomic sequence wins the linearizable slot. Concurrent
       losers still append a version, so LWW reads can intentionally diverge from
       atomic reads.
     </p>
-    <p class="merge-rule" data-merge-rule="ordered" hidden>
+    <p class="merge-rule" data-merge-rule="ordered" hidden={initial !== "ordered"}>
       <strong>Merge rule — FIFO by sequence.</strong> Adds enter the queue in
       server order. Acquires remove the front item when their op sequences; a
       racing acquire may come back empty because the earlier SN already took it.
     </p>
-    <p class="merge-rule" data-merge-rule="tasks" hidden>
+    <p class="merge-rule" data-merge-rule="tasks" hidden={initial !== "tasks"}>
       <strong>Merge rule — one assignee, FIFO waiters.</strong> Volunteers join
       a per-task queue in sequenced order. The first connected volunteer owns the
       task; abandon promotes the next waiter, and complete clears the queue.
     </p>
-    <p class="merge-rule" data-merge-rule="pact" hidden>
+    <p class="merge-rule" data-merge-rule="pact" hidden={initial !== "pact"}>
       <strong>Merge rule — quorum acceptance.</strong> A set first prints as
       pending with a frozen signoff list. It becomes accepted only after every
       connected client signs off, or leaves drain the list.
     </p>
   </div>
 
-  <div class="rig" data-demo-rig data-dds="map">
+  <div class="rig" data-demo-rig data-dds={initial} data-views={views.join(",")}>
     {
       clients.map((c) => (
         <article
@@ -798,8 +815,8 @@ const pnFillSteps = [2, 6];
       Reset survey
     </button>
     <p class="status" data-status role="status">
-      <span class="stamp converged">Converged</span>
-      replicas identical · nothing pending
+      <span class="stamp booting">Loading</span>
+      booting watershed kernels…
     </p>
   </div>
 
@@ -833,6 +850,11 @@ const pnFillSteps = [2, 6];
     console.error("watershed demo failed to start", error);
     const note = document.querySelector("[data-demo-fallback]");
     if (note instanceof HTMLElement) note.hidden = false;
+    const status = document.querySelector("[data-status]");
+    if (status instanceof HTMLElement) {
+      status.innerHTML =
+        '<span class="stamp revising">Offline</span> kernels did not load — see below';
+    }
   }
 </script>
 
@@ -871,6 +893,33 @@ const pnFillSteps = [2, 6];
 
   .k-seq {
     color: var(--ink);
+  }
+
+  .k-flow {
+    color: var(--waterline);
+  }
+
+  .demo-legend {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-lg);
+    color: var(--muted);
+  }
+
+  .demo-legend li {
+    position: relative;
+    padding-left: var(--space-md);
+  }
+
+  .demo-legend li + li::before {
+    content: "→";
+    position: absolute;
+    left: calc(var(--space-lg) * -0.5 - 0.3em);
+    color: var(--hairline);
   }
 
   .dds-switch {
@@ -1876,6 +1925,10 @@ const pnFillSteps = [2, 6];
 
   .status :global(.stamp.revising) {
     color: var(--overprint-deep);
+  }
+
+  .status :global(.stamp.booting) {
+    color: var(--muted);
   }
 
   .demo-noscript {

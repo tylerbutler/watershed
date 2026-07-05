@@ -15,7 +15,27 @@ import Ecosystem from "../components/Ecosystem.astro";
 >
   <Hero />
   <main>
-    <Demo />
+    <Demo views={["map"]} initial="map" showPicker={false}>
+      <Fragment slot="intro">
+        <p>
+          On a photorevised survey sheet, magenta marks updates not yet
+          field-checked. This demo borrows that color code: pending edits are
+          drawn in <strong class="k-pending">magenta</strong> and sequenced
+          state in <strong class="k-seq">ink</strong>. All three clients run
+          watershed’s real <code>map_kernel</code> Gleam code over one ordered
+          stream — a shared map, the DDS most apps reach for first.
+        </p>
+        <p class="demo-hint">
+          Nudge a gauge, race a concurrent write, stretch the link latency — the
+          replicas always converge on last-write-wins.
+        </p>
+        <p class="demo-hint">
+          Every other structure — counters, sets, maps, and coordination
+          primitives — runs the same way on its own page. Start with the
+          <a href="/structures">field atlas →</a>
+        </p>
+      </Fragment>
+    </Demo>
     <DdsSections />
     <Architecture />
     <CodeSample />

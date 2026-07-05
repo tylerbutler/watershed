@@ -367,6 +367,13 @@ export function initDemo() {
   const rig = document.querySelector("[data-demo-rig]");
   if (!rig) return;
 
+  // Which structures this instance exposes. The homepage runs a SharedMap-only
+  // proof; each /structures/* page scopes the picker to one family. Kernels all
+  // boot regardless — `present` only gates rendering to panels that exist.
+  const present = new Set(
+    (rig.dataset.views || "map").split(",").map((v) => v.trim()).filter(Boolean),
+  );
+
   const flowLayer = rig.querySelector("[data-flow-layer]");
   const seqNode = rig.querySelector("[data-seq-node]");
   const seqCounter = rig.querySelector("[data-seq-counter]");
@@ -451,7 +458,7 @@ export function initDemo() {
     };
   }
 
-  let activeDds = "map";
+  let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
   let latency = Number(latencyInput.value);
   let sn = 0;
   let counterSn = 0;
@@ -954,19 +961,19 @@ export function initDemo() {
   }
 
   function render(client) {
-    renderMap(client);
-    renderCounter(client);
-    renderGCounter(client);
-    renderPn(client);
-    renderOrMap(client);
-    renderOrSet(client);
-    renderGSet(client);
-    renderTwoPSet(client);
-    renderClaims(client);
-    renderRegisters(client);
-    renderOrdered(client);
-    renderTaskManager(client);
-    renderPact(client);
+    if (present.has("map")) renderMap(client);
+    if (present.has("counter")) renderCounter(client);
+    if (present.has("gcounter")) renderGCounter(client);
+    if (present.has("pn")) renderPn(client);
+    if (present.has("ormap")) renderOrMap(client);
+    if (present.has("orset")) renderOrSet(client);
+    if (present.has("gset")) renderGSet(client);
+    if (present.has("twopset")) renderTwoPSet(client);
+    if (present.has("claims")) renderClaims(client);
+    if (present.has("registers")) renderRegisters(client);
+    if (present.has("ordered")) renderOrdered(client);
+    if (present.has("tasks")) renderTaskManager(client);
+    if (present.has("pact")) renderPact(client);
     renderBadge(client);
   }
 
@@ -2156,16 +2163,14 @@ export function initDemo() {
     pact: "Reload all pact maps from the accepted datum baseline summary",
   };
 
-  for (const pick of ddsPicks) {
-    pick.addEventListener("change", () => {
-      if (!pick.checked) return;
-      activeDds = pick.value;
-      rig.dataset.dds = activeDds;
-      for (const rule of mergeRules) {
-        rule.hidden = rule.dataset.mergeRule !== activeDds;
-      }
-      raceBtn.textContent = RACE_LABELS[activeDds];
-      resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
+  function applyActiveView() {
+    rig.dataset.dds = activeDds;
+    for (const rule of mergeRules) {
+      rule.hidden = rule.dataset.mergeRule !== activeDds;
+    }
+    if (raceBtn) raceBtn.textContent = RACE_LABELS[activeDds];
+    if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
+    if (replayBtn) {
       replayBtn.hidden = ![
         "gcounter",
         "pn",
@@ -2186,11 +2191,23 @@ export function initDemo() {
           : activeDds === "twopset"
             ? !lastTwoPSet
             : !lastPn;
-      renderBadge(clients.a);
-      renderBadge(clients.b);
-      renderBadge(clients.c);
+    }
+    renderBadge(clients.a);
+    renderBadge(clients.b);
+    renderBadge(clients.c);
+  }
+
+  for (const pick of ddsPicks) {
+    pick.addEventListener("change", () => {
+      if (!pick.checked) return;
+      activeDds = pick.value;
+      applyActiveView();
     });
   }
+
+  // Initialise labels / merge-rule visibility / replay state for the starting
+  // view (which may not be "map" on a scoped /structures/* page).
+  applyActiveView();
 
   latencyInput.addEventListener("input", () => {
     latency = Number(latencyInput.value);
@@ -2376,7 +2393,12 @@ export function initDemo() {
   // One scripted op on first reveal, so convergence is witnessed rather than
   // waiting to be discovered. Skipped for reduced motion (the flow dots ARE
   // the explanation) and once the visitor has already interacted.
-  if (!reducedMotion.matches && "IntersectionObserver" in window) {
+  if (
+    activeDds === "map" &&
+    present.has("map") &&
+    !reducedMotion.matches &&
+    "IntersectionObserver" in window
+  ) {
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
