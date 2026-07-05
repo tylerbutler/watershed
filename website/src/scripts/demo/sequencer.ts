@@ -36,6 +36,8 @@ export interface SequencerConfig<C extends SeqClient> {
 export interface SendOptions<C extends SeqClient, E> {
   /** Key into `clients` for the authoring replica. */
   originId: string;
+  /** Optional label riding along with the dots to name the op in flight. */
+  label?: string;
   /** Snapshot the current epoch; the returned predicate reports staleness. */
   guard?: () => () => boolean;
   /** Stamp the freshly assigned SN; the returned value is passed to onDeliver. */
@@ -45,6 +47,8 @@ export interface SendOptions<C extends SeqClient, E> {
 }
 
 export interface BroadcastOptions<C extends SeqClient> {
+  /** Optional label riding along with the dots to name the op in flight. */
+  label?: string;
   /** Optional staleness predicate; a stale hop is dropped before delivery. */
   isStale?: () => boolean;
   /** Deliver the (already-sequenced) op to one replica. */
@@ -75,10 +79,20 @@ export function createSequencer<C extends SeqClient>(
   let seqLastArrival = 0;
 
   // The sequencer → replicas fan-out, shared by `send` and `broadcast`.
-  function fanOut(isStale: () => boolean, deliver: (target: C) => void): void {
+  function fanOut(
+    isStale: () => boolean,
+    deliver: (target: C) => void,
+    label?: string,
+  ): void {
     for (const target of Object.values(clients)) {
       const hopLatency = controls.sampleLatency();
-      flow.animateDot(seqNode, target.el, controls.paced(hopLatency), true);
+      flow.animateDot(
+        seqNode,
+        target.el,
+        controls.paced(hopLatency),
+        true,
+        label,
+      );
       const tNow = performance.now();
       const tArrival = Math.max(
         tNow + controls.paced(hopLatency),
@@ -118,6 +132,7 @@ export function createSequencer<C extends SeqClient>(
         seqNode,
         controls.paced(originLatency),
         false,
+        opts.label,
       );
 
       // FIFO into the sequencer: an op may not overtake an earlier one even if
@@ -138,14 +153,18 @@ export function createSequencer<C extends SeqClient>(
         sn += 1;
         const extra = opts.onSequence(sn);
         const seq = sn;
-        fanOut(isStale, (target) => opts.onDeliver(target, { seq, extra }));
+        fanOut(
+          isStale,
+          (target) => opts.onDeliver(target, { seq, extra }),
+          opts.label,
+        );
         inFlight = Math.max(0, inFlight - 1);
         onChange();
       }, arrival - now);
     },
 
     broadcast(opts: BroadcastOptions<C>) {
-      fanOut(opts.isStale ?? (() => false), opts.onDeliver);
+      fanOut(opts.isStale ?? (() => false), opts.onDeliver, opts.label);
     },
 
     reset() {

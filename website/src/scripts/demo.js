@@ -1451,6 +1451,7 @@ export function initDemo() {
 
     sequencer.send({
       originId,
+      label: describeOp(ddsId, op),
       guard: () => {
         const snapshot = epochFor();
         return () => snapshot !== epochFor();
@@ -1922,6 +1923,7 @@ export function initDemo() {
     }
 
     sequencer.broadcast({
+      label: describeOp(ddsId, op),
       onDeliver: (target) => {
         // Both replicas take the duplicate through `apply_remote` — even the
         // origin, whose acked delta is already merged. Idempotence makes

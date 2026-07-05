@@ -292,6 +292,7 @@ export function initJsonOtDemo() {
   function sendToSequencer(client, wire, spot, authorId) {
     sequencer.send({
       originId: client.id,
+      label: spot.value ? `${spot.kind} ${spot.value}` : spot.kind,
       guard: () => {
         const myEpoch = epoch;
         return () => myEpoch !== epoch;

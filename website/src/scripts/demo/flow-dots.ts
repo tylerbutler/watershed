@@ -7,13 +7,15 @@ export interface FlowLayer {
   /**
    * Animate a dot from the centre of `fromEl` to the centre of `toEl` over
    * `duration` ms. `sequenced` selects the post-sequencer styling (the dot
-   * carries an assigned sequence number on the return leg).
+   * carries an assigned sequence number on the return leg). When `label` is
+   * given it rides along with the dot to name the op/value in flight.
    */
   animateDot(
     fromEl: Element,
     toEl: Element,
     duration: number,
     sequenced: boolean,
+    label?: string,
   ): void;
 }
 
@@ -39,10 +41,17 @@ export function createFlowLayer(
     toEl: Element,
     duration: number,
     sequenced: boolean,
+    label?: string,
   ): void {
     if (reducedMotion()) return;
     const dot = document.createElement("span");
     dot.className = sequenced ? "flow-dot sequenced" : "flow-dot";
+    if (label) {
+      const tag = document.createElement("span");
+      tag.className = "flow-dot-label";
+      tag.textContent = label;
+      dot.append(tag);
+    }
     flowLayer.append(dot);
     const [x0, y0] = anchor(fromEl);
     const [x1, y1] = anchor(toEl);
