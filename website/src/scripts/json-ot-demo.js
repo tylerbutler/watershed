@@ -36,15 +36,25 @@ function vObject(pairs) {
 const CREW_BASE = ["Ada", "Ben"];
 const SITE_BASE = "Mill Race";
 const STAGE_BASE = 24;
+const TREND_BASE = "steady";
 // Names each client cycles through when it adds a surveyor to the crew list.
 const NEW_NAMES = ["Cy", "Dot", "Eli", "Fen", "Gus", "Hana", "Ime", "Jo"];
 const SITE_NAMES = ["Mill Race", "Kettle Run", "Low Ford", "Spillway Gate"];
+const TREND_NAMES = ["rising", "cresting", "falling", "steady"];
 
+// The shared document nests the gauge reading in its own object, so ops like
+// `.gauge.stage` and `.gauge.trend` exercise the kernel at a deeper path.
 function baselineDoc() {
   return vObject([
     ["crew", vArray(CREW_BASE)],
+    [
+      "gauge",
+      vObject([
+        ["stage", N(STAGE_BASE)],
+        ["trend", S(TREND_BASE)],
+      ]),
+    ],
     ["site", S(SITE_BASE)],
-    ["stage", N(STAGE_BASE)],
   ]);
 }
 
@@ -105,6 +115,7 @@ export function initJsonOtDemo() {
   let epoch = 0; // bumped on reset so stale timers bail out
   const nameCursor = { a: 0, b: 0, c: 0 };
   const siteCursor = { a: 0, b: 0, c: 0 };
+  const trendCursor = { a: 0, b: 0, c: 0 };
 
   latencyOut.textContent = `${latency} ms`;
 
@@ -179,10 +190,15 @@ export function initJsonOtDemo() {
     siteEl.textContent = opt.site;
     siteEl.classList.toggle("pending", opt.site !== seq.site);
 
-    // stage
-    const stageEl = el.querySelector("[data-field='stage'] [data-value]");
-    stageEl.textContent = opt.stage;
-    stageEl.classList.toggle("pending", opt.stage !== seq.stage);
+    // stage (nested under gauge)
+    const stageEl = el.querySelector("[data-field='gauge.stage'] [data-value]");
+    stageEl.textContent = opt.gauge.stage;
+    stageEl.classList.toggle("pending", opt.gauge.stage !== seq.gauge.stage);
+
+    // trend (nested under gauge)
+    const trendEl = el.querySelector("[data-field='gauge.trend'] [data-value]");
+    trendEl.textContent = opt.gauge.trend;
+    trendEl.classList.toggle("pending", opt.gauge.trend !== seq.gauge.trend);
 
     // crew
     const crewEl = el.querySelector("[data-crew]");
@@ -219,8 +235,9 @@ export function initJsonOtDemo() {
       }
       const del = document.createElement("button");
       del.type = "button";
+      del.className = "chip-del";
       del.textContent = "×";
-      del.setAttribute("aria-label", `Remove ${chip.name} on ${CLIENT_LABEL[client.id]}`);
+      del.setAttribute("aria-label", `Remove ${chip.name} from crew on ${CLIENT_LABEL[client.id]}`);
       del.addEventListener("click", () => localCrewDelete(client.id, index));
       actions.append(del);
 
@@ -371,8 +388,21 @@ export function initJsonOtDemo() {
     const sign = delta > 0 ? "+" : "";
     localEdit(
       clientId,
-      op(jsonOt.number_add(path(K("stage")), new jsonOt.NInt(delta))),
-      { node: "stage", path: ".stage", kind: "add", value: `${sign}${delta}` },
+      op(jsonOt.number_add(path(K("gauge"), K("stage")), new jsonOt.NInt(delta))),
+      { node: "gauge.stage", path: ".gauge.stage", kind: "add", value: `${sign}${delta}` },
+    );
+  }
+
+  function localTrend(clientId) {
+    const client = clients[clientId];
+    const current = optimistic(client).gauge.trend;
+    const next = TREND_NAMES[trendCursor[clientId] % TREND_NAMES.length];
+    trendCursor[clientId] += 1;
+    if (next === current) return localTrend(clientId);
+    localEdit(
+      clientId,
+      op(jsonOt.obj_replace(path(K("gauge"), K("trend")), S(current), S(next))),
+      { node: "gauge.trend", path: ".gauge.trend", kind: "set", value: `"${next}"` },
     );
   }
 
@@ -424,6 +454,7 @@ export function initJsonOtDemo() {
     el.querySelector("[data-stage-inc]").addEventListener("click", () => localStage(id, 1));
     el.querySelector("[data-stage-dec]").addEventListener("click", () => localStage(id, -1));
     el.querySelector("[data-site-cycle]").addEventListener("click", () => localSite(id));
+    el.querySelector("[data-trend-cycle]").addEventListener("click", () => localTrend(id));
     el.querySelector("[data-crew-add]").addEventListener("click", () => localCrewAdd(id));
   }
 
@@ -464,6 +495,7 @@ export function initJsonOtDemo() {
       client.lastArrival = 0;
       nameCursor[id] = 0;
       siteCursor[id] = 0;
+      trendCursor[id] = 0;
       render(client);
     }
     seqCounter.textContent = "SN\u00a00";

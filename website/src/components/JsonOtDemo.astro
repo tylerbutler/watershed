@@ -18,12 +18,14 @@ const clients = [
       <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
-      Nudge the stage reading, rename the site, add or drop a surveyor, reorder
-      the crew, stretch the link latency, then race two inserts at the same
-      index. Numbers add commutatively; a rename is last-writer-by-sequencing;
-      but the crew list is where OT earns its keep — concurrent inserts have
-      their indices <em>transformed</em> so every replica converges to the same
-      array, positions and all.
+      Nudge the <code>gauge.stage</code> reading or flip its trend, rename the
+      site, add or remove a surveyor, reorder the crew, stretch the link latency,
+      then race two inserts at the same index. Ops address any depth — the gauge
+      lives in a nested object, so a bump targets the path
+      <code>.gauge.stage</code>. Numbers add commutatively; a rename is
+      last-writer-by-sequencing; but the crew list is where OT earns its keep —
+      concurrent inserts have their indices <em>transformed</em> so every replica
+      converges to the same array, positions and all.
     </p>
   </div>
 
@@ -56,28 +58,49 @@ const clients = [
               </button>
             </div>
 
+            <div class="jrow jrow-open" data-node="gauge">
+              <span class="jkey">"gauge"</span><span class="jp colon">: </span
+              ><span class="jp brace">{"{"}</span>
+            </div>
+
+            <div class="jnest">
+              <div class="jrow" data-field="gauge.stage" data-node="gauge.stage">
+                <span class="jkey">"stage"</span><span class="jp colon">: </span
+                ><span class="field-value num" data-value>24</span
+                ><span class="jp comma">,</span>
+                <span class="node-action-group">
+                  <button type="button" class="node-action" data-stage-dec disabled aria-label={`Lower stage on ${c.name}`}>
+                    −
+                  </button>
+                  <button type="button" class="node-action" data-stage-inc disabled aria-label={`Raise stage on ${c.name}`}>
+                    +
+                  </button>
+                </span>
+              </div>
+
+              <div class="jrow" data-field="gauge.trend" data-node="gauge.trend">
+                <span class="jkey">"trend"</span><span class="jp colon">: </span
+                ><span class="jstr"><span class="jp quote">"</span
+                  ><span class="field-value" data-value>steady</span
+                  ><span class="jp quote">"</span></span>
+                <button type="button" class="node-action" data-trend-cycle disabled aria-label={`Cycle the gauge trend on ${c.name}`}>
+                  cycle
+                </button>
+              </div>
+            </div>
+
+            <div class="jrow jrow-close" data-node="gauge">
+              <span class="jp brace">{"}"}</span><span class="jp comma">,</span>
+            </div>
+
             <div class="jrow" data-field="site" data-node="site">
               <span class="jkey">"site"</span><span class="jp colon">: </span
               ><span class="jstr"><span class="jp quote">"</span
                 ><span class="field-value" data-value>Mill Race</span
-                ><span class="jp quote">"</span></span
-              ><span class="jp comma">,</span>
+                ><span class="jp quote">"</span></span>
               <button type="button" class="node-action" data-site-cycle disabled aria-label={`Rename the site on ${c.name}`}>
                 rename
               </button>
-            </div>
-
-            <div class="jrow" data-field="stage" data-node="stage">
-              <span class="jkey">"stage"</span><span class="jp colon">: </span
-              ><span class="field-value num" data-value>24</span>
-              <span class="node-action-group">
-                <button type="button" class="node-action" data-stage-dec disabled aria-label={`Lower stage on ${c.name}`}>
-                  −
-                </button>
-                <button type="button" class="node-action" data-stage-inc disabled aria-label={`Raise stage on ${c.name}`}>
-                  +
-                </button>
-              </span>
             </div>
 
             <span class="jp brace">{"}"}</span>
@@ -270,6 +293,20 @@ const clients = [
     transition: background var(--dur-state) var(--ease-out-quart);
   }
 
+  .jnest .jrow {
+    padding-inline-start: 3rem;
+  }
+
+  /* The `{` / `}` lines that bracket the nested object carry no value, so
+     tighten their vertical rhythm against the members they wrap. */
+  .jrow-open {
+    padding-block-end: 0.1rem;
+  }
+
+  .jrow-close {
+    padding-block-start: 0.1rem;
+  }
+
   .crew-row {
     align-items: baseline;
   }
@@ -374,7 +411,7 @@ const clients = [
     display: inline-flex;
     gap: 0.05rem;
     margin-inline-start: 0.15rem;
-    opacity: 0;
+    opacity: 0.55;
     transition: opacity var(--dur-feedback) var(--ease-out-quart);
   }
 
@@ -390,8 +427,12 @@ const clients = [
     cursor: pointer;
     padding: 0 0.15rem;
     line-height: 1;
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     transition: color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .crew :global(.chip-actions .chip-del:hover) {
+    color: var(--overprint-deep);
   }
 
   .crew :global(.chip-actions button:hover) {
@@ -670,6 +711,15 @@ const clients = [
     .node-action {
       min-inline-size: 2.4rem;
       min-block-size: 2.2rem;
+    }
+
+    .crew :global(.chip-actions) {
+      opacity: 1;
+    }
+
+    .crew :global(.chip-actions button) {
+      min-inline-size: 1.9rem;
+      min-block-size: 1.9rem;
     }
 
     .race-btn,
