@@ -211,9 +211,11 @@ const familyViews = category.structures.map((s) => s.id);
     overflow-wrap: break-word;
   }
 
-  @media (max-width: 420px) {
+  @media (max-width: 30rem) {
     h1 {
       font-size: clamp(2.1rem, 10vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
     }
   }
 
@@ -303,6 +305,7 @@ const familyViews = category.structures.map((s) => s.id);
     border: 1px solid var(--ink);
     background: var(--bg);
     padding: clamp(var(--space-lg), 3vw, var(--space-2xl));
+    min-width: 0;
   }
 
   .plate-mark {

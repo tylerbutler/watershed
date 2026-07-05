@@ -1138,6 +1138,7 @@ const PICKER_CELLS = [
     background: var(--bg);
     display: flex;
     flex-direction: column;
+    min-width: 0;
   }
 
   .client-head {
@@ -1609,6 +1610,16 @@ const PICKER_CELLS = [
     font-style: italic;
   }
 
+  /* Set-membership tables show word states ("recorded", "retired", "marked"),
+     not numbers — the 1.5rem gauge size is for numeric values. Match the
+     body-size word values the claims/register/pact tables already use: keeps
+     status reading as a label and the table within the sheet frame on phones. */
+  .orset-value,
+  .gset-value,
+  .twopset-value {
+    font-size: var(--text-body);
+  }
+
   .orset-note,
   .gset-note,
   .twopset-note {
@@ -1967,6 +1978,15 @@ const PICKER_CELLS = [
     .dds-picker {
       width: 100%;
       grid-template-columns: 1fr;
+    }
+  }
+
+  /* Narrowest phones (~360px): tighten table gutters so the widest ledger
+     (the set-membership tables) stays inside the sheet frame. */
+  @media (max-width: 25rem) {
+    .gauge-table th,
+    .gauge-table td {
+      padding-inline: var(--space-xs);
     }
   }
 

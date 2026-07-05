@@ -257,6 +257,16 @@ const rows = [
     color: var(--overprint-deep);
   }
 
+  /* Narrow screens: the 122% width expansion overflows the sheet frame; relax
+     it to normal width and tighten the size floor (matches the hero). */
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
   .lede {
     margin-top: var(--space-xl);
     font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
@@ -278,7 +288,7 @@ const rows = [
     margin-inline: auto;
     padding: var(--space-2xl) var(--content-pad);
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
     gap: var(--space-lg);
   }
 
