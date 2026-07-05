@@ -97,6 +97,9 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     counter: ["[data-counter-value]"],
     pn: ["[data-pn-value]", "[data-pn-fill]", "[data-pn-cut]"],
     gcounter: ["[data-gcounter-value]", "[data-gcounter-author]"],
+    orset: ["[data-orset-value]"],
+    gset: ["[data-gset-value]"],
+    twopset: ["[data-twopset-value]"],
   };
 
   function isEventDriven(ddsId) {
@@ -198,6 +201,24 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
         "G-counter — each client owns one tally; the total is their sum. Watch every value that changes get circled as the delta flows: magenta while pending on the origin, ink as it is sequenced and applied to each replica.",
       );
     },
+    // The sets are event-driven too (see CHANGE_TARGETS): no static marks. Each
+    // row's state text is the live value — watch it flash magenta on a local
+    // edit, then ink as the op is sequenced and applied to each replica.
+    orset() {
+      setNote(
+        "OR-set — add-wins, observed-remove. Watch a marker's state flash magenta the moment a client edits it, then ink as the op is sequenced and applied. Race a clear against a concurrent re-mark and the marker stays present — the fresh tag was unseen by the clear.",
+      );
+    },
+    gset() {
+      setNote(
+        "G-set — grow-only union; marking a benchmark is a permanent fact. Watch a row flash magenta on edit, then ink as the op is sequenced and applied to each replica. The registry only grows, and a re-delivered delta is absorbed, so nothing moves.",
+      );
+    },
+    twopset() {
+      setNote(
+        "2P-set — tombstone wins; a retired marker never comes back. Watch a row flash magenta on edit, then ink as the op is sequenced and applied. Race a re-place against a retire and both replicas keep the tombstone; a re-delivered retire is absorbed, so nothing moves.",
+      );
+    },
   };
 
   function render(ddsId) {
@@ -213,7 +234,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
       recipe();
     } else {
       setNote(
-        "Field notes cover Shared map, Shared counter, PN counter, and G-counter so far — switch to one of those to see its behavior marked up.",
+        "Field notes cover Shared map, Shared counter, PN counter, G-counter, OR-set, G-set, and 2P-set so far — switch to one of those to see its behavior marked up.",
       );
     }
     // The persistent narration bracket is for the static structures; the

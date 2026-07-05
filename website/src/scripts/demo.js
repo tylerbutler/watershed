@@ -465,7 +465,15 @@ export function initDemo() {
   let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
   // Structures whose field notes flash the values that change (see tutorial.js
   // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
-  const FIELD_FLASH = new Set(["map", "counter", "pn", "gcounter"]);
+  const FIELD_FLASH = new Set([
+    "map",
+    "counter",
+    "pn",
+    "gcounter",
+    "orset",
+    "gset",
+    "twopset",
+  ]);
   let latency = Number(latencyInput.value);
   // Global playback speed for every demo animation and choreography delay. 1×
   // is the original pace; the control ships at 0.5× so the demo reads at half
@@ -1628,7 +1636,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = orSetKernel.add(client.orset, element);
     client.orset = next;
-    render(client);
+    fieldNotes.trackChange("orset", client.el, true, () => render(client));
     submit(clientId, "orset", op);
   }
 
@@ -1636,7 +1644,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = orSetKernel.remove(client.orset, element);
     client.orset = next;
-    render(client);
+    fieldNotes.trackChange("orset", client.el, true, () => render(client));
     submit(clientId, "orset", op);
   }
 
@@ -1644,7 +1652,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = gSetKernel.add(client.gset, element);
     client.gset = next;
-    render(client);
+    fieldNotes.trackChange("gset", client.el, true, () => render(client));
     submit(clientId, "gset", op);
   }
 
@@ -1652,7 +1660,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = twoPSetKernel.add(client.twopset, element);
     client.twopset = next;
-    render(client);
+    fieldNotes.trackChange("twopset", client.el, true, () => render(client));
     submit(clientId, "twopset", op);
   }
 
@@ -1660,7 +1668,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = twoPSetKernel.remove(client.twopset, element);
     client.twopset = next;
-    render(client);
+    fieldNotes.trackChange("twopset", client.el, true, () => render(client));
     submit(clientId, "twopset", op);
   }
 
