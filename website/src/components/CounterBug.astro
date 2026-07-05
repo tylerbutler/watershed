@@ -1,0 +1,567 @@
+---
+// The counter-in-a-map bug: a live, real-`map_kernel` demonstration of the
+// classic distributed-systems lost update. Two lock gauge houses keep one
+// running tally in a SharedMap; concurrent read-modify-write drops a boat under
+// last-write-wins. A second live rig (per-replica keys) shows the fix. Both run
+// watershed's real JS-compiled Gleam kernel; rough-notation draws the attention.
+---
+
+<section id="counter-bug" class="cb" aria-label="The counter-in-a-map bug, demonstrated">
+  <div class="cb-inner">
+    <div class="cb-head">
+      <p class="cb-lede">
+        Two gauge houses at one lock keep the day's <code>boats-locked</code>
+        tally in one shared map cell. Run the race and watch a boat vanish —
+        then run the fix.
+      </p>
+    </div>
+
+    <!-- ── the buggy rig ─────────────────────────────────────────────────── -->
+    <figure
+      class="cb-rig"
+      data-counter-bug="bug"
+      data-caption-idle="Press “Demonstrate the bug” to race two concurrent tallies through the real map_kernel."
+      data-state="idle"
+    >
+      <figcaption class="cb-rig-label annot">
+        <span class="cb-badge cb-badge-bug">SharedMap · one shared key</span>
+        <code>map_kernel · boats-locked</code>
+      </figcaption>
+
+      <div class="cb-stage">
+        <div class="cb-house" data-house="a">
+          <header><h3>Upstream house</h3><span class="annot">Client A</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked</span>
+            <span class="cb-value" data-cell="a">41</span>
+          </div>
+        </div>
+
+        <div class="cb-seq-col" aria-hidden="true">
+          <span class="annot">sequencer</span>
+          <div class="cb-seq" data-seq></div>
+        </div>
+
+        <div class="cb-house" data-house="b">
+          <header><h3>Downstream house</h3><span class="annot">Client B</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked</span>
+            <span class="cb-value" data-cell="b">41</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="cb-caption" data-caption aria-live="polite"></p>
+
+      <div class="cb-verdict" data-verdict hidden>
+        <div class="cb-figure">
+          <span class="annot">boats actually locked</span>
+          <span class="cb-fig-num" data-expected>43</span>
+        </div>
+        <div class="cb-figure">
+          <span class="annot">tally recorded</span>
+          <span class="cb-fig-num cb-fig-loss" data-recorded>42</span>
+        </div>
+        <p class="cb-verdict-note">
+          One boat lost. LWW <strong>overwrote</strong> a read-modify-write; it
+          never <strong>added</strong>.
+        </p>
+      </div>
+
+      <div class="cb-foot">
+        <ol class="cb-log annot" data-log aria-label="Operation log"></ol>
+        <div class="cb-controls">
+          <button type="button" class="cb-btn cb-btn-primary" data-play>
+            Demonstrate the bug
+          </button>
+          <button type="button" class="cb-btn" data-reset>Reset</button>
+        </div>
+      </div>
+    </figure>
+
+    <!-- ── the fix ───────────────────────────────────────────────────────── -->
+    <div class="cb-fix-copy">
+      <p class="annot">The fix · make the writes commute</p>
+      <p>
+        Nothing is wrong with the map — a counter just is not a single mutable
+        cell. Give each replica its own key and sum them, and the two writes
+        never contend. The <em>same</em> race now converges on the right total,
+        through the <em>same</em> <code>map_kernel</code>. That accounting is
+        exactly what watershed's <a href="/structures/counters">SharedCounter</a>
+        does for you: increments are commutative deltas, not overwrites.
+      </p>
+    </div>
+
+    <figure
+      class="cb-rig cb-rig-fix"
+      data-counter-bug="fix"
+      data-caption-idle="Press “Play the fix” to run the identical race with per-replica tallies."
+      data-state="idle"
+    >
+      <figcaption class="cb-rig-label annot">
+        <span class="cb-badge cb-badge-fix">Per-replica keys · sum</span>
+        <code>map_kernel · boats-locked/a + boats-locked/b</code>
+      </figcaption>
+
+      <div class="cb-stage">
+        <div class="cb-house" data-house="a">
+          <header><h3>Upstream house</h3><span class="annot">Client A</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked/a</span>
+            <span class="cb-value" data-cell="a">20</span>
+          </div>
+        </div>
+
+        <div class="cb-seq-col" aria-hidden="true">
+          <span class="annot">sequencer</span>
+          <div class="cb-seq" data-seq></div>
+        </div>
+
+        <div class="cb-house" data-house="b">
+          <header><h3>Downstream house</h3><span class="annot">Client B</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked/b</span>
+            <span class="cb-value" data-cell="b">21</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="cb-caption" data-caption aria-live="polite"></p>
+
+      <div class="cb-verdict cb-verdict-fix" data-verdict hidden>
+        <div class="cb-figure">
+          <span class="annot">tally recorded</span>
+          <span class="cb-fig-num cb-fig-win" data-recorded>43</span>
+        </div>
+        <p class="cb-verdict-note">
+          Both boats counted. No shared cell, no lost update.
+        </p>
+      </div>
+
+      <div class="cb-foot">
+        <ol class="cb-log annot" data-log aria-label="Operation log"></ol>
+        <div class="cb-controls">
+          <button type="button" class="cb-btn cb-btn-primary" data-play>
+            Play the fix
+          </button>
+          <button type="button" class="cb-btn" data-reset>Reset</button>
+        </div>
+      </div>
+    </figure>
+
+    <p class="cb-noscript" data-cb-fallback hidden>
+      This demonstration needs JavaScript to run the live kernel. The takeaway:
+      storing a counter in a last-write-wins map loses concurrent increments —
+      use a commutative counter (watershed's
+      <a href="/structures/counters">SharedCounter</a>) instead.
+    </p>
+    <noscript>
+      <p class="cb-noscript">
+        This demonstration runs a live Gleam kernel and needs JavaScript. The
+        takeaway: storing a counter in a last-write-wins map loses concurrent
+        increments — use a commutative <a href="/structures/counters">SharedCounter</a>.
+      </p>
+    </noscript>
+  </div>
+</section>
+
+<script>
+  try {
+    const { initCounterBug } = await import("../scripts/counter-bug.js");
+    initCounterBug();
+  } catch (error) {
+    console.error("watershed counter-bug demo failed to start", error);
+    const note = document.querySelector("[data-cb-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
+</script>
+
+<style>
+  .cb {
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    border-bottom: 1px solid var(--hairline);
+    background:
+      linear-gradient(var(--hairline-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline-faint) 1px, transparent 1px),
+      var(--bg);
+    background-size: 3.5rem 3.5rem;
+  }
+
+  .cb-inner {
+    max-width: 62rem;
+    margin-inline: auto;
+  }
+
+  .cb-head p {
+    max-width: 60ch;
+  }
+
+  .cb-lede {
+    font-size: var(--text-body);
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  code {
+    font-size: 0.9em;
+    color: var(--overprint-deep);
+  }
+
+  a code {
+    color: inherit;
+  }
+
+  /* ── rig ─────────────────────────────────────────────────────────────── */
+  .cb-rig {
+    margin: var(--space-xl) 0 0;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    padding: var(--space-lg);
+  }
+
+  .cb-rig-fix {
+    margin-top: var(--space-lg);
+  }
+
+  .cb-rig-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding-bottom: var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .cb-rig-label code {
+    color: var(--muted);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .cb-badge {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid currentColor;
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+  }
+
+  .cb-badge-bug {
+    color: var(--overprint-deep);
+  }
+
+  .cb-badge-fix {
+    color: var(--waterline);
+  }
+
+  /* ── stage: A ⇄ sequencer ⇄ B ────────────────────────────────────────── */
+  .cb-stage {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: clamp(var(--space-sm), 3vw, var(--space-xl));
+    align-items: stretch;
+    margin-top: var(--space-lg);
+  }
+
+  .cb-house {
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cb-house header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .cb-house h3 {
+    font-size: 0.95rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .cb-tally {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-lg) var(--space-md) var(--space-xl);
+  }
+
+  .cb-value {
+    font-family: var(--font-mono);
+    font-size: clamp(2.6rem, 7vw, 3.8rem);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  /* pending = magenta overprint, italic like a hand-annotated revision */
+  .cb-value.pending {
+    color: var(--overprint-deep);
+    font-style: italic;
+  }
+
+  .cb-seq-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-sm);
+    padding-top: var(--space-sm);
+    min-width: 8.5rem;
+  }
+
+  .cb-seq {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    width: 100%;
+    align-items: center;
+  }
+
+  .cb-seq-chip {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    color: var(--waterline);
+    border: 1px solid var(--waterline-faint);
+    padding: 0.2rem 0.5rem;
+    white-space: nowrap;
+    animation: cb-chip-in var(--dur-state) var(--ease-out-quart);
+  }
+
+  @keyframes cb-chip-in {
+    from {
+      opacity: 0;
+      transform: translateY(-0.35rem);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* ── caption ─────────────────────────────────────────────────────────── */
+  .cb-caption {
+    margin: var(--space-lg) 0 0;
+    min-height: 3.2em;
+    max-width: none;
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-wrap: pretty;
+  }
+
+  /* ── verdict ─────────────────────────────────────────────────────────── */
+  .cb-verdict {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: clamp(var(--space-lg), 5vw, var(--space-2xl));
+    margin-top: var(--space-md);
+    padding: var(--space-lg);
+    border: 1px dashed var(--hairline);
+    background: var(--surface);
+  }
+
+  .cb-verdict-fix {
+    background: var(--bg);
+  }
+
+  .cb-verdict[hidden] {
+    display: none;
+  }
+
+  .cb-figure {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+  }
+
+  .cb-fig-num {
+    font-family: var(--font-mono);
+    font-size: clamp(2rem, 5vw, 2.8rem);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .cb-fig-loss {
+    color: var(--overprint-deep);
+  }
+
+  .cb-fig-win {
+    color: var(--waterline);
+  }
+
+  .cb-verdict-note {
+    flex: 1 1 16rem;
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--ink);
+  }
+
+  /* ── foot: log + controls ────────────────────────────────────────────── */
+  .cb-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    margin-top: var(--space-lg);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .cb-log {
+    flex: 1 1 20rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 8.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    color: var(--muted);
+  }
+
+  .cb-log li {
+    padding-left: 1.1rem;
+    text-indent: -1.1rem;
+  }
+
+  .cb-log li::before {
+    content: "· ";
+    color: var(--hairline);
+  }
+
+  .cb-log li[data-tone="pending"] {
+    color: var(--overprint-deep);
+  }
+
+  .cb-log li[data-tone="lost"] {
+    color: var(--overprint-deep);
+    font-weight: 500;
+  }
+
+  .cb-log li[data-tone="seq"] {
+    color: var(--waterline);
+    font-weight: 500;
+  }
+
+  .cb-controls {
+    display: flex;
+    gap: var(--space-sm);
+    flex-shrink: 0;
+  }
+
+  .cb-btn {
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    color: var(--ink);
+    padding: var(--space-sm) var(--space-lg);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cb-btn:hover:enabled {
+    background: var(--surface);
+  }
+
+  .cb-btn:active:enabled {
+    transform: scale(0.97);
+  }
+
+  .cb-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .cb-btn-primary {
+    background: var(--overprint);
+    border-color: var(--overprint);
+    color: oklch(100% 0 0);
+  }
+
+  .cb-btn-primary:hover:enabled {
+    background: var(--overprint-deep);
+    border-color: var(--overprint-deep);
+  }
+
+  .cb-rig-fix .cb-btn-primary {
+    background: var(--waterline);
+    border-color: var(--waterline);
+  }
+
+  .cb-rig-fix .cb-btn-primary:hover:enabled {
+    background: oklch(30% 0.095 240);
+    border-color: oklch(30% 0.095 240);
+  }
+
+  /* ── fix copy ────────────────────────────────────────────────────────── */
+  .cb-fix-copy {
+    margin-top: var(--space-2xl);
+  }
+
+  .cb-fix-copy p + p {
+    margin-top: var(--space-sm);
+  }
+
+  .cb-fix-copy > p:last-child {
+    max-width: 60ch;
+  }
+
+  .cb-noscript {
+    margin-top: var(--space-lg);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  @media (max-width: 640px) {
+    .cb-stage {
+      grid-template-columns: 1fr;
+      gap: var(--space-md);
+    }
+
+    .cb-seq-col {
+      order: 3;
+      min-width: 0;
+      padding-top: 0;
+    }
+
+    .cb-seq {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .cb-foot {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .cb-controls {
+      justify-content: stretch;
+    }
+
+    .cb-btn {
+      flex: 1;
+    }
+  }
+</style>

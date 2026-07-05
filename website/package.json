@@ -13,7 +13,8 @@
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.5",
     "@fontsource/fragment-mono": "^5.2.5",
-    "astro": "^5.7.0"
+    "astro": "^5.7.0",
+    "rough-notation": "^0.5.1"
   },
   "devDependencies": {
     "puppeteer-core": "^25.3.0"

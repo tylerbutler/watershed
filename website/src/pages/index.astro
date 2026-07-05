@@ -29,6 +29,14 @@ import Ecosystem from "../components/Ecosystem.astro";
           Nudge a gauge, race a concurrent write, stretch the link latency — the
           replicas always converge on last-write-wins.
         </p>
+        <aside class="demo-bug-teaser">
+          <p>
+            <strong>…but last-write-wins has a famous failure mode.</strong>
+            Store a <em>counter</em> in this map and concurrent increments
+            silently overwrite each other — the classic distributed-systems bug.
+          </p>
+          <a href="/counter-bug">Watch a boat vanish, live →</a>
+        </aside>
         <p class="demo-hint">
           Every other structure runs the same way on its own page. Start with the
           <a href="/structures">field atlas →</a>
@@ -49,3 +57,44 @@ import Ecosystem from "../components/Ecosystem.astro";
   initReveals();
   initHeroDrift();
 </script>
+
+<style>
+  /* Teaser callout inside the SharedMap demo intro — the LWW-is-a-trap hook
+     that routes to the dedicated /counter-bug page. Magenta = attention, the
+     sheet's "unverified revision" cue. */
+  .demo-bug-teaser {
+    margin-top: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--overprint);
+    background: var(--surface);
+    max-width: 62ch;
+  }
+
+  .demo-bug-teaser p {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--ink);
+  }
+
+  .demo-bug-teaser strong {
+    color: var(--overprint-deep);
+  }
+
+  .demo-bug-teaser em {
+    font-style: italic;
+  }
+
+  .demo-bug-teaser a {
+    display: inline-block;
+    margin-top: var(--space-xs);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--overprint-deep);
+    text-decoration: none;
+    border-bottom: 1px solid var(--overprint-faint);
+  }
+
+  .demo-bug-teaser a:hover {
+    border-bottom-color: var(--overprint-deep);
+  }
+</style>

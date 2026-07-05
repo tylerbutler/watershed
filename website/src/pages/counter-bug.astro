@@ -1,0 +1,108 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import CounterBug from "../components/CounterBug.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+---
+
+<Sheet
+  title="watershed — a counter is not a map cell"
+  description="The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's real map_kernel, then see the fix."
+>
+  <header class="page-hero">
+    <div class="page-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/#demo">← watershed</a> · SharedMap · a common miswiring
+      </p>
+      <h1>A counter is not<br />a <em>map cell.</em></h1>
+      <p class="lede">
+        The SharedMap on the homepage converges cleanly — last-write-wins is the
+        right rule for a map. But it is the single most common way a first
+        collaborative <strong>counter</strong> loses data: store a running count
+        in a map cell, do read-modify-write from two clients at once, and one
+        increment is silently overwritten. Here it is, live, through watershed's
+        real <code>map_kernel</code>.
+      </p>
+      <div class="cta-row">
+        <a class="cta-quiet" href="#counter-bug">See the bug ↓</a>
+        <a class="cta-quiet" href="/structures/counters">SharedCounter, the fix →</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <CounterBug />
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .page-hero {
+    padding: clamp(3.5rem, 9vw, 7.5rem) var(--content-pad)
+      clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .page-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 16ch;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 56ch;
+    color: var(--ink);
+  }
+
+  .lede code {
+    font-size: 0.9em;
+    color: var(--overprint-deep);
+  }
+
+  .cta-row {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+  }
+</style>
