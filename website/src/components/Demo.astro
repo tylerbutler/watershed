@@ -76,6 +76,12 @@ const pnFillSteps = [2, 6];
       stretch the link latency, race a concurrent write. The replicas always
       converge — each structure by its own rule.
     </p>
+    <p class="demo-hint">
+      These structures converge by merge rules. For the other family —
+      operational transform over a shared JSON document, where concurrent edits
+      are <em>transformed</em> past one another — see the
+      <a href="/json-ot">JSON OT demo →</a>
+    </p>
   </div>
 
   <div class="dds-switch">
@@ -133,6 +139,9 @@ const pnFillSteps = [2, 6];
         <input type="radio" name="dds" value="pact" data-dds-pick disabled />
         <span>Pact map <b>DDS</b></span>
       </label>
+      <a class="dds-jump" href="/json-ot" aria-label="Open the JSON operational transform demo on its own page">
+        <span>JSON OT <b>OT</b></span>
+      </a>
     </fieldset>
     <p class="merge-rule" data-merge-rule="map">
       <strong>Merge rule — last write wins.</strong> Race two writes to the
@@ -919,6 +928,37 @@ const pnFillSteps = [2, 6];
     letter-spacing: 0.06em;
     line-height: 1.25;
     text-transform: uppercase;
+    background: var(--hairline-faint);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      border-color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  /* Tag = convergence family, color-coded in the sheet's own palette:
+     DDS (server-sequenced) reads in ink; CRDT (converges by merge) in the
+     waterline blue that already marks "converged"; OT (ops transformed in
+     flight) in the magenta that marks pending, unsettled state. Faint fill in
+     the family hue so the tag carries a little color without a new hue. */
+  .dds-picker label:has(input[value="map"]) b,
+  .dds-picker label:has(input[value="counter"]) b,
+  .dds-picker label:has(input[value="claims"]) b,
+  .dds-picker label:has(input[value="registers"]) b,
+  .dds-picker label:has(input[value="ordered"]) b,
+  .dds-picker label:has(input[value="tasks"]) b,
+  .dds-picker label:has(input[value="pact"]) b {
+    color: var(--muted);
+    background: var(--hairline-faint);
+  }
+
+  .dds-picker label:has(input[value="gcounter"]) b,
+  .dds-picker label:has(input[value="pn"]) b,
+  .dds-picker label:has(input[value="ormap"]) b,
+  .dds-picker label:has(input[value="orset"]) b,
+  .dds-picker label:has(input[value="gset"]) b,
+  .dds-picker label:has(input[value="twopset"]) b {
+    color: var(--waterline);
+    background: var(--waterline-faint);
   }
 
   /* radio stays in the tree (focusable, arrow-key switchable), drawn by label */
@@ -935,6 +975,14 @@ const pnFillSteps = [2, 6];
     color: var(--bg);
   }
 
+  /* On the selected (ink) cell the family fill would muddy; reset the tag to a
+     clean translucent-white chip so it stays legible on ink. */
+  .dds-picker label:has(input:checked) b {
+    color: var(--bg);
+    background: oklch(100% 0 0 / 0.16);
+    border-color: currentColor;
+  }
+
   .dds-picker label:hover:not(:has(input:checked)):not(:has(input:disabled)) {
     background: var(--surface);
   }
@@ -947,6 +995,66 @@ const pnFillSteps = [2, 6];
   .dds-picker label:has(input:disabled) {
     opacity: 0.45;
     cursor: default;
+  }
+
+  /* A jump-out cell in the picker grid: same shape as a radio label, but it
+     links to the dedicated JSON OT page instead of switching the in-page view. */
+  .dds-jump {
+    position: relative;
+    padding: 0.55rem 1.15rem;
+    box-shadow:
+      1px 0 0 var(--ink),
+      0 1px 0 var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    color: var(--overprint-deep);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .dds-jump span {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .dds-jump span::after {
+    content: "→";
+    color: currentColor;
+  }
+
+  .dds-jump b {
+    padding: 0.05rem 0.28rem 0;
+    border: 1px solid currentColor;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    line-height: 1.25;
+    text-transform: uppercase;
+    background: var(--overprint-faint);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      border-color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .dds-jump:hover {
+    background: var(--overprint);
+    color: var(--bg);
+  }
+
+  /* the whole cell fills magenta on hover, so flip the OT tag to a clean
+     translucent-white chip to keep it readable */
+  .dds-jump:hover b {
+    color: var(--bg);
+    background: oklch(100% 0 0 / 0.18);
+    border-color: currentColor;
   }
 
   .merge-rule {
