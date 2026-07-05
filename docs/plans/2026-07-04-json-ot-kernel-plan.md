@@ -219,7 +219,7 @@ deriving fresh, and treat the ported spec + TP1 fuzz as the acceptance gate.
 
 ## Implementation status & deviations
 
-Rungs 1–5 are implemented on branch `json-ot-kernel`. Two deviations from the
+Rungs 1–6 are implemented on branch `json-ot-kernel`. Two deviations from the
 sketch above matter:
 
 - **Single-inflight, not `pending: List`.** The kernel is the client-transform
@@ -240,6 +240,22 @@ User-facing API: `watershed.create_json_ot` / `submit_json_ot` / `json_ot_view`
 / `json_ot_view` (javascript). Convergence is proved by the bespoke
 `json_ot_kernel_converge_test` (json0 ops are state-dependent, so the static
 `KernelModel` fuzz harness does not fit).
+
+### Rung 6 (reconnect rebase + rollback)
+
+- **Reconnect rebase needs no json0-specific code.** The generic
+  `runtime_core.resubmit` / `restamp_in_flight` re-sends an unacked op with a
+  fresh CSN and envelope RSN but leaves the json0 wire op's internal `ref_seq`
+  and components untouched. Receivers rebase it past `(ref_seq, head]` via the
+  transform window — the same window the convergence harness already exercises
+  (clients submit at a stale `ref_seq` while other clients' ops interleave
+  ahead of them). So the existing convergence proof covers the reconnect-gap
+  case; design decision #2 holds without extra threading.
+- **Rollback is the kernel's pure `invert`.** Deletes carry their pre-image
+  (`od`/`ld`), so `invert(op)` restores the prior document with no external
+  snapshot. There is no live nack→rollback verb in the runtime (no kernel here
+  has one); the capability is proved by `json_ot_invert_test` round-trips
+  (obj/list/number/replace/move + compose + double-invert identity).
 
 ## Non-goals
 
