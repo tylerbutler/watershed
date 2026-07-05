@@ -1,25 +1,13 @@
 ---
+import { structureLinks } from "../data/structures";
+
 const structures = [
-  {
-    name: "SharedMap",
-    module: "map_kernel",
-    rule: "server-sequenced last write wins per key",
-    pending: "local writes can render optimistically until the sequencer stamps them",
-    summary: "JSON entries reload with the same keys the Fluid wire op names",
-  },
   {
     name: "SharedCounter",
     module: "counter_kernel",
     rule: "increments commute, so concurrent adds converge on the sum",
     pending: "local deltas can be shown beside the committed value",
     summary: "a scalar summary is enough because every op is additive",
-  },
-  {
-    name: "PN Counter",
-    module: "pn_counter_kernel",
-    rule: "positive and negative grow-only ledgers join as a CRDT lattice",
-    pending: "fill and cut deltas can be replayed without double-counting",
-    summary: "replica-tagged tallies survive reconnect and duplicate delivery",
   },
   {
     name: "G-Counter",
@@ -29,18 +17,11 @@ const structures = [
     summary: "the counts dictionary reloads with each replica’s monotone tally",
   },
   {
-    name: "OR-Map",
-    module: "or_map_kernel",
-    rule: "observed-remove with add-wins delivery under concurrent strike",
-    pending: "struck rows can stay readable until the op is ordered",
-    summary: "entries retain their causal dots, not just their visible value",
-  },
-  {
-    name: "OR-Set",
-    module: "or_set_kernel",
-    rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
-    pending: "local marker changes overprint the roster until their delta is sequenced",
-    summary: "live tags and tombstones reload under the joining replica identity",
+    name: "PN Counter",
+    module: "pn_counter_kernel",
+    rule: "positive and negative grow-only ledgers join as a CRDT lattice",
+    pending: "fill and cut deltas can be replayed without double-counting",
+    summary: "replica-tagged tallies survive reconnect and duplicate delivery",
   },
   {
     name: "G-Set",
@@ -55,6 +36,27 @@ const structures = [
     rule: "two grow-only sets join; tombstones permanently beat active membership",
     pending: "local place or retire deltas overprint the ledger until sequenced",
     summary: "active markers and retired tombstones reload together",
+  },
+  {
+    name: "OR-Set",
+    module: "or_set_kernel",
+    rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
+    pending: "local marker changes overprint the roster until their delta is sequenced",
+    summary: "live tags and tombstones reload under the joining replica identity",
+  },
+  {
+    name: "SharedMap",
+    module: "map_kernel",
+    rule: "server-sequenced last write wins per key",
+    pending: "local writes can render optimistically until the sequencer stamps them",
+    summary: "JSON entries reload with the same keys the Fluid wire op names",
+  },
+  {
+    name: "OR-Map",
+    module: "or_map_kernel",
+    rule: "observed-remove with add-wins delivery under concurrent strike",
+    pending: "struck rows can stay readable until the op is ordered",
+    summary: "entries retain their causal dots, not just their visible value",
   },
   {
     name: "Claims",
@@ -124,6 +126,14 @@ const flow = [
         must wait for sequencing, and what shape can be persisted in a
         summary.
       </p>
+      <nav class="family-nav" aria-label="Data structures in depth">
+        <span class="annot">Zoom in by family</span>
+        <a href="/structures/counters">Counters</a>
+        <a href="/structures/sets">Sets</a>
+        <a href="/structures/maps">Maps</a>
+        <a href="/structures/coordination">Coordination</a>
+        <a class="family-nav-models" href="/models">DDS vs CRDT vs OT →</a>
+      </nav>
     </div>
 
     <div class="sheet-stack" aria-label="Supported DDS kernels">
@@ -150,6 +160,12 @@ const flow = [
                 <dd>{dds.summary}</dd>
               </div>
             </dl>
+            <a
+              class="field-detail annot"
+              href={`/structures/${structureLinks[dds.name].slug}#${structureLinks[dds.name].id}`}
+            >
+              Read in depth →
+            </a>
           </article>
         ))
       }
@@ -220,6 +236,36 @@ const flow = [
   .dds-copy p,
   .flow-inner > p {
     margin-top: var(--space-lg);
+  }
+
+  .family-nav {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+  }
+
+  .family-nav .annot {
+    margin-bottom: var(--space-2xs);
+  }
+
+  .family-nav a {
+    font-weight: 500;
+    color: var(--waterline);
+    text-decoration: none;
+    border-bottom: 1px solid var(--waterline-faint);
+  }
+
+  .family-nav a:hover {
+    color: var(--overprint-deep);
+    border-bottom-color: var(--overprint-deep);
+  }
+
+  .family-nav-models {
+    margin-top: var(--space-2xs);
+    color: var(--overprint-deep) !important;
+    border-bottom-color: var(--overprint-faint) !important;
   }
 
   .sheet-stack {
@@ -297,6 +343,19 @@ const flow = [
     color: var(--ink);
     font-size: var(--text-sm);
     text-wrap: pretty;
+  }
+
+  .field-detail {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+    margin-top: var(--space-lg);
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .field-detail:hover {
+    color: var(--overprint-deep);
   }
 
   .flow-inner {

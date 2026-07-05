@@ -1,0 +1,542 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+import { categories } from "../data/structures";
+
+const dds = categories
+  .flatMap((c) => c.structures.map((s) => ({ ...s, slug: c.slug })))
+  .filter((s) => s.kind === "DDS");
+const crdt = categories
+  .flatMap((c) => c.structures.map((s) => ({ ...s, slug: c.slug })))
+  .filter((s) => s.kind === "CRDT");
+
+const models = [
+  {
+    kind: "DDS",
+    name: "Distributed Data Structure",
+    gloss: "Converges by one server’s total order.",
+    body: [
+      "A DDS is Fluid Framework’s collaborative-object abstraction. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
+      "The conflict policy lives on top of that order — last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+    ],
+    tradeoff:
+      "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on.",
+    members: dds.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
+  },
+  {
+    kind: "CRDT",
+    name: "Conflict-free Replicated Data Type",
+    gloss: "Converges by a merge function, no order required.",
+    body: [
+      "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge — no central authority needed to referee.",
+      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can re-deliver a sequenced delta and watch the merge absorb it with no double-count — a guarantee an order-dependent DDS cannot make.",
+    ],
+    tradeoff:
+      "Survives duplicate and reordered delivery and works offline, at the cost of per-item metadata — tags and tombstones — that grows over time.",
+    members: crdt.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
+  },
+  {
+    kind: "OT",
+    name: "Operational Transform",
+    gloss: "Converges by transforming ops past one another.",
+    body: [
+      "OT takes the opposite tack from CRDTs: instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions so that applying them in different orders still lands everyone in the same place.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with a single-op-in-flight client protocol. Concurrent list inserts have their indices transformed so every replica converges identically — the classic approach behind collaborative text editors.",
+    ],
+    tradeoff:
+      "Minimal per-op metadata and a natural fit for ordered sequences, at the cost of transform functions that must be correct for every pair of op types.",
+    members: [{ name: "json_ot", href: "/json-ot" }],
+  },
+];
+
+const rows = [
+  {
+    axis: "Converges via",
+    dds: "one server’s total order",
+    crdt: "a commutative merge function",
+    ot: "pairwise op transforms",
+  },
+  {
+    axis: "Needs a sequencer",
+    dds: "Yes — the order is the truth",
+    crdt: "No (watershed uses one anyway)",
+    ot: "Yes — to assign the order to transform against",
+  },
+  {
+    axis: "Duplicate / reordered delivery",
+    dds: "guarded by sequence numbers",
+    crdt: "absorbed by the merge itself",
+    ot: "handled by the in-flight protocol",
+  },
+  {
+    axis: "Per-item metadata",
+    dds: "minimal",
+    crdt: "grows — tags and tombstones",
+    ot: "minimal, per op",
+  },
+  {
+    axis: "Offline / unreliable links",
+    dds: "policy-dependent",
+    crdt: "strong — the design point",
+    ot: "workable with buffering",
+  },
+  {
+    axis: "Best fit",
+    dds: "clear authority, coordination",
+    crdt: "offline-first, at-least-once delivery",
+    ot: "text and ordered sequences",
+  },
+];
+---
+
+<Sheet
+  title="watershed — DDS vs CRDT vs OT"
+  description="Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+>
+  <header class="mod-hero">
+    <div class="mod-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/">← watershed</a> · <a href="/structures">Data structures</a> /
+        Convergence models
+      </p>
+      <h1>Three ways to<br /><em>agree on state.</em></h1>
+      <p class="lede">
+        Every structure watershed ships has to answer one question: when two
+        clients change the same thing at once, how does everyone end up in the
+        same state? There are three answers in this codebase — order it, merge
+        it, or transform it — and each is the right one somewhere.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <section class="mod-cards" aria-label="Convergence models">
+      {
+        models.map((m) => (
+          <article class="mod-card" data-reveal="rise">
+            <header class="mod-card-head">
+              <span class="stamp" data-kind={m.kind}>
+                {m.kind}
+              </span>
+              <h2>{m.name}</h2>
+              <p class="mod-gloss">{m.gloss}</p>
+            </header>
+            <div class="mod-card-body">
+              {m.body.map((para) => (
+                <p>{para}</p>
+              ))}
+              <p class="mod-tradeoff">{m.tradeoff}</p>
+            </div>
+            <footer class="mod-members">
+              <span class="annot">In watershed</span>
+              <ul>
+                {m.members.map((mem) => (
+                  <li>
+                    <a href={mem.href}>
+                      <code>{mem.name}</code>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </footer>
+          </article>
+        ))
+      }
+    </section>
+
+    <section class="mod-table-section" aria-labelledby="mod-table-title">
+      <h2 id="mod-table-title">Side by side</h2>
+      <p class="mod-table-intro">
+        The same axes, three answers. None of these is strictly better; they
+        trade a sequencer, metadata, and offline behavior against one another.
+      </p>
+      <div class="mod-table-scroll" role="region" aria-labelledby="mod-table-title" tabindex="0">
+        <table class="mod-table">
+          <thead>
+            <tr>
+              <th scope="col"><span class="visually-hidden">Property</span></th>
+              <th scope="col"><span class="th-kind" data-kind="DDS">DDS</span></th>
+              <th scope="col"><span class="th-kind" data-kind="CRDT">CRDT</span></th>
+              <th scope="col"><span class="th-kind" data-kind="OT">OT</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              rows.map((r) => (
+                <tr>
+                  <th scope="row">{r.axis}</th>
+                  <td>{r.dds}</td>
+                  <td>{r.crdt}</td>
+                  <td>{r.ot}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mod-guide" aria-labelledby="mod-guide-title">
+      <div class="mod-guide-inner">
+        <h2 id="mod-guide-title">Which should you reach for?</h2>
+        <ol class="mod-guide-list">
+          <li>
+            <strong>Start with a DDS.</strong> If a central server is already in
+            the loop and last-write-wins or explicit coordination is acceptable,
+            an order-based DDS is the least machinery for the job. Reach for
+            <a href="/structures/maps#map">SharedMap</a>,
+            <a href="/structures/coordination#claims">Claims</a>, or
+            <a href="/structures/coordination#pact">Pact map</a>.
+          </li>
+          <li>
+            <strong>Reach for a CRDT when delivery is unreliable.</strong> Offline
+            edits, at-least-once delivery, or a counter that must survive a
+            re-sent delta call for a merge that does not care about order —
+            <a href="/structures/counters#pn">PN counter</a>,
+            <a href="/structures/sets#orset">OR-set</a>, or
+            <a href="/structures/maps#ormap">OR-map</a>.
+          </li>
+          <li>
+            <strong>Reach for OT for ordered sequences.</strong> Collaborative
+            text and lists, where positions shift as others edit, are what
+            transform functions were built for — see the
+            <a href="/json-ot">json_ot demo</a>.
+          </li>
+        </ol>
+        <div class="mod-cta">
+          <a class="cta-primary" href="/structures">Back to the field guide</a>
+          <a class="cta-quiet" href="/#demo">Watch all three converge ↓</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .mod-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .mod-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 58ch;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  /* ── model cards ──────────────────────────────────────────────────────── */
+  .mod-cards {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: var(--space-2xl) var(--content-pad);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    gap: var(--space-lg);
+  }
+
+  .mod-card {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    padding: var(--space-xl);
+  }
+
+  .mod-card-head {
+    border-bottom: 1px solid var(--hairline);
+    padding-bottom: var(--space-md);
+  }
+
+  .stamp {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.18rem 0.5rem;
+    border: 1.5px solid currentColor;
+    color: var(--muted);
+    transform: rotate(-2deg);
+  }
+
+  .stamp[data-kind="DDS"] {
+    color: var(--ink);
+  }
+
+  .stamp[data-kind="CRDT"] {
+    color: var(--waterline);
+  }
+
+  .stamp[data-kind="OT"] {
+    color: var(--overprint-deep);
+  }
+
+  .mod-card-head h2 {
+    margin-top: var(--space-sm);
+    font-size: 1.5rem;
+    font-stretch: 114%;
+    line-height: 1.1;
+  }
+
+  .mod-gloss {
+    margin-top: var(--space-xs);
+    color: var(--overprint-deep);
+    font-size: var(--text-sm);
+  }
+
+  .mod-card-body {
+    margin-top: var(--space-md);
+    flex: 1;
+  }
+
+  .mod-card-body p {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .mod-card-body p + p {
+    margin-top: var(--space-sm);
+  }
+
+  .mod-tradeoff {
+    margin-top: var(--space-md);
+    padding-top: var(--space-md);
+    border-top: 1px dashed var(--hairline);
+    color: var(--muted) !important;
+  }
+
+  .mod-members {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .mod-members ul {
+    margin: var(--space-sm) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-sm);
+  }
+
+  .mod-members code {
+    font-size: 0.85rem;
+  }
+
+  /* ── comparison table ─────────────────────────────────────────────────── */
+  .mod-table-section {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: var(--space-2xl) var(--content-pad);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .mod-table-intro {
+    margin-top: var(--space-md);
+    color: var(--muted);
+    max-width: 58ch;
+  }
+
+  .mod-table-scroll {
+    margin-top: var(--space-xl);
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+  }
+
+  .mod-table-scroll:focus-visible {
+    outline: 2px solid var(--overprint);
+    outline-offset: 2px;
+  }
+
+  .mod-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 40rem;
+    background: var(--bg);
+  }
+
+  .mod-table th,
+  .mod-table td {
+    text-align: left;
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+    font-size: var(--text-sm);
+  }
+
+  .mod-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .mod-table tbody tr:last-child th,
+  .mod-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .mod-table tbody th[scope="row"] {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    background: var(--surface);
+    border-right: 1px solid var(--hairline);
+  }
+
+  .th-kind {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+  }
+
+  .th-kind[data-kind="CRDT"] {
+    color: var(--waterline);
+  }
+
+  .th-kind[data-kind="OT"] {
+    color: var(--overprint-deep);
+  }
+
+  /* ── guide ────────────────────────────────────────────────────────────── */
+  .mod-guide {
+    border-top: 1px solid var(--hairline);
+    background:
+      linear-gradient(var(--hairline-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline-faint) 1px, transparent 1px),
+      var(--surface);
+    background-size: 3.5rem 3.5rem;
+    padding: var(--space-section) var(--content-pad);
+  }
+
+  .mod-guide-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .mod-guide-list {
+    margin: var(--space-xl) 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-lg);
+    counter-reset: guide;
+  }
+
+  .mod-guide-list li {
+    position: relative;
+    padding-left: 3rem;
+    max-width: 64ch;
+    color: var(--ink);
+  }
+
+  .mod-guide-list li::before {
+    counter-increment: guide;
+    content: counter(guide, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.1rem;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--overprint-deep);
+  }
+
+  .mod-guide-list strong {
+    font-stretch: 110%;
+  }
+
+  .mod-cta {
+    margin-top: var(--space-2xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: oklch(100% 0 0);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
