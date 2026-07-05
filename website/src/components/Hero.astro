@@ -134,6 +134,16 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
     animation: rise var(--dur-entrance) var(--ease-out-expo) both;
   }
 
+  /* On narrow screens the 122% width expansion overflows the line; relax the
+     width and reduce the size floor so "Edit upstream." fits without clipping. */
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
   h1 em {
     font-style: normal;
     color: var(--overprint-deep);
