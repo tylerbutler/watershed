@@ -71,6 +71,19 @@
       <div class="cb-foot">
         <ol class="cb-log annot" data-log aria-label="Operation log"></ol>
         <div class="cb-controls">
+          <label class="cb-pace">
+            <span class="annot">Speed</span>
+            <input
+              type="range"
+              min="0.25"
+              max="1.5"
+              step="0.25"
+              value="0.5"
+              data-cb-pace
+              title="Playback speed — how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
+            />
+            <output data-cb-pace-out>0.5×</output>
+          </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
             Demonstrate the bug
           </button>
@@ -141,6 +154,19 @@
       <div class="cb-foot">
         <ol class="cb-log annot" data-log aria-label="Operation log"></ol>
         <div class="cb-controls">
+          <label class="cb-pace">
+            <span class="annot">Speed</span>
+            <input
+              type="range"
+              min="0.25"
+              max="1.5"
+              step="0.25"
+              value="0.5"
+              data-cb-pace
+              title="Playback speed — how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
+            />
+            <output data-cb-pace-out>0.5×</output>
+          </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
             Play the fix
           </button>
@@ -465,6 +491,31 @@
     display: flex;
     gap: var(--space-sm);
     flex-shrink: 0;
+    align-items: center;
+  }
+
+  .cb-pace {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    font-size: var(--text-sm);
+    color: var(--muted);
+  }
+
+  .cb-pace input[type="range"] {
+    width: 5.5rem;
+    accent-color: var(--overprint);
+    cursor: pointer;
+  }
+
+  .cb-rig-fix .cb-pace input[type="range"] {
+    accent-color: var(--waterline);
+  }
+
+  .cb-pace output {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 2.5em;
   }
 
   .cb-btn {

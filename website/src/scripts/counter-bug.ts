@@ -59,6 +59,23 @@ function makeRig(root, mode) {
   const caption = root.querySelector("[data-caption]");
   const seqTrack = root.querySelector("[data-seq]");
 
+  // Animation-speed slider. Lower speed → longer on-screen delays; the outcome
+  // is identical at any speed. Defaults to 0.5× (half speed) so the race is
+  // easy to follow.
+  const paceInput = root.querySelector("[data-cb-pace]");
+  const paceOut = root.querySelector("[data-cb-pace-out]");
+  let animSpeed = paceInput ? Number(paceInput.value) : 0.5;
+  if (paceInput && paceOut) {
+    const fmt = (v) => `${v}×`;
+    paceOut.textContent = fmt(animSpeed);
+    paceInput.addEventListener("input", () => {
+      animSpeed = Number(paceInput.value);
+      paceOut.textContent = fmt(animSpeed);
+    });
+  }
+  // Scale a base delay to wall-clock ms at the current playback speed.
+  const pacedWait = (ms) => wait(ms / animSpeed);
+
   const keyFor = (id) => (mode === "fix" ? `${KEY}/${id}` : KEY);
 
   // A live registry of rough-notation annotations so we can clear them on reset.
@@ -186,6 +203,7 @@ function makeRig(root, mode) {
     readModifyWrite,
     deliver,
     total,
+    wait: pacedWait,
   };
 }
 
@@ -198,7 +216,7 @@ async function playBug(rig) {
   rig.root.dataset.state = "running";
 
   rig.caption.textContent = "Both gauge houses agree: 41 boats locked through today.";
-  await wait(700);
+  await rig.wait(700);
 
   // 1 — both read the shared tally
   rig.mark(rig.cells.a, { type: "box", color: blue, strokeWidth: 2, padding: 5 });
@@ -206,28 +224,28 @@ async function playBug(rig) {
   rig.caption.textContent = "A boat locks through each house at the same moment. Both read the tally: 41.";
   rig.logLine("A reads boats-locked → 41");
   rig.logLine("B reads boats-locked → 41");
-  await wait(1300);
+  await rig.wait(1300);
 
   // 2 — both write value + 1 locally (pending)
   const a = rig.readModifyWrite("a");
   rig.render();
   rig.mark(rig.cells.a, { type: "underline", color: magenta, strokeWidth: 3, padding: 2 });
   rig.logLine(`A writes boats-locked = 41 + 1 = 42 · sent`, "pending");
-  await wait(650);
+  await rig.wait(650);
 
   const b = rig.readModifyWrite("b");
   rig.render();
   rig.mark(rig.cells.b, { type: "underline", color: magenta, strokeWidth: 3, padding: 2 });
   rig.logLine(`B writes boats-locked = 41 + 1 = 42 · sent`, "pending");
   rig.caption.textContent = "Each house does read-modify-write on the same cell: 41 + 1 = 42. Both send set(42).";
-  await wait(1300);
+  await rig.wait(1300);
 
   // 3 — the sequencer orders them: A then B, last write wins
   rig.seqTick("SN 1 · A set 42");
-  await wait(500);
+  await rig.wait(500);
   rig.seqTick("SN 2 · B set 42");
   rig.caption.textContent = "The sequencer orders the stream: A then B. Last write wins — B's set(42) lands on top of A's.";
-  await wait(900);
+  await rig.wait(900);
 
   // 4 — deliver both to both replicas; converge on 42
   rig.deliver(rig.clients.a, "a", a.op);
@@ -237,7 +255,7 @@ async function playBug(rig) {
   rig.clients.a.pending = null;
   rig.clients.b.pending = null;
   rig.render();
-  await wait(500);
+  await rig.wait(500);
 
   // 5 — the verdict, drawn in
   const verdict = rig.root.querySelector("[data-verdict]");
@@ -247,7 +265,7 @@ async function playBug(rig) {
   recorded.textContent = String(rig.total(rig.clients.a)); // real converged value
   expected.textContent = String(BASE + 2); // two boats actually locked through
   rig.mark(expected, { type: "crossed-off", color: magenta, strokeWidth: 3, padding: 4 });
-  await wait(650);
+  await rig.wait(650);
   rig.mark(recorded, { type: "circle", color: ink, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: boats-locked = 42", "lost");
   rig.caption.textContent =
@@ -263,26 +281,26 @@ async function playFix(rig) {
   rig.root.dataset.state = "running";
 
   rig.caption.textContent = "Same start (20 + 21 = 41), but each house tallies its own column.";
-  await wait(650);
+  await rig.wait(650);
 
   rig.logLine("A reads boats-locked/a → 20");
   rig.logLine("B reads boats-locked/b → 21");
-  await wait(700);
+  await rig.wait(700);
 
   const a = rig.readModifyWrite("a");
   rig.render();
   rig.logLine("A writes boats-locked/a = 21 · sent", "pending");
-  await wait(550);
+  await rig.wait(550);
   const b = rig.readModifyWrite("b");
   rig.render();
   rig.logLine("B writes boats-locked/b = 22 · sent", "pending");
   rig.caption.textContent = "The two writes touch different keys — they can't overwrite each other.";
-  await wait(900);
+  await rig.wait(900);
 
   rig.seqTick("SN 1 · A set /a=21");
-  await wait(450);
+  await rig.wait(450);
   rig.seqTick("SN 2 · B set /b=22");
-  await wait(700);
+  await rig.wait(700);
 
   rig.deliver(rig.clients.a, "a", a.op);
   rig.deliver(rig.clients.b, "a", a.op);
@@ -291,7 +309,7 @@ async function playFix(rig) {
   rig.clients.a.pending = null;
   rig.clients.b.pending = null;
   rig.render();
-  await wait(450);
+  await rig.wait(450);
 
   const verdict = rig.root.querySelector("[data-verdict]");
   verdict.hidden = false;
