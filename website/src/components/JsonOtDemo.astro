@@ -43,43 +43,44 @@ const clients = [
             </span>
           </header>
 
-          <div class="doc">
-            <div class="field" data-field="site">
-              <span class="field-key annot">site</span>
-              <span class="field-value" data-value>
-                {"Mill Race"}
-              </span>
-              <div class="field-actions">
-                <button type="button" data-site-cycle disabled aria-label={`Rename the site on ${c.name}`}>
-                  rename
-                </button>
-              </div>
+          <div class="doc" role="group" aria-label={`${c.name} JSON document`}>
+            <span class="jp brace">{"{"}</span>
+
+            <div class="jrow crew-row" data-field="crew" data-node="crew">
+              <span class="jkey">"crew"</span><span class="jp colon">: </span
+              ><span class="jp bracket">[</span>
+              <ul class="crew" data-crew aria-label={`crew array on ${c.name}`} />
+              <span class="jp bracket">]</span><span class="jp comma">,</span>
+              <button type="button" class="node-action" data-crew-add disabled aria-label={`Add a surveyor to crew on ${c.name}`}>
+                + surveyor
+              </button>
             </div>
 
-            <div class="field" data-field="stage">
-              <span class="field-key annot">stage</span>
-              <span class="field-value num" data-value>
-                24
-              </span>
-              <div class="field-actions">
-                <button type="button" data-stage-dec disabled aria-label={`Lower stage on ${c.name}`}>
+            <div class="jrow" data-field="site" data-node="site">
+              <span class="jkey">"site"</span><span class="jp colon">: </span
+              ><span class="jstr"><span class="jp quote">"</span
+                ><span class="field-value" data-value>Mill Race</span
+                ><span class="jp quote">"</span></span
+              ><span class="jp comma">,</span>
+              <button type="button" class="node-action" data-site-cycle disabled aria-label={`Rename the site on ${c.name}`}>
+                rename
+              </button>
+            </div>
+
+            <div class="jrow" data-field="stage" data-node="stage">
+              <span class="jkey">"stage"</span><span class="jp colon">: </span
+              ><span class="field-value num" data-value>24</span>
+              <span class="node-action-group">
+                <button type="button" class="node-action" data-stage-dec disabled aria-label={`Lower stage on ${c.name}`}>
                   −
                 </button>
-                <button type="button" data-stage-inc disabled aria-label={`Raise stage on ${c.name}`}>
+                <button type="button" class="node-action" data-stage-inc disabled aria-label={`Raise stage on ${c.name}`}>
                   +
                 </button>
-              </div>
+              </span>
             </div>
 
-            <div class="field crew-field">
-              <span class="field-key annot">crew</span>
-              <ul class="crew" data-crew aria-label={`Crew list on ${c.name}`} />
-              <div class="field-actions">
-                <button type="button" data-crew-add disabled aria-label={`Add a surveyor on ${c.name}`}>
-                  + surveyor
-                </button>
-              </div>
-            </div>
+            <span class="jp brace">{"}"}</span>
           </div>
         </article>
       ))
@@ -251,34 +252,75 @@ const clients = [
   }
 
   .doc {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    line-height: 1.7;
+    padding: var(--space-md) var(--space-md) var(--space-md);
+    color: var(--ink);
+  }
+
+  .jrow {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.15rem;
+    padding: 0.28rem 0.4rem;
+    padding-inline-start: 1.6rem;
+    border-radius: 2px;
+    transition: background var(--dur-state) var(--ease-out-quart);
   }
 
-  .field {
-    display: grid;
-    grid-template-columns: 4.2rem 1fr auto;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-md);
-    border-bottom: 1px solid var(--hairline-faint);
+  .crew-row {
+    align-items: baseline;
   }
 
-  .field:last-child {
-    border-bottom: 0;
+  /* Node pulse: the exact part of the tree an operation just touched. */
+  .jrow.touch-pending {
+    background: var(--overprint-faint);
+    animation: node-pulse-pending 620ms var(--ease-out-quart);
   }
 
-  .field-key {
+  .jrow.touch-seq {
+    background: color-mix(in oklch, var(--ink) 8%, transparent);
+    animation: node-pulse-seq 620ms var(--ease-out-quart);
+  }
+
+  @keyframes node-pulse-pending {
+    0% { background: var(--overprint); }
+    100% { background: var(--overprint-faint); }
+  }
+
+  @keyframes node-pulse-seq {
+    0% { background: color-mix(in oklch, var(--ink) 22%, transparent); }
+    100% { background: color-mix(in oklch, var(--ink) 8%, transparent); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jrow.touch-pending,
+    .jrow.touch-seq {
+      animation: none;
+    }
+  }
+
+  .jkey {
+    color: var(--waterline);
+  }
+
+  .jp {
+    color: var(--muted);
+  }
+
+  .jstr {
+    color: var(--ink);
+  }
+
+  .jp.quote {
     color: var(--muted);
   }
 
   .field-value {
     font-family: var(--font-mono);
-    font-size: 0.95rem;
     color: var(--ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     transition: color var(--dur-state) var(--ease-out-quart);
   }
 
@@ -290,34 +332,37 @@ const clients = [
     color: var(--overprint-deep);
   }
 
-  .crew-field {
-    align-items: start;
-  }
-
   .crew {
     list-style: none;
     margin: 0;
-    padding: 0;
-    display: flex;
+    padding: 0 0.15rem;
+    display: inline-flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--space-2xs);
-    min-height: 1.9rem;
+    min-height: 1.5rem;
+  }
+
+  .crew:empty {
+    padding: 0;
   }
 
   .crew :global(.chip) {
     display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.12rem 0.2rem 0.12rem 0.5rem;
-    border: 1px solid var(--ink);
+    align-items: baseline;
+    gap: 0.1rem;
     font-family: var(--font-mono);
-    font-size: 0.8rem;
-    line-height: 1.3;
-    background: var(--bg);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    color: var(--ink);
   }
 
-  .crew :global(.chip.pending) {
-    border-color: var(--overprint);
+  .crew :global(.chip .jp) {
+    color: var(--muted);
+  }
+
+  .crew :global(.chip.pending .chip-name),
+  .crew :global(.chip.pending .jp) {
     color: var(--overprint-deep);
   }
 
@@ -327,7 +372,15 @@ const clients = [
 
   .crew :global(.chip-actions) {
     display: inline-flex;
-    gap: 0.1rem;
+    gap: 0.05rem;
+    margin-inline-start: 0.15rem;
+    opacity: 0;
+    transition: opacity var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .crew :global(.chip:hover .chip-actions),
+  .crew :global(.chip:focus-within .chip-actions) {
+    opacity: 1;
   }
 
   .crew :global(.chip-actions button) {
@@ -335,9 +388,9 @@ const clients = [
     background: transparent;
     color: var(--muted);
     cursor: pointer;
-    padding: 0 0.2rem;
+    padding: 0 0.15rem;
     line-height: 1;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     transition: color var(--dur-feedback) var(--ease-out-quart);
   }
 
@@ -345,34 +398,47 @@ const clients = [
     color: var(--overprint-deep);
   }
 
-  .field-actions {
+  .node-action-group {
     display: inline-flex;
-    gap: var(--space-2xs);
-    justify-content: flex-end;
+    gap: 0.15rem;
+    margin-inline-start: auto;
   }
 
-  .field-actions button {
-    padding: 0.2rem 0.55rem;
+  .node-action {
+    margin-inline-start: 0.4rem;
+    padding: 0.05rem 0.5rem;
     border: 1px solid var(--hairline);
+    border-radius: 2px;
     background: var(--bg);
     font-family: var(--font-mono);
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    color: var(--muted);
     cursor: pointer;
     transition:
       background var(--dur-feedback) var(--ease-out-quart),
-      border-color var(--dur-feedback) var(--ease-out-quart);
+      border-color var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .field-actions button:hover:enabled {
+  .node-action-group .node-action {
+    margin-inline-start: 0;
+  }
+
+  .jrow:not(.crew-row) .node-action {
+    margin-inline-start: auto;
+  }
+
+  .node-action:hover:enabled {
     background: var(--overprint-faint);
     border-color: var(--overprint);
+    color: var(--overprint-deep);
   }
 
-  .field-actions button:active:enabled {
+  .node-action:active:enabled {
     transform: scale(0.97);
   }
 
-  .field-actions button:disabled {
+  .node-action:disabled {
     opacity: 0.45;
     cursor: default;
   }
@@ -424,22 +490,36 @@ const clients = [
     padding: 0;
     width: 100%;
     font-family: var(--font-mono);
-    font-size: 0.75rem;
-    line-height: 1.9;
+    font-size: 0.72rem;
+    line-height: 1.6;
     color: var(--muted);
     overflow: hidden;
-    max-height: 12.5rem;
+    max-height: 13.5rem;
     mask-image: linear-gradient(black 55%, transparent 96%);
   }
 
   .op-log :global(li) {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-align: center;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.4rem;
+    justify-content: center;
+    padding: 0.12rem 0;
   }
 
-  .op-log :global(li:first-child) {
+  .op-log :global(.op-meta) {
+    color: var(--muted);
+  }
+
+  .op-log :global(.op-path) {
+    color: var(--waterline);
+  }
+
+  .op-log :global(.op-kind) {
+    color: var(--ink);
+  }
+
+  .op-log :global(li:first-child .op-meta) {
     color: var(--ink);
   }
 
@@ -587,9 +667,9 @@ const clients = [
   }
 
   @media (pointer: coarse) {
-    .field-actions button {
-      min-inline-size: 2.75rem;
-      min-block-size: 2.4rem;
+    .node-action {
+      min-inline-size: 2.4rem;
+      min-block-size: 2.2rem;
     }
 
     .race-btn,

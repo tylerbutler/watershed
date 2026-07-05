@@ -192,10 +192,20 @@ export function initJsonOtDemo() {
       const li = document.createElement("li");
       li.className = chip.pending ? "chip pending" : "chip";
 
+      const openQuote = document.createElement("span");
+      openQuote.className = "jp";
+      openQuote.textContent = '"';
+      li.append(openQuote);
+
       const label = document.createElement("span");
       label.className = "chip-name";
       label.textContent = chip.name;
       li.append(label);
+
+      const closeQuote = document.createElement("span");
+      closeQuote.className = "jp";
+      closeQuote.textContent = index < chips.length - 1 ? '",' : '"';
+      li.append(closeQuote);
 
       const actions = document.createElement("span");
       actions.className = "chip-actions";
@@ -247,15 +257,28 @@ export function initJsonOtDemo() {
     seqCounter.classList.add("stamped");
   }
 
-  function logOp(seq, authorId, label) {
+  function logOp(seq, authorId, spot) {
     const li = document.createElement("li");
-    li.textContent = `SN ${seq} · ${CLIENT_LABEL[authorId].replace("Client ", "")} · ${label}`;
+
+    const meta = document.createElement("span");
+    meta.className = "op-meta";
+    meta.textContent = `SN ${seq} · ${CLIENT_LABEL[authorId].replace("Client ", "")}`;
+
+    const pathEl = document.createElement("span");
+    pathEl.className = "op-path";
+    pathEl.textContent = spot.path;
+
+    const kindEl = document.createElement("span");
+    kindEl.className = "op-kind";
+    kindEl.textContent = spot.value ? `${spot.kind} ${spot.value}` : spot.kind;
+
+    li.append(meta, pathEl, kindEl);
     opLog.prepend(li);
     while (opLog.children.length > 24) opLog.lastChild.remove();
   }
 
   // ── protocol: client → sequencer → broadcast ───────────────────────────────
-  function sendToSequencer(client, wire, label, authorId) {
+  function sendToSequencer(client, wire, spot, authorId) {
     inFlight += 1;
     renderStatus();
     animateDot(client.el, seqNode, latency, false);
@@ -268,7 +291,7 @@ export function initJsonOtDemo() {
       sn += 1;
       const seq = sn;
       stampSeqCounter();
-      logOp(seq, authorId, label);
+      logOp(seq, authorId, spot);
       for (const target of Object.values(clients)) {
         animateDot(seqNode, target.el, latency, true);
         const tNow = performance.now();
@@ -281,9 +304,10 @@ export function initJsonOtDemo() {
             renderStatus();
             return;
           }
-          deliver(target, client.num, wire, seq, label, authorId);
+          deliver(target, client.num, wire, seq, spot, authorId);
           inFlight -= 1;
           render(target);
+          pulseNode(target, spot.node, true);
           renderStatus();
         }, tArrival - tNow);
       }
@@ -294,7 +318,7 @@ export function initJsonOtDemo() {
 
   const MSN = 0; // demo keeps the whole concurrency window (never GCs the log)
 
-  function deliver(target, authorNum, wire, seq, label, authorId) {
+  function deliver(target, authorNum, wire, seq, spot, authorId) {
     if (target.num === authorNum) {
       // Our own op comes back sequenced: commit it, then release any buffered op.
       const acked = kernel.ack_local(target.state, wire, seq, MSN);
@@ -304,7 +328,7 @@ export function initJsonOtDemo() {
       target.state = drained;
       target.lastAppliedSn = seq;
       if (out instanceof Some) {
-        sendToSequencer(target, out[0], label, authorId);
+        sendToSequencer(target, out[0], spot, authorId);
       }
     } else {
       const applied = kernel.apply_remote(target.state, wire, seq, authorNum, MSN);
@@ -314,27 +338,41 @@ export function initJsonOtDemo() {
     }
   }
 
+  function pulseNode(client, node, sequenced) {
+    const row = client.el.querySelector(`[data-node="${node}"]`);
+    if (!row) return;
+    const cls = sequenced ? "touch-seq" : "touch-pending";
+    row.classList.remove("touch-seq", "touch-pending");
+    void row.offsetWidth;
+    row.classList.add(cls);
+    setTimeout(() => row.classList.remove(cls), 640);
+  }
+
   // Author a local edit: optimistic apply now, wire op to the sequencer if the
-  // kernel released one (nothing already in flight for this client).
-  function localEdit(clientId, components, label) {
+  // kernel released one (nothing already in flight for this client). `spot`
+  // names the JSON node the op touches, so the UI can pulse it and the op log
+  // can print a real path.
+  function localEdit(clientId, components, spot) {
     const client = clients[clientId];
     const result = kernel.submit(client.state, components, client.lastAppliedSn);
     if (!result.isOk()) return;
     const [state, wireOpt] = result[0];
     client.state = state;
     render(client);
+    pulseNode(client, spot.node, false);
     renderStatus();
     if (wireOpt instanceof Some) {
-      sendToSequencer(client, wireOpt[0], label, clientId);
+      sendToSequencer(client, wireOpt[0], spot, clientId);
     }
   }
 
   // ── local operations ─────────────────────────────────────────────────────
   function localStage(clientId, delta) {
+    const sign = delta > 0 ? "+" : "";
     localEdit(
       clientId,
       op(jsonOt.number_add(path(K("stage")), new jsonOt.NInt(delta))),
-      `stage ${delta > 0 ? "+" : ""}${delta}`,
+      { node: "stage", path: ".stage", kind: "add", value: `${sign}${delta}` },
     );
   }
 
@@ -347,7 +385,7 @@ export function initJsonOtDemo() {
     localEdit(
       clientId,
       op(jsonOt.obj_replace(path(K("site")), S(current), S(next))),
-      `site → ${next}`,
+      { node: "site", path: ".site", kind: "set", value: `"${next}"` },
     );
   }
 
@@ -357,7 +395,7 @@ export function initJsonOtDemo() {
     localEdit(
       clientId,
       op(jsonOt.list_insert(path(K("crew"), IDX(0)), S(name))),
-      `crew +${name}@0`,
+      { node: "crew", path: ".crew[0]", kind: "insert", value: `"${name}"` },
     );
   }
 
@@ -368,7 +406,7 @@ export function initJsonOtDemo() {
     localEdit(
       clientId,
       op(jsonOt.list_delete(path(K("crew"), IDX(index)), S(name))),
-      `crew −${name}@${index}`,
+      { node: "crew", path: `.crew[${index}]`, kind: "delete", value: `"${name}"` },
     );
   }
 
@@ -376,7 +414,7 @@ export function initJsonOtDemo() {
     localEdit(
       clientId,
       op(jsonOt.list_move(path(K("crew"), IDX(index)), index - 1)),
-      `crew move ${index}→${index - 1}`,
+      { node: "crew", path: `.crew[${index}]`, kind: "move", value: `→ ${index - 1}` },
     );
   }
 
@@ -405,12 +443,12 @@ export function initJsonOtDemo() {
     localEdit(
       "a",
       op(jsonOt.list_insert(path(K("crew"), IDX(0)), S(nameA))),
-      `crew +${nameA}@0`,
+      { node: "crew", path: ".crew[0]", kind: "insert", value: `"${nameA}"` },
     );
     localEdit(
       "b",
       op(jsonOt.list_insert(path(K("crew"), IDX(0)), S(nameB))),
-      `crew +${nameB}@0`,
+      { node: "crew", path: ".crew[0]", kind: "insert", value: `"${nameB}"` },
     );
   });
 
