@@ -47,6 +47,8 @@ import watershed/git_storage
 @target(javascript)
 import watershed/ids
 @target(javascript)
+import watershed/json_ot
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy}
@@ -209,6 +211,28 @@ pub fn increment(runtime: Runtime, address: String, amount: Int) -> Nil {
 /// not a counter channel.
 pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
   read(runtime.cell, None, runtime_core.counter_value(_, address))
+}
+
+@target(javascript)
+/// Optimistically submit a json0 op to the channel at `address`.
+pub fn submit_json_ot(
+  runtime: Runtime,
+  address: String,
+  components: json_ot.Op,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.submit_json_ot(core, address, components)
+  })
+}
+
+@target(javascript)
+/// The json0 channel's optimistic document, `None` when the address is missing
+/// or not a json0 channel.
+pub fn json_ot_view(
+  runtime: Runtime,
+  address: String,
+) -> Option(json_ot.JsonValue) {
+  read(runtime.cell, None, runtime_core.json_ot_view(_, address))
 }
 
 @target(javascript)
@@ -598,6 +622,12 @@ pub fn create_register_collection(runtime: Runtime) -> Result(String, String) {
 @target(javascript)
 pub fn create_claims(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitClaims, "create_claims")
+}
+
+@target(javascript)
+/// Create a new detached json0 channel, same lifecycle as `create_map`.
+pub fn create_json_ot(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitJsonOt, "create_json_ot")
 }
 
 @target(javascript)
@@ -1082,7 +1112,7 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) ->
           case apply_ops(core, message.ops) {
-            Ok(#(core, events, resolutions, request_from)) -> {
+            Ok(#(core, events, resolutions, request_from, released)) -> {
               let state = resolve_claim_waiters(state, resolutions)
               // Commit the new core before fan-out (see fan_out's contract).
               case resubmit_at {
@@ -1094,6 +1124,7 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
               }
               fan_out(state.subscribers, events)
               maybe_request_ops(state.channel, request_from)
+              send_outbound(state.channel, core.client_id, released)
             }
             Error(core_error) ->
               fail(
@@ -1161,10 +1192,11 @@ fn apply_ops(
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
     Option(Int),
+    List(wire.OutboundOp),
   ),
   runtime_core.CoreError,
 ) {
-  do_apply_ops(core, ops, [], [], None)
+  do_apply_ops(core, ops, [], [], None, [])
 }
 
 @target(javascript)
@@ -1174,12 +1206,14 @@ fn do_apply_ops(
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
+  released: List(wire.OutboundOp),
 ) -> Result(
   #(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
     Option(Int),
+    List(wire.OutboundOp),
   ),
   runtime_core.CoreError,
 ) {
@@ -1190,6 +1224,7 @@ fn do_apply_ops(
         list.reverse(events) |> list.flatten,
         list.reverse(resolutions) |> list.flatten,
         request_from,
+        released,
       ))
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
@@ -1200,6 +1235,7 @@ fn do_apply_ops(
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
             option.or(request_from, ingested.request_ops_from),
+            list.append(released, ingested.outbound),
           )
         Error(core_error) -> Error(core_error)
       }

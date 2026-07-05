@@ -1703,3 +1703,111 @@ pub fn from_json_string(raw: String) -> Result(JsonValue, Nil) {
     Error(_) -> Error(Nil)
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Op wire codec (json0's on-the-wire component array)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Encode an op as a json0 component array: `[{p, oi?, od?, li?, ld?, lm?, na?,
+/// t?/o?}, …]`. Paths are arrays of strings (object keys) or ints (indices);
+/// values round-trip through `to_json`; a subtype's `#(name, op)` becomes
+/// `t`/`o`.
+pub fn op_to_json(op: Op) -> Json {
+  json.array(op, component_to_json)
+}
+
+fn component_to_json(c: Component) -> Json {
+  let fields = [#("p", json.array(c.path, path_key_to_json))]
+  let fields = append_field(fields, "oi", c.oi, to_json)
+  let fields = append_field(fields, "od", c.od, to_json)
+  let fields = append_field(fields, "li", c.li, to_json)
+  let fields = append_field(fields, "ld", c.ld, to_json)
+  let fields = append_field(fields, "lm", c.lm, json.int)
+  let fields = append_field(fields, "na", c.na, num_to_json)
+  let fields = case c.subtype {
+    None -> fields
+    Some(#(name, sub_op)) ->
+      list.append(fields, [
+        #("t", json.string(name)),
+        #("o", to_json(sub_op)),
+      ])
+  }
+  json.object(fields)
+}
+
+fn append_field(
+  fields: List(#(String, Json)),
+  key: String,
+  value: Option(a),
+  encode: fn(a) -> Json,
+) -> List(#(String, Json)) {
+  case value {
+    None -> fields
+    Some(v) -> list.append(fields, [#(key, encode(v))])
+  }
+}
+
+fn path_key_to_json(key: PathKey) -> Json {
+  case key {
+    Key(s) -> json.string(s)
+    Index(i) -> json.int(i)
+  }
+}
+
+fn num_to_json(n: Num) -> Json {
+  case n {
+    NInt(i) -> json.int(i)
+    NFloat(f) -> json.float(f)
+  }
+}
+
+/// Decoder for a json0 op from parsed JSON (inverse of `op_to_json`).
+pub fn op_decoder() -> Decoder(Op) {
+  decode.list(component_decoder())
+}
+
+fn component_decoder() -> Decoder(Component) {
+  use path <- decode.field("p", decode.list(path_key_decoder()))
+  use oi <- decode.optional_field("oi", None, value_opt_decoder())
+  use od <- decode.optional_field("od", None, value_opt_decoder())
+  use li <- decode.optional_field("li", None, value_opt_decoder())
+  use ld <- decode.optional_field("ld", None, value_opt_decoder())
+  use lm <- decode.optional_field("lm", None, decode.map(decode.int, Some))
+  use na <- decode.optional_field("na", None, num_opt_decoder())
+  use subtype <- decode.optional_field("t", None, subtype_name_opt_decoder())
+  use sub_op <- decode.optional_field("o", VNull, decoder())
+  let subtype = case subtype {
+    Some(name) -> Some(#(name, sub_op))
+    None -> None
+  }
+  decode.success(Component(
+    path: path,
+    oi: oi,
+    od: od,
+    li: li,
+    ld: ld,
+    lm: lm,
+    na: na,
+    subtype: subtype,
+  ))
+}
+
+fn value_opt_decoder() -> Decoder(Option(JsonValue)) {
+  decode.map(decoder(), Some)
+}
+
+fn num_opt_decoder() -> Decoder(Option(Num)) {
+  decode.one_of(decode.map(decode.int, fn(i) { Some(NInt(i)) }), or: [
+    decode.map(decode.float, fn(f) { Some(NFloat(f)) }),
+  ])
+}
+
+fn subtype_name_opt_decoder() -> Decoder(Option(String)) {
+  decode.map(decode.string, Some)
+}
+
+fn path_key_decoder() -> Decoder(PathKey) {
+  decode.one_of(decode.map(decode.int, Index), or: [
+    decode.map(decode.string, Key),
+  ])
+}

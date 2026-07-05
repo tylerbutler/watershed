@@ -33,6 +33,8 @@ import watershed/channel
 import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
 import watershed/g_set_kernel.{type GSetOp}
+import watershed/json_ot
+import watershed/json_ot_kernel.{type JsonOtWireOp, JsonOtWireOp}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
 import watershed/or_set_kernel.{type OrSetOp}
@@ -141,6 +143,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
     channel.ClaimsOp(op) -> encode_claim_op(op)
     channel.TaskManagerOp(op) -> encode_task_manager_op(op)
+    channel.JsonOtOp(op) -> encode_json_ot_op(op)
   }
 }
 
@@ -164,6 +167,8 @@ pub fn channel_op_decoder(
     channel.ClaimsChannel -> claim_op_decoder() |> decode.map(channel.ClaimsOp)
     channel.TaskManagerChannel ->
       task_manager_op_decoder() |> decode.map(channel.TaskManagerOp)
+    channel.JsonOtChannel ->
+      json_ot_op_decoder() |> decode.map(channel.JsonOtOp)
   }
 }
 
@@ -367,6 +372,15 @@ pub fn encode_claim_op(op: ClaimOp) -> Json {
         #("refSeq", json.int(ref_seq)),
       ])
   }
+}
+
+/// Encode a json0 op envelope: the reference sequence number the components
+/// were authored against plus the json0 component array itself.
+pub fn encode_json_ot_op(op: JsonOtWireOp) -> Json {
+  json.object([
+    #("refSeq", json.int(op.ref_seq)),
+    #("components", json_ot.op_to_json(op.components)),
+  ])
 }
 
 pub fn encode_task_manager_envelope(
@@ -584,6 +598,12 @@ pub fn claim_op_decoder() -> Decoder(ClaimOp) {
     }
     _ -> decode.failure(Claim("", json.null(), 0), "ClaimOp")
   }
+}
+
+pub fn json_ot_op_decoder() -> Decoder(JsonOtWireOp) {
+  use ref_seq <- decode.field("refSeq", decode.int)
+  use components <- decode.field("components", json_ot.op_decoder())
+  decode.success(JsonOtWireOp(ref_seq, components))
 }
 
 pub fn task_manager_op_decoder() -> Decoder(TaskManagerOp) {

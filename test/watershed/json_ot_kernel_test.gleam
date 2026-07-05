@@ -25,8 +25,9 @@ pub fn local_edit_then_ack_test() {
   view |> expect.to_equal(arr([VString("a")]))
   state.sequenced |> expect.to_equal(arr([]))
 
-  let assert Ok(#(state, released, _events)) =
+  let assert Ok(#(state, _events)) =
     kernel.ack_local(state, JsonOtWireOp(0, op), 1, 0)
+  let #(state, released) = kernel.take_outbound(state)
   released |> expect.to_equal(None)
   state.sequenced |> expect.to_equal(arr([VString("a")]))
   state.inflight |> expect.to_equal(None)
@@ -52,7 +53,7 @@ pub fn concurrent_same_index_insert_converges_test() {
 
   let c0 = kernel.from_value(0, doc)
   let assert Ok(#(c0, _, _)) = kernel.submit(c0, op0, 0)
-  let assert Ok(#(c0, _, _)) = kernel.ack_local(c0, JsonOtWireOp(0, op0), 1, -1)
+  let assert Ok(#(c0, _)) = kernel.ack_local(c0, JsonOtWireOp(0, op0), 1, -1)
   let assert Ok(#(c0, _)) =
     kernel.apply_remote(c0, JsonOtWireOp(0, op1), 2, 1, -1)
 
@@ -60,7 +61,7 @@ pub fn concurrent_same_index_insert_converges_test() {
   let assert Ok(#(c1, _, _)) = kernel.submit(c1, op1, 0)
   let assert Ok(#(c1, _)) =
     kernel.apply_remote(c1, JsonOtWireOp(0, op0), 1, 0, -1)
-  let assert Ok(#(c1, _, _)) = kernel.ack_local(c1, JsonOtWireOp(0, op1), 2, -1)
+  let assert Ok(#(c1, _)) = kernel.ack_local(c1, JsonOtWireOp(0, op1), 2, -1)
 
   c0.sequenced |> expect.to_equal(c1.sequenced)
   c0.sequenced |> expect.to_equal(arr([VString("a"), VString("b")]))
@@ -80,8 +81,9 @@ pub fn buffer_release_on_ack_test() {
   sent_b |> expect.to_equal(None)
   state.buffer |> expect.to_equal(Some(op_b))
 
-  let assert Ok(#(state, released, _)) =
+  let assert Ok(#(state, _events)) =
     kernel.ack_local(state, JsonOtWireOp(0, op_a), 1, -1)
+  let #(state, released) = kernel.take_outbound(state)
   released |> expect.to_equal(Some(JsonOtWireOp(1, op_b)))
   state.inflight |> expect.to_equal(Some(op_b))
   state.buffer |> expect.to_equal(None)

@@ -61,7 +61,7 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
-  InitClaims, InitCounter, InitGSet, InitMap, InitOrMap, InitOrSet,
+  InitClaims, InitCounter, InitGSet, InitJsonOt, InitMap, InitOrMap, InitOrSet,
   InitRegisterCollection, InitTaskManager, InitTwoPSet,
 } as _watershed_channel
 @target(erlang)
@@ -70,6 +70,8 @@ import watershed/claims_kernel
 import watershed/git_storage
 @target(erlang)
 import watershed/ids
+@target(erlang)
+import watershed/json_ot
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
@@ -116,6 +118,7 @@ pub type Msg {
   Remove(address: String, key: String)
   RemoveAll(address: String)
   IncrementCounter(address: String, amount: Int)
+  SubmitJsonOt(address: String, components: json_ot.Op)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
@@ -162,6 +165,7 @@ pub type Msg {
   CreateTwoPSet(reply: Subject(Result(String, String)))
   CreateRegisterCollection(reply: Subject(Result(String, String)))
   CreateClaims(reply: Subject(Result(String, String)))
+  CreateJsonOt(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
@@ -184,6 +188,9 @@ pub type Msg {
   /// The counter's optimistic value, `None` when the address is missing or
   /// not a counter channel.
   GetCounterValue(address: String, reply: Subject(Option(Int)))
+  /// The json0 channel's optimistic document, `None` when the address is missing
+  /// or not a json0 channel.
+  GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
   GetOrMapValue(
     address: String,
     key: String,
@@ -568,6 +575,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) { runtime_core.clear(core, address) })
     IncrementCounter(address, amount) ->
       edit(state, fn(core) { runtime_core.increment(core, address, amount) })
+    SubmitJsonOt(address, components) ->
+      edit(state, fn(core) {
+        runtime_core.submit_json_ot(core, address, components)
+      })
     IncrementOrMap(address, key, amount) ->
       edit(state, fn(core) {
         runtime_core.or_map_increment(core, address, key, amount)
@@ -634,6 +645,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       )
     CreateClaims(reply) ->
       create_channel(state, reply, InitClaims, "create_claims")
+    CreateJsonOt(reply) ->
+      create_channel(state, reply, InitJsonOt, "create_json_ot")
     CreateTaskManager(reply) ->
       create_channel(state, reply, InitTaskManager, "create_task_manager")
 
@@ -671,6 +684,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, None, runtime_core.counter_value(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetJsonOtView(address, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.json_ot_view(_, address)),
       )
       actor.continue(state)
     }
@@ -949,11 +969,12 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "op" ->
       case state.phase {
         Ready(core, resubmit_at) -> {
-          let #(core, events, resolutions, request_from) =
+          let #(core, events, resolutions, request_from, released) =
             apply_ops(core, op_message(incoming))
           let state = resolve_claim_waiters(state, resolutions)
           fan_out(state.subscribers, events)
           maybe_request_ops(state.channel, request_from)
+          send_outbound(state.channel, core.client_id, released)
           case resubmit_at {
             Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
             None -> actor.continue(State(..state, phase: Ready(core, None)))
@@ -1027,8 +1048,9 @@ fn apply_ops(
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
   Option(Int),
+  List(wire.OutboundOp),
 ) {
-  do_apply_ops(core, ops, [], [], None)
+  do_apply_ops(core, ops, [], [], None, [])
 }
 
 @target(erlang)
@@ -1038,11 +1060,13 @@ fn do_apply_ops(
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
+  released: List(wire.OutboundOp),
 ) -> #(
   runtime_core.Core,
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
   Option(Int),
+  List(wire.OutboundOp),
 ) {
   case ops {
     [] -> #(
@@ -1050,6 +1074,7 @@ fn do_apply_ops(
       list.reverse(events) |> list.flatten,
       list.reverse(resolutions) |> list.flatten,
       request_from,
+      released,
     )
     [op, ..rest] ->
       case runtime_core.handle_sequenced(core, op) {
@@ -1060,6 +1085,7 @@ fn do_apply_ops(
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
             option.or(request_from, ingested.request_ops_from),
+            list.append(released, ingested.outbound),
           )
         Error(core_error) ->
           panic as {

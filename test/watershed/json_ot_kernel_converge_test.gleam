@@ -164,7 +164,8 @@ fn do_deliver_one(sim: Sim, id: Int) -> Sim {
         True ->
           case kernel.ack_local(c.state, entry.wire, entry.seq, min) {
             Error(e) -> panic as { "ack failed: " <> string.inspect(e) }
-            Ok(#(state, released, _events)) -> {
+            Ok(#(state, _events)) -> {
+              let #(state, released) = kernel.take_outbound(state)
               let outbox = case released {
                 Some(wire) -> list.append(c.outbox, [wire])
                 None -> c.outbox

@@ -53,6 +53,11 @@ pub type JsonOtState {
     /// op expressed against `sequenced` ∘ `inflight`. Released as the next
     /// `inflight` on ack. `None` when empty.
     buffer: Option(Op),
+    /// A buffer just released as the new `inflight` on ack and awaiting
+    /// dispatch on the wire. Drained by `take_outbound`; the runtime cannot
+    /// send it inline because acks are processed while ingesting a sequenced
+    /// message. `None` when there is nothing pending to send.
+    outbound: Option(JsonOtWireOp),
   )
 }
 
@@ -92,7 +97,14 @@ pub fn new(self: Int) -> JsonOtState {
 
 /// A fresh kernel seeded with an initial document value.
 pub fn from_value(self: Int, doc: JsonValue) -> JsonOtState {
-  JsonOtState(self: self, sequenced: doc, log: [], inflight: None, buffer: None)
+  JsonOtState(
+    self: self,
+    sequenced: doc,
+    log: [],
+    inflight: None,
+    buffer: None,
+    outbound: None,
+  )
 }
 
 /// Load a sequenced-only state from a stored summary under identity `self`. No
@@ -283,10 +295,10 @@ fn rebase_opt(
 /// Commit our own op now that the server has sequenced it. The op is the
 /// current `inflight`, already rebased past every concurrent remote op, so we
 /// apply it to `sequenced` and log it in head context. The `buffer` (if any) is
-/// released as the next `inflight` and returned as a wire op to send — stamped
-/// with `ref_seq = seq`, since the buffer is expressed against `sequenced` with
-/// our just-acked op applied. The optimistic view is unchanged, so no events
-/// are emitted.
+/// released as the next `inflight` and stashed in `outbound` — stamped with
+/// `ref_seq = seq`, since the buffer is expressed against `sequenced` with our
+/// just-acked op applied — for the runtime to dispatch via `take_outbound`. The
+/// optimistic view is unchanged, so no events are emitted.
 ///
 /// The `_wire` echoed by the sequencer is the original op we submitted; since
 /// the sequencer never transforms it will not match the rebased in-flight op,
@@ -296,10 +308,7 @@ pub fn ack_local(
   _wire: JsonOtWireOp,
   seq: Int,
   msn: Int,
-) -> Result(
-  #(JsonOtState, Option(JsonOtWireOp), List(JsonOtEvent)),
-  KernelError,
-) {
+) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
   case state.inflight {
     None -> Error(UnexpectedAck("ack with nothing in flight"))
     Some(inflight) -> {
@@ -321,9 +330,22 @@ pub fn ack_local(
           log: log,
           inflight: next_inflight,
           buffer: None,
+          outbound: to_send,
         )
-      Ok(#(state, to_send, []))
+      Ok(#(state, []))
     }
+  }
+}
+
+/// Drain any op released onto the wire by `ack_local` (a buffer promoted to the
+/// new in-flight op). Returns the op to dispatch and clears the pending slot;
+/// `None` when nothing is waiting. Idempotent once drained.
+pub fn take_outbound(
+  state: JsonOtState,
+) -> #(JsonOtState, Option(JsonOtWireOp)) {
+  case state.outbound {
+    None -> #(state, None)
+    Some(op) -> #(JsonOtState(..state, outbound: None), Some(op))
   }
 }
 

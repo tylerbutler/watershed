@@ -217,6 +217,30 @@ The plumbing (rungs 1, 3, 5, 6) is routine for this repo. **Rung 2 is where the
 difficulty lives**: a correct, TP1-satisfying transform. Port json0 rather than
 deriving fresh, and treat the ported spec + TP1 fuzz as the acceptance gate.
 
+## Implementation status & deviations
+
+Rungs 1–5 are implemented on branch `json-ot-kernel`. Two deviations from the
+sketch above matter:
+
+- **Single-inflight, not `pending: List`.** The kernel is the client-transform
+  (Jupiter/ShareDB) *single-inflight* variant: one `inflight` op plus a
+  composed `buffer` of not-yet-sent local ops, rather than an unbounded
+  `pending` queue. On `ack_local` the buffer is released as the next outbound op
+  (fixed at `ref_seq = ack seq`), stashed in the kernel's `outbound` field and
+  pulled by `channel.take_outbound`. The runtime drains released ops in
+  `runtime_core.collect_released_ops` after apply+drain in `handle_sequenced`,
+  stamping each with a fresh CSN and sending via the normal outbound path. This
+  is the buffer-release mechanism added to the core actor loop.
+- **Envelope carries RSN *and* MSN.** `spillway/types.SequencedDocumentMessage`
+  already exposes `reference_sequence_number` and `minimum_sequence_number`, so
+  MSN is threaded through `channel.SequencedMeta.min_seq` rather than derived.
+
+User-facing API: `watershed.create_json_ot` / `submit_json_ot` / `json_ot_view`
+/ `subscribe_json_ot` (erlang) and `runtime_js.create_json_ot` / `submit_json_ot`
+/ `json_ot_view` (javascript). Convergence is proved by the bespoke
+`json_ot_kernel_converge_test` (json0 ops are state-dependent, so the static
+`KernelModel` fuzz harness does not fit).
+
 ## Non-goals
 
 - **TP2 / decentralized OT.** The central sequencer makes it unnecessary; do

@@ -47,6 +47,8 @@ import watershed/git_storage.{type SummaryVersion}
 @target(erlang)
 import watershed/handle
 @target(erlang)
+import watershed/json_ot
+@target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
@@ -78,6 +80,11 @@ pub opaque type SharedMap {
 @target(erlang)
 pub opaque type SharedCounter {
   SharedCounter(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedJsonOt {
+  SharedJsonOt(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -292,6 +299,77 @@ pub fn counter_value(counter: SharedCounter) -> Option(Int) {
 pub fn subscribe_counter(counter: SharedCounter) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(counter.runtime, runtime.Subscribe(counter.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON-OT (json0)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new json0 (JSON-OT) channel. Same detached lifecycle as
+/// `create_map`: local-only until its handle (`json_ot_handle_of`) is first
+/// stored into an attached map.
+pub fn create_json_ot(document: Document) -> Result(SharedJsonOt, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateJsonOt,
+  )
+  |> result.map(fn(address) {
+    SharedJsonOt(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn json_ot_handle_of(json_ot: SharedJsonOt) -> Json {
+  handle.encode_handle(json_ot.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedJsonOt it references. Existence is
+/// checked, not channel type. Errors are retryable, as with `resolve`.
+pub fn resolve_json_ot(
+  document: Document,
+  value: Json,
+) -> Result(SharedJsonOt, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedJsonOt(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically submit a json0 op (a list of components) to the channel.
+pub fn submit_json_ot(json_ot: SharedJsonOt, op: json_ot.Op) -> Nil {
+  process.send(json_ot.runtime, runtime.SubmitJsonOt(json_ot.address, op))
+}
+
+@target(erlang)
+/// The json0 channel's current optimistic document, `None` when the address is
+/// not a json0 channel.
+pub fn json_ot_view(json_ot: SharedJsonOt) -> Option(json_ot.JsonValue) {
+  process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetJsonOtView(json_ot.address, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this json0 channel's events, local and
+/// remote alike.
+pub fn subscribe_json_ot(json_ot: SharedJsonOt) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(json_ot.runtime, runtime.Subscribe(json_ot.address, subscriber))
   subscriber
 }
 

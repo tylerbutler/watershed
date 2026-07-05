@@ -25,9 +25,12 @@ import watershed/channel.{
   SequencedMeta,
 }
 import watershed/claims_kernel
+import watershed/client_id
 import watershed/counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
+import watershed/json_ot
+import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -95,6 +98,9 @@ pub type Ingested {
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
     request_ops_from: Option(Int),
+    /// Ops a single-in-flight kernel (json0) released onto the wire while its
+    /// own op was being acked. The actor loop must submit these.
+    outbound: List(wire.OutboundOp),
   )
 }
 
@@ -386,7 +392,7 @@ pub fn handle_sequenced(
 ) -> Result(#(Core, Ingested), CoreError) {
   let next = core.last_seen_sn + 1
   case msg.sequence_number {
-    sn if sn < next -> Ok(#(core, Ingested([], [], None)))
+    sn if sn < next -> Ok(#(core, Ingested([], [], None, [])))
     sn if sn > next -> {
       let request = case core.out_of_order {
         [] -> Some(core.last_seen_sn)
@@ -394,21 +400,69 @@ pub fn handle_sequenced(
       }
       let core =
         Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
-      Ok(#(core, Ingested([], [], request)))
+      Ok(#(core, Ingested([], [], request, [])))
     }
     _ -> {
       use #(core, events, resolutions) <- result.try(apply_one(core, msg))
       use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
+      // A single-in-flight kernel (json0) may have promoted a buffered op to
+      // the wire while acking its own op; collect and stamp those now, after
+      // every op in this batch has been applied and rebased.
+      let #(core, outbound) = collect_released_ops(core)
       Ok(#(
         core,
         Ingested(
           events: list.append(events, drained),
           resolutions: list.append(resolutions, drained_resolutions),
           request_ops_from: None,
+          outbound: outbound,
         ),
       ))
     }
   }
+}
+
+/// Scan every channel for an op its kernel released onto the wire (json0's
+/// single-in-flight buffer promotion), stamping each with a fresh CSN and an
+/// in-flight entry so the ordinary ack path reclaims it. Returns the stamped
+/// outbound ops for the actor loop to submit.
+fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
+  list.fold(core.channel_order, #(core, []), fn(acc, address) {
+    let #(core, outs) = acc
+    case dict.get(core.channels, address) {
+      Error(_) -> acc
+      Ok(state) ->
+        case channel.take_outbound(state) {
+          #(_, None) -> acc
+          #(state, Some(op)) -> {
+            let csn = core.next_csn
+            let outbound =
+              ops.outbound_channel_op(
+                address: address,
+                client_sequence_number: csn,
+                reference_sequence_number: core.last_seen_sn,
+                op: op,
+              )
+            let core =
+              Core(
+                ..core,
+                channels: dict.insert(core.channels, address, state),
+                next_csn: csn + 1,
+                in_flight: list.append(core.in_flight, [
+                  InFlightOp(
+                    client_id: core.client_id,
+                    csn: csn,
+                    address: address,
+                    op: op,
+                    meta: channel.NoMeta,
+                  ),
+                ]),
+              )
+            #(core, list.append(outs, [outbound]))
+          }
+        }
+    }
+  })
 }
 
 fn apply_one(
@@ -511,12 +565,14 @@ fn handle_op(
                     state,
                     op,
                     msg.sequence_number,
+                    msg.minimum_sequence_number,
                   )
                 False ->
                   apply_remote_channel(
                     core,
                     msg.client_id,
                     msg.sequence_number,
+                    msg.minimum_sequence_number,
                     address,
                     state,
                     op,
@@ -576,6 +632,7 @@ fn apply_remote_channel(
   core: Core,
   message_client_id: Option(String),
   sequence_number: Int,
+  minimum_sequence_number: Int,
   address: String,
   state: ChannelState,
   op: channel.ChannelOp,
@@ -587,6 +644,7 @@ fn apply_remote_channel(
     SequencedMeta(
       seq: sequence_number,
       last_seen_sn: core.last_seen_sn,
+      min_seq: minimum_sequence_number,
       author: option.map(message_client_id, client_id_to_int)
         |> option.unwrap(0),
       self: client_id_to_int(core.client_id),
@@ -669,6 +727,7 @@ fn ack_own_op(
   state: ChannelState,
   echoed: channel.ChannelOp,
   sequence_number: Int,
+  minimum_sequence_number: Int,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
@@ -707,6 +766,7 @@ fn ack_own_op(
                 SequencedMeta(
                   seq: sequence_number,
                   last_seen_sn: core.last_seen_sn,
+                  min_seq: minimum_sequence_number,
                   author: client_id_to_int(core.client_id),
                   self: client_id_to_int(core.client_id),
                   quorum: [client_id_to_int(core.client_id)],
@@ -908,6 +968,78 @@ pub fn increment(
         channel.CounterMeta(message_id),
       ))
     }
+  }
+}
+
+/// Submit a json0 op authored against the channel's current optimistic view.
+/// The single-in-flight kernel sends the op immediately when nothing is in
+/// flight, otherwise it is composed into the buffer and released on the next
+/// ack (`collect_released_ops`), so at most one op is on the wire at a time.
+pub fn submit_json_ot(
+  core: Core,
+  address: String,
+  components: json_ot.Op,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_json_ot(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case json_ot_kernel.submit(kernel, components, core.last_seen_sn) {
+        Ok(#(kernel, _wire, events)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.JsonOtState(kernel)),
+              tag_json_ot_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(AckMismatch(json_ot_kernel_error_detail(err)))
+      }
+    Ok(Attached(kernel)) ->
+      case json_ot_kernel.submit(kernel, components, core.last_seen_sn) {
+        Ok(#(kernel, Some(wire), events)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.JsonOtState(kernel),
+            tag_json_ot_events(address, events),
+            channel.JsonOtOp(wire),
+            channel.NoMeta,
+          ))
+        Ok(#(kernel, None, events)) ->
+          Ok(
+            #(
+              put_attached_channel(core, address, channel.JsonOtState(kernel)),
+              tag_json_ot_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(AckMismatch(json_ot_kernel_error_detail(err)))
+      }
+  }
+}
+
+/// The channel's current optimistic json0 document, or `None` if the address is
+/// not a json0 channel or its view cannot be computed.
+pub fn json_ot_view(core: Core, address: String) -> Option(json_ot.JsonValue) {
+  case find_channel(core, address) {
+    Some(channel.JsonOtState(kernel)) ->
+      option.from_result(json_ot_kernel.view(kernel))
+    _ -> None
+  }
+}
+
+fn json_ot_kernel_error_detail(err: json_ot_kernel.KernelError) -> String {
+  case err {
+    json_ot_kernel.UnexpectedAck(detail) -> detail
+    json_ot_kernel.OtFailure(ot) ->
+      case ot {
+        json_ot.BadPath(detail) -> "json0 bad path: " <> detail
+        json_ot.BadValue(detail) -> "json0 bad value: " <> detail
+        json_ot.UnknownSubtype(name) -> "json0 unknown subtype: " <> name
+      }
   }
 }
 
@@ -1749,6 +1881,23 @@ fn locate_task_manager(
   }
 }
 
+fn locate_json_ot(
+  core: Core,
+  address: String,
+) -> Result(Located(json_ot_kernel.JsonOtState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.JsonOtState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.JsonOtState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.JsonOtChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_channel(
   core: Core,
   address: String,
@@ -1924,6 +2073,13 @@ fn tag_counter_events(
   events: List(counter_kernel.CounterEvent),
 ) -> List(#(String, ChannelEvent)) {
   list.map(events, fn(event) { #(address, channel.CounterEvent(event)) })
+}
+
+fn tag_json_ot_events(
+  address: String,
+  events: List(json_ot_kernel.JsonOtEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.JsonOtEvent(event)) })
 }
 
 fn tag_or_map_events(
@@ -2222,27 +2378,5 @@ fn add_attached_channel(
 }
 
 fn client_id_to_int(client_id: String) -> Int {
-  let suffix =
-    string.split(client_id, "_")
-    |> list.last
-  case suffix {
-    Ok(raw) ->
-      case int.parse(raw) {
-        Ok(parsed) -> parsed
-        Error(_) -> stable_client_hash(client_id)
-      }
-    Error(_) -> stable_client_hash(client_id)
-  }
-}
-
-fn stable_client_hash(client_id: String) -> Int {
-  string.to_utf_codepoints(client_id)
-  |> list.fold(216_613_626, fn(acc, cp) {
-    let next =
-      { acc * 16_777_619 + string.utf_codepoint_to_int(cp) } % 2_147_483_647
-    case next < 0 {
-      True -> 0 - next
-      False -> next
-    }
-  })
+  client_id.to_int(client_id)
 }

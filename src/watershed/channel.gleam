@@ -25,9 +25,12 @@ import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
 import lattice_sets/two_p_set.{type TwoPSet}
 import watershed/claims_kernel
+import watershed/client_id
 import watershed/counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
+import watershed/json_ot
+import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -48,6 +51,7 @@ pub type ChannelType {
   RegisterCollectionChannel
   ClaimsChannel
   TaskManagerChannel
+  JsonOtChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -62,6 +66,7 @@ pub type ChannelInit {
   InitRegisterCollection
   InitClaims
   InitTaskManager
+  InitJsonOt
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -75,6 +80,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     RegisterCollectionChannel -> wire.channel_type_register_collection
     ClaimsChannel -> wire.channel_type_claims
     TaskManagerChannel -> wire.channel_type_task_manager
+    JsonOtChannel -> wire.channel_type_json_ot
   }
 }
 
@@ -90,6 +96,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
       Ok(RegisterCollectionChannel)
     _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
     _ if raw == wire.channel_type_task_manager -> Ok(TaskManagerChannel)
+    _ if raw == wire.channel_type_json_ot -> Ok(JsonOtChannel)
     _ -> Error(Nil)
   }
 }
@@ -105,6 +112,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitRegisterCollection -> RegisterCollectionChannel
     InitClaims -> ClaimsChannel
     InitTaskManager -> TaskManagerChannel
+    InitJsonOt -> JsonOtChannel
   }
 }
 
@@ -119,6 +127,7 @@ pub type ChannelState {
   RegisterCollectionState(register_collection_kernel.RegisterState)
   ClaimsState(claims_kernel.ClaimsState)
   TaskManagerState(task_manager_kernel.TaskManagerState)
+  JsonOtState(json_ot_kernel.JsonOtState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -133,6 +142,7 @@ pub type ChannelOp {
   RegisterCollectionOp(register_collection_kernel.WriteOp)
   ClaimsOp(claims_kernel.ClaimOp)
   TaskManagerOp(task_manager_kernel.TaskManagerOp)
+  JsonOtOp(json_ot_kernel.JsonOtWireOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -146,6 +156,7 @@ pub type ChannelEvent {
   RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
   ClaimsEvent(claims_kernel.ClaimEvent)
   TaskManagerEvent(task_manager_kernel.TaskManagerEvent)
+  JsonOtEvent(json_ot_kernel.JsonOtEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -162,6 +173,7 @@ pub type Snapshot {
   )
   ClaimsSnapshot(entries: List(#(String, Json, Int)))
   TaskManagerSnapshot(queues: List(#(String, List(Int))))
+  JsonOtSnapshot(doc: json_ot.JsonValue)
 }
 
 pub type Resolution {
@@ -188,6 +200,7 @@ pub type SequencedMeta {
   SequencedMeta(
     seq: Int,
     last_seen_sn: Int,
+    min_seq: Int,
     author: Int,
     self: Int,
     quorum: List(Int),
@@ -216,6 +229,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     RegisterCollectionState(_) -> RegisterCollectionChannel
     ClaimsState(_) -> ClaimsChannel
     TaskManagerState(_) -> TaskManagerChannel
+    JsonOtState(_) -> JsonOtChannel
   }
 }
 
@@ -230,6 +244,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
     ClaimsSnapshot(_) -> ClaimsChannel
     TaskManagerSnapshot(_) -> TaskManagerChannel
+    JsonOtSnapshot(_) -> JsonOtChannel
   }
 }
 
@@ -251,6 +266,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
       RegisterCollectionState(register_collection_kernel.new())
     InitClaims -> ClaimsState(claims_kernel.new())
     InitTaskManager -> TaskManagerState(task_manager_kernel.new())
+    InitJsonOt -> JsonOtState(json_ot_kernel.new(client_id.to_int(replica)))
   }
 }
 
@@ -278,6 +294,8 @@ pub fn from_snapshot(
     ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
     TaskManagerSnapshot(queues) ->
       TaskManagerState(task_manager_kernel.from_summary(queues))
+    JsonOtSnapshot(doc) ->
+      JsonOtState(json_ot_kernel.from_summary(client_id.to_int(replica), doc))
   }
 }
 
@@ -297,6 +315,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
     TaskManagerState(kernel) ->
       TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+    JsonOtState(kernel) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
   }
 }
 
@@ -326,6 +345,11 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
     TaskManagerState(kernel) ->
       TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+    JsonOtState(kernel) ->
+      case json_ot_kernel.view(kernel) {
+        Ok(doc) -> JsonOtSnapshot(doc)
+        Error(_) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
+      }
   }
 }
 
@@ -400,6 +424,23 @@ pub fn apply_remote(
         task_manager_kernel.apply_remote(kernel, op, meta.author, meta.quorum)
       Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent)))
     }
+    JsonOtState(kernel), JsonOtOp(op) ->
+      case
+        json_ot_kernel.apply_remote(
+          kernel,
+          op,
+          meta.seq,
+          meta.author,
+          meta.min_seq,
+        )
+      {
+        Ok(#(kernel, events)) ->
+          Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent)))
+        Error(json_ot_kernel.UnexpectedAck(detail)) ->
+          Error(UnexpectedAck(detail))
+        Error(json_ot_kernel.OtFailure(err)) ->
+          Error(CorruptRemoteOp(json_ot_error_detail(err)))
+      }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -567,7 +608,41 @@ pub fn ack_local(
             "task-manager ack is missing its local message id",
           ))
       }
+    JsonOtState(kernel), JsonOtOp(op) ->
+      case json_ot_kernel.ack_local(kernel, op, meta.seq, meta.min_seq) {
+        Ok(#(kernel, events)) ->
+          Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), None))
+        Error(json_ot_kernel.UnexpectedAck(detail)) ->
+          Error(UnexpectedAck(detail))
+        Error(json_ot_kernel.OtFailure(err)) ->
+          Error(CorruptRemoteOp(json_ot_error_detail(err)))
+      }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
+  }
+}
+
+/// A human-readable detail string for a json0 pure-algebra failure, for
+/// wrapping in a `ChannelError`.
+fn json_ot_error_detail(err: json_ot.OtError) -> String {
+  case err {
+    json_ot.BadPath(detail) -> "json0 bad path: " <> detail
+    json_ot.BadValue(detail) -> "json0 bad value: " <> detail
+    json_ot.UnknownSubtype(name) -> "json0 unknown subtype: " <> name
+  }
+}
+
+/// Drain an op the kernel released onto the wire while an ack was ingested
+/// (json0's single-in-flight buffer promotion). Only json0 channels produce
+/// one; every other channel returns `None`.
+pub fn take_outbound(
+  state: ChannelState,
+) -> #(ChannelState, Option(ChannelOp)) {
+  case state {
+    JsonOtState(kernel) -> {
+      let #(kernel, out) = json_ot_kernel.take_outbound(kernel)
+      #(JsonOtState(kernel), option.map(out, JsonOtOp))
+    }
+    _ -> #(state, None)
   }
 }
 
@@ -602,6 +677,8 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       && ours.ref_seq == echoed.ref_seq
     TaskManagerOp(ours), TaskManagerOp(echoed) ->
       same_task_manager_shape(ours, echoed)
+    JsonOtOp(ours), JsonOtOp(echoed) ->
+      ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
     _, _ -> False
   }
 }
@@ -706,6 +783,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
       ours == echoed
     ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
     TaskManagerSnapshot(ours), TaskManagerSnapshot(echoed) -> ours == echoed
+    JsonOtSnapshot(ours), JsonOtSnapshot(echoed) -> ours == echoed
     _, _ -> False
   }
 }
@@ -788,6 +866,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       )
       |> list.unique
     TaskManagerState(_) -> []
+    JsonOtState(_) -> []
   }
 }
 
@@ -804,6 +883,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     RegisterCollectionSnapshot(registers) -> encode_registers(registers)
     ClaimsSnapshot(entries) -> encode_claims(entries)
     TaskManagerSnapshot(queues) -> encode_task_queues(queues)
+    JsonOtSnapshot(doc) -> json_ot.to_json(doc)
   }
 }
 
@@ -824,6 +904,7 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
       decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot)
     TaskManagerChannel ->
       decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot)
+    JsonOtChannel -> json_ot.decoder() |> decode.map(JsonOtSnapshot)
   }
 }
 
