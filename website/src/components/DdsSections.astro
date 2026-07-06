@@ -198,8 +198,10 @@ const flow = [
         flow.map((item) => (
           <li data-reveal="settle">
             <span class="flow-step annot">SN {item.step}</span>
-            <h3>{item.title}</h3>
-            <p>{item.detail}</p>
+            <div class="flow-step-body">
+              <h3>{item.title}</h3>
+              <p>{item.detail}</p>
+            </div>
           </li>
         ))
       }
