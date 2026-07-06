@@ -43,6 +43,7 @@ fn sum_model() -> KernelModel(Int, Int, Int) {
         })
       }),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: None,
@@ -116,6 +117,7 @@ fn id_echo_model() -> KernelModel(#(Int, List(Int)), Int, List(Int)) {
         list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.0 })
       }),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: None,
@@ -217,6 +219,7 @@ fn reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
         kernel_fuzz.log_ops(entries) |> list.map(fn(entry) { entry.1 })
       }),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: Some(fn(_state, op, _meta, _self_id, is_local) {
         case op == 1 && is_local {
@@ -263,6 +266,7 @@ fn leave_model() -> KernelModel(List(#(Int, Int)), Int, List(#(Int, Int))) {
         })
       }),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: Some(fn(state, leaver, meta: kernel_fuzz.SequencedMeta) {

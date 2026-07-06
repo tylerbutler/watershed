@@ -47,6 +47,7 @@ fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
       load_from_synced: Some(fn(state, _id) { state }),
       oracle: None,
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: None,

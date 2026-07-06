@@ -553,6 +553,7 @@ pub fn model() -> KernelModel(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),
       rollback: Some(rollback),
+      resubmit: None,
       apply_stashed: Some(apply_stashed),
       react: Some(react),
       remove_member: Some(remove_member),

@@ -85,6 +85,14 @@ pub type Capabilities(state, op, view) {
     // rewritten op or every peer would receive an unusable one; kernels
     // without that need return the op unchanged.
     apply_stashed: Option(fn(state, op, SubmitMeta) -> #(state, op)),
+    /// Called for each queued op when a disconnected client reconnects and
+    /// resubmits, mirroring a DDS's `reSubmitCore`: the model may drop the op
+    /// (return `None` — e.g. its target instance was deleted while offline, so
+    /// the pending edit no longer exists) or rewrite it (return `Some`, e.g.
+    /// re-stamping its reference sequence number to the client's current
+    /// cursor, as the Fluid runtime does on every resend). Models without
+    /// instance lifecycle leave this `None`; the harness then resends verbatim.
+    resubmit: Option(fn(state, op, SubmitMeta) -> Option(op)),
     /// After applying a sequenced op, the delivering client may owe follow-on
     /// ops. Returned ops are routed from that client without optimistic apply.
     react: Option(fn(state, op, SequencedMeta, Int, Bool) -> List(op)),
@@ -669,10 +677,33 @@ fn disconnect(
 }
 
 /// Reconnect `index` and resubmit its `resend` queue to the inbox, in
-/// order, clearing the queue.
-fn reconnect(sim: Sim(state, op), index: Int) -> Sim(state, op) {
+/// order, clearing the queue. When the model supplies a `resubmit` capability
+/// (mirroring a DDS's `reSubmitCore`), each queued op is passed through it
+/// against the client's *current* state — dropping ops whose target no longer
+/// exists and re-stamping those that survive — before being routed.
+fn reconnect(
+  model: KernelModel(state, op, view),
+  sim: Sim(state, op),
+  index: Int,
+) -> Sim(state, op) {
   let client = get_client(sim, index)
-  let entries = list.map(client.resend, fn(op) { OpEntry(index, op, []) })
+  let resent = case model.capabilities.resubmit {
+    None -> client.resend
+    Some(resubmit) ->
+      list.filter_map(client.resend, fn(op) {
+        case
+          resubmit(
+            client.state,
+            op,
+            SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+          )
+        {
+          Some(rewritten) -> Ok(rewritten)
+          None -> Error(Nil)
+        }
+      })
+  }
+  let entries = list.map(resent, fn(op) { OpEntry(index, op, []) })
   let sim =
     update_client(sim, index, fn(client) {
       Client(..client, connected: True, resend: [])
@@ -836,7 +867,8 @@ fn interpret(
     AddClient -> add_client(model, sim)
     Disconnect(client) ->
       Ok(disconnect(model, sim, client_index(client, client_count)))
-    Reconnect(client) -> Ok(reconnect(sim, client_index(client, client_count)))
+    Reconnect(client) ->
+      Ok(reconnect(model, sim, client_index(client, client_count)))
     RollbackOp(client, op) ->
       rollback_op(model, sim, client_index(client, client_count), op)
     StashedOp(client, op) ->

@@ -206,6 +206,7 @@ pub fn model() -> KernelModel(MapState, MapOp, List(#(String, Json))) {
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: None,

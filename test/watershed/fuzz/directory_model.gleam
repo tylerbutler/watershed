@@ -288,6 +288,24 @@ fn rollback(state: DirectoryState, cmd: DirCommand) -> DirectoryState {
   }
 }
 
+/// Mirror a `SharedDirectory`'s `reSubmitCore`: when a reconnecting client
+/// resends a queued op, drop it if its pending edit no longer exists (its
+/// target subdirectory was deleted while offline) and otherwise re-stamp its
+/// reference sequence number to the client's current cursor, exactly as the
+/// Fluid runtime does on every resend. Without this the harness would resend
+/// with a stale `ref_seq`, making the kernel's instance-identity check resolve
+/// differently across clients and diverge.
+fn resubmit(
+  state: DirectoryState,
+  cmd: DirCommand,
+  meta: kernel_fuzz.SubmitMeta,
+) -> Option(DirCommand) {
+  case directory_kernel.resubmit(state, cmd.op, cmd.client_seq) {
+    Ok(Some(op)) -> Some(DirCommand(op, meta.last_seen_seq, cmd.client_seq))
+    _ -> None
+  }
+}
+
 fn apply_stashed(
   state: DirectoryState,
   cmd: DirCommand,
@@ -410,7 +428,13 @@ pub fn model() -> KernelModel(DirectoryState, DirCommand, Tree) {
     gen_op: op_generator(),
     check: Some(check),
     canonicalize: Some(canonicalize),
-    ack_preserves_view: True,
+    // A local ack can legitimately change this client's own view: when our
+    // subdirectory-create op is acked after a concurrent remote delete has
+    // already disposed that instance, sequencing our create *behind* the
+    // delete removes the subtree we had shown optimistically (a "presence
+    // flip"). This mirrors `SharedDirectory` and the claims/register kernels,
+    // which likewise opt out of ack-view transparency.
+    ack_preserves_view: False,
     op_to_json: op_to_json,
     op_decoder: op_decoder(),
     capabilities: Capabilities(
@@ -418,6 +442,7 @@ pub fn model() -> KernelModel(DirectoryState, DirCommand, Tree) {
       oracle: Some(oracle),
       rollback: Some(rollback),
       apply_stashed: Some(apply_stashed),
+      resubmit: Some(resubmit),
       react: None,
       remove_member: None,
     ),

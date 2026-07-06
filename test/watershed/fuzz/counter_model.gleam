@@ -133,6 +133,7 @@ pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),
       rollback: Some(rollback),
+      resubmit: None,
       apply_stashed: Some(apply_stashed),
       react: None,
       remove_member: None,

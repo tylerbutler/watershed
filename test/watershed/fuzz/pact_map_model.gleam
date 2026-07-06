@@ -410,6 +410,7 @@ pub fn model() -> KernelModel(ModelState, PactCommand, List(#(String, Pact))) {
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: Some(react),
       remove_member: Some(remove_member),

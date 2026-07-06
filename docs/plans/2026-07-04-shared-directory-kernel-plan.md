@@ -316,3 +316,44 @@ already available from `map_kernel`.
   `put_optimistic_child`, `create_subdirectory`/`delete_subdirectory`,
   `remote_create_subdir`/`remote_delete_subdir`, and `ack_create_subdir`/
   `ack_delete_subdir`. Tracked as a dedicated follow-up.
+
+## Status (2026-07-06) — single-node refactor + resubmit fidelity
+
+- **SD3 — Resubmit/stash + fuzz: still PARTIAL, materially improved.** The
+  single-node refactor above was carried out: each path now holds one node whose
+  storage is shared across the fold/delete/recreate lifecycle (a `folded` marker
+  keeps the pending-create node in sync with sequenced writes), and
+  `optimistic_child` falls back to the retained (disposed) marker node when a
+  concurrent delete clears the sequenced slot, mirroring FF's
+  `getOptimisticSubDirectory(getIfDisposed=true)`. This fixed a **storage
+  copy-drift convergence bug** (sequenced writes to a folded subdir were lost
+  when a remote delete cleared the slot, then an ack re-inserted a stale-empty
+  marker).
+
+  The fuzz harness also gained a `resubmit` capability wired into `reconnect`,
+  mirroring a DDS's `reSubmitCore`: on reconnect each queued op is re-stamped to
+  the client's current reference sequence number and **dropped if its target
+  instance no longer exists** (the kernel's `resubmit` filter). Previously the
+  harness resent stashed ops with a stale `ref_seq`, making the kernel's
+  instance-identity check (`is_message_for_current_instance`) resolve differently
+  across clients — a real convergence divergence, now fixed.
+
+  `just test`/`just build`/`just lint` green (512). Deep sweeps
+  (`FUZZ_ITERATIONS=5000`) now pass on most runs and the previously-reproducing
+  fixtures converge, but a **rare residual instance-aliasing divergence** still
+  appears at ~5000–20000 iterations: a `Set` on a subdir instance commits on one
+  client but not another because the surviving instance's identity
+  (`creators`/`create.seq`) is built differently after extreme concurrent
+  create/delete/recreate + stash/reconnect.
+
+  **Remaining root cause (refined):** the pure kernel approximates FF's single
+  mutable `SubDirectory` object identity with a `(create.seq, creators, ref_seq)`
+  heuristic. FF additionally runs a precise `clientIds`/`seqData` lifecycle —
+  notably `clearSubDirectorySequencedData` (clears `clientIds`, re-adds the local
+  client, resets `seqData.seq = -1` on dispose) and the seqData re-stamp in
+  `processCreateSubDirectoryMessage` — that the kernel does not fully replicate. A
+  naive port of the `clientIds` reset was attempted and **regressed** the baseline
+  (it fixed some cases while breaking others), confirming the fix must port the
+  whole lifecycle coherently rather than one rule at a time. Tracked as the
+  remaining SD3 follow-up.
+

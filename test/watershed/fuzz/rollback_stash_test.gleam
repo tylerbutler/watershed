@@ -52,6 +52,7 @@ fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
       load_from_synced: None,
       oracle: None,
       rollback: None,
+      resubmit: None,
       apply_stashed: None,
       react: None,
       remove_member: None,
@@ -91,6 +92,7 @@ fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
       oracle: Some(fn(entries) {
         list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.1 })
       }),
+      resubmit: None,
       apply_stashed: Some(fn(state, op, _meta) {
         let rewritten = op + 1000
         #(list.append(state, [rewritten]), rewritten)
@@ -125,6 +127,7 @@ fn stash_meta_model() -> KernelModel(List(Int), Int, List(Int)) {
       oracle: Some(fn(entries) {
         list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.1 })
       }),
+      resubmit: None,
       apply_stashed: Some(apply_stashed_recording_meta),
     ),
   )
