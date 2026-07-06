@@ -1,0 +1,219 @@
+---
+// Prominent homepage gateway into the field atlas (/structures). Data-driven
+// from the structure catalog so new families and structures surface here
+// automatically — no counts, nothing to drift.
+import { categories } from "../data/structures";
+---
+
+<section class="atlas-cta" aria-labelledby="atlas-cta-title">
+  <div class="atlas-inner">
+    <div class="atlas-head" data-reveal="rise">
+      <p class="eyebrow annot">The field atlas</p>
+      <h2 id="atlas-cta-title">
+        Every structure,<br /><em>mapped by family.</em>
+      </h2>
+      <p class="atlas-lede">
+        The demo above runs one kernel. The atlas is the whole field guide —
+        every structure watershed ships, grouped by how it converges, each with
+        its own live demo and merge rule.
+      </p>
+      <a class="cta-primary" href="/structures">Open the field atlas →</a>
+    </div>
+
+    <div class="atlas-grid">
+      {
+        categories.map((c) => (
+          <a
+            class="atlas-family"
+            href={`/structures/${c.slug}`}
+            data-reveal="rise"
+          >
+            <h3>{c.name}</h3>
+            <p class="atlas-family-tagline">{c.tagline}</p>
+            <ul class="atlas-family-list">
+              {c.structures.map((s) => (
+                <li>
+                  <code>{s.name}</code>
+                  <span class="atlas-kind" data-kind={s.kind}>
+                    {s.kind}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <span class="atlas-family-go annot" aria-hidden="true">
+              Open family →
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .atlas-cta {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+    background:
+      linear-gradient(var(--hairline-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline-faint) 1px, transparent 1px),
+      var(--bg);
+    background-size: 3.5rem 3.5rem;
+  }
+
+  .atlas-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    display: grid;
+    grid-template-columns: minmax(15rem, 0.85fr) minmax(0, 1.5fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    align-items: start;
+  }
+
+  .atlas-head {
+    position: sticky;
+    top: clamp(var(--space-xl), 12vh, 8rem);
+  }
+
+  .eyebrow {
+    color: var(--overprint-deep);
+    margin: 0 0 var(--space-md);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 630;
+    font-stretch: 118%;
+    letter-spacing: -0.02em;
+    line-height: 1.03;
+  }
+
+  h2 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  .atlas-lede {
+    margin-top: var(--space-lg);
+    font-size: clamp(1.0625rem, 0.4vw + 1rem, 1.2rem);
+    line-height: 1.6;
+    max-width: 46ch;
+    color: var(--ink);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    margin-top: var(--space-xl);
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    letter-spacing: 0.01em;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+  }
+
+  .cta-primary:active {
+    transform: scale(0.97);
+  }
+
+  .atlas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    gap: var(--space-md);
+  }
+
+  .atlas-family {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    padding: var(--space-lg);
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+      background var(--dur-state) var(--ease-out-quart),
+      transform var(--dur-state) var(--ease-out-quart);
+  }
+
+  .atlas-family:hover {
+    background: var(--surface);
+    transform: translateY(-3px);
+  }
+
+  .atlas-family h3 {
+    font-size: 1.35rem;
+    font-weight: 640;
+    font-stretch: 114%;
+    letter-spacing: -0.015em;
+  }
+
+  .atlas-family-tagline {
+    margin-top: var(--space-2xs);
+    color: var(--muted);
+    font-size: var(--text-sm);
+  }
+
+  .atlas-family-list {
+    margin: var(--space-md) 0 var(--space-md);
+    padding: var(--space-sm) 0 0;
+    list-style: none;
+    display: grid;
+    gap: var(--space-2xs);
+    border-top: 1px solid var(--hairline);
+    flex: 1;
+  }
+
+  .atlas-family-list li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+
+  .atlas-family-list code {
+    font-size: 0.85rem;
+    color: var(--ink);
+  }
+
+  .atlas-kind {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .atlas-kind[data-kind="CRDT"] {
+    color: var(--waterline);
+  }
+
+  .atlas-kind[data-kind="OT"] {
+    color: var(--overprint-deep);
+  }
+
+  .atlas-family-go {
+    color: var(--waterline);
+  }
+
+  .atlas-family:hover .atlas-family-go {
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 860px) {
+    .atlas-inner {
+      grid-template-columns: 1fr;
+    }
+
+    .atlas-head {
+      position: static;
+    }
+  }
+</style>

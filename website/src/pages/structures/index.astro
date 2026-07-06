@@ -2,20 +2,20 @@
 import Sheet from "../../layouts/Sheet.astro";
 import Ecosystem from "../../components/Ecosystem.astro";
 import { categories } from "../../data/structures";
-
-const total = categories.reduce((n, c) => n + c.structures.length, 0);
 ---
 
 <Sheet
   title="watershed — data structures"
-  description={`Field guide to watershed's ${total} collaborative data structures, grouped into four families: counters, sets, maps, and coordination. How each converges, and what it is best for.`}
+  description={`Field guide to watershed's collaborative data structures, grouped into families — ${categories
+    .map((c) => c.name.toLowerCase())
+    .join(", ")}. How each converges, and what it is best for.`}
 >
   <header class="hub-hero">
     <div class="hub-hero-inner">
       <p class="eyebrow annot">
         <a href="/">← watershed</a> · Data structures
       </p>
-      <h1>Thirteen structures,<br /><em>four families.</em></h1>
+      <h1>Every structure,<br /><em>by family.</em></h1>
       <p class="lede">
         Every structure watershed ships rides one server-sequenced stream, but
         each one converges by its own rule. This is the field guide: pick a
@@ -31,10 +31,12 @@ const total = categories.reduce((n, c) => n + c.structures.length, 0);
 
   <main class="families">
     {
-      categories.map((c) => (
+      categories.map((c, i) => (
         <a class="family" href={`/structures/${c.slug}`} data-reveal="rise">
           <div class="family-top">
-            <span class="family-index annot">{c.index}</span>
+            <span class="family-index annot">
+              Family {String(i + 1).padStart(2, "0")}
+            </span>
             <h2>{c.name}</h2>
             <p class="family-tagline">{c.tagline}</p>
           </div>

@@ -18,6 +18,7 @@ const idx = categories.findIndex((c) => c.slug === slug);
 const prev = idx > 0 ? categories[idx - 1] : categories[categories.length - 1];
 const next =
   idx < categories.length - 1 ? categories[idx + 1] : categories[0];
+const familyOrdinal = `Family ${String(idx + 1).padStart(2, "0")}`;
 
 // Scope the shared live demo to this family's structures. Structures with a
 // dedicated demo page (e.g. SharedDirectory's tree) aren't views in the shared
@@ -41,7 +42,7 @@ const familyViews = category.structures
       </p>
       <div class="cat-title">
         <h1>{category.name}</h1>
-        <span class="cat-index annot" aria-hidden="true">{category.index}</span>
+        <span class="cat-index annot" aria-hidden="true">{familyOrdinal}</span>
       </div>
       <p class="cat-tagline">{category.tagline}</p>
       {category.lede.map((para) => <p class="lede">{para}</p>)}
@@ -61,27 +62,31 @@ const familyViews = category.structures
     </div>
   </header>
 
-  <Demo
-    views={familyViews}
-    initial={familyViews[0]}
-    heading={`Watch ${category.name.toLowerCase()} converge`}
-    otJump={false}
-  >
-    <Fragment slot="intro">
-      <p>
-        Every structure in this family runs live below, on watershed’s real
-        Gleam kernels. Pending edits print in
-        <strong class="k-pending">magenta</strong>; once the sequencer stamps an
-        SN, every replica lands the same <strong class="k-seq">ink</strong>
-        state. Switch structures with the picker — all of them share one ordered
-        stream, exactly like DDSes in a single container.
-      </p>
-      <p class="demo-hint">
-        Nudge a value, race a concurrent write, or stretch the link latency to
-        watch each merge rule hold.
-      </p>
-    </Fragment>
-  </Demo>
+  {
+    familyViews.length > 0 && (
+      <Demo
+        views={familyViews}
+        initial={familyViews[0]}
+        heading={`Watch ${category.name.toLowerCase()} converge`}
+        otJump={false}
+      >
+        <Fragment slot="intro">
+          <p>
+            Every structure in this family runs live below, on watershed’s real
+            Gleam kernels. Pending edits print in
+            <strong class="k-pending">magenta</strong>; once the sequencer stamps
+            an SN, every replica lands the same <strong class="k-seq">ink</strong>
+            state. Switch structures with the picker — all of them share one
+            ordered stream, exactly like DDSes in a single container.
+          </p>
+          <p class="demo-hint">
+            Nudge a value, race a concurrent write, or stretch the link latency
+            to watch each merge rule hold.
+          </p>
+        </Fragment>
+      </Demo>
+    )
+  }
 
   <main class="plates">
     {

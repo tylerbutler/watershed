@@ -41,8 +41,6 @@ export interface Structure {
 export interface Category {
   slug: string;
   name: string;
-  /** Mono margin annotation, e.g. "Family 01 / 04". */
-  index: string;
   /** Short header line for the category page and homepage group. */
   tagline: string;
   /** Lede paragraph(s) for the category page hero. */
@@ -245,6 +243,30 @@ const maps: Structure[] = [
   },
 ];
 
+const transforms: Structure[] = [
+  {
+    id: "json_ot",
+    name: "JSON OT",
+    module: "json_ot",
+    kind: "OT",
+    onHomepage: false,
+    demoHref: "/json-ot",
+    tagline: "One shared JSON document; concurrent edits are transformed past one another so every replica converges.",
+    rule: "server-sequenced, with concurrent ops transformed past one another (json0 algebra)",
+    optimistic: "each client edits the document optimistically; the single in-flight op is transformed against incoming sequenced ops",
+    summary: "one shared JSON document reloads to the same value on every replica, indices and all",
+    how: [
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra — the operational-transform model behind ShareDB. Instead of merging keys by rule, it edits one shared JSON document with a small algebra of operations addressed by a path into the tree: set a key, insert or delete a list item, splice a string.",
+      "It runs the single-op-in-flight client protocol: a client applies an edit optimistically and sends it, keeping at most one op in flight. A Fluid-compatible server sequences every op, and concurrent ops are transformed past one another — a concurrent list insert has its index shifted — so all replicas reach byte-identical state, indices and all. This is the other convergence family: not merge, but transform.",
+    ],
+    useCases: [
+      "Collaboratively edited structured documents — JSON trees, outlines, form models changed by many clients at once",
+      "Cases where last-write-wins would clobber a concurrent edit but you want one shared document rather than per-key CRDTs",
+      "Interop with ottypes / ShareDB json0 clients",
+    ],
+  },
+];
+
 const coordination: Structure[] = [
   {
     id: "claims",
@@ -354,21 +376,19 @@ export const categories: Category[] = [
   {
     slug: "counters",
     name: "Counters",
-    index: "Family 01 / 04",
     tagline: "Numbers that many hands move at once.",
     lede: [
       "Counters are the gentlest introduction to convergence, because addition does not care about order. Send each change as a signed delta instead of a new total, and simultaneous edits simply add up — there is nothing to overwrite.",
-      "The three here climb in guarantee: a server-sequenced scalar, then a grow-only lattice that stays correct even when a delta is delivered twice, then a signed counter built from two of those lattices so it can move in both directions offline.",
+      "They climb in guarantee: a server-sequenced scalar, then a grow-only lattice that stays correct even when a delta is delivered twice, then a signed counter built from two of those lattices so it can move in both directions offline.",
     ],
     structures: counters,
   },
   {
     slug: "sets",
     name: "Sets",
-    index: "Family 02 / 04",
     tagline: "Membership under concurrent add and remove.",
     lede: [
-      "A set looks simple until two clients disagree about whether an element belongs. These three are a short course in that problem: the more removal you want, the more causal bookkeeping you pay for.",
+      "A set looks simple until two clients disagree about whether an element belongs. These are a short course in that problem: the more removal you want, the more causal bookkeeping you pay for.",
       "Start with add-only union, add irreversible tombstones, then reach the observed-remove set that lets you add, remove, and add again while staying convergent.",
     ],
     structures: sets,
@@ -376,10 +396,9 @@ export const categories: Category[] = [
   {
     slug: "maps",
     name: "Maps",
-    index: "Family 03 / 04",
     tagline: "Keyed state, resolved two different ways.",
     lede: [
-      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed ships three, spanning that choice.",
+      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed’s maps span that choice.",
       "SharedMap resolves each key by server order and is wire-compatible with Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
@@ -387,13 +406,22 @@ export const categories: Category[] = [
   {
     slug: "coordination",
     name: "Coordination",
-    index: "Family 04 / 04",
     tagline: "Deciding who owns what, and agreeing before acting.",
     lede: [
       "The last family is not about merging values but about arbitrating decisions: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
       "They ascend from first-writer-wins ownership through versioned registers, FIFO queues, and task failover to a quorum-consensus map that will not commit a value until every required client signs off.",
     ],
     structures: coordination,
+  },
+  {
+    slug: "transforms",
+    name: "Transforms",
+    tagline: "One shared document, converged by transform instead of merge.",
+    lede: [
+      "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all.",
+    ],
+    structures: transforms,
   },
 ];
 

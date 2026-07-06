@@ -1,5 +1,5 @@
 ---
-import { structureLinks } from "../data/structures";
+import { structureLinks, categories } from "../data/structures";
 
 const structures = [
   {
@@ -133,15 +133,14 @@ const flow = [
         must wait for sequencing, and what shape can be persisted in a summary.
       </p>
       <p class="dds-atlas-note">
-        Four of the twelve kernels are shown here. The rest — grouped by family —
-        live in the field atlas, each with its own live demo.
+        Only a few of watershed’s kernels are shown here. The rest — grouped by
+        family — live in the field atlas, each with its own live demo.
       </p>
       <nav class="family-nav" aria-label="Data structures in depth">
         <span class="annot">Zoom in by family</span>
-        <a href="/structures/counters">Counters</a>
-        <a href="/structures/sets">Sets</a>
-        <a href="/structures/maps">Maps</a>
-        <a href="/structures/coordination">Coordination</a>
+        {categories.map((c) => (
+          <a href={`/structures/${c.slug}`}>{c.name}</a>
+        ))}
         <a class="family-nav-models" href="/models">DDS vs CRDT vs OT →</a>
       </nav>
     </div>
