@@ -4,18 +4,11 @@
 //// joins, and F3's Disconnect/Reconnect/RollbackOp/StashedOp over a bounded
 //// tree of storage + subdirectory ops.
 ////
-//// KNOWN LIMITATION (SD3 partial): at the default fuzz depth this suite is
-//// green, but a deep sweep (`FUZZ_ITERATIONS=5000 gleam test`) still surfaces
-//// rare convergence divergences in a single class — subdirectory *instance
-//// aliasing* under stash + disconnect + concurrent create/delete/recreate of
-//// the same subdir name. Root cause: storage pending is held inside per-instance
-//// node copies (pending-create nodes and sequenced nodes) and gets moved/split/
-//// dropped across instance transitions, whereas observers always apply remote
-//// ops to the single sequenced node per path. The faithful fix is the FF
-//// single-`SubDirectory`-object-per-path model (one node per path carrying both
-//// sequenced and pending storage, with create/delete lifecycle as flags/creator
-//// ids on that same node — never copying storage between instances). Tracked as
-//// a follow-up refactor; see docs/plans/2026-07-04-shared-directory-kernel-plan.md.
+//// The instance-aliasing divergences deep sweeps used to find were closed by
+//// porting FF's full subdirectory identity lifecycle (dispose-time
+//// `clearSubDirectorySequencedData`, the create re-stamp guard, and
+//// id-matched storage acks standing in for FF's `localOpMetadata` object
+//// identity); see docs/plans/2026-07-04-shared-directory-kernel-plan.md.
 
 import watershed/fuzz/directory_model
 import watershed/fuzz/kernel_fuzz

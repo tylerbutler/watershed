@@ -357,3 +357,112 @@ already available from `map_kernel`.
   whole lifecycle coherently rather than one rule at a time. Tracked as the
   remaining SD3 follow-up.
 
+## Status (2026-07-06, later) — identity lifecycle port; SD3 DONE
+
+- **SD3 — Resubmit/stash + fuzz: DONE.** The coherent lifecycle port described
+  above was carried out, in six connected pieces (each after the first found
+  by another 20k-iteration sweep once the previous piece landed):
+
+  1. **Dispose lifecycle (FF `disposeSubDirectoryTree` +
+     `clearSubDirectorySequencedData`).** Sequenced deletes (remote and
+     local-ack) now walk the removed subtree bottom-up over its *optimistic*
+     children and reset each node's instance identity: `create =
+     CreateInfo(-1, -1)`, `creators = [self]` (the local client stands in for
+     the create op this client has pending or may later send — which is what
+     keeps a revived instance's creator set convergent with the fresh instance
+     other clients build), sequenced storage and children dropped, pending
+     retained, `disposed = True`. The cleared node is written back into the
+     folded pending-create marker (FF's pending entry aliases the same object),
+     so a later revive resumes from the cleared identity instead of a stale
+     copy. `apply_remote` gained a `self: Int` parameter for this (the harness
+     already threads `self_id`). The create re-stamp now carries FF's guard
+     (parent instance live at the message: `parent.create.seq != -1 &&
+     parent.create.seq <= msg.seq && child.create.seq == -1`) on both the
+     remote and local-ack paths, and a local create ack revives a disposed
+     marker node with a full `undispose_tree` rather than a top-level flag
+     flip. `undispose_tree` itself now walks pending-create marker aliases too
+     (FF `getSubdirectoriesEvenIfDisposed`), and the folded-marker write-back
+     no longer re-inserts into sequenced children when a delete already cleared
+     the slot (FF never mutates `_sequencedSubdirectories` outside sequenced-op
+     processing).
+
+  2. **Id-matched storage acks (FF `localOpMetadata` object identity).** A
+     20k-iteration sweep after (1) found the second half: `ack_storage_node`
+     matched pending entries by key only, so an ack whose pending had died with
+     a superseded instance (e.g. first-create dedup dropping the marker node)
+     could consume a *later* op's pending lifetime for the same key on the
+     surviving instance — committing the wrong entry now and turning the later
+     op's own ack into a drop. FF blocks this with `targetSubdir === this` /
+     `pendingEntry === localOpMetadata`; the kernel now matches by the ack's
+     message id (`meta.client_sequence_number`), treating an absent id as a
+     stale no-op and an out-of-FIFO-position id as a protocol error.
+
+  3. **Object-based, state-mutating resubmit (FF `reSubmitCore` handlers).**
+     The next sweep showed the resubmit filter dropping a storage op whose
+     pending still lived on a *retained* (disposed, marker-referenced) node:
+     the old filter required the target path to be optimistically reachable,
+     but FF gates resubmits on the metadata's *object* (`!targetSubdir.disposed`
+     + a pending-entry check), and a create's resubmit **undisposes the pending
+     subtree first** — which is exactly what lets storage ops queued behind it
+     in the same reconnect batch see their target alive and resubmit too.
+     Dropping them instead leaked a never-acked pending only that client could
+     see. `resubmit` now returns updated state (`#(state, Option(op))`) and
+     locates its target with an *instance-aware* search
+     (`update_retained_instance`): at each path segment it tries every alias
+     instance — pending-create marker nodes and the sequenced child, including
+     ones shadowed by later pending remove/recreate entries — for the one
+     whose pending holds this submission's message id, because a plain path
+     lookup resolves to the newest instance while the pending may live on an
+     older shadowed one (that mismatch was a fourth divergence class, caught
+     as an `UnexpectedAck` by the id-matched ack check). Create resubmit
+     applies the creator-id + undispose effects; subdir pending checks follow
+     FF's name-based `findLast`, set checks the submission id (FF
+     `keySets.includes(localOpMetadata)`). The harness `resubmit` capability
+     threads state through the reconnect queue accordingly. This also removed
+     `optimistic_child`'s force-disposed wrap on folded-marker fallbacks — the
+     retained node's own `disposed` flag (maintained by the dispose lifecycle)
+     is authoritative, and the wrap was masking resubmit-time revival.
+
+  4. **Id-matched subdir acks (the same guard, on the create/delete-subdir ack
+     path).** One more sweep found the mirror image of piece 2: a create ack
+     whose marker died with a superseded parent instance was consuming a
+     *later* same-name create's marker by name-FIFO — silently eating that
+     create's instance so its own eventual ack became a no-op (`x` missing on
+     the author, present on observers). FF drops such acks with
+     `isMessageForCurrentInstanceOfSubDirectory(…, localOpMetadata.parentSubdir)`
+     — the parent-object identity guard; `ack_create_subdir`/`ack_delete_subdir`
+     now match their pending marker by the ack's message id and treat an
+     absent id as a stale no-op.
+
+  5. **Immutable node `birth` identity (the plan's "stable local identity"
+     note, realized).** The last class: alias bookkeeping assumed a *folded*
+     pending-create marker always aliases whatever occupies the sequenced
+     slot — but an interleaved ack can commit a *different* instance into
+     that slot, after which `sync_folded_marker` clobbered the marker's
+     retained node (destroying its pending storage) and `optimistic_child`
+     returned the wrong instance. FF can't make this mistake because the
+     pending entry is an object reference. Each node now carries `birth: the
+     CreateInfo it was constructed with, never re-stamped or cleared`; two
+     nodes at a path are the same instance iff births match, and every alias
+     operation (`optimistic_child`/`put_optimistic_child` folded branches,
+     `sync_folded_marker`, resubmit's revive and candidate enumeration)
+     verifies it.
+
+  6. **Strip pending entries behind dropped resubmits (deliberate divergence
+     from FF).** Final class: a storage op queued behind nothing gets dropped
+     at reconnect because its target instance is disposed (FF's
+     `!targetSubdir.disposed` guard — a remote delete landed while offline),
+     but its pending entry stays on the retained node; a later create ack
+     *undisposes* that same node and the entry resurfaces as a phantom
+     optimistic edit whose op will never be sequenced — no other client ever
+     sees it. FF has this same behavior (the entry is simply abandoned on the
+     disposed object), which looks like a latent upstream edge bug; the kernel
+     instead strips the dropped op's pending entry (searching all retained
+     instances, disposed included) so a revived instance converges with
+     observers. Wire behavior is unchanged — the op is still dropped.
+
+  Verification: the divergence fixtures captured en route all converge after
+  the fixes (and were deleted per the replay-fixture contract), the full suite
+  (512) is green, and repeated `FUZZ_ITERATIONS=20000` directory sweeps pass
+  (final battery: 20 consecutive sweeps).
+

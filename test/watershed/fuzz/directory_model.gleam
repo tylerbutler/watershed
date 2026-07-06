@@ -262,7 +262,12 @@ fn apply_remote(
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(DirectoryState, String) {
   let #(state, _events) =
-    directory_kernel.apply_remote(state, cmd.op, kernel_meta(cmd, meta))
+    directory_kernel.apply_remote(
+      state,
+      cmd.op,
+      kernel_meta(cmd, meta),
+      meta.self_id,
+    )
   Ok(state)
 }
 
@@ -294,16 +299,22 @@ fn rollback(state: DirectoryState, cmd: DirCommand) -> DirectoryState {
 /// reference sequence number to the client's current cursor, exactly as the
 /// Fluid runtime does on every resend. Without this the harness would resend
 /// with a stale `ref_seq`, making the kernel's instance-identity check resolve
-/// differently across clients and diverge.
+/// differently across clients and diverge. The kernel call also applies FF's
+/// resubmit-time state effects (a create resubmit undisposes its retained
+/// pending subtree), which is why the updated state is threaded back.
 fn resubmit(
   state: DirectoryState,
   cmd: DirCommand,
   meta: kernel_fuzz.SubmitMeta,
-) -> Option(DirCommand) {
-  case directory_kernel.resubmit(state, cmd.op, cmd.client_seq) {
-    Ok(Some(op)) -> Some(DirCommand(op, meta.last_seen_seq, cmd.client_seq))
-    _ -> None
-  }
+) -> #(DirectoryState, Option(DirCommand)) {
+  let #(state, out) =
+    directory_kernel.resubmit(state, cmd.op, cmd.client_seq, meta.client_id)
+  #(
+    state,
+    option.map(out, fn(op) {
+      DirCommand(op, meta.last_seen_seq, cmd.client_seq)
+    }),
+  )
 }
 
 fn apply_stashed(
@@ -396,8 +407,11 @@ fn oracle(entries: List(LogEntry(DirCommand))) -> Tree {
             reference_sequence_number: cmd.ref_seq,
             client_sequence_number: cmd.client_seq,
           )
+        // The oracle is a pending-free pure observer, not any client; the
+        // local-client id used by the dispose lifecycle only survives on
+        // marker-retained (pending) nodes, so a sentinel is fine here.
         let #(state, _events) =
-          directory_kernel.apply_remote(state, cmd.op, meta)
+          directory_kernel.apply_remote(state, cmd.op, meta, -1)
         #(state, seq + 1)
       },
     )

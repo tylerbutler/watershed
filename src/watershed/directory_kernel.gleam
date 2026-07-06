@@ -42,6 +42,15 @@ pub type DirectoryNode {
   DirectoryNode(
     path: String,
     create: CreateInfo,
+    /// Immutable local instance identity: the `create` this node was *born*
+    /// with, never re-stamped or cleared. Two nodes at the same path are the
+    /// same instance iff their births match — the kernel's stand-in for FF's
+    /// object identity. Alias bookkeeping (a folded pending-create marker vs
+    /// the sequenced slot) must compare births rather than assume the slot
+    /// holds the marker's instance: an interleaved ack can commit a
+    /// *different* instance into the slot while the marker still retains its
+    /// own.
+    birth: CreateInfo,
     /// Client ids that created this live instance (upstream `clientIds`).
     creators: List(Int),
     /// Whether this instance was created while detached (upstream
@@ -167,6 +176,7 @@ fn new_node(
   DirectoryNode(
     path: path,
     create: create,
+    birth: create,
     creators: creators,
     detached_created: detached_created,
     disposed: False,
@@ -233,15 +243,22 @@ fn optimistic_child(
     // in `subdirs`).
     Some(PendingCreate(_, pending_child, _, False)) -> Some(pending_child)
     // Latest op is a folded create: its instance was moved into sequenced
-    // children (overwriting any prior instance), which is now the canonical
-    // copy. If a later delete has since cleared that slot, the instance is
-    // retained as a disposed fallback in the marker (FF keeps the *same*
-    // object referenced by the pending entry, disposed); surface it so
-    // `include_disposed` callers (a re-fold on remote create) revive it.
+    // children (overwriting any prior instance), and the slot is the canonical
+    // copy — but only while the slot still holds *this* instance (matching
+    // births). A later delete clears the slot (the instance survives in the
+    // marker), and a later ack can commit a *different* instance into it; in
+    // both cases the marker node is the pending create's instance, exactly as
+    // FF's pending entry keeps referencing its own object. The marker node's
+    // `disposed` flag is authoritative — set by the delete's dispose
+    // lifecycle, cleared again by an undispose.
     Some(PendingCreate(_, pending_child, _, True)) ->
       case dict.get(node.subdirs, name) {
-        Ok(live) -> Some(live)
-        Error(_) -> Some(DirectoryNode(..pending_child, disposed: True))
+        Ok(live) ->
+          case live.birth == pending_child.birth {
+            True -> Some(live)
+            False -> Some(pending_child)
+          }
+        Error(_) -> Some(pending_child)
       }
     // Latest op is a delete: optimistically absent.
     Some(PendingRemove(_, _)) -> None
@@ -274,14 +291,25 @@ fn put_optimistic_child(
           child,
         ),
       )
-    // Folded create: the canonical copy lives in sequenced children, but the
-    // marker keeps a re-insert fallback used if a later delete clears the slot
-    // before this create's ack. FF gets this for free (pending entry and
-    // sequenced map hold the SAME object); in this immutable port we must
-    // mirror the write into the marker too, or the fallback drifts stale and a
-    // delete/recreate race resurrects an out-of-date instance.
+    // Folded create: the canonical copy lives in the sequenced slot while the
+    // slot still holds this instance (matching births), and the marker keeps a
+    // same-instance alias. FF gets this for free (pending entry and sequenced
+    // map hold the SAME object); in this immutable port we must mirror the
+    // write into the marker too, or the alias drifts stale and a
+    // delete/recreate race resurrects an out-of-date instance. If the slot was
+    // cleared by a delete — or holds a *different* instance committed by an
+    // interleaved ack — only the marker is written: FF never mutates another
+    // object, and never re-inserts into the sequenced map outside sequenced-op
+    // processing.
     Some(PendingCreate(_, _, _, True)) -> {
-      let node = put_sequenced_child(node, name, child)
+      let node = case dict.get(node.subdirs, name) {
+        Ok(live) ->
+          case live.birth == child.birth {
+            True -> put_sequenced_child(node, name, child)
+            False -> node
+          }
+        Error(_) -> node
+      }
       DirectoryNode(
         ..node,
         pending_subdirs: mark_latest_pending_create_folded(
@@ -878,25 +906,112 @@ fn undispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
   [Undisposed(node.path), ..child_events]
 }
 
+/// Names that may alias a child instance from this node: sequenced children
+/// plus pending-create markers (FF `getSubdirectoriesEvenIfDisposed` reaches
+/// both). Pending-remove-hidden names resolve to `None` via `optimistic_child`
+/// and get skipped by callers, exactly as FF's iterators skip them.
+fn aliased_child_names(node: DirectoryNode) -> List(String) {
+  let marker_names =
+    list.filter_map(node.pending_subdirs, fn(entry) {
+      case entry {
+        PendingCreate(name, _, _, _) ->
+          case dict.has_key(node.subdirs, name) {
+            True -> Error(Nil)
+            False -> Ok(name)
+          }
+        PendingRemove(_, _) -> Error(Nil)
+      }
+    })
+    |> list.unique
+  list.append(node.subdir_order, marker_names)
+}
+
+/// FF `undisposeSubdirectoryTree`: clear the disposed flag on this node and
+/// every reachable aliased child (including disposed ones — a revive must
+/// reach the retained marker copies), bottom-up.
 fn undispose_tree(
   node: DirectoryNode,
 ) -> #(DirectoryNode, List(DirectoryEvent)) {
-  let node = DirectoryNode(..node, disposed: False)
-  let #(subdirs, child_events) =
-    list.fold(node.subdir_order, #(node.subdirs, []), fn(acc, name) {
-      let #(subdirs, events) = acc
-      case dict.get(subdirs, name) {
-        Ok(child) -> {
+  let #(node, child_events) =
+    list.fold(aliased_child_names(node), #(node, []), fn(acc, name) {
+      let #(node, events) = acc
+      case optimistic_child(node, name, True) {
+        Some(child) -> {
           let #(child, ev) = undispose_tree(child)
-          #(dict.insert(subdirs, name, child), list.append(events, ev))
+          #(put_optimistic_child(node, name, child), list.append(events, ev))
         }
-        Error(_) -> acc
+        None -> acc
       }
     })
-  #(DirectoryNode(..node, subdirs: subdirs), [
+  #(DirectoryNode(..node, disposed: False), [
     Undisposed(node.path),
     ..child_events
   ])
+}
+
+/// FF `disposeSubDirectoryTree` + `clearSubDirectorySequencedData` + `dispose`:
+/// walk the *optimistic* children bottom-up (pending-remove-hidden and already
+/// disposed children are skipped, as in FF's `subdirectories()` iterator), then
+/// reset this node's instance identity — create seq back to unknown (-1),
+/// creators to just the local client (standing in for the create op this client
+/// has pending or may later send) — and drop sequenced storage and children
+/// while retaining all pending data, so a marker-retained node revived by a
+/// later create carries a fresh identity instead of leaking the deleted
+/// instance's. Cleared copies are written back into their marker slots first,
+/// so the retained aliases stay in sync (FF mutates the shared objects).
+fn dispose_subdir_tree(node: DirectoryNode, self: Int) -> DirectoryNode {
+  let node =
+    list.fold(aliased_child_names(node), node, fn(node, name) {
+      case optimistic_child(node, name, False) {
+        Some(child) ->
+          put_optimistic_child(node, name, dispose_subdir_tree(child, self))
+        None -> node
+      }
+    })
+  DirectoryNode(
+    ..node,
+    create: CreateInfo(-1, -1),
+    creators: [self],
+    detached_created: False,
+    disposed: True,
+    storage: StorageState(
+      ..node.storage,
+      sequenced: dict.new(),
+      insertion_order: [],
+    ),
+    subdirs: dict.new(),
+    subdir_order: [],
+  )
+}
+
+/// After a sequenced delete removed `name`'s instance from `subdirs`, keep a
+/// folded pending-create marker pointing at the cleared node — but only when
+/// the marker actually aliases *that* instance (matching births; FF's pending
+/// entry holds the same object). A marker for a different instance — unfolded,
+/// or folded but superseded in the slot by an interleaved ack — retains its
+/// own node untouched; overwriting it would destroy that instance's retained
+/// pending data.
+fn sync_folded_marker(
+  node: DirectoryNode,
+  name: String,
+  cleared: DirectoryNode,
+) -> DirectoryNode {
+  case latest_pending_subdir(node, name) {
+    Some(PendingCreate(_, marker_node, _, True)) ->
+      case marker_node.birth == cleared.birth {
+        True ->
+          DirectoryNode(
+            ..node,
+            pending_subdirs: mark_latest_pending_create_folded(
+              node.pending_subdirs,
+              name,
+              cleared,
+            ),
+          )
+        False -> node
+      }
+    _ -> node
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -907,6 +1022,7 @@ pub fn apply_remote(
   state: DirectoryState,
   op: DirectoryOp,
   meta: SequencedMeta,
+  self: Int,
 ) -> #(DirectoryState, List(DirectoryEvent)) {
   case op {
     Set(path, key, value) ->
@@ -927,7 +1043,7 @@ pub fn apply_remote(
       })
     DeleteSubDirectory(path, name) ->
       apply_remote_subdir(state, path, meta, fn(node) {
-        remote_delete_subdir(node, path, name, False)
+        remote_delete_subdir(node, path, name, self, False)
       })
   }
 }
@@ -1092,10 +1208,17 @@ fn remote_create_subdir(
           creators: add_creator(revived.creators, meta.author),
         )
       // Stamp the create seq only if still unknown (a fresh optimistic-only
-      // instance); an already-sequenced instance keeps its original seq.
-      let revived = case revived.create.seq {
-        -1 -> DirectoryNode(..revived, create: create)
-        _ -> revived
+      // instance, or one whose identity a sequenced delete reset) AND this
+      // parent instance was itself live at this message (FF's re-stamp guard in
+      // `processCreateSubDirectoryMessage`); an already-sequenced instance
+      // keeps its original seq.
+      let revived = case
+        node.create.seq != -1
+        && node.create.seq <= meta.sequence_number
+        && revived.create.seq == -1
+      {
+        True -> DirectoryNode(..revived, create: create)
+        False -> revived
       }
       // Move the single copy into sequenced children (the canonical copy) and
       // mark its pending-create marker (if any) folded, keeping the node as a
@@ -1136,14 +1259,20 @@ fn remote_delete_subdir(
   node: DirectoryNode,
   path: String,
   name: String,
+  self: Int,
   local: Bool,
 ) -> #(DirectoryNode, List(DirectoryEvent)) {
   let child_path = join(path, name)
   case sequenced_child(node, name) {
     None -> #(node, [])
-    Some(_) -> {
-      // Remove the child from sequenced (the whole subtree goes with it).
+    Some(previous) -> {
+      // Remove the child from sequenced (the whole subtree goes with it), and
+      // reset the removed instance's identity (FF `disposeSubDirectoryTree`) on
+      // the retained folded-marker alias, if one exists, so a later revive
+      // starts from a cleared identity.
+      let cleared = dispose_subdir_tree(previous, self)
       let node = remove_sequenced_child(node, name)
+      let node = sync_folded_marker(node, name, cleared)
       let masked = has_pending_remove_named(node, name)
       let events = case local || masked {
         True -> []
@@ -1202,8 +1331,14 @@ fn ack_storage(
     case is_message_for_current_instance(node, meta, None) {
       False -> #(node, Ok(Nil))
       True ->
-        case ack_storage_node(node.storage, op) {
-          Ok(storage) -> #(DirectoryNode(..node, storage: storage), Ok(Nil))
+        case ack_storage_node(node.storage, op, meta.client_sequence_number) {
+          Ok(Some(storage)) -> #(
+            DirectoryNode(..node, storage: storage),
+            Ok(Nil),
+          )
+          // Stale ack: this op's pending died with a superseded instance of
+          // this path; the current instance's pending belongs to later ops.
+          Ok(None) -> #(node, Ok(Nil))
           Error(detail) -> #(node, Error(detail))
         }
     }
@@ -1214,69 +1349,63 @@ fn ack_storage(
     // no-op, matching how remote delivery ignores the same stale op elsewhere.
     Error(_) -> Ok(state)
     Ok(#(root, Ok(Nil))) -> Ok(DirectoryState(..state, root: root))
-    Ok(#(_, Error(detail))) -> {
-      // `ack_storage_node` couldn't commit the op against the current instance
-      // at this path. Distinguish by whether this op's id is a live pending in
-      // the current instance's own storage:
-      //
-      //  * id NOT present here → the op targeted a superseded instance of this
-      //    path (created then deleted/recreated, or absorbed into a concurrent
-      //    instance and later removed). Its pending died with that instance, so
-      //    this is a stale ack and a no-op — mirroring FF's `targetSubdir ===
-      //    this` object-identity check. Live absorptions are kept convergent by
-      //    merging their storage into the surviving instance at create-ack time
-      //    (see `ack_create_subdir`), so the only acks that reach here with an
-      //    absent id are for genuinely dead instances, which are safe to drop.
-      //
-      //  * id present here → the pending exists but the op doesn't match it
-      //    (wrong type/order): a genuine protocol violation.
-      let id = meta.client_sequence_number
-      let current_storage_ids = case get_sequenced_directory(state, path) {
-        Some(node) -> storage_pending_ids(node.storage)
-        None -> []
-      }
-      case list.contains(current_storage_ids, id) {
-        False -> Ok(state)
-        True -> Error(UnexpectedAck(op, detail))
-      }
-    }
+    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(op, detail))
   }
 }
 
+/// Commit one acked storage op against a node's storage. The pending entry is
+/// matched by the ack's message id — the kernel's stand-in for FF's
+/// `localOpMetadata` object-identity check (`pendingEntry === localOpMetadata`,
+/// guarded by `targetSubdir === this`): an id that is no longer present means
+/// this op's pending died with a superseded instance of this path (dropped at
+/// create-dedup or delete time), so the ack is stale and a no-op (`Ok(None)`)
+/// — matching by key alone would wrongly consume a *later* op's pending on the
+/// current instance. An id that is present but out of FIFO position is a
+/// genuine protocol violation.
 fn ack_storage_node(
   storage: StorageState,
   op: DirectoryOp,
-) -> Result(StorageState, String) {
+  ack_id: Int,
+) -> Result(Option(StorageState), String) {
+  let present = list.contains(storage_pending_ids(storage), ack_id)
   case op {
     Clear(_) ->
       case storage.pending {
-        [PendingClear(_), ..rest] ->
-          Ok(StorageState(
-            sequenced: dict.new(),
-            insertion_order: [],
-            pending: rest,
-          ))
+        [PendingClear(id), ..rest] if id == ack_id ->
+          Ok(
+            Some(StorageState(
+              sequenced: dict.new(),
+              insertion_order: [],
+              pending: rest,
+            )),
+          )
+        _ if !present -> Ok(None)
         _ -> Error("expected pending clear at queue head")
       }
     Delete(_, key) ->
       case split_storage_at_first_for_key(storage.pending, key) {
-        Ok(#(before, PendingDelete(_, _), after)) ->
-          Ok(StorageState(
-            sequenced: dict.delete(storage.sequenced, key),
-            insertion_order: list.filter(storage.insertion_order, fn(k) {
-              k != key
-            }),
-            pending: list.append(before, after),
-          ))
+        Ok(#(before, PendingDelete(_, id), after)) if id == ack_id ->
+          Ok(
+            Some(StorageState(
+              sequenced: dict.delete(storage.sequenced, key),
+              insertion_order: list.filter(storage.insertion_order, fn(k) {
+                k != key
+              }),
+              pending: list.append(before, after),
+            )),
+          )
+        _ if !present -> Ok(None)
         _ -> Error("expected pending delete for key " <> key)
       }
     Set(_, key, _) ->
       case split_storage_at_first_for_key(storage.pending, key) {
         Ok(#(
           before,
-          PendingLifetime(_, [acked, ..rest_sets], [_, ..rest_ids]),
+          PendingLifetime(_, [acked, ..rest_sets], [head_id, ..rest_ids]),
           after,
-        )) -> {
+        ))
+          if head_id == ack_id
+        -> {
           let pending = case rest_sets {
             [] -> list.append(before, after)
             _ ->
@@ -1289,12 +1418,15 @@ fn ack_storage_node(
             True -> storage.insertion_order
             False -> list.append(storage.insertion_order, [key])
           }
-          Ok(StorageState(
-            sequenced: dict.insert(storage.sequenced, key, acked),
-            insertion_order: insertion_order,
-            pending: pending,
-          ))
+          Ok(
+            Some(StorageState(
+              sequenced: dict.insert(storage.sequenced, key, acked),
+              insertion_order: insertion_order,
+              pending: pending,
+            )),
+          )
         }
+        _ if !present -> Ok(None)
         _ -> Error("expected pending lifetime for key " <> key)
       }
     _ -> Error("non-storage op in ack_storage_node")
@@ -1310,13 +1442,25 @@ fn ack_create_subdir(
 ) -> Result(DirectoryState, KernelError) {
   let create = CreateInfo(meta.sequence_number, meta.client_sequence_number)
   let mutate = fn(orig_node: DirectoryNode) {
-    // Mirror FF `processCreateSubDirectoryMessage` (local branch): consume our
-    // pending create for this name (FIFO), then commit its single copy.
-    case take_first_pending_create(orig_node.pending_subdirs, name) {
-      // No pending create for this name: nothing to commit (e.g. a stashed
-      // create whose pending was already reconciled). No-op.
+    // Mirror FF `processCreateSubDirectoryMessage` (local branch): consume
+    // *this submission's* pending create, then commit its single copy. The
+    // marker is matched by message id — the stand-in for FF's `targetSubdir
+    // === this` parent-object guard: an ack whose marker died with a
+    // superseded parent instance must be a no-op, not consume a later
+    // same-name create's marker (which would silently eat that create's
+    // instance and drop its eventual commit).
+    case
+      take_pending_create_by_id(
+        orig_node.pending_subdirs,
+        name,
+        meta.client_sequence_number,
+      )
+    {
+      // No pending create for this submission: its marker died with a
+      // superseded instance (or a stashed create was already reconciled).
+      // Stale ack, no-op.
       Error(_) -> #(orig_node, Ok(Nil))
-      Ok(#(marker_node, rest)) -> {
+      Ok(#(#(marker_node, _folded), rest)) -> {
         let node = DirectoryNode(..orig_node, pending_subdirs: rest)
         case sequenced_child(node, name) {
           // Already in sequenced children (a concurrent remote create folded
@@ -1328,15 +1472,23 @@ fn ack_create_subdir(
           // just moves the single copy from the marker into `subdirs`. (This is
           // FF's re-insert of `pendingEntry.subdir` when the sequenced slot is
           // empty — e.g. a create/delete/recreate where an earlier delete
-          // cleared the slot.)
+          // cleared the slot.) A disposed instance is revived whole
+          // (`undisposeSubdirectoryTree`), and the create seq is stamped only
+          // if still unknown and this parent instance was live at this message
+          // (FF's re-stamp guard); self is already a creator from submit time.
           None -> {
-            let child =
-              DirectoryNode(
-                ..marker_node,
-                create: create,
-                creators: add_creator(marker_node.creators, meta.author),
-                disposed: False,
-              )
+            let #(child, _revive_events) = case marker_node.disposed {
+              True -> undispose_tree(marker_node)
+              False -> #(marker_node, [])
+            }
+            let child = case
+              node.create.seq != -1
+              && node.create.seq <= meta.sequence_number
+              && child.create.seq == -1
+            {
+              True -> DirectoryNode(..child, create: create)
+              False -> child
+            }
             #(put_sequenced_child(node, name, child), Ok(Nil))
           }
         }
@@ -1354,18 +1506,34 @@ fn ack_delete_subdir(
   meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
   let mutate = fn(node: DirectoryNode) {
-    case remove_first_pending_remove(node.pending_subdirs, name) {
-      // No pending remove: the delete was a no-op locally (its target was
-      // already absent) — e.g. a stashed delete of a subdir that never
-      // existed. Acking it does nothing, matching remote delivery of the same
-      // op.
+    // Match this submission's pending remove by message id (the stand-in for
+    // FF's `targetSubdir === this` parent-object guard — see
+    // `ack_create_subdir`).
+    case
+      remove_pending_subdir(
+        node.pending_subdirs,
+        name,
+        meta.client_sequence_number,
+        False,
+      )
+    {
+      // No pending remove for this submission: the delete was a no-op locally
+      // (its target was already absent — e.g. a stashed delete of a subdir
+      // that never existed), or its pending died with a superseded parent
+      // instance. Stale ack, no-op.
       Error(_) -> #(node, Ok(Nil))
       Ok(rest) -> {
         let node = DirectoryNode(..node, pending_subdirs: rest)
-        // Commit the delete into sequenced state.
+        // Commit the delete into sequenced state, resetting the removed
+        // instance's identity (FF `disposeSubDirectoryTree`) on the retained
+        // folded-marker alias, if any — same lifecycle as the remote path.
         case sequenced_child(node, name) {
           None -> #(node, Ok(Nil))
-          Some(_) -> #(remove_sequenced_child(node, name), Ok(Nil))
+          Some(previous) -> {
+            let cleared = dispose_subdir_tree(previous, meta.author)
+            let node = remove_sequenced_child(node, name)
+            #(sync_folded_marker(node, name, cleared), Ok(Nil))
+          }
         }
       }
     }
@@ -1400,18 +1568,6 @@ fn ack_subdir_apply(
   }
 }
 
-fn take_first_pending_create(
-  pending: List(PendingSubdir),
-  name: String,
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
-  do_take_pending(pending, [], fn(e) {
-    case e {
-      PendingCreate(n, node, _, _) if n == name -> Some(node)
-      _ -> None
-    }
-  })
-}
-
 /// Remove the pending create for `name` with `message_id`, returning its node
 /// and whether it had been folded into sequenced children.
 fn take_pending_create_by_id(
@@ -1426,27 +1582,6 @@ fn take_pending_create_by_id(
       _ -> None
     }
   })
-}
-
-fn remove_first_pending_remove(
-  pending: List(PendingSubdir),
-  name: String,
-) -> Result(List(PendingSubdir), Nil) {
-  do_remove_first_pending_remove(pending, name, [])
-}
-
-fn do_remove_first_pending_remove(
-  pending: List(PendingSubdir),
-  name: String,
-  seen: List(PendingSubdir),
-) -> Result(List(PendingSubdir), Nil) {
-  case pending {
-    [] -> Error(Nil)
-    [PendingRemove(n, _), ..rest] if n == name ->
-      Ok(list.append(list.reverse(seen), rest))
-    [entry, ..rest] ->
-      do_remove_first_pending_remove(rest, name, [entry, ..seen])
-  }
 }
 
 fn do_take_pending(
@@ -1659,65 +1794,358 @@ fn rollback_subdir_apply(
 // Resubmit (re-send still-relevant pending ops after reconnect)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Whether the pending entry that `op`/`message_id` produced is still present.
-/// Only still-present pending entries are worth resubmitting (D14).
+/// FF `reSubmitCore` routing (D14): decide whether the pending op behind
+/// `op`/`message_id` is still worth resubmitting, applying FF's resubmit-time
+/// state effects. Targets are located on the *retained instance* — traversal
+/// includes disposed marker aliases, because FF's `localOpMetadata` holds the
+/// object itself, not a path — then gated on `!targetSubdir.disposed` plus the
+/// per-entry pending check (`resubmitKeyMessage`/`resubmitSubDirectoryMessage`).
+/// A create resubmit records the current client id as a creator and undisposes
+/// the retained pending tree, which is what lets storage ops queued *behind*
+/// it in the same reconnect batch see their target alive and resubmit too —
+/// dropping them while their pending survives on the retained node would leak
+/// a never-acked pending that only this client can see.
+///
+/// When an op IS dropped, its pending entry is stripped from the retained
+/// instance (see `strip_dropped_pending`) — one deliberate divergence from FF,
+/// which leaves the entry on the disposed object. That op will never be
+/// sequenced, so if a later create ack revives the retained instance the
+/// leftover entry resurfaces as a phantom optimistic edit no other client ever
+/// sees; dropping the op and its pending together keeps the revive convergent.
 pub fn resubmit(
   state: DirectoryState,
   op: DirectoryOp,
   message_id: Int,
-) -> Result(Option(DirectoryOp), KernelError) {
-  let still_present = case op {
-    Set(path, key, _) -> storage_pending_has_id(state, path, key, message_id)
-    Delete(path, key) -> storage_pending_has_id(state, path, key, message_id)
-    Clear(path) -> storage_pending_has_id(state, path, "", message_id)
-    CreateSubDirectory(path, name) ->
-      subdir_pending_has_id(state, path, name, message_id, True)
-    DeleteSubDirectory(path, name) ->
-      subdir_pending_has_id(state, path, name, message_id, False)
-  }
-  case still_present {
-    True -> Ok(Some(op))
-    False -> Ok(None)
+  self: Int,
+) -> #(DirectoryState, Option(DirectoryOp)) {
+  case op {
+    Set(path, _, _) | Delete(path, _) | Clear(path) -> {
+      let locate = fn(node: DirectoryNode) {
+        case
+          !node.disposed
+          && list.contains(storage_pending_ids(node.storage), message_id)
+          && storage_pending_matches(node.storage.pending, op, message_id)
+        {
+          True -> Ok(#(node, Nil))
+          False -> Error(Nil)
+        }
+      }
+      case update_retained_instance(state.root, segments(path), locate) {
+        Ok(_) -> #(state, Some(op))
+        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+      }
+    }
+    CreateSubDirectory(path, name) -> {
+      let revive = fn(node: DirectoryNode) {
+        let owns_marker =
+          list.any(node.pending_subdirs, fn(entry) {
+            case entry {
+              PendingCreate(n, _, id, _) -> n == name && id == message_id
+              _ -> False
+            }
+          })
+        case !node.disposed && owns_marker {
+          False -> Error(Nil)
+          True ->
+            // FF revives the *latest* pending create's instance for the name
+            // (`findLast` in `resubmitSubDirectoryMessage`), which may be a
+            // later recreate rather than this submission's own node: creator
+            // id for the (possibly new) connection, tree-wide undispose. The
+            // live copy is the sequenced slot when the marker is folded and
+            // the slot is still occupied; otherwise the marker node itself.
+            case find_latest_pending_create(node.pending_subdirs, name) {
+              None -> Error(Nil)
+              Some(#(marker_node, folded)) -> {
+                // The live copy is the sequenced slot only while it still
+                // holds this instance (matching births).
+                let slot_aliased =
+                  folded
+                  && case dict.get(node.subdirs, name) {
+                    Ok(live) -> live.birth == marker_node.birth
+                    Error(_) -> False
+                  }
+                let child = case slot_aliased {
+                  True ->
+                    case dict.get(node.subdirs, name) {
+                      Ok(live) -> live
+                      Error(_) -> marker_node
+                    }
+                  False -> marker_node
+                }
+                let child =
+                  DirectoryNode(
+                    ..child,
+                    creators: add_creator(child.creators, self),
+                  )
+                let #(child, _events) = undispose_tree(child)
+                let node = case slot_aliased {
+                  True -> put_sequenced_child(node, name, child)
+                  False -> node
+                }
+                Ok(#(
+                  DirectoryNode(
+                    ..node,
+                    pending_subdirs: replace_latest_pending_create(
+                      node.pending_subdirs,
+                      name,
+                      child,
+                    ),
+                  ),
+                  Nil,
+                ))
+              }
+            }
+        }
+      }
+      case update_retained_instance(state.root, segments(path), revive) {
+        Ok(#(root, Nil)) -> #(DirectoryState(..state, root: root), Some(op))
+        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+      }
+    }
+    DeleteSubDirectory(path, name) -> {
+      let locate = fn(node: DirectoryNode) {
+        let owns_remove =
+          list.any(node.pending_subdirs, fn(entry) {
+            case entry {
+              PendingRemove(n, id) -> n == name && id == message_id
+              _ -> False
+            }
+          })
+        case !node.disposed && owns_remove {
+          True -> Ok(#(node, Nil))
+          False -> Error(Nil)
+        }
+      }
+      case update_retained_instance(state.root, segments(path), locate) {
+        Ok(_) -> #(state, Some(op))
+        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+      }
+    }
   }
 }
 
-fn storage_pending_has_id(
+/// Remove the pending entry behind a dropped resubmit from wherever it still
+/// lives — searching *all* retained instances, disposed ones included (the
+/// drop usually happened precisely because the instance is disposed). The
+/// entry's op will never be sequenced, so leaving it behind would let a later
+/// revive of the retained instance surface a phantom optimistic edit.
+fn strip_dropped_pending(
   state: DirectoryState,
-  path: String,
-  _key: String,
+  op: DirectoryOp,
   message_id: Int,
-) -> Bool {
-  case get_working_directory(state, path) {
-    None -> False
-    Some(node) -> list.contains(node_storage_ids(node), message_id)
+) -> DirectoryState {
+  let #(path, mutate) = case op {
+    Set(path, _, _) | Delete(path, _) | Clear(path) -> #(
+      path,
+      fn(node: DirectoryNode) {
+        case list.contains(storage_pending_ids(node.storage), message_id) {
+          False -> Error(Nil)
+          True ->
+            Ok(#(
+              DirectoryNode(
+                ..node,
+                storage: StorageState(
+                  ..node.storage,
+                  pending: strip_storage_pending(
+                    node.storage.pending,
+                    message_id,
+                  ),
+                ),
+              ),
+              Nil,
+            ))
+        }
+      },
+    )
+    CreateSubDirectory(path, name) -> #(path, fn(node: DirectoryNode) {
+      case remove_pending_subdir(node.pending_subdirs, name, message_id, True) {
+        Error(_) -> Error(Nil)
+        Ok(rest) -> Ok(#(DirectoryNode(..node, pending_subdirs: rest), Nil))
+      }
+    })
+    DeleteSubDirectory(path, name) -> #(path, fn(node: DirectoryNode) {
+      case
+        remove_pending_subdir(node.pending_subdirs, name, message_id, False)
+      {
+        Error(_) -> Error(Nil)
+        Ok(rest) -> Ok(#(DirectoryNode(..node, pending_subdirs: rest), Nil))
+      }
+    })
+  }
+  case update_retained_instance(state.root, segments(path), mutate) {
+    Ok(#(root, Nil)) -> DirectoryState(..state, root: root)
+    Error(_) -> state
   }
 }
 
-fn node_storage_ids(node: DirectoryNode) -> List(Int) {
-  list.flat_map(node.storage.pending, fn(entry) {
+/// Remove the single pending storage entry tagged `message_id`: the one set
+/// inside a lifetime (dropping the lifetime when it empties), or the matching
+/// delete/clear entry.
+fn strip_storage_pending(
+  pending: List(PendingStorage),
+  message_id: Int,
+) -> List(PendingStorage) {
+  list.filter_map(pending, fn(entry) {
     case entry {
-      PendingLifetime(_, _, ids) -> ids
-      PendingDelete(_, id) -> [id]
-      PendingClear(id) -> [id]
+      PendingLifetime(key, sets, ids) ->
+        case list.contains(ids, message_id) {
+          False -> Ok(entry)
+          True -> {
+            let kept =
+              list.zip(sets, ids)
+              |> list.filter(fn(pair) { pair.1 != message_id })
+            case kept {
+              [] -> Error(Nil)
+              _ ->
+                Ok(PendingLifetime(
+                  key,
+                  list.map(kept, fn(pair) { pair.0 }),
+                  list.map(kept, fn(pair) { pair.1 }),
+                ))
+            }
+          }
+        }
+      PendingDelete(_, id) if id == message_id -> Error(Nil)
+      PendingClear(id) if id == message_id -> Error(Nil)
+      other -> Ok(other)
     }
   })
 }
 
-fn subdir_pending_has_id(
-  state: DirectoryState,
-  path: String,
+/// The latest pending create entry for `name` (FF `findLast` in
+/// `resubmitSubDirectoryMessage`), skipping any later pending remove.
+fn find_latest_pending_create(
+  pending: List(PendingSubdir),
   name: String,
+) -> Option(#(DirectoryNode, Bool)) {
+  list.reverse(pending)
+  |> list.find_map(fn(entry) {
+    case entry {
+      PendingCreate(n, node, _, folded) if n == name -> Ok(#(node, folded))
+      _ -> Error(Nil)
+    }
+  })
+  |> option.from_result
+}
+
+/// Whether this node's pending storage still holds `op`'s pending entry — FF
+/// `resubmitKeyMessage`/`resubmitClearMessage`'s check. Only sets verify the
+/// submission identity (FF `keySets.includes(localOpMetadata)`, here the
+/// message id); deletes and clears match by kind (and key) alone.
+fn storage_pending_matches(
+  pending: List(PendingStorage),
+  op: DirectoryOp,
   message_id: Int,
-  is_create: Bool,
 ) -> Bool {
-  case get_working_directory(state, path) {
-    None -> False
-    Some(node) ->
-      list.any(node.pending_subdirs, fn(entry) {
-        case entry, is_create {
-          PendingCreate(n, _, id, _), True -> n == name && id == message_id
-          PendingRemove(n, id), False -> n == name && id == message_id
-          _, _ -> False
+  list.any(pending, fn(entry) {
+    case op, entry {
+      Set(_, key, _), PendingLifetime(k, _, ids) ->
+        k == key && list.contains(ids, message_id)
+      Delete(_, key), PendingDelete(k, _) -> k == key
+      Clear(_), PendingClear(_) -> True
+      _, _ -> False
+    }
+  })
+}
+
+/// Every retained instance that may answer to `name` under `node`, newest
+/// lifecycle first, tagged with the slot it canonically lives in. Unlike
+/// `optimistic_child`, this surfaces instances *shadowed* by later pending
+/// entries — e.g. the old sequenced instance hidden under a pending remove +
+/// pending recreate — because FF's `localOpMetadata` holds a direct object
+/// reference that a path lookup cannot reproduce; resubmit must be able to
+/// find the specific instance whose pending it is deciding about.
+fn candidate_children(
+  node: DirectoryNode,
+  name: String,
+) -> List(#(ChildSlot, DirectoryNode)) {
+  let marker_candidates =
+    list.reverse(node.pending_subdirs)
+    |> list.filter_map(fn(entry) {
+      case entry {
+        // A folded marker whose sequenced slot holds the *same* instance
+        // (matching births) is an alias; the sequenced copy below covers it.
+        PendingCreate(n, child, id, folded) if n == name -> {
+          let aliased =
+            folded
+            && case dict.get(node.subdirs, name) {
+              Ok(live) -> live.birth == child.birth
+              Error(_) -> False
+            }
+          case aliased {
+            True -> Error(Nil)
+            False -> Ok(#(MarkerSlot(id), child))
+          }
+        }
+        _ -> Error(Nil)
+      }
+    })
+  let sequenced_candidate =
+    dict.get(node.subdirs, name)
+    |> result.map(fn(child) { [#(SequencedSlot, child)] })
+    |> result.unwrap([])
+  list.append(marker_candidates, sequenced_candidate)
+}
+
+type ChildSlot {
+  SequencedSlot
+  MarkerSlot(message_id: Int)
+}
+
+/// Write `child` back into the slot a candidate came from. A sequenced-slot
+/// write also refreshes a folded marker aliasing that instance (mirroring
+/// FF's shared object) — the counterpart of `put_optimistic_child`.
+fn put_candidate_child(
+  node: DirectoryNode,
+  name: String,
+  slot: ChildSlot,
+  child: DirectoryNode,
+) -> DirectoryNode {
+  case slot {
+    SequencedSlot -> {
+      let node = put_sequenced_child(node, name, child)
+      sync_folded_marker(node, name, child)
+    }
+    MarkerSlot(id) ->
+      DirectoryNode(
+        ..node,
+        pending_subdirs: list.map(node.pending_subdirs, fn(entry) {
+          case entry {
+            PendingCreate(n, _, entry_id, folded)
+              if n == name && entry_id == id
+            -> PendingCreate(n, child, entry_id, folded)
+            other -> other
+          }
+        }),
+      )
+  }
+}
+
+/// Depth-first search-and-update over retained instances: at each path
+/// segment try every candidate instance (see `candidate_children`) until one
+/// subtree's target satisfies `f`, then write the updated nodes back along
+/// that branch. `f` returns `Error(Nil)` for "not this instance", making the
+/// whole traversal the kernel's stand-in for following FF's metadata object
+/// reference to wherever the pending actually lives.
+fn update_retained_instance(
+  node: DirectoryNode,
+  segs: List(String),
+  f: fn(DirectoryNode) -> Result(#(DirectoryNode, r), Nil),
+) -> Result(#(DirectoryNode, r), Nil) {
+  case segs {
+    [] -> f(node)
+    [name, ..rest] ->
+      list.fold(candidate_children(node, name), Error(Nil), fn(acc, cand) {
+        case acc {
+          Ok(_) -> acc
+          Error(_) -> {
+            let #(slot, child) = cand
+            case update_retained_instance(child, rest, f) {
+              Ok(#(new_child, r)) ->
+                Ok(#(put_candidate_child(node, name, slot, new_child), r))
+              Error(_) -> Error(Nil)
+            }
+          }
         }
       })
   }
@@ -1827,6 +2255,7 @@ fn load_node(path: String, summary: DirectorySummary) -> DirectoryNode {
   DirectoryNode(
     path: path,
     create: summary.create,
+    birth: summary.create,
     creators: summary.creators,
     detached_created: summary.detached_created,
     disposed: False,

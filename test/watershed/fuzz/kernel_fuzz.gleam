@@ -90,9 +90,12 @@ pub type Capabilities(state, op, view) {
     /// (return `None` — e.g. its target instance was deleted while offline, so
     /// the pending edit no longer exists) or rewrite it (return `Some`, e.g.
     /// re-stamping its reference sequence number to the client's current
-    /// cursor, as the Fluid runtime does on every resend). Models without
-    /// instance lifecycle leave this `None`; the harness then resends verbatim.
-    resubmit: Option(fn(state, op, SubmitMeta) -> Option(op)),
+    /// cursor, as the Fluid runtime does on every resend). The updated state is
+    /// threaded through the queue: FF's resubmit has state effects (a create
+    /// resubmit undisposes its pending subtree) that decide whether ops queued
+    /// *behind* it still have live targets. Models without instance lifecycle
+    /// leave this `None`; the harness then resends verbatim.
+    resubmit: Option(fn(state, op, SubmitMeta) -> #(state, Option(op))),
     /// After applying a sequenced op, the delivering client may owe follow-on
     /// ops. Returned ops are routed from that client without optimistic apply.
     react: Option(fn(state, op, SequencedMeta, Int, Bool) -> List(op)),
@@ -687,26 +690,30 @@ fn reconnect(
   index: Int,
 ) -> Sim(state, op) {
   let client = get_client(sim, index)
-  let resent = case model.capabilities.resubmit {
-    None -> client.resend
-    Some(resubmit) ->
-      list.filter_map(client.resend, fn(op) {
-        case
-          resubmit(
-            client.state,
-            op,
-            SubmitMeta(client_id: index, last_seen_seq: client.delivered),
-          )
-        {
-          Some(rewritten) -> Ok(rewritten)
-          None -> Error(Nil)
-        }
-      })
+  let #(client_state, resent) = case model.capabilities.resubmit {
+    None -> #(client.state, client.resend)
+    Some(resubmit) -> {
+      let #(state, reversed) =
+        list.fold(client.resend, #(client.state, []), fn(acc, op) {
+          let #(state, acc_ops) = acc
+          let #(state, out) =
+            resubmit(
+              state,
+              op,
+              SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+            )
+          case out {
+            Some(rewritten) -> #(state, [rewritten, ..acc_ops])
+            None -> #(state, acc_ops)
+          }
+        })
+      #(state, list.reverse(reversed))
+    }
   }
   let entries = list.map(resent, fn(op) { OpEntry(index, op, []) })
   let sim =
     update_client(sim, index, fn(client) {
-      Client(..client, connected: True, resend: [])
+      Client(..client, state: client_state, connected: True, resend: [])
     })
   Sim(..sim, inbox: list.append(sim.inbox, entries))
 }
