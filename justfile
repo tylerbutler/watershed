@@ -27,6 +27,30 @@ test:
 fuzz:
     FUZZ_ITERATIONS=5000 gleam test
 
+# === INTEGRATION (live levee server) ===
+
+# Start a levee dev server in Docker (published GHCR image, no clone needed)
+integration-up:
+    docker compose up -d --wait
+
+# Start a levee dev server built from the levee `gleam` branch source
+integration-up-build:
+    docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --wait --build
+
+# Stop and remove the levee dev server
+integration-down:
+    docker compose down
+
+# Run the test suite with the live integration tests enabled (assumes a
+# levee server is already up on 127.0.0.1:4000)
+integration-run:
+    WATERSHED_INTEGRATION=1 gleam test
+
+# Full live integration cycle: start server, run suite, tear down
+integration:
+    docker compose up -d --wait
+    WATERSHED_INTEGRATION=1 gleam test; status=$?; docker compose down; exit $status
+
 # Format code
 format:
     gleam format

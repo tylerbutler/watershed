@@ -1,0 +1,20 @@
+# Build override: compile the levee server from source instead of pulling the
+# published GHCR image. Layer it on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --wait --build
+#
+# The build context is a remote git URL pinned to the `gleam` branch, so no
+# local clone of levee is required — Docker fetches the branch and builds it
+# with the Dockerfile at the repo root. The watershed client and the levee
+# server both track `gleam`, so this keeps the integration server in lockstep
+# with the branch the client is developed against.
+#
+# To build from a LOCAL levee checkout instead (e.g. to test uncommitted server
+# changes), replace `context` below with a path to your clone, for example:
+#   context: ../levee
+services:
+  levee:
+    image: levee:local
+    build:
+      context: "https://github.com/tylerbutler/levee.git#gleam"
+      dockerfile: Dockerfile

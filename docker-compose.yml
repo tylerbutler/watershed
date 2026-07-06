@@ -1,0 +1,43 @@
+# Levee dev server for watershed's live integration suite.
+#
+# This lets you run `test/watershed/integration_test.gleam` against a real
+# levee server WITHOUT a local clone of the levee repo: by default it pulls the
+# published multi-arch image from GHCR.
+#
+# Usage (published image — no levee checkout required):
+#   docker compose up -d --wait
+#   WATERSHED_INTEGRATION=1 gleam test
+#   docker compose down
+#
+# Or via the justfile: `just integration` (up + test + down).
+#
+# To build the server from levee source instead of pulling the image, layer the
+# build override on top (it clones the `gleam` branch — see the file header):
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --wait --build
+#
+# The server is reachable at:
+#   HTTP:      http://127.0.0.1:4000
+#   WebSocket: ws://127.0.0.1:4000/socket
+services:
+  levee:
+    image: ghcr.io/tylerbutler/levee:latest
+    ports:
+      - "4000:4000"
+    environment:
+      - PHX_SERVER=true
+      - PHX_HOST=localhost
+      - PORT=4000
+      - SECRET_KEY_BASE=dev-only-secret-key-base-at-least-64-characters-long-for-phoenix-framework
+      # Tenant the integration suite mints its JWTs for. These MUST match the
+      # `tenant` / `tenant_secret` constants in
+      # test/watershed/integration_test.gleam, because the prod release does not
+      # auto-register the built-in "dev-tenant" (that only happens under
+      # MIX_ENV=dev|test). Registration here goes through init_from_env/0.
+      - LEVEE_TENANT_ID=dev-tenant
+      - LEVEE_TENANT_KEY=levee-dev-secret-change-in-production
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 5s
+      timeout: 3s
+      start_period: 15s
+      retries: 5
