@@ -306,12 +306,16 @@ fn run_claims_race_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  let outcome_a =
-    watershed.try_set_claim(claims_a, "owner", json.string("A"))
-    |> await_claim_reply_or_panic("A")
-  let outcome_b =
-    watershed.try_set_claim(claims_b, "owner", json.string("B"))
-    |> await_claim_reply_or_panic("B")
+  // Submit both claims optimistically *before* awaiting either outcome. Both
+  // return `Pending` synchronously (the barrier above guarantees neither key is
+  // committed yet), so both ops reach the server and it sequences the race.
+  // Awaiting A first would let A's committed claim broadcast to B before B
+  // submits, and try_set_claim is write-once: B would get `AlreadyClaimed`
+  // instead of racing.
+  let reply_a = watershed.try_set_claim(claims_a, "owner", json.string("A"))
+  let reply_b = watershed.try_set_claim(claims_b, "owner", json.string("B"))
+  let outcome_a = await_claim_reply_or_panic(reply_a, "A")
+  let outcome_b = await_claim_reply_or_panic(reply_b, "B")
 
   let winner = case outcome_a, outcome_b {
     claims_kernel.Accepted(value), claims_kernel.Lost(Some(current)) -> {
