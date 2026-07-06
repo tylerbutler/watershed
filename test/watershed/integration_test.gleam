@@ -26,7 +26,7 @@ import gleam/json.{type Json}
 @target(erlang)
 import gleam/list
 @target(erlang)
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 @target(erlang)
 import startest/expect
 
@@ -40,6 +40,10 @@ import watershed/claims_kernel
 import watershed/git_storage
 @target(erlang)
 import watershed/handle
+@target(erlang)
+import watershed/json_ot
+@target(erlang)
+import watershed/or_map_kernel.{Register, RegisterMode, Tally, TallyMode}
 @target(erlang)
 import watershed/runtime
 
@@ -1003,3 +1007,734 @@ type TimeUnit {
 @target(erlang)
 @external(erlang, "os", "system_time")
 fn system_time(unit: TimeUnit) -> Int
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JSON-OT (json0) live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Two clients converge on concurrent json0 inserts at distinct keys.
+pub fn json_ot_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_json_ot_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Concurrent number_add ops on the same field commute to the sum.
+pub fn json_ot_concurrent_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_json_ot_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a json0 child from a summary and reads the doc.
+pub fn json_ot_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_json_ot_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_json_ot_converge_test() -> Nil {
+  let document = "ws-jot-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(jot_a) = watershed.create_json_ot(doc_a)
+  watershed.set(map_a, "doc", watershed.json_ot_handle_of(jot_a))
+  let jot_b = resolve_json_ot_key_or_panic(doc_b, map_b, "doc")
+
+  watershed.submit_json_ot(jot_a, [
+    json_ot.obj_insert([json_ot.Key("a")], json_ot.VString("from-a")),
+  ])
+  watershed.submit_json_ot(jot_b, [
+    json_ot.obj_insert([json_ot.Key("b")], json_ot.VString("from-b")),
+  ])
+
+  let expected =
+    Some(
+      json_ot.VObject([
+        #("a", json_ot.VString("from-a")),
+        #("b", json_ot.VString("from-b")),
+      ]),
+    )
+  wait_until(50, fn() {
+    watershed.json_ot_view(jot_a) == watershed.json_ot_view(jot_b)
+    && watershed.json_ot_view(jot_a) == expected
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_json_ot_conflict_test() -> Nil {
+  let document = "ws-jot-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(jot_a) = watershed.create_json_ot(doc_a)
+  watershed.set(map_a, "doc", watershed.json_ot_handle_of(jot_a))
+  let jot_b = resolve_json_ot_key_or_panic(doc_b, map_b, "doc")
+
+  // Seed a numeric field and wait for both sides to see it.
+  watershed.submit_json_ot(jot_a, [
+    json_ot.obj_insert([json_ot.Key("n")], json_ot.VNumber(json_ot.NInt(0))),
+  ])
+  let seeded = Some(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(0)))]))
+  wait_until(50, fn() { watershed.json_ot_view(jot_b) == seeded })
+  |> expect.to_be_true()
+
+  // Concurrent increments to the same field commute to the sum.
+  watershed.submit_json_ot(jot_a, [
+    json_ot.number_add([json_ot.Key("n")], json_ot.NInt(3)),
+  ])
+  watershed.submit_json_ot(jot_b, [
+    json_ot.number_add([json_ot.Key("n")], json_ot.NInt(4)),
+  ])
+
+  let expected =
+    Some(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(7)))]))
+  wait_until(50, fn() {
+    watershed.json_ot_view(jot_a) == watershed.json_ot_view(jot_b)
+    && watershed.json_ot_view(jot_a) == expected
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_json_ot_summary_test() -> Nil {
+  let document = "ws-jot-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(jot_a) = watershed.create_json_ot(doc_a)
+  watershed.submit_json_ot(jot_a, [
+    json_ot.obj_insert([json_ot.Key("title")], json_ot.VString("hello")),
+  ])
+  watershed.set(map_a, "doc", watershed.json_ot_handle_of(jot_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let jot_c = resolve_json_ot_key_or_panic(doc_c, map_c, "doc")
+  let expected = Some(json_ot.VObject([#("title", json_ot.VString("hello"))]))
+  wait_until(50, fn() { watershed.json_ot_view(jot_c) == expected })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_json_ot_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedJsonOt {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_json_ot(doc, value)
+      }
+    })
+  case resolved {
+    Ok(jot) -> jot
+    Error(reason) ->
+      panic as { "resolving json_ot at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-map live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Tally-mode OR-map: concurrent increments from both clients sum.
+pub fn or_map_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_map_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Register-mode OR-map: concurrent sets to one key converge to one value.
+pub fn or_map_concurrent_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_map_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a tally OR-map child from a summary.
+pub fn or_map_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_map_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_or_map_converge_test() -> Nil {
+  let document = "ws-orm-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(om_a) = watershed.create_or_map(doc_a, TallyMode)
+  watershed.or_map_increment(om_a, "score", 2)
+  watershed.set(map_a, "board", watershed.or_map_handle_of(om_a))
+  let om_b = resolve_or_map_key_or_panic(doc_b, map_b, "board")
+  wait_until(50, fn() {
+    watershed.or_map_value(om_b, "score") == Some(Tally(2))
+  })
+  |> expect.to_be_true()
+
+  watershed.or_map_increment(om_a, "score", 5)
+  watershed.or_map_increment(om_b, "score", -1)
+  wait_until(50, fn() {
+    watershed.or_map_value(om_a, "score") == Some(Tally(6))
+    && watershed.or_map_value(om_b, "score") == Some(Tally(6))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_or_map_conflict_test() -> Nil {
+  let document = "ws-orm-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(om_a) = watershed.create_or_map(doc_a, RegisterMode)
+  watershed.set(map_a, "reg", watershed.or_map_handle_of(om_a))
+  let om_b = resolve_or_map_key_or_panic(doc_b, map_b, "reg")
+
+  // Concurrent register writes to the same key: the CRDT picks a deterministic
+  // winner, so both clients must converge on the same register value.
+  watershed.or_map_set(om_a, "owner", "from-a")
+  watershed.or_map_set(om_b, "owner", "from-b")
+
+  wait_until(50, fn() {
+    let value_a = watershed.or_map_value(om_a, "owner")
+    let value_b = watershed.or_map_value(om_b, "owner")
+    value_a == value_b && is_register(value_a)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_or_map_summary_test() -> Nil {
+  let document = "ws-orm-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(om_a) = watershed.create_or_map(doc_a, TallyMode)
+  watershed.or_map_increment(om_a, "score", 9)
+  watershed.set(map_a, "board", watershed.or_map_handle_of(om_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let om_c = resolve_or_map_key_or_panic(doc_c, map_c, "board")
+  wait_until(50, fn() {
+    watershed.or_map_value(om_c, "score") == Some(Tally(9))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn is_register(value: Option(or_map_kernel.OrMapValue)) -> Bool {
+  case value {
+    Some(Register(_)) -> True
+    _ -> False
+  }
+}
+
+@target(erlang)
+fn resolve_or_map_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedOrMap {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_or_map(doc, value)
+      }
+    })
+  case resolved {
+    Ok(om) -> om
+    Error(reason) ->
+      panic as { "resolving or_map at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OR-set live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Two clients converge on concurrent adds of distinct elements.
+pub fn or_set_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_set_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Add-wins: a concurrent remove and re-add of one element keeps it present.
+pub fn or_set_concurrent_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_set_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps an OR-set child from a summary.
+pub fn or_set_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_or_set_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_or_set_converge_test() -> Nil {
+  let document = "ws-ors-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(os_a) = watershed.create_or_set(doc_a)
+  watershed.or_set_add(os_a, "alpha")
+  watershed.set(map_a, "set", watershed.or_set_handle_of(os_a))
+  let os_b = resolve_or_set_key_or_panic(doc_b, map_b, "set")
+  wait_until(50, fn() { watershed.or_set_contains(os_b, "alpha") })
+  |> expect.to_be_true()
+
+  watershed.or_set_add(os_a, "beta")
+  watershed.or_set_add(os_b, "gamma")
+  wait_until(50, fn() { or_set_has_all(os_a) && or_set_has_all(os_b) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn or_set_has_all(os: watershed.SharedOrSet) -> Bool {
+  watershed.or_set_contains(os, "alpha")
+  && watershed.or_set_contains(os, "beta")
+  && watershed.or_set_contains(os, "gamma")
+  && list.length(watershed.or_set_values(os)) == 3
+}
+
+@target(erlang)
+fn run_or_set_conflict_test() -> Nil {
+  let document = "ws-ors-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(os_a) = watershed.create_or_set(doc_a)
+  watershed.or_set_add(os_a, "x")
+  watershed.set(map_a, "set", watershed.or_set_handle_of(os_a))
+  let os_b = resolve_or_set_key_or_panic(doc_b, map_b, "set")
+  wait_until(50, fn() { watershed.or_set_contains(os_b, "x") })
+  |> expect.to_be_true()
+
+  // A removes the element while B concurrently re-adds it: add wins, so the
+  // element survives on both replicas.
+  watershed.or_set_remove(os_a, "x")
+  watershed.or_set_add(os_b, "x")
+  wait_until(50, fn() {
+    watershed.or_set_contains(os_a, "x") && watershed.or_set_contains(os_b, "x")
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_or_set_summary_test() -> Nil {
+  let document = "ws-ors-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(os_a) = watershed.create_or_set(doc_a)
+  watershed.or_set_add(os_a, "one")
+  watershed.or_set_add(os_a, "two")
+  watershed.set(map_a, "set", watershed.or_set_handle_of(os_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let os_c = resolve_or_set_key_or_panic(doc_c, map_c, "set")
+  wait_until(50, fn() {
+    watershed.or_set_contains(os_c, "one")
+    && watershed.or_set_contains(os_c, "two")
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_or_set_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedOrSet {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_or_set(doc, value)
+      }
+    })
+  case resolved {
+    Ok(os) -> os
+    Error(reason) ->
+      panic as { "resolving or_set at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Register-collection live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Two clients see each other's writes to distinct keys.
+pub fn register_collection_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_register_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Concurrent writes to one key converge to a single atomic value on both.
+pub fn register_collection_concurrent_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_register_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a register collection from a summary.
+pub fn register_collection_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_register_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_register_converge_test() -> Nil {
+  let document = "ws-reg-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(reg_a) = watershed.create_register_collection(doc_a)
+  watershed.register_write(reg_a, "k1", json.string("v1"))
+  watershed.set(map_a, "reg", watershed.register_collection_handle_of(reg_a))
+  let reg_b = resolve_register_key_or_panic(doc_b, map_b, "reg")
+  wait_until(50, fn() {
+    watershed.register_get(reg_b, "k1") == Some(json.string("v1"))
+  })
+  |> expect.to_be_true()
+
+  watershed.register_write(reg_b, "k2", json.string("v2"))
+  wait_until(50, fn() {
+    watershed.register_get(reg_a, "k2") == Some(json.string("v2"))
+    && watershed.register_get(reg_b, "k1") == Some(json.string("v1"))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_register_conflict_test() -> Nil {
+  let document = "ws-reg-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(reg_a) = watershed.create_register_collection(doc_a)
+  watershed.set(map_a, "reg", watershed.register_collection_handle_of(reg_a))
+  let reg_b = resolve_register_key_or_panic(doc_b, map_b, "reg")
+
+  // Concurrent writes to the same key: the consensus register resolves to a
+  // single atomic value, so both clients must agree on the read.
+  watershed.register_write(reg_a, "shared", json.string("from-a"))
+  watershed.register_write(reg_b, "shared", json.string("from-b"))
+
+  wait_until(50, fn() {
+    let atomic_a = watershed.register_get(reg_a, "shared")
+    let atomic_b = watershed.register_get(reg_b, "shared")
+    atomic_a == atomic_b
+    && atomic_a != None
+    && watershed.register_versions(reg_a, "shared")
+    == watershed.register_versions(reg_b, "shared")
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_register_summary_test() -> Nil {
+  let document = "ws-reg-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(reg_a) = watershed.create_register_collection(doc_a)
+  watershed.register_write(reg_a, "persisted", json.string("kept"))
+  watershed.set(map_a, "reg", watershed.register_collection_handle_of(reg_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let reg_c = resolve_register_key_or_panic(doc_c, map_c, "reg")
+  wait_until(50, fn() {
+    watershed.register_get(reg_c, "persisted") == Some(json.string("kept"))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_register_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedRegisterCollection {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_register_collection(doc, value)
+      }
+    })
+  case resolved {
+    Ok(reg) -> reg
+    Error(reason) ->
+      panic as { "resolving register at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task-manager live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// A lone volunteer is assigned the task; the peer sees the same queue.
+pub fn task_manager_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_task_manager_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Two clients race to volunteer: one is assigned, the other waits, and
+/// completing the task reassigns it to the waiter.
+pub fn task_manager_race_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_task_manager_race_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a task manager child from a summary.
+pub fn task_manager_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_task_manager_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_task_manager_converge_test() -> Nil {
+  let document = "ws-tsk-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(tm_a) = watershed.create_task_manager(doc_a)
+  watershed.set(map_a, "tasks", watershed.task_manager_handle_of(tm_a))
+  let tm_b = resolve_task_manager_key_or_panic(doc_b, map_b, "tasks")
+
+  // The optimistic outcome is Waiting; assignment is decided once the volunteer
+  // op sequences, so poll task_assigned rather than trusting the return value.
+  let _ = watershed.volunteer_for_task(tm_a, "t1")
+  wait_until(50, fn() {
+    watershed.task_assigned(tm_a, "t1")
+    && watershed.task_assigned(tm_b, "t1") == False
+    && watershed.task_queues(tm_a) == watershed.task_queues(tm_b)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_task_manager_race_test() -> Nil {
+  let document = "ws-tsk-rc-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(tm_a) = watershed.create_task_manager(doc_a)
+  watershed.set(map_a, "tasks", watershed.task_manager_handle_of(tm_a))
+  let tm_b = resolve_task_manager_key_or_panic(doc_b, map_b, "tasks")
+
+  // Both volunteer for the same task; the server sequences the queue so exactly
+  // one becomes the assignee.
+  let _ = watershed.volunteer_for_task(tm_a, "t2")
+  let _ = watershed.volunteer_for_task(tm_b, "t2")
+  wait_until(50, fn() {
+    watershed.task_assigned(tm_a, "t2") != watershed.task_assigned(tm_b, "t2")
+    && watershed.task_queues(tm_a) == watershed.task_queues(tm_b)
+  })
+  |> expect.to_be_true()
+
+  // The assignee abandons the task; the waiter is promoted to assignee.
+  case watershed.task_assigned(tm_a, "t2") {
+    True -> {
+      watershed.abandon_task(tm_a, "t2")
+      wait_until(50, fn() { watershed.task_assigned(tm_b, "t2") })
+      |> expect.to_be_true()
+    }
+    False -> {
+      watershed.abandon_task(tm_b, "t2")
+      wait_until(50, fn() { watershed.task_assigned(tm_a, "t2") })
+      |> expect.to_be_true()
+    }
+  }
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_task_manager_summary_test() -> Nil {
+  let document = "ws-tsk-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(tm_a) = watershed.create_task_manager(doc_a)
+  watershed.set(map_a, "tasks", watershed.task_manager_handle_of(tm_a))
+  let _ = watershed.volunteer_for_task(tm_a, "t1")
+  wait_until(50, fn() { watershed.task_assigned(tm_a, "t1") })
+  |> expect.to_be_true()
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let tm_c = resolve_task_manager_key_or_panic(doc_c, map_c, "tasks")
+  // The fresh client is not the assignee, but it sees the same task queue.
+  wait_until(50, fn() {
+    watershed.task_assigned(tm_c, "t1") == False
+    && watershed.task_queues(tm_c) == watershed.task_queues(tm_a)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_task_manager_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedTaskManager {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_task_manager(doc, value)
+      }
+    })
+  case resolved {
+    Ok(tm) -> tm
+    Error(reason) ->
+      panic as {
+        "resolving task_manager at key " <> key <> " failed: " <> reason
+      }
+  }
+}
