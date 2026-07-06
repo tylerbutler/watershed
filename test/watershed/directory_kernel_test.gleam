@@ -3,10 +3,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/directory_kernel.{
-  type DirectoryEvent, type DirectoryOp, type DirectoryState,
-  type SequencedMeta, Cleared, CreateSubDirectory, Delete, DeleteSubDirectory,
-  Disposed, SequencedMeta, Set, SubDirectoryCreated, SubDirectoryDeleted,
-  Undisposed, ValueChanged,
+  type DirectoryEvent, type DirectoryOp, type DirectoryState, type SequencedMeta,
+  Cleared, CreateSubDirectory, Delete, DeleteSubDirectory, Disposed,
+  SequencedMeta, Set, SubDirectoryCreated, SubDirectoryDeleted, Undisposed,
+  ValueChanged,
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ fn set(state: DirectoryState, path: String, key: String, value: Int) {
 }
 
 fn create_sub(state: DirectoryState, path: String, name: String) {
-  local_sub(directory_kernel.create_subdirectory(state, path, name))
+  local_sub(directory_kernel.create_subdirectory(state, path, name, 0))
 }
 
 // ─── basic storage ───────────────────────────────────────────────────────────
@@ -150,7 +150,11 @@ pub fn remote_set_emits_when_no_pending_test() {
 pub fn remote_set_suppressed_when_pending_masks_test() {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   let #(_, events) =
-    directory_kernel.apply_remote(state, Set("/", "k", json.int(9)), meta(1, 1, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/", "k", json.int(9)),
+      meta(1, 1, 0, 0),
+    )
   events |> expect.to_equal([])
 }
 
@@ -181,7 +185,9 @@ pub fn duplicate_create_does_not_duplicate_test() {
 }
 
 pub fn invalid_subdir_name_errors_test() {
-  case directory_kernel.create_subdirectory(directory_kernel.new(), "/", "a/b") {
+  case
+    directory_kernel.create_subdirectory(directory_kernel.new(), "/", "a/b", 0)
+  {
     Error(directory_kernel.InvalidName("a/b")) -> Nil
     _ -> panic as "expected InvalidName"
   }
@@ -218,9 +224,17 @@ pub fn remote_delete_disposes_and_clears_test() {
       meta(1, 1, 0, 0),
     )
   let #(state, _) =
-    directory_kernel.apply_remote(state, Set("/b", "k", json.int(1)), meta(1, 2, 1, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/b", "k", json.int(1)),
+      meta(1, 2, 1, 0),
+    )
   let #(state, events) =
-    directory_kernel.apply_remote(state, DeleteSubDirectory("/", "b"), meta(1, 3, 2, 0))
+    directory_kernel.apply_remote(
+      state,
+      DeleteSubDirectory("/", "b"),
+      meta(1, 3, 2, 0),
+    )
   events |> expect.to_equal([SubDirectoryDeleted("/b", False)])
   directory_kernel.has_subdirectory(state, "/", "b") |> expect.to_be_false()
 }
@@ -248,7 +262,11 @@ pub fn lower_seq_first_test() {
       meta(1, 2, 0, 0),
     )
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "x"), meta(1, 1, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "x"),
+      meta(1, 1, 0, 0),
+    )
   // x has lower seq (1) than y (2), so it sorts first.
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["x", "y"])
 }
@@ -258,13 +276,26 @@ pub fn lower_seq_first_test() {
 pub fn summary_round_trip_test() {
   let state = directory_kernel.new()
   let #(state, _) =
-    directory_kernel.apply_remote(state, Set("/", "k", json.int(1)), meta(1, 1, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/", "k", json.int(1)),
+      meta(1, 1, 0, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "a"), meta(1, 2, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "a"),
+      meta(1, 2, 0, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, Set("/a", "n", json.int(5)), meta(1, 3, 2, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/a", "n", json.int(5)),
+      meta(1, 3, 2, 0),
+    )
 
-  let loaded = directory_kernel.from_summary(directory_kernel.summary_tree(state))
+  let loaded =
+    directory_kernel.from_summary(directory_kernel.summary_tree(state))
   directory_kernel.get(loaded, "/", "k") |> expect.to_equal(Some(json.int(1)))
   directory_kernel.get(loaded, "/a", "n") |> expect.to_equal(Some(json.int(5)))
   directory_kernel.subdirectories(loaded, "/") |> expect.to_equal(["a"])
@@ -279,14 +310,30 @@ pub fn stale_op_ignored_after_delete_recreate_test() {
   // must be ignored.
   let state = directory_kernel.new()
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "a"), meta(1, 1, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "a"),
+      meta(1, 1, 0, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, DeleteSubDirectory("/", "a"), meta(1, 2, 1, 0))
+    directory_kernel.apply_remote(
+      state,
+      DeleteSubDirectory("/", "a"),
+      meta(1, 2, 1, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "a"), meta(2, 3, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "a"),
+      meta(2, 3, 0, 0),
+    )
   // Stale set: author 1 (not a creator of the new instance), refSeq 1 < 3.
   let #(state, events) =
-    directory_kernel.apply_remote(state, Set("/a", "k", json.int(99)), meta(1, 4, 1, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/a", "k", json.int(99)),
+      meta(1, 4, 1, 0),
+    )
   events |> expect.to_equal([])
   directory_kernel.get(state, "/a", "k") |> expect.to_equal(None)
 }
@@ -294,14 +341,30 @@ pub fn stale_op_ignored_after_delete_recreate_test() {
 pub fn fresh_op_applies_after_recreate_test() {
   let state = directory_kernel.new()
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "a"), meta(1, 1, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "a"),
+      meta(1, 1, 0, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, DeleteSubDirectory("/", "a"), meta(1, 2, 1, 0))
+    directory_kernel.apply_remote(
+      state,
+      DeleteSubDirectory("/", "a"),
+      meta(1, 2, 1, 0),
+    )
   let #(state, _) =
-    directory_kernel.apply_remote(state, CreateSubDirectory("/", "a"), meta(2, 3, 0, 0))
+    directory_kernel.apply_remote(
+      state,
+      CreateSubDirectory("/", "a"),
+      meta(2, 3, 0, 0),
+    )
   // Fresh set: refSeq 3 >= create seq 3, so it applies even from a non-creator.
   let #(state, _) =
-    directory_kernel.apply_remote(state, Set("/a", "k", json.int(99)), meta(1, 4, 3, 0))
+    directory_kernel.apply_remote(
+      state,
+      Set("/a", "k", json.int(99)),
+      meta(1, 4, 3, 0),
+    )
   directory_kernel.get(state, "/a", "k") |> expect.to_equal(Some(json.int(99)))
 }
 
@@ -338,7 +401,8 @@ pub fn rollback_delete_reexposes_tree_test() {
   case directory_kernel.rollback(state, DeleteSubDirectory("/", "a"), id) {
     Ok(#(state, events)) -> {
       directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_true()
-      directory_kernel.get(state, "/a", "k") |> expect.to_equal(Some(json.int(3)))
+      directory_kernel.get(state, "/a", "k")
+      |> expect.to_equal(Some(json.int(3)))
       expect.to_be_true(list.contains(events, Undisposed("/a")))
     }
     Error(_) -> panic as "rollback should succeed"

@@ -285,3 +285,34 @@ already available from `map_kernel`.
 - Should create-info `ccIds` preserve every concurrent creator for runtime
   parity, or can the kernel store only the predicate needed by D12? Leaning full
   creator list because summary parity and stale-op filtering both use it.
+
+## Status (2026-07-05)
+
+- **SD1 — Storage-on-tree: DONE.**
+- **SD2 — Subdirectory lifecycle: DONE.**
+- **SD3 — Resubmit/stash + fuzz: PARTIAL.** The fuzz model, oracle, and harness
+  wiring are in place; `just test` (default fuzz depth) is green (512 tests). A
+  deep sweep (`FUZZ_ITERATIONS=5000 gleam test`) still finds rare convergence
+  divergences in **one** class — subdirectory *instance aliasing* under stash +
+  disconnect + concurrent create/delete/recreate of the same name.
+
+  Several instance-aliasing bugs were fixed this milestone: a `committed` flag on
+  pending creates (delete/recreate disambiguation), D10 (remote create keeps the
+  author's pending marker), a create-absorption **storage merge** (a live
+  optimistic subdir create absorbed into a concurrently-created sequenced
+  instance now merges its storage writes into the surviving instance instead of
+  dropping them), and an FF-faithful storage-ack rule (`targetSubdir === this`:
+  an ack is a stale no-op unless its id is a live pending in the *current*
+  instance at the path).
+
+  **Remaining root cause:** storage pending lives inside *per-instance node
+  copies* (pending-create nodes and sequenced nodes) and is moved/split/dropped
+  across instance transitions, whereas observers always apply remote ops to the
+  single sequenced node per path. The faithful fix is a refactor to FF's
+  single-`SubDirectory`-object-per-path model: one node per path holds both
+  sequenced and pending storage, with create/delete lifecycle as flags/creator
+  ids on that same node — storage is never copied between instances. This is the
+  "stable local identity" direction noted above and touches `optimistic_child`/
+  `put_optimistic_child`, `create_subdirectory`/`delete_subdirectory`,
+  `remote_create_subdir`/`remote_delete_subdir`, and `ack_create_subdir`/
+  `ack_delete_subdir`. Tracked as a dedicated follow-up.

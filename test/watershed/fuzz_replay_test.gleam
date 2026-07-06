@@ -21,6 +21,7 @@ import gleam/string
 import simplifile
 import watershed/fuzz/claims_model
 import watershed/fuzz/counter_model
+import watershed/fuzz/directory_model
 import watershed/fuzz/kernel_fuzz.{type KernelModel}
 import watershed/fuzz/kernel_fuzz_test
 import watershed/fuzz/map_model
@@ -46,6 +47,7 @@ fn replay_fixture(path: String) -> Result(Nil, String) {
     "claims" -> replay_with(claims_model.model(), content, path)
     "pn_counter" -> replay_with(pn_counter_model.model(), content, path)
     "or_map" -> replay_with(or_map_model.model(), content, path)
+    "directory" -> replay_with(directory_model.model(), content, path)
     "toy-sum" ->
       replay_with(kernel_fuzz_test.sum_model_with_check(), content, path)
     other ->

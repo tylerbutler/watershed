@@ -83,11 +83,23 @@ pub type PendingStorage {
 
 pub type PendingSubdir {
   /// A local create of `name`; `node` is the optimistic child instance that
-  /// accumulates pending storage/children until the create is acked.
-  PendingCreate(name: String, node: DirectoryNode, message_id: Int)
-  /// A local delete of `name`; `deleted_node` is retained so a rollback can
-  /// re-expose the prior tree (D13).
-  PendingRemove(name: String, deleted_node: DirectoryNode, message_id: Int)
+  /// accumulates pending storage/children until the create is acked. `committed`
+  /// is `True` once this create's instance has landed in sequenced children
+  /// (via its own ack or a concurrent remote create of the same instance) — the
+  /// sequenced node is then authoritative and `node` is a stale alias kept only
+  /// to match this op's own ack/rollback. While `False`, `node` is the sole
+  /// optimistic-only instance (e.g. a create following a delete of the same name
+  /// is a fresh, distinct instance from any still-sequenced old one).
+  PendingCreate(
+    name: String,
+    node: DirectoryNode,
+    message_id: Int,
+    committed: Bool,
+  )
+  /// A local delete of `name`. The sequenced child is left in place and only
+  /// hidden optimistically, so pending storage on the subtree survives for its
+  /// acks and a rollback simply re-exposes the retained tree (D13).
+  PendingRemove(name: String, message_id: Int)
 }
 
 pub type DirectoryOp {
@@ -99,7 +111,12 @@ pub type DirectoryOp {
 }
 
 pub type DirectoryEvent {
-  ValueChanged(path: String, key: String, previous_value: Option(Json), local: Bool)
+  ValueChanged(
+    path: String,
+    key: String,
+    previous_value: Option(Json),
+    local: Bool,
+  )
   Cleared(path: String, local: Bool)
   SubDirectoryCreated(path: String, local: Bool)
   SubDirectoryDeleted(path: String, local: Bool)
@@ -133,7 +150,10 @@ pub type KernelError {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn new() -> DirectoryState {
-  DirectoryState(root: new_node("/", CreateInfo(0, 0), [], True), next_message_id: 0)
+  DirectoryState(
+    root: new_node("/", CreateInfo(0, 0), [], True),
+    next_message_id: 0,
+  )
 }
 
 fn new_node(
@@ -148,7 +168,11 @@ fn new_node(
     creators: creators,
     detached_created: detached_created,
     disposed: False,
-    storage: StorageState(sequenced: dict.new(), insertion_order: [], pending: []),
+    storage: StorageState(
+      sequenced: dict.new(),
+      insertion_order: [],
+      pending: [],
+    ),
     subdirs: dict.new(),
     subdir_order: [],
     pending_subdirs: [],
@@ -176,7 +200,10 @@ fn join(path: String, name: String) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The latest pending subdir entry for `name`, if any.
-fn latest_pending_subdir(node: DirectoryNode, name: String) -> Option(PendingSubdir) {
+fn latest_pending_subdir(
+  node: DirectoryNode,
+  name: String,
+) -> Option(PendingSubdir) {
   list.reverse(node.pending_subdirs)
   |> list.find(fn(entry) { pending_subdir_name(entry) == name })
   |> option.from_result
@@ -184,8 +211,8 @@ fn latest_pending_subdir(node: DirectoryNode, name: String) -> Option(PendingSub
 
 fn pending_subdir_name(entry: PendingSubdir) -> String {
   case entry {
-    PendingCreate(name, _, _) -> name
-    PendingRemove(name, _, _) -> name
+    PendingCreate(name, _, _, _) -> name
+    PendingRemove(name, _) -> name
   }
 }
 
@@ -198,8 +225,21 @@ fn optimistic_child(
 ) -> Option(DirectoryNode) {
   let child = case latest_pending_subdir(node, name) {
     None -> dict.get(node.subdirs, name) |> option.from_result
-    Some(PendingCreate(_, child, _)) -> Some(child)
-    Some(PendingRemove(_, _, _)) -> None
+    // A committed pending create aliases the sequenced instance: the sequenced
+    // node is authoritative (subsequent writes went there), and the marker lives
+    // on only to match our own create's ack/rollback. If the aliased instance
+    // was since removed from sequenced (e.g. a concurrent remote delete), fall
+    // back to the retained pending copy — our in-flight create will re-make it.
+    Some(PendingCreate(_, pending_child, _, True)) ->
+      case dict.get(node.subdirs, name) {
+        Ok(seq_child) -> Some(seq_child)
+        Error(_) -> Some(pending_child)
+      }
+    // An uncommitted pending create is a distinct optimistic-only instance
+    // (e.g. a create following a delete of the same name), independent of any
+    // still-sequenced old instance.
+    Some(PendingCreate(_, pending_child, _, False)) -> Some(pending_child)
+    Some(PendingRemove(_, _)) -> None
   }
   case child {
     Some(c) if c.disposed && !include_disposed -> None
@@ -219,10 +259,30 @@ fn put_optimistic_child(
   child: DirectoryNode,
 ) -> DirectoryNode {
   case latest_pending_subdir(node, name) {
-    Some(PendingCreate(_, _, _)) ->
+    // A committed pending create aliases the sequenced instance: writes target
+    // the sequenced node (or, if that instance was removed, the pending copy).
+    Some(PendingCreate(_, _, _, True)) ->
+      case dict.has_key(node.subdirs, name) {
+        True -> put_sequenced_child(node, name, child)
+        False ->
+          DirectoryNode(
+            ..node,
+            pending_subdirs: replace_latest_pending_create(
+              node.pending_subdirs,
+              name,
+              child,
+            ),
+          )
+      }
+    // An uncommitted pending create owns its optimistic-only instance.
+    Some(PendingCreate(_, _, _, False)) ->
       DirectoryNode(
         ..node,
-        pending_subdirs: replace_latest_pending_create(node.pending_subdirs, name, child),
+        pending_subdirs: replace_latest_pending_create(
+          node.pending_subdirs,
+          name,
+          child,
+        ),
       )
     _ -> put_sequenced_child(node, name, child)
   }
@@ -238,6 +298,32 @@ fn replace_latest_pending_create(
   |> list.reverse
 }
 
+/// Flag the latest pending create for `name` as committed — its instance now
+/// lives in sequenced children (D10), so reads/writes defer to the sequenced
+/// node and the pending copy survives only to match the create's own ack.
+fn mark_latest_pending_create_committed(
+  pending: List(PendingSubdir),
+  name: String,
+) -> List(PendingSubdir) {
+  list.reverse(pending)
+  |> do_mark_first_create_committed(name)
+  |> list.reverse
+}
+
+fn do_mark_first_create_committed(
+  reversed: List(PendingSubdir),
+  name: String,
+) -> List(PendingSubdir) {
+  case reversed {
+    [] -> []
+    [PendingCreate(n, child, mid, _), ..rest] if n == name -> [
+      PendingCreate(n, child, mid, True),
+      ..rest
+    ]
+    [entry, ..rest] -> [entry, ..do_mark_first_create_committed(rest, name)]
+  }
+}
+
 fn do_replace_first_create(
   reversed: List(PendingSubdir),
   name: String,
@@ -245,8 +331,8 @@ fn do_replace_first_create(
 ) -> List(PendingSubdir) {
   case reversed {
     [] -> []
-    [PendingCreate(n, _, mid), ..rest] if n == name -> [
-      PendingCreate(n, child, mid),
+    [PendingCreate(n, _, mid, committed), ..rest] if n == name -> [
+      PendingCreate(n, child, mid, committed),
       ..rest
     ]
     [entry, ..rest] -> [entry, ..do_replace_first_create(rest, name, child)]
@@ -297,7 +383,10 @@ pub fn get_sequenced_directory(
   do_get(state.root, segments(path), sequenced_child)
 }
 
-fn optimistic_child_reachable(node: DirectoryNode, name: String) -> Option(DirectoryNode) {
+fn optimistic_child_reachable(
+  node: DirectoryNode,
+  name: String,
+) -> Option(DirectoryNode) {
   optimistic_child(node, name, False)
 }
 
@@ -329,7 +418,8 @@ fn update_optimistic(
         None -> Error(Nil)
         Some(child) ->
           case update_optimistic(child, rest, f) {
-            Ok(#(new_child, a)) -> Ok(#(put_optimistic_child(node, name, new_child), a))
+            Ok(#(new_child, a)) ->
+              Ok(#(put_optimistic_child(node, name, new_child), a))
             Error(e) -> Error(e)
           }
       }
@@ -349,7 +439,8 @@ fn update_sequenced(
         None -> Error(Nil)
         Some(child) ->
           case update_sequenced(child, rest, f) {
-            Ok(#(new_child, a)) -> Ok(#(put_sequenced_child(node, name, new_child), a))
+            Ok(#(new_child, a)) ->
+              Ok(#(put_sequenced_child(node, name, new_child), a))
             Error(e) -> Error(e)
           }
       }
@@ -441,7 +532,11 @@ pub fn subdirectories(state: DirectoryState, path: String) -> List(String) {
   }
 }
 
-pub fn has_subdirectory(state: DirectoryState, path: String, name: String) -> Bool {
+pub fn has_subdirectory(
+  state: DirectoryState,
+  path: String,
+  name: String,
+) -> Bool {
   case get_working_directory(state, path) {
     None -> False
     Some(node) -> optimistic_child(node, name, False) != None
@@ -501,7 +596,10 @@ pub fn set(
   path: String,
   key: String,
   value: Json,
-) -> Result(#(DirectoryState, List(DirectoryEvent), DirectoryOp, Int), KernelError) {
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  KernelError,
+) {
   let message_id = state.next_message_id
   let mutate = fn(node: DirectoryNode) {
     let previous = storage_get(node.storage, key)
@@ -524,14 +622,19 @@ pub fn delete(
   state: DirectoryState,
   path: String,
   key: String,
-) -> Result(#(DirectoryState, List(DirectoryEvent), DirectoryOp, Int), KernelError) {
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  KernelError,
+) {
   let message_id = state.next_message_id
   let mutate = fn(node: DirectoryNode) {
     let previous = storage_get(node.storage, key)
     let storage =
       StorageState(
         ..node.storage,
-        pending: list.append(node.storage.pending, [PendingDelete(key, message_id)]),
+        pending: list.append(node.storage.pending, [
+          PendingDelete(key, message_id),
+        ]),
       )
     #(DirectoryNode(..node, storage: storage), previous)
   }
@@ -555,7 +658,10 @@ pub fn delete(
 pub fn clear(
   state: DirectoryState,
   path: String,
-) -> Result(#(DirectoryState, List(DirectoryEvent), DirectoryOp, Int), KernelError) {
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  KernelError,
+) {
   let message_id = state.next_message_id
   let mutate = fn(node: DirectoryNode) {
     let visible = storage_entries(node.storage)
@@ -606,13 +712,16 @@ pub fn create_subdirectory(
   state: DirectoryState,
   path: String,
   name: String,
-) -> Result(#(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int), KernelError) {
+  self: Int,
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  KernelError,
+) {
   case valid_subdir_name(name) {
     False -> Error(InvalidName(name))
     True -> {
       let message_id = state.next_message_id
       let child_path = join(path, name)
-      let self = author_of_local(state)
       let mutate = fn(node: DirectoryNode) {
         case optimistic_child(node, name, True) {
           Some(existing) -> {
@@ -622,8 +731,14 @@ pub fn create_subdirectory(
               False -> #(existing, [])
             }
             let revived =
-              DirectoryNode(..revived, creators: add_creator(revived.creators, self))
-            #(put_optimistic_child(node, name, revived), #(False, undispose_events))
+              DirectoryNode(
+                ..revived,
+                creators: add_creator(revived.creators, self),
+              )
+            #(
+              put_optimistic_child(node, name, revived),
+              #(False, undispose_events),
+            )
           }
           None -> {
             let child =
@@ -632,7 +747,7 @@ pub fn create_subdirectory(
               DirectoryNode(
                 ..node,
                 pending_subdirs: list.append(node.pending_subdirs, [
-                  PendingCreate(name, child, message_id),
+                  PendingCreate(name, child, message_id, False),
                 ]),
               )
             #(node, #(True, []))
@@ -642,7 +757,8 @@ pub fn create_subdirectory(
       case update_optimistic(state.root, segments(path), mutate) {
         Error(_) -> Error(PathNotFound(path))
         Ok(#(root, #(is_new, undispose_events))) -> {
-          let state = DirectoryState(root: root, next_message_id: message_id + 1)
+          let state =
+            DirectoryState(root: root, next_message_id: message_id + 1)
           case is_new {
             True ->
               Ok(#(
@@ -669,19 +785,24 @@ pub fn delete_subdirectory(
   state: DirectoryState,
   path: String,
   name: String,
-) -> Result(#(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int), KernelError) {
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  KernelError,
+) {
   let message_id = state.next_message_id
   let child_path = join(path, name)
   let mutate = fn(node: DirectoryNode) {
     case optimistic_child(node, name, False) {
       None -> #(node, None)
       Some(previous) -> {
-        let #(disposed_tree, dispose_events) = dispose_tree_events(previous)
+        // Leave the sequenced child in place; only hide it optimistically with
+        // a pending delete. Emit dispose events for the (unchanged) subtree.
+        let dispose_events = dispose_events_only(previous)
         let node =
           DirectoryNode(
             ..node,
             pending_subdirs: list.append(node.pending_subdirs, [
-              PendingRemove(name, disposed_tree, message_id),
+              PendingRemove(name, message_id),
             ]),
           )
         #(node, Some(dispose_events))
@@ -707,16 +828,6 @@ fn valid_subdir_name(name: String) -> Bool {
   name != "" && !string.contains(name, "/")
 }
 
-fn author_of_local(_state: DirectoryState) -> Int {
-  // Local ops in the pure kernel are authored by "self". The runtime maps a
-  // concrete client id at the delivery boundary; the kernel only needs a
-  // stable marker so a client recognizes its own creates as a creator. We use
-  // a sentinel that is later reconciled on ack (which records the true author).
-  local_author
-}
-
-const local_author = -1
-
 fn add_creator(creators: List(Int), client: Int) -> List(Int) {
   case list.contains(creators, client) {
     True -> creators
@@ -725,27 +836,36 @@ fn add_creator(creators: List(Int), client: Int) -> List(Int) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dispose / undispose (marks the tree, emits events bottom-up / top-down)
+// Dispose / undispose event generation (walks a subtree, no mutation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn dispose_tree_events(node: DirectoryNode) -> #(DirectoryNode, List(DirectoryEvent)) {
-  // Dispose children first (bottom-up), then this node.
-  let #(subdirs, child_events) =
-    list.fold(node.subdir_order, #(node.subdirs, []), fn(acc, name) {
-      let #(subdirs, events) = acc
-      case dict.get(subdirs, name) {
-        Ok(child) -> {
-          let #(child, ev) = dispose_tree_events(child)
-          #(dict.insert(subdirs, name, child), list.append(events, ev))
-        }
-        Error(_) -> acc
+/// Dispose events for a subtree, children first (bottom-up), then this node.
+fn dispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
+  let child_events =
+    list.flat_map(node.subdir_order, fn(name) {
+      case dict.get(node.subdirs, name) {
+        Ok(child) -> dispose_events_only(child)
+        Error(_) -> []
       }
     })
-  let node = DirectoryNode(..node, subdirs: subdirs, disposed: True)
-  #(node, list.append(child_events, [Disposed(node.path)]))
+  list.append(child_events, [Disposed(node.path)])
 }
 
-fn undispose_tree(node: DirectoryNode) -> #(DirectoryNode, List(DirectoryEvent)) {
+/// Undispose events for a subtree, this node first (top-down), then children.
+fn undispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
+  let child_events =
+    list.flat_map(node.subdir_order, fn(name) {
+      case dict.get(node.subdirs, name) {
+        Ok(child) -> undispose_events_only(child)
+        Error(_) -> []
+      }
+    })
+  [Undisposed(node.path), ..child_events]
+}
+
+fn undispose_tree(
+  node: DirectoryNode,
+) -> #(DirectoryNode, List(DirectoryEvent)) {
   let node = DirectoryNode(..node, disposed: False)
   let #(subdirs, child_events) =
     list.fold(node.subdir_order, #(node.subdirs, []), fn(acc, name) {
@@ -758,19 +878,10 @@ fn undispose_tree(node: DirectoryNode) -> #(DirectoryNode, List(DirectoryEvent))
         Error(_) -> acc
       }
     })
-  #(DirectoryNode(..node, subdirs: subdirs), [Undisposed(node.path), ..child_events])
-}
-
-/// Reset a disposed node's sequenced data (D13): its sequenced storage and
-/// children are cleared, but pending state is kept so a rollback/recreate can
-/// continue to reference the same object.
-fn clear_sequenced_data(node: DirectoryNode) -> DirectoryNode {
-  DirectoryNode(
-    ..node,
-    storage: StorageState(..node.storage, sequenced: dict.new(), insertion_order: []),
-    subdirs: dict.new(),
-    subdir_order: [],
-  )
+  #(DirectoryNode(..node, subdirs: subdirs), [
+    Undisposed(node.path),
+    ..child_events
+  ])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -958,32 +1069,46 @@ fn remote_create_subdir(
         False -> #(existing, [])
       }
       let revived =
-        DirectoryNode(..revived, creators: add_creator(revived.creators, meta.author))
+        DirectoryNode(
+          ..revived,
+          creators: add_creator(revived.creators, meta.author),
+        )
       let node = put_sequenced_child(node, name, revived)
       // Suppress event: change already visible (subdir existed).
       #(node, suppress_if_local(local, []))
     }
     None -> {
-      // Reuse a locally-pending create's node if present (stamp its seq).
-      let #(child, had_pending) = case latest_pending_subdir(node, name) {
-        Some(PendingCreate(_, pending_node, _)) -> #(
+      // Reuse a locally-pending create's node if present (stamp its seq), but
+      // KEEP the pending marker: our own create op is still in flight and must
+      // match its own ack/rollback (D10 stamps seq on ack). Mark that marker
+      // `committed` so the sequenced node becomes authoritative and the pending
+      // copy is treated as a stale alias by `optimistic_child`/`put_optimistic_child`.
+      let #(child, pending_subdirs) = case latest_pending_subdir(node, name) {
+        Some(PendingCreate(_, pending_node, _, _)) -> #(
           DirectoryNode(
             ..pending_node,
             create: create,
             creators: add_creator(pending_node.creators, meta.author),
             disposed: False,
           ),
-          True,
+          mark_latest_pending_create_committed(node.pending_subdirs, name),
         )
-        _ -> #(new_node(child_path, create, [meta.author], False), False)
+        _ -> #(
+          new_node(child_path, create, [meta.author], False),
+          node.pending_subdirs,
+        )
       }
-      let node = put_sequenced_child(node, name, child)
+      let node =
+        put_sequenced_child(
+          DirectoryNode(..node, pending_subdirs: pending_subdirs),
+          name,
+          child,
+        )
       let masked = has_pending_subdir_named(node, name)
       let events = case local || masked {
         True -> []
         False -> [SubDirectoryCreated(child_path, False)]
       }
-      let _ = had_pending
       #(node, events)
     }
   }
@@ -998,10 +1123,8 @@ fn remote_delete_subdir(
   let child_path = join(path, name)
   case sequenced_child(node, name) {
     None -> #(node, [])
-    Some(previous) -> {
-      // Remove from sequenced, dispose + reset sequenced data of the old tree.
-      let #(disposed, _) = dispose_tree_events(previous)
-      let _ = clear_sequenced_data(disposed)
+    Some(_) -> {
+      // Remove the child from sequenced (the whole subtree goes with it).
       let node = remove_sequenced_child(node, name)
       let masked = has_pending_remove_named(node, name)
       let events = case local || masked {
@@ -1013,7 +1136,10 @@ fn remote_delete_subdir(
   }
 }
 
-fn suppress_if_local(local: Bool, events: List(DirectoryEvent)) -> List(DirectoryEvent) {
+fn suppress_if_local(
+  local: Bool,
+  events: List(DirectoryEvent),
+) -> List(DirectoryEvent) {
   case local {
     True -> []
     False -> events
@@ -1027,7 +1153,7 @@ fn has_pending_subdir_named(node: DirectoryNode, name: String) -> Bool {
 fn has_pending_remove_named(node: DirectoryNode, name: String) -> Bool {
   list.any(node.pending_subdirs, fn(e) {
     case e {
-      PendingRemove(n, _, _) -> n == name
+      PendingRemove(n, _) -> n == name
       _ -> False
     }
   })
@@ -1047,9 +1173,11 @@ pub fn ack_local(
 ) -> Result(DirectoryState, KernelError) {
   case op {
     Set(path, _, _) | Delete(path, _) | Clear(path) ->
-      ack_storage(state, op, path)
-    CreateSubDirectory(path, name) -> ack_create_subdir(state, op, path, name, meta)
-    DeleteSubDirectory(path, name) -> ack_delete_subdir(state, op, path, name)
+      ack_storage(state, op, path, meta)
+    CreateSubDirectory(path, name) ->
+      ack_create_subdir(state, op, path, name, meta)
+    DeleteSubDirectory(path, name) ->
+      ack_delete_subdir(state, op, path, name, meta)
   }
 }
 
@@ -1057,18 +1185,53 @@ fn ack_storage(
   state: DirectoryState,
   op: DirectoryOp,
   path: String,
+  meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
   let mutate = fn(node: DirectoryNode) {
-    case ack_storage_node(node.storage, op) {
-      Ok(storage) -> #(DirectoryNode(..node, storage: storage), Ok(Nil))
-      Error(detail) -> #(node, Error(detail))
+    // Mirror `apply_remote`: a stale-instance op (its target was
+    // deleted/recreated after the author's reference point) is a no-op here
+    // too, so its now-absent pending isn't treated as a protocol error.
+    case is_message_for_current_instance(node, meta, None) {
+      False -> #(node, Ok(Nil))
+      True ->
+        case ack_storage_node(node.storage, op) {
+          Ok(storage) -> #(DirectoryNode(..node, storage: storage), Ok(Nil))
+          Error(detail) -> #(node, Error(detail))
+        }
     }
   }
   case update_sequenced(state.root, segments(path), mutate) {
-    Error(_) ->
-      Error(UnexpectedAck(op, "no sequenced directory at path " <> path))
+    // Path gone: the target instance was deleted/recreated out from under this
+    // op (a stale ack). Its pending was discarded with the node; treat as a
+    // no-op, matching how remote delivery ignores the same stale op elsewhere.
+    Error(_) -> Ok(state)
     Ok(#(root, Ok(Nil))) -> Ok(DirectoryState(..state, root: root))
-    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(op, detail))
+    Ok(#(_, Error(detail))) -> {
+      // `ack_storage_node` couldn't commit the op against the current instance
+      // at this path. Distinguish by whether this op's id is a live pending in
+      // the current instance's own storage:
+      //
+      //  * id NOT present here → the op targeted a superseded instance of this
+      //    path (created then deleted/recreated, or absorbed into a concurrent
+      //    instance and later removed). Its pending died with that instance, so
+      //    this is a stale ack and a no-op — mirroring FF's `targetSubdir ===
+      //    this` object-identity check. Live absorptions are kept convergent by
+      //    merging their storage into the surviving instance at create-ack time
+      //    (see `ack_create_subdir`), so the only acks that reach here with an
+      //    absent id are for genuinely dead instances, which are safe to drop.
+      //
+      //  * id present here → the pending exists but the op doesn't match it
+      //    (wrong type/order): a genuine protocol violation.
+      let id = meta.client_sequence_number
+      let current_storage_ids = case get_sequenced_directory(state, path) {
+        Some(node) -> storage_pending_ids(node.storage)
+        None -> []
+      }
+      case list.contains(current_storage_ids, id) {
+        False -> Ok(state)
+        True -> Error(UnexpectedAck(op, detail))
+      }
+    }
   }
 }
 
@@ -1080,7 +1243,11 @@ fn ack_storage_node(
     Clear(_) ->
       case storage.pending {
         [PendingClear(_), ..rest] ->
-          Ok(StorageState(sequenced: dict.new(), insertion_order: [], pending: rest))
+          Ok(StorageState(
+            sequenced: dict.new(),
+            insertion_order: [],
+            pending: rest,
+          ))
         _ -> Error("expected pending clear at queue head")
       }
     Delete(_, key) ->
@@ -1097,11 +1264,18 @@ fn ack_storage_node(
       }
     Set(_, key, _) ->
       case split_storage_at_first_for_key(storage.pending, key) {
-        Ok(#(before, PendingLifetime(_, [acked, ..rest_sets], [_, ..rest_ids]), after)) -> {
+        Ok(#(
+          before,
+          PendingLifetime(_, [acked, ..rest_sets], [_, ..rest_ids]),
+          after,
+        )) -> {
           let pending = case rest_sets {
             [] -> list.append(before, after)
             _ ->
-              list.append(before, [PendingLifetime(key, rest_sets, rest_ids), ..after])
+              list.append(before, [
+                PendingLifetime(key, rest_sets, rest_ids),
+                ..after
+              ])
           }
           let insertion_order = case dict.has_key(storage.sequenced, key) {
             True -> storage.insertion_order
@@ -1127,30 +1301,73 @@ fn ack_create_subdir(
   meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
   let create = CreateInfo(meta.sequence_number, meta.client_sequence_number)
-  let mutate = fn(node: DirectoryNode) {
-    case take_first_pending_create(node.pending_subdirs, name) {
-      Error(_) -> #(node, Error("expected pending create for " <> name))
-      Ok(#(pending_node, rest)) -> {
-        let node = DirectoryNode(..node, pending_subdirs: rest)
-        case sequenced_child(node, name) {
-          Some(_) ->
-            // Already committed by a concurrent remote create; drop pending.
-            #(node, Ok(Nil))
-          None -> {
+  let mutate = fn(orig_node: DirectoryNode) {
+    // Consume our pending create for this name, if we still have one.
+    let #(pending_node, committed, rest) = case
+      take_first_pending_create(orig_node.pending_subdirs, name)
+    {
+      Ok(#(pn, committed, rest)) -> #(Some(pn), committed, rest)
+      Error(_) -> #(None, False, orig_node.pending_subdirs)
+    }
+    let node = DirectoryNode(..orig_node, pending_subdirs: rest)
+    case sequenced_child(node, name) {
+      Some(existing) -> {
+        // Our optimistic create is being absorbed into a sequenced instance of
+        // the same name (a concurrent client created it first, or it is our own
+        // already-committed one). Mirror FF's single-object-per-path model:
+        //
+        //  * If our consumed pending create is still live (uncommitted, not
+        //    optimistically deleted), its storage writes belong to this same
+        //    path — merge them into the surviving instance so they still commit
+        //    and converge with observers.
+        //  * If it was committed, the surviving instance already carries those
+        //    writes (remote-create folded them in) — merging would double them.
+        //  * If it was optimistically deleted, its writes target a dead instance
+        //    — drop them; the storage-ack path treats the now-absent pending as a
+        //    stale no-op (see `ack_storage`).
+        let deleted =
+          first_pending_create_deleted(orig_node.pending_subdirs, name)
+        let #(revived, _) = case existing.disposed {
+          True -> undispose_tree(existing)
+          False -> #(existing, [])
+        }
+        let revived =
+          DirectoryNode(
+            ..revived,
+            creators: add_creator(revived.creators, meta.author),
+          )
+        case pending_node {
+          Some(pn) if !committed && !deleted -> #(
+            put_sequenced_child(node, name, merge_pending_instance(revived, pn)),
+            Ok(Nil),
+          )
+          _ -> #(put_sequenced_child(node, name, revived), Ok(Nil))
+        }
+      }
+      None ->
+        case pending_node {
+          // Our pending create commits into sequenced. It was already visible
+          // optimistically (the pending create), so acking it doesn't change
+          // the view — it just moves the subdir from pending to sequenced.
+          Some(pn) -> {
             let child =
               DirectoryNode(
-                ..pending_node,
+                ..pn,
                 create: create,
-                creators: add_creator(pending_node.creators, meta.author),
+                creators: add_creator(pn.creators, meta.author),
                 disposed: False,
               )
             #(put_sequenced_child(node, name, child), Ok(Nil))
           }
+          // No pending create and not sequenced: nothing to commit. Creating a
+          // subdir here would reveal one that was never optimistically visible
+          // (an ack-transparency violation). This is a no-op, matching remote
+          // delivery of a create the author has no pending record of.
+          None -> #(node, Ok(Nil))
         }
-      }
     }
   }
-  ack_subdir_apply(state, op, path, mutate)
+  ack_subdir_apply(state, op, path, meta, mutate)
 }
 
 fn ack_delete_subdir(
@@ -1158,13 +1375,18 @@ fn ack_delete_subdir(
   op: DirectoryOp,
   path: String,
   name: String,
+  meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
   let mutate = fn(node: DirectoryNode) {
-    case take_first_pending_remove(node.pending_subdirs, name) {
-      Error(_) -> #(node, Error("expected pending delete for " <> name))
-      Ok(#(_, rest)) -> {
+    case remove_first_pending_remove(node.pending_subdirs, name) {
+      // No pending remove: the delete was a no-op locally (its target was
+      // already absent) — e.g. a stashed delete of a subdir that never
+      // existed. Acking it does nothing, matching remote delivery of the same
+      // op.
+      Error(_) -> #(node, Ok(Nil))
+      Ok(rest) -> {
         let node = DirectoryNode(..node, pending_subdirs: rest)
-        // Commit the delete into sequenced state (dispose the sequenced tree).
+        // Commit the delete into sequenced state.
         case sequenced_child(node, name) {
           None -> #(node, Ok(Nil))
           Some(_) -> #(remove_sequenced_child(node, name), Ok(Nil))
@@ -1172,18 +1394,31 @@ fn ack_delete_subdir(
       }
     }
   }
-  ack_subdir_apply(state, op, path, mutate)
+  ack_subdir_apply(state, op, path, meta, mutate)
 }
 
 fn ack_subdir_apply(
   state: DirectoryState,
   op: DirectoryOp,
   path: String,
+  meta: SequencedMeta,
   mutate: fn(DirectoryNode) -> #(DirectoryNode, Result(Nil, String)),
 ) -> Result(DirectoryState, KernelError) {
-  case update_sequenced(state.root, segments(path), mutate) {
-    Error(_) ->
-      Error(UnexpectedAck(op, "no sequenced directory at path " <> path))
+  // Mirror `apply_remote_subdir`: only apply when the op targets the current
+  // instance of the *parent* directory; a stale parent (deleted/recreated after
+  // the author's reference point) makes the op a no-op, so its now-absent
+  // pending isn't a protocol error.
+  let guarded = fn(node: DirectoryNode) {
+    case is_message_for_current_instance(node, meta, None) {
+      True -> mutate(node)
+      False -> #(node, Ok(Nil))
+    }
+  }
+  case update_sequenced(state.root, segments(path), guarded) {
+    // Path gone: the target instance was deleted/recreated out from under this
+    // op (a stale ack). Its pending was discarded with the node; treat as a
+    // no-op, matching how remote delivery ignores the same stale op elsewhere.
+    Error(_) -> Ok(state)
     Ok(#(root, Ok(Nil))) -> Ok(DirectoryState(..state, root: root))
     Ok(#(_, Error(detail))) -> Error(UnexpectedAck(op, detail))
   }
@@ -1192,37 +1427,90 @@ fn ack_subdir_apply(
 fn take_first_pending_create(
   pending: List(PendingSubdir),
   name: String,
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
-  do_take_pending(pending, [], fn(e) {
-    case e {
-      PendingCreate(n, node, _) if n == name -> Some(node)
-      _ -> None
-    }
-  })
+) -> Result(#(DirectoryNode, Bool, List(PendingSubdir)), Nil) {
+  case
+    do_take_pending(pending, [], fn(e) {
+      case e {
+        PendingCreate(n, node, _, committed) if n == name ->
+          Some(#(node, committed))
+        _ -> None
+      }
+    })
+  {
+    Ok(#(#(node, committed), rest)) -> Ok(#(node, committed, rest))
+    Error(Nil) -> Error(Nil)
+  }
 }
 
-fn take_first_pending_remove(
+fn remove_first_pending_remove(
   pending: List(PendingSubdir),
   name: String,
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
-  do_take_pending(pending, [], fn(e) {
-    case e {
-      PendingRemove(n, node, _) if n == name -> Some(node)
-      _ -> None
-    }
-  })
+) -> Result(List(PendingSubdir), Nil) {
+  do_remove_first_pending_remove(pending, name, [])
+}
+
+/// True if the first pending create for `name` is followed by a pending remove
+/// for `name` — i.e. this client optimistically deleted that instance after
+/// creating it. Its storage writes target a now-dead instance.
+fn first_pending_create_deleted(
+  pending: List(PendingSubdir),
+  name: String,
+) -> Bool {
+  case pending {
+    [] -> False
+    [PendingCreate(n, _, _, _), ..rest] if n == name ->
+      list.any(rest, fn(e) {
+        case e {
+          PendingRemove(rn, _) if rn == name -> True
+          _ -> False
+        }
+      })
+    [_, ..rest] -> first_pending_create_deleted(rest, name)
+  }
+}
+
+/// Merge an optimistic-only pending create instance's pending storage and
+/// pending subdirs into the sequenced instance that absorbed it, mirroring FF's
+/// single-`SubDirectory`-object-per-path model: a concurrent create merges
+/// bookkeeping but never discards the storage writes already made to the path.
+fn merge_pending_instance(
+  into: DirectoryNode,
+  from: DirectoryNode,
+) -> DirectoryNode {
+  DirectoryNode(
+    ..into,
+    storage: StorageState(
+      ..into.storage,
+      pending: list.append(into.storage.pending, from.storage.pending),
+    ),
+    pending_subdirs: list.append(into.pending_subdirs, from.pending_subdirs),
+  )
+}
+
+fn do_remove_first_pending_remove(
+  pending: List(PendingSubdir),
+  name: String,
+  seen: List(PendingSubdir),
+) -> Result(List(PendingSubdir), Nil) {
+  case pending {
+    [] -> Error(Nil)
+    [PendingRemove(n, _), ..rest] if n == name ->
+      Ok(list.append(list.reverse(seen), rest))
+    [entry, ..rest] ->
+      do_remove_first_pending_remove(rest, name, [entry, ..seen])
+  }
 }
 
 fn do_take_pending(
   pending: List(PendingSubdir),
   seen: List(PendingSubdir),
-  match: fn(PendingSubdir) -> Option(DirectoryNode),
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
+  match: fn(PendingSubdir) -> Option(a),
+) -> Result(#(a, List(PendingSubdir)), Nil) {
   case pending {
     [] -> Error(Nil)
     [entry, ..rest] ->
       case match(entry) {
-        Some(node) -> Ok(#(node, list.append(list.reverse(seen), rest)))
+        Some(value) -> Ok(#(value, list.append(list.reverse(seen), rest)))
         None -> do_take_pending(rest, [entry, ..seen], match)
       }
   }
@@ -1241,28 +1529,33 @@ pub fn last_pending_message_id(state: DirectoryState) -> Option(Int) {
   }
 }
 
+/// The pending storage message ids held directly on one node (non-recursive).
+fn storage_pending_ids(storage: StorageState) -> List(Int) {
+  list.flat_map(storage.pending, fn(entry) {
+    case entry {
+      PendingLifetime(_, _, ids) -> ids
+      PendingDelete(_, id) -> [id]
+      PendingClear(id) -> [id]
+    }
+  })
+}
+
 fn node_pending_ids(node: DirectoryNode) -> List(Int) {
-  let storage_ids =
-    list.flat_map(node.storage.pending, fn(entry) {
-      case entry {
-        PendingLifetime(_, _, ids) -> ids
-        PendingDelete(_, id) -> [id]
-        PendingClear(id) -> [id]
-      }
-    })
+  let storage_ids = storage_pending_ids(node.storage)
   let subdir_ids =
     list.flat_map(node.pending_subdirs, fn(entry) {
       case entry {
-        PendingCreate(_, child, id) -> [id, ..node_pending_ids(child)]
-        PendingRemove(_, _, id) -> [id]
+        PendingCreate(_, child, id, _) -> [id, ..node_pending_ids(child)]
+        PendingRemove(_, id) -> [id]
       }
     })
-  let child_ids = list.flat_map(node.subdir_order, fn(name) {
-    case dict.get(node.subdirs, name) {
-      Ok(child) -> node_pending_ids(child)
-      Error(_) -> []
-    }
-  })
+  let child_ids =
+    list.flat_map(node.subdir_order, fn(name) {
+      case dict.get(node.subdirs, name) {
+        Ok(child) -> node_pending_ids(child)
+        Error(_) -> []
+      }
+    })
   list.flatten([storage_ids, subdir_ids, child_ids])
 }
 
@@ -1296,7 +1589,8 @@ fn rollback_storage(
   }
   case update_optimistic(state.root, segments(path), mutate) {
     Error(_) -> Error(UnexpectedRollback(op, "no directory at path " <> path))
-    Ok(#(root, Ok(events))) -> Ok(#(DirectoryState(..state, root: root), events))
+    Ok(#(root, Ok(events))) ->
+      Ok(#(DirectoryState(..state, root: root), events))
     Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(op, detail))
   }
 }
@@ -1368,36 +1662,19 @@ fn rollback_create(state, op, path, name, message_id) {
 fn rollback_remove(state, op, path, name, message_id) {
   let child_path = join(path, name)
   let mutate = fn(node: DirectoryNode) {
-    case pop_pending_remove(node.pending_subdirs, name, message_id) {
+    case remove_pending_subdir(node.pending_subdirs, name, message_id, False) {
       Error(_) -> #(node, Error("no pending delete for " <> name))
-      Ok(#(deleted_node, pending)) -> {
-        let #(revived, _) = undispose_tree(deleted_node)
+      Ok(pending) -> {
         let node = DirectoryNode(..node, pending_subdirs: pending)
-        #(node, Ok([Undisposed(child_path), SubDirectoryCreated(child_path, True)]))
-        |> fn(pair) {
-          let #(n, r) = pair
-          // Re-expose the previously-deleted tree if it isn't otherwise present.
-          case r {
-            Ok(ev) ->
-              case optimistic_child(n, name, False) {
-                Some(_) -> #(n, Ok(ev))
-                None -> {
-                  let n = case dict.has_key(n.subdirs, name) {
-                    True -> put_sequenced_child(n, name, revived)
-                    False ->
-                      DirectoryNode(
-                        ..n,
-                        pending_subdirs: list.append(n.pending_subdirs, [
-                          PendingCreate(name, revived, message_id),
-                        ]),
-                      )
-                  }
-                  #(n, Ok(ev))
-                }
-              }
-            Error(_) -> pair
-          }
+        // The retained child is re-exposed now that the pending delete is gone.
+        let undispose = case optimistic_child(node, name, False) {
+          Some(child) -> undispose_events_only(child)
+          None -> [Undisposed(child_path)]
         }
+        #(
+          node,
+          Ok(list.append(undispose, [SubDirectoryCreated(child_path, True)])),
+        )
       }
     }
   }
@@ -1408,11 +1685,13 @@ fn rollback_subdir_apply(
   state: DirectoryState,
   op: DirectoryOp,
   path: String,
-  mutate: fn(DirectoryNode) -> #(DirectoryNode, Result(List(DirectoryEvent), String)),
+  mutate: fn(DirectoryNode) ->
+    #(DirectoryNode, Result(List(DirectoryEvent), String)),
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
   case update_optimistic(state.root, segments(path), mutate) {
     Error(_) -> Error(UnexpectedRollback(op, "no directory at path " <> path))
-    Ok(#(root, Ok(events))) -> Ok(#(DirectoryState(..state, root: root), events))
+    Ok(#(root, Ok(events))) ->
+      Ok(#(DirectoryState(..state, root: root), events))
     Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(op, detail))
   }
 }
@@ -1477,8 +1756,8 @@ fn subdir_pending_has_id(
     Some(node) ->
       list.any(node.pending_subdirs, fn(entry) {
         case entry, is_create {
-          PendingCreate(n, _, id), True -> n == name && id == message_id
-          PendingRemove(n, _, id), False -> n == name && id == message_id
+          PendingCreate(n, _, id, _), True -> n == name && id == message_id
+          PendingRemove(n, id), False -> n == name && id == message_id
           _, _ -> False
         }
       })
@@ -1492,19 +1771,30 @@ fn subdir_pending_has_id(
 pub fn apply_stashed_op(
   state: DirectoryState,
   op: DirectoryOp,
-) -> Result(#(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int), KernelError) {
+  self: Int,
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  KernelError,
+) {
   case op {
     Set(path, key, value) -> some_op(set(state, path, key, value))
     Delete(path, key) -> some_op(delete(state, path, key))
     Clear(path) -> some_op(clear(state, path))
-    CreateSubDirectory(path, name) -> create_subdirectory(state, path, name)
+    CreateSubDirectory(path, name) ->
+      create_subdirectory(state, path, name, self)
     DeleteSubDirectory(path, name) -> delete_subdirectory(state, path, name)
   }
 }
 
 fn some_op(
-  r: Result(#(DirectoryState, List(DirectoryEvent), DirectoryOp, Int), KernelError),
-) -> Result(#(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int), KernelError) {
+  r: Result(
+    #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+    KernelError,
+  ),
+) -> Result(
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  KernelError,
+) {
   result.map(r, fn(tuple) {
     let #(state, events, op, id) = tuple
     #(state, events, Some(op), id)
@@ -1608,13 +1898,16 @@ fn check_node(node: DirectoryNode) -> Result(Nil, KernelError) {
       child.path == join(node.path, name)
     })
   case path_ok {
-    False -> Error(InvariantViolation("child path mismatch under " <> node.path))
+    False ->
+      Error(InvariantViolation("child path mismatch under " <> node.path))
     True -> {
       // No duplicate visible child names optimistically.
       let visible = optimistic_subdir_names(node)
       case list.length(visible) == list.length(list.unique(visible)) {
         False ->
-          Error(InvariantViolation("duplicate visible child under " <> node.path))
+          Error(InvariantViolation(
+            "duplicate visible child under " <> node.path,
+          ))
         True ->
           list.try_fold(dict.values(node.subdirs), Nil, fn(_, child) {
             check_node(child)
@@ -1649,7 +1942,10 @@ fn has_storage_pending_for(pending: List(PendingStorage), key: String) -> Bool {
   list.any(pending, fn(entry) { storage_matches_key(entry, key) })
 }
 
-fn has_storage_delete_or_clear(pending: List(PendingStorage), key: String) -> Bool {
+fn has_storage_delete_or_clear(
+  pending: List(PendingStorage),
+  key: String,
+) -> Bool {
   list.any(pending, fn(entry) {
     case entry {
       PendingClear(_) -> True
@@ -1659,7 +1955,10 @@ fn has_storage_delete_or_clear(pending: List(PendingStorage), key: String) -> Bo
   })
 }
 
-fn has_storage_entry_for_key(pending: List(PendingStorage), key: String) -> Bool {
+fn has_storage_entry_for_key(
+  pending: List(PendingStorage),
+  key: String,
+) -> Bool {
   list.any(pending, fn(entry) {
     case entry {
       PendingDelete(k, _) -> k == key
@@ -1702,7 +2001,11 @@ fn do_append_to_first_lifetime(
   case reversed {
     [] -> []
     [PendingLifetime(k, sets, ids), ..rest] if k == key -> [
-      PendingLifetime(k, list.append(sets, [value]), list.append(ids, [message_id])),
+      PendingLifetime(
+        k,
+        list.append(sets, [value]),
+        list.append(ids, [message_id]),
+      ),
       ..rest
     ]
     [entry, ..rest] -> [
@@ -1777,7 +2080,8 @@ fn do_remove_last_set(
         False -> Error(Nil)
       }
     }
-    [entry, ..rest] -> do_remove_last_set(rest, key, message_id, [entry, ..seen])
+    [entry, ..rest] ->
+      do_remove_last_set(rest, key, message_id, [entry, ..seen])
   }
 }
 
@@ -1807,8 +2111,8 @@ fn remove_pending_subdir(
   let found =
     list.any(pending, fn(entry) {
       case entry, is_create {
-        PendingCreate(n, _, id), True -> n == name && id == message_id
-        PendingRemove(n, _, id), False -> n == name && id == message_id
+        PendingCreate(n, _, id, _), True -> n == name && id == message_id
+        PendingRemove(n, id), False -> n == name && id == message_id
         _, _ -> False
       }
     })
@@ -1818,33 +2122,12 @@ fn remove_pending_subdir(
       Ok(
         list.filter(pending, fn(entry) {
           case entry, is_create {
-            PendingCreate(n, _, id), True -> !{ n == name && id == message_id }
-            PendingRemove(n, _, id), False -> !{ n == name && id == message_id }
+            PendingCreate(n, _, id, _), True ->
+              !{ n == name && id == message_id }
+            PendingRemove(n, id), False -> !{ n == name && id == message_id }
             _, _ -> True
           }
         }),
       )
-  }
-}
-
-fn pop_pending_remove(
-  pending: List(PendingSubdir),
-  name: String,
-  message_id: Int,
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
-  do_pop_pending_remove(pending, name, message_id, [])
-}
-
-fn do_pop_pending_remove(
-  pending: List(PendingSubdir),
-  name: String,
-  message_id: Int,
-  seen: List(PendingSubdir),
-) -> Result(#(DirectoryNode, List(PendingSubdir)), Nil) {
-  case pending {
-    [] -> Error(Nil)
-    [PendingRemove(n, node, id), ..rest] if n == name && id == message_id ->
-      Ok(#(node, list.append(list.reverse(seen), rest)))
-    [entry, ..rest] -> do_pop_pending_remove(rest, name, message_id, [entry, ..seen])
   }
 }
