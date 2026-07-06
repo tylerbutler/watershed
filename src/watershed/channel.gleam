@@ -27,6 +27,7 @@ import lattice_sets/two_p_set.{type TwoPSet}
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
+import watershed/directory_kernel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
@@ -52,6 +53,7 @@ pub type ChannelType {
   ClaimsChannel
   TaskManagerChannel
   JsonOtChannel
+  DirectoryChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -67,6 +69,7 @@ pub type ChannelInit {
   InitClaims
   InitTaskManager
   InitJsonOt
+  InitDirectory
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -81,6 +84,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     ClaimsChannel -> wire.channel_type_claims
     TaskManagerChannel -> wire.channel_type_task_manager
     JsonOtChannel -> wire.channel_type_json_ot
+    DirectoryChannel -> wire.channel_type_directory
   }
 }
 
@@ -97,6 +101,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
     _ if raw == wire.channel_type_task_manager -> Ok(TaskManagerChannel)
     _ if raw == wire.channel_type_json_ot -> Ok(JsonOtChannel)
+    _ if raw == wire.channel_type_directory -> Ok(DirectoryChannel)
     _ -> Error(Nil)
   }
 }
@@ -113,6 +118,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitClaims -> ClaimsChannel
     InitTaskManager -> TaskManagerChannel
     InitJsonOt -> JsonOtChannel
+    InitDirectory -> DirectoryChannel
   }
 }
 
@@ -128,6 +134,7 @@ pub type ChannelState {
   ClaimsState(claims_kernel.ClaimsState)
   TaskManagerState(task_manager_kernel.TaskManagerState)
   JsonOtState(json_ot_kernel.JsonOtState)
+  DirectoryState(directory_kernel.DirectoryState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -143,6 +150,13 @@ pub type ChannelOp {
   ClaimsOp(claims_kernel.ClaimOp)
   TaskManagerOp(task_manager_kernel.TaskManagerOp)
   JsonOtOp(json_ot_kernel.JsonOtWireOp)
+  /// A directory op plus the kernel `message_id` that identifies this
+  /// submission. Unlike other kernels the id travels *in the op* because a
+  /// remote client needs the author's client-sequence identity to run the
+  /// stale-instance filter (D12) and sibling ordering (D9); the runtime's own
+  /// csn counts every channel's ops together and would not match the kernel's
+  /// per-directory counter.
+  DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -157,6 +171,7 @@ pub type ChannelEvent {
   ClaimsEvent(claims_kernel.ClaimEvent)
   TaskManagerEvent(task_manager_kernel.TaskManagerEvent)
   JsonOtEvent(json_ot_kernel.JsonOtEvent)
+  DirectoryEvent(directory_kernel.DirectoryEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -174,6 +189,7 @@ pub type Snapshot {
   ClaimsSnapshot(entries: List(#(String, Json, Int)))
   TaskManagerSnapshot(queues: List(#(String, List(Int))))
   JsonOtSnapshot(doc: json_ot.JsonValue)
+  DirectorySnapshot(summary: directory_kernel.DirectorySummary)
 }
 
 pub type Resolution {
@@ -191,6 +207,7 @@ pub type LocalOpMeta {
   GSetMeta(message_id: Int)
   TwoPSetMeta(message_id: Int)
   TaskManagerMeta(message_id: Int)
+  DirectoryMeta(message_id: Int)
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
@@ -204,6 +221,11 @@ pub type SequencedMeta {
     author: Int,
     self: Int,
     quorum: List(Int),
+    /// The op author's reference sequence number — what they had seen when
+    /// they submitted. The directory kernel's stale-instance filter (D12)
+    /// consumes it; other kernels ignore it. `last_seen_sn` is the *local*
+    /// client's watermark and is not a substitute.
+    reference_sequence_number: Int,
   )
 }
 
@@ -230,6 +252,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     ClaimsState(_) -> ClaimsChannel
     TaskManagerState(_) -> TaskManagerChannel
     JsonOtState(_) -> JsonOtChannel
+    DirectoryState(_) -> DirectoryChannel
   }
 }
 
@@ -245,6 +268,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     ClaimsSnapshot(_) -> ClaimsChannel
     TaskManagerSnapshot(_) -> TaskManagerChannel
     JsonOtSnapshot(_) -> JsonOtChannel
+    DirectorySnapshot(_) -> DirectoryChannel
   }
 }
 
@@ -267,6 +291,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitClaims -> ClaimsState(claims_kernel.new())
     InitTaskManager -> TaskManagerState(task_manager_kernel.new())
     InitJsonOt -> JsonOtState(json_ot_kernel.new(client_id.to_int(replica)))
+    InitDirectory -> DirectoryState(directory_kernel.new())
   }
 }
 
@@ -296,6 +321,8 @@ pub fn from_snapshot(
       TaskManagerState(task_manager_kernel.from_summary(queues))
     JsonOtSnapshot(doc) ->
       JsonOtState(json_ot_kernel.from_summary(client_id.to_int(replica), doc))
+    DirectorySnapshot(summary) ->
+      DirectoryState(directory_kernel.from_summary(summary))
   }
 }
 
@@ -316,6 +343,8 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     TaskManagerState(kernel) ->
       TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
     JsonOtState(kernel) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
+    DirectoryState(kernel) ->
+      DirectorySnapshot(directory_kernel.summary_tree(kernel))
   }
 }
 
@@ -350,6 +379,11 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
         Ok(doc) -> JsonOtSnapshot(doc)
         Error(_) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
       }
+    // Directory attach carries the sequenced tree only; detached local edits
+    // (pending, non-summarized) are treated like the other non-optimistic
+    // kernels here. The demo and multi-client flows always attach first.
+    DirectoryState(kernel) ->
+      DirectorySnapshot(directory_kernel.summary_tree(kernel))
   }
 }
 
@@ -441,7 +475,43 @@ pub fn apply_remote(
         Error(json_ot_kernel.OtFailure(err)) ->
           Error(CorruptRemoteOp(json_ot_error_detail(err)))
       }
+    DirectoryState(kernel), DirectoryOp(op, message_id) -> {
+      let #(kernel, events) =
+        directory_kernel.apply_remote(
+          kernel,
+          op,
+          directory_sequenced_meta(meta, message_id),
+          meta.self,
+        )
+      Ok(#(DirectoryState(kernel), list.map(events, DirectoryEvent)))
+    }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
+  }
+}
+
+/// Build the directory kernel's `SequencedMeta` from the channel-level meta
+/// plus the op's kernel `message_id` (its client-sequence identity).
+fn directory_sequenced_meta(
+  meta: SequencedMeta,
+  message_id: Int,
+) -> directory_kernel.SequencedMeta {
+  directory_kernel.SequencedMeta(
+    author: meta.author,
+    sequence_number: meta.seq,
+    reference_sequence_number: meta.reference_sequence_number,
+    client_sequence_number: message_id,
+  )
+}
+
+fn directory_error_detail(err: directory_kernel.KernelError) -> String {
+  case err {
+    directory_kernel.UnexpectedAck(_, detail) -> "directory ack: " <> detail
+    directory_kernel.UnexpectedRollback(_, detail) ->
+      "directory rollback: " <> detail
+    directory_kernel.PathNotFound(path) -> "directory path not found: " <> path
+    directory_kernel.InvalidName(name) -> "directory invalid name: " <> name
+    directory_kernel.InvariantViolation(detail) ->
+      "directory invariant: " <> detail
   }
 }
 
@@ -482,6 +552,8 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has two-p-set metadata"))
         TaskManagerMeta(_) ->
           Error(UnexpectedAck("counter ack has task-manager metadata"))
+        DirectoryMeta(_) ->
+          Error(UnexpectedAck("counter ack has directory metadata"))
       }
     OrMapState(kernel), OrMapOp(op) ->
       case local {
@@ -503,6 +575,8 @@ pub fn ack_local(
           Error(UnexpectedAck("or-map ack has two-p-set metadata"))
         TaskManagerMeta(_) ->
           Error(UnexpectedAck("or-map ack has task-manager metadata"))
+        DirectoryMeta(_) ->
+          Error(UnexpectedAck("or-map ack has directory metadata"))
       }
     OrSetState(kernel), OrSetOp(op) ->
       case local {
@@ -518,7 +592,8 @@ pub fn ack_local(
         | OrMapMeta(_)
         | GSetMeta(_)
         | TwoPSetMeta(_)
-        | TaskManagerMeta(_) ->
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
       }
     GSetState(kernel), GSetOp(op) ->
@@ -535,7 +610,8 @@ pub fn ack_local(
         | OrMapMeta(_)
         | OrSetMeta(_)
         | TwoPSetMeta(_)
-        | TaskManagerMeta(_) ->
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_) ->
           Error(UnexpectedAck("g-set ack is missing its local message id"))
       }
     TwoPSetState(kernel), TwoPSetOp(op) ->
@@ -554,7 +630,8 @@ pub fn ack_local(
         | OrMapMeta(_)
         | OrSetMeta(_)
         | GSetMeta(_)
-        | TaskManagerMeta(_) ->
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_) ->
           Error(UnexpectedAck("two-p-set ack is missing its local message id"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
@@ -616,6 +693,21 @@ pub fn ack_local(
           Error(UnexpectedAck(detail))
         Error(json_ot_kernel.OtFailure(err)) ->
           Error(CorruptRemoteOp(json_ot_error_detail(err)))
+      }
+    DirectoryState(kernel), DirectoryOp(op, message_id) ->
+      case local {
+        DirectoryMeta(_) ->
+          case
+            directory_kernel.ack_local(
+              kernel,
+              op,
+              directory_sequenced_meta(meta, message_id),
+            )
+          {
+            Ok(kernel) -> Ok(#(DirectoryState(kernel), [], None))
+            Error(err) -> Error(UnexpectedAck(directory_error_detail(err)))
+          }
+        _ -> Error(UnexpectedAck("directory ack is missing its local metadata"))
       }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
@@ -679,6 +771,28 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       same_task_manager_shape(ours, echoed)
     JsonOtOp(ours), JsonOtOp(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
+    DirectoryOp(ours, our_id), DirectoryOp(echoed, echoed_id) ->
+      our_id == echoed_id && same_directory_shape(ours, echoed)
+    _, _ -> False
+  }
+}
+
+fn same_directory_shape(
+  ours: directory_kernel.DirectoryOp,
+  echoed: directory_kernel.DirectoryOp,
+) -> Bool {
+  case ours, echoed {
+    directory_kernel.Set(p, k, _), directory_kernel.Set(p2, k2, _) ->
+      p == p2 && k == k2
+    directory_kernel.Delete(p, k), directory_kernel.Delete(p2, k2) ->
+      p == p2 && k == k2
+    directory_kernel.Clear(p), directory_kernel.Clear(p2) -> p == p2
+    directory_kernel.CreateSubDirectory(p, n),
+      directory_kernel.CreateSubDirectory(p2, n2)
+    -> p == p2 && n == n2
+    directory_kernel.DeleteSubDirectory(p, n),
+      directory_kernel.DeleteSubDirectory(p2, n2)
+    -> p == p2 && n == n2
     _, _ -> False
   }
 }
@@ -784,6 +898,9 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
     TaskManagerSnapshot(ours), TaskManagerSnapshot(echoed) -> ours == echoed
     JsonOtSnapshot(ours), JsonOtSnapshot(echoed) -> ours == echoed
+    DirectorySnapshot(ours), DirectorySnapshot(echoed) ->
+      json.to_string(encode_directory_summary(ours))
+      == json.to_string(encode_directory_summary(echoed))
     _, _ -> False
   }
 }
@@ -867,6 +984,9 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       |> list.unique
     TaskManagerState(_) -> []
     JsonOtState(_) -> []
+    // Directory handle serialization/GC is out of scope (see the kernel plan);
+    // the demo stores plain values, so no handle addresses to collect.
+    DirectoryState(_) -> []
   }
 }
 
@@ -884,7 +1004,38 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     ClaimsSnapshot(entries) -> encode_claims(entries)
     TaskManagerSnapshot(queues) -> encode_task_queues(queues)
     JsonOtSnapshot(doc) -> json_ot.to_json(doc)
+    DirectorySnapshot(summary) -> encode_directory_summary(summary)
   }
+}
+
+/// Recursive JSON for a directory summary: each node carries its ordered
+/// storage entries, create info, creator ids, detached flag, and named child
+/// directories (in directory order).
+fn encode_directory_summary(
+  summary: directory_kernel.DirectorySummary,
+) -> Json {
+  json.object([
+    #("storage", wire.encode_entries(summary.storage)),
+    #("create", encode_create_info(summary.create)),
+    #("creators", json.array(summary.creators, json.int)),
+    #("detachedCreated", json.bool(summary.detached_created)),
+    #(
+      "subdirs",
+      json.array(summary.subdirs, fn(entry) {
+        json.object([
+          #("name", json.string(entry.0)),
+          #("dir", encode_directory_summary(entry.1)),
+        ])
+      }),
+    ),
+  ])
+}
+
+fn encode_create_info(create: directory_kernel.CreateInfo) -> Json {
+  json.object([
+    #("seq", json.int(create.seq)),
+    #("clientSeq", json.int(create.client_seq)),
+  ])
 }
 
 /// Decoder for a snapshot payload, selected by channel type (the field the
@@ -905,7 +1056,41 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     TaskManagerChannel ->
       decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot)
     JsonOtChannel -> json_ot.decoder() |> decode.map(JsonOtSnapshot)
+    DirectoryChannel ->
+      directory_summary_decoder() |> decode.map(DirectorySnapshot)
   }
+}
+
+fn directory_summary_decoder() -> Decoder(directory_kernel.DirectorySummary) {
+  use storage <- decode.field("storage", decode.list(wire.entry_decoder()))
+  use create <- decode.field("create", create_info_decoder())
+  use creators <- decode.field("creators", decode.list(decode.int))
+  use detached_created <- decode.field("detachedCreated", decode.bool)
+  use subdirs <- decode.field(
+    "subdirs",
+    decode.list(directory_subdir_decoder()),
+  )
+  decode.success(directory_kernel.DirectorySummary(
+    storage: storage,
+    create: create,
+    creators: creators,
+    detached_created: detached_created,
+    subdirs: subdirs,
+  ))
+}
+
+fn directory_subdir_decoder() -> Decoder(
+  #(String, directory_kernel.DirectorySummary),
+) {
+  use name <- decode.field("name", decode.string)
+  use dir <- decode.field("dir", decode.recursive(directory_summary_decoder))
+  decode.success(#(name, dir))
+}
+
+fn create_info_decoder() -> Decoder(directory_kernel.CreateInfo) {
+  use seq <- decode.field("seq", decode.int)
+  use client_seq <- decode.field("clientSeq", decode.int)
+  decode.success(directory_kernel.CreateInfo(seq: seq, client_seq: client_seq))
 }
 
 fn encode_task_queues(queues: List(#(String, List(Int)))) -> Json {

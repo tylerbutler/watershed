@@ -32,6 +32,7 @@ import lattice_sets/two_p_set
 import watershed/channel
 import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
+import watershed/directory_kernel.{type DirectoryOp}
 import watershed/g_set_kernel.{type GSetOp}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOp, JsonOtWireOp}
@@ -144,6 +145,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.ClaimsOp(op) -> encode_claim_op(op)
     channel.TaskManagerOp(op) -> encode_task_manager_op(op)
     channel.JsonOtOp(op) -> encode_json_ot_op(op)
+    channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
   }
 }
 
@@ -169,6 +171,7 @@ pub fn channel_op_decoder(
       task_manager_op_decoder() |> decode.map(channel.TaskManagerOp)
     channel.JsonOtChannel ->
       json_ot_op_decoder() |> decode.map(channel.JsonOtOp)
+    channel.DirectoryChannel -> directory_op_decoder()
   }
 }
 
@@ -410,6 +413,100 @@ pub fn encode_task_manager_op(op: TaskManagerOp) -> Json {
         #("type", json.string("taskComplete")),
         #("taskId", json.string(task_id)),
       ])
+  }
+}
+
+/// Encode a SharedDirectory op. Every variant carries `path` (the absolute
+/// directory address) and `mid` — the kernel's `message_id`, which is the op's
+/// client-sequence identity; a remote client needs it to run the
+/// stale-instance filter and sibling ordering.
+pub fn encode_directory_op(op: DirectoryOp, message_id: Int) -> Json {
+  case op {
+    directory_kernel.Set(path, key, value) ->
+      json.object([
+        #("type", json.string("dirSet")),
+        #("path", json.string(path)),
+        #("key", json.string(key)),
+        #(
+          "value",
+          json.object([#("type", json.string("Plain")), #("value", value)]),
+        ),
+        #("mid", json.int(message_id)),
+      ])
+    directory_kernel.Delete(path, key) ->
+      json.object([
+        #("type", json.string("dirDelete")),
+        #("path", json.string(path)),
+        #("key", json.string(key)),
+        #("mid", json.int(message_id)),
+      ])
+    directory_kernel.Clear(path) ->
+      json.object([
+        #("type", json.string("dirClear")),
+        #("path", json.string(path)),
+        #("mid", json.int(message_id)),
+      ])
+    directory_kernel.CreateSubDirectory(path, name) ->
+      json.object([
+        #("type", json.string("dirCreateSub")),
+        #("path", json.string(path)),
+        #("name", json.string(name)),
+        #("mid", json.int(message_id)),
+      ])
+    directory_kernel.DeleteSubDirectory(path, name) ->
+      json.object([
+        #("type", json.string("dirDeleteSub")),
+        #("path", json.string(path)),
+        #("name", json.string(name)),
+        #("mid", json.int(message_id)),
+      ])
+  }
+}
+
+fn directory_op_decoder() -> Decoder(channel.ChannelOp) {
+  use op_type <- decode.field("type", decode.string)
+  use path <- decode.field("path", decode.string)
+  use message_id <- decode.field("mid", decode.int)
+  case op_type {
+    "dirSet" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", plain_value_decoder())
+      decode.success(channel.DirectoryOp(
+        directory_kernel.Set(path, key, value),
+        message_id,
+      ))
+    }
+    "dirDelete" -> {
+      use key <- decode.field("key", decode.string)
+      decode.success(channel.DirectoryOp(
+        directory_kernel.Delete(path, key),
+        message_id,
+      ))
+    }
+    "dirClear" ->
+      decode.success(channel.DirectoryOp(
+        directory_kernel.Clear(path),
+        message_id,
+      ))
+    "dirCreateSub" -> {
+      use name <- decode.field("name", decode.string)
+      decode.success(channel.DirectoryOp(
+        directory_kernel.CreateSubDirectory(path, name),
+        message_id,
+      ))
+    }
+    "dirDeleteSub" -> {
+      use name <- decode.field("name", decode.string)
+      decode.success(channel.DirectoryOp(
+        directory_kernel.DeleteSubDirectory(path, name),
+        message_id,
+      ))
+    }
+    _ ->
+      decode.failure(
+        channel.DirectoryOp(directory_kernel.Clear(path), message_id),
+        "DirectoryOp",
+      )
   }
 }
 

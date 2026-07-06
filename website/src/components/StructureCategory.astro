@@ -19,8 +19,12 @@ const prev = idx > 0 ? categories[idx - 1] : categories[categories.length - 1];
 const next =
   idx < categories.length - 1 ? categories[idx + 1] : categories[0];
 
-// Scope the shared live demo to this family's structures.
-const familyViews = category.structures.map((s) => s.id);
+// Scope the shared live demo to this family's structures. Structures with a
+// dedicated demo page (e.g. SharedDirectory's tree) aren't views in the shared
+// gauge demo, so they're excluded here and link to their own demo instead.
+const familyViews = category.structures
+  .filter((s) => !s.demoHref)
+  .map((s) => s.id);
 ---
 
 <Sheet
@@ -95,6 +99,13 @@ const familyViews = category.structures.map((s) => s.id);
             </div>
             <code class="plate-module">{s.module}</code>
             <p class="plate-tagline">{s.tagline}</p>
+            {
+              s.demoHref && (
+                <a class="plate-demo" href={s.demoHref}>
+                  Open the live {s.name} demo →
+                </a>
+              )
+            }
           </header>
 
           <div class="plate-body">
@@ -372,6 +383,18 @@ const familyViews = category.structures.map((s) => s.id);
     color: var(--muted);
     font-size: var(--text-body);
     max-width: 54ch;
+  }
+
+  .plate-demo {
+    display: inline-block;
+    margin-top: var(--space-md);
+    font-weight: 600;
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .plate-demo:hover {
+    color: var(--overprint-deep);
   }
 
   .plate-body {

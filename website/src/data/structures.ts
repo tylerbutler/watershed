@@ -29,6 +29,13 @@ export interface Structure {
   how: string[];
   /** Best-fit use cases, detail pages only. */
   useCases: string[];
+  /**
+   * Dedicated demo page, for structures whose interaction doesn't fit the
+   * shared gauge demo (e.g. SharedDirectory's tree). When set, the structure is
+   * excluded from the family's shared live demo and its plate links here
+   * instead.
+   */
+  demoHref?: string;
 }
 
 export interface Category {
@@ -215,6 +222,27 @@ const maps: Structure[] = [
       "A CRDT-correct alternative to SharedMap when last-write-wins would drop data",
     ],
   },
+  {
+    id: "directory",
+    name: "SharedDirectory",
+    module: "directory_kernel",
+    kind: "DDS",
+    onHomepage: false,
+    demoHref: "/directory",
+    tagline: "SharedMap, but recursive — folders of keys, nested folders, one identity per path.",
+    rule: "server-sequenced per key, with a hierarchical folder identity that survives delete and recreate",
+    optimistic: "local folder and key edits render immediately until their op is sequenced",
+    summary: "a recursive tree of per-folder storage, child folders, and create info reloads intact",
+    how: [
+      "SharedDirectory is SharedMap made recursive, and a byte-compatible port of Fluid Framework’s. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
+      "The hard part isn’t the storage — it’s hierarchical identity. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op’s reference sequence number, so a stale op targeting an old instance of a path is ignored while concurrent same-name creates merge into a single folder. That is what a flat map cannot express.",
+    ],
+    useCases: [
+      "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
+      "Fluid Framework interop where SharedDirectory wire-format compatibility matters",
+      "Anywhere a flat map’s keys want structure — folders of readings, grouped settings",
+    ],
+  },
 ];
 
 const coordination: Structure[] = [
@@ -351,8 +379,8 @@ export const categories: Category[] = [
     index: "Family 03 / 04",
     tagline: "Keyed state, resolved two different ways.",
     lede: [
-      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed ships two, at opposite ends of that choice.",
-      "SharedMap resolves each key by server order and is wire-compatible with Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data.",
+      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed ships three, spanning that choice.",
+      "SharedMap resolves each key by server order and is wire-compatible with Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
   },

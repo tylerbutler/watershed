@@ -53,6 +53,8 @@ pub const channel_type_task_manager = "taskManager"
 
 pub const channel_type_json_ot = "json0"
 
+pub const channel_type_directory = "directory"
+
 /// Encode map entries as the ordered `[{key, value}]` array shared by attach
 /// snapshots and summary blob channels.
 pub fn encode_entries(entries: List(#(String, Json))) -> Json {

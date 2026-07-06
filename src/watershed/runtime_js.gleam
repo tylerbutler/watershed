@@ -337,6 +337,112 @@ pub fn g_set_values(runtime: Runtime, address: String) -> List(String) {
   read(runtime.cell, [], runtime_core.g_set_values(_, address))
 }
 
+// ── SharedDirectory ─────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_directory(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitDirectory, "create_directory")
+}
+
+@target(javascript)
+pub fn directory_set(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_set(core, address, path, key, value)
+  })
+}
+
+@target(javascript)
+pub fn directory_delete(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_delete(core, address, path, key)
+  })
+}
+
+@target(javascript)
+pub fn directory_clear(runtime: Runtime, address: String, path: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_clear(core, address, path)
+  })
+}
+
+@target(javascript)
+pub fn directory_create_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_create_subdirectory(core, address, path, name)
+  })
+}
+
+@target(javascript)
+pub fn directory_delete_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_delete_subdirectory(core, address, path, name)
+  })
+}
+
+@target(javascript)
+pub fn directory_get(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.directory_get(_, address, path, key))
+}
+
+@target(javascript)
+pub fn directory_entries(
+  runtime: Runtime,
+  address: String,
+  path: String,
+) -> List(#(String, Json)) {
+  read(runtime.cell, [], runtime_core.directory_entries(_, address, path))
+}
+
+@target(javascript)
+pub fn directory_subdirectories(
+  runtime: Runtime,
+  address: String,
+  path: String,
+) -> List(String) {
+  read(runtime.cell, [], runtime_core.directory_subdirectories(_, address, path))
+}
+
+@target(javascript)
+pub fn directory_has_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.directory_has_subdirectory(
+    _,
+    address,
+    path,
+    name,
+  ))
+}
+
 @target(javascript)
 pub fn two_p_set_add(
   runtime: Runtime,

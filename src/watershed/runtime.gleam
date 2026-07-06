@@ -61,8 +61,8 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
-  InitClaims, InitCounter, InitGSet, InitJsonOt, InitMap, InitOrMap, InitOrSet,
-  InitRegisterCollection, InitTaskManager, InitTwoPSet,
+  InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
+  InitOrMap, InitOrSet, InitRegisterCollection, InitTaskManager, InitTwoPSet,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -204,6 +204,34 @@ pub type Msg {
   GetGSetValues(address: String, reply: Subject(List(String)))
   TwoPSetContains(address: String, element: String, reply: Subject(Bool))
   GetTwoPSetValues(address: String, reply: Subject(List(String)))
+  DirectorySet(address: String, path: String, key: String, value: Json)
+  DirectoryDelete(address: String, path: String, key: String)
+  DirectoryClear(address: String, path: String)
+  DirectoryCreateSubdirectory(address: String, path: String, name: String)
+  DirectoryDeleteSubdirectory(address: String, path: String, name: String)
+  CreateDirectory(reply: Subject(Result(String, String)))
+  DirectoryGet(
+    address: String,
+    path: String,
+    key: String,
+    reply: Subject(Option(Json)),
+  )
+  DirectoryEntries(
+    address: String,
+    path: String,
+    reply: Subject(List(#(String, Json))),
+  )
+  DirectorySubdirectories(
+    address: String,
+    path: String,
+    reply: Subject(List(String)),
+  )
+  DirectoryHasSubdirectory(
+    address: String,
+    path: String,
+    name: String,
+    reply: Subject(Bool),
+  )
   GetRegisterValue(
     address: String,
     key: String,
@@ -634,6 +662,26 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CreateOrSet(reply) ->
       create_channel(state, reply, InitOrSet, "create_or_set")
     CreateGSet(reply) -> create_channel(state, reply, InitGSet, "create_g_set")
+    CreateDirectory(reply) ->
+      create_channel(state, reply, InitDirectory, "create_directory")
+    DirectorySet(address, path, key, value) ->
+      edit(state, fn(core) {
+        runtime_core.directory_set(core, address, path, key, value)
+      })
+    DirectoryDelete(address, path, key) ->
+      edit(state, fn(core) {
+        runtime_core.directory_delete(core, address, path, key)
+      })
+    DirectoryClear(address, path) ->
+      edit(state, fn(core) { runtime_core.directory_clear(core, address, path) })
+    DirectoryCreateSubdirectory(address, path, name) ->
+      edit(state, fn(core) {
+        runtime_core.directory_create_subdirectory(core, address, path, name)
+      })
+    DirectoryDeleteSubdirectory(address, path, name) ->
+      edit(state, fn(core) {
+        runtime_core.directory_delete_subdirectory(core, address, path, name)
+      })
     CreateTwoPSet(reply) ->
       create_channel(state, reply, InitTwoPSet, "create_two_p_set")
     CreateRegisterCollection(reply) ->
@@ -737,6 +785,39 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, [], runtime_core.g_set_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    DirectoryGet(address, path, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.directory_get(_, address, path, key)),
+      )
+      actor.continue(state)
+    }
+    DirectoryEntries(address, path, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.directory_entries(_, address, path)),
+      )
+      actor.continue(state)
+    }
+    DirectorySubdirectories(address, path, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.directory_subdirectories(_, address, path)),
+      )
+      actor.continue(state)
+    }
+    DirectoryHasSubdirectory(address, path, name, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.directory_has_subdirectory(
+          _,
+          address,
+          path,
+          name,
+        )),
       )
       actor.continue(state)
     }

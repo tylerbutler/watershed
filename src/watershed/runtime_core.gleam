@@ -27,6 +27,7 @@ import watershed/channel.{
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
+import watershed/directory_kernel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
@@ -86,6 +87,9 @@ pub type CoreError {
   )
   OrMapModeMismatch(address: String, detail: String)
   TaskNotAssigned(address: String, task_id: String)
+  /// A directory edit was rejected by the kernel (unknown path, invalid
+  /// subdirectory name). Retryable API misuse, not document corruption.
+  DirectoryOpFailed(address: String, detail: String)
 }
 
 pub type Bootstrapped {
@@ -278,6 +282,8 @@ fn restamp_in_flight(
   case entry {
     InFlightOp(address: address, op: channel.TaskManagerOp(op), meta: meta, ..) ->
       restamp_task_manager(core, address, op, meta, csn)
+    InFlightOp(address: address, op: channel.DirectoryOp(op, message_id), ..) ->
+      restamp_directory(core, address, op, message_id, csn)
     InFlightOp(address: address, op: op, meta: meta, ..) -> #(
       core,
       csn + 1,
@@ -379,6 +385,57 @@ fn restamp_task_manager(
       }
     }
     _, _ -> panic as "task-manager resubmit missing channel state or metadata"
+  }
+}
+
+/// Re-stamp a directory op on reconnect. `directory_kernel.resubmit` filters
+/// the op against the current live instance of its target path: a `Some` op is
+/// re-sent (possibly rewritten — a create resubmit re-adds this client's
+/// creator id), a `None` means the target instance no longer exists and the op
+/// is dropped, with the kernel stripping its now-orphaned pending entry.
+fn restamp_directory(
+  core: Core,
+  address: String,
+  op: directory_kernel.DirectoryOp,
+  message_id: Int,
+  csn: Int,
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
+  case dict.get(core.channels, address) {
+    Ok(channel.DirectoryState(kernel)) -> {
+      let self = client_id_to_int(core.client_id)
+      let #(kernel, maybe_op) =
+        directory_kernel.resubmit(kernel, op, message_id, self)
+      let core =
+        put_attached_channel(core, address, channel.DirectoryState(kernel))
+      case maybe_op {
+        Some(next_op) -> {
+          let next_channel_op = channel.DirectoryOp(next_op, message_id)
+          #(
+            core,
+            csn + 1,
+            [
+              InFlightOp(
+                client_id: core.client_id,
+                csn: csn,
+                address: address,
+                op: next_channel_op,
+                meta: channel.DirectoryMeta(message_id),
+              ),
+            ],
+            [
+              ops.outbound_channel_op(
+                address: address,
+                client_sequence_number: csn,
+                reference_sequence_number: core.last_seen_sn,
+                op: next_channel_op,
+              ),
+            ],
+          )
+        }
+        None -> #(core, csn, [], [])
+      }
+    }
+    _ -> panic as "directory resubmit missing channel state"
   }
 }
 
@@ -573,6 +630,7 @@ fn handle_op(
                     msg.client_id,
                     msg.sequence_number,
                     msg.minimum_sequence_number,
+                    msg.reference_sequence_number,
                     address,
                     state,
                     op,
@@ -633,6 +691,7 @@ fn apply_remote_channel(
   message_client_id: Option(String),
   sequence_number: Int,
   minimum_sequence_number: Int,
+  reference_sequence_number: Int,
   address: String,
   state: ChannelState,
   op: channel.ChannelOp,
@@ -652,6 +711,7 @@ fn apply_remote_channel(
         client_id_to_int(core.client_id),
         option.map(message_client_id, client_id_to_int) |> option.unwrap(0),
       ],
+      reference_sequence_number: reference_sequence_number,
     )
   case channel.apply_remote(state, op, meta) {
     Ok(#(state, events)) ->
@@ -770,6 +830,7 @@ fn ack_own_op(
                   author: client_id_to_int(core.client_id),
                   self: client_id_to_int(core.client_id),
                   quorum: [client_id_to_int(core.client_id)],
+                  reference_sequence_number: core.last_seen_sn,
                 )
               case channel.ack_local(state, op, meta, sequenced_meta) {
                 Ok(#(state, events, resolution)) ->
@@ -968,6 +1029,212 @@ pub fn increment(
         channel.CounterMeta(message_id),
       ))
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SharedDirectory edits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Set `key` to `value` in the directory at `path`. Optimistic: the local
+/// value shows immediately; the op is sequenced and acked like any other.
+pub fn directory_set(
+  core: Core,
+  address: String,
+  path: String,
+  key: String,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  directory_storage_edit(core, address, fn(kernel) {
+    directory_kernel.set(kernel, path, key, value)
+  })
+}
+
+pub fn directory_delete(
+  core: Core,
+  address: String,
+  path: String,
+  key: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  directory_storage_edit(core, address, fn(kernel) {
+    directory_kernel.delete(kernel, path, key)
+  })
+}
+
+pub fn directory_clear(
+  core: Core,
+  address: String,
+  path: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  directory_storage_edit(core, address, fn(kernel) {
+    directory_kernel.clear(kernel, path)
+  })
+}
+
+pub fn directory_create_subdirectory(
+  core: Core,
+  address: String,
+  path: String,
+  name: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  let self = client_id_to_int(core.client_id)
+  directory_subdir_edit(core, address, fn(kernel) {
+    directory_kernel.create_subdirectory(kernel, path, name, self)
+  })
+}
+
+pub fn directory_delete_subdirectory(
+  core: Core,
+  address: String,
+  path: String,
+  name: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  directory_subdir_edit(core, address, fn(kernel) {
+    directory_kernel.delete_subdirectory(kernel, path, name)
+  })
+}
+
+/// Storage ops (`set`/`delete`/`clear`) always produce an outbound op when
+/// attached; the kernel returns state, events, op, and the message id.
+fn directory_storage_edit(
+  core: Core,
+  address: String,
+  run: fn(directory_kernel.DirectoryState) ->
+    Result(
+      #(
+        directory_kernel.DirectoryState,
+        List(directory_kernel.DirectoryEvent),
+        directory_kernel.DirectoryOp,
+        Int,
+      ),
+      directory_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_directory(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case run(kernel) {
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(
+                core,
+                address,
+                channel.DirectoryState(kernel),
+              ),
+              tag_directory_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+      }
+    Ok(Attached(kernel)) ->
+      case run(kernel) {
+        Ok(#(kernel, events, op, message_id)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.DirectoryState(kernel),
+            tag_directory_events(address, events),
+            channel.DirectoryOp(op, message_id),
+            channel.DirectoryMeta(message_id),
+          ))
+        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+      }
+  }
+}
+
+/// Subdirectory ops (`create`/`delete`) may produce no outbound op — a
+/// duplicate create or a delete of an optimistically-absent child updates
+/// local state and events but sends nothing.
+fn directory_subdir_edit(
+  core: Core,
+  address: String,
+  run: fn(directory_kernel.DirectoryState) ->
+    Result(
+      #(
+        directory_kernel.DirectoryState,
+        List(directory_kernel.DirectoryEvent),
+        Option(directory_kernel.DirectoryOp),
+        Int,
+      ),
+      directory_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_directory(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case run(kernel) {
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(
+                core,
+                address,
+                channel.DirectoryState(kernel),
+              ),
+              tag_directory_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+      }
+    Ok(Attached(kernel)) ->
+      case run(kernel) {
+        Ok(#(kernel, events, Some(op), message_id)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.DirectoryState(kernel),
+            tag_directory_events(address, events),
+            channel.DirectoryOp(op, message_id),
+            channel.DirectoryMeta(message_id),
+          ))
+        Ok(#(kernel, events, None, _message_id)) ->
+          Ok(
+            #(
+              put_attached_channel(
+                core,
+                address,
+                channel.DirectoryState(kernel),
+              ),
+              tag_directory_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+      }
+  }
+}
+
+fn directory_detail(err: directory_kernel.KernelError) -> String {
+  case err {
+    directory_kernel.PathNotFound(path) -> "path not found: " <> path
+    directory_kernel.InvalidName(name) -> "invalid subdirectory name: " <> name
+    directory_kernel.UnexpectedAck(_, detail) -> detail
+    directory_kernel.UnexpectedRollback(_, detail) -> detail
+    directory_kernel.InvariantViolation(detail) -> detail
   }
 }
 
@@ -1898,6 +2165,23 @@ fn locate_json_ot(
   }
 }
 
+fn locate_directory(
+  core: Core,
+  address: String,
+) -> Result(Located(directory_kernel.DirectoryState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.DirectoryState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.DirectoryState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.DirectoryChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_channel(
   core: Core,
   address: String,
@@ -2082,6 +2366,13 @@ fn tag_json_ot_events(
   list.map(events, fn(event) { #(address, channel.JsonOtEvent(event)) })
 }
 
+fn tag_directory_events(
+  address: String,
+  events: List(directory_kernel.DirectoryEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.DirectoryEvent(event)) })
+}
+
 fn tag_or_map_events(
   address: String,
   events: List(or_map_kernel.OrMapEvent),
@@ -2243,6 +2534,59 @@ pub fn two_p_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.TwoPSetState(kernel)) -> two_p_set_kernel.values(kernel)
     _ -> []
+  }
+}
+
+/// Optimistic read of a directory key at `path` (pending edits applied).
+pub fn directory_get(
+  core: Core,
+  address: String,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  case find_channel(core, address) {
+    Some(channel.DirectoryState(kernel)) ->
+      directory_kernel.get(kernel, path, key)
+    _ -> None
+  }
+}
+
+/// Ordered optimistic `#(key, value)` entries of the directory at `path`.
+pub fn directory_entries(
+  core: Core,
+  address: String,
+  path: String,
+) -> List(#(String, Json)) {
+  case find_channel(core, address) {
+    Some(channel.DirectoryState(kernel)) ->
+      directory_kernel.entries(kernel, path)
+    _ -> []
+  }
+}
+
+/// Ordered optimistic child directory names of the directory at `path`.
+pub fn directory_subdirectories(
+  core: Core,
+  address: String,
+  path: String,
+) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.DirectoryState(kernel)) ->
+      directory_kernel.subdirectories(kernel, path)
+    _ -> []
+  }
+}
+
+pub fn directory_has_subdirectory(
+  core: Core,
+  address: String,
+  path: String,
+  name: String,
+) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.DirectoryState(kernel)) ->
+      directory_kernel.has_subdirectory(kernel, path, name)
+    _ -> False
   }
 }
 
