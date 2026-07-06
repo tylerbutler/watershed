@@ -78,7 +78,7 @@ const counters: Structure[] = [
     tagline: "Per-replica grow-only tallies that merge by pairwise maximum.",
     rule: "per-replica grow-only counts merge by pairwise maximum",
     optimistic:
-      "local increments overprint the total until their delta is sequenced",
+      "local increments overlay the total in magenta until their delta is sequenced",
     summary: "the counts dictionary reloads with each replica’s monotone tally",
     how: [
       "A grow-only counter keeps one monotone count per replica. Client A only ever raises A’s slot; client B only B’s. The visible value is the sum of every slot.",
@@ -120,16 +120,16 @@ const sets: Structure[] = [
     kind: "CRDT",
     onHomepage: true,
     tagline: "Add-only membership; merge is a plain set union.",
-    rule: "grow-only set union; every recorded benchmark remains forever",
+    rule: "grow-only set union; every recorded entry remains forever",
     optimistic:
-      "local marks print as magenta overprint until their add delta is sequenced",
+      "local marks appear in magenta until their add delta is sequenced",
     summary: "the sequenced set reloads as permanent registry facts",
     how: [
       "The simplest set CRDT. Elements can be added but never removed. Merging two replicas is a plain union — commutative, associative, and idempotent — so adds arrive in any order, any number of times, and everyone converges on the same membership.",
       "Removal is simply not expressible, which is exactly what makes a G-set trivially correct. When you do need removal, you layer tombstones on top — that is the 2P-set and OR-set below.",
     ],
     useCases: [
-      "Append-only registries: recorded benchmarks, observed device IDs, seen keys",
+      "Append-only registries: recorded events, observed device IDs, seen keys",
       "Deduplicated event logs where membership only ever grows",
       "The base layer for removable set CRDTs",
     ],
@@ -143,7 +143,7 @@ const sets: Structure[] = [
     tagline: "Adds plus tombstones; a removal wins permanently.",
     rule: "two grow-only sets join; tombstones permanently beat active membership",
     optimistic:
-      "local place or retire deltas overprint the ledger until sequenced",
+      "local place or retire deltas overlay the ledger in magenta until sequenced",
     summary: "active markers and retired tombstones reload together",
     how: [
       "A two-phase set layers a second grow-only set — of tombstones — over a grow-only set of adds. An element is a member when it is in the add-set and absent from the tombstone-set.",
@@ -164,7 +164,7 @@ const sets: Structure[] = [
     tagline: "Observed-remove with unique add tags; add-wins, re-add works.",
     rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
     optimistic:
-      "local marker changes overprint the roster until their delta is sequenced",
+      "local marker changes overlay the roster in magenta until their delta is sequenced",
     summary: "live tags and tombstones reload under the joining replica identity",
     how: [
       "An observed-remove set fixes the 2P-set’s fatal flaw: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",

@@ -13,7 +13,7 @@ const structures = [
     name: "G-Counter",
     module: "lattice_counters/g_counter",
     rule: "per-replica grow-only counts merge by pairwise maximum",
-    pending: "local increments overprint the total until their delta is sequenced",
+    pending: "local increments overlay the total in magenta until their delta is sequenced",
     summary: "the counts dictionary reloads with each replica’s monotone tally",
   },
   {
@@ -26,22 +26,22 @@ const structures = [
   {
     name: "G-Set",
     module: "g_set_kernel",
-    rule: "grow-only set union; every recorded benchmark remains forever",
-    pending: "local marks print as magenta overprint until their add delta is sequenced",
+    rule: "grow-only set union; every recorded entry remains forever",
+    pending: "local marks appear in magenta until their add delta is sequenced",
     summary: "the sequenced set reloads as permanent registry facts",
   },
   {
     name: "2P-Set",
     module: "two_p_set_kernel",
     rule: "two grow-only sets join; tombstones permanently beat active membership",
-    pending: "local place or retire deltas overprint the ledger until sequenced",
+    pending: "local place or retire deltas overlay the ledger in magenta until sequenced",
     summary: "active markers and retired tombstones reload together",
   },
   {
     name: "OR-Set",
     module: "or_set_kernel",
     rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
-    pending: "local marker changes overprint the roster until their delta is sequenced",
+    pending: "local marker changes overlay the roster in magenta until their delta is sequenced",
     summary: "live tags and tombstones reload under the joining replica identity",
   },
   {
