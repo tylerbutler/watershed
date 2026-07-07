@@ -2427,3 +2427,67 @@ fn run_narrowed_counter_subscription_test() -> Nil {
 
   watershed.close(doc_a)
 }
+
+@target(erlang)
+/// TX4 exit criterion: two clients bootstrap the same empty document with
+/// `ensure_*` and adopt the same sequenced channel; `ensure_field` set-if-
+/// absent converges under a race; a late joiner resolves without re-seeding.
+pub fn ensure_bootstrap_race_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_ensure_bootstrap_race_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_ensure_bootstrap_race_test() -> Nil {
+  let document = "watershed-ens-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let root_a: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_a))
+  let root_b: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_b))
+
+  let tally_f: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+    schema.channel_field("tally")
+  let title_f: schema.Field(FieldDoc, String) =
+    schema.field("title", json.string, decode.string)
+
+  // Both clients ensure the same slot on an empty document. Whoever seeds
+  // first wins the root key; the other adopts that handle.
+  let assert Ok(counter_a) = watershed.ensure_counter(doc_a, root_a, tally_f)
+  let assert Ok(counter_b) = watershed.ensure_counter(doc_b, root_b, tally_f)
+
+  // Adopting the same channel means an increment on A is seen through B.
+  watershed.increment(counter_a, 4)
+  wait_until(50, fn() { watershed.counter_value(counter_b) == Some(4) })
+  |> expect.to_be_true()
+
+  // ensure_field is set-if-absent: both racers set, last-writer-wins settles
+  // one value both clients converge on.
+  watershed.ensure_field(root_a, title_f, "from-a")
+  watershed.ensure_field(root_b, title_f, "from-b")
+  wait_until(50, fn() {
+    case
+      watershed.get_field(root_a, title_f),
+      watershed.get_field(root_b, title_f)
+    {
+      Ok(Some(a)), Ok(Some(b)) -> a == b
+      _, _ -> False
+    }
+  })
+  |> expect.to_be_true()
+
+  // A late joiner resolves the existing channel without seeding a new one.
+  let doc_c = connect_or_panic(document, "user-c")
+  let root_c: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_c))
+  let assert Ok(counter_c) = watershed.ensure_counter(doc_c, root_c, tally_f)
+  wait_until(50, fn() { watershed.counter_value(counter_c) == Some(4) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+  watershed.close(doc_c)
+}

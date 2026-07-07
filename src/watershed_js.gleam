@@ -567,6 +567,267 @@ pub fn resolve_task_manager_field(
   get_channel_field(document, typed_map, field, resolve_task_manager)
 }
 
+// ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
+//
+// Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
+// LWW winner if the key is already set, otherwise seed a candidate channel,
+// wait for sync, and adopt whichever handle the sequencer ordered first (losing
+// candidates stay attached but unreferenced — orphan GC is out of scope). The
+// browser cannot block, so each takes a `done` continuation and waits/retries
+// on a library-owned timer; the BEAM facade blocks and returns instead.
+
+@target(javascript)
+@external(javascript, "./watershed_js_ffi.mjs", "set_timeout")
+fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
+
+@target(javascript)
+const resolve_retry_ms = 200
+
+@target(javascript)
+const resolve_attempts = 25
+
+@target(javascript)
+/// Poll `is_synced` until the confirmed root is stable (bounded by the resolve
+/// budget), then invoke `next`.
+fn await_synced(document: Document, attempts: Int, next: fn() -> Nil) -> Nil {
+  case attempts <= 0 || is_synced(document) {
+    True -> next()
+    False ->
+      set_timeout(
+        fn() { await_synced(document, attempts - 1, next) },
+        resolve_retry_ms,
+      )
+  }
+}
+
+@target(javascript)
+/// Resolve a field to its channel, retrying on a timer while the handle is
+/// absent or the referenced channel's attach op is still in flight.
+fn resolve_with_retry(
+  resolve: fn() -> Result(Option(shared), String),
+  attempts: Int,
+  done: fn(Result(shared, String)) -> Nil,
+) -> Nil {
+  case resolve(), attempts {
+    Ok(Some(shared)), _ -> done(Ok(shared))
+    Ok(None), n if n <= 1 ->
+      done(Error("ensure: no channel handle appeared under the field"))
+    Error(reason), n if n <= 1 -> done(Error(reason))
+    _, _ ->
+      set_timeout(
+        fn() { resolve_with_retry(resolve, attempts - 1, done) },
+        resolve_retry_ms,
+      )
+  }
+}
+
+@target(javascript)
+/// Adopt the channel under `key`: resolve the sequenced winner if the key is
+/// set, else `seed` a candidate, wait for sync, and resolve whatever won.
+fn ensure_channel(
+  document: Document,
+  typed_map: TypedMap(s),
+  key: String,
+  seed: fn() -> Result(Nil, String),
+  resolve: fn() -> Result(Option(shared), String),
+  done: fn(Result(shared, String)) -> Nil,
+) -> Nil {
+  case has(typed_map.map, key) {
+    True -> resolve_with_retry(resolve, resolve_attempts, done)
+    False ->
+      case seed() {
+        Error(reason) -> done(Error(reason))
+        Ok(Nil) ->
+          await_synced(document, resolve_attempts, fn() {
+            resolve_with_retry(resolve, resolve_attempts, done)
+          })
+      }
+  }
+}
+
+@target(javascript)
+/// Ensure a nested (untyped) map exists under `field`.
+pub fn ensure_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+  done: fn(Result(SharedMap, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_map(document))
+      set_map_field(typed_map, field, map)
+    },
+    fn() { resolve_map_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a counter exists under `field`, seeding one if the slot is empty.
+pub fn ensure_counter(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+  done: fn(Result(SharedCounter, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use counter <- result.map(create_counter(document))
+      set_counter_field(typed_map, field, counter)
+    },
+    fn() { resolve_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
+pub fn ensure_or_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+  mode: OrMapMode,
+  done: fn(Result(SharedOrMap, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use or_map <- result.map(create_or_map(document, mode))
+      set_or_map_field(typed_map, field, or_map)
+    },
+    fn() { resolve_or_map_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure an OR-set exists under `field`.
+pub fn ensure_or_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+  done: fn(Result(SharedOrSet, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use or_set <- result.map(create_or_set(document))
+      set_or_set_field(typed_map, field, or_set)
+    },
+    fn() { resolve_or_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a register collection exists under `field`.
+pub fn ensure_register_collection(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+  done: fn(Result(SharedRegisterCollection, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use registers <- result.map(create_register_collection(document))
+      set_register_collection_field(typed_map, field, registers)
+    },
+    fn() { resolve_register_collection_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a claims channel exists under `field`.
+pub fn ensure_claims(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+  done: fn(Result(SharedClaims, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use claims <- result.map(create_claims(document))
+      set_claims_field(typed_map, field, claims)
+    },
+    fn() { resolve_claims_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a task manager exists under `field`.
+pub fn ensure_task_manager(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+  done: fn(Result(SharedTaskManager, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use tasks <- result.map(create_task_manager(document))
+      set_task_manager_field(typed_map, field, tasks)
+    },
+    fn() { resolve_task_manager_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a nested *typed* child map exists under a child field.
+pub fn ensure_child(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChildField(s, c),
+  done: fn(Result(TypedMap(c), String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.child_key(field),
+    fn() {
+      use child <- result.map(create_map(document))
+      set_child(typed_map, field, typed(child))
+    },
+    fn() { resolve_child(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Set a plain typed field to `default` only if its key is currently absent.
+/// Concurrent racers all set; last-writer-wins on the key settles one value.
+pub fn ensure_field(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+  default: a,
+) -> Nil {
+  case has_field(typed_map, field) {
+    True -> Nil
+    False -> set_field(typed_map, field, default)
+  }
+}
+
 // ── Counters ─────────────────────────────────────────────────────────────────
 
 @target(javascript)

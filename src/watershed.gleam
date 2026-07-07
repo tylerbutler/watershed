@@ -688,6 +688,318 @@ pub fn resolve_directory_field(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Declarative bootstrap (ensure_*)
+//
+// Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
+// LWW winner if the key is already set, otherwise seed a candidate channel,
+// wait for sync, and adopt whichever handle the sequencer ordered first (losing
+// candidates stay attached but unreferenced — orphan GC is out of scope). This
+// subsumes the seed + wait-synced + bounded-retry-resolve loop every app used
+// to hand-roll. `ensure_field` is the set-if-absent primitive for plain values.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+const resolve_retry_ms = 200
+
+@target(erlang)
+const resolve_attempts = 25
+
+@target(erlang)
+/// Block until every local edit is acked (the confirmed root is stable),
+/// bounded by the resolve budget, then return regardless.
+fn await_synced(document: Document, attempts: Int) -> Nil {
+  case attempts <= 0 || is_synced(document) {
+    True -> Nil
+    False -> {
+      process.sleep(resolve_retry_ms)
+      await_synced(document, attempts - 1)
+    }
+  }
+}
+
+@target(erlang)
+/// Resolve a field to its channel, retrying while the handle is absent or the
+/// referenced channel's attach op is still in flight.
+fn resolve_with_retry(
+  resolve: fn() -> Result(Option(shared), String),
+  attempts: Int,
+) -> Result(shared, String) {
+  case resolve(), attempts {
+    Ok(Some(shared)), _ -> Ok(shared)
+    Ok(None), n if n <= 1 ->
+      Error("ensure: no channel handle appeared under the field")
+    Error(reason), n if n <= 1 -> Error(reason)
+    _, _ -> {
+      process.sleep(resolve_retry_ms)
+      resolve_with_retry(resolve, attempts - 1)
+    }
+  }
+}
+
+@target(erlang)
+/// Adopt the channel under `key`: resolve the sequenced winner if the key is
+/// set, else `seed` a candidate, wait for sync, and resolve whatever won.
+fn ensure_channel(
+  document: Document,
+  typed_map: TypedMap(s),
+  key: String,
+  seed: fn() -> Result(Nil, String),
+  resolve: fn() -> Result(Option(shared), String),
+) -> Result(shared, String) {
+  case has(typed_map.map, key) {
+    True -> resolve_with_retry(resolve, resolve_attempts)
+    False -> {
+      use _ <- result.try(seed())
+      await_synced(document, resolve_attempts)
+      resolve_with_retry(resolve, resolve_attempts)
+    }
+  }
+}
+
+@target(erlang)
+/// Ensure a nested (untyped) map exists under `field`.
+pub fn ensure_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+) -> Result(SharedMap, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_map(document))
+      set_map_field(typed_map, field, map)
+    },
+    fn() { resolve_map_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a counter exists under `field`, seeding one if the slot is empty.
+pub fn ensure_counter(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+) -> Result(SharedCounter, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use counter <- result.map(create_counter(document))
+      set_counter_field(typed_map, field, counter)
+    },
+    fn() { resolve_counter_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a json0 channel exists under `field`.
+pub fn ensure_json_ot(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+) -> Result(SharedJsonOt, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use json_ot <- result.map(create_json_ot(document))
+      set_json_ot_field(typed_map, field, json_ot)
+    },
+    fn() { resolve_json_ot_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
+pub fn ensure_or_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+  mode: OrMapMode,
+) -> Result(SharedOrMap, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use or_map <- result.map(create_or_map(document, mode))
+      set_or_map_field(typed_map, field, or_map)
+    },
+    fn() { resolve_or_map_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure an OR-set exists under `field`.
+pub fn ensure_or_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+) -> Result(SharedOrSet, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use or_set <- result.map(create_or_set(document))
+      set_or_set_field(typed_map, field, or_set)
+    },
+    fn() { resolve_or_set_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a register collection exists under `field`.
+pub fn ensure_register_collection(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+) -> Result(SharedRegisterCollection, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use registers <- result.map(create_register_collection(document))
+      set_register_collection_field(typed_map, field, registers)
+    },
+    fn() { resolve_register_collection_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a claims channel exists under `field`.
+pub fn ensure_claims(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+) -> Result(SharedClaims, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use claims <- result.map(create_claims(document))
+      set_claims_field(typed_map, field, claims)
+    },
+    fn() { resolve_claims_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a task manager exists under `field`.
+pub fn ensure_task_manager(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+) -> Result(SharedTaskManager, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use tasks <- result.map(create_task_manager(document))
+      set_task_manager_field(typed_map, field, tasks)
+    },
+    fn() { resolve_task_manager_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a grow-only set exists under `field`.
+pub fn ensure_g_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+) -> Result(SharedGSet, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use g_set <- result.map(create_g_set(document))
+      set_g_set_field(typed_map, field, g_set)
+    },
+    fn() { resolve_g_set_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a two-phase set exists under `field`.
+pub fn ensure_two_p_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+) -> Result(SharedTwoPSet, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use two_p_set <- result.map(create_two_p_set(document))
+      set_two_p_set_field(typed_map, field, two_p_set)
+    },
+    fn() { resolve_two_p_set_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a directory exists under `field`.
+pub fn ensure_directory(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+) -> Result(SharedDirectory, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use dir <- result.map(create_directory(document))
+      set_directory_field(typed_map, field, dir)
+    },
+    fn() { resolve_directory_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a nested *typed* child map exists under a child field.
+pub fn ensure_child(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChildField(s, c),
+) -> Result(TypedMap(c), String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.child_key(field),
+    fn() {
+      use child <- result.map(create_map(document))
+      set_child(typed_map, field, typed(child))
+    },
+    fn() { resolve_child(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Set a plain typed field to `default` only if its key is currently absent.
+/// Concurrent racers all set; last-writer-wins on the key settles one value.
+pub fn ensure_field(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+  default: a,
+) -> Nil {
+  case has_field(typed_map, field) {
+    True -> Nil
+    False -> set_field(typed_map, field, default)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Counters
 // ─────────────────────────────────────────────────────────────────────────────
 
