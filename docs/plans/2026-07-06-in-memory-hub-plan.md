@@ -1,5 +1,15 @@
 # In-memory hub plan — deterministic multi-client documents without levee
 
+**Status:** ✅ Complete (2026-07-07). Shipped as **`sluice`** — the working name
+"hub" was bikeshed at review to the levee/spillway hydraulic register (a sluice
+gate maps onto the explicit `step`/`pause` delivery control). HM1a/HM1b
+(injectable transport, both targets), HM2 (`sluice/core` + `sluice/frames` with
+round-trip tests), HM3 (erlang driver + ungated convergence subset: map LWW,
+counter sum, claims first-writer, pause/step), HM4 (`sluice_js` + example app
+test) all landed. HM5 = this doc + README "Testing your app" section + module
+docs. Deferred within scope: `disconnect`/`reconnect` driver controls and
+JS-side `pause` (needs runtime identity); summary joins (decision 5).
+
 **Date:** 2026-07-06
 **Builds on:** `2026-07-03-kernel-fuzz-harness-plan.md` (the pure `Sim`/`Client` inbox-log split this generalizes to the document level), `wire/socket.gleam` (the codec inventory), the `WATERSHED_INTEGRATION`-gated suite in `test/watershed/integration_test.gleam` (the tests this un-gates).
 **Benchmark:** Fluid's `@fluidframework/test-utils` / mock runtimes — app authors write deterministic multi-client tests in their own test suite, no server required.

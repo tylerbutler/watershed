@@ -137,3 +137,43 @@ Map ops are byte-identical to the TS `@fluidframework/map` format
 (`{type: "set"|"delete"|"clear", key?, value?: {type: "Plain", value}}`);
 SharedCounter ops match `@fluidframework/counter` (`{type: "increment",
 incrementAmount}`).
+
+## Testing your app (the sluice)
+
+`watershed/sluice` (erlang) and `watershed/sluice_js` (JavaScript) are an
+**in-memory levee**: a deterministic, single-process stand-in for the server so
+you can write multi-client convergence tests with no infrastructure. It runs the
+*real* runtime — same codecs, pending queues, resubmit, reconnect catch-up — over
+an injected transport, and the *real* server sequencing (spillway's `sequencing`
+module), so a passing sluice test exercises production code paths end to end.
+
+Delivery is **explicit**: ops sequence when submitted but arrive only when you
+call `settle` (deliver until quiescent) or `step` (deliver one frame). That makes
+races scriptable — "both clients claim the cell, deliver B first" is a sequence
+of calls, not a timing accident — and makes assertions deterministic without
+polling.
+
+```gleam
+// JavaScript (browser/Lustre apps); erlang is identical via watershed/sluice.
+import watershed/sluice_js
+import watershed_js
+
+pub fn two_clients_converge_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "demo")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)                       // complete both handshakes
+
+  watershed_js.set(watershed_js.root(doc_a), "k", json.int(1))
+  sluice_js.settle(sluice)                       // deliver the edit everywhere
+
+  watershed_js.get(watershed_js.root(doc_b), "k")  // Some(json.int(1))
+}
+```
+
+Controls: `settle`, `step`, `pause`/`resume` (erlang — hold a client's frames to
+script delivery order), and `advance(ms)` (move the sluice's logical clock so
+presence TTL logic is testable without sleeping). The live-server integration
+suite stays authoritative and untouched; the sluice models levee, it is not
+levee. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
+test, and `docs/plans/2026-07-06-in-memory-hub-plan.md` for the design.
