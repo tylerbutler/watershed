@@ -303,6 +303,100 @@ pub fn two_clients_converge_via_sequenced_ops_test() {
   runtime_core.ordered_jobs(core_a, oc) |> list.length |> expect.to_equal(0)
 }
 
+/// A client that acquired a job then leaves the session has its held job
+/// re-released to the queue on the remaining replica via a sequenced `"leave"`
+/// system message, so another client can re-acquire it.
+pub fn acquired_job_re_releases_on_client_leave_test() {
+  let #(core_a, core_b, sn) = attached_pair()
+
+  // A appends job1.
+  let #(core_a, add1) =
+    expect_ok(runtime_core.ordered_add(core_a, oc, json.string("job1")))
+  let assert [add1_op] = add1
+  let #(core_a, core_b, sn, _) = drive(core_a, core_b, id_a, sn, add1_op)
+
+  // B acquires job1; it becomes B's held job on both replicas.
+  let #(core_b, acq) =
+    expect_ok(runtime_core.ordered_acquire(core_b, oc, "acq-1"))
+  let assert [acq_op] = acq
+  let #(core_a, _core_b, sn, _) = drive(core_a, core_b, id_b, sn, acq_op)
+  runtime_core.ordered_size(core_a, oc) |> expect.to_equal(Some(0))
+  runtime_core.ordered_jobs(core_a, oc) |> list.length |> expect.to_equal(1)
+
+  // B leaves: the server sequences a "leave" carrying B's id; A re-releases
+  // job1 back to the queue, surfacing it as an Added event.
+  let #(core_a, ingested) = ingest(core_a, leave_msg(id_b, sn + 1))
+  added_value(ingested.events)
+  |> expect.to_equal(Some(json.to_string(json.string("job1"))))
+  runtime_core.ordered_queue(core_a, oc)
+  |> list.map(json.to_string)
+  |> expect.to_equal([json.to_string(json.string("job1"))])
+  runtime_core.ordered_jobs(core_a, oc) |> list.length |> expect.to_equal(0)
+
+  // A can now re-acquire the freed job.
+  let #(core_a, acq2) =
+    expect_ok(runtime_core.ordered_acquire(core_a, oc, "acq-2"))
+  let assert [acq2_op] = acq2
+  let #(core_a, ingested_a) = ingest(core_a, seq_msg(id_a, sn + 2, acq2_op))
+  acquired_value(ingested_a.events)
+  |> expect.to_equal(Some(json.to_string(json.string("job1"))))
+}
+
+/// A membership `"leave"` for a client that holds no jobs (and matches no
+/// per-client state) is a harmless no-op: the queue is untouched.
+pub fn leave_for_unrelated_client_is_noop_test() {
+  let #(core_a, core_b, sn) = attached_pair()
+
+  let #(core_a, add1) =
+    expect_ok(runtime_core.ordered_add(core_a, oc, json.string("job1")))
+  let assert [add1_op] = add1
+  let #(core_a, _core_b, sn, _) = drive(core_a, core_b, id_a, sn, add1_op)
+
+  let #(core_a, ingested) = ingest(core_a, leave_msg("phantom_99", sn + 1))
+  ingested.events |> expect.to_equal([])
+  runtime_core.ordered_queue(core_a, oc)
+  |> list.map(json.to_string)
+  |> expect.to_equal([json.to_string(json.string("job1"))])
+}
+
+/// A sequenced `"leave"` system message: `clientId` is null and `contents`
+/// carries the departing client's id string, stamped with a sequence number.
+fn leave_msg(leaving: String, sn: Int) -> types.SequencedDocumentMessage {
+  types.SequencedDocumentMessage(
+    client_id: None,
+    sequence_number: sn,
+    minimum_sequence_number: 0,
+    client_sequence_number: -1,
+    reference_sequence_number: sn - 1,
+    message_type: "leave",
+    contents: to_dynamic(json.string(leaving)),
+    metadata: None,
+    server_metadata: None,
+    origin: None,
+    traces: None,
+    timestamp: 0,
+    data: None,
+  )
+}
+
+fn added_value(
+  events: List(#(String, channel.ChannelEvent)),
+) -> option.Option(String) {
+  list.fold(events, None, fn(found, tagged) {
+    case found, tagged.1 {
+      Some(_), _ -> found
+      None,
+        channel.OrderedCollectionEvent(ordered_collection_kernel.Added(
+          value,
+          _,
+          _,
+        ))
+      -> Some(json.to_string(value))
+      None, _ -> None
+    }
+  })
+}
+
 /// Bootstrap two clients and attach an ordered collection created by A, driving
 /// A's attach ops through both cores so their watermarks match. Returns the two
 /// cores and the next sequence number.

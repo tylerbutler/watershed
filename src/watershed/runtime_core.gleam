@@ -587,7 +587,46 @@ fn apply_one(
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_op(core, msg)
+    "leave" -> handle_leave(core, msg)
     _ -> Ok(#(core, [], []))
+  }
+}
+
+/// Apply a sequenced membership-leave (`"leave"` system message) by fanning the
+/// departing client out over every attached channel. levee stamps the leave
+/// with a sequence number and carries the leaving client's id string in
+/// `contents`, so every replica settles per-client kernel state (re-released
+/// queue jobs, drained consensus signoffs) deterministically at the same
+/// `leave_seq`. Channels without membership semantics are a no-op. A malformed
+/// `contents` is ignored rather than failing the whole batch.
+fn handle_leave(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
+  case decode.run(msg.contents, decode.string) {
+    Error(_) -> Ok(#(core, [], []))
+    Ok(leaving_client_id) -> {
+      let client_int = client_id_to_int(leaving_client_id)
+      let #(core, events) =
+        list.fold(core.channel_order, #(core, []), fn(acc, address) {
+          let #(core, events) = acc
+          case dict.get(core.channels, address) {
+            Error(_) -> acc
+            Ok(state) -> {
+              let #(state, channel_events) =
+                channel.on_leave(state, client_int, msg.sequence_number)
+              #(
+                put_attached_channel(core, address, state),
+                list.append(events, tag_events(address, channel_events)),
+              )
+            }
+          }
+        })
+      Ok(#(core, events, []))
+    }
   }
 }
 

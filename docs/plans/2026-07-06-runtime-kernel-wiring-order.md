@@ -73,7 +73,7 @@ reclaiming only the in-flight entry. Runtime quorum is approximated as
 (consistent quorum); the runtime test asserts the auto-`Accept` reaction.
 558 tests pass on both targets; `just lint`/`just fuzz` green.
 
-### Phase 3 — `ordered_collection` op path (Add/Acquire/Complete/Release)
+### Phase 3 — `ordered_collection` op path (Add/Acquire/Complete/Release)  (DONE)
 
 Purely mechanical — it has the normal optimistic lifecycle
 (`apply_remote`/`ack_local`/`rollback`/`apply_stashed_op`), so it follows the
@@ -84,23 +84,38 @@ Phase 4.
 *Phases 2 and 3 are independent in concept but share files, so do them
 back-to-back on one branch, pact_map first (it also exercises Phase 1).* 
 
-### Phase 4 — Shared client-leave / disconnect hook  *(new infra)*
+### Phase 4 — Shared client-leave / disconnect hook  *(new infra)*  (DONE)
 
-The largest unknown; do it last, once both kernels' op paths are green.
+The largest unknown; done last, once both kernels' op paths were green.
 
-1. **Investigate first (spike):** determine what levee/spillway emits on client
-   leave (quorum `removeMember`, `clientLeave`, or a signal) and whether it
-   carries/gets a sequence number. This gates the whole phase; if the signal
-   isn't available, stop and decide with the maintainer.
-2. Add a `channel.on_leave(state, client_id, leave_seq)` dispatch arm across
-   channels (no-op for kernels without leave semantics).
-3. Add a runtime membership-leave message + fan-out over attached channels,
-   tagging emitted events.
-4. Connect `pact_map.remove_member` (drains stuck signoffs so pending values
-   settle) and `ordered_collection.remove_client` + `on_disconnect_notify`
-   (re-releases held jobs). Optionally connect the already-present but unused
-   `task_manager`/`claims` disconnect fns for consistency.
-5. Disconnect convergence tests for both kernels.
+1. **Spike (resolved):** levee broadcasts a **sequenced `"leave"` system
+   message** on client disconnect (`server/lib/levee/documents/session.ex`
+   `generate_system_message("leave", ...)`): `clientId` is null, `contents`
+   carries the departing client's id string, and it is stamped with
+   `sequenceNumber` + `minimumSequenceNumber`. spillway models the same wire
+   type (`message.MessageType.ClientLeave -> "leave"`). So a sequence-stamped
+   leave carrier exists end-to-end — no new server/protocol work required. (The
+   non-sequenced `signals.SystemSignal.LeaveSignal` path is *not* used; the
+   sequenced op is the correct carrier because it carries `leave_seq`.)
+2. Added `channel.on_leave(state, client_id, leave_seq)` dispatch: PactMap →
+   `remove_member` (drains the leaver's outstanding signoffs so stuck pending
+   values settle), ConsensusOrderedCollection → `remove_client` (re-releases the
+   leaver's held jobs to the queue), TaskManager → `remove_client`; every other
+   kernel is a no-op.
+3. Runtime intake: `runtime_core.apply_one` now dispatches `"leave"` system
+   messages to `handle_leave`, which decodes `contents` as the client-id string,
+   maps it with `client_id_to_int`, and fans `channel.on_leave` out over every
+   attached channel at `msg.sequence_number`, tagging the emitted events. This is
+   intake-driven, so **both targets get it for free** — no new
+   `runtime.gleam`/`runtime_js.gleam` verbs.
+4. Tests: ordered_collection re-release + re-acquire on a sequenced leave, and a
+   no-op leave for an unrelated client (runtime path); pact_map pending-value
+   settles when its outstanding signer leaves (`channel.on_leave`). 571 tests
+   pass on both targets; `just lint` clean.
+
+Deferred: `ordered_collection.on_disconnect_notify` local notification for the
+departing self (the leaver has already disconnected, so the remaining replicas'
+re-release is the correctness-relevant path).
 
 ### Phase 5 — Final validation
 
@@ -127,8 +142,9 @@ Phase 5 final validation
 1. **Reaction buffering location** — generic channel-wrapper buffer (Option A,
    recommended) vs. threading a follow-up op through `apply_remote`'s return
    type vs. a kernel-owned owed buffer. (See pact_map plan.)
-2. **Membership-leave signal** — what does levee/spillway actually emit, and
-   does it carry a sequence number? Blocks Phase 4.
+2. **Membership-leave signal** — **resolved:** levee emits a sequenced
+   `"leave"` system message (`clientId: null`, `contents: <clientId>`, carrying
+   `sequenceNumber`/`minimumSequenceNumber`); wired in Phase 4.
 3. **Consensus own-op routing** — should own `Set`/`Accept` (pact_map) apply on
    sequencing via the same `apply_set`/`apply_accept` as remote ops, using
    `is_own_op` only to reclaim the in-flight entry? (Recommended.)

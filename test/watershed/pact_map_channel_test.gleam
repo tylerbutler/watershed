@@ -258,6 +258,38 @@ pub fn two_clients_converge_via_consistent_quorum_test() {
   get(a3, "bm-17") |> expect.to_equal(get(b3, "bm-17"))
 }
 
+/// When a client whose signoff a pending value is still waiting on leaves the
+/// session, `channel.on_leave` drains that outstanding signoff so the value can
+/// settle — the same deterministic path FluidFramework drives off quorum
+/// `removeMember`.
+pub fn pending_value_settles_when_signer_leaves_test() {
+  let quorum = [1, 2]
+  let value = json.string("recorded")
+  let state = channel.new(channel.InitPactMap, replica: id_a)
+
+  // Set sequences at 2 (author = client 1); the value goes pending with both
+  // clients in the signoff list.
+  let set_op = channel.PactMapOp(pact_map_kernel.Set("bm-17", Some(value), 0))
+  let #(state, _, _) =
+    apply(state, set_op, seq: 2, author: 1, self_id: 1, quorum: quorum)
+
+  // Client 1 accepts at 3; still pending on client 2's outstanding signoff.
+  let accept = channel.PactMapOp(pact_map_kernel.Accept("bm-17"))
+  let #(state, _, _) =
+    apply(state, accept, seq: 3, author: 1, self_id: 1, quorum: quorum)
+  is_pending(state, "bm-17") |> expect.to_be_true()
+
+  // Instead of accepting, client 2 leaves at seq 5: its signoff is dropped, the
+  // signoff list empties, and the value settles to accepted.
+  let #(state, events) = channel.on_leave(state, 2, 5)
+  events
+  |> expect.to_equal([
+    channel.PactMapEvent(pact_map_kernel.WentAccepted("bm-17")),
+  ])
+  is_pending(state, "bm-17") |> expect.to_be_false()
+  get(state, "bm-17") |> expect.to_equal(Some(json.to_string(value)))
+}
+
 fn apply(
   state: channel.ChannelState,
   op: channel.ChannelOp,

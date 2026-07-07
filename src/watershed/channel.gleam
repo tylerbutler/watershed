@@ -644,6 +644,42 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
   }
 }
 
+/// Apply a sequenced membership-leave to a channel: the addressed client has
+/// left the collaboration session at `leave_seq`. Consensus/queue kernels that
+/// track per-client state settle it deterministically (PactMap drains the
+/// leaver's outstanding signoffs so stuck pending values can settle;
+/// ConsensusOrderedCollection re-releases the leaver's held jobs to the queue;
+/// TaskManager drops the leaver from every task queue). Kernels with no
+/// membership semantics are a no-op. Fanned out over every attached channel by
+/// the runtime on a `"leave"` system message.
+pub fn on_leave(
+  state: ChannelState,
+  client_id: Int,
+  leave_seq: Int,
+) -> #(ChannelState, List(ChannelEvent)) {
+  case state {
+    PactMapState(kernel) -> {
+      let #(kernel, events) =
+        pact_map_kernel.remove_member(kernel, client_id, leave_seq)
+      #(PactMapState(kernel), list.map(events, PactMapEvent))
+    }
+    OrderedCollectionState(kernel) -> {
+      let #(kernel, events) =
+        ordered_collection_kernel.remove_client(kernel, Some(client_id))
+      #(
+        OrderedCollectionState(kernel),
+        list.map(events, OrderedCollectionEvent),
+      )
+    }
+    TaskManagerState(kernel) -> {
+      let #(kernel, events) =
+        task_manager_kernel.remove_client(kernel, client_id)
+      #(TaskManagerState(kernel), list.map(events, TaskManagerEvent))
+    }
+    _ -> #(state, [])
+  }
+}
+
 /// Build the directory kernel's `SequencedMeta` from the channel-level meta
 /// plus the op's kernel `message_id` (its client-sequence identity).
 fn directory_sequenced_meta(
