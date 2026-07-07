@@ -808,7 +808,12 @@ pub fn local_ops_stamp_csn_and_rsn_test() {
 
   events
   |> expect.to_equal([
-    ValueChanged(key: "die", previous_value: None, local: True),
+    ValueChanged(
+      key: "die",
+      previous_value: None,
+      value: Some(json.int(4)),
+      local: True,
+    ),
   ])
   first.client_sequence_number |> expect.to_equal(1)
   first.reference_sequence_number |> expect.to_equal(7)
@@ -1126,7 +1131,12 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
     )
   events
   |> expect.to_equal([
-    ValueChanged(key: "x", previous_value: None, local: False),
+    ValueChanged(
+      key: "x",
+      previous_value: None,
+      value: Some(json.string("y")),
+      local: False,
+    ),
   ])
   root_get(core, "x") |> expect.to_equal(Some(json.string("y")))
 
@@ -1221,6 +1231,7 @@ pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events
       channel.MapEvent(ValueChanged(
         key: "b",
         previous_value: None,
+        value: Some(json.int(2)),
         local: False,
       )),
     ),
@@ -1271,6 +1282,7 @@ pub fn detached_edits_produce_no_outbound_test() {
           channel.MapEvent(ValueChanged(
             key: "a",
             previous_value: None,
+            value: Some(json.int(1)),
             local: True,
           )),
         ),
@@ -1303,6 +1315,7 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
       channel.MapEvent(ValueChanged(
         key: "child",
         previous_value: None,
+        value: Some(handle.encode_handle("child")),
         local: True,
       )),
     ),
@@ -1373,6 +1386,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
       channel.MapEvent(ValueChanged(
         key: "a",
         previous_value: Some(json.int(1)),
+        value: Some(json.int(2)),
         local: True,
       )),
     ),

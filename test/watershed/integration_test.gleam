@@ -16,6 +16,8 @@ import gleam/bit_array
 @target(erlang)
 import gleam/crypto
 @target(erlang)
+import gleam/dynamic/decode
+@target(erlang)
 import gleam/erlang/process
 @target(erlang)
 import gleam/int
@@ -28,6 +30,8 @@ import gleam/list
 @target(erlang)
 import gleam/option.{type Option, None, Some}
 @target(erlang)
+import gleam/string
+@target(erlang)
 import startest/expect
 
 @target(erlang)
@@ -36,6 +40,8 @@ import watershed
 import watershed/channel
 @target(erlang)
 import watershed/claims_kernel
+@target(erlang)
+import watershed/counter_kernel
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
@@ -2314,4 +2320,110 @@ fn run_typed_channel_fields_test() -> Nil {
 
   watershed.close(doc_a)
   watershed.close(doc_b)
+}
+
+@target(erlang)
+/// TX3 exit criterion: `subscribe_field` decodes both sides of a change,
+/// filters writes to other keys, and reports `Invalid` on a type-confused
+/// write.
+pub fn typed_field_subscription_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_typed_field_subscription_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn receive_field_change(
+  changes: process.Subject(schema.FieldChange(a)),
+) -> schema.FieldChange(a) {
+  case process.receive(from: changes, within: 5000) {
+    Ok(change) -> change
+    Error(_) -> panic as "timed out waiting for a field change"
+  }
+}
+
+@target(erlang)
+fn run_typed_field_subscription_test() -> Nil {
+  let document = "watershed-fld-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let root_a: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_a))
+  let raw_a = watershed.root(doc_a)
+  let score: schema.Field(FieldDoc, Int) =
+    schema.field("score", json.int, decode.int)
+
+  let changes = watershed.subscribe_field(root_a, score)
+
+  // The first write to the field has no previous value; both sides decode.
+  watershed.set_field(root_a, score, 7)
+  receive_field_change(changes)
+  |> expect.to_equal(schema.FieldChange(
+    value: Ok(Some(7)),
+    previous: Ok(None),
+    local: True,
+  ))
+
+  // A second write carries the previous value.
+  watershed.set_field(root_a, score, 9)
+  receive_field_change(changes)
+  |> expect.to_equal(schema.FieldChange(
+    value: Ok(Some(9)),
+    previous: Ok(Some(9 - 2)),
+    local: True,
+  ))
+
+  // A write to a different key must not reach this subscription: it produces
+  // no `FieldChange`, so the next delivered change is the type-confused write
+  // below — never the foreign key.
+  watershed.set(raw_a, "other", json.string("ignored"))
+
+  // A type-confused write (a String where the field expects an Int, as a peer
+  // could send through the untyped API) is delivered with an `Invalid` value
+  // rather than crashing the fan-out; the previous value still decodes.
+  watershed.set(raw_a, "score", json.string("nope"))
+  let change = receive_field_change(changes)
+  case change.value {
+    Error(schema.Invalid(_)) -> Nil
+    other ->
+      panic as { "expected Invalid value, got " <> string.inspect(other) }
+  }
+  change.previous |> expect.to_equal(Ok(Some(9)))
+  change.local |> expect.to_be_true()
+
+  watershed.close(doc_a)
+}
+
+@target(erlang)
+/// TX3 exit criterion: `subscribe_counter` yields a subject narrowed to
+/// `counter_kernel.CounterEvent`. The `case` below is exhaustive over the
+/// counter event type alone — a `channel.MapEvent` arm here would not compile,
+/// which is how a counter subscriber is kept from ever seeing map events.
+pub fn narrowed_counter_subscription_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_narrowed_counter_subscription_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_narrowed_counter_subscription_test() -> Nil {
+  let document = "watershed-ncs-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(counter) = watershed.create_counter(doc_a)
+  watershed.set(map_a, "tally", watershed.counter_handle_of(counter))
+
+  let events = watershed.subscribe_counter(counter)
+  watershed.increment(counter, 3)
+  case process.receive(from: events, within: 5000) {
+    Ok(counter_kernel.Incremented(increment_amount: amount, new_value: value)) -> {
+      amount |> expect.to_equal(3)
+      value |> expect.to_equal(3)
+    }
+    Error(_) -> panic as "timed out waiting for a counter event"
+  }
+
+  watershed.close(doc_a)
 }

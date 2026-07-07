@@ -46,13 +46,16 @@ pub fn set_is_optimistically_visible_test() {
   let #(state, events, op) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(1)))
   op |> expect.to_equal(Set("k", json.int(1)))
-  events |> expect.to_equal([ValueChanged("k", None, True)])
+  events |> expect.to_equal([ValueChanged("k", None, Some(json.int(1)), True)])
 }
 
 pub fn set_event_carries_previous_optimistic_value_test() {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(_, events, _) = map_kernel.set(state, "k", json.int(2))
-  events |> expect.to_equal([ValueChanged("k", Some(json.int(1)), True)])
+  events
+  |> expect.to_equal([
+    ValueChanged("k", Some(json.int(1)), Some(json.int(2)), True),
+  ])
 }
 
 pub fn consecutive_sets_aggregate_into_one_lifetime_test() {
@@ -67,7 +70,8 @@ pub fn delete_after_set_terminates_lifetime_test() {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, events, op) = map_kernel.delete(state, "k")
   op |> expect.to_equal(Delete("k"))
-  events |> expect.to_equal([ValueChanged("k", Some(json.int(1)), True)])
+  events
+  |> expect.to_equal([ValueChanged("k", Some(json.int(1)), None, True)])
   map_kernel.get(state, "k") |> expect.to_equal(None)
   // A set after the delete starts a fresh lifetime.
   let #(state, _, _) = map_kernel.set(state, "k", json.int(3))
@@ -95,8 +99,8 @@ pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() {
   events
   |> expect.to_equal([
     Cleared(True),
-    ValueChanged("a", Some(json.int(1)), True),
-    ValueChanged("b", Some(json.int(2)), True),
+    ValueChanged("a", Some(json.int(1)), None, True),
+    ValueChanged("b", Some(json.int(2)), None, True),
   ])
   map_kernel.entries(state) |> expect.to_equal([])
   // A set after the clear is visible again.
@@ -111,7 +115,8 @@ pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() {
 pub fn apply_remote_set_emits_event_test() {
   let #(state, events) =
     map_kernel.apply_remote(map_kernel.new(), Set("k", json.int(7)))
-  events |> expect.to_equal([ValueChanged("k", None, False)])
+  events
+  |> expect.to_equal([ValueChanged("k", None, Some(json.int(7)), False)])
   map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(7)))
 }
 
@@ -137,7 +142,7 @@ pub fn remote_delete_emits_event_even_for_missing_key_test() {
   // Mirrors the TS kernel: remote deletes emit unconditionally when not
   // masked, even if the key was absent.
   let #(_, events) = map_kernel.apply_remote(map_kernel.new(), Delete("ghost"))
-  events |> expect.to_equal([ValueChanged("ghost", None, False)])
+  events |> expect.to_equal([ValueChanged("ghost", None, None, False)])
 }
 
 pub fn remote_clear_spares_events_for_locally_pending_keys_test() {
@@ -151,7 +156,7 @@ pub fn remote_clear_spares_events_for_locally_pending_keys_test() {
   events
   |> expect.to_equal([
     Cleared(False),
-    ValueChanged("a", Some(json.int(1)), False),
+    ValueChanged("a", Some(json.int(1)), None, False),
   ])
   map_kernel.entries(state) |> expect.to_equal([#("b", json.int(20))])
 }

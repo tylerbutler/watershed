@@ -183,10 +183,20 @@ fn event_decoder() -> Decoder(MapEvent) {
         None,
         value_decoder() |> decode.map(Some),
       )
-      decode.success(ValueChanged(key, previous, local))
+      decode.success(ValueChanged(key, previous, None, local))
     }
     "clear" -> decode.success(Cleared(local))
     _ -> decode.failure(Cleared(local), "Event")
+  }
+}
+
+/// Erase the `value` field the oracle corpus does not record (see the
+/// comparison in `run_check`).
+fn erase_event_value(event: MapEvent) -> MapEvent {
+  case event {
+    ValueChanged(key, previous, _, local) ->
+      ValueChanged(key, previous, None, local)
+    Cleared(_) -> event
   }
 }
 
@@ -332,7 +342,11 @@ fn check(sim: Sim, scenario: Scenario, step_index: Int) -> Sim {
           }
       }
       map_kernel.entries(client.state) |> expect.to_equal(expected.entries)
-      client.log |> expect.to_equal(expected.events)
+      // The oracle corpus predates the event's `value` field, so compare
+      // with it erased; `value` correctness is pinned by map_kernel_test.
+      client.log
+      |> list.map(erase_event_value)
+      |> expect.to_equal(expected.events)
       dict.insert(clients, client_id, ClientSim(..client, log: []))
     })
 

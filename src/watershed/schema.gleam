@@ -153,6 +153,32 @@ pub fn decode_value(
   }
 }
 
+/// Decode an optional stored value for `field`, as event fan-out delivers it:
+/// an absent value (`None`) decodes to `Ok(None)`; a present value decodes to
+/// `Ok(Some(_))` or `Error(Invalid)` when it does not match the field type.
+pub fn decode_optional(
+  field: Field(schema, a),
+  stored: Option(Json),
+) -> Result(Option(a), FieldError) {
+  case stored {
+    None -> Ok(None)
+    Some(json) -> decode_value(field, json) |> result.map(Some)
+  }
+}
+
+/// A typed, per-field change delivered by `subscribe_field`. `value` is the new
+/// value (decoded), `previous` the value before the change; both are `Ok(None)`
+/// for an absent key and `Error(Invalid)` when a peer wrote a value that does
+/// not decode to the field type. A `Cleared` fans out as
+/// `FieldChange(Ok(None), Ok(None), local)` — clears report no per-key previous.
+pub type FieldChange(a) {
+  FieldChange(
+    value: Result(Option(a), FieldError),
+    previous: Result(Option(a), FieldError),
+    local: Bool,
+  )
+}
+
 // ── Whole-map schemas ────────────────────────────────────────────────────────
 //
 // A `Schema(tag, record)` is a bidirectional codec between a Gleam record and

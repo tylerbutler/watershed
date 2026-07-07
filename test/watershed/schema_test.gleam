@@ -109,6 +109,30 @@ pub fn decode_missing_record_field_is_invalid_test() {
   }
 }
 
+// ── Optional decode boundary (subscribe_field payloads) ──────────────────────
+//
+// `subscribe_field` decodes each side of a change through `decode_optional`:
+// an absent value is `Ok(None)`, a present value decodes, and a type-confused
+// remote write surfaces as `Error(Invalid)` rather than crashing the fan-out.
+
+pub fn decode_optional_absent_is_none_test() {
+  schema.decode_optional(total(), None)
+  |> expect.to_equal(Ok(None))
+}
+
+pub fn decode_optional_present_decodes_test() {
+  schema.decode_optional(total(), Some(json.int(5)))
+  |> expect.to_equal(Ok(Some(5)))
+}
+
+pub fn decode_optional_type_confused_is_invalid_test() {
+  // A remote peer wrote a String where the field expects an Int.
+  case schema.decode_optional(total(), Some(json.string("nope"))) {
+    Error(Invalid(_)) -> Nil
+    other -> panic as { "expected Invalid, got " <> string_of(other) }
+  }
+}
+
 fn string_of(result: Result(a, schema.FieldError)) -> String {
   case result {
     Ok(_) -> "Ok(_)"

@@ -45,7 +45,13 @@ pub type MapOp {
 }
 
 pub type MapEvent {
-  ValueChanged(key: String, previous_value: Option(Json), local: Bool)
+  /// `value: None` means the key was deleted (or removed by a clear).
+  ValueChanged(
+    key: String,
+    previous_value: Option(Json),
+    value: Option(Json),
+    local: Bool,
+  )
   Cleared(local: Bool)
 }
 
@@ -181,7 +187,7 @@ pub fn set(
   }
   #(
     MapState(..state, pending: pending),
-    [ValueChanged(key, previous, True)],
+    [ValueChanged(key, previous, Some(value), True)],
     Set(key, value),
   )
 }
@@ -195,7 +201,7 @@ pub fn delete(
   // Speculative deletion still sends the op, but only emits if we locally
   // observed a value disappear.
   let events = case previous {
-    Some(value) -> [ValueChanged(key, Some(value), True)]
+    Some(value) -> [ValueChanged(key, Some(value), None, True)]
     None -> []
   }
   #(MapState(..state, pending: pending), events, Delete(key))
@@ -206,7 +212,9 @@ pub fn clear(state: MapState) -> #(MapState, List(MapEvent), MapOp) {
   let pending = list.append(state.pending, [PendingClear])
   let events = [
     Cleared(True),
-    ..list.map(visible, fn(entry) { ValueChanged(entry.0, Some(entry.1), True) })
+    ..list.map(visible, fn(entry) {
+      ValueChanged(entry.0, Some(entry.1), None, True)
+    })
   ]
   #(MapState(..state, pending: pending), events, Clear)
 }
@@ -228,7 +236,7 @@ pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
       let sequenced = dict.insert(state.sequenced, key, value)
       let events = case has_pending_for(state.pending, key) {
         True -> []
-        False -> [ValueChanged(key, previous, False)]
+        False -> [ValueChanged(key, previous, Some(value), False)]
       }
       #(
         MapState(
@@ -246,7 +254,7 @@ pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
         list.filter(state.insertion_order, fn(k) { k != key })
       let events = case has_pending_for(state.pending, key) {
         True -> []
-        False -> [ValueChanged(key, previous, False)]
+        False -> [ValueChanged(key, previous, None, False)]
       }
       #(
         MapState(
@@ -276,7 +284,7 @@ pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
         False -> [
           Cleared(False),
           ..list.map(deleted, fn(entry) {
-            ValueChanged(entry.0, Some(entry.1), False)
+            ValueChanged(entry.0, Some(entry.1), None, False)
           })
         ]
       }

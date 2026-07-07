@@ -45,23 +45,40 @@ import spillway/types.{
 @target(erlang)
 import watershed/channel.{type ChannelEvent}
 @target(erlang)
+import watershed/claims_kernel
+@target(erlang)
+import watershed/counter_kernel
+@target(erlang)
+import watershed/directory_kernel
+@target(erlang)
+import watershed/g_set_kernel
+@target(erlang)
 import watershed/git_storage.{type SummaryVersion}
 @target(erlang)
 import watershed/handle
 @target(erlang)
 import watershed/json_ot
 @target(erlang)
+import watershed/json_ot_kernel
+@target(erlang)
+import watershed/map_kernel
+@target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(erlang)
+import watershed/or_set_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/schema.{
-  type ChannelField, type ChildField, type Field, type FieldError,
+  type ChannelField, type ChildField, type Field, type FieldChange,
+  type FieldError,
 }
 @target(erlang)
 import watershed/task_manager_kernel
+@target(erlang)
+import watershed/two_p_set_kernel
 @target(erlang)
 import watershed/wire/summary_blob.{type SummaryBlob}
 
@@ -737,12 +754,40 @@ pub fn counter_value(counter: SharedCounter) -> Option(Int) {
 }
 
 @target(erlang)
-/// Subscribe the calling process to this counter's events
-/// (`channel.CounterEvent(..)`), local and remote alike.
-pub fn subscribe_counter(counter: SharedCounter) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(counter.runtime, runtime.Subscribe(counter.address, subscriber))
-  subscriber
+/// Subscribe to a channel's events, forwarding only the events `narrow`
+/// accepts — already decoded to the kind's own event type — to a fresh
+/// caller-owned subject. The per-kind `subscribe_*` functions wrap this so a
+/// subscriber sees only its channel's events, never the 14-variant union.
+fn subscribe_narrowed(
+  runtime_subject: Subject(runtime.Msg),
+  address: String,
+  narrow: fn(ChannelEvent) -> Option(a),
+) -> Subject(a) {
+  let subject = process.new_subject()
+  process.send(
+    runtime_subject,
+    runtime.Subscribe(address, fn(event) {
+      case narrow(event) {
+        Some(inner) -> process.send(subject, inner)
+        None -> Nil
+      }
+    }),
+  )
+  subject
+}
+
+@target(erlang)
+/// Subscribe the calling process to this counter's events, local and remote
+/// alike. The subject carries `counter_kernel.CounterEvent` — counter events
+/// only.
+pub fn subscribe_counter(
+  counter: SharedCounter,
+) -> Subject(counter_kernel.CounterEvent) {
+  use event <- subscribe_narrowed(counter.runtime, counter.address)
+  case event {
+    channel.CounterEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -810,10 +855,14 @@ pub fn json_ot_view(json_ot: SharedJsonOt) -> Option(json_ot.JsonValue) {
 @target(erlang)
 /// Subscribe the calling process to this json0 channel's events, local and
 /// remote alike.
-pub fn subscribe_json_ot(json_ot: SharedJsonOt) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(json_ot.runtime, runtime.Subscribe(json_ot.address, subscriber))
-  subscriber
+pub fn subscribe_json_ot(
+  json_ot: SharedJsonOt,
+) -> Subject(json_ot_kernel.JsonOtEvent) {
+  use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
+  case event {
+    channel.JsonOtEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -905,10 +954,14 @@ pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
 }
 
 @target(erlang)
-pub fn subscribe_or_map(or_map: SharedOrMap) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(or_map.runtime, runtime.Subscribe(or_map.address, subscriber))
-  subscriber
+pub fn subscribe_or_map(
+  or_map: SharedOrMap,
+) -> Subject(or_map_kernel.OrMapEvent) {
+  use event <- subscribe_narrowed(or_map.runtime, or_map.address)
+  case event {
+    channel.OrMapEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -980,10 +1033,14 @@ pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
 }
 
 @target(erlang)
-pub fn subscribe_or_set(or_set: SharedOrSet) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(or_set.runtime, runtime.Subscribe(or_set.address, subscriber))
-  subscriber
+pub fn subscribe_or_set(
+  or_set: SharedOrSet,
+) -> Subject(or_set_kernel.OrSetEvent) {
+  use event <- subscribe_narrowed(or_set.runtime, or_set.address)
+  case event {
+    channel.OrSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1083,13 +1140,12 @@ pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
 @target(erlang)
 pub fn subscribe_register_collection(
   collection: SharedRegisterCollection,
-) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(
-    collection.runtime,
-    runtime.Subscribe(collection.address, subscriber),
-  )
-  subscriber
+) -> Subject(register_collection_kernel.RegisterEvent) {
+  use event <- subscribe_narrowed(collection.runtime, collection.address)
+  case event {
+    channel.RegisterCollectionEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1161,10 +1217,14 @@ pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
 }
 
 @target(erlang)
-pub fn subscribe_claims(claims: SharedClaims) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(claims.runtime, runtime.Subscribe(claims.address, subscriber))
-  subscriber
+pub fn subscribe_claims(
+  claims: SharedClaims,
+) -> Subject(claims_kernel.ClaimEvent) {
+  use event <- subscribe_narrowed(claims.runtime, claims.address)
+  case event {
+    channel.ClaimsEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1248,10 +1308,12 @@ pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
 @target(erlang)
 pub fn subscribe_task_manager(
   manager: SharedTaskManager,
-) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(manager.runtime, runtime.Subscribe(manager.address, subscriber))
-  subscriber
+) -> Subject(task_manager_kernel.TaskManagerEvent) {
+  use event <- subscribe_narrowed(manager.runtime, manager.address)
+  case event {
+    channel.TaskManagerEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1326,10 +1388,12 @@ pub fn g_set_values(set: SharedGSet) -> List(String) {
 
 @target(erlang)
 /// Subscribe the calling process to this set's events, local and remote alike.
-pub fn subscribe_g_set(set: SharedGSet) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(set.runtime, runtime.Subscribe(set.address, subscriber))
-  subscriber
+pub fn subscribe_g_set(set: SharedGSet) -> Subject(g_set_kernel.GSetEvent) {
+  use event <- subscribe_narrowed(set.runtime, set.address)
+  case event {
+    channel.GSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1413,10 +1477,14 @@ pub fn two_p_set_values(set: SharedTwoPSet) -> List(String) {
 
 @target(erlang)
 /// Subscribe the calling process to this set's events, local and remote alike.
-pub fn subscribe_two_p_set(set: SharedTwoPSet) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(set.runtime, runtime.Subscribe(set.address, subscriber))
-  subscriber
+pub fn subscribe_two_p_set(
+  set: SharedTwoPSet,
+) -> Subject(two_p_set_kernel.TwoPSetEvent) {
+  use event <- subscribe_narrowed(set.runtime, set.address)
+  case event {
+    channel.TwoPSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1573,10 +1641,14 @@ pub fn directory_has_subdirectory(
 @target(erlang)
 /// Subscribe the calling process to this directory's events, local and remote
 /// alike.
-pub fn subscribe_directory(dir: SharedDirectory) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(dir.runtime, runtime.Subscribe(dir.address, subscriber))
-  subscriber
+pub fn subscribe_directory(
+  dir: SharedDirectory,
+) -> Subject(directory_kernel.DirectoryEvent) {
+  use event <- subscribe_narrowed(dir.runtime, dir.address)
+  case event {
+    channel.DirectoryEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(erlang)
@@ -1696,12 +1768,61 @@ pub fn size(map: SharedMap) -> Int {
 
 @target(erlang)
 /// Subscribe the calling process to this map's events. The returned subject
-/// receives a `ChannelEvent` (a `channel.MapEvent(..)` for map channels) for
-/// every local and remote change to this channel.
-pub fn subscribe(map: SharedMap) -> Subject(ChannelEvent) {
-  let subscriber = process.new_subject()
-  process.send(map.runtime, runtime.Subscribe(map.address, subscriber))
-  subscriber
+/// receives a `map_kernel.MapEvent` — map events only — for every local and
+/// remote change to this channel.
+pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
+  use event <- subscribe_narrowed(map.runtime, map.address)
+  case event {
+    channel.MapEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+@target(erlang)
+/// Map a fanned-out channel event to a typed change for `field` (under `key`),
+/// or `None` when the event is for another key or channel kind.
+fn field_change(
+  field: Field(s, a),
+  key: String,
+  event: ChannelEvent,
+) -> Option(FieldChange(a)) {
+  case event {
+    channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
+      if k == key
+    ->
+      Some(schema.FieldChange(
+        value: schema.decode_optional(field, value),
+        previous: schema.decode_optional(field, previous),
+        local: local,
+      ))
+    channel.MapEvent(map_kernel.Cleared(local)) ->
+      Some(schema.FieldChange(Ok(None), Ok(None), local))
+    _ -> None
+  }
+}
+
+@target(erlang)
+/// Subscribe to changes of a single typed field. Each local or remote write to
+/// `field`'s key delivers a `FieldChange` with the new and previous values
+/// decoded at the boundary — `Error(Invalid)` when a peer wrote a value that
+/// does not match the field type. A `Cleared` on the map fans out as
+/// `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key previous.
+pub fn subscribe_field(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+) -> Subject(FieldChange(a)) {
+  let key = schema.field_key(field)
+  let subject = process.new_subject()
+  process.send(
+    typed_map.map.runtime,
+    runtime.Subscribe(typed_map.map.address, fn(event) {
+      case field_change(field, key, event) {
+        Some(change) -> process.send(subject, change)
+        None -> Nil
+      }
+    }),
+  )
+  subject
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

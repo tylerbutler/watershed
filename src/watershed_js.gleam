@@ -52,18 +52,27 @@ import gleam/result
 @target(javascript)
 import watershed/channel.{type ChannelEvent}
 @target(javascript)
+import watershed/claims_kernel
+@target(javascript)
+import watershed/counter_kernel
+@target(javascript)
 import watershed/git_storage.{type SummaryVersion}
 @target(javascript)
 import watershed/handle
 @target(javascript)
+import watershed/map_kernel
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(javascript)
+import watershed/or_set_kernel
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
 import watershed/schema.{
-  type ChannelField, type ChildField, type Field, type FieldError,
+  type ChannelField, type ChildField, type Field, type FieldChange,
+  type FieldError,
 }
 @target(javascript)
 import watershed/task_manager_kernel
@@ -610,13 +619,37 @@ pub fn counter_value(counter: SharedCounter) -> Option(Int) {
 }
 
 @target(javascript)
+/// Register `handler` for a channel's events, invoking it only for the events
+/// `narrow` accepts — already decoded to the kind's own event type — so a
+/// subscriber never sees the 14-variant union. The per-kind `subscribe_*`
+/// functions wrap this.
+fn subscribe_narrowed(
+  runtime: runtime_js.Runtime,
+  address: String,
+  handler: fn(a) -> Nil,
+  narrow: fn(ChannelEvent) -> Option(a),
+) -> Nil {
+  runtime_js.subscribe(runtime, address, fn(event) {
+    case narrow(event) {
+      Some(inner) -> handler(inner)
+      None -> Nil
+    }
+  })
+}
+
+@target(javascript)
 /// Register a callback invoked for every local and remote change to this
-/// counter channel (`channel.CounterEvent(..)`).
+/// counter channel. The handler receives `counter_kernel.CounterEvent` —
+/// counter events only.
 pub fn subscribe_counter(
   counter: SharedCounter,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(counter_kernel.CounterEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(counter.runtime, counter.address, handler)
+  use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
+  case event {
+    channel.CounterEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── OR-maps ──────────────────────────────────────────────────────────────────
@@ -692,9 +725,13 @@ pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
 @target(javascript)
 pub fn subscribe_or_map(
   or_map: SharedOrMap,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(or_map_kernel.OrMapEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(or_map.runtime, or_map.address, handler)
+  use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
+  case event {
+    channel.OrMapEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── OR-sets ──────────────────────────────────────────────────────────────────
@@ -751,9 +788,13 @@ pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
 @target(javascript)
 pub fn subscribe_or_set(
   or_set: SharedOrSet,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(or_set_kernel.OrSetEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(or_set.runtime, or_set.address, handler)
+  use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
+  case event {
+    channel.OrSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── Register collections ─────────────────────────────────────────────────────
@@ -832,9 +873,17 @@ pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
 @target(javascript)
 pub fn subscribe_register_collection(
   collection: SharedRegisterCollection,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(register_collection_kernel.RegisterEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(collection.runtime, collection.address, handler)
+  use event <- subscribe_narrowed(
+    collection.runtime,
+    collection.address,
+    handler,
+  )
+  case event {
+    channel.RegisterCollectionEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── Claims ───────────────────────────────────────────────────────────────────
@@ -898,9 +947,13 @@ pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
 @target(javascript)
 pub fn subscribe_claims(
   claims: SharedClaims,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(claims_kernel.ClaimEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(claims.runtime, claims.address, handler)
+  use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
+  case event {
+    channel.ClaimsEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── Task managers ─────────────────────────────────────────────────────────────
@@ -974,9 +1027,13 @@ pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
 @target(javascript)
 pub fn subscribe_task_manager(
   manager: SharedTaskManager,
-  handler: fn(ChannelEvent) -> Nil,
+  handler: fn(task_manager_kernel.TaskManagerEvent) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe(manager.runtime, manager.address, handler)
+  use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
+  case event {
+    channel.TaskManagerEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(javascript)
@@ -1128,10 +1185,60 @@ pub fn size(map: SharedMap) -> Int {
 
 @target(javascript)
 /// Register a callback invoked for every local and remote change to this map
-/// channel. The handler receives a `ChannelEvent` (a `channel.MapEvent(..)`
-/// for map channels).
-pub fn subscribe(map: SharedMap, handler: fn(ChannelEvent) -> Nil) -> Nil {
-  runtime_js.subscribe(map.runtime, map.address, handler)
+/// channel. The handler receives `map_kernel.MapEvent` — map events only.
+pub fn subscribe(
+  map: SharedMap,
+  handler: fn(map_kernel.MapEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(map.runtime, map.address, handler)
+  case event {
+    channel.MapEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+@target(javascript)
+/// Map a fanned-out channel event to a typed change for `field` (under `key`),
+/// or `None` when the event is for another key or channel kind.
+fn field_change(
+  field: Field(s, a),
+  key: String,
+  event: ChannelEvent,
+) -> Option(FieldChange(a)) {
+  case event {
+    channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
+      if k == key
+    ->
+      Some(schema.FieldChange(
+        value: schema.decode_optional(field, value),
+        previous: schema.decode_optional(field, previous),
+        local: local,
+      ))
+    channel.MapEvent(map_kernel.Cleared(local)) ->
+      Some(schema.FieldChange(Ok(None), Ok(None), local))
+    _ -> None
+  }
+}
+
+@target(javascript)
+/// Subscribe to changes of a single typed field. Each local or remote write to
+/// `field`'s key invokes `handler` with a `FieldChange` carrying the new and
+/// previous values decoded at the boundary — `Error(Invalid)` when a peer wrote
+/// a value that does not match the field type. A `Cleared` on the map fans out
+/// as `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key
+/// previous.
+pub fn subscribe_field(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+  handler: fn(FieldChange(a)) -> Nil,
+) -> Nil {
+  let key = schema.field_key(field)
+  runtime_js.subscribe(typed_map.map.runtime, typed_map.map.address, fn(event) {
+    case field_change(field, key, event) {
+      Some(change) -> handler(change)
+      None -> Nil
+    }
+  })
 }
 
 // ── Demo helpers ─────────────────────────────────────────────────────────────

@@ -285,7 +285,7 @@ pub type Msg {
   /// so the confirmed state is complete and stable.
   IsSynced(reply: Subject(Bool))
   // Lifecycle
-  Subscribe(address: String, subscriber: Subject(ChannelEvent))
+  Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
   AwaitReady(reply: Subject(Result(Nil, String)))
   /// Fault-injection hook (tests): drop the live channel to force the
   /// runtime through its reconnect/reconcile path.
@@ -317,7 +317,7 @@ type State {
     connect_message: ConnectMessage,
     channel: Option(Channel),
     phase: Phase,
-    subscribers: List(#(String, Subject(ChannelEvent))),
+    subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     self: Subject(Msg),
   )
@@ -1847,14 +1847,14 @@ fn push(channel: Channel, event: String, payload: Json) -> Nil {
 /// Route each address-tagged event to the subscribers registered for that
 /// channel address.
 fn fan_out(
-  subscribers: List(#(String, Subject(ChannelEvent))),
+  subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
   events: List(#(String, ChannelEvent)),
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event
     list.each(subscribers, fn(subscriber) {
       case subscriber.0 == address {
-        True -> process.send(subscriber.1, event)
+        True -> subscriber.1(event)
         False -> Nil
       }
     })
