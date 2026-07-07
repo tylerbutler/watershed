@@ -1,0 +1,107 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import SudokuDemo from "../components/SudokuDemo.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+---
+
+<Sheet
+  title="watershed — SharedMap Sudoku demo"
+  description="Three browser clients edit one Sudoku-flavored board through watershed's real map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
+>
+  <header class="page-hero">
+    <div class="page-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/structures/maps">← Maps</a> · SharedMap Sudoku cells
+      </p>
+      <h1>One board.<br />Three clients. <em>One cell value.</em></h1>
+      <p class="lede">
+        The full <a href="https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre">Sudoku example</a>
+        layers <strong>SharedMap</strong> cell values with SharedOrSet pencil
+        notes, SharedClaims givens, SharedCounter mistakes, and ephemeral signals
+        for presence. This page isolates the cell layer: keys like
+        <code>r0c0</code> hold JSON digits, clears delete the key, and
+        server-sequenced last-write-wins order makes concurrent edits converge.
+      </p>
+      <div class="cta-row">
+        <a class="cta-quiet" href="#sudoku-demo">Jump to the demo ↓</a>
+        <a class="cta-quiet" href="https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre">
+          Read the full example
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <SudokuDemo />
+  </main>
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .page-hero {
+    padding: clamp(3.5rem, 9vw, 7.5rem) var(--content-pad)
+      clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .page-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a,
+  .lede a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover,
+  .lede a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 17ch;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 58ch;
+    color: var(--ink);
+  }
+
+  .cta-row {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+  }
+</style>

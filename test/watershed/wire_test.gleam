@@ -281,6 +281,57 @@ pub fn decode_connect_error_test() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// signal (ephemeral) codecs
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn encode_submit_signal_v2_shape_test() {
+  let encoded =
+    socket.encode_submit_signal(
+      client_id: "client-abc",
+      signal_type: "presence",
+      content: json.object([
+        #("selectedCell", json.string("r3c4")),
+        #("editing", json.bool(True)),
+      ]),
+    )
+    |> json.to_string
+  string_contains(encoded, "\"clientId\":\"client-abc\"")
+  |> expect.to_be_true()
+  // V2 batch: a contentBatches array carrying {content, type}.
+  string_contains(encoded, "\"contentBatches\":[{") |> expect.to_be_true()
+  string_contains(encoded, "\"type\":\"presence\"") |> expect.to_be_true()
+  string_contains(encoded, "\"selectedCell\":\"r3c4\"") |> expect.to_be_true()
+  string_contains(encoded, "\"editing\":true") |> expect.to_be_true()
+}
+
+pub fn decode_signal_message_test() {
+  let signal =
+    parse(
+      "{\"clientId\": \"client-xyz\",
+        \"type\": \"presence\",
+        \"content\": {\"selectedCell\": \"r0c0\"},
+        \"clientConnectionNumber\": 4,
+        \"referenceSequenceNumber\": 12}",
+      socket.signal_message_decoder(),
+    )
+  signal.client_id |> expect.to_equal(Some("client-xyz"))
+  signal.signal_type |> expect.to_equal(Some("presence"))
+  signal.client_connection_number |> expect.to_equal(Some(4))
+  signal.reference_sequence_number |> expect.to_equal(Some(12))
+  // Content stays Dynamic; confirm the nested field survives decoding.
+  signal.content
+  |> decode.run(decode.at(["selectedCell"], decode.string))
+  |> expect.to_equal(Ok("r0c0"))
+}
+
+pub fn decode_signal_message_minimal_test() {
+  // Server-originated signals may omit clientId/type; content is required.
+  let signal = parse("{\"content\": {}}", socket.signal_message_decoder())
+  signal.client_id |> expect.to_equal(None)
+  signal.signal_type |> expect.to_equal(None)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // op event decoding
 // ─────────────────────────────────────────────────────────────────────────────
 

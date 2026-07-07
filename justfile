@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-dice
+build: _build-erlang _build-javascript _build-dice _build-sudoku
 
 # Run tests
 test:
@@ -71,13 +71,16 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-dice
+deps: _deps-gleam _deps-dice _deps-sudoku
 
 _deps-gleam:
     gleam deps download
 
 _deps-dice:
     pnpm --dir examples/dice_lustre install
+
+_deps-sudoku:
+    pnpm --dir examples/sudoku_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -87,3 +90,6 @@ _build-javascript:
 
 _build-dice:
     pnpm --dir examples/dice_lustre run build
+
+_build-sudoku:
+    pnpm --dir examples/sudoku_lustre run build

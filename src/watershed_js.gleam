@@ -29,6 +29,8 @@
 @target(javascript)
 import gleam/dict
 @target(javascript)
+import gleam/dynamic.{type Dynamic}
+@target(javascript)
 import gleam/javascript/promise.{type Promise}
 @target(javascript)
 import gleam/json.{type Json}
@@ -36,7 +38,7 @@ import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 
 @target(javascript)
-import spillway/message.{ConnectMessage}
+import spillway/message.{type SignalMessage, ConnectMessage}
 @target(javascript)
 import spillway/types.{
   Client, ClientCapabilities, ClientDetails, User, WriteMode,
@@ -643,6 +645,53 @@ pub fn close(document: Document) -> Nil {
 /// reconnect/reconcile path. Pending and in-flight edits are preserved.
 pub fn force_reconnect(document: Document) -> Nil {
   runtime_js.force_reconnect(document.runtime)
+}
+
+@target(javascript)
+/// An inbound ephemeral signal. Signals are document-scoped, non-sequenced,
+/// and non-persisted — ideal for transient presence (cursors, selection,
+/// typing indicators) that must NOT live in a DDS.
+pub type Signal =
+  SignalMessage
+
+@target(javascript)
+/// Broadcast an ephemeral signal to every other connected client: a `type`
+/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
+/// catch-up. No-op until the first handshake assigns a client id.
+pub fn submit_signal(
+  document: Document,
+  signal_type signal_type: String,
+  content content: Json,
+) -> Nil {
+  runtime_js.send_signal(document.runtime, signal_type, content)
+}
+
+@target(javascript)
+/// Register a callback invoked for every inbound signal on the document.
+pub fn subscribe_signals(
+  document: Document,
+  handler: fn(Signal) -> Nil,
+) -> Nil {
+  runtime_js.subscribe_signals(document.runtime, handler)
+}
+
+@target(javascript)
+/// The signal's `type` tag, if present.
+pub fn signal_type(signal: Signal) -> Option(String) {
+  signal.signal_type
+}
+
+@target(javascript)
+/// The signal's JSON payload, left as `Dynamic` for the caller to decode.
+pub fn signal_content(signal: Signal) -> Dynamic {
+  signal.content
+}
+
+@target(javascript)
+/// The sending client's id, if the server stamped one (`None` for
+/// server-originated signals).
+pub fn signal_client_id(signal: Signal) -> Option(String) {
+  signal.client_id
 }
 
 @target(javascript)

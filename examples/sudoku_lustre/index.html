@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · collaborative Sudoku</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: min(96vw, 42rem); padding: 2rem; text-align: center; }
+      h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.25rem; }
+      .status, .hint { opacity: 0.7; }
+      .roster { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; justify-content: center; margin: 0.5rem 0; min-height: 1.6rem; }
+      .chip { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem; border: 1.5px solid currentColor; border-radius: 999px; font-size: 0.8rem; }
+      .chip .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; display: inline-block; }
+      .chip .typing { font-weight: 700; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: center; margin: 1rem 0; }
+      .mistakes { font-variant-numeric: tabular-nums; }
+      button {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(9, 1fr);
+        width: min(92vw, 36rem);
+        aspect-ratio: 1;
+        margin: 1rem auto;
+        border: 3px solid currentColor;
+      }
+      .cell {
+        position: relative;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        border-radius: 0;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        min-width: 0;
+        background: transparent;
+      }
+      .cell:nth-child(3n) { border-right-width: 3px; }
+      .cell:nth-child(9n) { border-right-width: 0; }
+      .cell:nth-child(n+19):nth-child(-n+27),
+      .cell:nth-child(n+46):nth-child(-n+54) { border-bottom-width: 3px; }
+      .cell.given { font-weight: 700; background: color-mix(in srgb, currentColor 10%, transparent); }
+      .cell.selected { outline: 3px solid Highlight; outline-offset: -3px; }
+      .cell .cursor {
+        position: absolute;
+        top: 0; left: 0;
+        transform: translateY(-100%);
+        font-size: 0.55rem;
+        line-height: 1;
+        padding: 1px 3px;
+        border-radius: 3px 3px 3px 0;
+        color: #fff;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .digit { font-size: clamp(1.25rem, 6vw, 2.25rem); line-height: 1; }
+      .notes {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.05rem;
+        width: 80%;
+        height: 80%;
+        font-size: clamp(0.45rem, 2vw, 0.8rem);
+        opacity: 0.75;
+      }
+      .note { min-width: 0; }
+      .hint { font-size: 0.85rem; margin-top: 1rem; }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/sudoku_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

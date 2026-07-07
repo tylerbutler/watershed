@@ -8,12 +8,14 @@
 import { Socket } from "phoenix";
 
 // Levee document-channel events the runtime cares about. Everything else
-// (signals, summary acks, pongs) is ignored, matching the erlang runtime.
+// (summary acks, pongs) is ignored, matching the erlang runtime. `signal`
+// carries ephemeral, non-sequenced presence-style messages.
 const CHANNEL_EVENTS = [
   "connect_document_success",
   "connect_document_error",
   "op",
   "nack",
+  "signal",
 ];
 
 // Open a socket, join the document topic, and wire the runtime callbacks.

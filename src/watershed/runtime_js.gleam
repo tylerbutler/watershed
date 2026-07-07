@@ -31,7 +31,8 @@ import gleam/uri
 
 @target(javascript)
 import spillway/message.{
-  type ConnectMessage, type ConnectedMessage, type SummaryContext,
+  type ConnectMessage, type ConnectedMessage, type SignalMessage,
+  type SummaryContext,
 }
 @target(javascript)
 import spillway/nack.{type Nack}
@@ -99,6 +100,9 @@ type State {
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    /// Ephemeral-signal subscribers. Signals are document-scoped and
+    /// non-sequenced, so they fan out independently of the op event stream.
+    signal_subscribers: List(fn(SignalMessage) -> Nil),
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -131,6 +135,7 @@ pub fn start(
       channel: None,
       phase: Connecting,
       subscribers: [],
+      signal_subscribers: [],
       claim_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
@@ -1005,6 +1010,51 @@ pub fn subscribe(
 }
 
 @target(javascript)
+/// Broadcast an ephemeral, document-scoped signal (`type` + arbitrary JSON
+/// `content`). Signals are non-sequenced and non-persisted — fire-and-forget,
+/// with no ack, resubmit, or catch-up. A no-op until the client has a
+/// server-assigned client id (i.e. before the first handshake completes).
+pub fn send_signal(
+  runtime: Runtime,
+  signal_type: String,
+  content: Json,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  let client_id = case state.phase {
+    Ready(core, _) -> Some(core.client_id)
+    Reconnecting(core) -> Some(core.client_id)
+    _ -> None
+  }
+  case state.channel, client_id {
+    Some(channel), Some(client_id) ->
+      push_json(
+        channel,
+        "submitSignal",
+        socket.encode_submit_signal(
+          client_id: client_id,
+          signal_type: signal_type,
+          content: content,
+        ),
+      )
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Register a callback invoked for every inbound ephemeral signal on the
+/// document. Content is left as `Dynamic` for the caller to decode.
+pub fn subscribe_signals(
+  runtime: Runtime,
+  handler: fn(SignalMessage) -> Nil,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  cell_set(
+    runtime.cell,
+    State(..state, signal_subscribers: [handler, ..state.signal_subscribers]),
+  )
+}
+
+@target(javascript)
 /// Fault-injection hook: drop the socket to force the reconnect/reconcile path.
 pub fn force_reconnect(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
@@ -1200,6 +1250,7 @@ fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
     "connect_document_error" -> on_connect_error(cell, payload)
     "op" -> on_op(cell, payload)
     "nack" -> on_nack(cell, payload)
+    "signal" -> on_signal(cell, payload)
     _ -> Nil
   }
 }
@@ -1708,6 +1759,19 @@ fn fan_out(
       }
     })
   })
+}
+
+@target(javascript)
+/// Fan an inbound ephemeral `signal` broadcast out to signal subscribers.
+/// Malformed payloads are dropped silently — signals are best-effort.
+fn on_signal(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.signal_message_decoder()) {
+    Error(_) -> Nil
+    Ok(signal) -> {
+      let state = cell_get(cell)
+      list.each(state.signal_subscribers, fn(handler) { handler(signal) })
+    }
+  }
 }
 
 @target(javascript)

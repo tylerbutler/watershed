@@ -107,6 +107,29 @@ pub fn encode_request_ops(from from: Int) -> Json {
   json.object([#("from", json.int(from))])
 }
 
+/// `submitSignal` payload for an ephemeral, non-sequenced signal. Uses the V2
+/// format levee's `normalize_signal` expects: a `contentBatches` list whose
+/// single entry carries the app `content` (arbitrary JSON) and a `type` tag.
+/// Signals are fire-and-forget — no sequencing, persistence, ack, or catch-up.
+pub fn encode_submit_signal(
+  client_id client_id: String,
+  signal_type signal_type: String,
+  content content: Json,
+) -> Json {
+  json.object([
+    #("clientId", json.string(client_id)),
+    #(
+      "contentBatches",
+      json.preprocessed_array([
+        json.object([
+          #("content", content),
+          #("type", json.string(signal_type)),
+        ]),
+      ]),
+    ),
+  ])
+}
+
 /// `noop` heartbeat payload, advancing the server's MSN while idle.
 pub fn encode_noop(
   client_id: String,
@@ -509,7 +532,10 @@ fn signal_client_decoder() -> Decoder(SignalClient) {
   ))
 }
 
-fn signal_message_decoder() -> Decoder(SignalMessage) {
+/// Decoder for an inbound `signal` broadcast (`SignalMessage`). Signals are
+/// ephemeral: not sequenced, persisted, or acked. `content` stays `Dynamic`
+/// for the app to decode.
+pub fn signal_message_decoder() -> Decoder(SignalMessage) {
   use client_id <- decode.optional_field(
     "clientId",
     None,
