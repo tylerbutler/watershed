@@ -43,7 +43,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 
 @target(erlang)
-import spillway/message.{ConnectMessage}
+import spillway/message.{type ConnectMessage, ConnectMessage}
 @target(erlang)
 import spillway/types.{
   Client, ClientCapabilities, ClientDetails, User, WriteMode,
@@ -184,31 +184,7 @@ pub fn connect(
   user_id user_id: String,
 ) -> Result(Document, String) {
   let connect_message =
-    ConnectMessage(
-      tenant_id: tenant,
-      document_id: document,
-      token: Some(token),
-      client: Client(
-        mode: WriteMode,
-        details: ClientDetails(
-          capabilities: ClientCapabilities(interactive: True),
-          client_type: Some("watershed"),
-          environment: None,
-          device: None,
-        ),
-        permission: [],
-        user: User(id: user_id, properties: dict.new()),
-        scopes: ["doc:read", "doc:write", "summary:write"],
-        timestamp: None,
-      ),
-      versions: ["^0.1.0"],
-      driver_version: None,
-      mode: WriteMode,
-      nonce: None,
-      epoch: None,
-      supported_features: None,
-      relay_user_agent: None,
-    )
+    build_connect_message(tenant, document, user_id, Some(token))
 
   case
     runtime.start(
@@ -230,6 +206,72 @@ pub fn connect(
         }
       }
   }
+}
+
+@target(erlang)
+fn build_connect_message(
+  tenant: String,
+  document: String,
+  user_id: String,
+  token: option.Option(String),
+) -> ConnectMessage {
+  ConnectMessage(
+    tenant_id: tenant,
+    document_id: document,
+    token: token,
+    client: Client(
+      mode: WriteMode,
+      details: ClientDetails(
+        capabilities: ClientCapabilities(interactive: True),
+        client_type: Some("watershed"),
+        environment: None,
+        device: None,
+      ),
+      permission: [],
+      user: User(id: user_id, properties: dict.new()),
+      scopes: ["doc:read", "doc:write", "summary:write"],
+      timestamp: None,
+    ),
+    versions: ["^0.1.0"],
+    driver_version: None,
+    mode: WriteMode,
+    nonce: None,
+    epoch: None,
+    supported_features: None,
+    relay_user_agent: None,
+  )
+}
+
+@target(erlang)
+/// Connect through an injected transport — the seam the in-memory `sluice`
+/// test driver uses. Unlike `connect`, this does *not* block on the handshake:
+/// the sluice completes it on the first `settle`. Not for production use.
+pub fn connect_via(
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+  transport transport: runtime.Transport,
+) -> Result(Document, String) {
+  let connect_message = build_connect_message(tenant, document, user_id, None)
+  case
+    runtime.start_with_transport(
+      host: "sluice",
+      port: 0,
+      connect_message: connect_message,
+      transport: transport,
+    )
+  {
+    Error(_) -> Error("failed to start document runtime")
+    Ok(subject) -> Ok(Document(runtime: subject))
+  }
+}
+
+@target(erlang)
+/// The runtime actor behind a document. Exposed for the `sluice` test driver,
+/// which barriers the actor (a synchronous call flushes its mailbox) to make
+/// delivery deterministic. Not part of the app-facing API.
+pub fn runtime_subject(document: Document) -> Subject(runtime.Msg) {
+  document.runtime
 }
 
 @target(erlang)
