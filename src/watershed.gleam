@@ -113,6 +113,21 @@ pub opaque type SharedTaskManager {
 }
 
 @target(erlang)
+pub opaque type SharedGSet {
+  SharedGSet(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedTwoPSet {
+  SharedTwoPSet(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedDirectory {
+  SharedDirectory(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
 /// Connect to a document, blocking until the handshake completes and the
 /// full op history has been replayed locally.
 pub fn connect(
@@ -808,6 +823,331 @@ pub fn subscribe_task_manager(
 ) -> Subject(ChannelEvent) {
   let subscriber = process.new_subject()
   process.send(manager.runtime, runtime.Subscribe(manager.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grow-only sets (G-Set)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new grow-only set channel. Same detached lifecycle as
+/// `create_map`: local-only until its handle (`g_set_handle_of`) is first
+/// stored into an attached map. Elements can only be added, never removed;
+/// concurrent adds always converge to the union.
+pub fn create_g_set(document: Document) -> Result(SharedGSet, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateGSet,
+  )
+  |> result.map(fn(address) {
+    SharedGSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn g_set_handle_of(set: SharedGSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedGSet it references. Errors are
+/// retryable, as with `resolve`.
+pub fn resolve_g_set(
+  document: Document,
+  value: Json,
+) -> Result(SharedGSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedGSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically add `element` to the set.
+pub fn g_set_add(set: SharedGSet, element: String) -> Nil {
+  process.send(set.runtime, runtime.AddGSetElement(set.address, element))
+}
+
+@target(erlang)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn g_set_contains(set: SharedGSet, element: String) -> Bool {
+  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GSetContains(set.address, element, reply)
+  })
+}
+
+@target(erlang)
+/// The set's current optimistic members.
+pub fn g_set_values(set: SharedGSet) -> List(String) {
+  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetGSetValues(set.address, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this set's events, local and remote alike.
+pub fn subscribe_g_set(set: SharedGSet) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(set.runtime, runtime.Subscribe(set.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Two-phase sets (2P-Set)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new two-phase set channel. Same detached lifecycle as
+/// `create_map`: local-only until its handle (`two_p_set_handle_of`) is first
+/// stored into an attached map. A remove is a permanent tombstone: a removed
+/// element can never be made active again, so remove wins over a concurrent
+/// (re-)add.
+pub fn create_two_p_set(document: Document) -> Result(SharedTwoPSet, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateTwoPSet,
+  )
+  |> result.map(fn(address) {
+    SharedTwoPSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn two_p_set_handle_of(set: SharedTwoPSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedTwoPSet it references. Errors are
+/// retryable, as with `resolve`.
+pub fn resolve_two_p_set(
+  document: Document,
+  value: Json,
+) -> Result(SharedTwoPSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedTwoPSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically add `element` to the set. Adding a previously removed
+/// element records the add but never reactivates it.
+pub fn two_p_set_add(set: SharedTwoPSet, element: String) -> Nil {
+  process.send(set.runtime, runtime.AddTwoPSetElement(set.address, element))
+}
+
+@target(erlang)
+/// Optimistically remove `element` from the set. Removal is a permanent
+/// tombstone.
+pub fn two_p_set_remove(set: SharedTwoPSet, element: String) -> Nil {
+  process.send(set.runtime, runtime.RemoveTwoPSetElement(set.address, element))
+}
+
+@target(erlang)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn two_p_set_contains(set: SharedTwoPSet, element: String) -> Bool {
+  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.TwoPSetContains(set.address, element, reply)
+  })
+}
+
+@target(erlang)
+/// The set's current optimistic members.
+pub fn two_p_set_values(set: SharedTwoPSet) -> List(String) {
+  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetTwoPSetValues(set.address, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this set's events, local and remote alike.
+pub fn subscribe_two_p_set(set: SharedTwoPSet) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(set.runtime, runtime.Subscribe(set.address, subscriber))
+  subscriber
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Directories (hierarchical maps)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new directory channel: a hierarchical map keyed by absolute paths
+/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
+/// until its handle (`directory_handle_of`) is first stored into an attached
+/// map.
+pub fn create_directory(document: Document) -> Result(SharedDirectory, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateDirectory,
+  )
+  |> result.map(fn(address) {
+    SharedDirectory(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `dir`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn directory_handle_of(dir: SharedDirectory) -> Json {
+  handle.encode_handle(dir.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedDirectory it references. Errors are
+/// retryable, as with `resolve`.
+pub fn resolve_directory(
+  document: Document,
+  value: Json,
+) -> Result(SharedDirectory, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedDirectory(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
+/// `"/"`).
+pub fn directory_set(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  process.send(dir.runtime, runtime.DirectorySet(dir.address, path, key, value))
+}
+
+@target(erlang)
+/// Optimistically remove `key` from the subdirectory at `path`.
+pub fn directory_delete(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Nil {
+  process.send(dir.runtime, runtime.DirectoryDelete(dir.address, path, key))
+}
+
+@target(erlang)
+/// Optimistically remove every key from the subdirectory at `path`.
+pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
+  process.send(dir.runtime, runtime.DirectoryClear(dir.address, path))
+}
+
+@target(erlang)
+/// Optimistically create a subdirectory named `name` under `path`.
+pub fn directory_create_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  process.send(
+    dir.runtime,
+    runtime.DirectoryCreateSubdirectory(dir.address, path, name),
+  )
+}
+
+@target(erlang)
+/// Optimistically delete the subdirectory named `name` under `path` (and all
+/// of its contents).
+pub fn directory_delete_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  process.send(
+    dir.runtime,
+    runtime.DirectoryDeleteSubdirectory(dir.address, path, name),
+  )
+}
+
+@target(erlang)
+/// The current optimistic value at `key` in the subdirectory at `path`, `None`
+/// when absent.
+pub fn directory_get(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DirectoryGet(dir.address, path, key, reply)
+  })
+}
+
+@target(erlang)
+/// The current optimistic `#(key, value)` entries in the subdirectory at
+/// `path`.
+pub fn directory_entries(
+  dir: SharedDirectory,
+  path: String,
+) -> List(#(String, Json)) {
+  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DirectoryEntries(dir.address, path, reply)
+  })
+}
+
+@target(erlang)
+/// The names of the immediate subdirectories under `path`.
+pub fn directory_subdirectories(
+  dir: SharedDirectory,
+  path: String,
+) -> List(String) {
+  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DirectorySubdirectories(dir.address, path, reply)
+  })
+}
+
+@target(erlang)
+/// Whether a subdirectory named `name` exists under `path`.
+pub fn directory_has_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Bool {
+  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DirectoryHasSubdirectory(dir.address, path, name, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this directory's events, local and remote
+/// alike.
+pub fn subscribe_directory(dir: SharedDirectory) -> Subject(ChannelEvent) {
+  let subscriber = process.new_subject()
+  process.send(dir.runtime, runtime.Subscribe(dir.address, subscriber))
   subscriber
 }
 

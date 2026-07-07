@@ -1738,3 +1738,440 @@ fn resolve_task_manager_key_or_panic(
       }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// G-Set live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Concurrent adds from both clients converge to the union.
+pub fn g_set_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_g_set_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Adding the same element from both clients is idempotent: it appears once.
+pub fn g_set_concurrent_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_g_set_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a g-set child from a summary and reads it.
+pub fn g_set_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_g_set_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_g_set_converge_test() -> Nil {
+  let document = "ws-gst-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(set_a) = watershed.create_g_set(doc_a)
+  watershed.set(map_a, "set", watershed.g_set_handle_of(set_a))
+  let set_b = resolve_g_set_key_or_panic(doc_b, map_b, "set")
+
+  watershed.g_set_add(set_a, "alpha")
+  watershed.g_set_add(set_b, "beta")
+
+  wait_until(50, fn() {
+    strings_eq(watershed.g_set_values(set_a), ["alpha", "beta"])
+    && strings_eq(watershed.g_set_values(set_b), ["alpha", "beta"])
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_g_set_conflict_test() -> Nil {
+  let document = "ws-gst-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(set_a) = watershed.create_g_set(doc_a)
+  watershed.set(map_a, "set", watershed.g_set_handle_of(set_a))
+  let set_b = resolve_g_set_key_or_panic(doc_b, map_b, "set")
+
+  // Both add the shared element concurrently, plus one distinct element each.
+  watershed.g_set_add(set_a, "shared")
+  watershed.g_set_add(set_a, "only-a")
+  watershed.g_set_add(set_b, "shared")
+  watershed.g_set_add(set_b, "only-b")
+
+  wait_until(50, fn() {
+    strings_eq(watershed.g_set_values(set_a), ["shared", "only-a", "only-b"])
+    && strings_eq(watershed.g_set_values(set_b), ["shared", "only-a", "only-b"])
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_g_set_summary_test() -> Nil {
+  let document = "ws-gst-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(set_a) = watershed.create_g_set(doc_a)
+  watershed.g_set_add(set_a, "one")
+  watershed.g_set_add(set_a, "two")
+  watershed.set(map_a, "set", watershed.g_set_handle_of(set_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let set_c = resolve_g_set_key_or_panic(doc_c, map_c, "set")
+  wait_until(50, fn() {
+    strings_eq(watershed.g_set_values(set_c), ["one", "two"])
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_g_set_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedGSet {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_g_set(doc, value)
+      }
+    })
+  case resolved {
+    Ok(set) -> set
+    Error(reason) ->
+      panic as { "resolving g_set at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2P-Set live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Concurrent adds from both clients converge to the union.
+pub fn two_p_set_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_two_p_set_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A concurrent remove wins over a re-add: the tombstone is permanent.
+pub fn two_p_set_remove_wins_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_two_p_set_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a 2P-set child from a summary and reads it.
+pub fn two_p_set_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_two_p_set_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_two_p_set_converge_test() -> Nil {
+  let document = "ws-tps-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(set_a) = watershed.create_two_p_set(doc_a)
+  watershed.set(map_a, "set", watershed.two_p_set_handle_of(set_a))
+  let set_b = resolve_two_p_set_key_or_panic(doc_b, map_b, "set")
+
+  watershed.two_p_set_add(set_a, "alpha")
+  watershed.two_p_set_add(set_a, "beta")
+  watershed.two_p_set_add(set_b, "gamma")
+
+  wait_until(50, fn() {
+    strings_eq(watershed.two_p_set_values(set_a), ["alpha", "beta", "gamma"])
+    && strings_eq(watershed.two_p_set_values(set_b), ["alpha", "beta", "gamma"])
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_two_p_set_conflict_test() -> Nil {
+  let document = "ws-tps-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(set_a) = watershed.create_two_p_set(doc_a)
+  watershed.set(map_a, "set", watershed.two_p_set_handle_of(set_a))
+  let set_b = resolve_two_p_set_key_or_panic(doc_b, map_b, "set")
+
+  // Seed the element and wait for both sides to see it.
+  watershed.two_p_set_add(set_a, "x")
+  wait_until(50, fn() { watershed.two_p_set_contains(set_b, "x") })
+  |> expect.to_be_true()
+
+  // A removes it while B re-adds it concurrently; the tombstone wins.
+  watershed.two_p_set_remove(set_a, "x")
+  watershed.two_p_set_add(set_b, "x")
+
+  wait_until(50, fn() {
+    watershed.two_p_set_contains(set_a, "x") == False
+    && watershed.two_p_set_contains(set_b, "x") == False
+    && watershed.two_p_set_values(set_a) == watershed.two_p_set_values(set_b)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_two_p_set_summary_test() -> Nil {
+  let document = "ws-tps-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(set_a) = watershed.create_two_p_set(doc_a)
+  watershed.two_p_set_add(set_a, "keep")
+  watershed.two_p_set_add(set_a, "drop")
+  watershed.two_p_set_remove(set_a, "drop")
+  watershed.set(map_a, "set", watershed.two_p_set_handle_of(set_a))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let set_c = resolve_two_p_set_key_or_panic(doc_c, map_c, "set")
+  wait_until(50, fn() {
+    strings_eq(watershed.two_p_set_values(set_c), ["keep"])
+    && watershed.two_p_set_contains(set_c, "drop") == False
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_two_p_set_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedTwoPSet {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_two_p_set(doc, value)
+      }
+    })
+  case resolved {
+    Ok(set) -> set
+    Error(reason) ->
+      panic as { "resolving two_p_set at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Directory live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Concurrent root writes from both clients converge to the merged entries.
+pub fn directory_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_directory_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Both clients create the same subdirectory and write distinct keys into it;
+/// they converge to one subdirectory holding both keys.
+pub fn directory_nested_subdir_conflict_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_directory_conflict_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// A fresh client bootstraps a directory child from a summary and reads its
+/// nested structure.
+pub fn directory_summary_bootstrap_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_directory_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_directory_converge_test() -> Nil {
+  let document = "ws-dir-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(dir_a) = watershed.create_directory(doc_a)
+  watershed.set(map_a, "dir", watershed.directory_handle_of(dir_a))
+  let dir_b = resolve_directory_key_or_panic(doc_b, map_b, "dir")
+
+  watershed.directory_set(dir_a, "/", "from-a", json.string("a"))
+  watershed.directory_set(dir_b, "/", "from-b", json.string("b"))
+
+  let expected = [#("from-a", json.string("a")), #("from-b", json.string("b"))]
+  wait_until(50, fn() {
+    entries_eq(watershed.directory_entries(dir_a, "/"), expected)
+    && entries_eq(watershed.directory_entries(dir_b, "/"), expected)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_directory_conflict_test() -> Nil {
+  let document = "ws-dir-cf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(dir_a) = watershed.create_directory(doc_a)
+  watershed.set(map_a, "dir", watershed.directory_handle_of(dir_a))
+  let dir_b = resolve_directory_key_or_panic(doc_b, map_b, "dir")
+
+  // Both create the "plans" subdirectory and write a distinct key into it.
+  watershed.directory_create_subdirectory(dir_a, "/", "plans")
+  watershed.directory_set(dir_a, "/plans", "from-a", json.string("a"))
+  watershed.directory_create_subdirectory(dir_b, "/", "plans")
+  watershed.directory_set(dir_b, "/plans", "from-b", json.string("b"))
+
+  let expected = [#("from-a", json.string("a")), #("from-b", json.string("b"))]
+  wait_until(50, fn() {
+    watershed.directory_subdirectories(dir_a, "/") == ["plans"]
+    && watershed.directory_subdirectories(dir_b, "/") == ["plans"]
+    && entries_eq(watershed.directory_entries(dir_a, "/plans"), expected)
+    && entries_eq(watershed.directory_entries(dir_b, "/plans"), expected)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_directory_summary_test() -> Nil {
+  let document = "ws-dir-sm-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  let assert Ok(dir_a) = watershed.create_directory(doc_a)
+  watershed.set(map_a, "dir", watershed.directory_handle_of(dir_a))
+  watershed.directory_set(dir_a, "/", "title", json.string("hello"))
+  watershed.directory_create_subdirectory(dir_a, "/", "child")
+  watershed.directory_set(dir_a, "/child", "note", json.string("nested"))
+
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+
+  let doc_c = connect_or_panic(document, "user-c")
+  let map_c = watershed.root(doc_c)
+  let dir_c = resolve_directory_key_or_panic(doc_c, map_c, "dir")
+  wait_until(50, fn() {
+    watershed.directory_get(dir_c, "/", "title") == Some(json.string("hello"))
+    && watershed.directory_has_subdirectory(dir_c, "/", "child")
+    && watershed.directory_get(dir_c, "/child", "note")
+    == Some(json.string("nested"))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn resolve_directory_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedDirectory {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_directory(doc, value)
+      }
+    })
+  case resolved {
+    Ok(dir) -> dir
+    Error(reason) ->
+      panic as { "resolving directory at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Order-independent collection comparison helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Two string lists hold the same elements, ignoring order.
+fn strings_eq(left: List(String), right: List(String)) -> Bool {
+  list.length(left) == list.length(right)
+  && list.all(left, fn(x) { list.contains(right, x) })
+}
+
+@target(erlang)
+/// Two entry lists hold the same #(key, value) pairs, ignoring order.
+fn entries_eq(
+  left: List(#(String, Json)),
+  right: List(#(String, Json)),
+) -> Bool {
+  list.length(left) == list.length(right)
+  && list.all(left, fn(x) { list.contains(right, x) })
+}
