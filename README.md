@@ -2,8 +2,10 @@
 
 A Gleam (BEAM) DDS client toolkit for [levee](https://github.com/tylerbutler/levee) —
 collaborative data structures with optimistic local edits, convergence guaranteed
-by server sequencing, and reconnect safety. The runtime-backed DDS is SharedMap;
-`counter_kernel` provides a pure SharedCounter kernel alongside it.
+by server sequencing, and reconnect safety. SharedMap is the anchor DDS;
+SharedCounter, OR-set, claims, and the other channel kinds ride the same runtime,
+and an opt-in [typed document layer](#typed-documents) declares a document's shape
+once.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -63,7 +65,45 @@ runtime. See [`examples/dice_lustre`](examples/dice_lustre) for a Lustre SPA
 whose entire client is Gleam, verified converging against a live `just server`,
 [`examples/dice_cli`](examples/dice_cli) for its Erlang-target CLI counterpart,
 and [`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
-scoreboard built on nested SharedMaps (`create_map` / `handle_of` / `resolve`).
+scoreboard whose per-player records use the [typed document layer](#typed-documents).
+
+## Typed documents
+
+`watershed/schema` adds an opt-in typed view over a SharedMap: declare a
+document's shape once and read/write through it. Typing is a *decode boundary*,
+not a closed schema — remote peers (or old summaries) can still write any JSON,
+so typed reads return `Result`.
+
+Declare each slot as a field — a plain value, a nested typed map (`ChildField`),
+or a handle to any other channel kind (`ChannelField`):
+
+```gleam
+import watershed/schema.{type ChannelField, type CounterChannel, type Field}
+
+pub type Doc
+pub fn title() -> Field(Doc, String) {
+  schema.field("title", json.string, decode.string)
+}
+pub fn mistakes() -> ChannelField(Doc, CounterChannel) {
+  schema.channel_field("mistakes")
+}
+```
+
+`ensure_*` seeds and adopts the root's channels declaratively, subsuming the
+create / race / retry bootstrap apps used to hand-write:
+
+```gleam
+let root = watershed.typed(watershed.root(doc))
+watershed.ensure_field(root, title(), "Untitled")
+let assert Ok(counter) = watershed.ensure_counter(doc, root, mistakes())
+```
+
+For a whole record spread across keys, the `record1`..`record9` builders plus
+`sealed_known` derive the decoder *and* the encoder from one prop list so they
+cannot drift (see [`examples/scoreboard_cli`](examples/scoreboard_cli)). Events
+narrow per field or per channel via `subscribe_field` / `subscribe_counter` /
+`subscribe_typed`. [`examples/sudoku_lustre`](examples/sudoku_lustre) shows the
+full pattern end to end.
 
 ## Development
 

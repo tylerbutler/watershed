@@ -17,6 +17,13 @@
 //// `create_map` makes additional (initially detached) maps whose handles
 //// (`handle_of`) can be stored as values and `resolve`d by peers, enabling
 //// nested collaborative structures.
+////
+//// For a schema-typed view, `typed` wraps a map as a `TypedMap(s)` and the
+//// `set_field`/`get_field`/`read`/`write` functions read and write through a
+//// `watershed/schema` declaration. `ensure_*` seeds and adopts nested channels
+//// (maps, counters, OR-sets, claims, …) declaratively, and `subscribe_field` /
+//// `subscribe_counter` / `subscribe_typed` deliver narrowed, decoded events.
+//// See the "Typed maps" and "Typed channel fields" sections below.
 
 @target(erlang)
 import gleam/bit_array

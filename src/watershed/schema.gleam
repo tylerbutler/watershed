@@ -1,14 +1,22 @@
 //// Typed field vocabulary for SharedMaps.
 ////
-//// A `Field(schema, a)` bundles a key with a JSON encoder and a decoder, and
-//// is tagged with a phantom `schema` type so it can only be used against a
-//// `TypedMap(schema)` of the matching shape (see `watershed`/`watershed_js`).
-//// A `ChildField(schema, child)` is a key whose value is a handle to a nested
-//// map of shape `child`, giving typed nested collaborative structures.
+//// Every field is tagged with a phantom `schema` type, so it can only be used
+//// against a `TypedMap(schema)` of the matching shape (see
+//// `watershed`/`watershed_js`). Three kinds of key cover every value a map
+//// can hold:
 ////
-//// A schema is a bare phantom tag (never constructed) plus a set of
-//// `field`/`child_field` definitions. Gleam constants cannot hold function
-//// calls, so expose each field as a zero-argument function:
+//// - `Field(schema, a)` — a plain value: a key with a JSON encoder and a
+////   decoder.
+//// - `ChildField(schema, child)` — a handle to a nested *typed map* of shape
+////   `child`, giving typed nested collaborative structures.
+//// - `ChannelField(schema, kind)` — a handle to any *other* channel kind
+////   (counter, OR-set, claims, …). The `kind` tag routes it to the matching
+////   per-kind facade functions at compile time (`resolve_counter_field`,
+////   `ensure_or_set`, …); the typed layer is no longer maps-only.
+////
+//// A schema is a bare phantom tag (never constructed) plus a set of field
+//// definitions. Gleam constants cannot hold function calls, so expose each
+//// field as a zero-argument function:
 ////
 //// ```gleam
 //// pub type Player
@@ -17,6 +25,23 @@
 //// }
 //// pub fn total() -> Field(Player, Int) {
 ////   schema.field("total", json.int, decode.int)
+//// }
+//// ```
+////
+//// For a *whole record* stored across several keys, build a `Schema` with the
+//// `record1`..`record9` codecs: each `prop` declares a field once and both the
+//// decoder and the per-key encoder derive from it, so they cannot drift.
+//// `sealed_known` then seals the schema to exactly the declared keys with no
+//// hand-repeated list:
+////
+//// ```gleam
+//// fn player_schema() -> Schema(Player, PlayerState) {
+////   schema.record2(
+////     PlayerState,
+////     schema.prop(name(), fn(p: PlayerState) { p.name }),
+////     schema.prop(total(), fn(p: PlayerState) { p.total }),
+////   )
+////   |> schema.sealed_known
 //// }
 //// ```
 ////
