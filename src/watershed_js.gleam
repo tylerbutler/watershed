@@ -1459,6 +1459,17 @@ pub fn subscribe(
 }
 
 @target(javascript)
+/// Subscribe to a typed map's whole-map events without dropping to the untyped
+/// API. Like `subscribe`, `handler` receives narrowed `map_kernel.MapEvent`s;
+/// use `subscribe_field` instead to watch a single typed field.
+pub fn subscribe_typed(
+  typed_map: TypedMap(s),
+  handler: fn(map_kernel.MapEvent) -> Nil,
+) -> Nil {
+  subscribe(typed_map.map, handler)
+}
+
+@target(javascript)
 /// Map a fanned-out channel event to a typed change for `field` (under `key`),
 /// or `None` when the event is for another key or channel kind.
 fn field_change(

@@ -227,14 +227,8 @@ pub fn main() {
       let roll_due = process.new_subject()
       let selector =
         process.new_selector()
-        |> process.select_map(
-          watershed.subscribe(watershed.untyped(roster)),
-          RosterChanged,
-        )
-        |> process.select_map(
-          watershed.subscribe(watershed.untyped(me)),
-          ScoreChanged,
-        )
+        |> process.select_map(watershed.subscribe_typed(roster), RosterChanged)
+        |> process.select_map(watershed.subscribe_typed(me), ScoreChanged)
         |> process.select_map(roll_due, fn(_) { RollDue })
 
       let state =
@@ -385,7 +379,7 @@ fn adopt_player(
       let selector =
         process.select_map(
           state.selector,
-          watershed.subscribe(watershed.untyped(map)),
+          watershed.subscribe_typed(map),
           ScoreChanged,
         )
       State(

@@ -49,6 +49,8 @@ import watershed/handle
 @target(erlang)
 import watershed/json_ot
 @target(erlang)
+import watershed/map_kernel
+@target(erlang)
 import watershed/or_map_kernel.{Register, RegisterMode, Tally, TallyMode}
 @target(erlang)
 import watershed/runtime
@@ -2390,6 +2392,41 @@ fn run_typed_field_subscription_test() -> Nil {
   }
   change.previous |> expect.to_equal(Ok(Some(9)))
   change.local |> expect.to_be_true()
+
+  watershed.close(doc_a)
+}
+
+@target(erlang)
+/// `subscribe_typed` watches a whole typed map's events without dropping to the
+/// untyped API, and — like `subscribe` — narrows to `map_kernel.MapEvent`.
+pub fn typed_map_subscription_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_typed_map_subscription_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_typed_map_subscription_test() -> Nil {
+  let document = "watershed-tms-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let root_a: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_a))
+  let score: schema.Field(FieldDoc, Int) =
+    schema.field("score", json.int, decode.int)
+
+  let events = watershed.subscribe_typed(root_a)
+
+  // A typed write surfaces as a narrowed map event on the whole-map subject —
+  // no `watershed.untyped(...)` escape needed at the call site. Decode the
+  // event's raw value through the field to compare robustly.
+  watershed.set_field(root_a, score, 7)
+  case process.receive(from: events, within: 5000) {
+    Ok(map_kernel.ValueChanged(key: "score", value: value, ..)) ->
+      schema.decode_optional(score, value) |> expect.to_equal(Ok(Some(7)))
+    Ok(other) -> panic as { "unexpected map event: " <> string.inspect(other) }
+    Error(_) -> panic as "timed out waiting for a typed-map event"
+  }
 
   watershed.close(doc_a)
 }
