@@ -120,28 +120,44 @@ pub fn decode_value(
 /// from `sealed` unknown-key checks and ignored by record decoders.
 pub const version_key = "__schema"
 
+/// One per-key write produced by encoding a record: `Put` sets a key, `Delete`
+/// removes it. An optional prop that is `None` encodes as a `Delete` so the
+/// whole-record round-trip law holds (a skipped key would leave a stale value
+/// that reads back as `Some`).
+pub type WriteOp {
+  Put(key: String, value: Json)
+  Delete(key: String)
+}
+
 /// A whole-map codec: read all keys into `record`, write `record` back as
-/// per-key entries. Tagged with the same phantom `tag` as its `TypedMap`.
+/// per-key write ops. Tagged with the same phantom `tag` as its `TypedMap`.
 pub opaque type Schema(tag, record) {
   Schema(
     decode: Decoder(record),
-    to_entries: fn(record) -> List(#(String, Json)),
+    to_ops: fn(record) -> List(WriteOp),
     known_keys: Option(List(String)),
     version: Option(Int),
+    // Keys declared by the record builders; None for hand-rolled schemas.
+    declared_keys: Option(List(String)),
   )
 }
 
 /// Define a whole-map schema from a record decoder and a record encoder. Open
 /// (unknown keys allowed) and unversioned by default; add `sealed`/`versioned`.
+/// Entries are written as `Put`s; prefer the `record1`..`record9` builders,
+/// which derive both directions from a single prop list.
 pub fn schema(
   decode: Decoder(record),
   to_entries: fn(record) -> List(#(String, Json)),
 ) -> Schema(tag, record) {
   Schema(
     decode: decode,
-    to_entries: to_entries,
+    to_ops: fn(value) {
+      list.map(to_entries(value), fn(entry) { Put(entry.0, entry.1) })
+    },
     known_keys: None,
     version: None,
+    declared_keys: None,
   )
 }
 
@@ -152,6 +168,18 @@ pub fn sealed(
   keys: List(String),
 ) -> Schema(tag, record) {
   Schema(..schema, known_keys: Some(keys))
+}
+
+/// Seal a record-builder schema to exactly the keys its props declare (the
+/// reserved version key is always allowed). No hand-repeated key list to
+/// drift out of sync. Panics when called on a hand-rolled `schema(...)` —
+/// those don't declare their keys, so use `sealed(keys)` there instead.
+pub fn sealed_known(schema: Schema(tag, record)) -> Schema(tag, record) {
+  case schema.declared_keys {
+    Some(keys) -> sealed(schema, keys)
+    None ->
+      panic as "sealed_known requires a record1..record9 schema; use sealed(keys) for hand-rolled schemas"
+  }
 }
 
 /// Stamp and check an integer schema version. `stamp` writes it; `read` fails
@@ -177,13 +205,11 @@ pub fn decode_entries(
   |> result.map_error(Invalid)
 }
 
-/// The per-key entries to write for `value`. The backend `write` sets each
-/// individually (preserving per-key merge).
-pub fn encode_entries(
-  schema: Schema(tag, record),
-  value: record,
-) -> List(#(String, Json)) {
-  schema.to_entries(value)
+/// The per-key write ops for `value`. The backend `write` applies each
+/// individually — `Put` as a set, `Delete` as a delete — preserving per-key
+/// merge.
+pub fn encode_ops(schema: Schema(tag, record), value: record) -> List(WriteOp) {
+  schema.to_ops(value)
 }
 
 /// The version key/value to stamp, if the schema is versioned. The backend
@@ -214,6 +240,301 @@ fn check_version(
           }
       }
   }
+}
+
+// ── Record builders ──────────────────────────────────────────────────────────
+//
+// A `Prop` pairs a `Field` with a getter; each field is declared once and
+// both codec directions derive from it, so encoder/decoder drift becomes
+// unrepresentable. `record1`..`record9` mirror the stdlib `decode.decodeN`
+// precedent; wider records nest a child map or fall back to the raw
+// `schema(decoder, to_entries)` constructor.
+
+/// One record property: a typed field plus how to get its value out of the
+/// record. Built with `prop` (required) or `optional_prop` (absent when
+/// `None`; writes a `Delete`). The last type parameter is the value as the
+/// record constructor receives it — `a` for required, `Option(a)` for
+/// optional.
+pub opaque type Prop(s, record, a) {
+  Prop(
+    key: String,
+    decoder: Decoder(a),
+    // Some(default) → decode with optional_field; None → required field.
+    fallback: Option(a),
+    write: fn(record) -> WriteOp,
+  )
+}
+
+/// A required property: decode fails when the key is absent; writes a `Put`.
+pub fn prop(field: Field(s, a), get: fn(record) -> a) -> Prop(s, record, a) {
+  Prop(key: field.key, decoder: field.decode, fallback: None, write: fn(value) {
+    Put(field.key, field.encode(get(value)))
+  })
+}
+
+/// An optional property: an absent key (or a stored JSON null, from legacy or
+/// foreign writers) decodes as `None`; a `None` value writes a `Delete` so it
+/// never reads back as stale `Some` (see `WriteOp`).
+pub fn optional_prop(
+  field: Field(s, a),
+  get: fn(record) -> Option(a),
+) -> Prop(s, record, Option(a)) {
+  Prop(
+    key: field.key,
+    decoder: decode.optional(field.decode),
+    fallback: Some(None),
+    write: fn(value) {
+      case get(value) {
+        Some(inner) -> Put(field.key, field.encode(inner))
+        None -> Delete(field.key)
+      }
+    },
+  )
+}
+
+/// Decode one prop then continue — the `use`-style step the builders chain.
+fn prop_step(
+  prop: Prop(s, record, a),
+  next: fn(a) -> Decoder(final),
+) -> Decoder(final) {
+  case prop.fallback {
+    None -> decode.field(prop.key, prop.decoder, next)
+    Some(default) ->
+      decode.optional_field(prop.key, default, prop.decoder, next)
+  }
+}
+
+fn from_props(
+  decoder: Decoder(record),
+  props: List(#(String, fn(record) -> WriteOp)),
+) -> Schema(tag, record) {
+  Schema(
+    decode: decoder,
+    to_ops: fn(value) { list.map(props, fn(prop) { prop.1(value) }) },
+    known_keys: None,
+    version: None,
+    declared_keys: Some(list.map(props, fn(prop) { prop.0 })),
+  )
+}
+
+pub fn record1(
+  ctor: fn(a) -> record,
+  p1: Prop(s, record, a),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    decode.success(ctor(v1))
+  }
+  from_props(decoder, [#(p1.key, p1.write)])
+}
+
+pub fn record2(
+  ctor: fn(a, b) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    decode.success(ctor(v1, v2))
+  }
+  from_props(decoder, [#(p1.key, p1.write), #(p2.key, p2.write)])
+}
+
+pub fn record3(
+  ctor: fn(a, b, c) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    decode.success(ctor(v1, v2, v3))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+  ])
+}
+
+pub fn record4(
+  ctor: fn(a, b, c, d) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    decode.success(ctor(v1, v2, v3, v4))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+  ])
+}
+
+pub fn record5(
+  ctor: fn(a, b, c, d, e) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+  p5: Prop(s, record, e),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    use v5 <- prop_step(p5)
+    decode.success(ctor(v1, v2, v3, v4, v5))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+    #(p5.key, p5.write),
+  ])
+}
+
+pub fn record6(
+  ctor: fn(a, b, c, d, e, f) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+  p5: Prop(s, record, e),
+  p6: Prop(s, record, f),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    use v5 <- prop_step(p5)
+    use v6 <- prop_step(p6)
+    decode.success(ctor(v1, v2, v3, v4, v5, v6))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+    #(p5.key, p5.write),
+    #(p6.key, p6.write),
+  ])
+}
+
+pub fn record7(
+  ctor: fn(a, b, c, d, e, f, g) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+  p5: Prop(s, record, e),
+  p6: Prop(s, record, f),
+  p7: Prop(s, record, g),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    use v5 <- prop_step(p5)
+    use v6 <- prop_step(p6)
+    use v7 <- prop_step(p7)
+    decode.success(ctor(v1, v2, v3, v4, v5, v6, v7))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+    #(p5.key, p5.write),
+    #(p6.key, p6.write),
+    #(p7.key, p7.write),
+  ])
+}
+
+pub fn record8(
+  ctor: fn(a, b, c, d, e, f, g, h) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+  p5: Prop(s, record, e),
+  p6: Prop(s, record, f),
+  p7: Prop(s, record, g),
+  p8: Prop(s, record, h),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    use v5 <- prop_step(p5)
+    use v6 <- prop_step(p6)
+    use v7 <- prop_step(p7)
+    use v8 <- prop_step(p8)
+    decode.success(ctor(v1, v2, v3, v4, v5, v6, v7, v8))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+    #(p5.key, p5.write),
+    #(p6.key, p6.write),
+    #(p7.key, p7.write),
+    #(p8.key, p8.write),
+  ])
+}
+
+pub fn record9(
+  ctor: fn(a, b, c, d, e, f, g, h, i) -> record,
+  p1: Prop(s, record, a),
+  p2: Prop(s, record, b),
+  p3: Prop(s, record, c),
+  p4: Prop(s, record, d),
+  p5: Prop(s, record, e),
+  p6: Prop(s, record, f),
+  p7: Prop(s, record, g),
+  p8: Prop(s, record, h),
+  p9: Prop(s, record, i),
+) -> Schema(s, record) {
+  let decoder = {
+    use v1 <- prop_step(p1)
+    use v2 <- prop_step(p2)
+    use v3 <- prop_step(p3)
+    use v4 <- prop_step(p4)
+    use v5 <- prop_step(p5)
+    use v6 <- prop_step(p6)
+    use v7 <- prop_step(p7)
+    use v8 <- prop_step(p8)
+    use v9 <- prop_step(p9)
+    decode.success(ctor(v1, v2, v3, v4, v5, v6, v7, v8, v9))
+  }
+  from_props(decoder, [
+    #(p1.key, p1.write),
+    #(p2.key, p2.write),
+    #(p3.key, p3.write),
+    #(p4.key, p4.write),
+    #(p5.key, p5.write),
+    #(p6.key, p6.write),
+    #(p7.key, p7.write),
+    #(p8.key, p8.write),
+    #(p9.key, p9.write),
+  ])
 }
 
 fn check_sealed(

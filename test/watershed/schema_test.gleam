@@ -1,5 +1,6 @@
 import gleam/dynamic/decode
 import gleam/json
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import startest/expect
 
@@ -131,11 +132,36 @@ fn profile_schema() -> schema.Schema(Player, Profile) {
   schema.schema(profile_decoder(), profile_entries)
 }
 
+/// Apply write ops to an entries list, as a backend `write` would against a
+/// map's current contents: `Put` upserts, `Delete` removes.
+fn apply_ops(
+  entries: List(#(String, json.Json)),
+  ops: List(schema.WriteOp),
+) -> List(#(String, json.Json)) {
+  list.fold(ops, entries, fn(acc, op) {
+    case op {
+      schema.Put(key, value) -> list.key_set(acc, key, value)
+      schema.Delete(key) -> list.filter(acc, fn(entry) { entry.0 != key })
+    }
+  })
+}
+
 pub fn decode_entries_round_trip_test() {
   let value = Profile(name: "ada", score: 3, last: Some(6))
-  let entries = schema.encode_entries(profile_schema(), value)
+  let entries = apply_ops([], schema.encode_ops(profile_schema(), value))
   schema.decode_entries(profile_schema(), entries)
   |> expect.to_equal(Ok(value))
+}
+
+pub fn raw_schema_ops_are_puts_test() {
+  // The raw `schema(decoder, to_entries)` constructor wraps entries as Puts.
+  let value = Profile(name: "ada", score: 3, last: None)
+  schema.encode_ops(profile_schema(), value)
+  |> expect.to_equal([
+    schema.Put("name", json.string("ada")),
+    schema.Put("score", json.int(3)),
+    schema.Put("last", json.null()),
+  ])
 }
 
 pub fn decode_entries_optional_absent_defaults_test() {
@@ -217,6 +243,150 @@ pub fn versioned_unstamped_is_accepted_test() {
   let entries = [#("name", json.string("ada")), #("score", json.int(1))]
   schema.decode_entries(versioned, entries)
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
+}
+
+// ── Record builders: prop / optional_prop / record1..9 / sealed_known ────────
+
+fn score_field() -> schema.Field(Player, Int) {
+  schema.field("score", json.int, decode.int)
+}
+
+fn last_field() -> schema.Field(Player, Int) {
+  schema.field("last", json.int, decode.int)
+}
+
+fn built_profile_schema() -> schema.Schema(Player, Profile) {
+  schema.record3(
+    Profile,
+    schema.prop(name(), fn(p: Profile) { p.name }),
+    schema.prop(score_field(), fn(p: Profile) { p.score }),
+    schema.optional_prop(last_field(), fn(p: Profile) { p.last }),
+  )
+}
+
+pub fn builder_round_trip_some_test() {
+  let value = Profile(name: "ada", score: 3, last: Some(6))
+  let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
+  schema.decode_entries(built_profile_schema(), entries)
+  |> expect.to_equal(Ok(value))
+}
+
+pub fn builder_round_trip_none_test() {
+  let value = Profile(name: "grace", score: 9, last: None)
+  let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
+  schema.decode_entries(built_profile_schema(), entries)
+  |> expect.to_equal(Ok(value))
+}
+
+pub fn optional_none_writes_delete_test() {
+  // Decision 1: an absent optional removes the key. Writing a `None` record
+  // over stale entries must not read back as `Some`.
+  let stale = [
+    #("name", json.string("ada")),
+    #("score", json.int(3)),
+    #("last", json.int(6)),
+  ]
+  let value = Profile(name: "ada", score: 4, last: None)
+  let ops = schema.encode_ops(built_profile_schema(), value)
+  ops
+  |> list.contains(schema.Delete("last"))
+  |> expect.to_equal(True)
+  schema.decode_entries(built_profile_schema(), apply_ops(stale, ops))
+  |> expect.to_equal(Ok(value))
+}
+
+pub fn optional_some_writes_put_test() {
+  let value = Profile(name: "ada", score: 3, last: Some(6))
+  schema.encode_ops(built_profile_schema(), value)
+  |> list.contains(schema.Put("last", json.int(6)))
+  |> expect.to_equal(True)
+}
+
+pub fn optional_stored_null_reads_as_none_test() {
+  // Legacy/foreign writers may store an explicit null; read it as None
+  // rather than a decode failure.
+  let entries = [
+    #("name", json.string("ada")),
+    #("score", json.int(3)),
+    #("last", json.null()),
+  ]
+  schema.decode_entries(built_profile_schema(), entries)
+  |> expect.to_equal(Ok(Profile(name: "ada", score: 3, last: None)))
+}
+
+pub fn sealed_known_rejects_undeclared_key_test() {
+  let sealed = schema.sealed_known(built_profile_schema())
+  let entries = [
+    #("name", json.string("ada")),
+    #("score", json.int(1)),
+    #("rogue", json.bool(True)),
+  ]
+  case schema.decode_entries(sealed, entries) {
+    Error(schema.UnknownKeys(keys)) -> keys |> expect.to_equal(["rogue"])
+    other -> panic as { "expected UnknownKeys, got " <> string_of(other) }
+  }
+}
+
+pub fn sealed_known_admits_version_key_test() {
+  let s =
+    built_profile_schema()
+    |> schema.versioned(1)
+    |> schema.sealed_known
+  let entries = [
+    #("name", json.string("ada")),
+    #("score", json.int(1)),
+    #(schema.version_key, json.int(1)),
+  ]
+  schema.decode_entries(s, entries)
+  |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
+}
+
+type Solo {
+  Solo(name: String)
+}
+
+pub fn record1_round_trip_test() {
+  let s = schema.record1(Solo, schema.prop(name(), fn(s: Solo) { s.name }))
+  let value = Solo(name: "lin")
+  let entries = apply_ops([], schema.encode_ops(s, value))
+  schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
+}
+
+type Nine {
+  Nine(
+    f1: Int,
+    f2: Int,
+    f3: Int,
+    f4: Int,
+    f5: Int,
+    f6: Int,
+    f7: Int,
+    f8: Int,
+    f9: Option(Int),
+  )
+}
+
+fn int_field(key: String) -> schema.Field(Player, Int) {
+  schema.field(key, json.int, decode.int)
+}
+
+pub fn record9_round_trip_test() {
+  let s =
+    schema.record9(
+      Nine,
+      schema.prop(int_field("f1"), fn(n: Nine) { n.f1 }),
+      schema.prop(int_field("f2"), fn(n: Nine) { n.f2 }),
+      schema.prop(int_field("f3"), fn(n: Nine) { n.f3 }),
+      schema.prop(int_field("f4"), fn(n: Nine) { n.f4 }),
+      schema.prop(int_field("f5"), fn(n: Nine) { n.f5 }),
+      schema.prop(int_field("f6"), fn(n: Nine) { n.f6 }),
+      schema.prop(int_field("f7"), fn(n: Nine) { n.f7 }),
+      schema.prop(int_field("f8"), fn(n: Nine) { n.f8 }),
+      schema.optional_prop(int_field("f9"), fn(n: Nine) { n.f9 }),
+    )
+  let value = Nine(1, 2, 3, 4, 5, 6, 7, 8, None)
+  let entries = apply_ops([], schema.encode_ops(s, value))
+  schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
 }
 
 pub fn sealed_allows_version_key_test() {

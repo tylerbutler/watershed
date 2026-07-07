@@ -369,16 +369,19 @@ pub fn read(
 }
 
 @target(erlang)
-/// Write a whole record through a schema, as per-key sets — so concurrent
+/// Write a whole record through a schema, as per-key ops — so concurrent
 /// edits to sibling keys still merge (the record view is never a clobbering
-/// blob).
+/// blob). Optional props that are `None` delete their key.
 pub fn write(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
   value: record,
 ) -> Nil {
-  list.each(schema.encode_entries(map_schema, value), fn(entry) {
-    set(typed_map.map, entry.0, entry.1)
+  list.each(schema.encode_ops(map_schema, value), fn(op) {
+    case op {
+      schema.Put(key, entry_value) -> set(typed_map.map, key, entry_value)
+      schema.Delete(key) -> delete(typed_map.map, key)
+    }
   })
 }
 
