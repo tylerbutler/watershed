@@ -58,7 +58,7 @@ import watershed/runtime_core
 @target(javascript)
 import watershed/task_manager_kernel
 @target(javascript)
-import watershed/transport_js.{type Cell, type Channel}
+import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/wire
 @target(javascript)
@@ -69,6 +69,48 @@ import watershed/wire/summary_blob
 @target(javascript)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
 const max_ops_per_submission = 100
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transport seam
+//
+// The runtime talks to levee through an injectable `Transport` rather than
+// calling `transport_js` directly, so the in-memory hub (see `watershed/hub`)
+// can supply an alternate transport for deterministic app tests. The concrete
+// link (a phoenix `Channel`, a hub cell) is captured inside the closures of a
+// `TransportHandle`, so no connection-specific type leaks into `State`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// A live connection's outbound operations. `push` carries the wire event and
+/// its JSON payload; `close` tears the connection down; `drop` forces the
+/// reconnect path (for phoenix, a socket drop that auto-rejoins).
+pub type TransportHandle {
+  TransportHandle(
+    push: fn(String, Json) -> Nil,
+    close: fn() -> Nil,
+    drop: fn() -> Nil,
+  )
+}
+
+@target(javascript)
+/// How a transport reports inbound frames and (re)join/close lifecycle back to
+/// the runtime. Phoenix drives these from its socket; the hub drives them on
+/// explicit delivery.
+pub type TransportCallbacks {
+  TransportCallbacks(
+    on_event: fn(String, Dynamic) -> Nil,
+    /// Fires on every successful (re)join — also the re-handshake hook.
+    on_join: fn() -> Nil,
+    on_close: fn() -> Nil,
+  )
+}
+
+@target(javascript)
+/// A pluggable connection to a levee-shaped server. `connect` opens the link,
+/// wires the callbacks, and returns the handle used for outbound frames.
+pub type Transport {
+  Transport(connect: fn(TransportCallbacks) -> TransportHandle)
+}
 
 @target(javascript)
 pub type ClaimSubmitReply {
@@ -97,7 +139,7 @@ type State {
     /// Phoenix socket URL. levee serves both the socket and REST from one
     /// origin.
     http_base_url: String,
-    channel: Option(Channel),
+    channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     /// Ephemeral-ripple subscribers. Ripples are document-scoped and
@@ -128,10 +170,32 @@ pub fn start(
   connect_message connect_message: ConnectMessage,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
 ) -> Runtime {
+  let join_payload = case connect_message.token {
+    Some(token) -> json.object([#("token", json.string(token))])
+    None -> json.object([])
+  }
+  start_with_transport(
+    http_base_url: http_base_from_socket_url(url),
+    connect_message: connect_message,
+    transport: phoenix_transport(url, topic, join_payload),
+    on_ready: on_ready,
+  )
+}
+
+@target(javascript)
+/// Start a runtime against an arbitrary transport. Used by the live `start`
+/// (phoenix) and by the in-memory hub test driver. `http_base_url` only feeds
+/// the REST summary API and may be a placeholder for transports without one.
+pub fn start_with_transport(
+  http_base_url http_base_url: String,
+  connect_message connect_message: ConnectMessage,
+  transport transport: Transport,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Runtime {
   let cell =
     transport_js.new_cell(State(
       connect_message: connect_message,
-      http_base_url: http_base_from_socket_url(url),
+      http_base_url: http_base_url,
       channel: None,
       phase: Connecting,
       subscribers: [],
@@ -141,23 +205,44 @@ pub fn start(
       ready_fired: False,
     ))
 
-  let join_payload = case connect_message.token {
-    Some(token) -> json.object([#("token", json.string(token))])
-    None -> json.object([])
-  }
-
-  let channel =
-    transport_js.connect(
-      url: url,
-      topic: topic,
-      join_payload: json.to_string(join_payload),
+  let handle =
+    transport.connect(TransportCallbacks(
       on_event: fn(event, payload) { on_event(cell, event, payload) },
       on_join: fn() { on_join(cell) },
       on_close: fn() { on_close(cell) },
-    )
+    ))
 
-  cell_set(cell, State(..cell_get(cell), channel: Some(channel)))
+  cell_set(cell, State(..cell_get(cell), channel: Some(handle)))
   Runtime(cell: cell)
+}
+
+@target(javascript)
+/// The default transport: a phoenix socket over `transport_js`. Phoenix
+/// auto-rejoins after a socket drop, re-firing `on_join`, so the runtime never
+/// re-invokes `connect`.
+fn phoenix_transport(
+  url: String,
+  topic: String,
+  join_payload: Json,
+) -> Transport {
+  Transport(connect: fn(callbacks: TransportCallbacks) -> TransportHandle {
+    let channel =
+      transport_js.connect(
+        url: url,
+        topic: topic,
+        join_payload: json.to_string(join_payload),
+        on_event: callbacks.on_event,
+        on_join: callbacks.on_join,
+        on_close: callbacks.on_close,
+      )
+    TransportHandle(
+      push: fn(event, payload) {
+        transport_js.push(channel, event, json.to_string(payload))
+      },
+      close: fn() { transport_js.close(channel) },
+      drop: fn() { transport_js.drop_socket(channel) },
+    )
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1061,7 +1146,7 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
-      transport_js.drop_socket(channel)
+      channel.drop()
     }
     _, _ -> Nil
   }
@@ -1072,7 +1157,7 @@ pub fn close(runtime: Runtime) -> Nil {
   let state = abort_claim_waiters(cell_get(runtime.cell))
   cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
   case state.channel {
-    Some(channel) -> transport_js.close(channel)
+    Some(channel) -> channel.close()
     None -> Nil
   }
 }
@@ -1452,7 +1537,7 @@ fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
           case state.phase, state.channel {
             Ready(core, _), Some(channel) -> {
               cell_set(cell, State(..state, phase: Reconnecting(core)))
-              transport_js.drop_socket(channel)
+              channel.drop()
             }
             _, _ -> Nil
           }
@@ -1669,7 +1754,7 @@ fn nack_is_fatal(item: Nack) -> Bool {
 
 @target(javascript)
 fn push_connect(
-  channel: Channel,
+  channel: TransportHandle,
   connect_message: ConnectMessage,
   last_seen: Option(Int),
 ) -> Nil {
@@ -1682,7 +1767,7 @@ fn push_connect(
 
 @target(javascript)
 fn maybe_request_ops(
-  channel: Option(Channel),
+  channel: Option(TransportHandle),
   request_from: Option(Int),
 ) -> Nil {
   case channel, request_from {
@@ -1694,7 +1779,7 @@ fn maybe_request_ops(
 
 @target(javascript)
 fn send_outbound(
-  channel: Option(Channel),
+  channel: Option(TransportHandle),
   client_id: String,
   outbound: List(wire.OutboundOp),
 ) -> Nil {
@@ -1713,8 +1798,8 @@ fn send_outbound(
 }
 
 @target(javascript)
-fn push_json(channel: Channel, event: String, payload: Json) -> Nil {
-  transport_js.push(channel, event, json.to_string(payload))
+fn push_json(channel: TransportHandle, event: String, payload: Json) -> Nil {
+  channel.push(event, payload)
 }
 
 @target(javascript)
