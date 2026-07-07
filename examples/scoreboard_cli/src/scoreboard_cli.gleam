@@ -30,14 +30,13 @@ import gleam/dynamic/decode
 import gleam/erlang/process
 import gleam/int
 import gleam/io
-import gleam/json.{type Json}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
 import watershed
-import watershed/channel.{type ChannelEvent}
-import watershed/map_kernel.{Cleared, ValueChanged}
+import watershed/map_kernel.{type MapEvent, Cleared, ValueChanged}
 import watershed/schema.{type ChildField, type Field}
 
 // ── Schema ────────────────────────────────────────────────────────────────────
@@ -79,45 +78,37 @@ type PlayerState {
   PlayerState(name: String, last_roll: Option(Int), total: Int, rolls: Int)
 }
 
-/// The player-map schema: a decoder + encoder, sealed to its four keys and
-/// stamped with a version so incompatible future layouts fail loudly on read.
+/// The player-map schema. `record4` derives the decoder *and* the per-key
+/// encoder from a single prop list, so they can never drift; `sealed_known`
+/// seals it to exactly those declared keys (no hand-repeated list); `versioned`
+/// stamps a version so incompatible future layouts fail loudly on read. One
+/// declaration replaces the old decoder / encoder / seal-list trio.
 fn player_schema() -> schema.Schema(Player, PlayerState) {
-  schema.schema(player_decoder(), player_entries)
-  |> schema.versioned(1)
-  |> schema.sealed(["name", "last_roll", "total", "rolls"])
-}
-
-fn player_decoder() -> decode.Decoder(PlayerState) {
-  use name <- decode.field("name", decode.string)
-  use last_roll <- decode.optional_field(
-    "last_roll",
-    None,
-    decode.optional(decode.int),
+  schema.record4(
+    PlayerState,
+    schema.prop(player_name(), fn(p: PlayerState) { p.name }),
+    schema.optional_prop(player_last_roll(), fn(p: PlayerState) { p.last_roll }),
+    schema.prop(player_total(), fn(p: PlayerState) { p.total }),
+    schema.prop(player_rolls(), fn(p: PlayerState) { p.rolls }),
   )
-  use total <- decode.field("total", decode.int)
-  use rolls <- decode.field("rolls", decode.int)
-  decode.success(PlayerState(
-    name: name,
-    last_roll: last_roll,
-    total: total,
-    rolls: rolls,
-  ))
+  |> schema.versioned(1)
+  |> schema.sealed_known
 }
 
-fn player_entries(player: PlayerState) -> List(#(String, Json)) {
-  [
-    #("name", json.string(player.name)),
-    #("last_roll", encode_optional_int(player.last_roll)),
-    #("total", json.int(player.total)),
-    #("rolls", json.int(player.rolls)),
-  ]
+fn player_name() -> Field(Player, String) {
+  schema.field("name", json.string, decode.string)
 }
 
-fn encode_optional_int(value: Option(Int)) -> Json {
-  case value {
-    Some(n) -> json.int(n)
-    None -> json.null()
-  }
+fn player_last_roll() -> Field(Player, Int) {
+  schema.field("last_roll", json.int, decode.int)
+}
+
+fn player_total() -> Field(Player, Int) {
+  schema.field("total", json.int, decode.int)
+}
+
+fn player_rolls() -> Field(Player, Int) {
+  schema.field("rolls", json.int, decode.int)
 }
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -147,10 +138,11 @@ const resolve_retry_ms = 200
 const resolve_attempts = 25
 
 type Msg {
-  /// The roster map changed: a player joined (or re-registered).
-  RosterChanged(ChannelEvent)
+  /// The roster map changed: a player joined (or re-registered). Narrowed to
+  /// `MapEvent` by `watershed.subscribe` — no 14-variant channel union.
+  RosterChanged(MapEvent)
   /// Some player's own map changed: a roll landed.
-  ScoreChanged(ChannelEvent)
+  ScoreChanged(MapEvent)
   RollDue
 }
 
@@ -306,7 +298,7 @@ fn event_loop(state: State) -> Nil {
       schedule_roll(state.roll_due, roll_interval_ms)
       event_loop(state)
     }
-    RosterChanged(channel.MapEvent(ValueChanged(key: player_id, ..))) -> {
+    RosterChanged(ValueChanged(key: player_id, ..)) -> {
       let new_state = watch_player(state, player_id)
       case dict.size(new_state.known) > dict.size(state.known) {
         True -> print_scoreboard(new_state)
@@ -314,17 +306,16 @@ fn event_loop(state: State) -> Nil {
       }
       event_loop(new_state)
     }
-    RosterChanged(channel.MapEvent(Cleared(..))) -> {
+    RosterChanged(Cleared(..)) -> {
       event_loop(state)
     }
-    RosterChanged(_) -> event_loop(state)
     ScoreChanged(event) -> {
       // A remote roll rewrites the player's keys ("name", "last_roll",
       // "total", "rolls" — in that order); reprint once, on the final write.
       // Local writes already print above.
       case event {
-        channel.MapEvent(ValueChanged(key: "rolls", local: False, ..))
-        | channel.MapEvent(Cleared(local: False)) -> print_scoreboard(state)
+        ValueChanged(key: "rolls", local: False, ..) | Cleared(local: False) ->
+          print_scoreboard(state)
         _ -> Nil
       }
       event_loop(state)

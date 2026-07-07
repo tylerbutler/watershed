@@ -672,7 +672,9 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 // ── Read helpers ─────────────────────────────────────────────────────────────
 
 fn puzzle_from_root(doc: Document) -> Puzzle {
-  case watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.puzzle()) {
+  case
+    watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.puzzle())
+  {
     Ok(Some(id)) -> puzzles.by_id(id) |> option.unwrap(puzzles.default_puzzle())
     _ -> puzzles.default_puzzle()
   }

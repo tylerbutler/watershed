@@ -11,7 +11,6 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
 
-import watershed/channel
 import watershed/map_kernel
 import watershed/transport_js
 import watershed_js.{type Document, WatershedConfig}
@@ -77,14 +76,16 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   // inside the subscription callback).
   let local_probe = transport_js.new_cell(False)
   let remote_probe = transport_js.new_cell(False)
+  // `subscribe` narrows to `map_kernel.MapEvent`, so we match the variant
+  // directly. `ValueChanged` now also carries the new `value`, ignored here.
   watershed_js.subscribe(map_a, fn(event) {
     case event {
-      channel.MapEvent(map_kernel.ValueChanged("local_probe", _, True)) ->
+      map_kernel.ValueChanged("local_probe", _, _, True) ->
         transport_js.set_cell(
           local_probe,
           watershed_js.get(map_a, "local_probe") == Some(json.int(7)),
         )
-      channel.MapEvent(map_kernel.ValueChanged("remote_probe", _, False)) ->
+      map_kernel.ValueChanged("remote_probe", _, _, False) ->
         transport_js.set_cell(
           remote_probe,
           watershed_js.get(map_a, "remote_probe") == Some(json.int(9)),
