@@ -25,6 +25,7 @@ packages = [
   { name = "roost", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/roost.git", commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127" },
   { name = "spillway", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/spillway", commit = "15e9e8c3737fc9c1bd52876b78c56d571db508e4" },
   { name = "watershed", version = "0.1.0", build_tools = ["gleam"], requirements = ["aquamarine", "gleam_crypto", "gleam_erlang", "gleam_fetch", "gleam_http", "gleam_httpc", "gleam_javascript", "gleam_json", "gleam_otp", "gleam_stdlib", "lattice_core", "lattice_counters", "lattice_maps", "lattice_registers", "lattice_sets", "spillway"], source = "local", path = "../.." },
+  { name = "watershed_lustre", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_javascript", "gleam_json", "gleam_stdlib", "lustre", "watershed"], source = "local", path = "../../watershed_lustre" },
 ]
 
 [requirements]
@@ -33,3 +34,4 @@ gleam_json = { version = ">= 3.0.0 and < 4.0.0" }
 gleam_stdlib = { version = ">= 0.62.0 and < 2.0.0" }
 lustre = { version = ">= 5.0.0 and < 6.0.0" }
 watershed = { path = "../.." }
+watershed_lustre = { path = "../../watershed_lustre" }

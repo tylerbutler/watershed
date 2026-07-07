@@ -10,7 +10,6 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
-import gleam/javascript/promise
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -24,12 +23,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import doc_schema.{type SudokuDoc}
+import doc_schema
 import puzzles.{type Puzzle}
 import watershed_js.{
   type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
-  type TypedMap, WatershedConfig,
 }
+import watershed_lustre
 
 import watershed/presence.{type Peer}
 import watershed/presence_js.{type Handle}
@@ -43,12 +42,6 @@ const tenant = "dev-tenant"
 const tenant_secret = "levee-dev-secret-change-in-production"
 
 const document_id = "sudoku"
-
-@external(javascript, "./sudoku_ffi.mjs", "queue_microtask")
-fn queue_microtask(action: fn() -> Nil) -> Nil
-
-@external(javascript, "./sudoku_ffi.mjs", "set_timeout")
-fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -86,7 +79,11 @@ fn encode_presence(p: SudokuPresence) -> Json {
 fn presence_decoder() -> Decoder(SudokuPresence) {
   use color <- decode.field("color", decode.string)
   use name <- decode.field("name", decode.string)
-  use cell <- decode.optional_field("cell", None, decode.optional(decode.string))
+  use cell <- decode.optional_field(
+    "cell",
+    None,
+    decode.optional(decode.string),
+  )
   use editing <- decode.optional_field("editing", False, decode.bool)
   decode.success(SudokuPresence(color:, name:, cell:, editing:))
 }
@@ -108,11 +105,23 @@ type SharedState {
   )
 }
 
+/// The nested channels as they resolve during bootstrap. Each `ensure_*` effect
+/// fills one slot; when all four are present they assemble into `SharedState`.
+type PendingShared {
+  PendingShared(
+    cells: Option(SharedMap),
+    notes: Option(OrSet),
+    givens: Option(Claims),
+    mistakes: Option(SharedCounter),
+  )
+}
+
 type Model {
   Model(
     status: Status,
     doc: Option(Document),
     shared: Option(SharedState),
+    pending: PendingShared,
     user_id: String,
     color: String,
     puzzle: Puzzle,
@@ -134,7 +143,10 @@ type Model {
 type Msg {
   GotHandle(Document)
   Connected(Result(Nil, String))
-  Bootstrapped(Result(SharedState, String))
+  EnsuredCells(Result(SharedMap, String))
+  EnsuredNotes(Result(OrSet, String))
+  EnsuredGivens(Result(Claims, String))
+  EnsuredMistakes(Result(SharedCounter, String))
   SharedChanged
   CellSelected(Int, Int)
   KeyPressed(String)
@@ -153,6 +165,7 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       status: Connecting,
       doc: None,
       shared: None,
+      pending: PendingShared(None, None, None, None),
       user_id: user_id,
       color: presence.color_for(user_id),
       puzzle: puzzles.default_puzzle(),
@@ -167,66 +180,39 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       editing: False,
       error: None,
     )
-  #(model, connect_effect(user_id))
-}
-
-/// Connect, then bridge watershed's callbacks into Lustre's dispatch.
-fn connect_effect(user_id: String) -> Effect(Msg) {
-  use dispatch <- effect.from
-  let _ = {
-    use token <- promise.map(watershed_js.dev_token(
-      secret: tenant_secret,
+  #(
+    model,
+    watershed_lustre.connect_dev(
+      url: socket_url,
       tenant: tenant,
+      secret: tenant_secret,
       document: document_id,
       user_id: user_id,
-    ))
-    let doc =
-      watershed_js.connect(
-        WatershedConfig(
-          url: socket_url,
-          tenant: tenant,
-          document: document_id,
-          token: token,
-          user_id: user_id,
-        ),
-        on_ready: fn(result) { dispatch(Connected(result)) },
-      )
-    watershed_js.subscribe(watershed_js.root(doc), fn(_event) {
-      queue_microtask(fn() { dispatch(SharedChanged) })
-    })
-    // Ephemeral presence rides on the library driver, independent of the DDS
-    // streams. It owns the heartbeat/TTL loop; we only re-render on on_change.
-    let handle =
-      presence_js.start(
-        document: doc,
-        user_id: user_id,
-        config: presence.default_config,
-        encode: encode_presence,
-        decode: presence_decoder(),
-        on_change: fn(peers) {
-          queue_microtask(fn() { dispatch(PresenceChanged(peers)) })
-        },
-      )
-    dispatch(PresenceStarted(handle))
-    dispatch(GotHandle(doc))
-  }
-  Nil
+      got_document: GotHandle,
+      connected: Connected,
+    ),
+  )
 }
 
-/// A one-shot timer effect that dispatches `msg` after `ms`.
-fn after(ms: Int, msg: Msg) -> Effect(Msg) {
-  use dispatch <- effect.from
-  set_timeout(fn() { dispatch(msg) }, ms)
+/// Ephemeral presence rides on the library driver, independent of the DDS
+/// streams: it owns the heartbeat/TTL loop; we only re-render on the roster.
+fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
+  watershed_lustre.presence(
+    document: doc,
+    user_id: model.user_id,
+    config: presence.default_config,
+    encode: encode_presence,
+    decode: presence_decoder(),
+    started: PresenceStarted,
+    on_peers: PresenceChanged,
+  )
 }
 
 /// Announce this client's current presence through the driver (broadcasts now
 /// and keeps the heartbeat alive). A no-op until presence has started.
 fn announce_effect(model: Model) -> Effect(Msg) {
   case model.presence {
-    Some(handle) -> {
-      use _dispatch <- effect.from
-      presence_js.announce(handle, current_presence(model))
-    }
+    Some(handle) -> watershed_lustre.announce(handle, current_presence(model))
     None -> effect.none()
   }
 }
@@ -240,82 +226,77 @@ fn current_presence(model: Model) -> SudokuPresence {
   )
 }
 
+/// Bootstrap the document declaratively: seed the plain fields, adopt-or-seed
+/// each nested channel, and watch the root — all as one batch of effects. Each
+/// `ensure_*` dispatches its channel back as an `Ensured*` message; they
+/// assemble into `SharedState` once all four have arrived (`assemble`). Plain
+/// fields seed set-if-absent, LWW settling concurrent joins.
 fn bootstrap_effect(doc: Document) -> Effect(Msg) {
-  use dispatch <- effect.from
   let root = watershed_js.root_typed(doc)
-  // Plain fields seed themselves set-if-absent; LWW settles concurrent joins.
-  watershed_js.ensure_field(root, doc_schema.title(), "Collaborative Sudoku")
-  watershed_js.ensure_field(
-    root,
-    doc_schema.puzzle(),
-    puzzles.default_puzzle().id,
-  )
-  ensure_shared(doc, root, fn(result) {
-    case result {
-      Ok(shared) -> {
-        // App-level content seed, on the channel `ensure_claims` handed back:
-        // first-writer-wins claims make concurrent seeders converge, so every
-        // client can run this and later writers no-op.
-        seed_givens(shared.givens, puzzles.default_puzzle(), 0, 0)
-        subscribe_shared(shared, dispatch)
-        dispatch(Bootstrapped(Ok(shared)))
-      }
-      Error(reason) -> dispatch(Bootstrapped(Error(reason)))
+  effect.batch([
+    watershed_lustre.ensure_field(
+      root,
+      doc_schema.title(),
+      "Collaborative Sudoku",
+    ),
+    watershed_lustre.ensure_field(
+      root,
+      doc_schema.puzzle(),
+      puzzles.default_puzzle().id,
+    ),
+    watershed_lustre.ensure_map(doc, root, doc_schema.cells(), EnsuredCells),
+    watershed_lustre.ensure_or_set(doc, root, doc_schema.notes(), EnsuredNotes),
+    watershed_lustre.ensure_claims(
+      doc,
+      root,
+      doc_schema.givens(),
+      EnsuredGivens,
+    ),
+    watershed_lustre.ensure_counter(
+      doc,
+      root,
+      doc_schema.mistakes(),
+      EnsuredMistakes,
+    ),
+    watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
+      SharedChanged
+    }),
+  ])
+}
+
+/// Assemble `SharedState` once all four nested channels have resolved: seed the
+/// givens on the claims channel (first-writer-wins, so every client can run it
+/// and later writers no-op) and start the per-channel subscriptions. A no-op
+/// until the last channel arrives or once already assembled.
+fn assemble(model: Model) -> #(Model, Effect(Msg)) {
+  case model.shared, model.pending {
+    None, PendingShared(Some(cells), Some(notes), Some(givens), Some(mistakes))
+    -> {
+      let shared = SharedState(cells:, notes:, givens:, mistakes:)
+      seed_givens(givens, puzzles.default_puzzle(), 0, 0)
+      #(
+        snapshot(Model(..model, shared: Some(shared), error: None)),
+        subscribe_shared_effect(shared),
+      )
     }
-  })
-  Nil
+    _, _ -> #(model, effect.none())
+  }
 }
 
-/// Adopt (or seed) all four nested channels, threading each `ensure_*`'s result
-/// into the next and short-circuiting on the first error.
-fn ensure_shared(
-  doc: Document,
-  root: TypedMap(SudokuDoc),
-  done: fn(Result(SharedState, String)) -> Nil,
-) -> Nil {
-  use cells <- ensure_step(
-    watershed_js.ensure_map(doc, root, doc_schema.cells(), _),
-    done,
-  )
-  use notes <- ensure_step(
-    watershed_js.ensure_or_set(doc, root, doc_schema.notes(), _),
-    done,
-  )
-  use givens <- ensure_step(
-    watershed_js.ensure_claims(doc, root, doc_schema.givens(), _),
-    done,
-  )
-  use mistakes <- ensure_step(
-    watershed_js.ensure_counter(doc, root, doc_schema.mistakes(), _),
-    done,
-  )
-  done(Ok(SharedState(cells:, notes:, givens:, mistakes:)))
-}
-
-/// Run one callback-based `ensure_*` step: continue with `next` on success, or
-/// short-circuit `done` with the error.
-fn ensure_step(
-  step: fn(fn(Result(a, String)) -> Nil) -> Nil,
-  done: fn(Result(whole, String)) -> Nil,
-  next: fn(a) -> Nil,
-) -> Nil {
-  step(fn(result) {
-    case result {
-      Ok(value) -> next(value)
-      Error(reason) -> done(Error(reason))
-    }
-  })
-}
-
-fn subscribe_shared(shared: SharedState, dispatch: fn(Msg) -> Nil) -> Nil {
-  let bump = fn() { queue_microtask(fn() { dispatch(SharedChanged) }) }
-  // Narrowed per-kind subscriptions: each handler sees only its channel's own
-  // event type. The whole-model `snapshot` stays the cheapest re-read for an
-  // 81-cell grid, so every handler just bumps it.
-  watershed_js.subscribe(shared.cells, fn(_event) { bump() })
-  watershed_js.subscribe_or_set(shared.notes, fn(_event) { bump() })
-  watershed_js.subscribe_claims(shared.givens, fn(_event) { bump() })
-  watershed_js.subscribe_counter(shared.mistakes, fn(_event) { bump() })
+/// The narrowed per-kind subscriptions as one batch. Each handler sees only its
+/// channel's own event type; the whole-model `snapshot` stays the cheapest
+/// re-read for an 81-cell grid, so every handler just bumps it.
+fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
+  effect.batch([
+    watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe_claims(shared.givens, fn(_event) {
+      SharedChanged
+    }),
+    watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {
+      SharedChanged
+    }),
+  ])
 }
 
 // ── Update ───────────────────────────────────────────────────────────────────
@@ -324,9 +305,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     GotHandle(doc) -> {
       let model = Model(..model, doc: Some(doc))
+      // The handle arrives before the handshake completes; start presence now
+      // (it only needs the doc) and bootstrap once Connected has made us Ready.
+      let presence = presence_effect(model, doc)
       case model.status, model.shared {
-        Ready, None -> #(model, bootstrap_effect(doc))
-        _, _ -> #(model, effect.none())
+        Ready, None -> #(model, effect.batch([bootstrap_effect(doc), presence]))
+        _, _ -> #(model, presence)
       }
     }
 
@@ -343,12 +327,50 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    Bootstrapped(Ok(shared)) -> #(
-      snapshot(Model(..model, shared: Some(shared), error: None)),
+    EnsuredCells(Ok(cells)) ->
+      assemble(
+        Model(
+          ..model,
+          pending: PendingShared(..model.pending, cells: Some(cells)),
+        ),
+      )
+    EnsuredCells(Error(reason)) -> #(
+      Model(..model, error: Some(reason)),
       effect.none(),
     )
 
-    Bootstrapped(Error(reason)) -> #(
+    EnsuredNotes(Ok(notes)) ->
+      assemble(
+        Model(
+          ..model,
+          pending: PendingShared(..model.pending, notes: Some(notes)),
+        ),
+      )
+    EnsuredNotes(Error(reason)) -> #(
+      Model(..model, error: Some(reason)),
+      effect.none(),
+    )
+
+    EnsuredGivens(Ok(givens)) ->
+      assemble(
+        Model(
+          ..model,
+          pending: PendingShared(..model.pending, givens: Some(givens)),
+        ),
+      )
+    EnsuredGivens(Error(reason)) -> #(
+      Model(..model, error: Some(reason)),
+      effect.none(),
+    )
+
+    EnsuredMistakes(Ok(mistakes)) ->
+      assemble(
+        Model(
+          ..model,
+          pending: PendingShared(..model.pending, mistakes: Some(mistakes)),
+        ),
+      )
+    EnsuredMistakes(Error(reason)) -> #(
       Model(..model, error: Some(reason)),
       effect.none(),
     )
@@ -367,7 +389,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let model = Model(..model, editing: True)
           #(
             model,
-            effect.batch([announce_effect(model), after(1200, EditingStopped)]),
+            effect.batch([
+              announce_effect(model),
+              watershed_lustre.after(1200, EditingStopped),
+            ]),
           )
         }
         None -> #(model, effect.none())
@@ -379,13 +404,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    ReconnectClicked -> {
+    ReconnectClicked ->
       case model.doc {
-        Some(doc) -> watershed_js.force_reconnect(doc)
-        None -> Nil
+        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+        None -> #(model, effect.none())
       }
-      #(model, effect.none())
-    }
 
     PresenceStarted(handle) -> {
       let model = Model(..model, presence: Some(handle))
