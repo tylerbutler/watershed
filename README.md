@@ -67,6 +67,12 @@ whose entire client is Gleam, verified converging against a live `just server`,
 and [`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
 scoreboard whose per-player records use the [typed document layer](#typed-documents).
 
+For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
+Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and
+a presence effect — so an app declares its wiring instead of hand-bridging
+watershed's callbacks into `dispatch` (and deferring each to dodge the
+mid-`update` clobber). Both Lustre examples are built on it.
+
 ## Typed documents
 
 `watershed/schema` adds an opt-in typed view over a SharedMap: declare a

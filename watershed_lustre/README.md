@@ -45,18 +45,41 @@ fn update(model, msg) {
 - **Timers as effects.** `after(ms, msg)` for heartbeats, debounces, and retries
   — no hand-rolled `setTimeout` FFI per app.
 
-## API (LU1)
+## API
 
-| Effect | Wraps |
+Every effect takes the app's own `fn(...) -> msg` constructors; edits and reads
+stay on `watershed_js` (`set`, `get`, `entries`, `increment`, …) — this package
+only wraps the callback-shaped surface.
+
+**Connect**
+| Effect | Hands back |
 | --- | --- |
-| `connect` / `connect_dev` | `watershed_js.connect` (+ dev token mint) |
-| `subscribe` and `subscribe_counter` / `_or_map` / `_or_set` / `_register_collection` / `_claims` / `_task_manager` / `subscribe_ripples` | the narrowed `watershed_js.subscribe_*` |
-| `after(ms, msg)` | timer FFI |
-| `submit_ripple` / `force_reconnect` | the matching `watershed_js` calls |
+| `connect(config, got_document:, connected:)` | the `Document`, then the handshake result |
+| `connect_dev(url:, tenant:, secret:, document:, user_id:, got_document:, connected:)` | same, minting the HS256 dev token first |
 
-Edits and reads stay on `watershed_js` (`set`, `get`, `entries`, `increment`, …);
-this package only wraps the callback-shaped surface.
+**Subscriptions** — each delivers its channel's own event type, never the
+14-variant union:
+`subscribe` (map) and `subscribe_counter` / `_or_map` / `_or_set` /
+`_register_collection` / `_claims` / `_task_manager`, plus `subscribe_ripples`
+for ephemeral document ripples.
 
-Typed field/`ensure_*` effects (LU2) and a one-line presence effect (LU3) follow
-once their watershed prerequisites land. JavaScript target only; consumed as a
-path dependency inside the watershed monorepo.
+**Typed** (over a `watershed/schema` `TypedMap`):
+`subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
+
+**Declarative bootstrap** — each dispatches its resolved channel once it settles,
+so a document's nested structure is an `effect.batch` in `init`:
+`ensure_map` / `ensure_counter` / `ensure_or_map` / `ensure_or_set` /
+`ensure_register_collection` / `ensure_claims` / `ensure_task_manager` /
+`ensure_pn_counter` / `ensure_pact_map` / `ensure_ordered_collection` /
+`ensure_child`, and `ensure_field` (synchronous set-if-absent).
+
+**Presence** — the heartbeat driver as effects:
+`presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`
+starts it and hands the `Handle` back; `announce(handle, payload)` broadcasts.
+
+**Timers & misc**: `after(ms, msg)`, `submit_ripple`, `force_reconnect`.
+
+See [`examples/sudoku_lustre`](../examples/sudoku_lustre) for the typed +
+presence surface end to end, and [`examples/dice_lustre`](../examples/dice_lustre)
+for the minimal untyped case. JavaScript target only; consumed as a path
+dependency inside the watershed monorepo (hex publication follows watershed's).
