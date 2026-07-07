@@ -4,7 +4,7 @@ A [Lustre](https://lustre.build) single-page app whose **entire client is
 Gleam** compiled to JavaScript: UI, collaborative Sudoku state, optimistic DDS
 edits, ephemeral presence, wire codecs, and the reconnect state machine. It
 follows the `dice_lustre` browser-SPA structure while combining **several
-watershed data structures at once**, plus **signals** for transient presence.
+watershed data structures at once**, plus **ripples** for transient presence.
 
 ## What it demonstrates
 
@@ -19,11 +19,14 @@ The board is bootstrapped from handles stored on the document's root
 | Shared mistakes tally | `SharedCounter` | `increment` on a wrong entry |
 
 **Ephemeral presence** — who's online, each player's selected cell, and a
-"typing" indicator — rides on watershed **signals**, *not* a DDS. Signals are
+"typing" indicator — rides on watershed **ripples** (ephemeral, non-sequenced
+broadcasts; `"signal"` on the Fluid wire), *not* a DDS. Ripples are
 non-sequenced and non-persisted (fire-and-forget), so presence is never
 replayed or stored; a peer that goes silent simply expires via a heartbeat +
 TTL. Each client re-announces itself every 2s and is dropped after ~6.5s of
-silence. See [`src/presence.gleam`](src/presence.gleam).
+silence. The heartbeat/TTL/roster lifecycle lives in the library
+(`watershed/presence` + `watershed/presence_js`); this app keeps only its
+`SudokuPresence` payload type and the rendering.
 
 ## Run it
 

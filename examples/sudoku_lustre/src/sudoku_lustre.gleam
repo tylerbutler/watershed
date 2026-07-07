@@ -3,11 +3,15 @@
 //// A Lustre single-page app whose nested watershed structures are bootstrapped
 //// from handles stored on the root map. Open two tabs against the same
 //// `just server` document and watch cells, notes, givens, and mistakes converge.
+////
+//// Ephemeral presence (cursors, typing) rides on the library's presence driver
+//// (`watershed/presence_js`), which owns the heartbeat/TTL lifecycle; this app
+//// keeps only its payload type (`SudokuPresence`) and the rendering.
 
-import gleam/dynamic/decode
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/javascript/promise
-import gleam/json
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
@@ -24,10 +28,11 @@ import doc_schema.{type SudokuDoc}
 import puzzles.{type Puzzle}
 import watershed_js.{
   type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
-  type Signal, type TypedMap, WatershedConfig,
+  type TypedMap, WatershedConfig,
 }
 
-import presence.{type Peers, type Presence, Presence}
+import watershed/presence.{type Peer}
+import watershed/presence_js.{type Handle}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -45,13 +50,45 @@ fn queue_microtask(action: fn() -> Nil) -> Nil
 @external(javascript, "./sudoku_ffi.mjs", "set_timeout")
 fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
 
-@external(javascript, "./sudoku_ffi.mjs", "now_ms")
-fn now_ms() -> Int
-
 pub fn main() {
   let app = lustre.application(init, update, view)
   let assert Ok(_) = lustre.start(app, "#app", Nil)
   Nil
+}
+
+// ── Presence payload ───────────────────────────────────────────────────────
+
+/// This app's per-peer presence payload — everything but the user id, which the
+/// library's envelope carries. Liveness/roster/TTL are the driver's job.
+pub type SudokuPresence {
+  SudokuPresence(
+    color: String,
+    name: String,
+    /// The `r{r}c{c}` key of the peer's selected cell, if any.
+    cell: Option(String),
+    /// Whether the peer is actively typing into their selected cell.
+    editing: Bool,
+  )
+}
+
+fn encode_presence(p: SudokuPresence) -> Json {
+  json.object([
+    #("color", json.string(p.color)),
+    #("name", json.string(p.name)),
+    #("cell", case p.cell {
+      Some(key) -> json.string(key)
+      None -> json.null()
+    }),
+    #("editing", json.bool(p.editing)),
+  ])
+}
+
+fn presence_decoder() -> Decoder(SudokuPresence) {
+  use color <- decode.field("color", decode.string)
+  use name <- decode.field("name", decode.string)
+  use cell <- decode.optional_field("cell", None, decode.optional(decode.string))
+  use editing <- decode.optional_field("editing", False, decode.bool)
+  decode.success(SudokuPresence(color:, name:, cell:, editing:))
 }
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -85,9 +122,10 @@ type Model {
     notes: List(String),
     givens: List(#(String, Int)),
     mistakes: Int,
-    /// Ephemeral peer presence (signals, not a DDS): who's here, their cursor,
-    /// and whether they're typing. Expired by heartbeat TTL.
-    peers: Peers,
+    /// The live presence session, once started, and its current roster. The
+    /// driver owns heartbeat + TTL expiry; we just re-render on `on_change`.
+    presence: Option(Handle(SudokuPresence)),
+    peers: List(Peer(SudokuPresence)),
     editing: Bool,
     error: Option(String),
   )
@@ -102,8 +140,8 @@ type Msg {
   KeyPressed(String)
   NotesModeClicked
   ReconnectClicked
-  SignalReceived(Signal)
-  Heartbeat
+  PresenceStarted(Handle(SudokuPresence))
+  PresenceChanged(List(Peer(SudokuPresence)))
   EditingStopped
 }
 
@@ -124,7 +162,8 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       notes: [],
       givens: [],
       mistakes: 0,
-      peers: presence.new_peers(),
+      presence: None,
+      peers: [],
       editing: False,
       error: None,
     )
@@ -155,10 +194,20 @@ fn connect_effect(user_id: String) -> Effect(Msg) {
     watershed_js.subscribe(watershed_js.root(doc), fn(_event) {
       queue_microtask(fn() { dispatch(SharedChanged) })
     })
-    // Ephemeral presence rides on signals, independent of the DDS streams.
-    watershed_js.subscribe_signals(doc, fn(signal: Signal) {
-      queue_microtask(fn() { dispatch(SignalReceived(signal)) })
-    })
+    // Ephemeral presence rides on the library driver, independent of the DDS
+    // streams. It owns the heartbeat/TTL loop; we only re-render on on_change.
+    let handle =
+      presence_js.start(
+        document: doc,
+        user_id: user_id,
+        config: presence.default_config,
+        encode: encode_presence,
+        decode: presence_decoder(),
+        on_change: fn(peers) {
+          queue_microtask(fn() { dispatch(PresenceChanged(peers)) })
+        },
+      )
+    dispatch(PresenceStarted(handle))
     dispatch(GotHandle(doc))
   }
   Nil
@@ -170,27 +219,25 @@ fn after(ms: Int, msg: Msg) -> Effect(Msg) {
   set_timeout(fn() { dispatch(msg) }, ms)
 }
 
-/// Broadcast this client's presence as an ephemeral signal (fire-and-forget).
-fn broadcast_presence(model: Model) -> Effect(Msg) {
-  case model.doc {
-    Some(doc) -> {
+/// Announce this client's current presence through the driver (broadcasts now
+/// and keeps the heartbeat alive). A no-op until presence has started.
+fn announce_effect(model: Model) -> Effect(Msg) {
+  case model.presence {
+    Some(handle) -> {
       use _dispatch <- effect.from
-      let content =
-        presence.encode(Presence(
-          user: model.user_id,
-          color: model.color,
-          name: presence.short_name(model.user_id),
-          cell: option.map(model.selected, fn(rc) { cell_key(rc.0, rc.1) }),
-          editing: model.editing,
-        ))
-      watershed_js.submit_signal(
-        doc,
-        signal_type: presence.signal_type,
-        content:,
-      )
+      presence_js.announce(handle, current_presence(model))
     }
     None -> effect.none()
   }
+}
+
+fn current_presence(model: Model) -> SudokuPresence {
+  SudokuPresence(
+    color: model.color,
+    name: presence.short_name(model.user_id),
+    cell: option.map(model.selected, fn(rc) { cell_key(rc.0, rc.1) }),
+    editing: model.editing,
+  )
 }
 
 fn bootstrap_effect(doc: Document) -> Effect(Msg) {
@@ -286,14 +333,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
       case model.doc, model.shared {
-        Some(doc), None -> #(
-          model,
-          effect.batch([
-            bootstrap_effect(doc),
-            after(presence.heartbeat_ms, Heartbeat),
-          ]),
-        )
-        _, _ -> #(snapshot(model), after(presence.heartbeat_ms, Heartbeat))
+        Some(doc), None -> #(model, bootstrap_effect(doc))
+        _, _ -> #(snapshot(model), effect.none())
       }
     }
 
@@ -316,7 +357,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     CellSelected(row, col) -> {
       let model = Model(..model, selected: Some(#(row, col)))
-      #(model, broadcast_presence(model))
+      #(model, announce_effect(model))
     }
 
     KeyPressed(key) -> {
@@ -326,10 +367,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let model = Model(..model, editing: True)
           #(
             model,
-            effect.batch([
-              broadcast_presence(model),
-              after(1200, EditingStopped),
-            ]),
+            effect.batch([announce_effect(model), after(1200, EditingStopped)]),
           )
         }
         None -> #(model, effect.none())
@@ -349,28 +387,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
-    SignalReceived(signal) ->
-      // levee strips the signal `type` on broadcast (Fluid compat), delivering
-      // only clientId + content — so we discriminate by decoding the content.
-      case presence.decode(watershed_js.signal_content(signal)) {
-        Ok(p) if p.user != model.user_id -> #(
-          Model(..model, peers: presence.observe(model.peers, p, now_ms())),
-          effect.none(),
-        )
-        _ -> #(model, effect.none())
-      }
+    PresenceStarted(handle) -> {
+      let model = Model(..model, presence: Some(handle))
+      // Announce once so we appear to peers and the heartbeat begins.
+      #(model, announce_effect(model))
+    }
 
-    Heartbeat -> #(
-      Model(..model, peers: presence.prune(model.peers, now_ms())),
-      effect.batch([
-        broadcast_presence(model),
-        after(presence.heartbeat_ms, Heartbeat),
-      ]),
-    )
+    PresenceChanged(peers) -> #(Model(..model, peers: peers), effect.none())
 
     EditingStopped -> {
       let model = Model(..model, editing: False)
-      #(model, broadcast_presence(model))
+      #(model, announce_effect(model))
     }
   }
 }
@@ -495,36 +522,41 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 /// The live-presence roster: self plus every peer seen within the TTL. Derived
-/// entirely from ephemeral signals, so it self-heals when a tab goes away.
+/// entirely from the ephemeral driver, so it self-heals when a tab goes away.
 fn roster_view(model: Model) -> Element(Msg) {
-  let self =
-    Presence(
-      user: model.user_id,
-      color: model.color,
-      name: presence.short_name(model.user_id) <> " (you)",
-      cell: None,
-      editing: model.editing,
+  let self_chip =
+    chip(
+      presence.short_name(model.user_id) <> " (you)",
+      model.color,
+      model.editing,
     )
-  let chips =
-    [self, ..presence.roster(model.peers)]
-    |> list.map(fn(p) {
-      html.span(
-        [
-          class("chip"),
-          attribute.style("border-color", p.color),
-          attribute.style("color", p.color),
-        ],
-        [
-          html.span([class("dot"), attribute.style("background", p.color)], []),
-          html.text(p.name),
-          case p.editing {
-            True -> html.span([class("typing")], [html.text(" ✎")])
-            False -> html.text("")
-          },
-        ],
-      )
+  let peer_chips =
+    model.peers
+    |> list.map(fn(peer) {
+      chip(peer.payload.name, peer.payload.color, peer.payload.editing)
     })
-  html.div([class("roster"), aria_label("Players online")], chips)
+  html.div([class("roster"), aria_label("Players online")], [
+    self_chip,
+    ..peer_chips
+  ])
+}
+
+fn chip(name: String, color: String, editing: Bool) -> Element(Msg) {
+  html.span(
+    [
+      class("chip"),
+      attribute.style("border-color", color),
+      attribute.style("color", color),
+    ],
+    [
+      html.span([class("dot"), attribute.style("background", color)], []),
+      html.text(name),
+      case editing {
+        True -> html.span([class("typing")], [html.text(" ✎")])
+        False -> html.text("")
+      },
+    ],
+  )
 }
 
 fn status_line(model: Model) -> Element(Msg) {
@@ -587,7 +619,8 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
   let player = cell_value(model, key)
   let selected = model.selected == Some(#(row, col))
   let locked = given != 0
-  let peers_here = presence.on_cell(model.peers, key)
+  let peers_here =
+    list.filter(model.peers, fn(peer) { peer.payload.cell == Some(key) })
   let value = case given, player {
     0, Some(digit) -> int.to_string(digit)
     0, None -> ""
@@ -596,7 +629,7 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
 
   let peer_attrs = case peers_here {
     [peer, ..] -> [
-      attribute.style("box-shadow", "inset 0 0 0 3px " <> peer.color),
+      attribute.style("box-shadow", "inset 0 0 0 3px " <> peer.payload.color),
     ]
     [] -> []
   }
@@ -629,17 +662,20 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
 
 /// A small colored badge showing which peers have this cell selected, with a
 /// pencil glyph while they're typing.
-fn peer_cursor(peers: List(Presence)) -> Element(Msg) {
+fn peer_cursor(peers: List(Peer(SudokuPresence))) -> Element(Msg) {
   case peers {
     [] -> html.text("")
     [peer, ..] ->
-      html.span([class("cursor"), attribute.style("background", peer.color)], [
-        html.text(peer.name),
-        case peer.editing {
-          True -> html.text(" ✎")
-          False -> html.text("")
-        },
-      ])
+      html.span(
+        [class("cursor"), attribute.style("background", peer.payload.color)],
+        [
+          html.text(peer.payload.name),
+          case peer.payload.editing {
+            True -> html.text(" ✎")
+            False -> html.text("")
+          },
+        ],
+      )
   }
 }
 
