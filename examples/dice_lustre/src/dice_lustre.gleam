@@ -9,7 +9,6 @@
 //// rolls converge. Roll during a forced reconnect and nothing is lost.
 
 import gleam/int
-import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -21,7 +20,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed_js.{type Document, WatershedConfig}
+import watershed_js.{type Document}
+import watershed_lustre
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -34,9 +34,6 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 const document_id = "dice"
 
 const die_key = "die"
-
-@external(javascript, "./dice_lustre_ffi.mjs", "queue_microtask")
-fn queue_microtask(action: fn() -> Nil) -> Nil
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -82,48 +79,33 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       die: None,
       entries: [],
     )
-  #(model, connect_effect(user_id))
-}
-
-/// Connect, then bridge watershed's callbacks into Lustre's dispatch.
-fn connect_effect(user_id: String) -> Effect(Msg) {
-  use dispatch <- effect.from
-  let _ = {
-    use token <- promise.map(watershed_js.dev_token(
-      secret: tenant_secret,
+  #(
+    model,
+    watershed_lustre.connect_dev(
+      url: socket_url,
       tenant: tenant,
+      secret: tenant_secret,
       document: document_id,
       user_id: user_id,
-    ))
-    let doc =
-      watershed_js.connect(
-        WatershedConfig(
-          url: socket_url,
-          tenant: tenant,
-          document: document_id,
-          token: token,
-          user_id: user_id,
-        ),
-        on_ready: fn(result) { dispatch(Connected(result)) },
-      )
-    let map = watershed_js.root(doc)
-    // Local and remote edits both surface here; we re-read the map on each.
-    // Local edits fire synchronously from inside `update` (Roll → set →
-    // event), and a dispatch nested in a running update is clobbered when the
-    // outer update returns — so defer it to a microtask.
-    watershed_js.subscribe(map, fn(_event) {
-      queue_microtask(fn() { dispatch(MapChanged) })
-    })
-    dispatch(GotHandle(doc))
-  }
-  Nil
+      got_document: GotHandle,
+      connected: Connected,
+    ),
+  )
 }
 
 // ── Update ───────────────────────────────────────────────────────────────────
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> #(Model(..model, doc: Some(doc)), effect.none())
+    // The handle is ready: subscribe to the root map. Local and remote edits
+    // both surface as `MapChanged`; the binding defers each dispatch so a local
+    // edit made from inside `update` can't clobber the running cycle.
+    GotHandle(doc) -> #(
+      Model(..model, doc: Some(doc)),
+      watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
+        MapChanged
+      }),
+    )
 
     Connected(Ok(_)) -> #(
       snapshot(Model(..model, status: Ready)),
@@ -158,13 +140,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
-    ReconnectClicked -> {
+    ReconnectClicked ->
       case model.doc {
-        Some(doc) -> watershed_js.force_reconnect(doc)
-        None -> Nil
+        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+        None -> #(model, effect.none())
       }
-      #(model, effect.none())
-    }
   }
 }
 

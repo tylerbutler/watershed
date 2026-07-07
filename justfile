@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-dice _build-sudoku
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku
 
 # Run tests
 test:
@@ -87,6 +87,11 @@ _build-erlang:
 
 _build-javascript:
     gleam build --target javascript
+
+# Build the Lustre effect bindings on their own (examples build it
+# transitively, but this typechecks the package standalone).
+_build-lustre:
+    cd watershed_lustre && gleam build --target javascript
 
 _build-dice:
     pnpm --dir examples/dice_lustre run build
