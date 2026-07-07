@@ -1,8 +1,11 @@
 # Plan: Wire `ordered_collection_kernel` into the runtime
 
 **Date:** 2026-07-06
-**Status:** 📋 Proposed — not started. Depends on a new **client-leave /
-disconnect hook** that does not exist anywhere in the runtime today.
+**Status:** ✅ Complete (2026-07-06, commit `f874be5`). `create_ordered_collection`
+is wired end-to-end (`InitOrderedCollection` channel in `runtime.gleam` /
+`runtime_js.gleam`, facade in `watershed.gleam` / `watershed_js.gleam`) with full
+typed-layer parity on BEAM + JS. The client-leave / disconnect hook this depended
+on landed as part of that wiring.
 **Repo:** `claude-workspace/watershed`
 **Companion docs:**
 `2026-07-03-ordered-collection-kernel-plan.md` (the kernel itself),

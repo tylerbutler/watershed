@@ -1,8 +1,11 @@
 # Plan: Wire `pact_map_kernel` into the runtime
 
 **Date:** 2026-07-06
-**Status:** 📋 Proposed — not started. Blocked on a design decision
-(reaction-submit infrastructure) called out below.
+**Status:** ✅ Complete (2026-07-06, commit `f874be5`). `create_pact_map` is
+wired end-to-end (`InitPactMap` channel in `runtime.gleam` / `runtime_js.gleam`,
+facade in `watershed.gleam` / `watershed_js.gleam`) with full typed-layer parity
+on BEAM + JS. The design decision (reaction-submit infrastructure) called out
+below was resolved in the course of that wiring.
 **Repo:** `claude-workspace/watershed`
 **Companion docs:**
 `2026-07-03-pact-map-kernel-plan.md` (the kernel itself),
