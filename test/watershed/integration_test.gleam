@@ -385,7 +385,7 @@ fn resolve_claims_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedClaims {
+) -> watershed.Claims {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1159,7 +1159,7 @@ fn resolve_json_ot_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedJsonOt {
+) -> watershed.JsonOt {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1303,7 +1303,7 @@ fn resolve_or_map_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedOrMap {
+) -> watershed.OrMap {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1374,7 +1374,7 @@ fn run_or_set_converge_test() -> Nil {
 }
 
 @target(erlang)
-fn or_set_has_all(os: watershed.SharedOrSet) -> Bool {
+fn or_set_has_all(os: watershed.OrSet) -> Bool {
   watershed.or_set_contains(os, "alpha")
   && watershed.or_set_contains(os, "beta")
   && watershed.or_set_contains(os, "gamma")
@@ -1444,7 +1444,7 @@ fn resolve_or_set_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedOrSet {
+) -> watershed.OrSet {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1582,7 +1582,7 @@ fn resolve_register_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedRegisterCollection {
+) -> watershed.RegisterCollection {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1732,7 +1732,7 @@ fn resolve_task_manager_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedTaskManager {
+) -> watershed.TaskManager {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -1867,7 +1867,7 @@ fn resolve_g_set_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedGSet {
+) -> watershed.GSet {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -2007,7 +2007,7 @@ fn resolve_two_p_set_key_or_panic(
   doc: watershed.Document,
   map: watershed.SharedMap,
   key: String,
-) -> watershed.SharedTwoPSet {
+) -> watershed.TwoPSet {
   let resolved =
     wait_until_ok(50, fn() {
       case watershed.get(map, key) {
@@ -2251,6 +2251,12 @@ fn run_typed_channel_fields_test() -> Nil {
     schema.channel_field("two_p_set")
   let directory_f: schema.ChannelField(FieldDoc, schema.DirectoryChannel) =
     schema.channel_field("directory")
+  let pn_counter_f: schema.ChannelField(FieldDoc, schema.PnCounterChannel) =
+    schema.channel_field("pn_counter")
+  let pact_map_f: schema.ChannelField(FieldDoc, schema.PactMapChannel) =
+    schema.channel_field("pact_map")
+  let ordered_f: schema.ChannelField(FieldDoc, schema.OrderedCollectionChannel) =
+    schema.channel_field("ordered")
 
   // A creates one channel of every kind and stores each typed handle.
   let assert Ok(child_map) = watershed.create_map(doc_a)
@@ -2275,6 +2281,12 @@ fn run_typed_channel_fields_test() -> Nil {
   watershed.set_two_p_set_field(root_a, two_p_set_f, two_p_set)
   let assert Ok(directory) = watershed.create_directory(doc_a)
   watershed.set_directory_field(root_a, directory_f, directory)
+  let assert Ok(pn_counter) = watershed.create_pn_counter(doc_a)
+  watershed.set_pn_counter_field(root_a, pn_counter_f, pn_counter)
+  let assert Ok(pact_map) = watershed.create_pact_map(doc_a)
+  watershed.set_pact_map_field(root_a, pact_map_f, pact_map)
+  let assert Ok(ordered) = watershed.create_ordered_collection(doc_a)
+  watershed.set_ordered_collection_field(root_a, ordered_f, ordered)
 
   // B resolves every kind once the handles arrive.
   expect_resolves(fn() { watershed.resolve_map_field(doc_b, root_b, map_f) })
@@ -2306,6 +2318,15 @@ fn run_typed_channel_fields_test() -> Nil {
   expect_resolves(fn() {
     watershed.resolve_directory_field(doc_b, root_b, directory_f)
   })
+  expect_resolves(fn() {
+    watershed.resolve_pn_counter_field(doc_b, root_b, pn_counter_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_pact_map_field(doc_b, root_b, pact_map_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_ordered_collection_field(doc_b, root_b, ordered_f)
+  })
 
   // An absent key is Ok(None), not an error.
   let missing: schema.ChannelField(FieldDoc, schema.CounterChannel) =
@@ -2318,6 +2339,20 @@ fn run_typed_channel_fields_test() -> Nil {
   let assert Ok(Some(counter_b)) =
     watershed.resolve_counter_field(doc_b, root_b, counter_f)
   wait_until(50, fn() { watershed.counter_value(counter_b) == Some(5) })
+  |> expect.to_be_true()
+
+  // The new kinds are equally live: a PN-counter delta on A converges on B.
+  watershed.pn_counter_update(pn_counter, 3)
+  let assert Ok(Some(pn_counter_b)) =
+    watershed.resolve_pn_counter_field(doc_b, root_b, pn_counter_f)
+  wait_until(50, fn() { watershed.pn_counter_value(pn_counter_b) == Some(3) })
+  |> expect.to_be_true()
+
+  // An enqueue on the ordered collection is observed by B.
+  watershed.ordered_add(ordered, json.string("job-1"))
+  let assert Ok(Some(ordered_b)) =
+    watershed.resolve_ordered_collection_field(doc_b, root_b, ordered_f)
+  wait_until(50, fn() { watershed.ordered_size(ordered_b) == Some(1) })
   |> expect.to_be_true()
 
   watershed.close(doc_a)

@@ -132,6 +132,15 @@ pub type TwoPSetChannel
 /// BEAM-facade only until the kind gains a JS facade.
 pub type DirectoryChannel
 
+/// A positive/negative counter (increment and decrement).
+pub type PnCounterChannel
+
+/// A consensus map: writes are proposals settled by server sequencing.
+pub type PactMapChannel
+
+/// A consensus ordered collection (a sequenced work queue).
+pub type OrderedCollectionChannel
+
 /// A typed key whose stored value is a handle to a channel of `kind`.
 pub opaque type ChannelField(schema, kind) {
   ChannelField(key: String)

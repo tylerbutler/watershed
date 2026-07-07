@@ -23,8 +23,8 @@ import lustre/event
 import doc_schema.{type SudokuDoc}
 import puzzles.{type Puzzle}
 import watershed_js.{
-  type Document, type SharedClaims, type SharedCounter, type SharedMap,
-  type SharedOrSet, type Signal, type TypedMap, WatershedConfig,
+  type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
+  type Signal, type TypedMap, WatershedConfig,
 }
 
 import presence.{type Peers, type Presence, Presence}
@@ -65,8 +65,8 @@ type Status {
 type SharedState {
   SharedState(
     cells: SharedMap,
-    notes: SharedOrSet,
-    givens: SharedClaims,
+    notes: OrSet,
+    givens: Claims,
     mistakes: SharedCounter,
   )
 }
@@ -408,7 +408,7 @@ fn handle_key(model: Model, key: String) -> Model {
   }
 }
 
-fn toggle_note(notes: SharedOrSet, row: Int, col: Int, digit: Int) -> Nil {
+fn toggle_note(notes: OrSet, row: Int, col: Int, digit: Int) -> Nil {
   let key = note_key(row, col, digit)
   case watershed_js.or_set_contains(notes, key) {
     True -> watershed_js.or_set_remove(notes, key)
@@ -450,12 +450,7 @@ fn snapshot(model: Model) -> Model {
 
 // ── Content seeding ──────────────────────────────────────────────────────────
 
-fn seed_givens(
-  claims: SharedClaims,
-  puzzle: Puzzle,
-  row: Int,
-  col: Int,
-) -> Nil {
+fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
   case row >= 9 {
     True -> Nil
     False -> {
@@ -691,7 +686,7 @@ fn read_cells(cells: SharedMap) -> List(#(String, Int)) {
   })
 }
 
-fn read_givens(givens: SharedClaims) -> List(#(String, Int)) {
+fn read_givens(givens: Claims) -> List(#(String, Int)) {
   rows_and_cols()
   |> list.filter_map(fn(cell) {
     let key = cell_key(cell.0, cell.1)

@@ -113,48 +113,63 @@ pub opaque type SharedCounter {
 }
 
 @target(erlang)
-pub opaque type SharedJsonOt {
-  SharedJsonOt(runtime: Subject(runtime.Msg), address: String)
+pub opaque type JsonOt {
+  JsonOt(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedOrMap {
-  SharedOrMap(runtime: Subject(runtime.Msg), address: String)
+pub opaque type OrMap {
+  OrMap(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedOrSet {
-  SharedOrSet(runtime: Subject(runtime.Msg), address: String)
+pub opaque type OrSet {
+  OrSet(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedRegisterCollection {
-  SharedRegisterCollection(runtime: Subject(runtime.Msg), address: String)
+pub opaque type RegisterCollection {
+  RegisterCollection(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedClaims {
-  SharedClaims(runtime: Subject(runtime.Msg), address: String)
+pub opaque type Claims {
+  Claims(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedTaskManager {
-  SharedTaskManager(runtime: Subject(runtime.Msg), address: String)
+pub opaque type TaskManager {
+  TaskManager(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedGSet {
-  SharedGSet(runtime: Subject(runtime.Msg), address: String)
+pub opaque type GSet {
+  GSet(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
-pub opaque type SharedTwoPSet {
-  SharedTwoPSet(runtime: Subject(runtime.Msg), address: String)
+pub opaque type TwoPSet {
+  TwoPSet(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
 pub opaque type SharedDirectory {
   SharedDirectory(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type PnCounter {
+  PnCounter(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type PactMap {
+  PactMap(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type OrderedCollection {
+  OrderedCollection(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -519,7 +534,7 @@ pub fn resolve_counter_field(
 pub fn set_json_ot_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
-  json_ot: SharedJsonOt,
+  json_ot: JsonOt,
 ) -> Nil {
   put_channel_field(typed_map, field, json_ot_handle_of(json_ot))
 }
@@ -530,7 +545,7 @@ pub fn resolve_json_ot_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
-) -> Result(Option(SharedJsonOt), String) {
+) -> Result(Option(JsonOt), String) {
   get_channel_field(document, typed_map, field, resolve_json_ot)
 }
 
@@ -539,7 +554,7 @@ pub fn resolve_json_ot_field(
 pub fn set_or_map_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
-  or_map: SharedOrMap,
+  or_map: OrMap,
 ) -> Nil {
   put_channel_field(typed_map, field, or_map_handle_of(or_map))
 }
@@ -550,7 +565,7 @@ pub fn resolve_or_map_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
-) -> Result(Option(SharedOrMap), String) {
+) -> Result(Option(OrMap), String) {
   get_channel_field(document, typed_map, field, resolve_or_map)
 }
 
@@ -559,7 +574,7 @@ pub fn resolve_or_map_field(
 pub fn set_or_set_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-  or_set: SharedOrSet,
+  or_set: OrSet,
 ) -> Nil {
   put_channel_field(typed_map, field, or_set_handle_of(or_set))
 }
@@ -570,7 +585,7 @@ pub fn resolve_or_set_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-) -> Result(Option(SharedOrSet), String) {
+) -> Result(Option(OrSet), String) {
   get_channel_field(document, typed_map, field, resolve_or_set)
 }
 
@@ -579,7 +594,7 @@ pub fn resolve_or_set_field(
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
 ) -> Nil {
   put_channel_field(typed_map, field, register_collection_handle_of(collection))
 }
@@ -590,7 +605,7 @@ pub fn resolve_register_collection_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-) -> Result(Option(SharedRegisterCollection), String) {
+) -> Result(Option(RegisterCollection), String) {
   get_channel_field(document, typed_map, field, resolve_register_collection)
 }
 
@@ -599,7 +614,7 @@ pub fn resolve_register_collection_field(
 pub fn set_claims_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-  claims: SharedClaims,
+  claims: Claims,
 ) -> Nil {
   put_channel_field(typed_map, field, claims_handle_of(claims))
 }
@@ -610,7 +625,7 @@ pub fn resolve_claims_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-) -> Result(Option(SharedClaims), String) {
+) -> Result(Option(Claims), String) {
   get_channel_field(document, typed_map, field, resolve_claims)
 }
 
@@ -619,7 +634,7 @@ pub fn resolve_claims_field(
 pub fn set_task_manager_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-  manager: SharedTaskManager,
+  manager: TaskManager,
 ) -> Nil {
   put_channel_field(typed_map, field, task_manager_handle_of(manager))
 }
@@ -630,7 +645,7 @@ pub fn resolve_task_manager_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-) -> Result(Option(SharedTaskManager), String) {
+) -> Result(Option(TaskManager), String) {
   get_channel_field(document, typed_map, field, resolve_task_manager)
 }
 
@@ -639,7 +654,7 @@ pub fn resolve_task_manager_field(
 pub fn set_g_set_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
-  set: SharedGSet,
+  set: GSet,
 ) -> Nil {
   put_channel_field(typed_map, field, g_set_handle_of(set))
 }
@@ -650,7 +665,7 @@ pub fn resolve_g_set_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
-) -> Result(Option(SharedGSet), String) {
+) -> Result(Option(GSet), String) {
   get_channel_field(document, typed_map, field, resolve_g_set)
 }
 
@@ -659,7 +674,7 @@ pub fn resolve_g_set_field(
 pub fn set_two_p_set_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
-  set: SharedTwoPSet,
+  set: TwoPSet,
 ) -> Nil {
   put_channel_field(typed_map, field, two_p_set_handle_of(set))
 }
@@ -670,7 +685,7 @@ pub fn resolve_two_p_set_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
-) -> Result(Option(SharedTwoPSet), String) {
+) -> Result(Option(TwoPSet), String) {
   get_channel_field(document, typed_map, field, resolve_two_p_set)
 }
 
@@ -692,6 +707,66 @@ pub fn resolve_directory_field(
   field: ChannelField(s, schema.DirectoryChannel),
 ) -> Result(Option(SharedDirectory), String) {
   get_channel_field(document, typed_map, field, resolve_directory)
+}
+
+@target(erlang)
+/// Store a handle to `pn_counter` under a typed channel field.
+pub fn set_pn_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+  pn_counter: PnCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, pn_counter_handle_of(pn_counter))
+}
+
+@target(erlang)
+/// Resolve the PN-counter referenced by a typed channel field.
+pub fn resolve_pn_counter_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+) -> Result(Option(PnCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(erlang)
+/// Store a handle to `pact_map` under a typed channel field.
+pub fn set_pact_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+  pact_map: PactMap,
+) -> Nil {
+  put_channel_field(typed_map, field, pact_map_handle_of(pact_map))
+}
+
+@target(erlang)
+/// Resolve the PactMap referenced by a typed channel field.
+pub fn resolve_pact_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+) -> Result(Option(PactMap), String) {
+  get_channel_field(document, typed_map, field, resolve_pact_map)
+}
+
+@target(erlang)
+/// Store a handle to `collection` under a typed channel field.
+pub fn set_ordered_collection_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+  collection: OrderedCollection,
+) -> Nil {
+  put_channel_field(typed_map, field, ordered_collection_handle_of(collection))
+}
+
+@target(erlang)
+/// Resolve the ordered collection referenced by a typed channel field.
+pub fn resolve_ordered_collection_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+) -> Result(Option(OrderedCollection), String) {
+  get_channel_field(document, typed_map, field, resolve_ordered_collection)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -807,7 +882,7 @@ pub fn ensure_json_ot(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
-) -> Result(SharedJsonOt, String) {
+) -> Result(JsonOt, String) {
   ensure_channel(
     document,
     typed_map,
@@ -827,7 +902,7 @@ pub fn ensure_or_map(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
-) -> Result(SharedOrMap, String) {
+) -> Result(OrMap, String) {
   ensure_channel(
     document,
     typed_map,
@@ -846,7 +921,7 @@ pub fn ensure_or_set(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-) -> Result(SharedOrSet, String) {
+) -> Result(OrSet, String) {
   ensure_channel(
     document,
     typed_map,
@@ -865,7 +940,7 @@ pub fn ensure_register_collection(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-) -> Result(SharedRegisterCollection, String) {
+) -> Result(RegisterCollection, String) {
   ensure_channel(
     document,
     typed_map,
@@ -884,7 +959,7 @@ pub fn ensure_claims(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-) -> Result(SharedClaims, String) {
+) -> Result(Claims, String) {
   ensure_channel(
     document,
     typed_map,
@@ -903,7 +978,7 @@ pub fn ensure_task_manager(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-) -> Result(SharedTaskManager, String) {
+) -> Result(TaskManager, String) {
   ensure_channel(
     document,
     typed_map,
@@ -922,7 +997,7 @@ pub fn ensure_g_set(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
-) -> Result(SharedGSet, String) {
+) -> Result(GSet, String) {
   ensure_channel(
     document,
     typed_map,
@@ -941,7 +1016,7 @@ pub fn ensure_two_p_set(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
-) -> Result(SharedTwoPSet, String) {
+) -> Result(TwoPSet, String) {
   ensure_channel(
     document,
     typed_map,
@@ -970,6 +1045,63 @@ pub fn ensure_directory(
       set_directory_field(typed_map, field, dir)
     },
     fn() { resolve_directory_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
+pub fn ensure_pn_counter(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+) -> Result(PnCounter, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use pn_counter <- result.map(create_pn_counter(document))
+      set_pn_counter_field(typed_map, field, pn_counter)
+    },
+    fn() { resolve_pn_counter_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a PactMap exists under `field`.
+pub fn ensure_pact_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+) -> Result(PactMap, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use pact_map <- result.map(create_pact_map(document))
+      set_pact_map_field(typed_map, field, pact_map)
+    },
+    fn() { resolve_pact_map_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure an ordered collection exists under `field`.
+pub fn ensure_ordered_collection(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+) -> Result(OrderedCollection, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use collection <- result.map(create_ordered_collection(document))
+      set_ordered_collection_field(typed_map, field, collection)
+    },
+    fn() { resolve_ordered_collection_field(document, typed_map, field) },
   )
 }
 
@@ -1117,31 +1249,31 @@ pub fn subscribe_counter(
 /// Create a new json0 (JSON-OT) channel. Same detached lifecycle as
 /// `create_map`: local-only until its handle (`json_ot_handle_of`) is first
 /// stored into an attached map.
-pub fn create_json_ot(document: Document) -> Result(SharedJsonOt, String) {
+pub fn create_json_ot(document: Document) -> Result(JsonOt, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateJsonOt,
   )
   |> result.map(fn(address) {
-    SharedJsonOt(runtime: document.runtime, address: address)
+    JsonOt(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
 /// The Fluid handle marker referencing `json_ot`, suitable for storing as a
 /// value in a map (see `handle_of`).
-pub fn json_ot_handle_of(json_ot: SharedJsonOt) -> Json {
+pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
   handle.encode_handle(json_ot.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedJsonOt it references. Existence is
+/// Resolve a handle value to the JsonOt it references. Existence is
 /// checked, not channel type. Errors are retryable, as with `resolve`.
 pub fn resolve_json_ot(
   document: Document,
   value: Json,
-) -> Result(SharedJsonOt, String) {
+) -> Result(JsonOt, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1151,21 +1283,21 @@ pub fn resolve_json_ot(
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
-        SharedJsonOt(runtime: document.runtime, address: address)
+        JsonOt(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(erlang)
 /// Optimistically submit a json0 op (a list of components) to the channel.
-pub fn submit_json_ot(json_ot: SharedJsonOt, op: json_ot.Op) -> Nil {
+pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
   process.send(json_ot.runtime, runtime.SubmitJsonOt(json_ot.address, op))
 }
 
 @target(erlang)
 /// The json0 channel's current optimistic document, `None` when the address is
 /// not a json0 channel.
-pub fn json_ot_view(json_ot: SharedJsonOt) -> Option(json_ot.JsonValue) {
+pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
   process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetJsonOtView(json_ot.address, reply)
   })
@@ -1175,7 +1307,7 @@ pub fn json_ot_view(json_ot: SharedJsonOt) -> Option(json_ot.JsonValue) {
 /// Subscribe the calling process to this json0 channel's events, local and
 /// remote alike.
 pub fn subscribe_json_ot(
-  json_ot: SharedJsonOt,
+  json_ot: JsonOt,
 ) -> Subject(json_ot_kernel.JsonOtEvent) {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
   case event {
@@ -1195,17 +1327,17 @@ pub fn subscribe_json_ot(
 pub fn create_or_map(
   document: Document,
   mode: OrMapMode,
-) -> Result(SharedOrMap, String) {
+) -> Result(OrMap, String) {
   process.call(document.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.CreateOrMap(mode, reply)
   })
   |> result.map(fn(address) {
-    SharedOrMap(runtime: document.runtime, address: address)
+    OrMap(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
-pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
+pub fn or_map_handle_of(or_map: OrMap) -> Json {
   handle.encode_handle(or_map.address)
 }
 
@@ -1213,7 +1345,7 @@ pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
 pub fn resolve_or_map(
   document: Document,
   value: Json,
-) -> Result(SharedOrMap, String) {
+) -> Result(OrMap, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1222,14 +1354,12 @@ pub fn resolve_or_map(
         waiting: call_timeout_ms,
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
-      |> result.map(fn(_) {
-        SharedOrMap(runtime: document.runtime, address: address)
-      })
+      |> result.map(fn(_) { OrMap(runtime: document.runtime, address: address) })
   }
 }
 
 @target(erlang)
-pub fn or_map_increment(or_map: SharedOrMap, key: String, amount: Int) -> Nil {
+pub fn or_map_increment(or_map: OrMap, key: String, amount: Int) -> Nil {
   process.send(
     or_map.runtime,
     runtime.IncrementOrMap(or_map.address, key, amount),
@@ -1237,45 +1367,43 @@ pub fn or_map_increment(or_map: SharedOrMap, key: String, amount: Int) -> Nil {
 }
 
 @target(erlang)
-pub fn or_map_set(or_map: SharedOrMap, key: String, value: String) -> Nil {
+pub fn or_map_set(or_map: OrMap, key: String, value: String) -> Nil {
   process.send(or_map.runtime, runtime.SetOrMapKey(or_map.address, key, value))
 }
 
 @target(erlang)
-pub fn or_map_set_json(or_map: SharedOrMap, key: String, value: Json) -> Nil {
+pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
   or_map_set(or_map, key, json.to_string(value))
 }
 
 @target(erlang)
-pub fn or_map_remove(or_map: SharedOrMap, key: String) -> Nil {
+pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   process.send(or_map.runtime, runtime.RemoveOrMapKey(or_map.address, key))
 }
 
 @target(erlang)
-pub fn or_map_value(or_map: SharedOrMap, key: String) -> Option(OrMapValue) {
+pub fn or_map_value(or_map: OrMap, key: String) -> Option(OrMapValue) {
   process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrMapValue(or_map.address, key, reply)
   })
 }
 
 @target(erlang)
-pub fn or_map_entries(or_map: SharedOrMap) -> List(#(String, OrMapValue)) {
+pub fn or_map_entries(or_map: OrMap) -> List(#(String, OrMapValue)) {
   process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrMapEntries(or_map.address, reply)
   })
 }
 
 @target(erlang)
-pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
+pub fn or_map_keys(or_map: OrMap) -> List(String) {
   process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrMapKeys(or_map.address, reply)
   })
 }
 
 @target(erlang)
-pub fn subscribe_or_map(
-  or_map: SharedOrMap,
-) -> Subject(or_map_kernel.OrMapEvent) {
+pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address)
   case event {
     channel.OrMapEvent(inner) -> Some(inner)
@@ -1289,19 +1417,19 @@ pub fn subscribe_or_map(
 
 @target(erlang)
 /// Create a new observed-remove set channel for string elements.
-pub fn create_or_set(document: Document) -> Result(SharedOrSet, String) {
+pub fn create_or_set(document: Document) -> Result(OrSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateOrSet,
   )
   |> result.map(fn(address) {
-    SharedOrSet(runtime: document.runtime, address: address)
+    OrSet(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
-pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
+pub fn or_set_handle_of(or_set: OrSet) -> Json {
   handle.encode_handle(or_set.address)
 }
 
@@ -1309,7 +1437,7 @@ pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
 pub fn resolve_or_set(
   document: Document,
   value: Json,
-) -> Result(SharedOrSet, String) {
+) -> Result(OrSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1318,19 +1446,17 @@ pub fn resolve_or_set(
         waiting: call_timeout_ms,
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
-      |> result.map(fn(_) {
-        SharedOrSet(runtime: document.runtime, address: address)
-      })
+      |> result.map(fn(_) { OrSet(runtime: document.runtime, address: address) })
   }
 }
 
 @target(erlang)
-pub fn or_set_add(or_set: SharedOrSet, element: String) -> Nil {
+pub fn or_set_add(or_set: OrSet, element: String) -> Nil {
   process.send(or_set.runtime, runtime.AddOrSetElement(or_set.address, element))
 }
 
 @target(erlang)
-pub fn or_set_remove(or_set: SharedOrSet, element: String) -> Nil {
+pub fn or_set_remove(or_set: OrSet, element: String) -> Nil {
   process.send(
     or_set.runtime,
     runtime.RemoveOrSetElement(or_set.address, element),
@@ -1338,23 +1464,21 @@ pub fn or_set_remove(or_set: SharedOrSet, element: String) -> Nil {
 }
 
 @target(erlang)
-pub fn or_set_contains(or_set: SharedOrSet, element: String) -> Bool {
+pub fn or_set_contains(or_set: OrSet, element: String) -> Bool {
   process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.OrSetContains(or_set.address, element, reply)
   })
 }
 
 @target(erlang)
-pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
+pub fn or_set_values(or_set: OrSet) -> List(String) {
   process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrSetValues(or_set.address, reply)
   })
 }
 
 @target(erlang)
-pub fn subscribe_or_set(
-  or_set: SharedOrSet,
-) -> Subject(or_set_kernel.OrSetEvent) {
+pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
@@ -1371,21 +1495,19 @@ pub fn subscribe_or_set(
 /// starts detached until its handle is stored in an attached map.
 pub fn create_register_collection(
   document: Document,
-) -> Result(SharedRegisterCollection, String) {
+) -> Result(RegisterCollection, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateRegisterCollection,
   )
   |> result.map(fn(address) {
-    SharedRegisterCollection(runtime: document.runtime, address: address)
+    RegisterCollection(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
-pub fn register_collection_handle_of(
-  collection: SharedRegisterCollection,
-) -> Json {
+pub fn register_collection_handle_of(collection: RegisterCollection) -> Json {
   handle.encode_handle(collection.address)
 }
 
@@ -1393,7 +1515,7 @@ pub fn register_collection_handle_of(
 pub fn resolve_register_collection(
   document: Document,
   value: Json,
-) -> Result(SharedRegisterCollection, String) {
+) -> Result(RegisterCollection, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1403,14 +1525,14 @@ pub fn resolve_register_collection(
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
-        SharedRegisterCollection(runtime: document.runtime, address: address)
+        RegisterCollection(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(erlang)
 pub fn register_write(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
   value: Json,
 ) -> Nil {
@@ -1422,7 +1544,7 @@ pub fn register_write(
 
 @target(erlang)
 pub fn register_read(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
   policy: ReadPolicy,
 ) -> Option(Json) {
@@ -1433,7 +1555,7 @@ pub fn register_read(
 
 @target(erlang)
 pub fn register_get(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
 ) -> Option(Json) {
   register_read(collection, key, Atomic)
@@ -1441,7 +1563,7 @@ pub fn register_get(
 
 @target(erlang)
 pub fn register_versions(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
 ) -> Option(List(Json)) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
@@ -1450,7 +1572,7 @@ pub fn register_versions(
 }
 
 @target(erlang)
-pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
+pub fn register_keys(collection: RegisterCollection) -> List(String) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetRegisterKeys(collection.address, reply)
   })
@@ -1458,7 +1580,7 @@ pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
 
 @target(erlang)
 pub fn subscribe_register_collection(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
 ) -> Subject(register_collection_kernel.RegisterEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
@@ -1472,19 +1594,19 @@ pub fn subscribe_register_collection(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_claims(document: Document) -> Result(SharedClaims, String) {
+pub fn create_claims(document: Document) -> Result(Claims, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateClaims,
   )
   |> result.map(fn(address) {
-    SharedClaims(runtime: document.runtime, address: address)
+    Claims(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
-pub fn claims_handle_of(claims: SharedClaims) -> Json {
+pub fn claims_handle_of(claims: Claims) -> Json {
   handle.encode_handle(claims.address)
 }
 
@@ -1492,7 +1614,7 @@ pub fn claims_handle_of(claims: SharedClaims) -> Json {
 pub fn resolve_claims(
   document: Document,
   value: Json,
-) -> Result(SharedClaims, String) {
+) -> Result(Claims, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1502,14 +1624,14 @@ pub fn resolve_claims(
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
-        SharedClaims(runtime: document.runtime, address: address)
+        Claims(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(erlang)
 pub fn try_set_claim(
-  claims: SharedClaims,
+  claims: Claims,
   key: String,
   value: Json,
 ) -> runtime.ClaimSubmitReply {
@@ -1518,7 +1640,7 @@ pub fn try_set_claim(
 
 @target(erlang)
 pub fn compare_and_set_claim(
-  claims: SharedClaims,
+  claims: Claims,
   key: String,
   value: Json,
 ) -> runtime.ClaimSubmitReply {
@@ -1526,19 +1648,17 @@ pub fn compare_and_set_claim(
 }
 
 @target(erlang)
-pub fn get_claim(claims: SharedClaims, key: String) -> Option(Json) {
+pub fn get_claim(claims: Claims, key: String) -> Option(Json) {
   runtime.get_claim(claims.runtime, claims.address, key)
 }
 
 @target(erlang)
-pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
+pub fn has_claim(claims: Claims, key: String) -> Bool {
   runtime.has_claim(claims.runtime, claims.address, key)
 }
 
 @target(erlang)
-pub fn subscribe_claims(
-  claims: SharedClaims,
-) -> Subject(claims_kernel.ClaimEvent) {
+pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
   use event <- subscribe_narrowed(claims.runtime, claims.address)
   case event {
     channel.ClaimsEvent(inner) -> Some(inner)
@@ -1551,21 +1671,19 @@ pub fn subscribe_claims(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_task_manager(
-  document: Document,
-) -> Result(SharedTaskManager, String) {
+pub fn create_task_manager(document: Document) -> Result(TaskManager, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateTaskManager,
   )
   |> result.map(fn(address) {
-    SharedTaskManager(runtime: document.runtime, address: address)
+    TaskManager(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
-pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
+pub fn task_manager_handle_of(manager: TaskManager) -> Json {
   handle.encode_handle(manager.address)
 }
 
@@ -1573,7 +1691,7 @@ pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
 pub fn resolve_task_manager(
   document: Document,
   value: Json,
-) -> Result(SharedTaskManager, String) {
+) -> Result(TaskManager, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1583,50 +1701,50 @@ pub fn resolve_task_manager(
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
-        SharedTaskManager(runtime: document.runtime, address: address)
+        TaskManager(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(erlang)
 pub fn volunteer_for_task(
-  manager: SharedTaskManager,
+  manager: TaskManager,
   task_id: String,
 ) -> task_manager_kernel.VolunteerOutcome {
   runtime.volunteer_task(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
-pub fn abandon_task(manager: SharedTaskManager, task_id: String) -> Nil {
+pub fn abandon_task(manager: TaskManager, task_id: String) -> Nil {
   runtime.abandon_task(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
 pub fn complete_task(
-  manager: SharedTaskManager,
+  manager: TaskManager,
   task_id: String,
 ) -> Result(Nil, String) {
   runtime.complete_task(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
-pub fn task_assigned(manager: SharedTaskManager, task_id: String) -> Bool {
+pub fn task_assigned(manager: TaskManager, task_id: String) -> Bool {
   runtime.task_assigned(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
-pub fn task_queued(manager: SharedTaskManager, task_id: String) -> Bool {
+pub fn task_queued(manager: TaskManager, task_id: String) -> Bool {
   runtime.task_queued(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
-pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
+pub fn task_queues(manager: TaskManager) -> List(#(String, List(Int))) {
   runtime.task_queues(manager.runtime, manager.address)
 }
 
 @target(erlang)
 pub fn subscribe_task_manager(
-  manager: SharedTaskManager,
+  manager: TaskManager,
 ) -> Subject(task_manager_kernel.TaskManagerEvent) {
   use event <- subscribe_narrowed(manager.runtime, manager.address)
   case event {
@@ -1644,31 +1762,28 @@ pub fn subscribe_task_manager(
 /// `create_map`: local-only until its handle (`g_set_handle_of`) is first
 /// stored into an attached map. Elements can only be added, never removed;
 /// concurrent adds always converge to the union.
-pub fn create_g_set(document: Document) -> Result(SharedGSet, String) {
+pub fn create_g_set(document: Document) -> Result(GSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateGSet,
   )
   |> result.map(fn(address) {
-    SharedGSet(runtime: document.runtime, address: address)
+    GSet(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
 /// The Fluid handle marker referencing `set`, suitable for storing as a value
 /// in a map (see `handle_of`).
-pub fn g_set_handle_of(set: SharedGSet) -> Json {
+pub fn g_set_handle_of(set: GSet) -> Json {
   handle.encode_handle(set.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedGSet it references. Errors are
+/// Resolve a handle value to the GSet it references. Errors are
 /// retryable, as with `resolve`.
-pub fn resolve_g_set(
-  document: Document,
-  value: Json,
-) -> Result(SharedGSet, String) {
+pub fn resolve_g_set(document: Document, value: Json) -> Result(GSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1677,21 +1792,19 @@ pub fn resolve_g_set(
         waiting: call_timeout_ms,
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
-      |> result.map(fn(_) {
-        SharedGSet(runtime: document.runtime, address: address)
-      })
+      |> result.map(fn(_) { GSet(runtime: document.runtime, address: address) })
   }
 }
 
 @target(erlang)
 /// Optimistically add `element` to the set.
-pub fn g_set_add(set: SharedGSet, element: String) -> Nil {
+pub fn g_set_add(set: GSet, element: String) -> Nil {
   process.send(set.runtime, runtime.AddGSetElement(set.address, element))
 }
 
 @target(erlang)
 /// Whether `element` is present in the set's current optimistic state.
-pub fn g_set_contains(set: SharedGSet, element: String) -> Bool {
+pub fn g_set_contains(set: GSet, element: String) -> Bool {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GSetContains(set.address, element, reply)
   })
@@ -1699,7 +1812,7 @@ pub fn g_set_contains(set: SharedGSet, element: String) -> Bool {
 
 @target(erlang)
 /// The set's current optimistic members.
-pub fn g_set_values(set: SharedGSet) -> List(String) {
+pub fn g_set_values(set: GSet) -> List(String) {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetGSetValues(set.address, reply)
   })
@@ -1707,7 +1820,7 @@ pub fn g_set_values(set: SharedGSet) -> List(String) {
 
 @target(erlang)
 /// Subscribe the calling process to this set's events, local and remote alike.
-pub fn subscribe_g_set(set: SharedGSet) -> Subject(g_set_kernel.GSetEvent) {
+pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
     channel.GSetEvent(inner) -> Some(inner)
@@ -1725,31 +1838,31 @@ pub fn subscribe_g_set(set: SharedGSet) -> Subject(g_set_kernel.GSetEvent) {
 /// stored into an attached map. A remove is a permanent tombstone: a removed
 /// element can never be made active again, so remove wins over a concurrent
 /// (re-)add.
-pub fn create_two_p_set(document: Document) -> Result(SharedTwoPSet, String) {
+pub fn create_two_p_set(document: Document) -> Result(TwoPSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
     sending: runtime.CreateTwoPSet,
   )
   |> result.map(fn(address) {
-    SharedTwoPSet(runtime: document.runtime, address: address)
+    TwoPSet(runtime: document.runtime, address: address)
   })
 }
 
 @target(erlang)
 /// The Fluid handle marker referencing `set`, suitable for storing as a value
 /// in a map (see `handle_of`).
-pub fn two_p_set_handle_of(set: SharedTwoPSet) -> Json {
+pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
   handle.encode_handle(set.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedTwoPSet it references. Errors are
+/// Resolve a handle value to the TwoPSet it references. Errors are
 /// retryable, as with `resolve`.
 pub fn resolve_two_p_set(
   document: Document,
   value: Json,
-) -> Result(SharedTwoPSet, String) {
+) -> Result(TwoPSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -1759,7 +1872,7 @@ pub fn resolve_two_p_set(
         sending: fn(reply) { runtime.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
-        SharedTwoPSet(runtime: document.runtime, address: address)
+        TwoPSet(runtime: document.runtime, address: address)
       })
   }
 }
@@ -1767,20 +1880,20 @@ pub fn resolve_two_p_set(
 @target(erlang)
 /// Optimistically add `element` to the set. Adding a previously removed
 /// element records the add but never reactivates it.
-pub fn two_p_set_add(set: SharedTwoPSet, element: String) -> Nil {
+pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
   process.send(set.runtime, runtime.AddTwoPSetElement(set.address, element))
 }
 
 @target(erlang)
 /// Optimistically remove `element` from the set. Removal is a permanent
 /// tombstone.
-pub fn two_p_set_remove(set: SharedTwoPSet, element: String) -> Nil {
+pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
   process.send(set.runtime, runtime.RemoveTwoPSetElement(set.address, element))
 }
 
 @target(erlang)
 /// Whether `element` is present in the set's current optimistic state.
-pub fn two_p_set_contains(set: SharedTwoPSet, element: String) -> Bool {
+pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.TwoPSetContains(set.address, element, reply)
   })
@@ -1788,7 +1901,7 @@ pub fn two_p_set_contains(set: SharedTwoPSet, element: String) -> Bool {
 
 @target(erlang)
 /// The set's current optimistic members.
-pub fn two_p_set_values(set: SharedTwoPSet) -> List(String) {
+pub fn two_p_set_values(set: TwoPSet) -> List(String) {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetTwoPSetValues(set.address, reply)
   })
@@ -1797,7 +1910,7 @@ pub fn two_p_set_values(set: SharedTwoPSet) -> List(String) {
 @target(erlang)
 /// Subscribe the calling process to this set's events, local and remote alike.
 pub fn subscribe_two_p_set(
-  set: SharedTwoPSet,
+  set: TwoPSet,
 ) -> Subject(two_p_set_kernel.TwoPSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
@@ -1968,6 +2081,243 @@ pub fn subscribe_directory(
     channel.DirectoryEvent(inner) -> Some(inner)
     _ -> None
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PN-counters (increment and decrement)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new PN-counter channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle is stored into an attached container.
+pub fn create_pn_counter(document: Document) -> Result(PnCounter, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreatePnCounter,
+  )
+  |> result.map(fn(address) {
+    PnCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn pn_counter_handle_of(pn_counter: PnCounter) -> Json {
+  handle.encode_handle(pn_counter.address)
+}
+
+@target(erlang)
+pub fn resolve_pn_counter(
+  document: Document,
+  value: Json,
+) -> Result(PnCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        PnCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically add `amount` (negative amounts decrement).
+pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
+  process.send(
+    pn_counter.runtime,
+    runtime.UpdatePnCounter(pn_counter.address, amount),
+  )
+}
+
+@target(erlang)
+/// The counter's current optimistic value, `None` when the address is not a
+/// PN-counter channel.
+pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
+  process.call(pn_counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPnCounterValue(pn_counter.address, reply)
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PactMaps (consensus map: writes are proposals settled by sequencing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new PactMap channel. Same detached lifecycle as `create_map`.
+pub fn create_pact_map(document: Document) -> Result(PactMap, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreatePactMap,
+  )
+  |> result.map(fn(address) {
+    PactMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn pact_map_handle_of(pact_map: PactMap) -> Json {
+  handle.encode_handle(pact_map.address)
+}
+
+@target(erlang)
+pub fn resolve_pact_map(
+  document: Document,
+  value: Json,
+) -> Result(PactMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        PactMap(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Propose `value` for `key`. Consensus, not optimistic: the value is `pending`
+/// until server sequencing accepts it.
+pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
+  process.send(
+    pact_map.runtime,
+    runtime.SetPactMap(pact_map.address, key, value),
+  )
+}
+
+@target(erlang)
+/// Propose a delete (tombstone) for `key`.
+pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
+  process.send(pact_map.runtime, runtime.DeletePactMap(pact_map.address, key))
+}
+
+@target(erlang)
+/// The accepted value for `key`, `None` when pending, absent, or not a PactMap
+/// channel.
+pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
+  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPactMapValue(pact_map.address, key, reply)
+  })
+}
+
+@target(erlang)
+/// All keys with an accepted or pending pact.
+pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
+  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPactMapKeys(pact_map.address, reply)
+  })
+}
+
+@target(erlang)
+/// Whether `key` currently has an unsettled (pending) proposal.
+pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
+  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPactMapPending(pact_map.address, key, reply)
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ordered collections (consensus work queue)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
+/// `create_map`.
+pub fn create_ordered_collection(
+  document: Document,
+) -> Result(OrderedCollection, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateOrderedCollection,
+  )
+  |> result.map(fn(address) {
+    OrderedCollection(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn ordered_collection_handle_of(collection: OrderedCollection) -> Json {
+  handle.encode_handle(collection.address)
+}
+
+@target(erlang)
+pub fn resolve_ordered_collection(
+  document: Document,
+  value: Json,
+) -> Result(OrderedCollection, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        OrderedCollection(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Enqueue `value` at the tail of the collection.
+pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
+  process.send(
+    collection.runtime,
+    runtime.AddOrderedItem(collection.address, value),
+  )
+}
+
+@target(erlang)
+/// Acquire (lease) the head item, returning the acquire id used to `complete`
+/// or `release` it.
+pub fn ordered_acquire(collection: OrderedCollection) -> String {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.AcquireOrderedItem(collection.address, reply)
+  })
+}
+
+@target(erlang)
+/// Complete an acquired item, removing it permanently.
+pub fn ordered_complete(
+  collection: OrderedCollection,
+  acquire_id: String,
+) -> Nil {
+  process.send(
+    collection.runtime,
+    runtime.CompleteOrderedItem(collection.address, acquire_id),
+  )
+}
+
+@target(erlang)
+/// Release an acquired item back to the collection for another consumer.
+pub fn ordered_release(
+  collection: OrderedCollection,
+  acquire_id: String,
+) -> Nil {
+  process.send(
+    collection.runtime,
+    runtime.ReleaseOrderedItem(collection.address, acquire_id),
+  )
+}
+
+@target(erlang)
+/// The number of items currently in the collection, `None` when the address is
+/// not an ordered-collection channel.
+pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrderedSize(collection.address, reply)
+  })
 }
 
 @target(erlang)

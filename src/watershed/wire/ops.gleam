@@ -237,7 +237,7 @@ pub fn encode_counter_op(op: CounterOp) -> Json {
   }
 }
 
-/// `{address, contents}` document envelope around a SharedPnCounter op.
+/// `{address, contents}` document envelope around a PnCounter op.
 pub fn encode_pn_counter_envelope(address: String, op: PnCounterOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -256,7 +256,7 @@ pub fn encode_pn_counter_op(op: PnCounterOp) -> Json {
   }
 }
 
-/// `{address, contents}` document envelope around a SharedOrMap op.
+/// `{address, contents}` document envelope around a OrMap op.
 pub fn encode_or_map_envelope(address: String, op: OrMapOp) -> Json {
   json.object([
     #("address", json.string(address)),

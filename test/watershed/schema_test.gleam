@@ -66,6 +66,24 @@ pub fn channel_field_kind_is_phantom_test() {
   schema.channel_field_key(score) |> expect.to_equal("score")
 }
 
+pub fn pn_counter_channel_field_test() {
+  let tally: schema.ChannelField(Player, schema.PnCounterChannel) =
+    schema.channel_field("tally")
+  schema.channel_field_key(tally) |> expect.to_equal("tally")
+}
+
+pub fn pact_map_channel_field_test() {
+  let config: schema.ChannelField(Player, schema.PactMapChannel) =
+    schema.channel_field("config")
+  schema.channel_field_key(config) |> expect.to_equal("config")
+}
+
+pub fn ordered_collection_channel_field_test() {
+  let jobs: schema.ChannelField(Player, schema.OrderedCollectionChannel) =
+    schema.channel_field("jobs")
+  schema.channel_field_key(jobs) |> expect.to_equal("jobs")
+}
+
 // ── Round-trips: encode_value then decode_value ──────────────────────────────
 
 pub fn string_round_trip_test() {

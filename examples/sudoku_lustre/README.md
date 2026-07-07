@@ -14,8 +14,8 @@ The board is bootstrapped from handles stored on the document's root
 | Concern | Structure | Encoding |
 | --- | --- | --- |
 | Cell values (player entries) | `SharedMap` | `r{r}c{c}` → digit, last-write-wins |
-| Pencil-mark candidates | `SharedOrSet` | `r{r}c{c}={d}` add/remove notes |
-| Puzzle givens (agreed clues) | `SharedClaims` | consensus per cell — every client converges on the same puzzle |
+| Pencil-mark candidates | `OrSet` | `r{r}c{c}={d}` add/remove notes |
+| Puzzle givens (agreed clues) | `Claims` | consensus per cell — every client converges on the same puzzle |
 | Shared mistakes tally | `SharedCounter` | `increment` on a wrong entry |
 
 **Ephemeral presence** — who's online, each player's selected cell, and a

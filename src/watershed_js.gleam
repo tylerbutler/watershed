@@ -120,28 +120,43 @@ pub opaque type SharedCounter {
 }
 
 @target(javascript)
-pub opaque type SharedOrMap {
-  SharedOrMap(runtime: runtime_js.Runtime, address: String)
+pub opaque type OrMap {
+  OrMap(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
-pub opaque type SharedOrSet {
-  SharedOrSet(runtime: runtime_js.Runtime, address: String)
+pub opaque type OrSet {
+  OrSet(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
-pub opaque type SharedRegisterCollection {
-  SharedRegisterCollection(runtime: runtime_js.Runtime, address: String)
+pub opaque type RegisterCollection {
+  RegisterCollection(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
-pub opaque type SharedClaims {
-  SharedClaims(runtime: runtime_js.Runtime, address: String)
+pub opaque type Claims {
+  Claims(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
-pub opaque type SharedTaskManager {
-  SharedTaskManager(runtime: runtime_js.Runtime, address: String)
+pub opaque type TaskManager {
+  TaskManager(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type PnCounter {
+  PnCounter(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type PactMap {
+  PactMap(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type OrderedCollection {
+  OrderedCollection(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -480,7 +495,7 @@ pub fn resolve_counter_field(
 pub fn set_or_map_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
-  or_map: SharedOrMap,
+  or_map: OrMap,
 ) -> Nil {
   put_channel_field(typed_map, field, or_map_handle_of(or_map))
 }
@@ -491,7 +506,7 @@ pub fn resolve_or_map_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
-) -> Result(Option(SharedOrMap), String) {
+) -> Result(Option(OrMap), String) {
   get_channel_field(document, typed_map, field, resolve_or_map)
 }
 
@@ -500,7 +515,7 @@ pub fn resolve_or_map_field(
 pub fn set_or_set_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-  or_set: SharedOrSet,
+  or_set: OrSet,
 ) -> Nil {
   put_channel_field(typed_map, field, or_set_handle_of(or_set))
 }
@@ -511,7 +526,7 @@ pub fn resolve_or_set_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-) -> Result(Option(SharedOrSet), String) {
+) -> Result(Option(OrSet), String) {
   get_channel_field(document, typed_map, field, resolve_or_set)
 }
 
@@ -520,7 +535,7 @@ pub fn resolve_or_set_field(
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
 ) -> Nil {
   put_channel_field(typed_map, field, register_collection_handle_of(collection))
 }
@@ -531,7 +546,7 @@ pub fn resolve_register_collection_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-) -> Result(Option(SharedRegisterCollection), String) {
+) -> Result(Option(RegisterCollection), String) {
   get_channel_field(document, typed_map, field, resolve_register_collection)
 }
 
@@ -540,7 +555,7 @@ pub fn resolve_register_collection_field(
 pub fn set_claims_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-  claims: SharedClaims,
+  claims: Claims,
 ) -> Nil {
   put_channel_field(typed_map, field, claims_handle_of(claims))
 }
@@ -551,7 +566,7 @@ pub fn resolve_claims_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-) -> Result(Option(SharedClaims), String) {
+) -> Result(Option(Claims), String) {
   get_channel_field(document, typed_map, field, resolve_claims)
 }
 
@@ -560,7 +575,7 @@ pub fn resolve_claims_field(
 pub fn set_task_manager_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-  manager: SharedTaskManager,
+  manager: TaskManager,
 ) -> Nil {
   put_channel_field(typed_map, field, task_manager_handle_of(manager))
 }
@@ -571,8 +586,68 @@ pub fn resolve_task_manager_field(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-) -> Result(Option(SharedTaskManager), String) {
+) -> Result(Option(TaskManager), String) {
   get_channel_field(document, typed_map, field, resolve_task_manager)
+}
+
+@target(javascript)
+/// Store a handle to `pn_counter` under a typed channel field.
+pub fn set_pn_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+  pn_counter: PnCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, pn_counter_handle_of(pn_counter))
+}
+
+@target(javascript)
+/// Resolve the PN-counter referenced by a typed channel field.
+pub fn resolve_pn_counter_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+) -> Result(Option(PnCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(javascript)
+/// Store a handle to `pact_map` under a typed channel field.
+pub fn set_pact_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+  pact_map: PactMap,
+) -> Nil {
+  put_channel_field(typed_map, field, pact_map_handle_of(pact_map))
+}
+
+@target(javascript)
+/// Resolve the PactMap referenced by a typed channel field.
+pub fn resolve_pact_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+) -> Result(Option(PactMap), String) {
+  get_channel_field(document, typed_map, field, resolve_pact_map)
+}
+
+@target(javascript)
+/// Store a handle to `collection` under a typed channel field.
+pub fn set_ordered_collection_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+  collection: OrderedCollection,
+) -> Nil {
+  put_channel_field(typed_map, field, ordered_collection_handle_of(collection))
+}
+
+@target(javascript)
+/// Resolve the ordered collection referenced by a typed channel field.
+pub fn resolve_ordered_collection_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+) -> Result(Option(OrderedCollection), String) {
+  get_channel_field(document, typed_map, field, resolve_ordered_collection)
 }
 
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
@@ -702,7 +777,7 @@ pub fn ensure_or_map(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
-  done: fn(Result(SharedOrMap, String)) -> Nil,
+  done: fn(Result(OrMap, String)) -> Nil,
 ) -> Nil {
   ensure_channel(
     document,
@@ -723,7 +798,7 @@ pub fn ensure_or_set(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-  done: fn(Result(SharedOrSet, String)) -> Nil,
+  done: fn(Result(OrSet, String)) -> Nil,
 ) -> Nil {
   ensure_channel(
     document,
@@ -744,7 +819,7 @@ pub fn ensure_register_collection(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-  done: fn(Result(SharedRegisterCollection, String)) -> Nil,
+  done: fn(Result(RegisterCollection, String)) -> Nil,
 ) -> Nil {
   ensure_channel(
     document,
@@ -765,7 +840,7 @@ pub fn ensure_claims(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-  done: fn(Result(SharedClaims, String)) -> Nil,
+  done: fn(Result(Claims, String)) -> Nil,
 ) -> Nil {
   ensure_channel(
     document,
@@ -786,7 +861,7 @@ pub fn ensure_task_manager(
   document: Document,
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-  done: fn(Result(SharedTaskManager, String)) -> Nil,
+  done: fn(Result(TaskManager, String)) -> Nil,
 ) -> Nil {
   ensure_channel(
     document,
@@ -797,6 +872,69 @@ pub fn ensure_task_manager(
       set_task_manager_field(typed_map, field, tasks)
     },
     fn() { resolve_task_manager_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
+pub fn ensure_pn_counter(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PnCounterChannel),
+  done: fn(Result(PnCounter, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use pn_counter <- result.map(create_pn_counter(document))
+      set_pn_counter_field(typed_map, field, pn_counter)
+    },
+    fn() { resolve_pn_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a PactMap exists under `field`.
+pub fn ensure_pact_map(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.PactMapChannel),
+  done: fn(Result(PactMap, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use pact_map <- result.map(create_pact_map(document))
+      set_pact_map_field(typed_map, field, pact_map)
+    },
+    fn() { resolve_pact_map_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure an ordered collection exists under `field`.
+pub fn ensure_ordered_collection(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrderedCollectionChannel),
+  done: fn(Result(OrderedCollection, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use collection <- result.map(create_ordered_collection(document))
+      set_ordered_collection_field(typed_map, field, collection)
+    },
+    fn() { resolve_ordered_collection_field(document, typed_map, field) },
     done,
   )
 }
@@ -929,15 +1067,15 @@ pub fn subscribe_counter(
 pub fn create_or_map(
   document: Document,
   mode: OrMapMode,
-) -> Result(SharedOrMap, String) {
+) -> Result(OrMap, String) {
   runtime_js.create_or_map(document.runtime, mode)
   |> result.map(fn(address) {
-    SharedOrMap(runtime: document.runtime, address: address)
+    OrMap(runtime: document.runtime, address: address)
   })
 }
 
 @target(javascript)
-pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
+pub fn or_map_handle_of(or_map: OrMap) -> Json {
   handle.encode_handle(or_map.address)
 }
 
@@ -945,55 +1083,53 @@ pub fn or_map_handle_of(or_map: SharedOrMap) -> Json {
 pub fn resolve_or_map(
   document: Document,
   value: Json,
-) -> Result(SharedOrMap, String) {
+) -> Result(OrMap, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
       runtime_js.resolve_address(document.runtime, address)
-      |> result.map(fn(_) {
-        SharedOrMap(runtime: document.runtime, address: address)
-      })
+      |> result.map(fn(_) { OrMap(runtime: document.runtime, address: address) })
   }
 }
 
 @target(javascript)
-pub fn or_map_increment(or_map: SharedOrMap, key: String, amount: Int) -> Nil {
+pub fn or_map_increment(or_map: OrMap, key: String, amount: Int) -> Nil {
   runtime_js.or_map_increment(or_map.runtime, or_map.address, key, amount)
 }
 
 @target(javascript)
-pub fn or_map_set(or_map: SharedOrMap, key: String, value: String) -> Nil {
+pub fn or_map_set(or_map: OrMap, key: String, value: String) -> Nil {
   runtime_js.or_map_set(or_map.runtime, or_map.address, key, value)
 }
 
 @target(javascript)
-pub fn or_map_set_json(or_map: SharedOrMap, key: String, value: Json) -> Nil {
+pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
   or_map_set(or_map, key, json.to_string(value))
 }
 
 @target(javascript)
-pub fn or_map_remove(or_map: SharedOrMap, key: String) -> Nil {
+pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   runtime_js.or_map_remove(or_map.runtime, or_map.address, key)
 }
 
 @target(javascript)
-pub fn or_map_value(or_map: SharedOrMap, key: String) -> Option(OrMapValue) {
+pub fn or_map_value(or_map: OrMap, key: String) -> Option(OrMapValue) {
   runtime_js.or_map_value(or_map.runtime, or_map.address, key)
 }
 
 @target(javascript)
-pub fn or_map_entries(or_map: SharedOrMap) -> List(#(String, OrMapValue)) {
+pub fn or_map_entries(or_map: OrMap) -> List(#(String, OrMapValue)) {
   runtime_js.or_map_entries(or_map.runtime, or_map.address)
 }
 
 @target(javascript)
-pub fn or_map_keys(or_map: SharedOrMap) -> List(String) {
+pub fn or_map_keys(or_map: OrMap) -> List(String) {
   runtime_js.or_map_keys(or_map.runtime, or_map.address)
 }
 
 @target(javascript)
 pub fn subscribe_or_map(
-  or_map: SharedOrMap,
+  or_map: OrMap,
   handler: fn(or_map_kernel.OrMapEvent) -> Nil,
 ) -> Nil {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
@@ -1007,15 +1143,15 @@ pub fn subscribe_or_map(
 
 @target(javascript)
 /// Create a new observed-remove set channel for string elements.
-pub fn create_or_set(document: Document) -> Result(SharedOrSet, String) {
+pub fn create_or_set(document: Document) -> Result(OrSet, String) {
   runtime_js.create_or_set(document.runtime)
   |> result.map(fn(address) {
-    SharedOrSet(runtime: document.runtime, address: address)
+    OrSet(runtime: document.runtime, address: address)
   })
 }
 
 @target(javascript)
-pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
+pub fn or_set_handle_of(or_set: OrSet) -> Json {
   handle.encode_handle(or_set.address)
 }
 
@@ -1023,40 +1159,38 @@ pub fn or_set_handle_of(or_set: SharedOrSet) -> Json {
 pub fn resolve_or_set(
   document: Document,
   value: Json,
-) -> Result(SharedOrSet, String) {
+) -> Result(OrSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
       runtime_js.resolve_address(document.runtime, address)
-      |> result.map(fn(_) {
-        SharedOrSet(runtime: document.runtime, address: address)
-      })
+      |> result.map(fn(_) { OrSet(runtime: document.runtime, address: address) })
   }
 }
 
 @target(javascript)
-pub fn or_set_add(or_set: SharedOrSet, element: String) -> Nil {
+pub fn or_set_add(or_set: OrSet, element: String) -> Nil {
   runtime_js.or_set_add(or_set.runtime, or_set.address, element)
 }
 
 @target(javascript)
-pub fn or_set_remove(or_set: SharedOrSet, element: String) -> Nil {
+pub fn or_set_remove(or_set: OrSet, element: String) -> Nil {
   runtime_js.or_set_remove(or_set.runtime, or_set.address, element)
 }
 
 @target(javascript)
-pub fn or_set_contains(or_set: SharedOrSet, element: String) -> Bool {
+pub fn or_set_contains(or_set: OrSet, element: String) -> Bool {
   runtime_js.or_set_contains(or_set.runtime, or_set.address, element)
 }
 
 @target(javascript)
-pub fn or_set_values(or_set: SharedOrSet) -> List(String) {
+pub fn or_set_values(or_set: OrSet) -> List(String) {
   runtime_js.or_set_values(or_set.runtime, or_set.address)
 }
 
 @target(javascript)
 pub fn subscribe_or_set(
-  or_set: SharedOrSet,
+  or_set: OrSet,
   handler: fn(or_set_kernel.OrSetEvent) -> Nil,
 ) -> Nil {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
@@ -1071,17 +1205,15 @@ pub fn subscribe_or_set(
 @target(javascript)
 pub fn create_register_collection(
   document: Document,
-) -> Result(SharedRegisterCollection, String) {
+) -> Result(RegisterCollection, String) {
   runtime_js.create_register_collection(document.runtime)
   |> result.map(fn(address) {
-    SharedRegisterCollection(runtime: document.runtime, address: address)
+    RegisterCollection(runtime: document.runtime, address: address)
   })
 }
 
 @target(javascript)
-pub fn register_collection_handle_of(
-  collection: SharedRegisterCollection,
-) -> Json {
+pub fn register_collection_handle_of(collection: RegisterCollection) -> Json {
   handle.encode_handle(collection.address)
 }
 
@@ -1089,20 +1221,20 @@ pub fn register_collection_handle_of(
 pub fn resolve_register_collection(
   document: Document,
   value: Json,
-) -> Result(SharedRegisterCollection, String) {
+) -> Result(RegisterCollection, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
       runtime_js.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
-        SharedRegisterCollection(runtime: document.runtime, address: address)
+        RegisterCollection(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(javascript)
 pub fn register_write(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
   value: Json,
 ) -> Nil {
@@ -1111,7 +1243,7 @@ pub fn register_write(
 
 @target(javascript)
 pub fn register_read(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
   policy: ReadPolicy,
 ) -> Option(Json) {
@@ -1120,7 +1252,7 @@ pub fn register_read(
 
 @target(javascript)
 pub fn register_get(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
 ) -> Option(Json) {
   register_read(collection, key, Atomic)
@@ -1128,20 +1260,20 @@ pub fn register_get(
 
 @target(javascript)
 pub fn register_versions(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   key: String,
 ) -> Option(List(Json)) {
   runtime_js.register_versions(collection.runtime, collection.address, key)
 }
 
 @target(javascript)
-pub fn register_keys(collection: SharedRegisterCollection) -> List(String) {
+pub fn register_keys(collection: RegisterCollection) -> List(String) {
   runtime_js.register_keys(collection.runtime, collection.address)
 }
 
 @target(javascript)
 pub fn subscribe_register_collection(
-  collection: SharedRegisterCollection,
+  collection: RegisterCollection,
   handler: fn(register_collection_kernel.RegisterEvent) -> Nil,
 ) -> Nil {
   use event <- subscribe_narrowed(
@@ -1158,15 +1290,15 @@ pub fn subscribe_register_collection(
 // ── Claims ───────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_claims(document: Document) -> Result(SharedClaims, String) {
+pub fn create_claims(document: Document) -> Result(Claims, String) {
   runtime_js.create_claims(document.runtime)
   |> result.map(fn(address) {
-    SharedClaims(runtime: document.runtime, address: address)
+    Claims(runtime: document.runtime, address: address)
   })
 }
 
 @target(javascript)
-pub fn claims_handle_of(claims: SharedClaims) -> Json {
+pub fn claims_handle_of(claims: Claims) -> Json {
   handle.encode_handle(claims.address)
 }
 
@@ -1174,20 +1306,20 @@ pub fn claims_handle_of(claims: SharedClaims) -> Json {
 pub fn resolve_claims(
   document: Document,
   value: Json,
-) -> Result(SharedClaims, String) {
+) -> Result(Claims, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
       runtime_js.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
-        SharedClaims(runtime: document.runtime, address: address)
+        Claims(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(javascript)
 pub fn try_set_claim(
-  claims: SharedClaims,
+  claims: Claims,
   key: String,
   value: Json,
 ) -> runtime_js.ClaimSubmitReply {
@@ -1196,7 +1328,7 @@ pub fn try_set_claim(
 
 @target(javascript)
 pub fn compare_and_set_claim(
-  claims: SharedClaims,
+  claims: Claims,
   key: String,
   value: Json,
 ) -> runtime_js.ClaimSubmitReply {
@@ -1204,18 +1336,18 @@ pub fn compare_and_set_claim(
 }
 
 @target(javascript)
-pub fn get_claim(claims: SharedClaims, key: String) -> Option(Json) {
+pub fn get_claim(claims: Claims, key: String) -> Option(Json) {
   runtime_js.get_claim(claims.runtime, claims.address, key)
 }
 
 @target(javascript)
-pub fn has_claim(claims: SharedClaims, key: String) -> Bool {
+pub fn has_claim(claims: Claims, key: String) -> Bool {
   runtime_js.has_claim(claims.runtime, claims.address, key)
 }
 
 @target(javascript)
 pub fn subscribe_claims(
-  claims: SharedClaims,
+  claims: Claims,
   handler: fn(claims_kernel.ClaimEvent) -> Nil,
 ) -> Nil {
   use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
@@ -1228,17 +1360,15 @@ pub fn subscribe_claims(
 // ── Task managers ─────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_task_manager(
-  document: Document,
-) -> Result(SharedTaskManager, String) {
+pub fn create_task_manager(document: Document) -> Result(TaskManager, String) {
   runtime_js.create_task_manager(document.runtime)
   |> result.map(fn(address) {
-    SharedTaskManager(runtime: document.runtime, address: address)
+    TaskManager(runtime: document.runtime, address: address)
   })
 }
 
 @target(javascript)
-pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
+pub fn task_manager_handle_of(manager: TaskManager) -> Json {
   handle.encode_handle(manager.address)
 }
 
@@ -1246,56 +1376,56 @@ pub fn task_manager_handle_of(manager: SharedTaskManager) -> Json {
 pub fn resolve_task_manager(
   document: Document,
   value: Json,
-) -> Result(SharedTaskManager, String) {
+) -> Result(TaskManager, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
       runtime_js.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
-        SharedTaskManager(runtime: document.runtime, address: address)
+        TaskManager(runtime: document.runtime, address: address)
       })
   }
 }
 
 @target(javascript)
 pub fn volunteer_for_task(
-  manager: SharedTaskManager,
+  manager: TaskManager,
   task_id: String,
 ) -> task_manager_kernel.VolunteerOutcome {
   runtime_js.task_manager_volunteer(manager.runtime, manager.address, task_id)
 }
 
 @target(javascript)
-pub fn abandon_task(manager: SharedTaskManager, task_id: String) -> Nil {
+pub fn abandon_task(manager: TaskManager, task_id: String) -> Nil {
   runtime_js.task_manager_abandon(manager.runtime, manager.address, task_id)
 }
 
 @target(javascript)
 pub fn complete_task(
-  manager: SharedTaskManager,
+  manager: TaskManager,
   task_id: String,
 ) -> Result(Nil, String) {
   runtime_js.task_manager_complete(manager.runtime, manager.address, task_id)
 }
 
 @target(javascript)
-pub fn task_assigned(manager: SharedTaskManager, task_id: String) -> Bool {
+pub fn task_assigned(manager: TaskManager, task_id: String) -> Bool {
   runtime_js.task_manager_assigned(manager.runtime, manager.address, task_id)
 }
 
 @target(javascript)
-pub fn task_queued(manager: SharedTaskManager, task_id: String) -> Bool {
+pub fn task_queued(manager: TaskManager, task_id: String) -> Bool {
   runtime_js.task_manager_queued(manager.runtime, manager.address, task_id)
 }
 
 @target(javascript)
-pub fn task_queues(manager: SharedTaskManager) -> List(#(String, List(Int))) {
+pub fn task_queues(manager: TaskManager) -> List(#(String, List(Int))) {
   runtime_js.task_manager_queues(manager.runtime, manager.address)
 }
 
 @target(javascript)
 pub fn subscribe_task_manager(
-  manager: SharedTaskManager,
+  manager: TaskManager,
   handler: fn(task_manager_kernel.TaskManagerEvent) -> Nil,
 ) -> Nil {
   use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
@@ -1303,6 +1433,189 @@ pub fn subscribe_task_manager(
     channel.TaskManagerEvent(inner) -> Some(inner)
     _ -> None
   }
+}
+
+// ── PN-counters ──────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new PN-counter channel. Same detached lifecycle as `create_map`.
+pub fn create_pn_counter(document: Document) -> Result(PnCounter, String) {
+  runtime_js.create_pn_counter(document.runtime)
+  |> result.map(fn(address) {
+    PnCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn pn_counter_handle_of(pn_counter: PnCounter) -> Json {
+  handle.encode_handle(pn_counter.address)
+}
+
+@target(javascript)
+pub fn resolve_pn_counter(
+  document: Document,
+  value: Json,
+) -> Result(PnCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        PnCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically add `amount` (negative amounts decrement).
+pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
+  runtime_js.pn_counter_update(pn_counter.runtime, pn_counter.address, amount)
+}
+
+@target(javascript)
+/// The counter's current optimistic value, `None` when the address is not a
+/// PN-counter channel.
+pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
+  runtime_js.pn_counter_value(pn_counter.runtime, pn_counter.address)
+}
+
+// ── PactMaps ─────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new PactMap channel. Same detached lifecycle as `create_map`.
+pub fn create_pact_map(document: Document) -> Result(PactMap, String) {
+  runtime_js.create_pact_map(document.runtime)
+  |> result.map(fn(address) {
+    PactMap(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn pact_map_handle_of(pact_map: PactMap) -> Json {
+  handle.encode_handle(pact_map.address)
+}
+
+@target(javascript)
+pub fn resolve_pact_map(
+  document: Document,
+  value: Json,
+) -> Result(PactMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        PactMap(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Propose `value` for `key`. Consensus, not optimistic: the value is `pending`
+/// until server sequencing accepts it.
+pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
+  runtime_js.pact_map_set(pact_map.runtime, pact_map.address, key, value)
+}
+
+@target(javascript)
+/// Propose a delete (tombstone) for `key`.
+pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
+  runtime_js.pact_map_delete(pact_map.runtime, pact_map.address, key)
+}
+
+@target(javascript)
+/// The accepted value for `key`, `None` when pending, absent, or not a PactMap
+/// channel.
+pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
+  runtime_js.pact_map_get(pact_map.runtime, pact_map.address, key)
+}
+
+@target(javascript)
+/// All keys with an accepted or pending pact.
+pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
+  runtime_js.pact_map_keys(pact_map.runtime, pact_map.address)
+}
+
+@target(javascript)
+/// Whether `key` currently has an unsettled (pending) proposal.
+pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
+  runtime_js.pact_map_is_pending(pact_map.runtime, pact_map.address, key)
+}
+
+// ── Ordered collections ──────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
+/// `create_map`.
+pub fn create_ordered_collection(
+  document: Document,
+) -> Result(OrderedCollection, String) {
+  runtime_js.create_ordered_collection(document.runtime)
+  |> result.map(fn(address) {
+    OrderedCollection(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn ordered_collection_handle_of(collection: OrderedCollection) -> Json {
+  handle.encode_handle(collection.address)
+}
+
+@target(javascript)
+pub fn resolve_ordered_collection(
+  document: Document,
+  value: Json,
+) -> Result(OrderedCollection, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        OrderedCollection(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Enqueue `value` at the tail of the collection.
+pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
+  runtime_js.ordered_add(collection.runtime, collection.address, value)
+}
+
+@target(javascript)
+/// Acquire (lease) the head item, returning the acquire id used to `complete`
+/// or `release` it.
+pub fn ordered_acquire(collection: OrderedCollection) -> String {
+  runtime_js.ordered_acquire(collection.runtime, collection.address)
+}
+
+@target(javascript)
+/// Complete an acquired item, removing it permanently.
+pub fn ordered_complete(
+  collection: OrderedCollection,
+  acquire_id: String,
+) -> Nil {
+  runtime_js.ordered_complete(
+    collection.runtime,
+    collection.address,
+    acquire_id,
+  )
+}
+
+@target(javascript)
+/// Release an acquired item back to the collection for another consumer.
+pub fn ordered_release(
+  collection: OrderedCollection,
+  acquire_id: String,
+) -> Nil {
+  runtime_js.ordered_release(collection.runtime, collection.address, acquire_id)
+}
+
+@target(javascript)
+/// The number of items currently in the collection, `None` when the address is
+/// not an ordered-collection channel.
+pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
+  runtime_js.ordered_size(collection.runtime, collection.address)
 }
 
 @target(javascript)
