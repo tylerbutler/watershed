@@ -24,6 +24,8 @@
 @target(erlang)
 import gleam/dict.{type Dict}
 @target(erlang)
+import gleam/dynamic.{type Dynamic}
+@target(erlang)
 import gleam/dynamic/decode
 @target(erlang)
 import gleam/erlang/process.{type Subject}
@@ -46,8 +48,6 @@ import gleam/string
 import aquamarine
 @target(erlang)
 import aquamarine/channel.{type Channel}
-@target(erlang)
-import aquamarine/codec.{type Incoming}
 @target(erlang)
 import aquamarine/phoenix
 
@@ -98,6 +98,59 @@ const heartbeat_interval_ms = 30_000
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
 const max_ops_per_submission = 100
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Transport seam
+//
+// The runtime talks to levee through an injectable `Transport` rather than
+// calling aquamarine directly. The default transport (`aquamarine_transport`)
+// reproduces the historical behavior exactly; the in-memory hub (see
+// `watershed/hub`) supplies an alternate transport so app authors can run
+// deterministic multi-client tests with no server. Every concrete link type
+// (an aquamarine `Channel`, a hub subject) is captured inside the closures of
+// a `TransportHandle`, so no connection-specific type leaks into `State`/`Msg`
+// or the public facade.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// A live connection's outbound operations. Each function closes over the
+/// concrete link, so the runtime holds `TransportHandle` without naming the
+/// transport it came from. `push` carries the wire event name and its JSON
+/// payload; `close` is an intentional teardown; `drop` forces a reconnect
+/// (for the real transport the two coincide).
+pub type TransportHandle {
+  TransportHandle(
+    push: fn(String, Json) -> Nil,
+    close: fn() -> Nil,
+    drop: fn() -> Nil,
+  )
+}
+
+@target(erlang)
+/// How a transport reports lifecycle and inbound frames back to the runtime
+/// actor. The default transport drives these from its receiver process; the
+/// hub drives them synchronously on delivery.
+pub type TransportCallbacks {
+  TransportCallbacks(
+    /// The channel joined and is ready to push. Carries the handle used for
+    /// all subsequent outbound frames.
+    on_ready: fn(TransportHandle) -> Nil,
+    /// An inbound frame: the wire event name and its still-`Dynamic` payload.
+    on_event: fn(String, Dynamic) -> Nil,
+    /// The initial connect/join failed; the runtime treats this as fatal.
+    on_fail: fn(String) -> Nil,
+    /// A ready session closed; the runtime enters its reconnect path.
+    on_close: fn(String) -> Nil,
+  )
+}
+
+@target(erlang)
+/// A pluggable connection to a levee-shaped server. `connect` establishes the
+/// link (spawning whatever process it needs) and drives the callbacks; it
+/// returns immediately, never blocking the actor.
+pub type Transport {
+  Transport(connect: fn(TransportCallbacks) -> Nil)
+}
+
 @target(erlang)
 pub type ClaimSubmitReply {
   Pending(outcome: Subject(claims_kernel.ClaimOutcome))
@@ -110,9 +163,9 @@ pub type ClaimSubmitReply {
 pub type Msg {
   Heartbeat
   // Receiver-process lifecycle
-  ChannelReady(Channel)
+  ChannelReady(TransportHandle)
   ChannelFailed(String)
-  Inbound(Incoming)
+  Inbound(event: String, payload: Dynamic)
   ChannelClosed(String)
   // Local edits
   Put(address: String, key: String, value: Json)
@@ -309,13 +362,14 @@ type Phase {
 @target(erlang)
 type State {
   State(
+    // `host`/`port` are retained for the REST summary API (git-storage), which
+    // shares levee's origin. The websocket path/topic/join payload now live
+    // inside the transport closure.
     host: String,
     port: Int,
-    path: String,
-    topic: String,
-    join_payload: Json,
     connect_message: ConnectMessage,
-    channel: Option(Channel),
+    transport: Transport,
+    channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
@@ -324,9 +378,9 @@ type State {
 }
 
 @target(erlang)
-/// Start a document runtime: spawns the actor and the channel receiver
-/// process, then returns the actor subject. Callers should `AwaitReady`
-/// (via `process.call`) before editing.
+/// Start a document runtime against a live levee: spawns the actor and the
+/// channel receiver process, then returns the actor subject. Callers should
+/// `AwaitReady` (via `process.call`) before editing.
 pub fn start(
   host host: String,
   port port: Int,
@@ -340,15 +394,32 @@ pub fn start(
     Some(token) -> json.object([#("token", json.string(token))])
     None -> json.object([])
   }
+  start_with_transport(
+    host: host,
+    port: port,
+    connect_message: connect_message,
+    transport: aquamarine_transport(host, port, path, topic, join_payload),
+  )
+}
+
+@target(erlang)
+/// Start a document runtime against an arbitrary transport. Used by the live
+/// `start` (aquamarine) and by the in-memory hub test driver. `host`/`port`
+/// only feed the REST summary API and may be placeholders for transports that
+/// don't serve one.
+pub fn start_with_transport(
+  host host: String,
+  port port: Int,
+  connect_message connect_message: ConnectMessage,
+  transport transport: Transport,
+) -> Result(Subject(Msg), actor.StartError) {
   actor.new_with_initialiser(1000, fn(self) {
     let state =
       State(
         host: host,
         port: port,
-        path: path,
-        topic: topic,
-        join_payload: join_payload,
         connect_message: connect_message,
+        transport: transport,
         channel: None,
         phase: Connecting([]),
         subscribers: [],
@@ -356,7 +427,7 @@ pub fn start(
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
-    spawn_receiver(state, self)
+    connect_transport(transport, self)
     Ok(actor.initialised(state) |> actor.returning(self))
   })
   |> actor.on_message(handle)
@@ -518,60 +589,92 @@ pub fn load_version(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Receiver process
+// Receiver process / transport wiring
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-fn spawn_receiver(state: State, runtime: Subject(Msg)) -> Nil {
-  let _ =
-    process.spawn_unlinked(fn() {
-      receiver_main(
-        state.host,
-        state.port,
-        state.path,
-        state.topic,
-        state.join_payload,
-        runtime,
-      )
-    })
-  Nil
+/// Ask the transport to connect, routing its lifecycle callbacks into actor
+/// messages. Called at startup and on every reconnect.
+fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
+  transport.connect(TransportCallbacks(
+    on_ready: fn(handle) { process.send(runtime, ChannelReady(handle)) },
+    on_event: fn(event, payload) {
+      process.send(runtime, Inbound(event, payload))
+    },
+    on_fail: fn(reason) { process.send(runtime, ChannelFailed(reason)) },
+    on_close: fn(reason) { process.send(runtime, ChannelClosed(reason)) },
+  ))
 }
 
 @target(erlang)
-fn receiver_main(
+/// The default transport: a dedicated receiver process owning one aquamarine
+/// channel. `connect` joins (blocking in its own process), announces the
+/// handle, then pumps inbound frames until the channel closes.
+fn aquamarine_transport(
   host: String,
   port: Int,
   path: String,
   topic: String,
   join_payload: Json,
-  runtime: Subject(Msg),
+) -> Transport {
+  Transport(connect: fn(callbacks: TransportCallbacks) -> Nil {
+    let _ =
+      process.spawn_unlinked(fn() {
+        case
+          aquamarine.connect(
+            host: host,
+            port: port,
+            path: path,
+            topic: topic,
+            payload: join_payload,
+            codec: phoenix.codec(),
+          )
+        {
+          Error(err) -> callbacks.on_fail(string.inspect(err))
+          Ok(channel) -> {
+            callbacks.on_ready(aquamarine_handle(channel))
+            aquamarine_receive_loop(channel, callbacks)
+          }
+        }
+      })
+    Nil
+  })
+}
+
+@target(erlang)
+fn aquamarine_handle(channel: Channel) -> TransportHandle {
+  let teardown = fn() {
+    let _ = aquamarine.close(channel)
+    Nil
+  }
+  TransportHandle(
+    push: fn(event, payload) { aquamarine_push(channel, event, payload) },
+    // A live aquamarine channel has no distinct "drop" — closing it triggers
+    // the same receiver error that drives reconnect.
+    close: teardown,
+    drop: teardown,
+  )
+}
+
+@target(erlang)
+fn aquamarine_receive_loop(
+  channel: Channel,
+  callbacks: TransportCallbacks,
 ) -> Nil {
-  case
-    aquamarine.connect(
-      host: host,
-      port: port,
-      path: path,
-      topic: topic,
-      payload: join_payload,
-      codec: phoenix.codec(),
-    )
-  {
-    Error(err) -> process.send(runtime, ChannelFailed(string.inspect(err)))
-    Ok(channel) -> {
-      process.send(runtime, ChannelReady(channel))
-      receive_loop(channel, runtime)
+  case aquamarine.receive(channel) {
+    Ok(incoming) -> {
+      callbacks.on_event(incoming.event, incoming.payload)
+      aquamarine_receive_loop(channel, callbacks)
     }
+    Error(err) -> callbacks.on_close(string.inspect(err))
   }
 }
 
 @target(erlang)
-fn receive_loop(channel: Channel, runtime: Subject(Msg)) -> Nil {
-  case aquamarine.receive(channel) {
-    Ok(incoming) -> {
-      process.send(runtime, Inbound(incoming))
-      receive_loop(channel, runtime)
-    }
-    Error(err) -> process.send(runtime, ChannelClosed(string.inspect(err)))
+fn aquamarine_push(channel: Channel, event: String, payload: Json) -> Nil {
+  case aquamarine.push(channel, event, payload) {
+    Ok(Nil) -> Nil
+    Error(err) -> panic as { "channel push failed: " <> string.inspect(err) }
   }
 }
 
@@ -622,7 +725,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         _ -> actor.continue(fail(state, "channel closed: " <> reason))
       }
 
-    Inbound(incoming) -> handle_inbound(state, incoming)
+    Inbound(event, payload) -> handle_inbound(state, event, payload)
 
     Put(address, key, value) ->
       edit(state, fn(core) { runtime_core.set(core, address, key, value) })
@@ -1048,10 +1151,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     Shutdown -> {
       let state = abort_claim_waiters(state)
       case state.channel {
-        Some(channel) -> {
-          let _ = aquamarine.close(channel)
-          Nil
-        }
+        Some(channel) -> channel.close()
         None -> Nil
       }
       actor.stop()
@@ -1093,12 +1193,16 @@ fn create_channel(
 }
 
 @target(erlang)
-fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
-  case incoming.event {
+fn handle_inbound(
+  state: State,
+  event: String,
+  payload: Dynamic,
+) -> actor.Next(State, Msg) {
+  case event {
     "connect_document_success" -> {
       let connected =
         require(
-          decode.run(incoming.payload, socket.connected_message_decoder()),
+          decode.run(payload, socket.connected_message_decoder()),
           "connect_document_success payload",
         )
       case state.phase {
@@ -1138,7 +1242,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "connect_document_error" -> {
       let connect_error =
         require(
-          decode.run(incoming.payload, socket.connect_error_decoder()),
+          decode.run(payload, socket.connect_error_decoder()),
           "connect_document_error payload",
         )
       actor.continue(fail(state, connect_error.message))
@@ -1148,7 +1252,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
       case state.phase {
         Ready(core, resubmit_at) -> {
           let #(core, events, resolutions, request_from, released) =
-            apply_ops(core, op_message(incoming))
+            apply_ops(core, op_message(payload))
           let state = resolve_claim_waiters(state, resolutions)
           fan_out(state.subscribers, events)
           maybe_request_ops(state.channel, request_from)
@@ -1166,13 +1270,13 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
     "nack" -> {
       let nacks =
         require(
-          decode.run(incoming.payload, socket.nacks_decoder()),
+          decode.run(payload, socket.nacks_decoder()),
           "nack payload",
         )
       case list.any(nacks, nack_is_fatal) {
         True ->
           panic as {
-            "fatal nack from server: " <> string.inspect(incoming.payload)
+            "fatal nack from server: " <> string.inspect(payload)
           }
         False ->
           case state.phase {
@@ -1208,10 +1312,10 @@ fn settle_reconnect(
 }
 
 @target(erlang)
-fn op_message(incoming: Incoming) -> List(SequencedDocumentMessage) {
+fn op_message(payload: Dynamic) -> List(SequencedDocumentMessage) {
   let message =
     require(
-      decode.run(incoming.payload, socket.op_message_decoder()),
+      decode.run(payload, socket.op_message_decoder()),
       "op payload",
     )
   message.ops
@@ -1583,7 +1687,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 /// Enter the reconnecting phase after a channel close: drop the dead channel
 /// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
-  spawn_receiver(state, state.self)
+  connect_transport(state.transport, state.self)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -1593,10 +1697,7 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
 /// don't spawn a second receiver here.
 fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
   case state.channel {
-    Some(channel) -> {
-      let _ = aquamarine.close(channel)
-      Nil
-    }
+    Some(channel) -> channel.close()
     None -> Nil
   }
   State(..state, channel: None, phase: Reconnecting(core))
@@ -1613,7 +1714,7 @@ fn nack_is_fatal(item: Nack) -> Bool {
 
 @target(erlang)
 fn maybe_request_ops(
-  channel: Option(Channel),
+  channel: Option(TransportHandle),
   request_from: Option(Int),
 ) -> Nil {
   case channel, request_from {
@@ -1662,7 +1763,7 @@ fn handle_summarize(
 fn do_summarize(
   state: State,
   core: runtime_core.Core,
-  channel: Channel,
+  channel: TransportHandle,
 ) -> Result(#(runtime_core.Core, String), String) {
   use token <- result.try(option.to_result(
     state.connect_message.token,
@@ -1821,7 +1922,7 @@ fn http_base_url(state: State) -> String {
 
 @target(erlang)
 fn send_outbound(
-  channel: Option(Channel),
+  channel: Option(TransportHandle),
   client_id: String,
   outbound: List(wire.OutboundOp),
 ) -> Nil {
@@ -1836,11 +1937,8 @@ fn send_outbound(
 }
 
 @target(erlang)
-fn push(channel: Channel, event: String, payload: Json) -> Nil {
-  case aquamarine.push(channel, event, payload) {
-    Ok(Nil) -> Nil
-    Error(err) -> panic as { "channel push failed: " <> string.inspect(err) }
-  }
+fn push(channel: TransportHandle, event: String, payload: Json) -> Nil {
+  channel.push(event, payload)
 }
 
 @target(erlang)
