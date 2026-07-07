@@ -20,11 +20,11 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import doc_schema.{type SudokuDoc}
 import puzzles.{type Puzzle}
-import watershed/channel.{type ChannelEvent}
 import watershed_js.{
   type Document, type SharedClaims, type SharedCounter, type SharedMap,
-  type SharedOrSet, type Signal, WatershedConfig,
+  type SharedOrSet, type Signal, type TypedMap, WatershedConfig,
 }
 
 import presence.{type Peers, type Presence, Presence}
@@ -38,22 +38,6 @@ const tenant = "dev-tenant"
 const tenant_secret = "levee-dev-secret-change-in-production"
 
 const document_id = "sudoku"
-
-const puzzle_key = "puzzle"
-
-const title_key = "title"
-
-const cells_key = "cells"
-
-const notes_key = "notes"
-
-const givens_key = "givens"
-
-const mistakes_key = "mistakes"
-
-const resolve_retry_ms = 200
-
-const resolve_attempts = 25
 
 @external(javascript, "./sudoku_ffi.mjs", "queue_microtask")
 fn queue_microtask(action: fn() -> Nil) -> Nil
@@ -168,7 +152,7 @@ fn connect_effect(user_id: String) -> Effect(Msg) {
         ),
         on_ready: fn(result) { dispatch(Connected(result)) },
       )
-    watershed_js.subscribe(watershed_js.root(doc), fn(_event: ChannelEvent) {
+    watershed_js.subscribe(watershed_js.root(doc), fn(_event) {
       queue_microtask(fn() { dispatch(SharedChanged) })
     })
     // Ephemeral presence rides on signals, independent of the DDS streams.
@@ -211,9 +195,21 @@ fn broadcast_presence(model: Model) -> Effect(Msg) {
 
 fn bootstrap_effect(doc: Document) -> Effect(Msg) {
   use dispatch <- effect.from
-  bootstrap_document(doc, fn(result) {
+  let root = watershed_js.root_typed(doc)
+  // Plain fields seed themselves set-if-absent; LWW settles concurrent joins.
+  watershed_js.ensure_field(root, doc_schema.title(), "Collaborative Sudoku")
+  watershed_js.ensure_field(
+    root,
+    doc_schema.puzzle(),
+    puzzles.default_puzzle().id,
+  )
+  ensure_shared(doc, root, fn(result) {
     case result {
       Ok(shared) -> {
+        // App-level content seed, on the channel `ensure_claims` handed back:
+        // first-writer-wins claims make concurrent seeders converge, so every
+        // client can run this and later writers no-op.
+        seed_givens(shared.givens, puzzles.default_puzzle(), 0, 0)
         subscribe_shared(shared, dispatch)
         dispatch(Bootstrapped(Ok(shared)))
       }
@@ -223,14 +219,56 @@ fn bootstrap_effect(doc: Document) -> Effect(Msg) {
   Nil
 }
 
+/// Adopt (or seed) all four nested channels, threading each `ensure_*`'s result
+/// into the next and short-circuiting on the first error.
+fn ensure_shared(
+  doc: Document,
+  root: TypedMap(SudokuDoc),
+  done: fn(Result(SharedState, String)) -> Nil,
+) -> Nil {
+  use cells <- ensure_step(
+    watershed_js.ensure_map(doc, root, doc_schema.cells(), _),
+    done,
+  )
+  use notes <- ensure_step(
+    watershed_js.ensure_or_set(doc, root, doc_schema.notes(), _),
+    done,
+  )
+  use givens <- ensure_step(
+    watershed_js.ensure_claims(doc, root, doc_schema.givens(), _),
+    done,
+  )
+  use mistakes <- ensure_step(
+    watershed_js.ensure_counter(doc, root, doc_schema.mistakes(), _),
+    done,
+  )
+  done(Ok(SharedState(cells:, notes:, givens:, mistakes:)))
+}
+
+/// Run one callback-based `ensure_*` step: continue with `next` on success, or
+/// short-circuit `done` with the error.
+fn ensure_step(
+  step: fn(fn(Result(a, String)) -> Nil) -> Nil,
+  done: fn(Result(whole, String)) -> Nil,
+  next: fn(a) -> Nil,
+) -> Nil {
+  step(fn(result) {
+    case result {
+      Ok(value) -> next(value)
+      Error(reason) -> done(Error(reason))
+    }
+  })
+}
+
 fn subscribe_shared(shared: SharedState, dispatch: fn(Msg) -> Nil) -> Nil {
-  let handler = fn(_event: ChannelEvent) {
-    queue_microtask(fn() { dispatch(SharedChanged) })
-  }
-  watershed_js.subscribe(shared.cells, handler)
-  watershed_js.subscribe_or_set(shared.notes, handler)
-  watershed_js.subscribe_claims(shared.givens, handler)
-  watershed_js.subscribe_counter(shared.mistakes, handler)
+  let bump = fn() { queue_microtask(fn() { dispatch(SharedChanged) }) }
+  // Narrowed per-kind subscriptions: each handler sees only its channel's own
+  // event type. The whole-model `snapshot` stays the cheapest re-read for an
+  // 81-cell grid, so every handler just bumps it.
+  watershed_js.subscribe(shared.cells, fn(_event) { bump() })
+  watershed_js.subscribe_or_set(shared.notes, fn(_event) { bump() })
+  watershed_js.subscribe_claims(shared.givens, fn(_event) { bump() })
+  watershed_js.subscribe_counter(shared.mistakes, fn(_event) { bump() })
 }
 
 // ── Update ───────────────────────────────────────────────────────────────────
@@ -396,11 +434,9 @@ fn set_cell(
 fn snapshot(model: Model) -> Model {
   case model.doc, model.shared {
     Some(doc), Some(shared) -> {
-      let root = watershed_js.root(doc)
-      let puzzle = puzzle_from_root(root)
       Model(
         ..model,
-        puzzle: puzzle,
+        puzzle: puzzle_from_root(doc),
         cells: read_cells(shared.cells),
         notes: watershed_js.or_set_values(shared.notes),
         givens: read_givens(shared.givens),
@@ -412,43 +448,7 @@ fn snapshot(model: Model) -> Model {
   }
 }
 
-// ── Bootstrap ────────────────────────────────────────────────────────────────
-
-fn bootstrap_document(
-  doc: Document,
-  done: fn(Result(SharedState, String)) -> Nil,
-) -> Nil {
-  let root = watershed_js.root(doc)
-  case watershed_js.get(root, puzzle_key) {
-    Some(_) -> resolve_shared_with_retry(doc, resolve_attempts, done)
-    None -> {
-      seed_document(doc)
-      wait_synced(doc, fn() {
-        resolve_shared_with_retry(doc, resolve_attempts, done)
-      })
-    }
-  }
-}
-
-/// The root map carries plain values plus handles to detached nested channels.
-/// Concurrent first joins can race on the root keys; after seeding we wait for
-/// sync and then adopt whichever handles won in the sequenced root map.
-fn seed_document(doc: Document) -> Nil {
-  let root = watershed_js.root(doc)
-  let puzzle = puzzles.default_puzzle()
-  let assert Ok(cells) = watershed_js.create_map(doc)
-  let assert Ok(notes) = watershed_js.create_or_set(doc)
-  let assert Ok(givens) = watershed_js.create_claims(doc)
-  let assert Ok(mistakes) = watershed_js.create_counter(doc)
-
-  seed_givens(givens, puzzle, 0, 0)
-  watershed_js.set(root, cells_key, watershed_js.handle_of(cells))
-  watershed_js.set(root, notes_key, watershed_js.or_set_handle_of(notes))
-  watershed_js.set(root, givens_key, watershed_js.claims_handle_of(givens))
-  watershed_js.set(root, mistakes_key, watershed_js.counter_handle_of(mistakes))
-  watershed_js.set(root, title_key, json.string("Collaborative Sudoku"))
-  watershed_js.set(root, puzzle_key, json.string(puzzle.id))
-}
+// ── Content seeding ──────────────────────────────────────────────────────────
 
 fn seed_givens(
   claims: SharedClaims,
@@ -477,70 +477,6 @@ fn seed_givens(
         False -> seed_givens(claims, puzzle, row, col + 1)
       }
     }
-  }
-}
-
-fn wait_synced(doc: Document, next: fn() -> Nil) -> Nil {
-  case watershed_js.is_synced(doc) {
-    True -> next()
-    False -> set_timeout(fn() { wait_synced(doc, next) }, resolve_retry_ms)
-  }
-}
-
-fn resolve_shared_with_retry(
-  doc: Document,
-  attempts: Int,
-  done: fn(Result(SharedState, String)) -> Nil,
-) -> Nil {
-  case resolve_shared(doc) {
-    Ok(shared) -> done(Ok(shared))
-    Error(reason) ->
-      case attempts <= 1 {
-        True -> done(Error(reason))
-        False ->
-          set_timeout(
-            fn() { resolve_shared_with_retry(doc, attempts - 1, done) },
-            resolve_retry_ms,
-          )
-      }
-  }
-}
-
-fn resolve_shared(doc: Document) -> Result(SharedState, String) {
-  let root = watershed_js.root(doc)
-  case
-    require_value(root, cells_key),
-    require_value(root, notes_key),
-    require_value(root, givens_key),
-    require_value(root, mistakes_key)
-  {
-    Ok(cells_value), Ok(notes_value), Ok(givens_value), Ok(mistakes_value) ->
-      case
-        watershed_js.resolve(doc, cells_value),
-        watershed_js.resolve_or_set(doc, notes_value),
-        watershed_js.resolve_claims(doc, givens_value),
-        watershed_js.resolve_counter(doc, mistakes_value)
-      {
-        Ok(cells), Ok(notes), Ok(givens), Ok(mistakes) ->
-          Ok(SharedState(cells:, notes:, givens:, mistakes:))
-        Error(reason), _, _, _
-        | _, Error(reason), _, _
-        | _, _, Error(reason), _
-        | _, _, _, Error(reason)
-        -> Error(reason)
-      }
-    Error(reason), _, _, _
-    | _, Error(reason), _, _
-    | _, _, Error(reason), _
-    | _, _, _, Error(reason)
-    -> Error(reason)
-  }
-}
-
-fn require_value(map: SharedMap, key: String) -> Result(json.Json, String) {
-  case watershed_js.get(map, key) {
-    Some(value) -> Ok(value)
-    None -> Error("missing root key: " <> key)
   }
 }
 
@@ -735,14 +671,10 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 
 // ── Read helpers ─────────────────────────────────────────────────────────────
 
-fn puzzle_from_root(root: SharedMap) -> Puzzle {
-  case watershed_js.get(root, puzzle_key) {
-    Some(value) ->
-      case json.parse(json.to_string(value), json_string_decoder()) {
-        Ok(id) -> puzzles.by_id(id) |> option.unwrap(puzzles.default_puzzle())
-        Error(_) -> puzzles.default_puzzle()
-      }
-    None -> puzzles.default_puzzle()
+fn puzzle_from_root(doc: Document) -> Puzzle {
+  case watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.puzzle()) {
+    Ok(Some(id)) -> puzzles.by_id(id) |> option.unwrap(puzzles.default_puzzle())
+    _ -> puzzles.default_puzzle()
   }
 }
 
@@ -750,7 +682,7 @@ fn read_cells(cells: SharedMap) -> List(#(String, Int)) {
   cells
   |> watershed_js.entries
   |> list.filter_map(fn(pair) {
-    case json.parse(json.to_string(pair.1), json_int_decoder()) {
+    case json.parse(json.to_string(pair.1), decode.int) {
       Ok(digit) -> Ok(#(pair.0, digit))
       Error(_) -> Error(Nil)
     }
@@ -763,21 +695,13 @@ fn read_givens(givens: SharedClaims) -> List(#(String, Int)) {
     let key = cell_key(cell.0, cell.1)
     case watershed_js.get_claim(givens, key) {
       Some(value) ->
-        case json.parse(json.to_string(value), json_int_decoder()) {
+        case json.parse(json.to_string(value), decode.int) {
           Ok(digit) -> Ok(#(key, digit))
           Error(_) -> Error(Nil)
         }
       None -> Error(Nil)
     }
   })
-}
-
-fn json_string_decoder() {
-  decode.string
-}
-
-fn json_int_decoder() {
-  decode.int
 }
 
 fn given_value(model: Model, row: Int, col: Int) -> Int {
