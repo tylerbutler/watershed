@@ -1183,7 +1183,7 @@ fn handle_inbound(state: State, incoming: Incoming) -> actor.Next(State, Msg) {
       }
     }
 
-    // Signals, summary events, pongs: not part of the v1 surface.
+    // Ripples, summary events, pongs: not part of the v1 surface.
     _ -> actor.continue(state)
   }
 }

@@ -107,13 +107,13 @@ pub fn encode_request_ops(from from: Int) -> Json {
   json.object([#("from", json.int(from))])
 }
 
-/// `submitSignal` payload for an ephemeral, non-sequenced signal. Uses the V2
+/// `submitSignal` payload for an ephemeral, non-sequenced ripple. Uses the V2
 /// format levee's `normalize_signal` expects: a `contentBatches` list whose
 /// single entry carries the app `content` (arbitrary JSON) and a `type` tag.
-/// Signals are fire-and-forget — no sequencing, persistence, ack, or catch-up.
-pub fn encode_submit_signal(
+/// Ripples are fire-and-forget — no sequencing, persistence, ack, or catch-up.
+pub fn encode_submit_ripple(
   client_id client_id: String,
-  signal_type signal_type: String,
+  ripple_type ripple_type: String,
   content content: Json,
 ) -> Json {
   json.object([
@@ -123,7 +123,7 @@ pub fn encode_submit_signal(
       json.preprocessed_array([
         json.object([
           #("content", content),
-          #("type", json.string(signal_type)),
+          #("type", json.string(ripple_type)),
         ]),
       ]),
     ),
@@ -238,7 +238,7 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   use initial_clients <- decode.optional_field(
     "initialClients",
     [],
-    decode.list(signal_client_decoder()),
+    decode.list(ripple_client_decoder()),
   )
   use initial_messages <- decode.optional_field(
     "initialMessages",
@@ -248,7 +248,7 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   use initial_signals <- decode.optional_field(
     "initialSignals",
     [],
-    decode.list(signal_message_decoder()),
+    decode.list(ripple_message_decoder()),
   )
   use supported_versions <- decode.optional_field(
     "supportedVersions",
@@ -511,7 +511,7 @@ fn service_configuration_decoder() -> Decoder(ServiceConfiguration) {
   ))
 }
 
-fn signal_client_decoder() -> Decoder(SignalClient) {
+fn ripple_client_decoder() -> Decoder(SignalClient) {
   use client_id <- decode.field("clientId", decode.string)
   use client <- decode.field("client", client_decoder())
   use client_connection_number <- decode.optional_field(
@@ -532,17 +532,17 @@ fn signal_client_decoder() -> Decoder(SignalClient) {
   ))
 }
 
-/// Decoder for an inbound `signal` broadcast (`SignalMessage`). Signals are
+/// Decoder for an inbound `ripple` broadcast (`SignalMessage`). Ripples are
 /// ephemeral: not sequenced, persisted, or acked. `content` stays `Dynamic`
 /// for the app to decode.
-pub fn signal_message_decoder() -> Decoder(SignalMessage) {
+pub fn ripple_message_decoder() -> Decoder(SignalMessage) {
   use client_id <- decode.optional_field(
     "clientId",
     None,
     decode.optional(decode.string),
   )
   use content <- decode.field("content", decode.dynamic)
-  use signal_type <- decode.optional_field(
+  use ripple_type <- decode.optional_field(
     "type",
     None,
     decode.optional(decode.string),
@@ -565,7 +565,7 @@ pub fn signal_message_decoder() -> Decoder(SignalMessage) {
   decode.success(SignalMessage(
     client_id: client_id,
     content: content,
-    signal_type: signal_type,
+    signal_type: ripple_type,
     client_connection_number: client_connection_number,
     reference_sequence_number: reference_sequence_number,
     target_client_id: target_client_id,

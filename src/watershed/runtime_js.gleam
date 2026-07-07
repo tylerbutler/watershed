@@ -100,9 +100,9 @@ type State {
     channel: Option(Channel),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
-    /// Ephemeral-signal subscribers. Signals are document-scoped and
+    /// Ephemeral-ripple subscribers. Ripples are document-scoped and
     /// non-sequenced, so they fan out independently of the op event stream.
-    signal_subscribers: List(fn(SignalMessage) -> Nil),
+    ripple_subscribers: List(fn(SignalMessage) -> Nil),
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -135,7 +135,7 @@ pub fn start(
       channel: None,
       phase: Connecting,
       subscribers: [],
-      signal_subscribers: [],
+      ripple_subscribers: [],
       claim_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
@@ -1010,13 +1010,13 @@ pub fn subscribe(
 }
 
 @target(javascript)
-/// Broadcast an ephemeral, document-scoped signal (`type` + arbitrary JSON
-/// `content`). Signals are non-sequenced and non-persisted — fire-and-forget,
+/// Broadcast an ephemeral, document-scoped ripple (`type` + arbitrary JSON
+/// `content`). Ripples are non-sequenced and non-persisted — fire-and-forget,
 /// with no ack, resubmit, or catch-up. A no-op until the client has a
 /// server-assigned client id (i.e. before the first handshake completes).
-pub fn send_signal(
+pub fn send_ripple(
   runtime: Runtime,
-  signal_type: String,
+  ripple_type: String,
   content: Json,
 ) -> Nil {
   let state = cell_get(runtime.cell)
@@ -1030,9 +1030,9 @@ pub fn send_signal(
       push_json(
         channel,
         "submitSignal",
-        socket.encode_submit_signal(
+        socket.encode_submit_ripple(
           client_id: client_id,
-          signal_type: signal_type,
+          ripple_type: ripple_type,
           content: content,
         ),
       )
@@ -1041,16 +1041,16 @@ pub fn send_signal(
 }
 
 @target(javascript)
-/// Register a callback invoked for every inbound ephemeral signal on the
+/// Register a callback invoked for every inbound ephemeral ripple on the
 /// document. Content is left as `Dynamic` for the caller to decode.
-pub fn subscribe_signals(
+pub fn subscribe_ripples(
   runtime: Runtime,
   handler: fn(SignalMessage) -> Nil,
 ) -> Nil {
   let state = cell_get(runtime.cell)
   cell_set(
     runtime.cell,
-    State(..state, signal_subscribers: [handler, ..state.signal_subscribers]),
+    State(..state, ripple_subscribers: [handler, ..state.ripple_subscribers]),
   )
 }
 
@@ -1250,7 +1250,7 @@ fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
     "connect_document_error" -> on_connect_error(cell, payload)
     "op" -> on_op(cell, payload)
     "nack" -> on_nack(cell, payload)
-    "signal" -> on_signal(cell, payload)
+    "signal" -> on_ripple(cell, payload)
     _ -> Nil
   }
 }
@@ -1762,14 +1762,15 @@ fn fan_out(
 }
 
 @target(javascript)
-/// Fan an inbound ephemeral `signal` broadcast out to signal subscribers.
-/// Malformed payloads are dropped silently — signals are best-effort.
-fn on_signal(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, socket.signal_message_decoder()) {
+/// Fan an inbound ephemeral `signal` broadcast out to ripple subscribers.
+/// (The wire event is Fluid's `"signal"`; we surface it as a *ripple*.)
+/// Malformed payloads are dropped silently — ripples are best-effort.
+fn on_ripple(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.ripple_message_decoder()) {
     Error(_) -> Nil
-    Ok(signal) -> {
+    Ok(ripple) -> {
       let state = cell_get(cell)
-      list.each(state.signal_subscribers, fn(handler) { handler(signal) })
+      list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
     }
   }
 }

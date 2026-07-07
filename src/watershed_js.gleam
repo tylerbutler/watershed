@@ -1631,50 +1631,50 @@ pub fn force_reconnect(document: Document) -> Nil {
 }
 
 @target(javascript)
-/// An inbound ephemeral signal. Signals are document-scoped, non-sequenced,
+/// An inbound ephemeral ripple. Ripples are document-scoped, non-sequenced,
 /// and non-persisted — ideal for transient presence (cursors, selection,
 /// typing indicators) that must NOT live in a DDS.
-pub type Signal =
+pub type Ripple =
   SignalMessage
 
 @target(javascript)
-/// Broadcast an ephemeral signal to every other connected client: a `type`
+/// Broadcast an ephemeral ripple to every other connected client: a `type`
 /// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
 /// catch-up. No-op until the first handshake assigns a client id.
-pub fn submit_signal(
+pub fn submit_ripple(
   document: Document,
-  signal_type signal_type: String,
+  ripple_type ripple_type: String,
   content content: Json,
 ) -> Nil {
-  runtime_js.send_signal(document.runtime, signal_type, content)
+  runtime_js.send_ripple(document.runtime, ripple_type, content)
 }
 
 @target(javascript)
-/// Register a callback invoked for every inbound signal on the document.
-pub fn subscribe_signals(
+/// Register a callback invoked for every inbound ripple on the document.
+pub fn subscribe_ripples(
   document: Document,
-  handler: fn(Signal) -> Nil,
+  handler: fn(Ripple) -> Nil,
 ) -> Nil {
-  runtime_js.subscribe_signals(document.runtime, handler)
+  runtime_js.subscribe_ripples(document.runtime, handler)
 }
 
 @target(javascript)
-/// The signal's `type` tag, if present.
-pub fn signal_type(signal: Signal) -> Option(String) {
-  signal.signal_type
+/// The ripple's `type` tag, if present.
+pub fn ripple_type(ripple: Ripple) -> Option(String) {
+  ripple.signal_type
 }
 
 @target(javascript)
-/// The signal's JSON payload, left as `Dynamic` for the caller to decode.
-pub fn signal_content(signal: Signal) -> Dynamic {
-  signal.content
+/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
+pub fn ripple_content(ripple: Ripple) -> Dynamic {
+  ripple.content
 }
 
 @target(javascript)
 /// The sending client's id, if the server stamped one (`None` for
-/// server-originated signals).
-pub fn signal_client_id(signal: Signal) -> Option(String) {
-  signal.client_id
+/// server-originated ripples).
+pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
+  ripple.client_id
 }
 
 @target(javascript)

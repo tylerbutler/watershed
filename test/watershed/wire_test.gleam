@@ -281,14 +281,14 @@ pub fn decode_connect_error_test() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// signal (ephemeral) codecs
+// ripple (ephemeral) codecs
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn encode_submit_signal_v2_shape_test() {
   let encoded =
-    socket.encode_submit_signal(
+    socket.encode_submit_ripple(
       client_id: "client-abc",
-      signal_type: "presence",
+      ripple_type: "presence",
       content: json.object([
         #("selectedCell", json.string("r3c4")),
         #("editing", json.bool(True)),
@@ -305,30 +305,30 @@ pub fn encode_submit_signal_v2_shape_test() {
 }
 
 pub fn decode_signal_message_test() {
-  let signal =
+  let ripple =
     parse(
       "{\"clientId\": \"client-xyz\",
         \"type\": \"presence\",
         \"content\": {\"selectedCell\": \"r0c0\"},
         \"clientConnectionNumber\": 4,
         \"referenceSequenceNumber\": 12}",
-      socket.signal_message_decoder(),
+      socket.ripple_message_decoder(),
     )
-  signal.client_id |> expect.to_equal(Some("client-xyz"))
-  signal.signal_type |> expect.to_equal(Some("presence"))
-  signal.client_connection_number |> expect.to_equal(Some(4))
-  signal.reference_sequence_number |> expect.to_equal(Some(12))
+  ripple.client_id |> expect.to_equal(Some("client-xyz"))
+  ripple.signal_type |> expect.to_equal(Some("presence"))
+  ripple.client_connection_number |> expect.to_equal(Some(4))
+  ripple.reference_sequence_number |> expect.to_equal(Some(12))
   // Content stays Dynamic; confirm the nested field survives decoding.
-  signal.content
+  ripple.content
   |> decode.run(decode.at(["selectedCell"], decode.string))
   |> expect.to_equal(Ok("r0c0"))
 }
 
 pub fn decode_signal_message_minimal_test() {
-  // Server-originated signals may omit clientId/type; content is required.
-  let signal = parse("{\"content\": {}}", socket.signal_message_decoder())
-  signal.client_id |> expect.to_equal(None)
-  signal.signal_type |> expect.to_equal(None)
+  // Server-originated ripples may omit clientId/type; content is required.
+  let ripple = parse("{\"content\": {}}", socket.ripple_message_decoder())
+  ripple.client_id |> expect.to_equal(None)
+  ripple.signal_type |> expect.to_equal(None)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
