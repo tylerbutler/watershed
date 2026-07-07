@@ -117,12 +117,32 @@ Deferred: `ordered_collection.on_disconnect_notify` local notification for the
 departing self (the leaver has already disconnected, so the remaining replicas'
 re-release is the correctness-relevant path).
 
-### Phase 5 — Final validation
+### Phase 5 — Final validation  (DONE)
 
 `just build`, `just lint`, `just test`, `just fuzz` (FUZZ_ITERATIONS=5000).
 Confirm both targets and that the kernel-level fuzz models
 (`pact_map_model`, `ordered_collection_model`, which already include
 reaction/leave capabilities) still pass.
+
+Result: `just build` green (only a third-party lustre `Dict.delete` import
+warning), `just lint` clean (`gleam format --check`), `just test` 571/571 on
+both targets. The deep `just fuzz` sweep confirms every wired-kernel model —
+`pact_map_model`, `ordered_collection_model`, plus the counter/map/leave
+suites — passes.
+
+Known unrelated flake (now fixed): the deep fuzz sweep intermittently
+(~1-in-3 at 5000 iterations, seed-dependent) tripped `clients_converge_test` in
+`json_ot_kernel_converge_test.gleam` with `OtFailure(BadPath(...))`. Root cause
+was a pre-existing gap in the json0 port faithfully mirrored from upstream
+`ot-json0`: `transform_component`'s bare `other.oi` branch did not drop a
+concurrent *deeper* edit when `other` (re)inserts an ancestor of `c`, so it
+emitted an inapplicable replace (`{od, oi}` at a path whose parent was now a
+scalar). Canonical `ot-json0` produces the identical inapplicable op and throws
+the same error; upstream never hits it because its fuzzer generates both ops
+from one shared base, whereas watershed's optimistic multi-client model builds
+divergent structure. Fixed in `json_ot.other_oi_branch` by dropping `c` when
+`!common_operand` (c strictly deeper than the ancestor insert), mirroring the
+sibling `oi+od` (replace) and `od` branches. Verified: 40k+ fuzz scripts pass.
 
 ## Dependency summary
 

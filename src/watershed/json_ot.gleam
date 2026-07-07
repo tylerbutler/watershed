@@ -849,7 +849,8 @@ fn transform_matrix(
       ))
     Component(oi: Some(_), od: Some(_), ..) ->
       Ok(other_oreplace_branch(c, other, common, common_operand, side))
-    Component(oi: Some(_), ..) -> Ok(other_oi_branch(c, other, common, side))
+    Component(oi: Some(_), ..) ->
+      Ok(other_oi_branch(c, other, common, common_operand, side))
     Component(od: Some(_), ..) ->
       Ok(other_od_branch(c, other, common, common_operand))
     _ -> Ok([c])
@@ -1012,16 +1013,28 @@ fn other_oi_branch(
   c: Component,
   other: Component,
   common: Int,
+  common_operand: Bool,
   side: Side,
 ) -> List(Component) {
-  case c.oi, pk_at(c.path, common) == pk_at(other.path, common) {
-    Some(_), True ->
-      case side, other.oi {
-        Lft, Some(oiv) -> [obj_delete(c.path, oiv), c]
-        Rgt, _ -> []
-        Lft, None -> [c]
+  case pk_at(c.path, common) == pk_at(other.path, common) {
+    False -> [c]
+    True ->
+      // `other` inserts a value at a strictly-shallower path than `c`: it just
+      // (re)created an ancestor of `c`'s operand, so `c`'s deeper edit is stale
+      // and must be dropped. This mirrors the `oi+od` (replace) and `od`
+      // branches, which both drop `c` when `!common_operand`. Canonical json0
+      // omits this guard because it never generates a deeper concurrent edit
+      // from a shared base; watershed's optimistic clients can, so we converge
+      // it here rather than emit an inapplicable op.
+      case common_operand {
+        False -> []
+        True ->
+          case c.oi, side, other.oi {
+            Some(_), Lft, Some(oiv) -> [obj_delete(c.path, oiv), c]
+            Some(_), Rgt, _ -> []
+            _, _, _ -> [c]
+          }
       }
-    _, _ -> [c]
   }
 }
 
