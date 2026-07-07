@@ -64,6 +64,20 @@ pub fn set_cell(cell: Cell(a), value: a) -> Nil
 pub fn now_ms() -> Int
 
 @target(javascript)
+/// A cancellable timer handle returned by `set_timer`.
+pub type TimerId
+
+@target(javascript)
+/// Schedule `action` after `ms`, returning a handle for `clear_timer`.
+@external(javascript, "./transport_ffi.mjs", "setTimer")
+pub fn set_timer(action: fn() -> Nil, ms: Int) -> TimerId
+
+@target(javascript)
+/// Cancel a pending timer.
+@external(javascript, "./transport_ffi.mjs", "clearTimer")
+pub fn clear_timer(id: TimerId) -> Nil
+
+@target(javascript)
 /// Mint an HS256 dev JWT matching levee's dev-mode verification. Signs with
 /// Web Crypto, so the token resolves asynchronously.
 @external(javascript, "./transport_ffi.mjs", "mintDevToken")

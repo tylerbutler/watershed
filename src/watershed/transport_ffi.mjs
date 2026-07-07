@@ -82,6 +82,16 @@ export function nowMs() {
   return Date.now();
 }
 
+// Cancellable timers for the presence heartbeat/prune loop (returns a handle).
+export function setTimer(action, ms) {
+  return setTimeout(action, ms);
+}
+
+export function clearTimer(id) {
+  clearTimeout(id);
+  return undefined;
+}
+
 // Mint an HS256 dev JWT matching levee's JOSE verification, so the Lustre
 // example works against `just server` with no backend token endpoint. Web
 // Crypto's subtle.sign is async, so this returns a Promise<string>.
