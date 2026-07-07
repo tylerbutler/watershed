@@ -62,8 +62,8 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
-  InitOrMap, InitOrSet, InitPactMap, InitPnCounter, InitRegisterCollection,
-  InitTaskManager, InitTwoPSet,
+  InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
+  InitRegisterCollection, InitTaskManager, InitTwoPSet,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -122,6 +122,10 @@ pub type Msg {
   UpdatePnCounter(address: String, amount: Int)
   SetPactMap(address: String, key: String, value: Json)
   DeletePactMap(address: String, key: String)
+  AddOrderedItem(address: String, value: Json)
+  AcquireOrderedItem(address: String, reply: Subject(String))
+  CompleteOrderedItem(address: String, acquire_id: String)
+  ReleaseOrderedItem(address: String, acquire_id: String)
   SubmitJsonOt(address: String, components: json_ot.Op)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
@@ -167,6 +171,9 @@ pub type Msg {
   /// Create a new detached PactMap (consensus map) channel, same lifecycle as
   /// `CreateMap`.
   CreatePactMap(reply: Subject(Result(String, String)))
+  /// Create a new detached ConsensusOrderedCollection channel, same lifecycle
+  /// as `CreateMap`.
+  CreateOrderedCollection(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateOrSet(reply: Subject(Result(String, String)))
@@ -207,6 +214,9 @@ pub type Msg {
   GetPactMapKeys(address: String, reply: Subject(List(String)))
   /// Whether `key` has a pending (proposed but not-yet-accepted) value.
   GetPactMapPending(address: String, key: String, reply: Subject(Bool))
+  /// The number of queued (not-yet-acquired) items in the ordered collection at
+  /// `address`, `None` when missing or not an ordered-collection channel.
+  GetOrderedSize(address: String, reply: Subject(Option(Int)))
   /// The json0 channel's optimistic document, `None` when the address is missing
   /// or not a json0 channel.
   GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
@@ -632,6 +642,18 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     DeletePactMap(address, key) ->
       edit(state, fn(core) { runtime_core.pact_map_delete(core, address, key) })
+    AddOrderedItem(address, value) ->
+      edit(state, fn(core) { runtime_core.ordered_add(core, address, value) })
+    AcquireOrderedItem(address, reply) ->
+      handle_ordered_acquire(state, address, reply)
+    CompleteOrderedItem(address, acquire_id) ->
+      edit(state, fn(core) {
+        runtime_core.ordered_complete(core, address, acquire_id)
+      })
+    ReleaseOrderedItem(address, acquire_id) ->
+      edit(state, fn(core) {
+        runtime_core.ordered_release(core, address, acquire_id)
+      })
     SubmitJsonOt(address, components) ->
       edit(state, fn(core) {
         runtime_core.submit_json_ot(core, address, components)
@@ -690,6 +712,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitPnCounter, "create_pn_counter")
     CreatePactMap(reply) ->
       create_channel(state, reply, InitPactMap, "create_pact_map")
+    CreateOrderedCollection(reply) ->
+      create_channel(
+        state,
+        reply,
+        InitOrderedCollection,
+        "create_ordered_collection",
+      )
     CreateOrMap(mode, reply) ->
       create_channel(state, reply, InitOrMap(mode), "create_or_map")
     CreateOrSet(reply) ->
@@ -793,6 +822,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, False, runtime_core.pact_map_is_pending(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetOrderedSize(address, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.ordered_size(_, address)),
       )
       actor.continue(state)
     }
@@ -1365,6 +1401,22 @@ fn abort_claim_waiters(state: State) -> State {
   dict.values(state.claim_waiters)
   |> list.each(fn(waiter) { process.send(waiter, claims_kernel.Aborted) })
   State(..state, claim_waiters: dict.new())
+}
+
+@target(erlang)
+/// Mint an acquire id, submit the `Acquire` op, and reply with the id so the
+/// caller can later complete/release the job. The acquired item itself arrives
+/// via the sequenced `Acquired` event (the queue is non-optimistic).
+fn handle_ordered_acquire(
+  state: State,
+  address: String,
+  reply: Subject(String),
+) -> actor.Next(State, Msg) {
+  let acquire_id = ids.uuid_v4()
+  process.send(reply, acquire_id)
+  edit(state, fn(core) {
+    runtime_core.ordered_acquire(core, address, acquire_id)
+  })
 }
 
 @target(erlang)

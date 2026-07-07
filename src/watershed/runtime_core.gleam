@@ -35,6 +35,7 @@ import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
+import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
@@ -1254,6 +1255,145 @@ fn pact_map_submit(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ConsensusOrderedCollection edits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Append `value` to the queue at `address`. Non-optimistic when attached: the
+/// value takes effect on sequencing (via the own-op ack). A detached channel
+/// applies immediately and carries the add in its attach.
+pub fn ordered_add(
+  core: Core,
+  address: String,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_ordered(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events) =
+        ordered_collection_kernel.add_detached(kernel, value)
+      Ok(
+        #(
+          put_detached_channel(
+            core,
+            address,
+            channel.OrderedCollectionState(kernel),
+          ),
+          tag_ordered_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let op = ordered_collection_kernel.add(kernel, value)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrderedCollectionState(kernel),
+        [],
+        channel.OrderedCollectionOp(op),
+        channel.NoMeta,
+      ))
+    }
+  }
+}
+
+/// Acquire the head of the queue at `address` under the caller-supplied
+/// `acquire_id` (mint it at the runtime layer with `ids.uuid_v4`). Non-optimistic
+/// when attached: the item is removed on sequencing and delivered via the
+/// `Acquired` event; the `acquire_id` keys the later `complete`/`release`. A
+/// detached channel acquires immediately.
+pub fn ordered_acquire(
+  core: Core,
+  address: String,
+  acquire_id: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_ordered(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _outcome) =
+        ordered_collection_kernel.acquire_detached(kernel, acquire_id)
+      Ok(
+        #(
+          put_detached_channel(
+            core,
+            address,
+            channel.OrderedCollectionState(kernel),
+          ),
+          tag_ordered_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let op = ordered_collection_kernel.acquire(acquire_id)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrderedCollectionState(kernel),
+        [],
+        channel.OrderedCollectionOp(op),
+        channel.NoMeta,
+      ))
+    }
+  }
+}
+
+/// Complete the held job `acquire_id` in the queue at `address` (drops it). A
+/// no-op on a detached channel (nothing to complete without sequencing).
+pub fn ordered_complete(
+  core: Core,
+  address: String,
+  acquire_id: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  ordered_submit(core, address, ordered_collection_kernel.complete(acquire_id))
+}
+
+/// Release the held job `acquire_id` in the queue at `address` back to the tail
+/// of the queue. A no-op on a detached channel.
+pub fn ordered_release(
+  core: Core,
+  address: String,
+  acquire_id: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  ordered_submit(core, address, ordered_collection_kernel.release(acquire_id))
+}
+
+fn ordered_submit(
+  core: Core,
+  address: String,
+  op: ordered_collection_kernel.OrderedOp,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_ordered(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(_)) -> Ok(#(core, [], []))
+    Ok(Attached(kernel)) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrderedCollectionState(kernel),
+        [],
+        channel.OrderedCollectionOp(op),
+        channel.NoMeta,
+      ))
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SharedDirectory edits
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2284,6 +2424,23 @@ fn locate_pact_map(
   }
 }
 
+fn locate_ordered(
+  core: Core,
+  address: String,
+) -> Result(Located(ordered_collection_kernel.OrderedState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.OrderedCollectionState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.OrderedCollectionState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.OrderedCollectionChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_or_map(
   core: Core,
   address: String,
@@ -2628,6 +2785,15 @@ fn tag_json_ot_events(
   list.map(events, fn(event) { #(address, channel.JsonOtEvent(event)) })
 }
 
+fn tag_ordered_events(
+  address: String,
+  events: List(ordered_collection_kernel.OrderedEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) {
+    #(address, channel.OrderedCollectionEvent(event))
+  })
+}
+
 fn tag_directory_events(
   address: String,
   events: List(directory_kernel.DirectoryEvent),
@@ -2770,6 +2936,37 @@ pub fn pact_map_is_pending(core: Core, address: String, key: String) -> Bool {
 pub fn pact_map_keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.PactMapState(kernel)) -> pact_map_kernel.keys(kernel)
+    _ -> []
+  }
+}
+
+/// The number of items waiting in the queue at `address` (excludes acquired
+/// jobs), `None` when the address is missing or not an ordered-collection.
+pub fn ordered_size(core: Core, address: String) -> Option(Int) {
+  case find_channel(core, address) {
+    Some(channel.OrderedCollectionState(kernel)) ->
+      Some(ordered_collection_kernel.size(kernel))
+    _ -> None
+  }
+}
+
+/// The queued (not-yet-acquired) values at `address`, front first.
+pub fn ordered_queue(core: Core, address: String) -> List(Json) {
+  case find_channel(core, address) {
+    Some(channel.OrderedCollectionState(kernel)) ->
+      ordered_collection_kernel.summary_queue(kernel)
+    _ -> []
+  }
+}
+
+/// The currently-held jobs at `address`, keyed by acquire id (sorted).
+pub fn ordered_jobs(
+  core: Core,
+  address: String,
+) -> List(#(String, ordered_collection_kernel.JobEntry)) {
+  case find_channel(core, address) {
+    Some(channel.OrderedCollectionState(kernel)) ->
+      ordered_collection_kernel.summary_jobs(kernel)
     _ -> []
   }
 }

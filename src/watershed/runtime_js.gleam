@@ -284,6 +284,56 @@ pub fn pact_map_is_pending(
 }
 
 @target(javascript)
+/// Append `value` to the ordered collection at `address`. Non-optimistic when
+/// attached (takes effect on sequencing); a detached channel adds immediately.
+pub fn ordered_add(runtime: Runtime, address: String, value: Json) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.ordered_add(core, address, value) })
+}
+
+@target(javascript)
+/// Acquire the head of the ordered collection at `address`, returning the minted
+/// acquire id for the later `ordered_complete`/`ordered_release`. The acquired
+/// item arrives via the `Acquired` event (the queue is non-optimistic).
+pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
+  let acquire_id = ids.uuid_v4()
+  edit(runtime.cell, fn(core) {
+    runtime_core.ordered_acquire(core, address, acquire_id)
+  })
+  acquire_id
+}
+
+@target(javascript)
+/// Complete the held job `acquire_id` in the ordered collection at `address`.
+pub fn ordered_complete(
+  runtime: Runtime,
+  address: String,
+  acquire_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.ordered_complete(core, address, acquire_id)
+  })
+}
+
+@target(javascript)
+/// Release the held job `acquire_id` back to the ordered collection at `address`.
+pub fn ordered_release(
+  runtime: Runtime,
+  address: String,
+  acquire_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.ordered_release(core, address, acquire_id)
+  })
+}
+
+@target(javascript)
+/// The number of queued (not-yet-acquired) items at `address`, `None` when
+/// missing or not an ordered-collection channel.
+pub fn ordered_size(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.ordered_size(_, address))
+}
+
+@target(javascript)
 /// Optimistically submit a json0 op to the channel at `address`.
 pub fn submit_json_ot(
   runtime: Runtime,
@@ -774,6 +824,17 @@ pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
 /// `create_map`.
 pub fn create_pact_map(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitPactMap, "create_pact_map")
+}
+
+@target(javascript)
+/// Create a new detached ConsensusOrderedCollection channel, same lifecycle as
+/// `create_map`.
+pub fn create_ordered_collection(runtime: Runtime) -> Result(String, String) {
+  create_channel(
+    runtime,
+    channel.InitOrderedCollection,
+    "create_ordered_collection",
+  )
 }
 
 @target(javascript)

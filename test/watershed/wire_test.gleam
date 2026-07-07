@@ -29,6 +29,7 @@ import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
+import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
@@ -477,6 +478,37 @@ pub fn pact_map_op_set_null_value_round_trip_test() {
 
 pub fn pact_map_op_accept_round_trip_test() {
   round_trip_pact_map_op(pact_map_kernel.Accept("grade"))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ordered-collection op envelope round-trips
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn round_trip_ordered_op(op: ordered_collection_kernel.OrderedOp) {
+  let encoded = ops.encode_ordered_envelope("oc", op) |> json.to_string
+  let assert Ok(#(address, decoded)) =
+    json.parse(encoded, ops.ordered_envelope_decoder())
+  address |> expect.to_equal("oc")
+  // `Json` values are opaque and not reliably equal across a decode; compare
+  // canonical re-encodings instead.
+  json.to_string(ops.encode_ordered_op(decoded))
+  |> expect.to_equal(json.to_string(ops.encode_ordered_op(op)))
+}
+
+pub fn ordered_op_add_round_trip_test() {
+  round_trip_ordered_op(ordered_collection_kernel.Add(json.string("job")))
+}
+
+pub fn ordered_op_acquire_round_trip_test() {
+  round_trip_ordered_op(ordered_collection_kernel.Acquire("acq-1"))
+}
+
+pub fn ordered_op_complete_round_trip_test() {
+  round_trip_ordered_op(ordered_collection_kernel.Complete("acq-1"))
+}
+
+pub fn ordered_op_release_round_trip_test() {
+  round_trip_ordered_op(ordered_collection_kernel.Release("acq-1"))
 }
 
 pub fn counter_op_rejects_fractional_increment_test() {

@@ -36,6 +36,7 @@ import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
+import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
@@ -59,6 +60,7 @@ pub type ChannelType {
   PactMapChannel
   JsonOtChannel
   DirectoryChannel
+  OrderedCollectionChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -77,6 +79,7 @@ pub type ChannelInit {
   InitPactMap
   InitJsonOt
   InitDirectory
+  InitOrderedCollection
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -94,6 +97,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     PactMapChannel -> wire.channel_type_pact_map
     JsonOtChannel -> wire.channel_type_json_ot
     DirectoryChannel -> wire.channel_type_directory
+    OrderedCollectionChannel -> wire.channel_type_ordered_collection
   }
 }
 
@@ -113,6 +117,8 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_pact_map -> Ok(PactMapChannel)
     _ if raw == wire.channel_type_json_ot -> Ok(JsonOtChannel)
     _ if raw == wire.channel_type_directory -> Ok(DirectoryChannel)
+    _ if raw == wire.channel_type_ordered_collection ->
+      Ok(OrderedCollectionChannel)
     _ -> Error(Nil)
   }
 }
@@ -132,6 +138,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitPactMap -> PactMapChannel
     InitJsonOt -> JsonOtChannel
     InitDirectory -> DirectoryChannel
+    InitOrderedCollection -> OrderedCollectionChannel
   }
 }
 
@@ -150,6 +157,7 @@ pub type ChannelState {
   PactMapState(pact_map_kernel.PactMapState)
   JsonOtState(json_ot_kernel.JsonOtState)
   DirectoryState(directory_kernel.DirectoryState)
+  OrderedCollectionState(ordered_collection_kernel.OrderedState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -174,6 +182,7 @@ pub type ChannelOp {
   /// csn counts every channel's ops together and would not match the kernel's
   /// per-directory counter.
   DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
+  OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -191,6 +200,7 @@ pub type ChannelEvent {
   PactMapEvent(pact_map_kernel.PactMapEvent)
   JsonOtEvent(json_ot_kernel.JsonOtEvent)
   DirectoryEvent(directory_kernel.DirectoryEvent)
+  OrderedCollectionEvent(ordered_collection_kernel.OrderedEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -211,6 +221,10 @@ pub type Snapshot {
   PactMapSnapshot(entries: List(#(String, pact_map_kernel.Pact)))
   JsonOtSnapshot(doc: json_ot.JsonValue)
   DirectorySnapshot(summary: directory_kernel.DirectorySummary)
+  OrderedCollectionSnapshot(
+    queue: List(Json),
+    jobs: List(#(String, ordered_collection_kernel.JobEntry)),
+  )
 }
 
 pub type Resolution {
@@ -277,6 +291,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     PactMapState(_) -> PactMapChannel
     JsonOtState(_) -> JsonOtChannel
     DirectoryState(_) -> DirectoryChannel
+    OrderedCollectionState(_) -> OrderedCollectionChannel
   }
 }
 
@@ -295,6 +310,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     PactMapSnapshot(_) -> PactMapChannel
     JsonOtSnapshot(_) -> JsonOtChannel
     DirectorySnapshot(_) -> DirectoryChannel
+    OrderedCollectionSnapshot(_, _) -> OrderedCollectionChannel
   }
 }
 
@@ -321,6 +337,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitPactMap -> PactMapState(pact_map_kernel.new())
     InitJsonOt -> JsonOtState(json_ot_kernel.new(client_id.to_int(replica)))
     InitDirectory -> DirectoryState(directory_kernel.new())
+    InitOrderedCollection ->
+      OrderedCollectionState(ordered_collection_kernel.new())
   }
 }
 
@@ -359,6 +377,8 @@ pub fn from_snapshot(
       JsonOtState(json_ot_kernel.from_summary(client_id.to_int(replica), doc))
     DirectorySnapshot(summary) ->
       DirectoryState(directory_kernel.from_summary(summary))
+    OrderedCollectionSnapshot(queue, jobs) ->
+      OrderedCollectionState(ordered_collection_kernel.from_summary(queue, jobs))
   }
 }
 
@@ -384,6 +404,11 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     JsonOtState(kernel) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
     DirectoryState(kernel) ->
       DirectorySnapshot(directory_kernel.summary_tree(kernel))
+    OrderedCollectionState(kernel) ->
+      OrderedCollectionSnapshot(
+        ordered_collection_kernel.summary_queue(kernel),
+        ordered_collection_kernel.summary_jobs(kernel),
+      )
   }
 }
 
@@ -428,6 +453,14 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     // kernels here. The demo and multi-client flows always attach first.
     DirectoryState(kernel) ->
       DirectorySnapshot(directory_kernel.summary_tree(kernel))
+    // The queue kernel keeps a single state (no pending/sequenced split), so
+    // the optimistic attach view equals the confirmed summary; detached
+    // adds/acquires are already folded into it and travel in the attach.
+    OrderedCollectionState(kernel) ->
+      OrderedCollectionSnapshot(
+        ordered_collection_kernel.summary_queue(kernel),
+        ordered_collection_kernel.summary_jobs(kernel),
+      )
   }
 }
 
@@ -543,6 +576,17 @@ pub fn apply_remote(
           meta.self,
         )
       Ok(#(DirectoryState(kernel), list.map(events, DirectoryEvent), []))
+    }
+    OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
+      let #(kernel, events) =
+        ordered_collection_kernel.apply_remote(kernel, op, meta.author)
+      Ok(
+        #(
+          OrderedCollectionState(kernel),
+          list.map(events, OrderedCollectionEvent),
+          [],
+        ),
+      )
     }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
@@ -852,6 +896,18 @@ pub fn ack_local(
           }
         _ -> Error(UnexpectedAck("directory ack is missing its local metadata"))
       }
+    OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
+      // The queue kernel is non-optimistic: the own op takes effect here, on
+      // ack. An `Acquire` yields the acquired item, but it is surfaced through
+      // the `Acquired` event (the caller subscribes), so the outcome is dropped.
+      let #(kernel, events, _outcome) =
+        ordered_collection_kernel.ack_local(kernel, op, meta.self)
+      Ok(#(
+        OrderedCollectionState(kernel),
+        list.map(events, OrderedCollectionEvent),
+        None,
+      ))
+    }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -920,6 +976,8 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
     DirectoryOp(ours, our_id), DirectoryOp(echoed, echoed_id) ->
       our_id == echoed_id && same_directory_shape(ours, echoed)
+    OrderedCollectionOp(ours), OrderedCollectionOp(echoed) ->
+      same_ordered_shape(ours, echoed)
     _, _ -> False
   }
 }
@@ -1052,6 +1110,11 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     DirectorySnapshot(ours), DirectorySnapshot(echoed) ->
       json.to_string(encode_directory_summary(ours))
       == json.to_string(encode_directory_summary(echoed))
+    OrderedCollectionSnapshot(our_queue, our_jobs),
+      OrderedCollectionSnapshot(echoed_queue, echoed_jobs)
+    ->
+      json.to_string(encode_ordered_snapshot(our_queue, our_jobs))
+      == json.to_string(encode_ordered_snapshot(echoed_queue, echoed_jobs))
     _, _ -> False
   }
 }
@@ -1140,6 +1203,16 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
     // Directory handle serialization/GC is out of scope (see the kernel plan);
     // the demo stores plain values, so no handle addresses to collect.
     DirectoryState(_) -> []
+    OrderedCollectionState(kernel) ->
+      list.append(
+        ordered_collection_kernel.summary_queue(kernel),
+        list.map(ordered_collection_kernel.summary_jobs(kernel), fn(entry) {
+          let #(_, ordered_collection_kernel.JobEntry(value, _)) = entry
+          value
+        }),
+      )
+      |> list.flat_map(handle.collect_handle_addresses)
+      |> list.unique
   }
 }
 
@@ -1160,6 +1233,8 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     PactMapSnapshot(entries) -> encode_pact_entries(entries)
     JsonOtSnapshot(doc) -> json_ot.to_json(doc)
     DirectorySnapshot(summary) -> encode_directory_summary(summary)
+    OrderedCollectionSnapshot(queue, jobs) ->
+      encode_ordered_snapshot(queue, jobs)
   }
 }
 
@@ -1216,6 +1291,7 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     JsonOtChannel -> json_ot.decoder() |> decode.map(JsonOtSnapshot)
     DirectoryChannel ->
       directory_summary_decoder() |> decode.map(DirectorySnapshot)
+    OrderedCollectionChannel -> ordered_snapshot_decoder()
   }
 }
 
@@ -1287,6 +1363,27 @@ fn same_pact_map_shape(
 fn same_optional_json(a: Option(Json), b: Option(Json)) -> Bool {
   json.to_string(encode_optional_value(a))
   == json.to_string(encode_optional_value(b))
+}
+
+fn same_ordered_shape(
+  ours: ordered_collection_kernel.OrderedOp,
+  echoed: ordered_collection_kernel.OrderedOp,
+) -> Bool {
+  case ours, echoed {
+    ordered_collection_kernel.Add(our_value),
+      ordered_collection_kernel.Add(echoed_value)
+    -> same_json_value(our_value, echoed_value)
+    ordered_collection_kernel.Acquire(our_id),
+      ordered_collection_kernel.Acquire(echoed_id)
+    -> our_id == echoed_id
+    ordered_collection_kernel.Complete(our_id),
+      ordered_collection_kernel.Complete(echoed_id)
+    -> our_id == echoed_id
+    ordered_collection_kernel.Release(our_id),
+      ordered_collection_kernel.Release(echoed_id)
+    -> our_id == echoed_id
+    _, _ -> False
+  }
 }
 
 fn encode_pact_entries(entries: List(#(String, pact_map_kernel.Pact))) -> Json {
@@ -1363,6 +1460,47 @@ fn optional_value_decoder() -> Decoder(Option(Json)) {
     "Absent" -> decode.success(None)
     _ -> decode.failure(None, "PactValue")
   }
+}
+
+/// `{queue: [value...], jobs: [{acquireId, value, owner}]}`. `owner` is an int
+/// client id or `null` for a locally-acquired (unattached) job.
+fn encode_ordered_snapshot(
+  queue: List(Json),
+  jobs: List(#(String, ordered_collection_kernel.JobEntry)),
+) -> Json {
+  json.object([
+    #("queue", json.preprocessed_array(queue)),
+    #(
+      "jobs",
+      json.array(jobs, fn(entry) {
+        let #(acquire_id, ordered_collection_kernel.JobEntry(value, owner)) =
+          entry
+        json.object([
+          #("acquireId", json.string(acquire_id)),
+          #("value", value),
+          #("owner", case owner {
+            Some(id) -> json.int(id)
+            None -> json.null()
+          }),
+        ])
+      }),
+    ),
+  ])
+}
+
+fn ordered_snapshot_decoder() -> Decoder(Snapshot) {
+  use queue <- decode.field("queue", decode.list(wire.json_value_decoder()))
+  use jobs <- decode.field("jobs", decode.list(ordered_job_decoder()))
+  decode.success(OrderedCollectionSnapshot(queue, jobs))
+}
+
+fn ordered_job_decoder() -> Decoder(
+  #(String, ordered_collection_kernel.JobEntry),
+) {
+  use acquire_id <- decode.field("acquireId", decode.string)
+  use value <- decode.field("value", wire.json_value_decoder())
+  use owner <- decode.field("owner", decode.optional(decode.int))
+  decode.success(#(acquire_id, ordered_collection_kernel.JobEntry(value, owner)))
 }
 
 fn encode_registers(

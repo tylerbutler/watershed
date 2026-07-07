@@ -40,6 +40,7 @@ import watershed/json_ot_kernel.{type JsonOtWireOp, JsonOtWireOp}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
 import watershed/or_set_kernel.{type OrSetOp}
+import watershed/ordered_collection_kernel.{type OrderedOp}
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel.{type PnCounterOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
@@ -151,6 +152,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.JsonOtOp(op) -> encode_json_ot_op(op)
     channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
     channel.PactMapOp(op) -> encode_pact_map_op(op)
+    channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
   }
 }
 
@@ -181,6 +183,8 @@ pub fn channel_op_decoder(
     channel.DirectoryChannel -> directory_op_decoder()
     channel.PactMapChannel ->
       pact_map_op_decoder() |> decode.map(channel.PactMapOp)
+    channel.OrderedCollectionChannel ->
+      ordered_op_decoder() |> decode.map(channel.OrderedCollectionOp)
   }
 }
 
@@ -616,6 +620,71 @@ fn pact_map_value_decoder() -> Decoder(option.Option(Json)) {
       })
     "Absent" -> decode.success(None)
     _ -> decode.failure(None, "PactMapValue")
+  }
+}
+
+/// `{address, contents}` document envelope around an ordered-collection op.
+pub fn encode_ordered_envelope(address: String, op: OrderedOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_ordered_op(op)),
+  ])
+}
+
+pub fn encode_ordered_op(op: OrderedOp) -> Json {
+  case op {
+    ordered_collection_kernel.Add(value) ->
+      json.object([#("type", json.string("orderedAdd")), #("value", value)])
+    ordered_collection_kernel.Acquire(acquire_id) ->
+      json.object([
+        #("type", json.string("orderedAcquire")),
+        #("acquireId", json.string(acquire_id)),
+      ])
+    ordered_collection_kernel.Complete(acquire_id) ->
+      json.object([
+        #("type", json.string("orderedComplete")),
+        #("acquireId", json.string(acquire_id)),
+      ])
+    ordered_collection_kernel.Release(acquire_id) ->
+      json.object([
+        #("type", json.string("orderedRelease")),
+        #("acquireId", json.string(acquire_id)),
+      ])
+  }
+}
+
+pub fn decode_ordered_envelope(
+  contents: Dynamic,
+) -> Result(#(String, OrderedOp), List(decode.DecodeError)) {
+  decode.run(contents, ordered_envelope_decoder())
+}
+
+pub fn ordered_envelope_decoder() -> Decoder(#(String, OrderedOp)) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", ordered_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn ordered_op_decoder() -> Decoder(OrderedOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "orderedAdd" -> {
+      use value <- decode.field("value", wire.json_value_decoder())
+      decode.success(ordered_collection_kernel.Add(value))
+    }
+    "orderedAcquire" -> {
+      use acquire_id <- decode.field("acquireId", decode.string)
+      decode.success(ordered_collection_kernel.Acquire(acquire_id))
+    }
+    "orderedComplete" -> {
+      use acquire_id <- decode.field("acquireId", decode.string)
+      decode.success(ordered_collection_kernel.Complete(acquire_id))
+    }
+    "orderedRelease" -> {
+      use acquire_id <- decode.field("acquireId", decode.string)
+      decode.success(ordered_collection_kernel.Release(acquire_id))
+    }
+    _ -> decode.failure(ordered_collection_kernel.Acquire(""), "OrderedOp")
   }
 }
 

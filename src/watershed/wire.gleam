@@ -55,6 +55,8 @@ pub const channel_type_task_manager = "taskManager"
 
 pub const channel_type_pact_map = "pactMap"
 
+pub const channel_type_ordered_collection = "orderedCollection"
+
 pub const channel_type_json_ot = "json0"
 
 pub const channel_type_directory = "directory"
