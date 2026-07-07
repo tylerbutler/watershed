@@ -29,6 +29,8 @@ import gleam/erlang/process.{type Subject}
 @target(erlang)
 import gleam/json.{type Json}
 @target(erlang)
+import gleam/list
+@target(erlang)
 import gleam/option.{type Option, None, Some}
 @target(erlang)
 import gleam/result
@@ -54,6 +56,8 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
 import watershed/runtime
+@target(erlang)
+import watershed/schema.{type ChildField, type Field, type FieldError}
 @target(erlang)
 import watershed/task_manager_kernel
 @target(erlang)
@@ -240,6 +244,171 @@ pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
         SharedMap(runtime: document.runtime, address: address)
       })
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Typed maps
+//
+// An opt-in, phantom-typed view over a SharedMap. `schema` is pinned by
+// inference the first time a `Field(schema, _)` is used against the map, so a
+// field from one schema cannot be applied to a map of another. Typing is a
+// decode boundary (remote peers may write anything), so reads return `Result`.
+// See `watershed/schema` for defining fields.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// A SharedMap viewed through a schema `s`.
+pub opaque type TypedMap(s) {
+  TypedMap(map: SharedMap)
+}
+
+@target(erlang)
+/// View a raw map through a schema. The schema is chosen by how the result is
+/// used (or by annotation): `let players: TypedMap(Roster) = typed(map)`.
+pub fn typed(map: SharedMap) -> TypedMap(s) {
+  TypedMap(map: map)
+}
+
+@target(erlang)
+/// The underlying raw map, for dropping back to the untyped API.
+pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
+  typed_map.map
+}
+
+@target(erlang)
+/// The document's root map, viewed through a schema.
+pub fn root_typed(document: Document) -> TypedMap(s) {
+  typed(root(document))
+}
+
+@target(erlang)
+/// Create a new (detached) map, viewed through a schema. Same lifecycle as
+/// `create_map`.
+pub fn create_typed_map(document: Document) -> Result(TypedMap(s), String) {
+  create_map(document) |> result.map(typed)
+}
+
+@target(erlang)
+/// Optimistically write a typed field.
+pub fn set_field(typed_map: TypedMap(s), field: Field(s, a), value: a) -> Nil {
+  set(typed_map.map, schema.field_key(field), schema.encode_value(field, value))
+}
+
+@target(erlang)
+/// Optimistically delete a typed field.
+pub fn delete_field(typed_map: TypedMap(s), field: Field(s, a)) -> Nil {
+  delete(typed_map.map, schema.field_key(field))
+}
+
+@target(erlang)
+/// Read a typed field. `Ok(None)` when the key is absent; `Error(Invalid)`
+/// when the stored value does not decode to `a`.
+pub fn get_field(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+) -> Result(Option(a), FieldError) {
+  case get(typed_map.map, schema.field_key(field)) {
+    None -> Ok(None)
+    Some(stored) -> schema.decode_value(field, stored) |> result.map(Some)
+  }
+}
+
+@target(erlang)
+/// Read a typed field that is expected to exist. `Error(Missing)` when absent.
+pub fn get_required(
+  typed_map: TypedMap(s),
+  field: Field(s, a),
+) -> Result(a, FieldError) {
+  case get_field(typed_map, field) {
+    Ok(Some(value)) -> Ok(value)
+    Ok(None) -> Error(schema.Missing(schema.field_key(field)))
+    Error(reason) -> Error(reason)
+  }
+}
+
+@target(erlang)
+/// Whether a typed field is present (does not check that it decodes).
+pub fn has_field(typed_map: TypedMap(s), field: Field(s, a)) -> Bool {
+  has(typed_map.map, schema.field_key(field))
+}
+
+@target(erlang)
+/// Store a handle to a nested typed map under a child field.
+pub fn set_child(
+  typed_map: TypedMap(s),
+  field: ChildField(s, c),
+  child: TypedMap(c),
+) -> Nil {
+  set(typed_map.map, schema.child_key(field), handle_of(child.map))
+}
+
+@target(erlang)
+/// Resolve the nested typed map referenced by a child field. `Ok(None)` when
+/// the key is absent; errors from `resolve` (including transient
+/// not-yet-attached ones) are surfaced as-is and are retryable.
+pub fn resolve_child(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChildField(s, c),
+) -> Result(Option(TypedMap(c)), String) {
+  case get(typed_map.map, schema.child_key(field)) {
+    None -> Ok(None)
+    Some(value) ->
+      resolve(document, value) |> result.map(fn(m) { Some(typed(m)) })
+  }
+}
+
+@target(erlang)
+/// Read the whole map as a typed record through a schema: one `Result`, after
+/// the schema's version and seal checks. See `watershed/schema`.
+pub fn read(
+  typed_map: TypedMap(s),
+  map_schema: schema.Schema(s, record),
+) -> Result(record, FieldError) {
+  schema.decode_entries(map_schema, entries(typed_map.map))
+}
+
+@target(erlang)
+/// Write a whole record through a schema, as per-key sets — so concurrent
+/// edits to sibling keys still merge (the record view is never a clobbering
+/// blob).
+pub fn write(
+  typed_map: TypedMap(s),
+  map_schema: schema.Schema(s, record),
+  value: record,
+) -> Nil {
+  list.each(schema.encode_entries(map_schema, value), fn(entry) {
+    set(typed_map.map, entry.0, entry.1)
+  })
+}
+
+@target(erlang)
+/// Stamp a versioned schema's version marker once (typically right after
+/// creating the map). A no-op for unversioned schemas.
+pub fn stamp(
+  typed_map: TypedMap(s),
+  map_schema: schema.Schema(s, record),
+) -> Nil {
+  case schema.stamp_entry(map_schema) {
+    Some(entry) -> set(typed_map.map, entry.0, entry.1)
+    None -> Nil
+  }
+}
+
+@target(erlang)
+/// Resolve every handle-valued key to a typed child map — the typed view of a
+/// dynamic collection (a map whose keys are not statically known, e.g. a
+/// roster keyed by id). Non-handle keys are skipped; each child's resolution
+/// `Result` is surfaced (transient not-yet-attached errors are retryable).
+pub fn typed_children(
+  document: Document,
+  typed_map: TypedMap(parent),
+) -> List(#(String, Result(TypedMap(child), String))) {
+  entries(typed_map.map)
+  |> list.filter(fn(entry) { is_handle(entry.1) })
+  |> list.map(fn(entry) {
+    #(entry.0, resolve(document, entry.1) |> result.map(typed))
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
