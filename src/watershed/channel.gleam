@@ -20,6 +20,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lattice_core/replica_id
+import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/or_map.{type ORMap}
 import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
@@ -35,6 +36,8 @@ import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
+import watershed/pact_map_kernel
+import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
@@ -45,6 +48,7 @@ import watershed/wire
 pub type ChannelType {
   MapChannel
   CounterChannel
+  PnCounterChannel
   OrMapChannel
   OrSetChannel
   GSetChannel
@@ -52,6 +56,7 @@ pub type ChannelType {
   RegisterCollectionChannel
   ClaimsChannel
   TaskManagerChannel
+  PactMapChannel
   JsonOtChannel
   DirectoryChannel
 }
@@ -61,6 +66,7 @@ pub type ChannelType {
 pub type ChannelInit {
   InitMap
   InitCounter
+  InitPnCounter
   InitOrMap(mode: or_map_kernel.OrMapMode)
   InitOrSet
   InitGSet
@@ -68,6 +74,7 @@ pub type ChannelInit {
   InitRegisterCollection
   InitClaims
   InitTaskManager
+  InitPactMap
   InitJsonOt
   InitDirectory
 }
@@ -76,6 +83,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
   case channel_type {
     MapChannel -> wire.channel_type_map
     CounterChannel -> wire.channel_type_counter
+    PnCounterChannel -> wire.channel_type_pn_counter
     OrMapChannel -> wire.channel_type_or_map
     OrSetChannel -> wire.channel_type_or_set
     GSetChannel -> wire.channel_type_g_set
@@ -83,6 +91,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     RegisterCollectionChannel -> wire.channel_type_register_collection
     ClaimsChannel -> wire.channel_type_claims
     TaskManagerChannel -> wire.channel_type_task_manager
+    PactMapChannel -> wire.channel_type_pact_map
     JsonOtChannel -> wire.channel_type_json_ot
     DirectoryChannel -> wire.channel_type_directory
   }
@@ -92,6 +101,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
   case raw {
     _ if raw == wire.channel_type_map -> Ok(MapChannel)
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
+    _ if raw == wire.channel_type_pn_counter -> Ok(PnCounterChannel)
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ if raw == wire.channel_type_or_set -> Ok(OrSetChannel)
     _ if raw == wire.channel_type_g_set -> Ok(GSetChannel)
@@ -100,6 +110,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
       Ok(RegisterCollectionChannel)
     _ if raw == wire.channel_type_claims -> Ok(ClaimsChannel)
     _ if raw == wire.channel_type_task_manager -> Ok(TaskManagerChannel)
+    _ if raw == wire.channel_type_pact_map -> Ok(PactMapChannel)
     _ if raw == wire.channel_type_json_ot -> Ok(JsonOtChannel)
     _ if raw == wire.channel_type_directory -> Ok(DirectoryChannel)
     _ -> Error(Nil)
@@ -110,6 +121,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
   case init {
     InitMap -> MapChannel
     InitCounter -> CounterChannel
+    InitPnCounter -> PnCounterChannel
     InitOrMap(_) -> OrMapChannel
     InitOrSet -> OrSetChannel
     InitGSet -> GSetChannel
@@ -117,6 +129,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitRegisterCollection -> RegisterCollectionChannel
     InitClaims -> ClaimsChannel
     InitTaskManager -> TaskManagerChannel
+    InitPactMap -> PactMapChannel
     InitJsonOt -> JsonOtChannel
     InitDirectory -> DirectoryChannel
   }
@@ -126,6 +139,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
 pub type ChannelState {
   MapState(map_kernel.MapState)
   CounterState(counter_kernel.CounterState)
+  PnCounterState(pn_counter_kernel.PnCounterState)
   OrMapState(or_map_kernel.OrMapState)
   OrSetState(or_set_kernel.OrSetState)
   GSetState(g_set_kernel.GSetState)
@@ -133,6 +147,7 @@ pub type ChannelState {
   RegisterCollectionState(register_collection_kernel.RegisterState)
   ClaimsState(claims_kernel.ClaimsState)
   TaskManagerState(task_manager_kernel.TaskManagerState)
+  PactMapState(pact_map_kernel.PactMapState)
   JsonOtState(json_ot_kernel.JsonOtState)
   DirectoryState(directory_kernel.DirectoryState)
 }
@@ -142,6 +157,7 @@ pub type ChannelState {
 pub type ChannelOp {
   MapOp(map_kernel.MapOp)
   CounterOp(counter_kernel.CounterOp)
+  PnCounterOp(pn_counter_kernel.PnCounterOp)
   OrMapOp(or_map_kernel.OrMapOp)
   OrSetOp(or_set_kernel.OrSetOp)
   GSetOp(g_set_kernel.GSetOp)
@@ -149,6 +165,7 @@ pub type ChannelOp {
   RegisterCollectionOp(register_collection_kernel.WriteOp)
   ClaimsOp(claims_kernel.ClaimOp)
   TaskManagerOp(task_manager_kernel.TaskManagerOp)
+  PactMapOp(pact_map_kernel.PactMapOp)
   JsonOtOp(json_ot_kernel.JsonOtWireOp)
   /// A directory op plus the kernel `message_id` that identifies this
   /// submission. Unlike other kernels the id travels *in the op* because a
@@ -163,6 +180,7 @@ pub type ChannelOp {
 pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
   CounterEvent(counter_kernel.CounterEvent)
+  PnCounterEvent(pn_counter_kernel.PnCounterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
   OrSetEvent(or_set_kernel.OrSetEvent)
   GSetEvent(g_set_kernel.GSetEvent)
@@ -170,6 +188,7 @@ pub type ChannelEvent {
   RegisterCollectionEvent(register_collection_kernel.RegisterEvent)
   ClaimsEvent(claims_kernel.ClaimEvent)
   TaskManagerEvent(task_manager_kernel.TaskManagerEvent)
+  PactMapEvent(pact_map_kernel.PactMapEvent)
   JsonOtEvent(json_ot_kernel.JsonOtEvent)
   DirectoryEvent(directory_kernel.DirectoryEvent)
 }
@@ -179,6 +198,7 @@ pub type ChannelEvent {
 pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
+  PnCounterSnapshot(state: PNCounter)
   OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
   OrSetSnapshot(state: ORSet(String))
   GSetSnapshot(state: GSet(String))
@@ -188,6 +208,7 @@ pub type Snapshot {
   )
   ClaimsSnapshot(entries: List(#(String, Json, Int)))
   TaskManagerSnapshot(queues: List(#(String, List(Int))))
+  PactMapSnapshot(entries: List(#(String, pact_map_kernel.Pact)))
   JsonOtSnapshot(doc: json_ot.JsonValue)
   DirectorySnapshot(summary: directory_kernel.DirectorySummary)
 }
@@ -202,6 +223,7 @@ pub type Resolution {
 pub type LocalOpMeta {
   NoMeta
   CounterMeta(message_id: Int)
+  PnCounterMeta(message_id: Int)
   OrMapMeta(message_id: Int)
   OrSetMeta(message_id: Int)
   GSetMeta(message_id: Int)
@@ -244,6 +266,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
   case state {
     MapState(_) -> MapChannel
     CounterState(_) -> CounterChannel
+    PnCounterState(_) -> PnCounterChannel
     OrMapState(_) -> OrMapChannel
     OrSetState(_) -> OrSetChannel
     GSetState(_) -> GSetChannel
@@ -251,6 +274,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     RegisterCollectionState(_) -> RegisterCollectionChannel
     ClaimsState(_) -> ClaimsChannel
     TaskManagerState(_) -> TaskManagerChannel
+    PactMapState(_) -> PactMapChannel
     JsonOtState(_) -> JsonOtChannel
     DirectoryState(_) -> DirectoryChannel
   }
@@ -260,6 +284,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
   case snapshot {
     MapSnapshot(_) -> MapChannel
     CounterSnapshot(_) -> CounterChannel
+    PnCounterSnapshot(_) -> PnCounterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
     OrSetSnapshot(_) -> OrSetChannel
     GSetSnapshot(_) -> GSetChannel
@@ -267,6 +292,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     RegisterCollectionSnapshot(_) -> RegisterCollectionChannel
     ClaimsSnapshot(_) -> ClaimsChannel
     TaskManagerSnapshot(_) -> TaskManagerChannel
+    PactMapSnapshot(_) -> PactMapChannel
     JsonOtSnapshot(_) -> JsonOtChannel
     DirectorySnapshot(_) -> DirectoryChannel
   }
@@ -281,6 +307,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
   case init {
     InitMap -> MapState(map_kernel.new())
     InitCounter -> CounterState(counter_kernel.new())
+    InitPnCounter ->
+      PnCounterState(pn_counter_kernel.new(replica_id.new(replica)))
     InitOrMap(mode) ->
       OrMapState(or_map_kernel.new(replica_id.new(replica), mode))
     InitOrSet -> OrSetState(or_set_kernel.new(replica_id.new(replica)))
@@ -290,6 +318,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
       RegisterCollectionState(register_collection_kernel.new())
     InitClaims -> ClaimsState(claims_kernel.new())
     InitTaskManager -> TaskManagerState(task_manager_kernel.new())
+    InitPactMap -> PactMapState(pact_map_kernel.new())
     InitJsonOt -> JsonOtState(json_ot_kernel.new(client_id.to_int(replica)))
     InitDirectory -> DirectoryState(directory_kernel.new())
   }
@@ -304,6 +333,11 @@ pub fn from_snapshot(
   case snapshot {
     MapSnapshot(entries) -> MapState(map_kernel.from_sequenced(entries))
     CounterSnapshot(value) -> CounterState(counter_kernel.from_summary(value))
+    PnCounterSnapshot(state) ->
+      PnCounterState(pn_counter_kernel.from_sequenced(
+        state,
+        replica_id.new(replica),
+      ))
     OrMapSnapshot(mode, state) -> {
       let assert Ok(kernel) =
         or_map_kernel.from_sequenced(state, mode, replica_id.new(replica))
@@ -319,6 +353,8 @@ pub fn from_snapshot(
     ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
     TaskManagerSnapshot(queues) ->
       TaskManagerState(task_manager_kernel.from_summary(queues))
+    PactMapSnapshot(entries) ->
+      PactMapState(pact_map_kernel.from_summary(entries))
     JsonOtSnapshot(doc) ->
       JsonOtState(json_ot_kernel.from_summary(client_id.to_int(replica), doc))
     DirectorySnapshot(summary) ->
@@ -331,6 +367,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
+    PnCounterState(kernel) -> PnCounterSnapshot(kernel.sequenced)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
     OrSetState(kernel) -> OrSetSnapshot(kernel.sequenced)
     GSetState(kernel) -> GSetSnapshot(kernel.sequenced)
@@ -342,6 +379,8 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
     TaskManagerState(kernel) ->
       TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+    PactMapState(kernel) ->
+      PactMapSnapshot(pact_map_kernel.summary_entries(kernel))
     JsonOtState(kernel) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
     DirectoryState(kernel) ->
       DirectorySnapshot(directory_kernel.summary_tree(kernel))
@@ -363,6 +402,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
     CounterState(kernel) -> CounterSnapshot(kernel.value)
+    PnCounterState(kernel) -> PnCounterSnapshot(kernel.optimistic)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
     OrSetState(kernel) -> OrSetSnapshot(kernel.optimistic)
     GSetState(kernel) -> GSetSnapshot(kernel.optimistic)
@@ -374,6 +414,10 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     ClaimsState(kernel) -> ClaimsSnapshot(claims_kernel.summary_entries(kernel))
     TaskManagerState(kernel) ->
       TaskManagerSnapshot(task_manager_kernel.summary_queues(kernel))
+    // PactMap is a consensus kernel with no optimistic local state (like
+    // task_manager); attach carries the confirmed summary.
+    PactMapState(kernel) ->
+      PactMapSnapshot(pact_map_kernel.summary_entries(kernel))
     JsonOtState(kernel) ->
       case json_ot_kernel.view(kernel) {
         Ok(doc) -> JsonOtSnapshot(doc)
@@ -404,24 +448,35 @@ pub fn attach_state(
 }
 
 /// Apply a sequenced op from another client.
+///
+/// Returns the updated state, the events it produced, and any *owed* follow-up
+/// ops the kernel wants the runtime to auto-submit (a fresh CSN + in-flight
+/// entry) in reaction to this op — e.g. a consensus kernel emitting its own
+/// `Accept` after seeing a peer's `Set`. Most kernels owe nothing and return
+/// an empty list; the runtime buffers owed ops per channel and drains them
+/// after the current sequenced batch (see `runtime_core.collect_released_ops`).
 pub fn apply_remote(
   state: ChannelState,
   op: ChannelOp,
   meta: SequencedMeta,
-) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
+) -> Result(#(ChannelState, List(ChannelEvent), List(ChannelOp)), ChannelError) {
   case state, op {
     MapState(kernel), MapOp(op) -> {
       let #(kernel, events) = map_kernel.apply_remote(kernel, op)
-      Ok(#(MapState(kernel), list.map(events, MapEvent)))
+      Ok(#(MapState(kernel), list.map(events, MapEvent), []))
     }
     CounterState(kernel), CounterOp(op) -> {
       let #(kernel, events) = counter_kernel.apply_remote(kernel, op)
-      Ok(#(CounterState(kernel), list.map(events, CounterEvent)))
+      Ok(#(CounterState(kernel), list.map(events, CounterEvent), []))
+    }
+    PnCounterState(kernel), PnCounterOp(op) -> {
+      let #(kernel, events) = pn_counter_kernel.apply_remote(kernel, op)
+      Ok(#(PnCounterState(kernel), list.map(events, PnCounterEvent), []))
     }
     OrMapState(kernel), OrMapOp(op) ->
       case or_map_kernel.apply_remote(kernel, op) {
         Ok(#(kernel, events)) ->
-          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent)))
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), []))
         Error(or_map_kernel.CorruptDelta(detail))
         | Error(or_map_kernel.ModeMismatch(detail)) ->
           Error(CorruptRemoteOp(detail))
@@ -431,33 +486,37 @@ pub fn apply_remote(
       }
     OrSetState(kernel), OrSetOp(op) -> {
       let #(kernel, events) = or_set_kernel.apply_remote(kernel, op)
-      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent)))
+      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), []))
     }
     GSetState(kernel), GSetOp(op) -> {
       let #(kernel, events) = g_set_kernel.apply_remote(kernel, op)
-      Ok(#(GSetState(kernel), list.map(events, GSetEvent)))
+      Ok(#(GSetState(kernel), list.map(events, GSetEvent), []))
     }
     TwoPSetState(kernel), TwoPSetOp(op) -> {
       let #(kernel, events) = two_p_set_kernel.apply_remote(kernel, op)
-      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent)))
+      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), []))
     }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
       let #(kernel, events) =
         register_collection_kernel.apply_remote(kernel, op, meta.seq)
-      Ok(#(
-        RegisterCollectionState(kernel),
-        list.map(events, RegisterCollectionEvent),
-      ))
+      Ok(
+        #(
+          RegisterCollectionState(kernel),
+          list.map(events, RegisterCollectionEvent),
+          [],
+        ),
+      )
     }
     ClaimsState(kernel), ClaimsOp(op) -> {
       let #(kernel, events) = claims_kernel.apply_remote(kernel, op, meta.seq)
-      Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent)))
+      Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent), []))
     }
     TaskManagerState(kernel), TaskManagerOp(op) -> {
       let #(kernel, events) =
         task_manager_kernel.apply_remote(kernel, op, meta.author, meta.quorum)
-      Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent)))
+      Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent), []))
     }
+    PactMapState(kernel), PactMapOp(op) -> apply_pact_map(kernel, op, meta)
     JsonOtState(kernel), JsonOtOp(op) ->
       case
         json_ot_kernel.apply_remote(
@@ -469,7 +528,7 @@ pub fn apply_remote(
         )
       {
         Ok(#(kernel, events)) ->
-          Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent)))
+          Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), []))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
         Error(json_ot_kernel.OtFailure(err)) ->
@@ -483,9 +542,61 @@ pub fn apply_remote(
           directory_sequenced_meta(meta, message_id),
           meta.self,
         )
-      Ok(#(DirectoryState(kernel), list.map(events, DirectoryEvent)))
+      Ok(#(DirectoryState(kernel), list.map(events, DirectoryEvent), []))
     }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
+  }
+}
+
+/// Apply a sequenced PactMap op — `Set` via `apply_set` (which may owe an
+/// `Accept` when this client is a signoff), `Accept` via `apply_accept`.
+/// Own and remote ops route through here identically (the runtime uses
+/// `is_own_op` only to reclaim the in-flight entry); FluidFramework's PactMap
+/// applies on sequencing regardless of author.
+fn apply_pact_map(
+  kernel: pact_map_kernel.PactMapState,
+  op: pact_map_kernel.PactMapOp,
+  meta: SequencedMeta,
+) -> Result(#(ChannelState, List(ChannelEvent), List(ChannelOp)), ChannelError) {
+  case op {
+    pact_map_kernel.Set(_, _, _) -> {
+      let #(kernel, events, reaction) =
+        pact_map_kernel.apply_set(kernel, op, meta.seq, meta.quorum, meta.self)
+      Ok(#(
+        PactMapState(kernel),
+        list.map(events, PactMapEvent),
+        pact_map_reaction_ops(reaction),
+      ))
+    }
+    pact_map_kernel.Accept(key) ->
+      case pact_map_kernel.apply_accept(kernel, key, meta.author, meta.seq) {
+        Ok(#(kernel, events)) ->
+          Ok(#(PactMapState(kernel), list.map(events, PactMapEvent), []))
+        Error(pact_map_kernel.UnexpectedAccept(_, _, detail)) ->
+          Error(CorruptRemoteOp(detail))
+      }
+  }
+}
+
+/// A PactMap `Set` reaction as a channel-level owed op the runtime auto-submits.
+fn pact_map_reaction_ops(
+  reaction: pact_map_kernel.SetReaction,
+) -> List(ChannelOp) {
+  case reaction {
+    pact_map_kernel.OweAccept(op) -> [PactMapOp(op)]
+    pact_map_kernel.NoReaction -> []
+  }
+}
+
+/// Whether a channel applies its *own* sequenced ops through `apply_remote`
+/// (the same path as remote ops) rather than an optimistic `ack_local`.
+/// Consensus kernels (PactMap) take effect only on sequencing regardless of
+/// author, so the runtime reclaims the in-flight entry and then applies via
+/// `apply_remote`; every optimistic kernel returns `False` and acks locally.
+pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
+  case state {
+    PactMapState(_) -> True
+    _ -> False
   }
 }
 
@@ -545,6 +656,8 @@ pub fn ack_local(
           }
         NoMeta ->
           Error(UnexpectedAck("counter ack is missing its local message id"))
+        PnCounterMeta(_) ->
+          Error(UnexpectedAck("counter ack has pn-counter metadata"))
         OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
         OrSetMeta(_) -> Error(UnexpectedAck("counter ack has or-set metadata"))
         GSetMeta(_) -> Error(UnexpectedAck("counter ack has g-set metadata"))
@@ -554,6 +667,33 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has task-manager metadata"))
         DirectoryMeta(_) ->
           Error(UnexpectedAck("counter ack has directory metadata"))
+      }
+    PnCounterState(kernel), PnCounterOp(op) ->
+      case local {
+        PnCounterMeta(message_id) ->
+          case
+            pn_counter_kernel.ack_local_with_message_id(kernel, op, message_id)
+          {
+            Ok(kernel) -> Ok(#(PnCounterState(kernel), [], None))
+            Error(pn_counter_kernel.UnexpectedAck(_, detail))
+            | Error(pn_counter_kernel.UnexpectedRollback(_, detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        NoMeta ->
+          Error(UnexpectedAck("pn-counter ack is missing its local message id"))
+        CounterMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has counter metadata"))
+        OrMapMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has or-map metadata"))
+        OrSetMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has or-set metadata"))
+        GSetMeta(_) -> Error(UnexpectedAck("pn-counter ack has g-set metadata"))
+        TwoPSetMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has two-p-set metadata"))
+        TaskManagerMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has task-manager metadata"))
+        DirectoryMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has directory metadata"))
       }
     OrMapState(kernel), OrMapOp(op) ->
       case local {
@@ -567,7 +707,7 @@ pub fn ack_local(
             | Error(or_map_kernel.CorruptDelta(detail)) ->
               Error(CorruptRemoteOp(detail))
           }
-        NoMeta | CounterMeta(_) ->
+        NoMeta | CounterMeta(_) | PnCounterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
         OrSetMeta(_) -> Error(UnexpectedAck("or-map ack has or-set metadata"))
         GSetMeta(_) -> Error(UnexpectedAck("or-map ack has g-set metadata"))
@@ -589,6 +729,7 @@ pub fn ack_local(
           }
         NoMeta
         | CounterMeta(_)
+        | PnCounterMeta(_)
         | OrMapMeta(_)
         | GSetMeta(_)
         | TwoPSetMeta(_)
@@ -607,6 +748,7 @@ pub fn ack_local(
           }
         NoMeta
         | CounterMeta(_)
+        | PnCounterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
         | TwoPSetMeta(_)
@@ -627,6 +769,7 @@ pub fn ack_local(
           }
         NoMeta
         | CounterMeta(_)
+        | PnCounterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
         | GSetMeta(_)
@@ -755,6 +898,9 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     CounterOp(counter_kernel.Increment(ours)),
       CounterOp(counter_kernel.Increment(echoed))
     -> ours == echoed
+    PnCounterOp(pn_counter_kernel.Update(our_amount, our_delta)),
+      PnCounterOp(pn_counter_kernel.Update(echoed_amount, echoed_delta))
+    -> our_amount == echoed_amount && our_delta == echoed_delta
     OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
     OrSetOp(ours), OrSetOp(echoed) -> same_or_set_shape(ours, echoed)
     GSetOp(ours), GSetOp(echoed) -> same_g_set_shape(ours, echoed)
@@ -769,6 +915,7 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       && ours.ref_seq == echoed.ref_seq
     TaskManagerOp(ours), TaskManagerOp(echoed) ->
       same_task_manager_shape(ours, echoed)
+    PactMapOp(ours), PactMapOp(echoed) -> same_pact_map_shape(ours, echoed)
     JsonOtOp(ours), JsonOtOp(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
     DirectoryOp(ours, our_id), DirectoryOp(echoed, echoed_id) ->
@@ -888,6 +1035,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
+    PnCounterSnapshot(ours), PnCounterSnapshot(echoed) -> ours == echoed
     OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
       our_mode == echoed_mode && ours == echoed
     OrSetSnapshot(ours), OrSetSnapshot(echoed) -> ours == echoed
@@ -897,6 +1045,9 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
       ours == echoed
     ClaimsSnapshot(ours), ClaimsSnapshot(echoed) -> ours == echoed
     TaskManagerSnapshot(ours), TaskManagerSnapshot(echoed) -> ours == echoed
+    PactMapSnapshot(ours), PactMapSnapshot(echoed) ->
+      json.to_string(encode_pact_entries(ours))
+      == json.to_string(encode_pact_entries(echoed))
     JsonOtSnapshot(ours), JsonOtSnapshot(echoed) -> ours == echoed
     DirectorySnapshot(ours), DirectorySnapshot(echoed) ->
       json.to_string(encode_directory_summary(ours))
@@ -940,6 +1091,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       })
       |> list.unique
     CounterState(_) -> []
+    PnCounterState(_) -> []
     OrMapState(kernel) ->
       case kernel.mode {
         or_map_kernel.TallyMode -> []
@@ -984,6 +1136,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       |> list.unique
     TaskManagerState(_) -> []
     JsonOtState(_) -> []
+    PactMapState(_) -> []
     // Directory handle serialization/GC is out of scope (see the kernel plan);
     // the demo stores plain values, so no handle addresses to collect.
     DirectoryState(_) -> []
@@ -996,6 +1149,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   case snapshot {
     MapSnapshot(entries) -> wire.encode_entries(entries)
     CounterSnapshot(value) -> json.int(value)
+    PnCounterSnapshot(state) -> pn_counter.to_json(state)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
     OrSetSnapshot(state) -> or_set.to_json(state)
     GSetSnapshot(state) -> g_set.to_json(state)
@@ -1003,6 +1157,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     RegisterCollectionSnapshot(registers) -> encode_registers(registers)
     ClaimsSnapshot(entries) -> encode_claims(entries)
     TaskManagerSnapshot(queues) -> encode_task_queues(queues)
+    PactMapSnapshot(entries) -> encode_pact_entries(entries)
     JsonOtSnapshot(doc) -> json_ot.to_json(doc)
     DirectorySnapshot(summary) -> encode_directory_summary(summary)
   }
@@ -1044,6 +1199,7 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
   case channel_type {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
     CounterChannel -> decode.int |> decode.map(CounterSnapshot)
+    PnCounterChannel -> pn_counter_snapshot_decoder()
     OrMapChannel -> or_map_snapshot_decoder()
     OrSetChannel -> or_set_snapshot_decoder()
     GSetChannel -> g_set_snapshot_decoder()
@@ -1055,6 +1211,8 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
       decode.list(claim_entry_decoder()) |> decode.map(ClaimsSnapshot)
     TaskManagerChannel ->
       decode.list(task_queue_decoder()) |> decode.map(TaskManagerSnapshot)
+    PactMapChannel ->
+      decode.list(pact_entry_decoder()) |> decode.map(PactMapSnapshot)
     JsonOtChannel -> json_ot.decoder() |> decode.map(JsonOtSnapshot)
     DirectoryChannel ->
       directory_summary_decoder() |> decode.map(DirectorySnapshot)
@@ -1107,6 +1265,104 @@ fn task_queue_decoder() -> Decoder(#(String, List(Int))) {
   use task_id <- decode.field("taskId", decode.string)
   use queue <- decode.field("queue", decode.list(decode.int))
   decode.success(#(task_id, queue))
+}
+
+fn same_pact_map_shape(
+  ours: pact_map_kernel.PactMapOp,
+  echoed: pact_map_kernel.PactMapOp,
+) -> Bool {
+  case ours, echoed {
+    pact_map_kernel.Set(our_key, our_value, our_ref),
+      pact_map_kernel.Set(echoed_key, echoed_value, echoed_ref)
+    ->
+      our_key == echoed_key
+      && same_optional_json(our_value, echoed_value)
+      && our_ref == echoed_ref
+    pact_map_kernel.Accept(our_key), pact_map_kernel.Accept(echoed_key) ->
+      our_key == echoed_key
+    _, _ -> False
+  }
+}
+
+fn same_optional_json(a: Option(Json), b: Option(Json)) -> Bool {
+  json.to_string(encode_optional_value(a))
+  == json.to_string(encode_optional_value(b))
+}
+
+fn encode_pact_entries(entries: List(#(String, pact_map_kernel.Pact))) -> Json {
+  json.array(entries, fn(entry) {
+    let #(key, pact) = entry
+    json.object([#("key", json.string(key)), #("pact", encode_pact(pact))])
+  })
+}
+
+fn encode_pact(pact: pact_map_kernel.Pact) -> Json {
+  let pact_map_kernel.Pact(accepted, pending) = pact
+  json.object([
+    #("accepted", case accepted {
+      Some(pact_map_kernel.Accepted(value, seq)) ->
+        json.object([
+          #("value", encode_optional_value(value)),
+          #("sequenceNumber", json.int(seq)),
+        ])
+      None -> json.null()
+    }),
+    #("pending", case pending {
+      Some(pact_map_kernel.Pending(value, signoffs)) ->
+        json.object([
+          #("value", encode_optional_value(value)),
+          #("expectedSignoffs", json.array(signoffs, json.int)),
+        ])
+      None -> json.null()
+    }),
+  ])
+}
+
+/// A PactMap value is `Option(Json)`: `None` is a genuine tombstone, distinct
+/// from `Some(null)`, so it gets its own `Absent` wire tag rather than a JSON
+/// `null`.
+fn encode_optional_value(value: Option(Json)) -> Json {
+  case value {
+    Some(inner) ->
+      json.object([#("type", json.string("Plain")), #("value", inner)])
+    None -> json.object([#("type", json.string("Absent"))])
+  }
+}
+
+fn pact_entry_decoder() -> Decoder(#(String, pact_map_kernel.Pact)) {
+  use key <- decode.field("key", decode.string)
+  use pact <- decode.field("pact", pact_decoder())
+  decode.success(#(key, pact))
+}
+
+fn pact_decoder() -> Decoder(pact_map_kernel.Pact) {
+  use accepted <- decode.field("accepted", decode.optional(accepted_decoder()))
+  use pending <- decode.field("pending", decode.optional(pending_decoder()))
+  decode.success(pact_map_kernel.Pact(accepted, pending))
+}
+
+fn accepted_decoder() -> Decoder(pact_map_kernel.Accepted) {
+  use value <- decode.field("value", optional_value_decoder())
+  use seq <- decode.field("sequenceNumber", decode.int)
+  decode.success(pact_map_kernel.Accepted(value, seq))
+}
+
+fn pending_decoder() -> Decoder(pact_map_kernel.Pending) {
+  use value <- decode.field("value", optional_value_decoder())
+  use signoffs <- decode.field("expectedSignoffs", decode.list(decode.int))
+  decode.success(pact_map_kernel.Pending(value, signoffs))
+}
+
+fn optional_value_decoder() -> Decoder(Option(Json)) {
+  use value_type <- decode.field("type", decode.string)
+  case value_type {
+    "Plain" ->
+      decode.field("value", wire.json_value_decoder(), fn(inner) {
+        decode.success(Some(inner))
+      })
+    "Absent" -> decode.success(None)
+    _ -> decode.failure(None, "PactValue")
+  }
 }
 
 fn encode_registers(
@@ -1190,6 +1446,15 @@ fn or_set_snapshot_decoder() -> Decoder(Snapshot) {
   case or_set.from_json(encoded) {
     Ok(state) -> decode.success(OrSetSnapshot(state))
     Error(_) -> decode.failure(MapSnapshot([]), "ORSetSnapshot")
+  }
+}
+
+fn pn_counter_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case pn_counter.from_json(encoded) {
+    Ok(state) -> decode.success(PnCounterSnapshot(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "PnCounterSnapshot")
   }
 }
 

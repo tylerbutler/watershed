@@ -2718,3 +2718,84 @@ pub fn bootstrap_from_summary_with_register_collection_test() {
   runtime_core.register_versions(core, "registers", "station")
   |> expect.to_equal(Some([json.string("Remote")]))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic owed-ops buffer (reaction auto-submit infra)
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub fn owed_op_is_auto_submitted_after_sequenced_batch_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  // A reacting kernel arm would return this from `channel.apply_remote`; inject
+  // it directly to exercise the generic buffer without a producing kernel.
+  let owed = channel.MapOp(Set("owed", json.int(9)))
+  let core = runtime_core.enqueue_owed(core, "root", [owed])
+
+  // A remote op drives a sequenced batch; `collect_released_ops` then drains the
+  // owed buffer, stamping the follow-up with a fresh CSN + in-flight entry.
+  let assert Ok(#(core, ingested)) =
+    runtime_core.handle_sequenced(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 5,
+        op: Set("trigger", json.int(1)),
+      ),
+    )
+
+  // Exactly one auto-submitted op: the owed MapOp, stamped with csn 1 (the first
+  // free CSN) and rsn = the batch's last-seen SN.
+  let assert [outbound] = ingested.outbound
+  outbound.client_sequence_number |> expect.to_equal(1)
+  outbound.reference_sequence_number |> expect.to_equal(2)
+  decode_outbound_contents(outbound)
+  |> expect.to_equal(DecodedChannelOp(address: "root", op: owed))
+
+  // It is recorded in-flight so the ordinary ack path reclaims it, ...
+  core.in_flight
+  |> expect.to_equal([
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 1,
+      address: "root",
+      op: owed,
+      meta: channel.NoMeta,
+    ),
+  ])
+  core.next_csn |> expect.to_equal(2)
+
+  // ... and it is auto-submit only — not applied locally (it applies when it
+  // comes back sequenced).
+  root_has(core, "owed") |> expect.to_equal(False)
+}
+
+pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  let first = channel.MapOp(Set("first", json.int(1)))
+  let second = channel.MapOp(Set("second", json.int(2)))
+  // Two separate enqueues accumulate (append) on the same channel.
+  let core = runtime_core.enqueue_owed(core, "root", [first])
+  let core = runtime_core.enqueue_owed(core, "root", [second])
+
+  let assert Ok(#(core, ingested)) =
+    runtime_core.handle_sequenced(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 5,
+        op: Set("trigger", json.int(1)),
+      ),
+    )
+
+  list.map(ingested.outbound, fn(op) {
+    #(op.client_sequence_number, decode_outbound_contents(op))
+  })
+  |> expect.to_equal([
+    #(1, DecodedChannelOp(address: "root", op: first)),
+    #(2, DecodedChannelOp(address: "root", op: second)),
+  ])
+  core.next_csn |> expect.to_equal(3)
+}

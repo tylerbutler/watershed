@@ -62,7 +62,8 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
-  InitOrMap, InitOrSet, InitRegisterCollection, InitTaskManager, InitTwoPSet,
+  InitOrMap, InitOrSet, InitPactMap, InitPnCounter, InitRegisterCollection,
+  InitTaskManager, InitTwoPSet,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -118,6 +119,9 @@ pub type Msg {
   Remove(address: String, key: String)
   RemoveAll(address: String)
   IncrementCounter(address: String, amount: Int)
+  UpdatePnCounter(address: String, amount: Int)
+  SetPactMap(address: String, key: String, value: Json)
+  DeletePactMap(address: String, key: String)
   SubmitJsonOt(address: String, components: json_ot.Op)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
@@ -158,6 +162,11 @@ pub type Msg {
   CreateMap(reply: Subject(Result(String, String)))
   /// Create a new detached counter channel, same lifecycle as `CreateMap`.
   CreateCounter(reply: Subject(Result(String, String)))
+  /// Create a new detached PN-counter channel, same lifecycle as `CreateMap`.
+  CreatePnCounter(reply: Subject(Result(String, String)))
+  /// Create a new detached PactMap (consensus map) channel, same lifecycle as
+  /// `CreateMap`.
+  CreatePactMap(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateOrSet(reply: Subject(Result(String, String)))
@@ -188,6 +197,16 @@ pub type Msg {
   /// The counter's optimistic value, `None` when the address is missing or
   /// not a counter channel.
   GetCounterValue(address: String, reply: Subject(Option(Int)))
+  /// The PN-counter's optimistic value, `None` when the address is missing or
+  /// not a pn-counter channel.
+  GetPnCounterValue(address: String, reply: Subject(Option(Int)))
+  /// The PactMap's accepted value for `key`, `None` when pending, absent, or
+  /// not a PactMap channel.
+  GetPactMapValue(address: String, key: String, reply: Subject(Option(Json)))
+  /// All keys with an accepted or pending pact in the PactMap at `address`.
+  GetPactMapKeys(address: String, reply: Subject(List(String)))
+  /// Whether `key` has a pending (proposed but not-yet-accepted) value.
+  GetPactMapPending(address: String, key: String, reply: Subject(Bool))
   /// The json0 channel's optimistic document, `None` when the address is missing
   /// or not a json0 channel.
   GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
@@ -603,6 +622,16 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) { runtime_core.clear(core, address) })
     IncrementCounter(address, amount) ->
       edit(state, fn(core) { runtime_core.increment(core, address, amount) })
+    UpdatePnCounter(address, amount) ->
+      edit(state, fn(core) {
+        runtime_core.pn_counter_update(core, address, amount)
+      })
+    SetPactMap(address, key, value) ->
+      edit(state, fn(core) {
+        runtime_core.pact_map_set(core, address, key, value)
+      })
+    DeletePactMap(address, key) ->
+      edit(state, fn(core) { runtime_core.pact_map_delete(core, address, key) })
     SubmitJsonOt(address, components) ->
       edit(state, fn(core) {
         runtime_core.submit_json_ot(core, address, components)
@@ -657,6 +686,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CreateMap(reply) -> create_channel(state, reply, InitMap, "create_map")
     CreateCounter(reply) ->
       create_channel(state, reply, InitCounter, "create_counter")
+    CreatePnCounter(reply) ->
+      create_channel(state, reply, InitPnCounter, "create_pn_counter")
+    CreatePactMap(reply) ->
+      create_channel(state, reply, InitPactMap, "create_pact_map")
     CreateOrMap(mode, reply) ->
       create_channel(state, reply, InitOrMap(mode), "create_or_map")
     CreateOrSet(reply) ->
@@ -732,6 +765,34 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, None, runtime_core.counter_value(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetPnCounterValue(address, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.pn_counter_value(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetPactMapValue(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.pact_map_get(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetPactMapKeys(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.pact_map_keys(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetPactMapPending(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, False, runtime_core.pact_map_is_pending(_, address, key)),
       )
       actor.continue(state)
     }

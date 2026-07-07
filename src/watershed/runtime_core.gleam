@@ -35,6 +35,8 @@ import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
+import watershed/pact_map_kernel
+import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
@@ -53,6 +55,13 @@ pub type Core {
     last_seen_sn: Int,
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
+    /// Per-channel buffer of *owed* follow-up ops a kernel released while
+    /// applying a sequenced op (e.g. a consensus `Accept` reacting to a peer's
+    /// `Set`). Drained after each sequenced batch by `collect_released_ops`,
+    /// which stamps each with a fresh CSN + in-flight entry and hands it to the
+    /// actor loop to submit. Generic across kernels — any `channel.apply_remote`
+    /// arm can enqueue by returning owed ops.
+    owed: Dict(String, List(channel.ChannelOp)),
   )
 }
 
@@ -134,6 +143,7 @@ pub fn bootstrap(
       last_seen_sn: last_seen,
       in_flight: [],
       out_of_order: [],
+      owed: dict.new(),
     )
 
   use core <- result.try(replay(core, connected.initial_messages))
@@ -479,47 +489,91 @@ pub fn handle_sequenced(
   }
 }
 
-/// Scan every channel for an op its kernel released onto the wire (json0's
-/// single-in-flight buffer promotion), stamping each with a fresh CSN and an
-/// in-flight entry so the ordinary ack path reclaims it. Returns the stamped
-/// outbound ops for the actor loop to submit.
+/// After a sequenced batch, drain every follow-up op a channel released for the
+/// actor loop to auto-submit, stamping each with a fresh CSN + in-flight entry
+/// so the ordinary ack path reclaims it. Two producers feed this:
+///
+///   1. the generic per-channel `owed` buffer (any `channel.apply_remote` arm
+///      that returned owed ops — e.g. a consensus `Accept`), and
+///   2. json0's single-in-flight kernel buffer promotion, drained via
+///      `channel.take_outbound`.
+///
+/// Returns the stamped outbound ops in channel order (owed before kernel-buffer
+/// within each channel).
 fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
   list.fold(core.channel_order, #(core, []), fn(acc, address) {
     let #(core, outs) = acc
-    case dict.get(core.channels, address) {
-      Error(_) -> acc
-      Ok(state) ->
-        case channel.take_outbound(state) {
-          #(_, None) -> acc
-          #(state, Some(op)) -> {
-            let csn = core.next_csn
-            let outbound =
-              ops.outbound_channel_op(
-                address: address,
-                client_sequence_number: csn,
-                reference_sequence_number: core.last_seen_sn,
-                op: op,
-              )
-            let core =
-              Core(
-                ..core,
-                channels: dict.insert(core.channels, address, state),
-                next_csn: csn + 1,
-                in_flight: list.append(core.in_flight, [
-                  InFlightOp(
-                    client_id: core.client_id,
-                    csn: csn,
-                    address: address,
-                    op: op,
-                    meta: channel.NoMeta,
-                  ),
-                ]),
-              )
-            #(core, list.append(outs, [outbound]))
-          }
-        }
-    }
+    let #(core, owed_outs) = drain_owed(core, address)
+    let #(core, kernel_outs) = drain_kernel_outbound(core, address)
+    #(core, list.append(outs, list.append(owed_outs, kernel_outs)))
   })
+}
+
+/// Drain the generic `owed` buffer for one channel, stamping each op.
+fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
+  case dict.get(core.owed, address) {
+    Ok([_, ..] as ops) -> {
+      let core = Core(..core, owed: dict.delete(core.owed, address))
+      list.fold(ops, #(core, []), fn(acc, op) {
+        let #(core, outs) = acc
+        let #(core, out) = stamp_outbound(core, address, op)
+        #(core, list.append(outs, [out]))
+      })
+    }
+    _ -> #(core, [])
+  }
+}
+
+/// Drain a json0 kernel's promoted buffer for one channel, stamping the op.
+fn drain_kernel_outbound(
+  core: Core,
+  address: String,
+) -> #(Core, List(wire.OutboundOp)) {
+  case dict.get(core.channels, address) {
+    Error(_) -> #(core, [])
+    Ok(state) ->
+      case channel.take_outbound(state) {
+        #(_, None) -> #(core, [])
+        #(state, Some(op)) -> {
+          let core =
+            Core(..core, channels: dict.insert(core.channels, address, state))
+          let #(core, out) = stamp_outbound(core, address, op)
+          #(core, [out])
+        }
+      }
+  }
+}
+
+/// Stamp a released op with a fresh CSN, record an in-flight entry so the
+/// ordinary ack path reclaims it, and build its outbound wire op.
+fn stamp_outbound(
+  core: Core,
+  address: String,
+  op: channel.ChannelOp,
+) -> #(Core, wire.OutboundOp) {
+  let csn = core.next_csn
+  let outbound =
+    ops.outbound_channel_op(
+      address: address,
+      client_sequence_number: csn,
+      reference_sequence_number: core.last_seen_sn,
+      op: op,
+    )
+  let core =
+    Core(
+      ..core,
+      next_csn: csn + 1,
+      in_flight: list.append(core.in_flight, [
+        InFlightOp(
+          client_id: core.client_id,
+          csn: csn,
+          address: address,
+          op: op,
+          meta: channel.NoMeta,
+        ),
+      ]),
+    )
+  #(core, outbound)
 }
 
 fn apply_one(
@@ -714,10 +768,14 @@ fn apply_remote_channel(
       reference_sequence_number: reference_sequence_number,
     )
   case channel.apply_remote(state, op, meta) {
-    Ok(#(state, events)) ->
+    Ok(#(state, events, owed)) ->
       Ok(
         #(
-          put_attached_channel(core, address, state),
+          enqueue_owed(
+            put_attached_channel(core, address, state),
+            address,
+            owed,
+          ),
           tag_events(address, events),
           [],
         ),
@@ -725,6 +783,27 @@ fn apply_remote_channel(
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
     | Error(channel.CorruptRemoteOp(detail)) -> Error(AckMismatch(detail))
+  }
+}
+
+/// Enqueue owed follow-up ops a kernel released while applying a sequenced op,
+/// keyed by channel address, for `collect_released_ops` to stamp and submit
+/// after the current batch. Exposed so tests can drive the generic buffer
+/// without a producing kernel.
+pub fn enqueue_owed(
+  core: Core,
+  address: String,
+  owed: List(channel.ChannelOp),
+) -> Core {
+  case owed {
+    [] -> core
+    _ -> {
+      let existing = dict.get(core.owed, address) |> result.unwrap([])
+      Core(
+        ..core,
+        owed: dict.insert(core.owed, address, list.append(existing, owed)),
+      )
+    }
   }
 }
 
@@ -832,21 +911,55 @@ fn ack_own_op(
                   quorum: [client_id_to_int(core.client_id)],
                   reference_sequence_number: core.last_seen_sn,
                 )
-              case channel.ack_local(state, op, meta, sequenced_meta) {
-                Ok(#(state, events, resolution)) ->
-                  Ok(#(
-                    Core(
-                      ..core,
-                      channels: dict.insert(core.channels, address, state),
-                      in_flight: rest,
-                    ),
-                    tag_events(address, events),
-                    tag_resolution(address, resolution),
-                  ))
-                Error(channel.UnexpectedAck(detail))
-                | Error(channel.WrongChannelType(detail))
-                | Error(channel.CorruptRemoteOp(detail)) ->
-                  Error(AckMismatch(detail))
+              case channel.applies_own_on_sequence(state) {
+                // Consensus kernels (PactMap) take effect only on sequencing,
+                // regardless of author. Reclaim the in-flight entry here, then
+                // apply the op through the same `apply_remote` path a remote
+                // client would, capturing any owed follow-up (e.g. an Accept).
+                True ->
+                  case channel.apply_remote(state, op, sequenced_meta) {
+                    Ok(#(state, events, owed)) ->
+                      Ok(
+                        #(
+                          enqueue_owed(
+                            Core(
+                              ..core,
+                              channels: dict.insert(
+                                core.channels,
+                                address,
+                                state,
+                              ),
+                              in_flight: rest,
+                            ),
+                            address,
+                            owed,
+                          ),
+                          tag_events(address, events),
+                          [],
+                        ),
+                      )
+                    Error(channel.UnexpectedAck(detail))
+                    | Error(channel.WrongChannelType(detail))
+                    | Error(channel.CorruptRemoteOp(detail)) ->
+                      Error(AckMismatch(detail))
+                  }
+                False ->
+                  case channel.ack_local(state, op, meta, sequenced_meta) {
+                    Ok(#(state, events, resolution)) ->
+                      Ok(#(
+                        Core(
+                          ..core,
+                          channels: dict.insert(core.channels, address, state),
+                          in_flight: rest,
+                        ),
+                        tag_events(address, events),
+                        tag_resolution(address, resolution),
+                      ))
+                    Error(channel.UnexpectedAck(detail))
+                    | Error(channel.WrongChannelType(detail))
+                    | Error(channel.CorruptRemoteOp(detail)) ->
+                      Error(AckMismatch(detail))
+                  }
               }
             }
           }
@@ -1029,6 +1142,114 @@ pub fn increment(
         channel.CounterMeta(message_id),
       ))
     }
+  }
+}
+
+/// Optimistically apply a signed update (increment or decrement) to the
+/// PN-counter at `address`. Same optimistic lifecycle as `increment`.
+pub fn pn_counter_update(
+  core: Core,
+  address: String,
+  amount: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_pn_counter(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) -> {
+      let #(kernel, events, _op, _message_id) =
+        pn_counter_kernel.update(kernel, amount)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.PnCounterState(kernel)),
+          tag_pn_counter_events(address, events),
+          [],
+        ),
+      )
+    }
+    Ok(Attached(kernel)) -> {
+      let #(kernel, events, op, message_id) =
+        pn_counter_kernel.update(kernel, amount)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.PnCounterState(kernel),
+        tag_pn_counter_events(address, events),
+        channel.PnCounterOp(op),
+        channel.PnCounterMeta(message_id),
+      ))
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PactMap edits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Propose `value` (a JSON payload, or `None` to delete) for `key` in the
+/// PactMap at `address`. Unlike optimistic kernels, a consensus PactMap does
+/// **not** apply locally: the kernel only yields an `Option(PactMapOp)` to
+/// submit (`None` when a value is already pending for the key, i.e. a no-op).
+/// The value takes effect when the `Set` sequences; the setter's own `Accept`
+/// follow-up is emitted automatically by the released-ops loop.
+pub fn pact_map_set(
+  core: Core,
+  address: String,
+  key: String,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  pact_map_submit(core, address, fn(kernel) {
+    pact_map_kernel.set(kernel, key, Some(value), core.last_seen_sn)
+  })
+}
+
+/// Propose a delete (tombstone) for `key` in the PactMap at `address`. Like
+/// `pact_map_set`, this only submits an op; the delete takes effect on
+/// sequencing. `None` from the kernel (already pending, absent, or already a
+/// tombstone) is a no-op.
+pub fn pact_map_delete(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  pact_map_submit(core, address, fn(kernel) {
+    pact_map_kernel.delete(kernel, key, core.last_seen_sn)
+  })
+}
+
+fn pact_map_submit(
+  core: Core,
+  address: String,
+  produce: fn(pact_map_kernel.PactMapState) -> Option(pact_map_kernel.PactMapOp),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_pact_map(core, address) {
+    Error(core_error) -> Error(core_error)
+    // A detached PactMap has no sequencer to settle a pending value, so a set
+    // cannot be submitted yet; it is a no-op until the channel is attached.
+    Ok(Detached(_)) -> Ok(#(core, [], []))
+    Ok(Attached(kernel)) ->
+      case produce(kernel) {
+        None -> Ok(#(core, [], []))
+        Some(op) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.PactMapState(kernel),
+            [],
+            channel.PactMapOp(op),
+            channel.NoMeta,
+          ))
+      }
   }
 }
 
@@ -2029,6 +2250,40 @@ fn locate_counter(
   }
 }
 
+fn locate_pn_counter(
+  core: Core,
+  address: String,
+) -> Result(Located(pn_counter_kernel.PnCounterState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.PnCounterState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.PnCounterState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.PnCounterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+fn locate_pact_map(
+  core: Core,
+  address: String,
+) -> Result(Located(pact_map_kernel.PactMapState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.PactMapState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.PactMapState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.PactMapChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_or_map(
   core: Core,
   address: String,
@@ -2359,6 +2614,13 @@ fn tag_counter_events(
   list.map(events, fn(event) { #(address, channel.CounterEvent(event)) })
 }
 
+fn tag_pn_counter_events(
+  address: String,
+  events: List(pn_counter_kernel.PnCounterEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.PnCounterEvent(event)) })
+}
+
 fn tag_json_ot_events(
   address: String,
   events: List(json_ot_kernel.JsonOtEvent),
@@ -2459,6 +2721,56 @@ pub fn counter_value(core: Core, address: String) -> Option(Int) {
   case find_channel(core, address) {
     Some(channel.CounterState(kernel)) -> Some(kernel.value)
     _ -> None
+  }
+}
+
+/// The PN-counter's current optimistic value, `None` when the address is
+/// missing or not a pn-counter channel.
+pub fn pn_counter_value(core: Core, address: String) -> Option(Int) {
+  case find_channel(core, address) {
+    Some(channel.PnCounterState(kernel)) ->
+      Some(pn_counter_kernel.value(kernel))
+    _ -> None
+  }
+}
+
+/// The accepted value for `key` in the PactMap at `address`, `None` when the
+/// key has no accepted value (still pending or absent) or the address is not a
+/// PactMap channel.
+pub fn pact_map_get(core: Core, address: String, key: String) -> Option(Json) {
+  case find_channel(core, address) {
+    Some(channel.PactMapState(kernel)) -> pact_map_kernel.get(kernel, key)
+    _ -> None
+  }
+}
+
+/// The accepted entry (value + sequence number) for `key`, `None` when absent.
+pub fn pact_map_get_with_details(
+  core: Core,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Accepted) {
+  case find_channel(core, address) {
+    Some(channel.PactMapState(kernel)) ->
+      pact_map_kernel.get_with_details(kernel, key)
+    _ -> None
+  }
+}
+
+/// Whether `key` currently has a pending (proposed but not-yet-accepted) value.
+pub fn pact_map_is_pending(core: Core, address: String, key: String) -> Bool {
+  case find_channel(core, address) {
+    Some(channel.PactMapState(kernel)) ->
+      pact_map_kernel.is_pending(kernel, key)
+    _ -> False
+  }
+}
+
+/// All keys with an accepted or pending pact, sorted.
+pub fn pact_map_keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Some(channel.PactMapState(kernel)) -> pact_map_kernel.keys(kernel)
+    _ -> []
   }
 }
 

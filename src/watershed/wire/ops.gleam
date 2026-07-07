@@ -21,9 +21,10 @@
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/option.{None}
+import gleam/option.{None, Some}
 
 import lattice_core/replica_id
+import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
 import lattice_sets/g_set
@@ -39,6 +40,8 @@ import watershed/json_ot_kernel.{type JsonOtWireOp, JsonOtWireOp}
 import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
 import watershed/or_map_kernel.{type OrMapOp}
 import watershed/or_set_kernel.{type OrSetOp}
+import watershed/pact_map_kernel
+import watershed/pn_counter_kernel.{type PnCounterOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
 import watershed/task_manager_kernel.{type TaskManagerOp}
 import watershed/two_p_set_kernel.{type TwoPSetOp}
@@ -137,6 +140,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
   case op {
     channel.MapOp(op) -> encode_map_op(op)
     channel.CounterOp(op) -> encode_counter_op(op)
+    channel.PnCounterOp(op) -> encode_pn_counter_op(op)
     channel.OrMapOp(op) -> encode_or_map_op(op)
     channel.OrSetOp(op) -> encode_or_set_op(op)
     channel.GSetOp(op) -> encode_g_set_op(op)
@@ -146,6 +150,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.TaskManagerOp(op) -> encode_task_manager_op(op)
     channel.JsonOtOp(op) -> encode_json_ot_op(op)
     channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
+    channel.PactMapOp(op) -> encode_pact_map_op(op)
   }
 }
 
@@ -158,6 +163,8 @@ pub fn channel_op_decoder(
     channel.MapChannel -> map_op_decoder() |> decode.map(channel.MapOp)
     channel.CounterChannel ->
       counter_op_decoder() |> decode.map(channel.CounterOp)
+    channel.PnCounterChannel ->
+      pn_counter_op_decoder() |> decode.map(channel.PnCounterOp)
     channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
     channel.OrSetChannel -> or_set_op_decoder() |> decode.map(channel.OrSetOp)
     channel.GSetChannel -> g_set_op_decoder() |> decode.map(channel.GSetOp)
@@ -172,6 +179,8 @@ pub fn channel_op_decoder(
     channel.JsonOtChannel ->
       json_ot_op_decoder() |> decode.map(channel.JsonOtOp)
     channel.DirectoryChannel -> directory_op_decoder()
+    channel.PactMapChannel ->
+      pact_map_op_decoder() |> decode.map(channel.PactMapOp)
   }
 }
 
@@ -220,6 +229,25 @@ pub fn encode_counter_op(op: CounterOp) -> Json {
       json.object([
         #("type", json.string("increment")),
         #("incrementAmount", json.int(increment_amount)),
+      ])
+  }
+}
+
+/// `{address, contents}` document envelope around a SharedPnCounter op.
+pub fn encode_pn_counter_envelope(address: String, op: PnCounterOp) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_pn_counter_op(op)),
+  ])
+}
+
+pub fn encode_pn_counter_op(op: PnCounterOp) -> Json {
+  case op {
+    pn_counter_kernel.Update(amount, delta) ->
+      json.object([
+        #("type", json.string("pnCounterUpdate")),
+        #("amount", json.int(amount)),
+        #("delta", pn_counter_delta_json(delta)),
       ])
   }
 }
@@ -510,6 +538,87 @@ fn directory_op_decoder() -> Decoder(channel.ChannelOp) {
   }
 }
 
+/// `{address, contents}` document envelope around a PactMap op.
+pub fn encode_pact_map_envelope(
+  address: String,
+  op: pact_map_kernel.PactMapOp,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_pact_map_op(op)),
+  ])
+}
+
+/// Encode a PactMap op. A `Set` value is `Option(Json)`: `None` is a genuine
+/// tombstone (distinct from `Some(null)`) and gets an `Absent` tag.
+pub fn encode_pact_map_op(op: pact_map_kernel.PactMapOp) -> Json {
+  case op {
+    pact_map_kernel.Set(key, value, ref_seq) ->
+      json.object([
+        #("type", json.string("pactMapSet")),
+        #("key", json.string(key)),
+        #("value", encode_pact_map_value(value)),
+        #("refSeq", json.int(ref_seq)),
+      ])
+    pact_map_kernel.Accept(key) ->
+      json.object([
+        #("type", json.string("pactMapAccept")),
+        #("key", json.string(key)),
+      ])
+  }
+}
+
+fn encode_pact_map_value(value: option.Option(Json)) -> Json {
+  case value {
+    Some(inner) ->
+      json.object([#("type", json.string("Plain")), #("value", inner)])
+    None -> json.object([#("type", json.string("Absent"))])
+  }
+}
+
+pub fn decode_pact_map_envelope(
+  contents: Dynamic,
+) -> Result(#(String, pact_map_kernel.PactMapOp), List(decode.DecodeError)) {
+  decode.run(contents, pact_map_envelope_decoder())
+}
+
+pub fn pact_map_envelope_decoder() -> Decoder(
+  #(String, pact_map_kernel.PactMapOp),
+) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", pact_map_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn pact_map_op_decoder() -> Decoder(pact_map_kernel.PactMapOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "pactMapSet" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", pact_map_value_decoder())
+      use ref_seq <- decode.field("refSeq", decode.int)
+      decode.success(pact_map_kernel.Set(key, value, ref_seq))
+    }
+    "pactMapAccept" -> {
+      use key <- decode.field("key", decode.string)
+      decode.success(pact_map_kernel.Accept(key))
+    }
+    _ -> decode.failure(pact_map_kernel.Accept(""), "PactMapOp")
+  }
+}
+
+fn pact_map_value_decoder() -> Decoder(option.Option(Json)) {
+  use value_type <- decode.field("type", decode.string)
+  case value_type {
+    "Plain" ->
+      decode.field("value", wire.json_value_decoder(), fn(inner) {
+        decode.success(Some(inner))
+      })
+    "Absent" -> decode.success(None)
+    _ -> decode.failure(None, "PactMapValue")
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -524,6 +633,10 @@ fn g_set_delta_json(delta: g_set.GSet(String)) -> Json {
 
 fn two_p_set_delta_json(delta: two_p_set.TwoPSet(String)) -> Json {
   json.string(json.to_string(two_p_set.to_json(delta)))
+}
+
+fn pn_counter_delta_json(delta: pn_counter.PNCounter) -> Json {
+  json.string(json.to_string(pn_counter.to_json(delta)))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -579,6 +692,36 @@ pub fn counter_op_decoder() -> Decoder(CounterOp) {
       decode.success(Increment(increment_amount))
     }
     _ -> decode.failure(Increment(0), "CounterOp")
+  }
+}
+
+/// Decode the `contents` of a sequenced `"op"` message into
+/// `#(address, PnCounterOp)`.
+pub fn decode_pn_counter_envelope(
+  contents: Dynamic,
+) -> Result(#(String, PnCounterOp), List(decode.DecodeError)) {
+  decode.run(contents, pn_counter_envelope_decoder())
+}
+
+pub fn pn_counter_envelope_decoder() -> Decoder(#(String, PnCounterOp)) {
+  use address <- decode.field("address", decode.string)
+  use op <- decode.field("contents", pn_counter_op_decoder())
+  decode.success(#(address, op))
+}
+
+pub fn pn_counter_op_decoder() -> Decoder(PnCounterOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "pnCounterUpdate" -> {
+      use amount <- decode.field("amount", decode.int)
+      use delta <- decode.field("delta", pn_counter_delta_decoder())
+      decode.success(pn_counter_kernel.Update(amount, delta))
+    }
+    _ ->
+      decode.failure(
+        pn_counter_kernel.Update(0, default_pn_counter_delta()),
+        "PnCounterOp",
+      )
   }
 }
 
@@ -765,6 +908,18 @@ fn two_p_set_delta_decoder() -> Decoder(two_p_set.TwoPSet(String)) {
     Ok(delta) -> decode.success(delta)
     Error(_) -> decode.failure(default_two_p_set_delta(), "TwoPSetDelta")
   }
+}
+
+fn pn_counter_delta_decoder() -> Decoder(pn_counter.PNCounter) {
+  use encoded <- decode.then(decode.string)
+  case pn_counter.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_pn_counter_delta(), "PNCounterDelta")
+  }
+}
+
+fn default_pn_counter_delta() -> pn_counter.PNCounter {
+  pn_counter.new(replica_id.new(""))
 }
 
 fn default_two_p_set_delta() -> two_p_set.TwoPSet(String) {

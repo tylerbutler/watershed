@@ -307,6 +307,25 @@ pub fn from_summary(
   }
 }
 
+/// Build a clean state from an already-parsed sequenced CRDT value (the
+/// snapshot payload the channel layer carries). Like `from_summary`, the
+/// value is re-branded under the loading client's `replica_id` via
+/// `merge(new(replica_id), state)` so future deltas author under the right
+/// replica key.
+pub fn from_sequenced(
+  state: PNCounter,
+  replica_id: ReplicaId,
+) -> PnCounterState {
+  let sequenced = pn_counter.merge(pn_counter.new(replica_id), state)
+  PnCounterState(
+    replica_id: replica_id,
+    sequenced: sequenced,
+    optimistic: sequenced,
+    pending: [],
+    next_pending_message_id: 0,
+  )
+}
+
 fn pop_last(
   pending: List(PendingDelta),
 ) -> Result(#(PendingDelta, List(PendingDelta)), Nil) {

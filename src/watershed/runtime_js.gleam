@@ -214,6 +214,76 @@ pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
 }
 
 @target(javascript)
+/// Optimistically apply a signed update to the PN-counter at `address`
+/// (negative amounts decrement).
+pub fn pn_counter_update(
+  runtime: Runtime,
+  address: String,
+  amount: Int,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pn_counter_update(core, address, amount)
+  })
+}
+
+@target(javascript)
+/// The PN-counter's optimistic value, `None` when the address is missing or
+/// not a pn-counter channel.
+pub fn pn_counter_value(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.pn_counter_value(_, address))
+}
+
+@target(javascript)
+/// Propose `value` for `key` in the PactMap at `address`. Consensus, not
+/// optimistic: the value takes effect only once the `Set` sequences (and its
+/// automatic `Accept` follow-up settles the quorum).
+pub fn pact_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pact_map_set(core, address, key, value)
+  })
+}
+
+@target(javascript)
+/// Propose a delete (tombstone) for `key` in the PactMap at `address`.
+pub fn pact_map_delete(runtime: Runtime, address: String, key: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pact_map_delete(core, address, key)
+  })
+}
+
+@target(javascript)
+/// The PactMap's accepted value for `key`, `None` when pending, absent, or not
+/// a PactMap channel.
+pub fn pact_map_get(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.pact_map_get(_, address, key))
+}
+
+@target(javascript)
+/// All keys with an accepted or pending pact in the PactMap at `address`.
+pub fn pact_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.pact_map_keys(_, address))
+}
+
+@target(javascript)
+/// Whether `key` has a pending (proposed but not-yet-accepted) value.
+pub fn pact_map_is_pending(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.pact_map_is_pending(_, address, key))
+}
+
+@target(javascript)
 /// Optimistically submit a json0 op to the channel at `address`.
 pub fn submit_json_ot(
   runtime: Runtime,
@@ -691,6 +761,19 @@ pub fn create_map(runtime: Runtime) -> Result(String, String) {
 /// Create a new detached counter channel, same lifecycle as `create_map`.
 pub fn create_counter(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitCounter, "create_counter")
+}
+
+@target(javascript)
+/// Create a new detached PN-counter channel, same lifecycle as `create_map`.
+pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitPnCounter, "create_pn_counter")
+}
+
+@target(javascript)
+/// Create a new detached PactMap (consensus map) channel, same lifecycle as
+/// `create_map`.
+pub fn create_pact_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitPactMap, "create_pact_map")
 }
 
 @target(javascript)

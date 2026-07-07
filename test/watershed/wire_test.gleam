@@ -29,6 +29,8 @@ import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
+import watershed/pact_map_kernel
+import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/wire
 import watershed/wire/ops
@@ -412,6 +414,69 @@ pub fn counter_op_wire_shape_test() {
     "{\"address\":\"counter\",\"contents\":"
     <> "{\"type\":\"increment\",\"incrementAmount\":4}}",
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pn-counter op envelope round-trips
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn a_pn_counter_op(amount: Int) -> pn_counter_kernel.PnCounterOp {
+  let #(_state, _events, op, _id) =
+    pn_counter_kernel.update(
+      pn_counter_kernel.new(replica_id.new("wire-test")),
+      amount,
+    )
+  op
+}
+
+fn round_trip_pn_counter_op(op: pn_counter_kernel.PnCounterOp) {
+  let encoded = ops.encode_pn_counter_envelope("pnc", op) |> json.to_string
+  let decoded = parse(encoded, ops.pn_counter_envelope_decoder())
+  decoded |> expect.to_equal(#("pnc", op))
+}
+
+pub fn pn_counter_op_increment_round_trip_test() {
+  round_trip_pn_counter_op(a_pn_counter_op(7))
+}
+
+pub fn pn_counter_op_decrement_round_trip_test() {
+  round_trip_pn_counter_op(a_pn_counter_op(-4))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// pact-map op envelope round-trips
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn round_trip_pact_map_op(op: pact_map_kernel.PactMapOp) {
+  let encoded = ops.encode_pact_map_envelope("pm", op) |> json.to_string
+  let assert Ok(#(address, decoded)) =
+    json.parse(encoded, ops.pact_map_envelope_decoder())
+  address |> expect.to_equal("pm")
+  // `Json` values are opaque and not reliably equal across a decode; compare
+  // canonical re-encodings instead.
+  json.to_string(ops.encode_pact_map_op(decoded))
+  |> expect.to_equal(json.to_string(ops.encode_pact_map_op(op)))
+}
+
+pub fn pact_map_op_set_round_trip_test() {
+  round_trip_pact_map_op(pact_map_kernel.Set(
+    "grade",
+    Some(json.string("2.1%")),
+    4,
+  ))
+}
+
+pub fn pact_map_op_set_tombstone_round_trip_test() {
+  round_trip_pact_map_op(pact_map_kernel.Set("grade", None, 7))
+}
+
+pub fn pact_map_op_set_null_value_round_trip_test() {
+  // `Some(null)` (a real null value) must stay distinct from `None` (delete).
+  round_trip_pact_map_op(pact_map_kernel.Set("grade", Some(json.null()), 2))
+}
+
+pub fn pact_map_op_accept_round_trip_test() {
+  round_trip_pact_map_op(pact_map_kernel.Accept("grade"))
 }
 
 pub fn counter_op_rejects_fractional_increment_test() {

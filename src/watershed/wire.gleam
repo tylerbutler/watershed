@@ -37,6 +37,8 @@ pub const channel_type_map = "map"
 
 pub const channel_type_counter = "counter"
 
+pub const channel_type_pn_counter = "pnCounter"
+
 pub const channel_type_or_map = "ormap"
 
 pub const channel_type_or_set = "orset"
@@ -50,6 +52,8 @@ pub const channel_type_register_collection = "registerCollection"
 pub const channel_type_claims = "claims"
 
 pub const channel_type_task_manager = "taskManager"
+
+pub const channel_type_pact_map = "pactMap"
 
 pub const channel_type_json_ot = "json0"
 
