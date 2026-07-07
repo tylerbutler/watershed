@@ -71,6 +71,58 @@ pub fn child_field(key: String) -> ChildField(schema, child) {
   ChildField(key: key)
 }
 
+// ── Channel-kind fields ──────────────────────────────────────────────────────
+//
+// Phantom kind tags for keys whose value is a handle to a non-map channel.
+// A `ChannelField(schema, kind)` carries only the key; the kind tag routes it
+// to the matching per-kind facade functions (`set_counter_field`,
+// `resolve_counter_field`, ...) at compile time — using a field with the
+// wrong kind's resolver is a type error. `ChildField` remains the special
+// case for nested *typed* maps (it carries the child schema tag).
+
+/// An untyped nested `SharedMap` (use `ChildField` for a typed one).
+pub type MapChannel
+
+pub type CounterChannel
+
+pub type OrMapChannel
+
+pub type OrSetChannel
+
+pub type ClaimsChannel
+
+pub type RegisterCollectionChannel
+
+pub type TaskManagerChannel
+
+/// BEAM-facade only until the kind gains a JS facade.
+pub type JsonOtChannel
+
+/// BEAM-facade only until the kind gains a JS facade.
+pub type GSetChannel
+
+/// BEAM-facade only until the kind gains a JS facade.
+pub type TwoPSetChannel
+
+/// BEAM-facade only until the kind gains a JS facade.
+pub type DirectoryChannel
+
+/// A typed key whose stored value is a handle to a channel of `kind`.
+pub opaque type ChannelField(schema, kind) {
+  ChannelField(key: String)
+}
+
+/// Define a typed channel field. Annotate (or let inference pin) the kind:
+/// `let notes: ChannelField(Doc, OrSetChannel) = channel_field("notes")`.
+pub fn channel_field(key: String) -> ChannelField(schema, kind) {
+  ChannelField(key: key)
+}
+
+/// The channel field's key.
+pub fn channel_field_key(field: ChannelField(schema, kind)) -> String {
+  field.key
+}
+
 // ── Accessors used by the backends (fields are opaque) ───────────────────────
 
 /// The field's key.

@@ -51,6 +51,21 @@ pub fn child_key_returns_key_test() {
   schema.child_key(roster) |> expect.to_equal("roster")
 }
 
+pub fn channel_field_key_returns_key_test() {
+  let notes: schema.ChannelField(Player, schema.OrSetChannel) =
+    schema.channel_field("notes")
+  schema.channel_field_key(notes) |> expect.to_equal("notes")
+}
+
+pub fn channel_field_kind_is_phantom_test() {
+  // The kind tag scopes a field to one resolver family at compile time:
+  // passing this CounterChannel field to `resolve_or_set_field` would be a
+  // type error (pinned here as documentation — it cannot be a runtime case).
+  let score: schema.ChannelField(Player, schema.CounterChannel) =
+    schema.channel_field("score")
+  schema.channel_field_key(score) |> expect.to_equal("score")
+}
+
 // ── Round-trips: encode_value then decode_value ──────────────────────────────
 
 pub fn string_round_trip_test() {

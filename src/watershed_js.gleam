@@ -62,7 +62,9 @@ import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
-import watershed/schema.{type ChildField, type Field, type FieldError}
+import watershed/schema.{
+  type ChannelField, type ChildField, type Field, type FieldError,
+}
 @target(javascript)
 import watershed/task_manager_kernel
 @target(javascript)
@@ -382,6 +384,178 @@ pub fn typed_children(
   |> list.map(fn(entry) {
     #(entry.0, resolve(document, entry.1) |> result.map(typed))
   })
+}
+
+// ── Typed channel fields ─────────────────────────────────────────────────────
+//
+// Per-kind set/resolve pairs for `schema.ChannelField(s, kind)` — keys whose
+// value is a handle to a non-map channel. The phantom kind tag makes using a
+// field with the wrong kind's resolver a compile error. Dispatch is per kind
+// because each resolver is a different runtime call with a different return
+// type. Resolvers return `Ok(None)` when the key is absent; resolve errors
+// (including transient not-yet-attached ones) are surfaced as-is and are
+// retryable.
+
+@target(javascript)
+fn put_channel_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, kind),
+  handle_json: Json,
+) -> Nil {
+  set(typed_map.map, schema.channel_field_key(field), handle_json)
+}
+
+@target(javascript)
+fn get_channel_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, kind),
+  resolver: fn(Document, Json) -> Result(shared, String),
+) -> Result(Option(shared), String) {
+  case get(typed_map.map, schema.channel_field_key(field)) {
+    None -> Ok(None)
+    Some(value) -> resolver(document, value) |> result.map(Some)
+  }
+}
+
+@target(javascript)
+/// Store a handle to an (untyped) nested map under a typed channel field.
+pub fn set_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+  map: SharedMap,
+) -> Nil {
+  put_channel_field(typed_map, field, handle_of(map))
+}
+
+@target(javascript)
+/// Resolve the map referenced by a typed channel field.
+pub fn resolve_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+) -> Result(Option(SharedMap), String) {
+  get_channel_field(document, typed_map, field, resolve)
+}
+
+@target(javascript)
+/// Store a handle to `counter` under a typed channel field.
+pub fn set_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+  counter: SharedCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, counter_handle_of(counter))
+}
+
+@target(javascript)
+/// Resolve the counter referenced by a typed channel field.
+pub fn resolve_counter_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+) -> Result(Option(SharedCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_counter)
+}
+
+@target(javascript)
+/// Store a handle to `or_map` under a typed channel field.
+pub fn set_or_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+  or_map: SharedOrMap,
+) -> Nil {
+  put_channel_field(typed_map, field, or_map_handle_of(or_map))
+}
+
+@target(javascript)
+/// Resolve the OR-map referenced by a typed channel field.
+pub fn resolve_or_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+) -> Result(Option(SharedOrMap), String) {
+  get_channel_field(document, typed_map, field, resolve_or_map)
+}
+
+@target(javascript)
+/// Store a handle to `or_set` under a typed channel field.
+pub fn set_or_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+  or_set: SharedOrSet,
+) -> Nil {
+  put_channel_field(typed_map, field, or_set_handle_of(or_set))
+}
+
+@target(javascript)
+/// Resolve the OR-set referenced by a typed channel field.
+pub fn resolve_or_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+) -> Result(Option(SharedOrSet), String) {
+  get_channel_field(document, typed_map, field, resolve_or_set)
+}
+
+@target(javascript)
+/// Store a handle to `collection` under a typed channel field.
+pub fn set_register_collection_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+  collection: SharedRegisterCollection,
+) -> Nil {
+  put_channel_field(typed_map, field, register_collection_handle_of(collection))
+}
+
+@target(javascript)
+/// Resolve the register collection referenced by a typed channel field.
+pub fn resolve_register_collection_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+) -> Result(Option(SharedRegisterCollection), String) {
+  get_channel_field(document, typed_map, field, resolve_register_collection)
+}
+
+@target(javascript)
+/// Store a handle to `claims` under a typed channel field.
+pub fn set_claims_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+  claims: SharedClaims,
+) -> Nil {
+  put_channel_field(typed_map, field, claims_handle_of(claims))
+}
+
+@target(javascript)
+/// Resolve the claims channel referenced by a typed channel field.
+pub fn resolve_claims_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+) -> Result(Option(SharedClaims), String) {
+  get_channel_field(document, typed_map, field, resolve_claims)
+}
+
+@target(javascript)
+/// Store a handle to `manager` under a typed channel field.
+pub fn set_task_manager_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+  manager: SharedTaskManager,
+) -> Nil {
+  put_channel_field(typed_map, field, task_manager_handle_of(manager))
+}
+
+@target(javascript)
+/// Resolve the task manager referenced by a typed channel field.
+pub fn resolve_task_manager_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+) -> Result(Option(SharedTaskManager), String) {
+  get_channel_field(document, typed_map, field, resolve_task_manager)
 }
 
 // ── Counters ─────────────────────────────────────────────────────────────────

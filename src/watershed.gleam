@@ -57,7 +57,9 @@ import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
 import watershed/runtime
 @target(erlang)
-import watershed/schema.{type ChildField, type Field, type FieldError}
+import watershed/schema.{
+  type ChannelField, type ChildField, type Field, type FieldError,
+}
 @target(erlang)
 import watershed/task_manager_kernel
 @target(erlang)
@@ -412,6 +414,260 @@ pub fn typed_children(
   |> list.map(fn(entry) {
     #(entry.0, resolve(document, entry.1) |> result.map(typed))
   })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Typed channel fields
+//
+// Per-kind set/resolve pairs for `schema.ChannelField(s, kind)` — keys whose
+// value is a handle to a non-map channel. The phantom kind tag makes using a
+// field with the wrong kind's resolver a compile error. Dispatch is per kind
+// because each resolver is a different runtime call with a different return
+// type. Resolvers return `Ok(None)` when the key is absent; resolve errors
+// (including transient not-yet-attached ones) are surfaced as-is and are
+// retryable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+fn put_channel_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, kind),
+  handle_json: Json,
+) -> Nil {
+  set(typed_map.map, schema.channel_field_key(field), handle_json)
+}
+
+@target(erlang)
+fn get_channel_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, kind),
+  resolver: fn(Document, Json) -> Result(shared, String),
+) -> Result(Option(shared), String) {
+  case get(typed_map.map, schema.channel_field_key(field)) {
+    None -> Ok(None)
+    Some(value) -> resolver(document, value) |> result.map(Some)
+  }
+}
+
+@target(erlang)
+/// Store a handle to an (untyped) nested map under a typed channel field.
+pub fn set_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+  map: SharedMap,
+) -> Nil {
+  put_channel_field(typed_map, field, handle_of(map))
+}
+
+@target(erlang)
+/// Resolve the map referenced by a typed channel field.
+pub fn resolve_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MapChannel),
+) -> Result(Option(SharedMap), String) {
+  get_channel_field(document, typed_map, field, resolve)
+}
+
+@target(erlang)
+/// Store a handle to `counter` under a typed channel field.
+pub fn set_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+  counter: SharedCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, counter_handle_of(counter))
+}
+
+@target(erlang)
+/// Resolve the counter referenced by a typed channel field.
+pub fn resolve_counter_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.CounterChannel),
+) -> Result(Option(SharedCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_counter)
+}
+
+@target(erlang)
+/// Store a handle to `json_ot` under a typed channel field.
+pub fn set_json_ot_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  json_ot: SharedJsonOt,
+) -> Nil {
+  put_channel_field(typed_map, field, json_ot_handle_of(json_ot))
+}
+
+@target(erlang)
+/// Resolve the json0 channel referenced by a typed channel field.
+pub fn resolve_json_ot_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+) -> Result(Option(SharedJsonOt), String) {
+  get_channel_field(document, typed_map, field, resolve_json_ot)
+}
+
+@target(erlang)
+/// Store a handle to `or_map` under a typed channel field.
+pub fn set_or_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+  or_map: SharedOrMap,
+) -> Nil {
+  put_channel_field(typed_map, field, or_map_handle_of(or_map))
+}
+
+@target(erlang)
+/// Resolve the OR-map referenced by a typed channel field.
+pub fn resolve_or_map_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrMapChannel),
+) -> Result(Option(SharedOrMap), String) {
+  get_channel_field(document, typed_map, field, resolve_or_map)
+}
+
+@target(erlang)
+/// Store a handle to `or_set` under a typed channel field.
+pub fn set_or_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+  or_set: SharedOrSet,
+) -> Nil {
+  put_channel_field(typed_map, field, or_set_handle_of(or_set))
+}
+
+@target(erlang)
+/// Resolve the OR-set referenced by a typed channel field.
+pub fn resolve_or_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.OrSetChannel),
+) -> Result(Option(SharedOrSet), String) {
+  get_channel_field(document, typed_map, field, resolve_or_set)
+}
+
+@target(erlang)
+/// Store a handle to `collection` under a typed channel field.
+pub fn set_register_collection_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+  collection: SharedRegisterCollection,
+) -> Nil {
+  put_channel_field(typed_map, field, register_collection_handle_of(collection))
+}
+
+@target(erlang)
+/// Resolve the register collection referenced by a typed channel field.
+pub fn resolve_register_collection_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RegisterCollectionChannel),
+) -> Result(Option(SharedRegisterCollection), String) {
+  get_channel_field(document, typed_map, field, resolve_register_collection)
+}
+
+@target(erlang)
+/// Store a handle to `claims` under a typed channel field.
+pub fn set_claims_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+  claims: SharedClaims,
+) -> Nil {
+  put_channel_field(typed_map, field, claims_handle_of(claims))
+}
+
+@target(erlang)
+/// Resolve the claims channel referenced by a typed channel field.
+pub fn resolve_claims_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.ClaimsChannel),
+) -> Result(Option(SharedClaims), String) {
+  get_channel_field(document, typed_map, field, resolve_claims)
+}
+
+@target(erlang)
+/// Store a handle to `manager` under a typed channel field.
+pub fn set_task_manager_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+  manager: SharedTaskManager,
+) -> Nil {
+  put_channel_field(typed_map, field, task_manager_handle_of(manager))
+}
+
+@target(erlang)
+/// Resolve the task manager referenced by a typed channel field.
+pub fn resolve_task_manager_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TaskManagerChannel),
+) -> Result(Option(SharedTaskManager), String) {
+  get_channel_field(document, typed_map, field, resolve_task_manager)
+}
+
+@target(erlang)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_g_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  set: SharedGSet,
+) -> Nil {
+  put_channel_field(typed_map, field, g_set_handle_of(set))
+}
+
+@target(erlang)
+/// Resolve the G-set referenced by a typed channel field.
+pub fn resolve_g_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+) -> Result(Option(SharedGSet), String) {
+  get_channel_field(document, typed_map, field, resolve_g_set)
+}
+
+@target(erlang)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_two_p_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  set: SharedTwoPSet,
+) -> Nil {
+  put_channel_field(typed_map, field, two_p_set_handle_of(set))
+}
+
+@target(erlang)
+/// Resolve the 2P-set referenced by a typed channel field.
+pub fn resolve_two_p_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+) -> Result(Option(SharedTwoPSet), String) {
+  get_channel_field(document, typed_map, field, resolve_two_p_set)
+}
+
+@target(erlang)
+/// Store a handle to `dir` under a typed channel field.
+pub fn set_directory_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  dir: SharedDirectory,
+) -> Nil {
+  put_channel_field(typed_map, field, directory_handle_of(dir))
+}
+
+@target(erlang)
+/// Resolve the directory referenced by a typed channel field.
+pub fn resolve_directory_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+) -> Result(Option(SharedDirectory), String) {
+  get_channel_field(document, typed_map, field, resolve_directory)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

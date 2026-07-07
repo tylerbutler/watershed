@@ -46,6 +46,8 @@ import watershed/json_ot
 import watershed/or_map_kernel.{Register, RegisterMode, Tally, TallyMode}
 @target(erlang)
 import watershed/runtime
+@target(erlang)
+import watershed/schema
 
 @target(erlang)
 const tenant = "dev-tenant"
@@ -2174,4 +2176,142 @@ fn entries_eq(
 ) -> Bool {
   list.length(left) == list.length(right)
   && list.all(left, fn(x) { list.contains(right, x) })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Typed channel fields (TX2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Schema tag for the typed-channel-field round-trip test.
+type FieldDoc
+
+@target(erlang)
+/// TX2 exit criterion: every channel kind round-trips through its typed
+/// `set_*_field` / `resolve_*_field` pair across two live clients, and an
+/// absent key resolves to `Ok(None)`.
+pub fn typed_channel_fields_round_trip_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_typed_channel_fields_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Poll until the field resolves to `Ok(Some(_))` on the remote client.
+fn expect_resolves(check: fn() -> Result(Option(a), String)) -> Nil {
+  wait_until(50, fn() {
+    case check() {
+      Ok(Some(_)) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_be_true()
+}
+
+@target(erlang)
+fn run_typed_channel_fields_test() -> Nil {
+  let document = "watershed-tcf-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let root_a: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_a))
+  let root_b: watershed.TypedMap(FieldDoc) =
+    watershed.typed(watershed.root(doc_b))
+
+  // One field per channel kind.
+  let map_f: schema.ChannelField(FieldDoc, schema.MapChannel) =
+    schema.channel_field("map")
+  let counter_f: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+    schema.channel_field("counter")
+  let json_ot_f: schema.ChannelField(FieldDoc, schema.JsonOtChannel) =
+    schema.channel_field("json_ot")
+  let or_map_f: schema.ChannelField(FieldDoc, schema.OrMapChannel) =
+    schema.channel_field("or_map")
+  let or_set_f: schema.ChannelField(FieldDoc, schema.OrSetChannel) =
+    schema.channel_field("or_set")
+  let registers_f: schema.ChannelField(
+    FieldDoc,
+    schema.RegisterCollectionChannel,
+  ) = schema.channel_field("registers")
+  let claims_f: schema.ChannelField(FieldDoc, schema.ClaimsChannel) =
+    schema.channel_field("claims")
+  let tasks_f: schema.ChannelField(FieldDoc, schema.TaskManagerChannel) =
+    schema.channel_field("tasks")
+  let g_set_f: schema.ChannelField(FieldDoc, schema.GSetChannel) =
+    schema.channel_field("g_set")
+  let two_p_set_f: schema.ChannelField(FieldDoc, schema.TwoPSetChannel) =
+    schema.channel_field("two_p_set")
+  let directory_f: schema.ChannelField(FieldDoc, schema.DirectoryChannel) =
+    schema.channel_field("directory")
+
+  // A creates one channel of every kind and stores each typed handle.
+  let assert Ok(child_map) = watershed.create_map(doc_a)
+  watershed.set_map_field(root_a, map_f, child_map)
+  let assert Ok(counter) = watershed.create_counter(doc_a)
+  watershed.set_counter_field(root_a, counter_f, counter)
+  let assert Ok(json_ot) = watershed.create_json_ot(doc_a)
+  watershed.set_json_ot_field(root_a, json_ot_f, json_ot)
+  let assert Ok(or_map) = watershed.create_or_map(doc_a, RegisterMode)
+  watershed.set_or_map_field(root_a, or_map_f, or_map)
+  let assert Ok(or_set) = watershed.create_or_set(doc_a)
+  watershed.set_or_set_field(root_a, or_set_f, or_set)
+  let assert Ok(registers) = watershed.create_register_collection(doc_a)
+  watershed.set_register_collection_field(root_a, registers_f, registers)
+  let assert Ok(claims) = watershed.create_claims(doc_a)
+  watershed.set_claims_field(root_a, claims_f, claims)
+  let assert Ok(tasks) = watershed.create_task_manager(doc_a)
+  watershed.set_task_manager_field(root_a, tasks_f, tasks)
+  let assert Ok(g_set) = watershed.create_g_set(doc_a)
+  watershed.set_g_set_field(root_a, g_set_f, g_set)
+  let assert Ok(two_p_set) = watershed.create_two_p_set(doc_a)
+  watershed.set_two_p_set_field(root_a, two_p_set_f, two_p_set)
+  let assert Ok(directory) = watershed.create_directory(doc_a)
+  watershed.set_directory_field(root_a, directory_f, directory)
+
+  // B resolves every kind once the handles arrive.
+  expect_resolves(fn() { watershed.resolve_map_field(doc_b, root_b, map_f) })
+  expect_resolves(fn() {
+    watershed.resolve_counter_field(doc_b, root_b, counter_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_json_ot_field(doc_b, root_b, json_ot_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_or_map_field(doc_b, root_b, or_map_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_or_set_field(doc_b, root_b, or_set_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_register_collection_field(doc_b, root_b, registers_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_claims_field(doc_b, root_b, claims_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_task_manager_field(doc_b, root_b, tasks_f)
+  })
+  expect_resolves(fn() { watershed.resolve_g_set_field(doc_b, root_b, g_set_f) })
+  expect_resolves(fn() {
+    watershed.resolve_two_p_set_field(doc_b, root_b, two_p_set_f)
+  })
+  expect_resolves(fn() {
+    watershed.resolve_directory_field(doc_b, root_b, directory_f)
+  })
+
+  // An absent key is Ok(None), not an error.
+  let missing: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+    schema.channel_field("missing")
+  watershed.resolve_counter_field(doc_b, root_b, missing)
+  |> expect.to_equal(Ok(None))
+
+  // The resolved channel is live: an increment on A converges on B.
+  watershed.increment(counter, 5)
+  let assert Ok(Some(counter_b)) =
+    watershed.resolve_counter_field(doc_b, root_b, counter_f)
+  wait_until(50, fn() { watershed.counter_value(counter_b) == Some(5) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
 }
