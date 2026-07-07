@@ -206,6 +206,59 @@ pub fn connect(
 }
 
 @target(javascript)
+/// Connect through an injected transport — the seam the in-memory `sluice_js`
+/// test driver uses. `on_ready` still fires when the handshake completes, which
+/// the driver triggers by delivering the handshake frame on `settle`. Not for
+/// production use.
+pub fn connect_via(
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+  transport transport: runtime_js.Transport,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document {
+  let connect_message =
+    ConnectMessage(
+      tenant_id: tenant,
+      document_id: document,
+      token: None,
+      client: Client(
+        mode: WriteMode,
+        details: ClientDetails(
+          capabilities: ClientCapabilities(interactive: True),
+          client_type: Some("watershed-js"),
+          environment: None,
+          device: None,
+        ),
+        permission: [],
+        user: User(id: user_id, properties: dict.new()),
+        scopes: ["doc:read", "doc:write", "summary:write"],
+        timestamp: None,
+      ),
+      versions: ["^0.1.0"],
+      driver_version: None,
+      mode: WriteMode,
+      nonce: None,
+      epoch: None,
+      supported_features: None,
+      relay_user_agent: None,
+    )
+  Document(runtime: runtime_js.start_with_transport(
+    http_base_url: "sluice",
+    connect_message: connect_message,
+    transport: transport,
+    on_ready: on_ready,
+  ))
+}
+
+@target(javascript)
+/// The runtime behind a document. Exposed for the `sluice_js` test driver, which
+/// keys paused clients by their runtime. Not part of the app-facing API.
+pub fn runtime_of(document: Document) -> runtime_js.Runtime {
+  document.runtime
+}
+
+@target(javascript)
 /// The document's root map (channel address `"root"`).
 pub fn root(document: Document) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
