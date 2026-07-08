@@ -216,36 +216,56 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     pumpTimer = setTimeout(pumpTick, controls.paced(hopMs));
   }
 
+  function deliver(delivery: Delivery) {
+    const toId = sidToId[delivery.to];
+    if (delivery.event !== "op" || !toId) return;
+    flow.animateDot(
+      seqNode,
+      clients[toId].el,
+      controls.sampleLatency(),
+      true,
+      `SN ${delivery.sequence_number}`,
+    );
+    if (delivery.to === delivery.author) {
+      const authorId = sidToId[delivery.author] ?? toId;
+      stampSeqCounter(delivery.sequence_number);
+      logOp(
+        delivery.sequence_number,
+        authorId,
+        labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
+      );
+    }
+    // Frame already applied to the runtime; refresh the board and clear its
+    // pending marks once fully acked.
+    if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
+    config.render(clients[toId]);
+  }
+
   function pumpTick() {
     pumpTimer = null;
-    const delivery = some<Delivery>(sluice.step_info(server));
-    if (delivery == null) {
+    const first = some<Delivery>(sluice.peek_info(server));
+    if (first == null) {
       renderStatus();
       return;
     }
 
-    const toId = sidToId[delivery.to];
-    if (delivery.event === "op" && toId) {
-      flow.animateDot(
-        seqNode,
-        clients[toId].el,
-        controls.sampleLatency(),
-        true,
-        `SN ${delivery.sequence_number}`,
-      );
-      if (delivery.to === delivery.author) {
-        const authorId = sidToId[delivery.author] ?? toId;
-        stampSeqCounter(delivery.sequence_number);
-        logOp(
-          delivery.sequence_number,
-          authorId,
-          labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
-        );
+    // A real server fans one op out to every client at once, so drain the whole
+    // broadcast wave — every queued frame sharing this op's sequence number — in
+    // a single tick. Each recipient's dot still carries its own sampled latency,
+    // so they land staggered by per-link jitter, not by the pump. Distinct ops
+    // (different SNs) stay paced one hop apart; non-op frames deliver singly.
+    if (first.event === "op") {
+      const waveSn = first.sequence_number;
+      let next: Delivery | null = first;
+      while (next != null && next.event === "op" && next.sequence_number === waveSn) {
+        const delivery = some<Delivery>(sluice.step_info(server));
+        if (delivery == null) break;
+        deliver(delivery);
+        next = some<Delivery>(sluice.peek_info(server));
       }
-      // Frame already applied to the runtime; refresh the board and clear its
-      // pending marks once fully acked.
-      if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
-      config.render(clients[toId]);
+    } else {
+      const delivery = some<Delivery>(sluice.step_info(server));
+      if (delivery != null) deliver(delivery);
     }
 
     renderStatus();

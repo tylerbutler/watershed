@@ -301,6 +301,16 @@ pub fn take(sluice: Sluice) -> #(Sluice, Option(Outbound)) {
   }
 }
 
+/// The next frame `take` would deliver, without removing it. `None` when
+/// nothing is deliverable. Lets a caller group a whole broadcast wave (frames
+/// sharing an op's sequence number) before committing to deliver it.
+pub fn peek(sluice: Sluice) -> Option(Outbound) {
+  case pop_deliverable(sluice.outbox, sluice.paused, []) {
+    Error(Nil) -> None
+    Ok(#(frame, _rest)) -> Some(frame)
+  }
+}
+
 /// Whether any frame is deliverable right now (a non-paused client is owed one).
 pub fn has_pending(sluice: Sluice) -> Bool {
   list.any(sluice.outbox, fn(frame) {

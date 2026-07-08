@@ -210,6 +210,42 @@ pub fn signal_fan_out_excludes_author_and_strips_type_test() {
   ripple.signal_type |> expect.to_equal(None)
 }
 
+pub fn peek_reveals_next_frame_without_consuming_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = submit(sluice, c1, 1, 0)
+
+  // Peek reports the pending echo but leaves it queued...
+  let assert Some(peeked) = core.peek(sluice)
+  peeked.client_id |> expect.to_equal(c1)
+  peeked.event |> expect.to_equal("op")
+
+  // ...so a subsequent take still delivers the same frame.
+  let #(sluice, taken) = core.take(sluice)
+  let assert Some(frame) = taken
+  frame.client_id |> expect.to_equal(c1)
+
+  // With the queue drained, peek agrees nothing is deliverable.
+  core.peek(sluice) |> expect.to_equal(None)
+}
+
+pub fn peek_skips_paused_clients_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, c2) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  // Hold c1, then have it author an op both should receive. c1's echo is
+  // queued first but held, so peek surfaces c2's copy instead.
+  let sluice = core.pause(sluice, c1)
+  let sluice = submit(sluice, c1, 1, 0)
+
+  let assert Some(peeked) = core.peek(sluice)
+  peeked.client_id |> expect.to_equal(c2)
+}
+
 pub fn pause_holds_a_clients_frames_until_resume_test() {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)

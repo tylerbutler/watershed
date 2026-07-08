@@ -179,6 +179,26 @@ pub fn step_info(sluice: Sluice) -> Option(Delivery) {
 }
 
 @target(javascript)
+/// Report the next frame `step`/`step_info` would deliver, without delivering
+/// it. Lets a caller group a whole broadcast wave (every frame sharing an op's
+/// sequence number) into one animation tick, so all replicas receive an op
+/// together instead of one serial hop at a time.
+pub fn peek_info(sluice: Sluice) -> Option(Delivery) {
+  case core.peek(transport_js.get_cell(sluice.cell).core) {
+    None -> None
+    Some(frame) -> {
+      let #(sequence_number, author) = op_meta(frame)
+      Some(Delivery(
+        to: frame.client_id,
+        event: frame.event,
+        sequence_number: sequence_number,
+        author: author,
+      ))
+    }
+  }
+}
+
+@target(javascript)
 /// Whether any frame is still awaiting delivery to a non-paused client.
 pub fn pending(sluice: Sluice) -> Bool {
   core.has_pending(transport_js.get_cell(sluice.cell).core)
