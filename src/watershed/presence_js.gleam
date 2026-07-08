@@ -112,7 +112,11 @@ pub fn stop(handle: Handle(a)) -> Nil {
 // ── Internals ────────────────────────────────────────────────────────────────
 
 @target(javascript)
-fn on_ripple(cell: Cell(Driver(a)), decoder: Decoder(a), ripple: Ripple) -> Nil {
+fn on_ripple(
+  cell: Cell(Driver(a)),
+  decoder: Decoder(a),
+  ripple: Ripple,
+) -> Nil {
   let driver = transport_js.get_cell(cell)
   case driver.stopped {
     True -> Nil

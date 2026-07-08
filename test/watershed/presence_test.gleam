@@ -30,7 +30,9 @@ pub fn observe_replaces_prior_entry_per_user_test() {
     |> presence.observe("web-1", Cursor("r1c1"), 200)
 
   presence.roster(peers)
-  |> expect.to_equal([Peer(user: "web-1", payload: Cursor("r1c1"), last_seen: 200)])
+  |> expect.to_equal([
+    Peer(user: "web-1", payload: Cursor("r1c1"), last_seen: 200),
+  ])
 }
 
 pub fn prune_drops_exactly_peers_past_ttl_test() {

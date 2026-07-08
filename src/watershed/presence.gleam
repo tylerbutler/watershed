@@ -49,14 +49,21 @@ pub fn new() -> Peers(a) {
 
 /// Record a peer's heartbeat, replacing any prior entry for that user. The
 /// caller filters out its own user id.
-pub fn observe(peers: Peers(a), user: String, payload: a, now: Int) -> Peers(a) {
+pub fn observe(
+  peers: Peers(a),
+  user: String,
+  payload: a,
+  now: Int,
+) -> Peers(a) {
   let without = list.filter(peers.entries, fn(p) { p.user != user })
   Peers([Peer(user: user, payload: payload, last_seen: now), ..without])
 }
 
 /// Drop peers whose last heartbeat is older than the TTL.
 pub fn prune(peers: Peers(a), config: Config, now: Int) -> Peers(a) {
-  Peers(list.filter(peers.entries, fn(p) { now - p.last_seen <= config.ttl_ms }))
+  Peers(
+    list.filter(peers.entries, fn(p) { now - p.last_seen <= config.ttl_ms }),
+  )
 }
 
 /// The live peers, sorted by user id for a stable render order.
@@ -72,7 +79,11 @@ pub fn find(peers: Peers(a), predicate: fn(a) -> Bool) -> List(Peer(a)) {
 }
 
 /// Enclose an app payload in the presence ripple envelope (decision 1).
-pub fn encode_envelope(user: String, encode: fn(a) -> Json, payload: a) -> Json {
+pub fn encode_envelope(
+  user: String,
+  encode: fn(a) -> Json,
+  payload: a,
+) -> Json {
   json.object([
     #("kind", json.string(ripple_type)),
     #("user", json.string(user)),
