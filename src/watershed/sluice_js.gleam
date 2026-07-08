@@ -185,6 +185,26 @@ pub fn pending(sluice: Sluice) -> Bool {
 }
 
 @target(javascript)
+/// The sluice-assigned client id for a document (matches the `to`/`author`
+/// fields of `step_info`), or `Error` if it isn't connected here.
+pub fn client_id(
+  sluice: Sluice,
+  document: watershed_js.Document,
+) -> Result(String, Nil) {
+  client_id_of(
+    transport_js.get_cell(sluice.cell).bindings,
+    watershed_js.runtime_of(document),
+  )
+}
+
+@target(javascript)
+/// The current server sequence number. Ops sequence synchronously on submit,
+/// so reading this right after an edit yields that op's SN.
+pub fn sequence_number(sluice: Sluice) -> Int {
+  core.sequence_number(transport_js.get_cell(sluice.cell).core)
+}
+
+@target(javascript)
 /// Advance the sluice's logical clock, so TTL-based logic (presence prune) is
 /// testable without real time passing.
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
