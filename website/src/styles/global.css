@@ -147,3 +147,170 @@ samp {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Shared doc-prose grammar — the survey-sheet reading column used by BOTH the
+   build guide (/guide) and the runtime concept sheets (/runtime). Namespaced
+   under .doc-body / .g-* so it never leaks into landing sections. Container:
+   <main class="doc-body">; blocks use .g-block / .g-code / .g-note / .g-out.
+   ────────────────────────────────────────────────────────────────────────── */
+.doc-body {
+  max-width: 68rem;
+  margin-inline: auto;
+  padding: var(--space-2xl) var(--content-pad) 0;
+}
+
+.doc-body .g-block + .g-block {
+  margin-top: var(--space-2xl);
+}
+
+.doc-body h2 {
+  font-size: var(--text-h2);
+  font-weight: 620;
+  font-stretch: 118%;
+  letter-spacing: -0.015em;
+  line-height: 1.08;
+  max-width: 22ch;
+}
+
+.doc-body h3 {
+  margin-top: var(--space-xl);
+  font-size: var(--text-h3);
+  font-weight: 600;
+  font-stretch: 110%;
+  line-height: 1.2;
+}
+
+.doc-body p {
+  margin-top: var(--space-lg);
+  max-width: 66ch;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.doc-body h2 + p,
+.doc-body h3 + p {
+  margin-top: var(--space-md);
+}
+
+.doc-body p code,
+.doc-body li code {
+  font-size: 0.85em;
+  color: var(--overprint-deep);
+}
+
+.doc-body a {
+  color: var(--waterline);
+  text-underline-offset: 2px;
+}
+
+.doc-body a:hover {
+  color: var(--overprint-deep);
+}
+
+.doc-body ul {
+  margin-top: var(--space-lg);
+  max-width: 66ch;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.doc-body li {
+  line-height: 1.6;
+}
+
+.doc-body li::marker {
+  color: var(--overprint);
+}
+
+/* code figures — the CodeSample survey-sheet theme, shared. */
+.doc-body .g-code {
+  margin: var(--space-lg) 0 0;
+  min-width: 0;
+}
+
+.doc-body .g-code pre {
+  margin: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--ink);
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  --astro-code-foreground: var(--ink);
+  --astro-code-background: var(--bg);
+  --astro-code-token-keyword: var(--overprint-deep);
+  --astro-code-token-string: var(--waterline);
+  --astro-code-token-string-expression: var(--waterline);
+  --astro-code-token-constant: var(--ink);
+  --astro-code-token-comment: var(--muted);
+  --astro-code-token-function: var(--ink);
+  --astro-code-token-parameter: var(--ink);
+  --astro-code-token-punctuation: var(--muted);
+  --astro-code-token-link: var(--waterline);
+}
+
+.doc-body .g-code figcaption {
+  margin-top: var(--space-sm);
+  color: var(--muted);
+}
+
+/* file chip: where the code goes */
+.doc-body .g-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: var(--space-lg) 0 calc(-1 * var(--space-xs));
+  padding: 0.28rem 0.6rem;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-annot);
+  color: var(--ink);
+}
+
+.doc-body .g-file::before {
+  content: "▸";
+  color: var(--overprint);
+}
+
+/* aside note: a gotcha / pending caveat, in the sheet's magenta cue */
+.doc-body .g-note {
+  margin-top: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--overprint);
+  background: var(--surface);
+  max-width: 64ch;
+}
+
+.doc-body .g-note p {
+  margin: 0;
+  font-size: var(--text-sm);
+  max-width: none;
+}
+
+.doc-body .g-note p + p {
+  margin-top: var(--space-sm);
+}
+
+.doc-body .g-note strong {
+  color: var(--overprint-deep);
+}
+
+/* outcome: the "you can now" close of a sheet */
+.doc-body .g-out {
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-lg);
+  border-top: 1px dashed var(--hairline);
+  max-width: 66ch;
+}
+
+.doc-body .g-out .annot {
+  color: var(--overprint);
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.doc-body .g-out p {
+  margin-top: 0;
+}

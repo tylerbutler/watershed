@@ -1,0 +1,83 @@
+---
+import RuntimeLayout from "../../components/RuntimeLayout.astro";
+---
+
+<RuntimeLayout
+  slug="reconnect"
+  description="How a watershed client rejoins a document after a dropped connection: it rehydrates from a server summary and replays only the ops since, the same from_summary path a fresh client and the demo's baseline replicas take — so reconnect is not a special case."
+>
+  <div class="g-block">
+    <h2>A dropped link is not a lost document</h2>
+    <p>
+      Connections fail: a laptop sleeps, a tunnel closes, a phone walks out of
+      signal. The question is never whether it happens but what state you come
+      back to. In watershed a reconnecting client rejoins the same flow it left,
+      lands on the current converged state, and streams forward again — without
+      replaying the document's entire history to get there.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Rehydrate from a summary</h2>
+    <p>
+      A long-lived document accumulates thousands of ops. Replaying all of them
+      on every join would make reconnection slower the older the document got.
+      Instead the server periodically <strong>summarises</strong> converged state
+      into a snapshot stamped with the sequence number it covers. A returning
+      client loads that summary through <code>from_summary</code> and then
+      replays only the ops <em>after</em> it — the gap it missed, not the whole
+      river.
+    </p>
+    <p>
+      Every channel knows how to serialise and rebuild itself this way, so the
+      snapshot is not a lossy cache: it is the converged state, exactly, plus the
+      metadata each structure needs to keep its merge rule honest. An
+      <a href="/structures/sets#orset">OR-set</a>'s add tags and a
+      <a href="/structures/sets">2P-set</a>'s tombstones travel in the summary,
+      so add-wins and permanent-removal semantics survive a reload intact.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The same path a fresh client takes</h2>
+    <p>
+      The reason to trust reconnection is that it is not a separate code path.
+      A brand-new client joining for the first time also boots by loading a
+      summary and replaying the tail — reconnecting is the identical operation,
+      just with a sequence number you have seen before. There is no
+      resume-from-disconnect branch that only runs on the unhappy path and only
+      breaks in production.
+    </p>
+    <p>
+      The live demo leans on exactly this. Its two clients boot from a baseline
+      summary built under a dedicated <code>survey-baseline</code> replica —
+      the same <code>from_summary</code> call a reconnecting surveyor makes.
+      Because persisted sequence numbers ride along in the summary,
+      order-sensitive structures like <a href="/structures/coordination#claims">claims</a>
+      stay correct after a load: a slot that was claimed before you dropped is
+      still claimed when you return, and a compare-and-set still refers to the
+      right prior state.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>Reconnect is a resync, not a reset.</strong> You do not lose the
+        document and you do not fork a divergent copy — you catch the flow back
+        up from the last point it summarised. Ephemeral signals are the
+        exception by design: a <a href="/runtime/presence">ripple</a> broadcast
+        while you were gone is not in any summary and will not replay, which is
+        exactly right for a cursor and exactly why durable state belongs in a
+        channel.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      A reconnecting client rehydrates from a summary and replays only the gap —
+      the same <code>from_summary</code> path every fresh client and every
+      baseline replica uses — so rejoining after a drop lands you on current,
+      correct, converged state instead of a special-case recovery routine.
+    </p>
+  </div>
+</RuntimeLayout>

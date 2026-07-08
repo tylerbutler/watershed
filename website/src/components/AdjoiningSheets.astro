@@ -1,0 +1,193 @@
+---
+// "Adjoining sheets" — the site index, printed in the margin the way a USGS
+// quadrangle prints the names of its neighbouring sheets. This is the central
+// hub the site otherwise lacked: every page, grouped, reachable from every
+// page (it renders inside the global Ecosystem footer). Data-driven from the
+// three catalogs so new families, guide steps, and runtime sheets appear here
+// automatically.
+import { categories } from "../data/structures";
+import { steps } from "../data/guide";
+import { runtimeDocs } from "../data/runtime";
+
+interface Link {
+  label: string;
+  href: string;
+  /** Whether this is the group's own index/hub link (rendered emphasised). */
+  hub?: boolean;
+  /** External link (github, etc). */
+  external?: boolean;
+}
+
+interface Column {
+  title: string;
+  href: string;
+  links: Link[];
+}
+
+const columns: Column[] = [
+  {
+    title: "Data structures",
+    href: "/structures",
+    links: [
+      { label: "Field atlas", href: "/structures", hub: true },
+      ...categories.map((c) => ({ label: c.name, href: `/structures/${c.slug}` })),
+    ],
+  },
+  {
+    title: "Build guide",
+    href: "/guide",
+    links: [
+      { label: "Overview", href: "/guide", hub: true },
+      ...steps.map((s) => ({ label: `${s.n} · ${s.title}`, href: `/guide/${s.slug}` })),
+    ],
+  },
+  {
+    title: "Runtime",
+    href: "/runtime",
+    links: [
+      { label: "Behaviors", href: "/runtime", hub: true },
+      ...runtimeDocs.map((d) => ({ label: d.title, href: `/runtime/${d.slug}` })),
+    ],
+  },
+  {
+    title: "Reference & demos",
+    href: "/models",
+    links: [
+      { label: "Convergence models", href: "/models" },
+      { label: "The counter bug", href: "/counter-bug" },
+      { label: "Shared directory", href: "/directory" },
+      { label: "JSON OT", href: "/json-ot" },
+      { label: "Sudoku", href: "/sudoku" },
+      { label: "Source ↗", href: "https://github.com/tylerbutler/watershed", external: true },
+    ],
+  },
+];
+
+const path = Astro.url.pathname;
+const isCurrent = (href: string) => path === href;
+---
+
+<nav class="adjoining" aria-labelledby="adjoining-title">
+  <div class="adjoining-inner">
+    <div class="adjoining-head">
+      <h2 id="adjoining-title" class="annot">Adjoining sheets</h2>
+      <p class="annot">The full index — every sheet in the survey</p>
+    </div>
+    <div class="adjoining-grid">
+      {
+        columns.map((col) => (
+          <div class="adj-col">
+            <a class="adj-col-title annot" href={col.href}>
+              {col.title}
+            </a>
+            <ul>
+              {col.links.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    class:list={["adj-link", { "adj-link-hub": link.hub }]}
+                    aria-current={isCurrent(link.href) ? "page" : undefined}
+                  >
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</nav>
+
+<style>
+  .adjoining {
+    padding: var(--space-2xl) var(--content-pad) 0;
+  }
+
+  .adjoining-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    border-top: 1px solid var(--ink);
+    padding-top: var(--space-xl);
+  }
+
+  .adjoining-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-lg);
+    margin-bottom: var(--space-xl);
+  }
+
+  .adjoining-head h2 {
+    color: var(--overprint-deep);
+    font-weight: 400;
+  }
+
+  .adjoining-head p {
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .adjoining-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+    gap: var(--space-xl) var(--space-lg);
+  }
+
+  .adj-col-title {
+    display: block;
+    color: var(--ink);
+    text-decoration: none;
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: var(--space-sm);
+    transition: color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .adj-col-title:hover {
+    color: var(--overprint-deep);
+  }
+
+  .adj-col ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2xs);
+  }
+
+  .adj-link {
+    position: relative;
+    display: inline-block;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    padding: 0.1rem 0;
+    transition: color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .adj-link:hover {
+    color: var(--overprint-deep);
+  }
+
+  .adj-link-hub {
+    color: var(--ink);
+    font-stretch: 106%;
+  }
+
+  /* the sheet you're on: inked, with a magenta registration tick in the margin */
+  .adj-link[aria-current="page"] {
+    color: var(--ink);
+    padding-left: 0.9rem;
+  }
+
+  .adj-link[aria-current="page"]::before {
+    content: "▸";
+    position: absolute;
+    left: 0;
+    color: var(--overprint);
+  }
+</style>

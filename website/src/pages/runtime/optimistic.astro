@@ -1,0 +1,100 @@
+---
+import { Code } from "astro:components";
+import RuntimeLayout from "../../components/RuntimeLayout.astro";
+
+const local = `import gleam/json
+import watershed
+
+// set applies to your replica *now* — get reads it back before the
+// server has seen it. The UI never waits on the network.
+watershed.set(survey, "depth-07", json.float(3.4))
+let assert Ok(_) = watershed.get(survey, "depth-07")
+// => 3.4, already visible. This value is *pending*: drawn in magenta,
+// a prediction of where the server's order will place it.`;
+---
+
+<RuntimeLayout
+  slug="optimistic"
+  description="How watershed renders a local edit instantly, reconciles it when the server sequences it, and unwinds it cleanly when a concurrent write wins — the pending-to-sequenced lifecycle, with no rollback code to write."
+>
+  <div class="g-block">
+    <h2>Every edit is a bet on the order</h2>
+    <p>
+      When you <code>set</code> a value, watershed applies it to your local
+      replica immediately and shows it — before the server has acknowledged
+      anything. On the survey sheet that value is drawn in
+      <strong>magenta</strong>: a revision not yet field-checked. It is a
+      <em>prediction</em> of where the server's total order will place your edit,
+      and you get to render it at once instead of waiting a round-trip to find
+      out.
+    </p>
+    <p>
+      That is the whole appeal of optimism, and its whole risk: you are showing
+      state that the sequence has not confirmed. watershed's job is to make the
+      confirmation — or the correction — automatic.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Pending, then sequenced</h2>
+    <p>
+      Every local edit moves through one lifecycle. It is <strong>applied</strong>
+      to your replica optimistically, queued <strong>outbound</strong> to the
+      server, and — when the sequencer stamps it with a sequence number —
+      <strong>acked</strong> back to you. That ack is the moment the edit stops
+      being a prediction: <code>ack_local</code> promotes it from pending to
+      sequenced, and on the sheet it re-prints from magenta to ink. Every other
+      replica receives the same edit in the same position and applies it too.
+    </p>
+    <figure class="g-code">
+      <Code code={local} lang="gleam" theme="css-variables" />
+    </figure>
+    <p>
+      Because the local apply is synchronous, <code>get</code> is
+      read-your-writes: it returns your pending value the instant you set it.
+      Your <code>subscribe</code> handler, meanwhile, delivers the
+      <em>sequenced</em> stream — the same server-assigned order every replica
+      observes — so the UI you build on it always converges even while individual
+      edits are still in flight.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>When the bet loses</h2>
+    <p>
+      Optimism is only safe if losing is graceful. Two clients set the same key
+      at once; only one can be last in the order. When the sequence disagrees
+      with your prediction, the pending value simply resolves to whatever the
+      order says — for a <a href="/structures/maps#map">SharedMap</a> that is
+      last-write-wins, so a concurrent write with a later sequence number
+      supersedes yours and the magenta re-prints as the winning ink value.
+    </p>
+    <p>
+      Some structures reject rather than overwrite. A
+      <a href="/structures/coordination#claims">claim</a> is first-writer-wins:
+      if your claim files while a peer already holds the slot, the ack carries a
+      refusal, the optimistic marker clears, and a margin note records that you
+      lost it. In every case the correction arrives through the same ack path —
+      there is no rollback branch for you to write, and no torn intermediate
+      state for a user to catch.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>Optimism never touches converged truth.</strong> Your pending
+        value only ever changes what <em>you</em> see before the ack. The
+        converged state is whatever falls out of the shared order, identical on
+        every replica — so a mispredicted edit costs one silent re-print on your
+        screen and nothing at all on anyone else's.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      Local edits render instantly as pending, promote to sequenced on ack, and
+      resolve to the order's verdict when a concurrent write wins — automatically,
+      with the same guarantee whether your prediction held or not.
+    </p>
+  </div>
+</RuntimeLayout>

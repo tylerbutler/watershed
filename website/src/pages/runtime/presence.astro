@@ -1,0 +1,96 @@
+---
+import { Code } from "astro:components";
+import RuntimeLayout from "../../components/RuntimeLayout.astro";
+
+const cfg = `import watershed/presence
+
+// Liveness is a heartbeat plus a window. Re-announce every 2s; a peer
+// whose last heartbeat is older than 6.5s has left the roster.
+pub const config = presence.Config(heartbeat_ms: 2000, ttl_ms: 6500)`;
+---
+
+<RuntimeLayout
+  slug="presence"
+  description="Watershed's ephemeral tier: ripples are document-scoped, non-sequenced broadcasts that never touch converged state, and presence layers a heartbeat-and-TTL lifecycle on top to turn them into a live roster of who is here."
+>
+  <div class="g-block">
+    <h2>Not everything belongs in the document</h2>
+    <p>
+      Some signals are about <em>now</em>, not about state: which station a
+      surveyor is looking at, a cursor position, a "re-check this" nudge, a
+      reaction. Put those in a channel and they get sequenced, summarised, and
+      replayed to whoever joins an hour later — long after they stopped meaning
+      anything. A converged document is the wrong home for a signal whose whole
+      value is that it is fleeting.
+    </p>
+    <p>
+      watershed keeps that traffic in a separate tier that rides the same
+      connection but obeys none of the convergence machinery. It is the
+      deliberate escape hatch from "everything is durable, ordered state."
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Ripples: broadcast and forget</h2>
+    <p>
+      A <strong>ripple</strong> is a document-scoped, non-sequenced broadcast
+      delivered to every <em>other</em> connected client and then gone. No
+      ordering, no storage, no convergence — deliberately.
+      <code>submit_ripple</code> sends a type tag plus a JSON payload and returns
+      nothing, because there is no state to change and no ack to await;
+      <code>subscribe_ripples</code> hands each inbound ripple to your handler
+      with the sender's id attached. The
+      <a href="/guide/ripples">build guide's ripples step</a> walks through the
+      send and receive code end to end.
+    </p>
+    <p>
+      Because a ripple never lands in a summary, a client that
+      <a href="/runtime/reconnect">reconnects</a> or joins late will not see the
+      ones it missed — which is exactly right for a cursor and exactly wrong for
+      a reading. The tier's forgetfulness is the feature.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Presence is ripples with a heartbeat</h2>
+    <p>
+      Raw ripples are stateless, and that leaves one gap: a peer who simply goes
+      quiet — closes the tab, loses signal — leaves their last marker stranded on
+      everyone's screen, because "gone" was never an event.
+      <strong>Presence</strong> closes it by deriving liveness from a heartbeat
+      instead of a farewell. Each client re-announces its payload on a timer, and
+      a peer whose last heartbeat has aged past a time-to-live is pruned from the
+      roster automatically.
+    </p>
+    <figure class="g-code">
+      <Code code={cfg} lang="gleam" theme="css-variables" />
+    </figure>
+    <p>
+      The defaults re-announce every two seconds and expire a peer after six and
+      a half — roughly three missed beats before you disappear, enough to ride
+      out a hiccup without pinning a ghost cursor in place. The driver suppresses
+      heartbeats until a client first announces, so idle tabs stay silent, and a
+      bare heartbeat that carries the same payload reads as no change — you can
+      re-render the roster on every tick without flicker.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>You rarely hand-roll this.</strong> watershed ships the presence
+        driver, and the guide's <a href="/guide/ui">UI step</a> wires it to a
+        Lustre view as a single effect — announce on change, observe the roster,
+        prune on the timer — so live cursors and a "who's here" list cost you a
+        payload type, not a lifecycle.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      Ripples are throwaway broadcasts that never touch converged state; presence
+      layers a heartbeat-and-TTL lifecycle on top so quiet peers expire on their
+      own — the ephemeral tier that sits alongside your channels instead of
+      polluting them.
+    </p>
+  </div>
+</RuntimeLayout>

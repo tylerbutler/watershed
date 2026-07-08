@@ -1,0 +1,251 @@
+---
+import Sheet from "../../layouts/Sheet.astro";
+import Ecosystem from "../../components/Ecosystem.astro";
+import { runtimeDocs } from "../../data/runtime";
+---
+
+<Sheet
+  title="watershed — runtime behavior"
+  description="How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, and the ephemeral presence tier. The field notes behind the convergence guarantee."
+>
+  <header class="rh-hero">
+    <div class="rh-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/">← watershed</a> · Runtime
+      </p>
+      <h1>What the runtime<br /><em>actually does.</em></h1>
+      <p class="lede">
+        The <a href="/structures">atlas</a> shows <em>what</em> each structure is
+        and the <a href="/models">models</a> page shows <em>how</em> it converges.
+        These are the field notes underneath: the behaviors every watershed
+        document exhibits at runtime, whichever structure you reach for —
+        optimism, reconnection, duplicate safety, and the ephemeral tier that
+        never touches converged state.
+      </p>
+    </div>
+  </header>
+
+  <main class="rh-ledger" aria-labelledby="rh-ledger-title">
+    <div class="rh-ledger-head">
+      <h2 id="rh-ledger-title">Runtime behaviors</h2>
+      <p>Four sheets. Read in order, or jump to the one that's biting you.</p>
+    </div>
+    <ol class="rh-list">
+      {
+        runtimeDocs.map((d, i) => (
+          <li class="rh-item" data-reveal="rise">
+            <a href={`/runtime/${d.slug}`}>
+              <span class="rh-n annot">{String(i + 1).padStart(2, "0")}</span>
+              <span class="rh-body">
+                <span class="rh-title">{d.title}</span>
+                <span class="rh-gloss">{d.gloss}</span>
+                <span class="rh-concept annot">{d.concept}</span>
+              </span>
+              <span class="rh-go annot" aria-hidden="true">
+                →
+              </span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="rh-aside">
+      Ready to build on these? The <a href="/guide">build guide</a> puts them to
+      work — including a hands-on <a href="/guide/ripples">ripples step</a> that
+      wires the ephemeral tier into a real app.
+    </p>
+  </main>
+
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .rh-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .rh-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+
+  .lede em {
+    font-style: italic;
+  }
+
+  .lede a {
+    color: var(--waterline);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  /* ── ledger ────────────────────────────────────────────────────────────── */
+  .rh-ledger {
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .rh-ledger-head p {
+    margin-top: var(--space-md);
+    color: var(--muted);
+    max-width: 48ch;
+  }
+
+  .rh-list {
+    margin: var(--space-xl) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--ink);
+  }
+
+  .rh-item {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .rh-item:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .rh-item a {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: var(--space-lg);
+    padding: var(--space-lg) var(--space-sm);
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      padding-inline var(--dur-state) var(--ease-out-quart);
+  }
+
+  .rh-item a:hover {
+    background: var(--surface);
+    padding-inline: var(--space-lg);
+  }
+
+  .rh-n {
+    font-size: 1.1rem;
+    color: var(--overprint);
+    letter-spacing: 0.08em;
+  }
+
+  .rh-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .rh-title {
+    font-size: 1.35rem;
+    font-stretch: 114%;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+
+  .rh-item a:hover .rh-title {
+    color: var(--overprint-deep);
+  }
+
+  .rh-gloss {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    max-width: 62ch;
+  }
+
+  .rh-concept {
+    margin-top: 0.15rem;
+    color: var(--waterline);
+  }
+
+  .rh-go {
+    color: var(--muted);
+    font-size: 1.1rem;
+    align-self: center;
+  }
+
+  .rh-item a:hover .rh-go {
+    color: var(--overprint);
+  }
+
+  .rh-aside {
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-lg);
+    border-top: 1px dashed var(--hairline);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    max-width: 60ch;
+  }
+
+  .rh-aside a {
+    color: var(--waterline);
+  }
+
+  @media (max-width: 34rem) {
+    .rh-item a {
+      gap: var(--space-md);
+    }
+
+    .rh-concept {
+      display: none;
+    }
+  }
+</style>

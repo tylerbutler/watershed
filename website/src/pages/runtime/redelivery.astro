@@ -1,0 +1,125 @@
+---
+import RuntimeLayout from "../../components/RuntimeLayout.astro";
+---
+
+<RuntimeLayout
+  slug="redelivery"
+  description="Why a re-delivered CRDT delta is absorbed as a non-event in watershed: the merge is idempotent by construction, so a duplicate changes nothing after the first — the at-least-once safety an order-based counter cannot offer."
+>
+  <div class="g-block">
+    <h2>At-least-once is the honest assumption</h2>
+    <p>
+      Real networks do not deliver exactly once. An ack gets lost and the client
+      resends; a <a href="/runtime/reconnect">reconnecting</a> peer replays a
+      window it already saw; a retry races the original. Sooner or later the same
+      update arrives twice. Whether that is harmless or catastrophic depends
+      entirely on how the structure absorbs it.
+    </p>
+    <p>
+      Store a running total as a plain last-write-wins integer and a redelivery
+      is only the beginning of the trouble — concurrent increments already lose
+      each other, as the <a href="/counter-bug">counter bug</a> shows. But even a
+      naive operation-based counter that applied deltas directly would break the
+      moment one delta arrived twice: "add 5" replayed is <code>+10</code>. The
+      total silently drifts, and no sequence number can un-count it.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Merge, don't apply</h2>
+    <p>
+      watershed's counters are <a href="/models">CRDTs</a>, and a CRDT is built
+      so its merge is <strong>idempotent</strong>: merging the same value a
+      second time changes nothing. A
+      <a href="/structures/counters#pn">PN counter</a> does not ship "add 5"; it
+      ships its two grow-only tallies — total fill and total cut — and the
+      receiver merges by taking the pairwise maximum of what it has and what
+      arrived. Take the max of a number with itself and you get the same number.
+      The duplicate lands, the merge runs, and the state does not move.
+    </p>
+    <p>
+      Because correctness lives in the merge and not in the delivery, these
+      structures still ride watershed's one sequenced stream but do not
+      <em>depend</em> on it for safety. Duplicate delivery is absorbed by the
+      data type itself — the guarantee an order-based DDS, which leans on the
+      sequence number to dedupe, cannot make for free.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Watch it absorb, live</h2>
+    <p>
+      The demo makes this witnessable. In PN-counter mode a
+      <strong>Re-deliver last delta</strong> button asks the sequencer to re-send
+      the last sequenced delta with <em>no new sequence number</em> — a genuine
+      duplicate, not a fresh op. The merge swallows it, the signed total holds,
+      and the op log records the redelivery as an italic, muted non-event rather
+      than a change:
+    </p>
+    <figure class="oplog" aria-label="Op-log excerpt: a duplicate delta absorbed">
+      <div class="oplog-line">
+        <span class="oplog-sn">#03</span>
+        <span class="oplog-op">cut −5 yd³ → net −5</span>
+      </div>
+      <div class="oplog-line oplog-dupe">
+        <span class="oplog-sn">#03</span>
+        <span class="oplog-op">again · cut −5 yd³ · absorbed</span>
+      </div>
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>This is the line an op-based counter could not survive.</strong>
+        The same delta, delivered twice, has to be a no-op the second time — and
+        here it visibly is. It is the sharpest demonstration of why the merge
+        model, not the sequence number, is what makes these structures safe under
+        an unreliable link.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      CRDT deltas are merged, not applied, and the merge is idempotent — so a
+      re-delivered delta is absorbed as a non-event, giving watershed's counters,
+      sets, and maps at-least-once safety no order-based structure gets for free.
+    </p>
+  </div>
+</RuntimeLayout>
+
+<style>
+  /* op-log excerpt — mirrors the demo's printed log: mono lines, the duplicate
+     rendered as a muted italic non-event exactly as the live demo prints it. */
+  .oplog {
+    margin: var(--space-lg) 0 0;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+
+  .oplog-line {
+    display: flex;
+    gap: var(--space-md);
+    padding: 0.5rem var(--space-lg);
+  }
+
+  .oplog-line + .oplog-line {
+    border-top: 1px solid var(--hairline-faint);
+  }
+
+  .oplog-sn {
+    color: var(--muted);
+    min-width: 3ch;
+  }
+
+  .oplog-op {
+    color: var(--ink);
+  }
+
+  .oplog-dupe .oplog-sn,
+  .oplog-dupe .oplog-op {
+    color: var(--muted);
+    font-style: italic;
+  }
+</style>

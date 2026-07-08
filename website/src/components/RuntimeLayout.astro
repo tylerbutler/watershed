@@ -1,0 +1,184 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "./Ecosystem.astro";
+import { runtimeBySlug, runtimeNeighbours } from "../data/runtime";
+
+interface Props {
+  slug: string;
+  description: string;
+}
+
+const { slug, description } = Astro.props;
+const doc = runtimeBySlug[slug];
+const { prev, next } = runtimeNeighbours(slug);
+---
+
+<Sheet title={`watershed — ${doc.title.toLowerCase()}`} description={description}>
+  <header class="r-hero">
+    <div class="r-hero-inner">
+      <p class="r-crumbs annot">
+        <a href="/">← watershed</a> · <a href="/runtime">Runtime</a> / {doc.title}
+      </p>
+      <span class="r-eyebrow annot" aria-hidden="true">Runtime behavior</span>
+      <h1>{doc.title}</h1>
+      <p class="r-gloss">{doc.gloss}</p>
+      <p class="r-concept annot"><span>Traces</span> {doc.concept}</p>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    <slot />
+  </main>
+
+  <nav class="r-pager" aria-label="Runtime sheets">
+    {
+      prev ? (
+        <a class="r-pager-cell r-pager-prev" href={`/runtime/${prev.slug}`}>
+          <span class="annot">← {prev.title}</span>
+          <span class="r-pager-gloss">{prev.gloss}</span>
+        </a>
+      ) : (
+        <a class="r-pager-cell r-pager-prev" href="/runtime">
+          <span class="annot">← Index</span>
+          <span class="r-pager-gloss">All runtime behaviors</span>
+        </a>
+      )
+    }
+    {
+      next ? (
+        <a class="r-pager-cell r-pager-next" href={`/runtime/${next.slug}`}>
+          <span class="annot">{next.title} →</span>
+          <span class="r-pager-gloss">{next.gloss}</span>
+        </a>
+      ) : (
+        <a class="r-pager-cell r-pager-next" href="/guide">
+          <span class="annot">Build guide →</span>
+          <span class="r-pager-gloss">Put these behaviors to work</span>
+        </a>
+      )
+    }
+  </nav>
+
+  <Ecosystem />
+</Sheet>
+
+<style>
+  /* ── concept-sheet hero ────────────────────────────────────────────────── */
+  .r-hero {
+    padding: clamp(3rem, 7vw, 5.5rem) var(--content-pad) clamp(2rem, 4vw, 3.5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .r-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .r-crumbs {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .r-crumbs a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .r-crumbs a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .r-eyebrow {
+    display: block;
+    color: var(--overprint);
+    margin-bottom: var(--space-xs);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 16ch;
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .r-gloss {
+    margin-top: var(--space-lg);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.55;
+    max-width: 54ch;
+    color: var(--ink);
+  }
+
+  .r-concept {
+    margin-top: var(--space-lg);
+    color: var(--waterline);
+  }
+
+  .r-concept span {
+    color: var(--muted);
+    margin-right: 0.5rem;
+  }
+
+  /* ── prev / next pager ─────────────────────────────────────────────────── */
+  .r-pager {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .r-pager-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    text-decoration: none;
+    color: var(--ink);
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .r-pager-next {
+    text-align: right;
+  }
+
+  .r-pager-cell:hover {
+    background: var(--surface);
+  }
+
+  .r-pager-cell .annot {
+    color: var(--muted);
+  }
+
+  .r-pager-cell:hover .annot {
+    color: var(--overprint-deep);
+  }
+
+  .r-pager-gloss {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  @media (max-width: 34rem) {
+    .r-pager {
+      grid-template-columns: 1fr;
+    }
+
+    .r-pager-next {
+      text-align: left;
+    }
+  }
+</style>
