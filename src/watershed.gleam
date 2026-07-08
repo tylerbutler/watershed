@@ -32,6 +32,8 @@ import gleam/crypto
 @target(erlang)
 import gleam/dict
 @target(erlang)
+import gleam/dynamic.{type Dynamic}
+@target(erlang)
 import gleam/erlang/process.{type Subject}
 @target(erlang)
 import gleam/json.{type Json}
@@ -43,7 +45,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 
 @target(erlang)
-import spillway/message.{type ConnectMessage, ConnectMessage}
+import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
 @target(erlang)
 import spillway/types.{
   Client, ClientCapabilities, ClientDetails, User, WriteMode,
@@ -2360,6 +2362,59 @@ pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrderedSize(collection.address, reply)
   })
+}
+
+// ── Ripples (ephemeral presence signals) ─────────────────────────────────────
+
+@target(erlang)
+/// A received ripple: an ephemeral, document-scoped broadcast. Non-sequenced
+/// and non-persisted — ideal for transient presence (cursors, selection,
+/// typing indicators) that must NOT live in a DDS.
+pub type Ripple =
+  SignalMessage
+
+@target(erlang)
+/// Broadcast an ephemeral ripple to every other connected client: a `type`
+/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
+/// catch-up. No-op until the first handshake assigns a client id.
+pub fn submit_ripple(
+  document: Document,
+  ripple_type ripple_type: String,
+  content content: Json,
+) -> Nil {
+  process.send(document.runtime, runtime.SubmitRipple(ripple_type, content))
+}
+
+@target(erlang)
+/// Subscribe the calling process to every inbound ripple on the document. The
+/// returned subject carries `Ripple` values, mirroring the per-channel
+/// `subscribe_*` functions.
+pub fn subscribe_ripples(document: Document) -> Subject(Ripple) {
+  let subject = process.new_subject()
+  process.send(
+    document.runtime,
+    runtime.SubscribeRipple(fn(ripple) { process.send(subject, ripple) }),
+  )
+  subject
+}
+
+@target(erlang)
+/// The ripple's `type` tag, if present.
+pub fn ripple_type(ripple: Ripple) -> Option(String) {
+  ripple.signal_type
+}
+
+@target(erlang)
+/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
+pub fn ripple_content(ripple: Ripple) -> Dynamic {
+  ripple.content
+}
+
+@target(erlang)
+/// The sending client's id, if the server stamped one (`None` for
+/// server-originated ripples).
+pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
+  ripple.client_id
 }
 
 @target(erlang)

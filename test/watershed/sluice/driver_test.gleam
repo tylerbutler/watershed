@@ -5,6 +5,8 @@
 //// polling with `wait_until`.
 
 @target(erlang)
+import gleam/dynamic/decode
+@target(erlang)
 import gleam/erlang/process
 @target(erlang)
 import gleam/json
@@ -206,4 +208,38 @@ fn await_claim(reply: runtime.ClaimSubmitReply) -> claims_kernel.ClaimOutcome {
   let assert runtime.Pending(outcome) = reply
   let assert Ok(resolved) = process.receive(from: outcome, within: 5000)
   resolved
+}
+
+@target(erlang)
+pub fn ripple_broadcasts_to_peers_test() {
+  let sluice = start("ripple-presence")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  // Both listen for ripples; A broadcasts one ephemeral signal.
+  let ripples_a = watershed.subscribe_ripples(doc_a)
+  let ripples_b = watershed.subscribe_ripples(doc_b)
+  watershed.submit_ripple(
+    doc_a,
+    ripple_type: "cursor",
+    content: json.object([#("x", json.int(7))]),
+  )
+  sluice.settle(sluice)
+
+  // B hears A's ripple: the sender is stamped and the content carried through.
+  // levee strips the `type` tag on broadcast, so it arrives as `None`.
+  let assert Ok(ripple) = process.receive(from: ripples_b, within: 100)
+  let assert Some(_) = watershed.ripple_client_id(ripple)
+  watershed.ripple_type(ripple) |> expect.to_equal(None)
+  decode.run(watershed.ripple_content(ripple), decode.at(["x"], decode.int))
+  |> expect.to_equal(Ok(7))
+
+  // A never hears its own ripple, and ripples are not persisted — a late
+  // joiner replays no history for them.
+  process.receive(from: ripples_a, within: 10) |> expect.to_equal(Error(Nil))
+  let doc_c = connect(sluice, "user-c")
+  let ripples_c = watershed.subscribe_ripples(doc_c)
+  sluice.settle(sluice)
+  process.receive(from: ripples_c, within: 10) |> expect.to_equal(Error(Nil))
 }

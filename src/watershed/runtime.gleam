@@ -52,7 +52,9 @@ import aquamarine/channel.{type Channel}
 import aquamarine/phoenix
 
 @target(erlang)
-import spillway/message.{type ConnectMessage, type SummaryContext}
+import spillway/message.{
+  type ConnectMessage, type SignalMessage, type SummaryContext,
+}
 @target(erlang)
 import spillway/nack.{type Nack}
 @target(erlang)
@@ -337,6 +339,12 @@ pub type Msg {
   /// Whether every local edit has been acknowledged (in-flight queue empty),
   /// so the confirmed state is complete and stable.
   IsSynced(reply: Subject(Bool))
+  /// Broadcast an ephemeral, document-scoped ripple (`type` tag + arbitrary
+  /// JSON content). Fire-and-forget: no ordering, ack, or catch-up. A no-op
+  /// until the handshake assigns a client id.
+  SubmitRipple(ripple_type: String, content: Json)
+  /// Register a subscriber invoked for every inbound ripple on the document.
+  SubscribeRipple(subscriber: fn(SignalMessage) -> Nil)
   // Lifecycle
   Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
   AwaitReady(reply: Subject(Result(Nil, String)))
@@ -372,6 +380,7 @@ type State {
     channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    ripple_subscribers: List(fn(SignalMessage) -> Nil),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     self: Subject(Msg),
   )
@@ -423,6 +432,7 @@ pub fn start_with_transport(
         channel: None,
         phase: Connecting([]),
         subscribers: [],
+        ripple_subscribers: [],
         claim_waiters: dict.new(),
         self: self,
       )
@@ -1122,6 +1132,38 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         ]),
       )
 
+    SubmitRipple(ripple_type, content) -> {
+      // Fire-and-forget: push straight to the channel, no kernel/in-flight
+      // bookkeeping. No-op until a handshake has assigned a client id.
+      let client_id = case state.phase {
+        Ready(core, _) -> Some(core.client_id)
+        Reconnecting(core) -> Some(core.client_id)
+        _ -> None
+      }
+      case state.channel, client_id {
+        Some(channel), Some(client_id) ->
+          push(
+            channel,
+            "submitSignal",
+            socket.encode_submit_ripple(
+              client_id: client_id,
+              ripple_type: ripple_type,
+              content: content,
+            ),
+          )
+        _, _ -> Nil
+      }
+      actor.continue(state)
+    }
+
+    SubscribeRipple(subscriber) ->
+      actor.continue(
+        State(..state, ripple_subscribers: [
+          subscriber,
+          ..state.ripple_subscribers
+        ]),
+      )
+
     AwaitReady(reply) ->
       case state.phase {
         Ready(_, _) -> {
@@ -1284,7 +1326,18 @@ fn handle_inbound(
       }
     }
 
-    // Ripples, summary events, pongs: not part of the v1 surface.
+    // Ephemeral ripple broadcast: fan out to ripple subscribers. Malformed
+    // payloads are dropped silently — ripples are best-effort.
+    "signal" -> {
+      case decode.run(payload, socket.ripple_message_decoder()) {
+        Error(_) -> Nil
+        Ok(ripple) ->
+          list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
+      }
+      actor.continue(state)
+    }
+
+    // Summary events, pongs: not part of the v1 surface.
     _ -> actor.continue(state)
   }
 }
