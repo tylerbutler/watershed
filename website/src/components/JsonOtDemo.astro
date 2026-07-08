@@ -10,10 +10,12 @@ const clients = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="jot-demo-title">Operational transform, live</h2>
     <p>
-      All three clients edit one shared JSON document through watershed’s real
-      <code>json_ot_kernel</code> — a port of the ottypes <code>json0</code>
-      algebra with the single-op-in-flight client protocol, compiled to
-      JavaScript and running in your browser. Optimistic edits are drawn in
+      All three clients are real <code>watershed</code> documents sharing one
+      JSON document over the ottypes <code>json0</code> algebra with the
+      single-op-in-flight client protocol. One client creates it and shares the
+      handle; the others resolve it. They talk to one <code>sluice</code>, the
+      in-memory server that ships in the library for deterministic tests — the
+      real runtime, no backend. Optimistic edits are drawn in
       <strong class="k-pending">magenta</strong>; server-sequenced state in
       <strong class="k-seq">ink</strong>.
     </p>
@@ -194,17 +196,16 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs watershed’s actual
-      <code>json_ot_kernel</code> and the <code>json_ot</code> transform algebra
-      as compiled JavaScript modules in your browser. The rest of the page works
-      fine without it.
+      The live demo needs JavaScript — it runs the real watershed runtime and
+      the in-memory <code>sluice</code> as compiled JavaScript in your browser.
+      The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-jot-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s JSON-OT kernel as compiled
-    JavaScript, and this browser didn’t load it. The rest of the page works fine
-    without it.
+    The live demo couldn’t start — it runs the real watershed runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page works fine without it.
   </p>
 </section>
 
