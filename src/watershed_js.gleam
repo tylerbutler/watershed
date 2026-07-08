@@ -64,9 +64,17 @@ import watershed/claims_kernel
 @target(javascript)
 import watershed/counter_kernel
 @target(javascript)
+import watershed/directory_kernel
+@target(javascript)
+import watershed/g_set_kernel
+@target(javascript)
 import watershed/git_storage.{type SummaryVersion}
 @target(javascript)
 import watershed/handle
+@target(javascript)
+import watershed/json_ot
+@target(javascript)
+import watershed/json_ot_kernel
 @target(javascript)
 import watershed/map_kernel
 @target(javascript)
@@ -86,6 +94,8 @@ import watershed/schema.{
 import watershed/task_manager_kernel
 @target(javascript)
 import watershed/transport_js
+@target(javascript)
+import watershed/two_p_set_kernel
 @target(javascript)
 import watershed/wire/summary_blob.{type SummaryBlob}
 
@@ -157,6 +167,26 @@ pub opaque type PactMap {
 @target(javascript)
 pub opaque type OrderedCollection {
   OrderedCollection(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type JsonOt {
+  JsonOt(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type GSet {
+  GSet(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type TwoPSet {
+  TwoPSet(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedDirectory {
+  SharedDirectory(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -703,6 +733,86 @@ pub fn resolve_ordered_collection_field(
   get_channel_field(document, typed_map, field, resolve_ordered_collection)
 }
 
+@target(javascript)
+/// Store a handle to `json_ot` under a typed channel field.
+pub fn set_json_ot_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  json_ot: JsonOt,
+) -> Nil {
+  put_channel_field(typed_map, field, json_ot_handle_of(json_ot))
+}
+
+@target(javascript)
+/// Resolve the json0 channel referenced by a typed channel field.
+pub fn resolve_json_ot_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+) -> Result(Option(JsonOt), String) {
+  get_channel_field(document, typed_map, field, resolve_json_ot)
+}
+
+@target(javascript)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_g_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  set: GSet,
+) -> Nil {
+  put_channel_field(typed_map, field, g_set_handle_of(set))
+}
+
+@target(javascript)
+/// Resolve the G-set referenced by a typed channel field.
+pub fn resolve_g_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+) -> Result(Option(GSet), String) {
+  get_channel_field(document, typed_map, field, resolve_g_set)
+}
+
+@target(javascript)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_two_p_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  set: TwoPSet,
+) -> Nil {
+  put_channel_field(typed_map, field, two_p_set_handle_of(set))
+}
+
+@target(javascript)
+/// Resolve the 2P-set referenced by a typed channel field.
+pub fn resolve_two_p_set_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+) -> Result(Option(TwoPSet), String) {
+  get_channel_field(document, typed_map, field, resolve_two_p_set)
+}
+
+@target(javascript)
+/// Store a handle to `dir` under a typed channel field.
+pub fn set_directory_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  dir: SharedDirectory,
+) -> Nil {
+  put_channel_field(typed_map, field, directory_handle_of(dir))
+}
+
+@target(javascript)
+/// Resolve the directory referenced by a typed channel field.
+pub fn resolve_directory_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+) -> Result(Option(SharedDirectory), String) {
+  get_channel_field(document, typed_map, field, resolve_directory)
+}
+
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
 //
 // Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
@@ -988,6 +1098,90 @@ pub fn ensure_ordered_collection(
       set_ordered_collection_field(typed_map, field, collection)
     },
     fn() { resolve_ordered_collection_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a json0 channel exists under `field`, seeding one if absent.
+pub fn ensure_json_ot(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  done: fn(Result(JsonOt, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use json_ot <- result.map(create_json_ot(document))
+      set_json_ot_field(typed_map, field, json_ot)
+    },
+    fn() { resolve_json_ot_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a G-set exists under `field`, seeding one if absent.
+pub fn ensure_g_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  done: fn(Result(GSet, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use set <- result.map(create_g_set(document))
+      set_g_set_field(typed_map, field, set)
+    },
+    fn() { resolve_g_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a 2P-set exists under `field`, seeding one if absent.
+pub fn ensure_two_p_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  done: fn(Result(TwoPSet, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use set <- result.map(create_two_p_set(document))
+      set_two_p_set_field(typed_map, field, set)
+    },
+    fn() { resolve_two_p_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a directory exists under `field`, seeding one if absent.
+pub fn ensure_directory(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  done: fn(Result(SharedDirectory, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use dir <- result.map(create_directory(document))
+      set_directory_field(typed_map, field, dir)
+    },
+    fn() { resolve_directory_field(document, typed_map, field) },
     done,
   )
 }
@@ -1669,6 +1863,350 @@ pub fn ordered_release(
 /// not an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   runtime_js.ordered_size(collection.runtime, collection.address)
+}
+
+// ── JSON-OT (json0) ──────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new json0 channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`json_ot_handle_of`) is stored into an attached
+/// container.
+pub fn create_json_ot(document: Document) -> Result(JsonOt, String) {
+  runtime_js.create_json_ot(document.runtime)
+  |> result.map(fn(address) {
+    JsonOt(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
+  handle.encode_handle(json_ot.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the JsonOt it references. Errors are retryable,
+/// as with `resolve`.
+pub fn resolve_json_ot(
+  document: Document,
+  value: Json,
+) -> Result(JsonOt, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        JsonOt(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically submit a json0 op (a list of components) to the channel.
+pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
+  runtime_js.submit_json_ot(json_ot.runtime, json_ot.address, op)
+}
+
+@target(javascript)
+/// The json0 channel's current optimistic document, `None` when the address is
+/// not a json0 channel.
+pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
+  runtime_js.json_ot_view(json_ot.runtime, json_ot.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this json0
+/// channel.
+pub fn subscribe_json_ot(
+  json_ot: JsonOt,
+  handler: fn(json_ot_kernel.JsonOtEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
+  case event {
+    channel.JsonOtEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Grow-only sets (G-Set) ───────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new grow-only set channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`g_set_handle_of`) is stored into an attached
+/// container.
+pub fn create_g_set(document: Document) -> Result(GSet, String) {
+  runtime_js.create_g_set(document.runtime)
+  |> result.map(fn(address) {
+    GSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn g_set_handle_of(set: GSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the GSet it references. Errors are retryable, as
+/// with `resolve`.
+pub fn resolve_g_set(document: Document, value: Json) -> Result(GSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) { GSet(runtime: document.runtime, address: address) })
+  }
+}
+
+@target(javascript)
+/// Optimistically add `element` to the set.
+pub fn g_set_add(set: GSet, element: String) -> Nil {
+  runtime_js.g_set_add(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn g_set_contains(set: GSet, element: String) -> Bool {
+  runtime_js.g_set_contains(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// The set's current optimistic members.
+pub fn g_set_values(set: GSet) -> List(String) {
+  runtime_js.g_set_values(set.runtime, set.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this set.
+pub fn subscribe_g_set(
+  set: GSet,
+  handler: fn(g_set_kernel.GSetEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(set.runtime, set.address, handler)
+  case event {
+    channel.GSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Two-phase sets (2P-Set) ──────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new two-phase set channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`two_p_set_handle_of`) is stored into an
+/// attached map. A remove is a permanent tombstone: remove wins over a
+/// concurrent (re-)add.
+pub fn create_two_p_set(document: Document) -> Result(TwoPSet, String) {
+  runtime_js.create_two_p_set(document.runtime)
+  |> result.map(fn(address) {
+    TwoPSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the TwoPSet it references. Errors are retryable,
+/// as with `resolve`.
+pub fn resolve_two_p_set(
+  document: Document,
+  value: Json,
+) -> Result(TwoPSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        TwoPSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically add `element` to the set. Adding a previously removed element
+/// records the add but never reactivates it.
+pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
+  runtime_js.two_p_set_add(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Optimistically remove `element` from the set. Removal is a permanent
+/// tombstone.
+pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
+  runtime_js.two_p_set_remove(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
+  runtime_js.two_p_set_contains(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// The set's current optimistic members.
+pub fn two_p_set_values(set: TwoPSet) -> List(String) {
+  runtime_js.two_p_set_values(set.runtime, set.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this set.
+pub fn subscribe_two_p_set(
+  set: TwoPSet,
+  handler: fn(two_p_set_kernel.TwoPSetEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(set.runtime, set.address, handler)
+  case event {
+    channel.TwoPSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Directories (hierarchical maps) ──────────────────────────────────────────
+
+@target(javascript)
+/// Create a new directory channel: a hierarchical map keyed by absolute paths
+/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
+/// until its handle (`directory_handle_of`) is stored into an attached map.
+pub fn create_directory(document: Document) -> Result(SharedDirectory, String) {
+  runtime_js.create_directory(document.runtime)
+  |> result.map(fn(address) {
+    SharedDirectory(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `dir`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn directory_handle_of(dir: SharedDirectory) -> Json {
+  handle.encode_handle(dir.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the SharedDirectory it references. Errors are
+/// retryable, as with `resolve`.
+pub fn resolve_directory(
+  document: Document,
+  value: Json,
+) -> Result(SharedDirectory, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedDirectory(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
+/// `"/"`).
+pub fn directory_set(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  runtime_js.directory_set(dir.runtime, dir.address, path, key, value)
+}
+
+@target(javascript)
+/// Optimistically remove `key` from the subdirectory at `path`.
+pub fn directory_delete(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Nil {
+  runtime_js.directory_delete(dir.runtime, dir.address, path, key)
+}
+
+@target(javascript)
+/// Optimistically remove every key from the subdirectory at `path`.
+pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
+  runtime_js.directory_clear(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// Optimistically create a subdirectory named `name` under `path`.
+pub fn directory_create_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  runtime_js.directory_create_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// Optimistically delete the subdirectory named `name` under `path` (and all
+/// of its contents).
+pub fn directory_delete_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  runtime_js.directory_delete_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// The current optimistic value at `key` in the subdirectory at `path`, `None`
+/// when absent.
+pub fn directory_get(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  runtime_js.directory_get(dir.runtime, dir.address, path, key)
+}
+
+@target(javascript)
+/// The current optimistic `#(key, value)` entries in the subdirectory at
+/// `path`.
+pub fn directory_entries(
+  dir: SharedDirectory,
+  path: String,
+) -> List(#(String, Json)) {
+  runtime_js.directory_entries(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// The names of the immediate subdirectories under `path`.
+pub fn directory_subdirectories(
+  dir: SharedDirectory,
+  path: String,
+) -> List(String) {
+  runtime_js.directory_subdirectories(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// Whether a subdirectory named `name` exists under `path`.
+pub fn directory_has_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Bool {
+  runtime_js.directory_has_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// directory.
+pub fn subscribe_directory(
+  dir: SharedDirectory,
+  handler: fn(directory_kernel.DirectoryEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(dir.runtime, dir.address, handler)
+  case event {
+    channel.DirectoryEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(javascript)
