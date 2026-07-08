@@ -10,20 +10,21 @@ const clients = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="sudoku-demo-title">SharedMap sudoku cells, live</h2>
     <p>
-      All three clients edit one shared mini-board through watershed’s real
-      <code>map_kernel</code> — a byte-compatible port of Fluid Framework’s
-      <code>SharedMap</code>, compiled to JavaScript and running in your browser.
-      Cell values use the same encoding as the full Sudoku example:
-      <code>"r&#123;r&#125;c&#123;c&#125;"</code> to <code>json.int(digit)</code>.
-      Clearing a cell deletes the key. Local edits are drawn in
+      All three clients are real <code>watershed</code> documents — the full
+      runtime, wire codecs and pending queues — compiled to JavaScript and
+      running in your browser. They talk to one <code>sluice</code>: the
+      in-memory server that ships in the library for deterministic tests,
+      standing in for levee with no backend. A cell edit renders optimistically
+      and pushes an op the sluice sequences; delivery is explicit, so state
+      propagates one stamped hop at a time. Local edits are drawn in
       <strong class="k-pending">magenta</strong> until the sequencer stamps them;
       server-sequenced state is <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
       Click any cell to write the next digit, or Shift-click to clear it. Press
       <strong>Race the same cell</strong> and A, B, and C write different digits
-      to <code>r1c1</code> at the same instant. The in-page sequencer stamps those
-      writes FIFO, and every replica converges on the last sequenced value.
+      to <code>r1c1</code> at the same instant. The sluice sequences those writes
+      FIFO, and every replica converges on the last sequenced value.
     </p>
   </div>
 
@@ -138,16 +139,16 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs watershed’s actual
-      <code>map_kernel</code> as a compiled JavaScript module in your browser. The
-      rest of the page works fine without it.
+      The live demo needs JavaScript — it runs the real watershed runtime and
+      the in-memory <code>sluice</code> as compiled JavaScript in your browser.
+      The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-sudoku-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s SharedMap kernel as
-    compiled JavaScript, and this browser didn’t load it. The rest of the page
-    works fine without it.
+    The live demo couldn’t start — it runs the real watershed runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page works fine without it.
   </p>
 </section>
 
