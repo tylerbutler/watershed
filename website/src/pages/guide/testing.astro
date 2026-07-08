@@ -1,0 +1,128 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const test = `import gleam/json
+import gleam/option.{Some}
+import gleeunit/should
+
+import watershed/sluice_js
+import watershed_js
+
+pub fn two_surveyors_converge_test() {
+  let sluice = sluice_js.start(tenant: "survey-co", document: "bench-book")
+  let doc_a = sluice_js.connect(sluice, "surveyor-ada")
+  let doc_b = sluice_js.connect(sluice, "surveyor-boaz")
+  sluice_js.settle(sluice)              // complete both handshakes
+
+  let survey_a = watershed_js.root(doc_a)
+  let survey_b = watershed_js.root(doc_b)
+
+  // Concurrent readings, including a same-station race.
+  watershed_js.set(survey_a, "station-7", json.float(3.2))
+  watershed_js.set(survey_b, "station-9", json.float(1.85))
+  watershed_js.set(survey_a, "station-4", json.float(2.0))
+  watershed_js.set(survey_b, "station-4", json.float(2.4))
+  sluice_js.settle(sluice)              // deliver every edit everywhere
+
+  // Uncontested writes land on both replicas.
+  watershed_js.get(survey_b, "station-7")
+  |> should.equal(Some(json.float(3.2)))
+
+  // Both surveyors agree on the contested station — deterministically,
+  // no polling, no server, no timing accident.
+  watershed_js.get(survey_a, "station-4")
+  |> should.equal(watershed_js.get(survey_b, "station-4"))
+}`;
+
+const race = `// Script the race instead of hoping for a schedule: deliver frames on demand.
+watershed_js.set(watershed_js.root(doc_a), "station-4", json.float(2.0))
+watershed_js.set(watershed_js.root(doc_b), "station-4", json.float(2.4))
+
+sluice_js.step(sluice)     // deliver exactly one frame
+sluice_js.settle(sluice)   // then drain the rest to quiescence`;
+---
+
+<GuideLayout
+  slug="testing"
+  description="Step six of the watershed build guide: the sluice is an in-memory levee that runs the real runtime and real server sequencing over an injected transport, so you can write deterministic multi-client convergence tests with explicit delivery and no infrastructure."
+>
+  <div class="g-block">
+    <h2>Prove convergence without a server</h2>
+    <p>
+      A multiplayer app’s core claim is that every client ends up in the same
+      state. Testing that used to mean two browser tabs and a live server. The
+      <strong>sluice</strong> replaces both: an in-memory levee — a
+      deterministic, single-process stand-in for the server.
+    </p>
+    <p>
+      Crucially, it isn’t a mock. It runs the <em>real</em> runtime — the same
+      codecs, pending queues, resubmit, and reconnect catch-up — over an injected
+      transport, and the <em>real</em> server sequencing. A passing sluice test
+      exercises production code paths end to end; it just supplies its own
+      network.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Delivery is explicit</h2>
+    <p>
+      The trick that makes convergence testable is that nothing is delivered
+      until you say so. Ops sequence the moment they’re submitted, but arrive
+      only when you call <code>settle</code> (deliver until quiescent) or
+      <code>step</code> (deliver one frame). Races stop being timing accidents
+      and become a sequence of calls.
+    </p>
+    <span class="g-file">test/convergence_test.gleam</span>
+    <figure class="g-code">
+      <Code code={test} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Script the race</h2>
+    <p>
+      When you need a specific interleaving — “both surveyors write
+      <code>station-4</code>, deliver B’s frame first” — <code>step</code>
+      delivers one frame at a time so you control the order the sequencer sees:
+    </p>
+    <figure class="g-code">
+      <Code code={race} lang="gleam" theme="css-variables" />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>More controls.</strong> <code>pause</code> / <code>resume</code>
+        (on the erlang <code>sluice</code>) hold a client’s frames to script
+        delivery order across clients, and <code>advance(ms)</code> moves the
+        sluice’s logical clock so presence TTL expiry is testable without ever
+        sleeping. The erlang <code>watershed/sluice</code> mirrors
+        <code>sluice_js</code> call for call.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>That’s the loop</h2>
+    <p>
+      Connect a document, give it a typed schema, choose a merge model per slot,
+      add ripples for the ephemeral tier, wire it to Lustre, and lock the whole
+      thing down with deterministic convergence tests. Bench Book is small, but
+      the shape is the shape of any real watershed app.
+    </p>
+    <p>
+      The <a href="https://github.com/tylerbutler/watershed/tree/main/examples">
+      examples</a> take it from here: <code>sudoku_lustre</code> is the full
+      typed-and-presence build, <code>scoreboard_cli</code> shows the record
+      schema layer, and each ships a real sluice convergence test you can read.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Write multi-client convergence tests that run under <code>gleam test</code>
+      with no infrastructure — deterministic, scriptable, and exercising the same
+      code that runs in production.
+    </p>
+  </div>
+</GuideLayout>

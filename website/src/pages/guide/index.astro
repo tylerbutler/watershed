@@ -1,0 +1,380 @@
+---
+import Sheet from "../../layouts/Sheet.astro";
+import Ecosystem from "../../components/Ecosystem.astro";
+import { steps } from "../../data/guide";
+---
+
+<Sheet
+  title="watershed — build guide"
+  description="A six-step field procedure for building a real multiplayer app on watershed: connect a document, model it with a typed schema, choose your data structures, add ephemeral ripples, wire it to a Lustre UI, and test convergence with the sluice."
+>
+  <header class="gi-hero">
+    <div class="gi-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/">← watershed</a> · Build guide
+      </p>
+      <h1>Build a multiplayer app,<br /><em>step by step.</em></h1>
+      <p class="lede">
+        The rest of this site shows <em>what</em> watershed’s structures are and
+        proves they converge. This is the other half: a working procedure for
+        assembling a real collaborative app out of them — connect a document,
+        give it a schema, pick the right structures, add live presence, wire it
+        to a UI, and test that it converges.
+      </p>
+      <div class="cta-row">
+        <a class="cta-primary" href="/guide/connect">Start · 01 Connect →</a>
+        <a class="cta-quiet" href="/structures">Browse the structures ↓</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="gi-build" aria-labelledby="gi-build-title">
+      <div class="gi-build-inner">
+        <div class="gi-build-copy">
+          <h2 id="gi-build-title">What you’ll build</h2>
+          <p>
+            One app runs the whole way through: <strong>Bench&nbsp;Book</strong>,
+            a shared field survey. Several surveyors open the same document and
+            log gauge readings at once. It stays small on purpose — a title, a
+            map of readings, a running tally of flags — so every step adds one
+            real capability to the same growing codebase rather than a new toy.
+          </p>
+          <p class="gi-prereq">
+            You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>
+            and a Fluid-compatible server such as <a href="https://github.com/tylerbutler/levee">levee</a>
+            — though the last step shows how to test convergence with no server
+            at all.
+          </p>
+        </div>
+        <figure class="gi-doc" aria-label="The Bench Book document shape">
+          <figcaption class="annot">document · bench-book</figcaption>
+          <ul class="gi-doc-tree">
+            <li><span class="gi-key">title</span><span class="gi-typ">String field</span></li>
+            <li><span class="gi-key">readings</span><span class="gi-typ">SharedMap → depth per station</span></li>
+            <li><span class="gi-key">flags</span><span class="gi-typ">SharedCounter → re-check tally</span></li>
+            <li class="gi-doc-eph"><span class="gi-key">↯ focus</span><span class="gi-typ">ripple → who’s looking where</span></li>
+          </ul>
+        </figure>
+      </div>
+    </section>
+
+    <section class="gi-ledger" aria-labelledby="gi-ledger-title">
+      <div class="gi-ledger-head">
+        <h2 id="gi-ledger-title">The survey procedure</h2>
+        <p>Six sheets, in order. Each ends where the next begins.</p>
+      </div>
+      <ol class="gi-steps">
+        {
+          steps.map((s) => (
+            <li class="gi-step" data-reveal="rise">
+              <a href={`/guide/${s.slug}`}>
+                <span class="gi-step-n annot">{s.n}</span>
+                <span class="gi-step-body">
+                  <span class="gi-step-title">{s.title}</span>
+                  <span class="gi-step-goal">{s.goal}</span>
+                  <span class="gi-step-surface annot">{s.surface}</span>
+                </span>
+                <span class="gi-step-go annot" aria-hidden="true">→</span>
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+  </main>
+
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .gi-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .gi-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 60ch;
+  }
+
+  .lede em {
+    font-style: italic;
+  }
+
+  .cta-row {
+    margin-top: var(--space-2xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: oklch(100% 0 0);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .cta-quiet:hover {
+    color: var(--overprint-deep);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  /* ── what you'll build ─────────────────────────────────────────────────── */
+  .gi-build {
+    border-bottom: 1px solid var(--hairline);
+    padding: var(--space-2xl) var(--content-pad);
+  }
+
+  .gi-build-inner {
+    max-width: 72rem;
+    margin-inline: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 6fr) minmax(0, 5fr);
+    gap: clamp(var(--space-xl), 5vw, 5rem);
+    align-items: start;
+  }
+
+  .gi-build-copy p {
+    margin-top: var(--space-lg);
+    max-width: 56ch;
+    line-height: 1.65;
+  }
+
+  .gi-build-copy strong {
+    font-stretch: 108%;
+  }
+
+  .gi-prereq {
+    font-size: var(--text-sm);
+    color: var(--muted);
+  }
+
+  .gi-prereq a,
+  .gi-build-copy a {
+    color: var(--waterline);
+  }
+
+  .gi-doc {
+    margin: 0;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .gi-doc figcaption {
+    padding: 0.6rem var(--space-lg);
+    border-bottom: 1px solid var(--ink);
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .gi-doc-tree {
+    margin: 0;
+    padding: var(--space-sm) 0;
+    list-style: none;
+  }
+
+  .gi-doc-tree li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: 0.55rem var(--space-lg);
+  }
+
+  .gi-doc-tree li + li {
+    border-top: 1px solid var(--hairline-faint);
+  }
+
+  .gi-key {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--ink);
+    min-width: 6.5ch;
+  }
+
+  .gi-typ {
+    font-size: var(--text-sm);
+    color: var(--muted);
+  }
+
+  .gi-doc-eph .gi-key {
+    color: var(--overprint-deep);
+  }
+
+  /* ── procedure ledger ──────────────────────────────────────────────────── */
+  .gi-ledger {
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .gi-ledger-head p {
+    margin-top: var(--space-md);
+    color: var(--muted);
+    max-width: 48ch;
+  }
+
+  .gi-steps {
+    margin: var(--space-xl) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--ink);
+  }
+
+  .gi-step {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .gi-step:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .gi-step a {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: var(--space-lg);
+    padding: var(--space-lg) var(--space-sm);
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      padding-inline var(--dur-state) var(--ease-out-quart);
+  }
+
+  .gi-step a:hover {
+    background: var(--surface);
+    padding-inline: var(--space-lg);
+  }
+
+  .gi-step-n {
+    font-size: 1.1rem;
+    color: var(--overprint);
+    letter-spacing: 0.08em;
+  }
+
+  .gi-step-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+  }
+
+  .gi-step-title {
+    font-size: 1.35rem;
+    font-stretch: 114%;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+
+  .gi-step a:hover .gi-step-title {
+    color: var(--overprint-deep);
+  }
+
+  .gi-step-goal {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    max-width: 56ch;
+  }
+
+  .gi-step-surface {
+    margin-top: 0.15rem;
+    color: var(--waterline);
+  }
+
+  .gi-step-go {
+    color: var(--muted);
+    font-size: 1.1rem;
+    align-self: center;
+  }
+
+  .gi-step a:hover .gi-step-go {
+    color: var(--overprint);
+  }
+
+  @media (max-width: 34rem) {
+    .gi-build-inner {
+      grid-template-columns: 1fr;
+    }
+
+    .gi-step a {
+      gap: var(--space-md);
+    }
+
+    .gi-step-surface {
+      display: none;
+    }
+  }
+</style>

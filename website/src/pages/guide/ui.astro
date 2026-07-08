@@ -1,0 +1,167 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const connect = `import lustre/effect.{type Effect}
+import watershed_lustre
+
+// connect_dev mints a dev token in the browser, then connects. In production,
+// issue the token from a backend and use watershed_lustre.connect instead.
+fn connect_effect(model: Model) -> Effect(Msg) {
+  watershed_lustre.connect_dev(
+    url: "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0",
+    tenant: "survey-co",
+    secret: dev_secret,
+    document: "bench-book",
+    user_id: model.user_id,
+    got_document: GotDocument,   // dispatched with the Document handle
+    connected: Connected,        // dispatched with Ok(Nil) once synced
+  )
+}`;
+
+const bootstrap = `import doc_schema
+import watershed_js
+import watershed_lustre
+
+// The same ensure_* from step 02, now as a batch of effects. Each channel
+// ensure dispatches its handle back so update can store it in the model.
+fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+  let root = watershed_js.root_typed(doc)
+  effect.batch([
+    watershed_lustre.ensure_field(root, doc_schema.title(), "Untitled survey"),
+    watershed_lustre.ensure_map(doc, root, doc_schema.readings(), EnsuredReadings),
+    watershed_lustre.ensure_counter(doc, root, doc_schema.flags(), EnsuredFlags),
+  ])
+}`;
+
+const update = `fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
+    // Connection ready → seed channels and start presence.
+    Connected(Ok(Nil)) ->
+      case model.doc {
+        Some(doc) -> #(model, effect.batch([
+          bootstrap_effect(doc),
+          presence_effect(model, doc),
+        ]))
+        None -> #(model, effect.none())
+      }
+
+    // A channel resolved → keep its handle and subscribe to it.
+    EnsuredReadings(readings) -> #(
+      Model(..model, readings: Some(readings)),
+      watershed_lustre.subscribe(readings, fn(_event) { SharedChanged }),
+    )
+
+    // Any sequenced change (local or remote) → re-snapshot from the channels.
+    SharedChanged -> #(snapshot(model), effect.none())
+
+    // Presence roster changed → re-render the peer markers.
+    PeersChanged(peers) -> #(Model(..model, peers:), effect.none())
+
+    _ -> #(model, effect.none())
+  }
+}`;
+
+const presence = `import watershed/presence
+import watershed_lustre
+
+// The heartbeat/TTL presence driver from step 04, as one effect. \`started\`
+// hands back a Handle to keep in the model; \`on_peers\` fires with the sorted
+// roster whenever the visible peer set changes.
+fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
+  watershed_lustre.presence(
+    document: doc,
+    user_id: model.user_id,
+    config: presence.default_config,
+    encode: encode_focus,
+    decode: focus_decoder(),
+    started: PresenceStarted,
+    on_peers: PeersChanged,
+  )
+}`;
+---
+
+<GuideLayout
+  slug="ui"
+  description="Step five of the watershed build guide: watershed_lustre binds the browser facade to Lustre as effects — connect, ensure_* bootstrap, per-channel subscriptions, and presence — so an app declares its sync wiring instead of hand-bridging callbacks into dispatch."
+>
+  <div class="g-block">
+    <h2>Declare the wiring, don’t hand-bridge it</h2>
+    <p>
+      watershed’s browser facade speaks in callbacks: <code>on_ready</code>,
+      <code>subscribe</code> handlers, presence <code>on_change</code>. Wired
+      into Lustre by hand, each of those has to <code>dispatch</code> a message —
+      and dispatching from inside an <code>update</code> clobbers the very model
+      you’re returning, so you end up deferring every callback to dodge it.
+    </p>
+    <p>
+      <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
+      <code>watershed_lustre</code></a> does that once, correctly. Every piece of
+      the facade becomes a Lustre <code>Effect</code> that dispatches a message
+      you name — so your app <em>declares</em> its sync instead of gluing it.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Connect as an effect</h2>
+    <p>
+      <code>connect</code> becomes an effect that dispatches two messages: the
+      <code>Document</code> handle when it’s created, and the ready
+      <code>Result</code> when the handshake completes. You return it from
+      <code>init</code> and handle the messages in <code>update</code>.
+    </p>
+    <figure class="g-code">
+      <Code code={connect} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Bootstrap and subscribe</h2>
+    <p>
+      The <code>ensure_*</code> calls from step 02 are the same here, batched as
+      effects. Each channel ensure dispatches its handle back; in
+      <code>update</code> you store the handle and subscribe to the channel, so
+      every sequenced change — yours or a peer’s — dispatches a
+      <code>SharedChanged</code> you re-render from.
+    </p>
+    <span class="g-file">bootstrap</span>
+    <figure class="g-code">
+      <Code code={bootstrap} lang="gleam" theme="css-variables" />
+    </figure>
+    <span class="g-file">update</span>
+    <figure class="g-code">
+      <Code code={update} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Presence, wired</h2>
+    <p>
+      The presence driver from the last step is a single effect too. Give it your
+      encode/decode for the payload; it owns the heartbeat and TTL, and fires
+      <code>on_peers</code> with the sorted roster whenever the visible peer set
+      changes. Render the markers unconditionally from that roster.
+    </p>
+    <figure class="g-code">
+      <Code code={presence} lang="gleam" theme="css-variables" />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>See it running.</strong> The <a href="/sudoku">collaborative
+        Sudoku demo</a> is a full <code>watershed_lustre</code> app — connect,
+        typed bootstrap, per-channel subscriptions, and live presence cursors —
+        built on exactly this wiring. Its source is the reference implementation
+        for this step.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Wire a whole document into a Lustre SPA as a handful of declared effects —
+      connection, typed bootstrap, subscriptions, and presence — with none of
+      the mid-<code>update</code> dispatch hazards of bridging callbacks by hand.
+    </p>
+  </div>
+</GuideLayout>

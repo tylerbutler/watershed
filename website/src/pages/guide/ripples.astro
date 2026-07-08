@@ -1,0 +1,123 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const send = `import gleam/json
+import watershed_js
+
+// Broadcast which station this surveyor is inspecting. Fire-and-forget:
+// nothing is stored, nothing is sequenced, no one converges on it.
+pub fn announce_focus(doc, station: String) {
+  watershed_js.submit_ripple(
+    doc,
+    ripple_type: "focus",
+    content: json.object([#("station", json.string(station))]),
+  )
+}`;
+
+const recv = `import gleam/dynamic/decode
+import gleam/option.{Some}
+import watershed_js
+
+// React to every peer's ripples. \`ripple_client_id\` tells you who sent it;
+// the content is left as Dynamic for you to decode per type.
+watershed_js.subscribe_ripples(doc, fn(ripple) {
+  case watershed_js.ripple_type(ripple) {
+    Some("focus") -> {
+      let decoded =
+        decode.run(
+          watershed_js.ripple_content(ripple),
+          decode.at(["station"], decode.string),
+        )
+      case decoded, watershed_js.ripple_client_id(ripple) {
+        Ok(station), Some(peer) -> move_peer_marker(peer, station)
+        _, _ -> Nil
+      }
+    }
+    Some("recheck") -> flash_recheck_request(ripple)
+    _ -> Nil
+  }
+})`;
+---
+
+<GuideLayout
+  slug="ripples"
+  description="Step four of the watershed build guide: ripples are document-scoped, non-sequenced broadcasts to every other connected client — the escape hatch for live cursors, presence, and reactions that must not become part of the document's converged state."
+>
+  <div class="g-block">
+    <h2>Not everything belongs in the document</h2>
+    <p>
+      Some signals are about <em>now</em>, not about state: which station a
+      surveyor is looking at, a cursor position, a “re-check this” nudge, a
+      thumbs-up. Storing those in a channel would be wrong — they’d be sequenced,
+      summarised, and replayed to everyone who joins an hour later, long after
+      they stopped meaning anything.
+    </p>
+    <p>
+      A <strong>ripple</strong> is watershed’s answer: a document-scoped,
+      non-sequenced broadcast delivered to every <em>other</em> connected client
+      and then gone. No ordering, no storage, no convergence — deliberately. It’s
+      the ephemeral tier that sits alongside your channels.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Send a ripple</h2>
+    <p>
+      A ripple is a <code>type</code> tag plus a JSON payload.
+      <code>submit_ripple</code> broadcasts it and returns nothing — there’s no
+      ack to await, because there’s no state to change. Bench Book announces the
+      station a surveyor is inspecting:
+    </p>
+    <figure class="g-code">
+      <Code code={send} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Receive ripples</h2>
+    <p>
+      <code>subscribe_ripples</code> hands every inbound ripple to your handler.
+      Match on <code>ripple_type</code>, decode <code>ripple_content</code> at
+      the boundary, and use <code>ripple_client_id</code> to know which peer it
+      came from — enough to render a live roster of who is looking where.
+    </p>
+    <figure class="g-code">
+      <Code code={recv} lang="gleam" theme="css-variables" />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Ripples for now, channels for state.</strong> A ripple never
+        lands in a summary, so a client that joins later won’t see it — which is
+        exactly right for a cursor and exactly wrong for a reading. If a
+        late-joiner must see it, it belongs in a channel, not a ripple.
+      </p>
+      <p>
+        On the BEAM, <code>subscribe_ripples(doc)</code> returns a
+        <code>Subject(Ripple)</code> you receive on instead of taking a callback —
+        the same signal, shaped for OTP.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Presence is ripples with a heartbeat</h2>
+    <p>
+      Raw ripples are stateless, so a peer who goes quiet leaves their last
+      marker stuck on screen. <strong>Presence</strong> layers the missing
+      lifecycle on top: each client heartbeats its payload on a ripple, and a
+      peer whose heartbeat lapses past a TTL is dropped from the roster. You
+      rarely hand-roll that — the next step wires the built-in presence driver
+      to your UI as a single effect.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Broadcast live, throwaway signals — cursors, focus, reactions — to every
+      other client without polluting the document’s converged state, and decode
+      them safely on the way in.
+    </p>
+  </div>
+</GuideLayout>

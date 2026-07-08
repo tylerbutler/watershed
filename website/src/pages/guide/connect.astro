@@ -1,0 +1,225 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const beam = `import gleam/io
+import gleam/json
+import watershed
+import watershed/map_kernel.{ValueChanged}
+
+pub fn main() {
+  // Blocks until the op history has replayed locally.
+  let assert Ok(doc) =
+    watershed.connect(
+      host: "127.0.0.1",
+      port: 4000,
+      tenant: "survey-co",
+      document: "bench-book",
+      token: token,
+      user_id: "surveyor-ada",
+    )
+
+  let survey = watershed.root(doc)
+
+  // Optimistic: applies locally now, sequences on the server.
+  watershed.set(survey, "title", json.string("Mill Race — spring survey"))
+
+  // One ordered stream of local + remote changes.
+  watershed.subscribe(survey, fn(event) {
+    case event {
+      ValueChanged(key:, ..) -> io.println("revised: " <> key)
+      _ -> Nil
+    }
+  })
+}`;
+
+const js = `import gleam/io
+import gleam/json
+import watershed_js.{WatershedConfig}
+
+pub fn main() {
+  let config =
+    WatershedConfig(
+      url: "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0",
+      tenant: "survey-co",
+      document: "bench-book",
+      token: token,
+      user_id: "surveyor-ada",
+    )
+
+  // Returns immediately; on_ready fires after handshake + history replay.
+  let doc =
+    watershed_js.connect(config, on_ready: fn(result) {
+      case result {
+        Ok(Nil) -> io.println("synced")
+        Error(reason) -> io.println("rejected: " <> reason)
+      }
+    })
+
+  let survey = watershed_js.root(doc)
+}`;
+---
+
+<GuideLayout
+  slug="connect"
+  description="Step one of the watershed build guide: connect to a named, server-sequenced document, read its root map, and understand the optimistic-then-sequenced edit model — on both the BEAM and browser targets."
+>
+  <div class="g-block">
+    <h2>A document is a named container of channels</h2>
+    <p>
+      Everything watershed synchronises lives inside a <strong>document</strong>:
+      a server-sequenced container addressed by a <code>tenant</code> and a
+      <code>document</code> id. Every client that connects to the same pair joins
+      the same live state. Bench Book’s surveyors all open
+      <code>survey-co / bench-book</code>.
+    </p>
+    <p>
+      Connecting replays the document’s op history so you start from the current
+      converged state, then keeps the connection open to stream every subsequent
+      change — yours and everyone else’s — in one server-assigned order.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Connect</h2>
+    <p>
+      watershed is BEAM-first, and the same pure core compiles to the browser.
+      The two facades differ only where they must — how a connection is
+      established — and are identical from <code>root</code> onward. Pick your
+      target:
+    </p>
+
+    <div class="g-tabs">
+      <input type="radio" name="target" id="t-beam" checked />
+      <input type="radio" name="target" id="t-js" />
+      <div class="g-tab-row" role="tablist" aria-label="Target">
+        <label for="t-beam">BEAM · <code>watershed</code></label>
+        <label for="t-js">Browser · <code>watershed_js</code></label>
+      </div>
+      <div class="g-tab-panels">
+        <figure class="g-code g-panel g-panel-beam">
+          <Code code={beam} lang="gleam" theme="css-variables" />
+          <figcaption class="annot">
+            src/bench_book.gleam · erlang target
+          </figcaption>
+        </figure>
+        <figure class="g-code g-panel g-panel-js">
+          <Code code={js} lang="gleam" theme="css-variables" />
+          <figcaption class="annot">
+            src/bench_book.gleam · javascript target
+          </figcaption>
+        </figure>
+      </div>
+    </div>
+
+    <div class="g-note">
+      <p>
+        <strong>The one real difference.</strong> On the BEAM,
+        <code>connect</code> blocks and returns <code>Result(Document, _)</code>
+        once history has replayed — natural inside an OTP process. In the
+        browser it returns immediately and calls <code>on_ready</code> when the
+        handshake completes, because you cannot block the event loop. Step 05
+        hands both patterns to Lustre as effects so you never write this glue by
+        hand.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Read the root, write optimistically</h2>
+    <p>
+      Every document has a root <code>SharedMap</code> at address
+      <code>"root"</code> — reach it with <code>root(doc)</code>. It reads like
+      an ordinary map: <code>set</code>, <code>get</code>, <code>subscribe</code>.
+      There is no merge callback to write and no conflict handler to forget.
+    </p>
+    <p>
+      A <code>set</code> applies to your local replica <em>immediately</em> so
+      the UI never waits on the network, and is sent to the server to be
+      sequenced. When the sequencer stamps it — and when other clients’ writes
+      arrive — your <code>subscribe</code> handler sees them in the same
+      server-assigned order every replica sees. That single ordered stream is
+      the whole convergence contract; last write wins per key.
+    </p>
+    <p>
+      Storing a plain string under <code>"title"</code> works, but you don’t want
+      to sprinkle raw key strings through an app. Next we give the document a
+      typed shape so the keys — and their types — are declared in one place.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Open a live document from either target and read and write its root map,
+      with local edits rendering instantly and converging in server order.
+    </p>
+  </div>
+</GuideLayout>
+
+<style>
+  /* target toggle — radios styled as printed cells, like the demo picker.
+     Pure CSS: the checked radio reveals its panel and inks its label. */
+  .g-tabs {
+    margin-top: var(--space-lg);
+  }
+
+  .g-tabs input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .g-tab-row {
+    display: flex;
+    gap: 0;
+    border: 1px solid var(--ink);
+    width: fit-content;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .g-tab-row label {
+    padding: 0.5rem 1rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-annot);
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .g-tab-row label:first-of-type {
+    border-right: 1px solid var(--hairline);
+  }
+
+  .g-tab-row label code {
+    font-size: 1em;
+    color: inherit;
+  }
+
+  #t-beam:checked ~ .g-tab-row label[for="t-beam"],
+  #t-js:checked ~ .g-tab-row label[for="t-js"] {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  #t-beam:focus-visible ~ .g-tab-row label[for="t-beam"],
+  #t-js:focus-visible ~ .g-tab-row label[for="t-js"] {
+    outline: 2px solid var(--overprint);
+    outline-offset: 2px;
+  }
+
+  .g-panel {
+    display: none;
+  }
+
+  #t-beam:checked ~ .g-tab-panels .g-panel-beam,
+  #t-js:checked ~ .g-tab-panels .g-panel-js {
+    display: block;
+  }
+</style>

@@ -1,0 +1,356 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "./Ecosystem.astro";
+import { stepBySlug, neighbours } from "../data/guide";
+
+interface Props {
+  slug: string;
+  description: string;
+}
+
+const { slug, description } = Astro.props;
+const step = stepBySlug[slug];
+const { prev, next } = neighbours(slug);
+---
+
+<Sheet title={`watershed — ${step.title.toLowerCase()}`} description={description}>
+  <header class="g-hero">
+    <div class="g-hero-inner">
+      <p class="g-crumbs annot">
+        <a href="/">← watershed</a> · <a href="/guide">Build guide</a> / Step {step.n}
+      </p>
+      <span class="g-num annot" aria-hidden="true">{step.n}</span>
+      <h1>{step.title}</h1>
+      <p class="g-goal">{step.goal}</p>
+      <p class="g-surface annot"><span>Surface</span> {step.surface}</p>
+    </div>
+  </header>
+
+  <main class="guide-body">
+    <slot />
+  </main>
+
+  <nav class="g-step" aria-label="Guide steps">
+    {
+      prev ? (
+        <a class="g-step-cell g-step-prev" href={`/guide/${prev.slug}`}>
+          <span class="annot">← Step {prev.n}</span>
+          <span class="g-step-title">{prev.title}</span>
+        </a>
+      ) : (
+        <a class="g-step-cell g-step-prev" href="/guide">
+          <span class="annot">← Index</span>
+          <span class="g-step-title">The survey procedure</span>
+        </a>
+      )
+    }
+    {
+      next ? (
+        <a class="g-step-cell g-step-next" href={`/guide/${next.slug}`}>
+          <span class="annot">Step {next.n} →</span>
+          <span class="g-step-title">{next.title}</span>
+        </a>
+      ) : (
+        <a
+          class="g-step-cell g-step-next"
+          href="https://github.com/tylerbutler/watershed/tree/main/examples"
+        >
+          <span class="annot">Examples →</span>
+          <span class="g-step-title">Run the real thing</span>
+        </a>
+      )
+    }
+  </nav>
+
+  <Ecosystem />
+</Sheet>
+
+<style>
+  /* ── step hero ─────────────────────────────────────────────────────────── */
+  .g-hero {
+    padding: clamp(3rem, 7vw, 5.5rem) var(--content-pad) clamp(2rem, 4vw, 3.5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .g-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .g-crumbs {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .g-crumbs a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .g-crumbs a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .g-num {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--overprint);
+    letter-spacing: 0.14em;
+    margin-bottom: var(--space-xs);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 18ch;
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .g-goal {
+    margin-top: var(--space-lg);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.55;
+    max-width: 54ch;
+    color: var(--ink);
+  }
+
+  .g-surface {
+    margin-top: var(--space-lg);
+    color: var(--muted);
+  }
+
+  .g-surface span {
+    color: var(--ink);
+    margin-right: 0.5rem;
+  }
+
+  /* ── prev / next stepper ───────────────────────────────────────────────── */
+  .g-step {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .g-step-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .g-step-next {
+    text-align: right;
+  }
+
+  .g-step-cell:hover {
+    background: var(--surface);
+  }
+
+  .g-step-cell:hover .g-step-title {
+    color: var(--overprint-deep);
+  }
+
+  .g-step-cell .annot {
+    color: var(--muted);
+  }
+
+  .g-step-title {
+    font-stretch: 112%;
+    font-weight: 600;
+    font-size: 1.05rem;
+  }
+
+  @media (max-width: 34rem) {
+    .g-step {
+      grid-template-columns: 1fr;
+    }
+
+    .g-step-next {
+      text-align: left;
+    }
+  }
+</style>
+
+<!-- Shared guide content styling, applied to slotted step-page markup. Scoped
+     under .guide-body / .g- prefixes so it never leaks into other pages. -->
+<style is:global>
+  .guide-body {
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: var(--space-2xl) var(--content-pad) 0;
+  }
+
+  .guide-body .g-block + .g-block {
+    margin-top: var(--space-2xl);
+  }
+
+  .guide-body h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.08;
+    max-width: 22ch;
+  }
+
+  .guide-body h3 {
+    margin-top: var(--space-xl);
+    font-size: var(--text-h3);
+    font-weight: 600;
+    font-stretch: 110%;
+    line-height: 1.2;
+  }
+
+  .guide-body p {
+    margin-top: var(--space-lg);
+    max-width: 66ch;
+    line-height: 1.65;
+    color: var(--ink);
+  }
+
+  .guide-body h2 + p,
+  .guide-body h3 + p {
+    margin-top: var(--space-md);
+  }
+
+  .guide-body p code,
+  .guide-body li code {
+    font-size: 0.85em;
+    color: var(--overprint-deep);
+  }
+
+  .guide-body a {
+    color: var(--waterline);
+    text-underline-offset: 2px;
+  }
+
+  .guide-body a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .guide-body ul {
+    margin-top: var(--space-lg);
+    max-width: 66ch;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: var(--space-sm);
+  }
+
+  .guide-body li {
+    line-height: 1.6;
+  }
+
+  .guide-body li::marker {
+    color: var(--overprint);
+  }
+
+  /* code figures — the CodeSample survey-sheet theme, shared. */
+  .guide-body .g-code {
+    margin: var(--space-lg) 0 0;
+    min-width: 0;
+  }
+
+  .guide-body .g-code pre {
+    margin: 0;
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    --astro-code-foreground: var(--ink);
+    --astro-code-background: var(--bg);
+    --astro-code-token-keyword: var(--overprint-deep);
+    --astro-code-token-string: var(--waterline);
+    --astro-code-token-string-expression: var(--waterline);
+    --astro-code-token-constant: var(--ink);
+    --astro-code-token-comment: var(--muted);
+    --astro-code-token-function: var(--ink);
+    --astro-code-token-parameter: var(--ink);
+    --astro-code-token-punctuation: var(--muted);
+    --astro-code-token-link: var(--waterline);
+  }
+
+  .guide-body .g-code figcaption {
+    margin-top: var(--space-sm);
+    color: var(--muted);
+  }
+
+  /* file chip: where the code goes */
+  .guide-body .g-file {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: var(--space-lg) 0 calc(-1 * var(--space-xs));
+    padding: 0.28rem 0.6rem;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-annot);
+    color: var(--ink);
+  }
+
+  .guide-body .g-file::before {
+    content: "▸";
+    color: var(--overprint);
+  }
+
+  /* aside note: a gotcha / pending caveat, in the sheet's magenta cue */
+  .guide-body .g-note {
+    margin-top: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--overprint);
+    background: var(--surface);
+    max-width: 64ch;
+  }
+
+  .guide-body .g-note p {
+    margin: 0;
+    font-size: var(--text-sm);
+    max-width: none;
+  }
+
+  .guide-body .g-note p + p {
+    margin-top: var(--space-sm);
+  }
+
+  .guide-body .g-note strong {
+    color: var(--overprint-deep);
+  }
+
+  /* outcome: the "you can now" close of a step */
+  .guide-body .g-out {
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-lg);
+    border-top: 1px dashed var(--hairline);
+    max-width: 66ch;
+  }
+
+  .guide-body .g-out .annot {
+    color: var(--overprint);
+    display: block;
+    margin-bottom: var(--space-xs);
+  }
+
+  .guide-body .g-out p {
+    margin-top: 0;
+  }
+</style>

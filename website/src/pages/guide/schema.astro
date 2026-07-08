@@ -1,0 +1,171 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const schemaFile = `import gleam/dynamic/decode
+import gleam/json
+import watershed/schema.{
+  type ChannelField, type CounterChannel, type Field, type MapChannel,
+}
+
+/// Phantom tag scoping every field below to the Bench Book root map.
+pub type Survey
+
+/// The survey's title, shown in the station header.
+pub fn title() -> Field(Survey, String) {
+  schema.field("title", json.string, decode.string)
+}
+
+/// Gauge readings, keyed by station id (\`station-7\`) → depth in metres.
+pub fn readings() -> ChannelField(Survey, MapChannel) {
+  schema.channel_field("readings")
+}
+
+/// The shared tally of readings flagged for re-check.
+pub fn flags() -> ChannelField(Survey, CounterChannel) {
+  schema.channel_field("flags")
+}`;
+
+const bootstrap = `import doc_schema
+import watershed
+
+pub fn bootstrap(doc) {
+  let root = watershed.typed(watershed.root(doc))
+
+  // Seed and adopt the root's slots declaratively.
+  // ensure_* subsumes the create / race / retry bootstrap you'd hand-write.
+  watershed.ensure_field(root, doc_schema.title(), "Untitled survey")
+  let assert Ok(readings) = watershed.ensure_map(doc, root, doc_schema.readings())
+  let assert Ok(flags) = watershed.ensure_counter(doc, root, doc_schema.flags())
+
+  #(root, readings, flags)
+}`;
+
+const readwrite = `// Writing is checked at the field — only a String is accepted for \`title\`.
+watershed.set_field(root, doc_schema.title(), "Mill Race — spring survey")
+
+// Reading decodes at the boundary. A peer (or an old summary) could have
+// written anything here, so the result is a \`Result\`, never a raw value.
+case watershed.get_field(root, doc_schema.title()) {
+  Ok(Some(title)) -> render_header(title)
+  Ok(None) -> render_header("Untitled survey")     // key absent
+  Error(_) -> render_header("Untitled survey")      // a peer wrote a non-string
+}`;
+
+const record = `// A whole record spread across keys — decoder AND per-key encoder derived
+// from one prop list, so they can never drift. Writes stay per-key, so
+// concurrent edits to sibling fields still merge.
+fn station_schema() -> schema.Schema(Station, StationState) {
+  schema.record3(
+    StationState,
+    schema.prop(station_depth(), fn(s: StationState) { s.depth }),
+    schema.prop(station_surveyor(), fn(s: StationState) { s.surveyor }),
+    schema.optional_prop(station_note(), fn(s: StationState) { s.note }),
+  )
+  |> schema.sealed_known
+}`;
+---
+
+<GuideLayout
+  slug="schema"
+  description="Step two of the watershed build guide: declare a document's shape once with the typed schema layer, seed its channels with ensure_*, and read and write through a decode boundary that returns Result because remote peers can write any JSON."
+>
+  <div class="g-block">
+    <h2>Typing is a decode boundary, not a closed schema</h2>
+    <p>
+      Raw key strings scattered through an app rot fast. The typed layer
+      (<code>watershed/schema</code>) lets you declare a document’s shape once
+      and read and write through it. But it is deliberately <em>not</em> a
+      closed schema: a remote peer running an older build — or a stale summary —
+      can still write any JSON to any key.
+    </p>
+    <p>
+      So typing is a <strong>decode boundary</strong>. Writes are encoded
+      through the field; reads are decoded through it and hand back a
+      <code>Result</code>. You confront the “a peer wrote something unexpected”
+      case exactly once, at the read, instead of it corrupting your state
+      silently.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Declare the fields once</h2>
+    <p>
+      Each slot on the root is a field. A plain value is a <code>Field</code>; a
+      handle to another channel kind is a <code>ChannelField</code>. Bench Book’s
+      root has one of each family — a string title, a readings map, a flags
+      counter. A phantom <code>Survey</code> tag scopes every field to this map,
+      so the compiler stops you reading a field against the wrong document.
+    </p>
+    <span class="g-file">src/doc_schema.gleam</span>
+    <figure class="g-code">
+      <Code code={schemaFile} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Seed the channels with <code>ensure_*</code></h2>
+    <p>
+      A fresh document is empty. Two clients opening it at once both want to
+      create the <code>readings</code> map and <code>flags</code> counter — and
+      exactly one must win, with the other adopting the winner. That
+      create-race-retry dance is what <code>ensure_*</code> collapses into a
+      declaration: from the field alone, it seeds the channel if absent and
+      resolves the existing one otherwise.
+    </p>
+    <span class="g-file">src/bench_book.gleam</span>
+    <figure class="g-code">
+      <Code code={bootstrap} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Read and write through the field</h2>
+    <p>
+      With the fields declared, you never touch a key string again.
+      <code>set_field</code> encodes; <code>get_field</code> decodes and returns
+      <code>Result(Option(a), FieldError)</code> — <code>Ok(None)</code> for an
+      absent key, <code>Error</code> when a peer wrote a value that doesn’t
+      decode to your type.
+    </p>
+    <figure class="g-code">
+      <Code code={readwrite} lang="gleam" theme="css-variables" />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>The boundary is the feature.</strong> That <code>Error(_)</code>
+        arm isn’t defensive boilerplate — it’s the one place a multiplayer app
+        has to decide what to do when a peer disagrees about a value’s type.
+        Handling it here keeps every read past this point total.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h3>Deepening: a whole record across keys</h3>
+    <p>
+      When a slot holds a record rather than a scalar — a station with a depth,
+      a surveyor, and an optional note — the <code>record1</code>…<code>record9</code>
+      builders derive the decoder <em>and</em> the encoder from a single prop
+      list, so the two can’t drift. Writes stay per-key, so concurrent edits to
+      sibling fields still merge.
+    </p>
+    <figure class="g-code">
+      <Code code={record} lang="gleam" theme="css-variables" />
+    </figure>
+    <p>
+      The <a href="https://github.com/tylerbutler/watershed/tree/main/examples/scoreboard_cli">
+      scoreboard example</a> carries this pattern end to end, with
+      <code>versioned</code> and <code>sealed_known</code> strictness.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Declare a document’s shape in one file, bootstrap its channels with a
+      batch of <code>ensure_*</code> calls, and read and write typed fields
+      through a decode boundary that never lets a peer corrupt your state.
+    </p>
+  </div>
+</GuideLayout>

@@ -1,0 +1,131 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+
+const swap = `// readings as last-write-wins — the default, wire-compatible SharedMap.
+pub fn readings() -> ChannelField(Survey, MapChannel) {
+  schema.channel_field("readings")
+}
+let assert Ok(readings) = watershed.ensure_map(doc, root, doc_schema.readings())
+
+// ── one edit swaps the merge model to observed-remove (OR-map): now a
+//    concurrent re-reading survives another surveyor deleting the station ──
+pub fn readings() -> ChannelField(Survey, OrMapChannel) {
+  schema.channel_field("readings")
+}
+let assert Ok(readings) =
+  watershed.ensure_or_map(doc, root, doc_schema.readings())`;
+
+const counter = `// flags is a counter, not a number in the map. Each surveyor sends a
+// signed DELTA, so two concurrent +1s converge on +2 — never clobber.
+watershed.increment(flags, 1)
+
+// A number stored in a SharedMap would lose one of the two increments:
+// last-write-wins keeps only the highest-sequenced value. That's the
+// classic distributed-systems bug — see /counter-bug for it, live.`;
+---
+
+<GuideLayout
+  slug="structures"
+  description="Step three of the watershed build guide: every slot in a document is a channel, and the channel kind IS its conflict policy. Choosing SharedMap vs OR-map vs SharedCounter per slot, and how to pick the right merge model while building."
+>
+  <div class="g-block">
+    <h2>The channel kind <em>is</em> the conflict policy</h2>
+    <p>
+      Every slot in the schema is a channel, and picking its kind is picking how
+      concurrent edits to that slot resolve. This is the one design decision
+      multiplayer forces on you that single-player never does: <em>what happens
+      when two people change the same thing at once?</em> You answer it once, per
+      slot, by choosing a kind.
+    </p>
+    <p>
+      Bench Book’s three slots each answer it differently, and that’s the point —
+      one document mixes merge models freely, because they all ride the same
+      sequenced stream.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>readings: order it, or merge it</h2>
+    <p>
+      The readings map defaults to a <a href="/structures/maps#map">SharedMap</a>:
+      last-write-wins per station, resolved by server order. Two surveyors
+      writing <code>station-4</code> at once? The higher-sequenced write holds;
+      the other is dropped. That’s correct when a reading is simply the latest
+      measurement.
+    </p>
+    <p>
+      But if a surveyor can <em>delete</em> a station while another is
+      re-measuring it, last-write-wins can silently lose the re-reading. Swap the
+      kind to an <a href="/structures/maps#ormap">OR-map</a> and observed-remove
+      semantics keep the concurrent write. The schema change is one type and one
+      <code>ensure_*</code> call:
+    </p>
+    <figure class="g-code">
+      <Code code={swap} lang="gleam" theme="css-variables" />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>flags: never store a counter in a map</h2>
+    <p>
+      The re-check tally is a <a href="/structures/counters#counter">SharedCounter</a>,
+      and this is not a stylistic choice. A counter ships each change as a signed
+      <em>delta</em>; because addition commutes, concurrent increments add up
+      instead of overwriting. Store that same number as a value in a SharedMap
+      and two simultaneous <code>+1</code>s collapse to a single <code>+1</code>
+      under last-write-wins.
+    </p>
+    <figure class="g-code">
+      <Code code={counter} lang="gleam" theme="css-variables" />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>This bug is worth seeing.</strong> The
+        <a href="/counter-bug">counter-bug page</a> stages exactly this —
+        a boat count stored in a map, two concurrent increments, one silently
+        lost — then fixes it by reaching for the counter. It’s the sharpest
+        argument for choosing kinds deliberately.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Choosing, in general</h2>
+    <p>
+      Three questions cover most slots:
+    </p>
+    <ul>
+      <li>
+        <strong>Is it additive?</strong> Tallies, votes, quantities → a
+        <a href="/structures/counters#counter">counter</a>, so concurrent changes
+        sum instead of clobbering.
+      </li>
+      <li>
+        <strong>Must it survive offline or duplicate delivery?</strong> Then a
+        <a href="/models">CRDT</a> — OR-map, OR-set, PN counter — whose merge
+        doesn’t depend on order, over a plain DDS.
+      </li>
+      <li>
+        <strong>Is it a decision, not a value?</strong> Ownership, turn-taking,
+        agreement → the <a href="/structures/coordination">coordination</a>
+        family: claims, ordered collections, the pact map.
+      </li>
+    </ul>
+    <p>
+      The <a href="/models">DDS · CRDT · OT comparison</a> lays out the tradeoffs
+      axis by axis, and the <a href="/structures">field atlas</a> has a page per
+      structure with its merge rule and best-fit uses. Both are the reference
+      this step points into rather than repeats.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Choose a merge model per slot — order it, merge it, or coordinate it —
+      and change your mind later with a one-line schema edit, because the kind
+      is declared in exactly one place.
+    </p>
+  </div>
+</GuideLayout>

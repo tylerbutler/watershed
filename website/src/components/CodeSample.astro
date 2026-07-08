@@ -50,6 +50,11 @@ pub fn main() {
         > for both, verified converging against a live Fluid-compatible server
         like levee.
       </p>
+      <p class="code-cta">
+        <a href="/guide"
+          >Build a real one, step by step — the field guide →</a
+        >
+      </p>
     </div>
     <figure class="code-figure" data-reveal="rise">
       <Code code={sample} lang="gleam" theme="css-variables" />
@@ -87,6 +92,23 @@ pub fn main() {
 
   .code-prose code {
     font-size: 0.85em;
+  }
+
+  .code-cta {
+    margin-top: var(--space-xl);
+  }
+
+  .code-cta a {
+    font-weight: 600;
+    font-stretch: 108%;
+    color: var(--overprint-deep);
+    text-decoration: none;
+    border-bottom: 1px solid var(--overprint-faint);
+    transition: border-color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .code-cta a:hover {
+    border-bottom-color: var(--overprint-deep);
   }
 
   .code-figure {
