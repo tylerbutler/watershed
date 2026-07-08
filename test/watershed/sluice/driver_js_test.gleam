@@ -9,7 +9,7 @@ import gleam/json
 @target(javascript)
 import gleam/list
 @target(javascript)
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 @target(javascript)
 import gleam/string
 @target(javascript)
@@ -68,4 +68,63 @@ pub fn map_lww_converges_test() {
   let map_c = watershed_js.root(doc_c)
   same_entries(watershed_js.entries(map_c), watershed_js.entries(map_a))
   |> expect.to_be_true()
+}
+
+@target(javascript)
+pub fn pause_holds_delivery_until_resume_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "pause-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  // Hold B, then let A author an edit.
+  sluice_js.pause(sluice, doc_b)
+  watershed_js.set(watershed_js.root(doc_a), "k", json.string("v"))
+  sluice_js.settle(sluice)
+
+  // A sees its own edit; B is held and sees nothing yet.
+  watershed_js.get(watershed_js.root(doc_a), "k")
+  |> expect.to_equal(Some(json.string("v")))
+  watershed_js.get(watershed_js.root(doc_b), "k") |> expect.to_equal(None)
+
+  // Releasing B delivers the held op.
+  sluice_js.resume(sluice, doc_b)
+  sluice_js.settle(sluice)
+  watershed_js.get(watershed_js.root(doc_b), "k")
+  |> expect.to_equal(Some(json.string("v")))
+}
+
+@target(javascript)
+pub fn step_info_reports_op_sequence_and_author_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "stepinfo-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let _doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  watershed_js.set(watershed_js.root(doc_a), "k", json.int(1))
+
+  // Drain, collecting only the op deliveries' (sn, author).
+  let ops = drain_op_meta(sluice, [])
+  // The one op is broadcast to both clients: two op frames, SN 1, author a.
+  ops |> list.length |> expect.to_equal(2)
+  list.all(ops, fn(meta) { meta.0 == 1 }) |> expect.to_be_true()
+}
+
+@target(javascript)
+fn drain_op_meta(
+  sluice: sluice_js.Sluice,
+  acc: List(#(Int, String)),
+) -> List(#(Int, String)) {
+  case sluice_js.step_info(sluice) {
+    None -> list.reverse(acc)
+    Some(delivery) ->
+      case delivery.event {
+        "op" ->
+          drain_op_meta(sluice, [
+            #(delivery.sequence_number, delivery.author),
+            ..acc
+          ])
+        _ -> drain_op_meta(sluice, acc)
+      }
+  }
 }

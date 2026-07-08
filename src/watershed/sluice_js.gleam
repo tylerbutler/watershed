@@ -29,6 +29,8 @@ import watershed/sluice/core
 @target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
+import watershed/wire/socket
+@target(javascript)
 import watershed_js
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -42,12 +44,22 @@ pub opaque type Sluice {
 }
 
 @target(javascript)
+/// One delivered frame's metadata, returned by `step_info` so a caller (e.g. a
+/// live demo) can animate and log each hop. For `op` events `sequence_number`
+/// and `author` are the sequenced op's SN and authoring client; other events
+/// (handshake, signal) report `0` / `""`.
+pub type Delivery {
+  Delivery(to: String, event: String, sequence_number: Int, author: String)
+}
+
+@target(javascript)
 /// Start a sluice for one document.
 pub fn start(tenant tenant: String, document document: String) -> Sluice {
   Sluice(
     cell: transport_js.new_cell(State(
       core: core.new(tenant, document),
       conns: [],
+      bindings: [],
       last_registered: None,
     )),
     tenant: tenant,
@@ -73,11 +85,23 @@ pub fn connect(
     )
   // The runtime has now stored its transport handle, so it is safe to fire the
   // `on_join` that makes it push `connect_document`. (Firing during
-  // `transport.connect` would run before the handle is stored.)
+  // `transport.connect` would run before the handle is stored.) We also bind the
+  // document's runtime to the just-registered client id so `pause`/`resume` can
+  // target it by identity.
   let state = transport_js.get_cell(sluice.cell)
   case state.last_registered {
     Some(client_id) -> {
-      transport_js.set_cell(sluice.cell, State(..state, last_registered: None))
+      transport_js.set_cell(
+        sluice.cell,
+        State(
+          ..state,
+          bindings: [
+            #(watershed_js.runtime_of(document), client_id),
+            ..state.bindings
+          ],
+          last_registered: None,
+        ),
+      )
       case find_conn(state.conns, client_id) {
         Ok(conn) -> conn.on_join()
         Error(_) -> Nil
@@ -86,6 +110,36 @@ pub fn connect(
     None -> Nil
   }
   document
+}
+
+@target(javascript)
+/// Hold a client's inbound frames until `resume` — its queued frames stay put
+/// while others are delivered, so a race can be scripted.
+pub fn pause(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  update_paused(sluice, document, core.pause)
+}
+
+@target(javascript)
+/// Release a paused client's held frames back into the deliverable queue.
+pub fn resume(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  update_paused(sluice, document, core.resume)
+}
+
+@target(javascript)
+fn update_paused(
+  sluice: Sluice,
+  document: watershed_js.Document,
+  change: fn(core.Sluice, String) -> core.Sluice,
+) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  case client_id_of(state.bindings, watershed_js.runtime_of(document)) {
+    Ok(client_id) ->
+      transport_js.set_cell(
+        sluice.cell,
+        State(..state, core: change(state.core, client_id)),
+      )
+    Error(_) -> Nil
+  }
 }
 
 @target(javascript)
@@ -99,18 +153,35 @@ pub fn settle(sluice: Sluice) -> Nil {
 /// Deliver exactly one queued frame (to a non-paused client), returning `False`
 /// when nothing was deliverable.
 pub fn step(sluice: Sluice) -> Bool {
-  let state = transport_js.get_cell(sluice.cell)
-  case core.take(state.core) {
-    #(core, None) -> {
-      transport_js.set_cell(sluice.cell, State(..state, core: core))
-      False
-    }
-    #(core, Some(frame)) -> {
-      transport_js.set_cell(sluice.cell, State(..state, core: core))
-      deliver(sluice.cell, frame)
-      True
+  case take_deliver(sluice.cell) {
+    Some(_) -> True
+    None -> False
+  }
+}
+
+@target(javascript)
+/// Like `step`, but reports what was delivered (target client, event, and — for
+/// `op` events — the sequence number and author). `None` when nothing was
+/// deliverable. For driving live visualisations that animate each hop.
+pub fn step_info(sluice: Sluice) -> Option(Delivery) {
+  case take_deliver(sluice.cell) {
+    None -> None
+    Some(frame) -> {
+      let #(sequence_number, author) = op_meta(frame)
+      Some(Delivery(
+        to: frame.client_id,
+        event: frame.event,
+        sequence_number: sequence_number,
+        author: author,
+      ))
     }
   }
+}
+
+@target(javascript)
+/// Whether any frame is still awaiting delivery to a non-paused client.
+pub fn pending(sluice: Sluice) -> Bool {
+  core.has_pending(transport_js.get_cell(sluice.cell).core)
 }
 
 @target(javascript)
@@ -130,25 +201,51 @@ pub fn advance(sluice: Sluice, ms: Int) -> Nil {
 
 @target(javascript)
 fn drain(cell: Cell(State)) -> Nil {
+  case take_deliver(cell) {
+    None -> Nil
+    Some(_) -> drain(cell)
+  }
+}
+
+@target(javascript)
+/// Take the next deliverable frame, deliver it, and return it (or `None`).
+/// Commits the take before delivering: the recipient's reaction pushes back
+/// into the same cell, and we must not clobber it.
+fn take_deliver(cell: Cell(State)) -> Option(core.Outbound) {
   let state = transport_js.get_cell(cell)
   case core.take(state.core) {
-    #(core, None) -> transport_js.set_cell(cell, State(..state, core: core))
-    #(core, Some(frame)) -> {
-      // Commit the take before delivering: the recipient's reaction pushes
-      // back into the same cell, and we must not clobber it.
+    #(core, None) -> {
       transport_js.set_cell(cell, State(..state, core: core))
-      deliver(cell, frame)
-      drain(cell)
+      None
+    }
+    #(core, Some(frame)) -> {
+      transport_js.set_cell(cell, State(..state, core: core))
+      case find_conn(state.conns, frame.client_id) {
+        Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
+        Error(_) -> Nil
+      }
+      Some(frame)
     }
   }
 }
 
 @target(javascript)
-fn deliver(cell: Cell(State), frame: core.Outbound) -> Nil {
-  let state = transport_js.get_cell(cell)
-  case find_conn(state.conns, frame.client_id) {
-    Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
-    Error(_) -> Nil
+/// Pull the sequence number and author from an `op` frame's payload (`0`/`""`
+/// for other event kinds), for `step_info`.
+fn op_meta(frame: core.Outbound) -> #(Int, String) {
+  case frame.event {
+    "op" ->
+      case
+        json.parse(json.to_string(frame.payload), socket.op_message_decoder())
+      {
+        Ok(message) ->
+          case message.ops {
+            [op, ..] -> #(op.sequence_number, option.unwrap(op.client_id, ""))
+            [] -> #(0, "")
+          }
+        Error(_) -> #(0, "")
+      }
+    _ -> #(0, "")
   }
 }
 
@@ -181,6 +278,7 @@ fn register(
   transport_js.set_cell(
     cell,
     State(
+      ..state,
       core: core,
       conns: [#(client_id, Conn(on_event, on_join)), ..state.conns],
       last_registered: Some(client_id),
@@ -220,9 +318,27 @@ type State {
   State(
     core: core.Sluice,
     conns: List(#(String, Conn)),
+    /// Runtime → client-id, so `pause`/`resume` can target a document by
+    /// identity (structural equality would deep-compare state cells).
+    bindings: List(#(runtime_js.Runtime, String)),
     last_registered: Option(String),
   )
 }
+
+@target(javascript)
+fn client_id_of(
+  bindings: List(#(runtime_js.Runtime, String)),
+  runtime: runtime_js.Runtime,
+) -> Result(String, Nil) {
+  case list.find(bindings, fn(pair) { reference_equals(pair.0, runtime) }) {
+    Ok(pair) -> Ok(pair.1)
+    Error(_) -> Error(Nil)
+  }
+}
+
+@target(javascript)
+@external(javascript, "./sluice_ffi.mjs", "referenceEquals")
+fn reference_equals(a: runtime_js.Runtime, b: runtime_js.Runtime) -> Bool
 
 @target(javascript)
 fn find_conn(
