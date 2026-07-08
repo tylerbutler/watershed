@@ -5,86 +5,86 @@ const structures = [
   {
     name: "SharedCounter",
     module: "counter_kernel",
-    rule: "increments commute, so concurrent adds converge on the sum",
-    pending: "local deltas can be shown beside the committed value",
-    summary: "a scalar summary is enough because every op is additive",
+    rule: "everyone sends +/− changes instead of overwriting, so simultaneous edits just add up",
+    pending: "your change shows next to the confirmed total right away",
+    summary: "only one number needs saving, since every change is an add",
   },
   {
     name: "G-Counter",
     module: "lattice_counters/g_counter",
-    rule: "per-replica grow-only counts merge by pairwise maximum",
-    pending: "local increments overlay the total in magenta until their delta is sequenced",
-    summary: "the counts dictionary reloads with each replica’s monotone tally",
+    rule: "each client keeps its own tally; the totals combine safely even if a change arrives twice",
+    pending: "your increment overlays the total in magenta until it’s confirmed",
+    summary: "each client’s running tally reloads intact",
   },
   {
     name: "PN Counter",
     module: "pn_counter_kernel",
-    rule: "positive and negative grow-only ledgers join as a CRDT lattice",
-    pending: "fill and cut deltas can be replayed without double-counting",
-    summary: "replica-tagged tallies survive reconnect and duplicate delivery",
+    rule: "keeps separate up and down tallies, so it can move both ways and still shrug off duplicates",
+    pending: "adds and subtractions can be re-sent without being counted twice",
+    summary: "per-client tallies survive reconnect and repeated delivery",
   },
   {
     name: "G-Set",
     module: "g_set_kernel",
-    rule: "grow-only set union; every recorded entry remains forever",
-    pending: "local marks appear in magenta until their add delta is sequenced",
-    summary: "the sequenced set reloads as permanent registry facts",
+    rule: "an add-only set; once something is in, it stays, and merging is a plain union",
+    pending: "your addition shows in magenta until it’s confirmed",
+    summary: "the confirmed set reloads as a permanent record",
   },
   {
     name: "2P-Set",
     module: "two_p_set_kernel",
-    rule: "two grow-only sets join; tombstones permanently beat active membership",
-    pending: "local place or retire deltas overlay the ledger in magenta until sequenced",
-    summary: "active markers and retired tombstones reload together",
+    rule: "supports removal, but once an item is removed it can never be added again",
+    pending: "adds and removals show in magenta until they’re confirmed",
+    summary: "current items and removed ones reload together",
   },
   {
     name: "OR-Set",
     module: "or_set_kernel",
-    rule: "observed-remove with add-wins tags under concurrent clear and re-mark",
-    pending: "local marker changes overlay the roster in magenta until their delta is sequenced",
-    summary: "live tags and tombstones reload under the joining replica identity",
+    rule: "add, remove, and add again all work; if an add and a remove race, the add wins",
+    pending: "your change overlays the list in magenta until it’s confirmed",
+    summary: "current members and their removal history reload intact",
   },
   {
     name: "SharedMap",
     module: "map_kernel",
-    rule: "server-sequenced last write wins per key",
-    pending: "local writes can render optimistically until the sequencer stamps them",
-    summary: "JSON entries reload with the same keys the Fluid wire op names",
+    rule: "for each key, the most recent write wins, decided by server order",
+    pending: "your writes show instantly, then lock in once the server confirms them",
+    summary: "entries reload with the exact keys a Fluid app expects",
   },
   {
     name: "OR-Map",
     module: "or_map_kernel",
-    rule: "observed-remove with add-wins delivery under concurrent strike",
-    pending: "struck rows can stay readable until the op is ordered",
-    summary: "entries retain their causal dots, not just their visible value",
+    rule: "delete a key while someone else edits it, and the edit survives — the write wins",
+    pending: "deleted rows stay readable until the delete is confirmed",
+    summary: "entries remember their edit history, not just the current value",
   },
   {
     name: "Claims",
     module: "claims_kernel",
-    rule: "first writer wins against the sequenced holder and reference SN",
-    pending: "reads stay non-optimistic until the filed claim resolves",
-    summary: "holder values reload with their sequence numbers intact",
+    rule: "the first client to claim a slot owns it; every later claim is refused",
+    pending: "a claim only shows as yours once it has actually won — never before",
+    summary: "who owns what reloads intact",
   },
   {
     name: "Register collection",
     module: "register_collection_kernel",
-    rule: "atomic reads pick the first non-concurrent write; LWW reads pick the latest version",
-    pending: "writes stay invisible until sequenced, then resolve as atomic winners or retained versions",
-    summary: "atomic and concurrent versions persist with sequence numbers",
+    rule: "read the first uncontested write, or the most recent one — your choice, per read",
+    pending: "writes stay hidden until confirmed, then settle as the winner or a kept version",
+    summary: "every competing version is kept, so either read rule still works later",
   },
   {
     name: "Ordered collection",
     module: "ordered_collection_kernel",
-    rule: "adds and acquires resolve in FIFO sequence order",
-    pending: "attached queue ops stay invisible until their SN arrives",
-    summary: "queued items and held jobs reload with ownership intact",
+    rule: "items come out in the order the server received them; first to grab one holds it",
+    pending: "queue changes stay hidden until the server confirms them",
+    summary: "the queue and who holds what reload intact",
   },
   {
     name: "Pact map",
     module: "pact_map_kernel",
-    rule: "sets become accepted only after the frozen signoff list drains",
-    pending: "pending proposals block competing sets until accepted or dropped",
-    summary: "accepted values and pending signoffs round-trip together",
+    rule: "a value takes effect only once every required client has signed off",
+    pending: "a pending proposal blocks competing ones until it’s accepted or dropped",
+    summary: "accepted values and pending sign-offs save and restore together",
   },
 ];
 
@@ -100,25 +100,25 @@ const flow = [
     step: "1",
     title: "Submit",
     detail:
-      "The client kernel emits an op and updates only the local pending layer.",
+      "A client makes a change and updates just its own local copy for now.",
   },
   {
     step: "2",
     title: "Sequence",
     detail:
-      "A Fluid-compatible server like levee orders the op stream and broadcasts one SN to every replica.",
+      "A server like levee puts everyone’s changes in one order and sends that order to every client.",
   },
   {
     step: "3",
-    title: "Ack / apply",
+    title: "Confirm / apply",
     detail:
-      "The author promotes pending state; peers apply remote state through the same pure kernel.",
+      "The client that made the change locks it in; everyone else applies it through the exact same code.",
   },
   {
     step: "4",
     title: "Summarize",
     detail:
-      "A summary reloads through the same from_summary path used after reconnect.",
+      "A saved snapshot lets any client reload the current state — the same path used after a reconnect.",
   },
 ];
 ---
@@ -126,15 +126,17 @@ const flow = [
 <section class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
-      <h2 id="dds-field-title">One ordered stream, one explicit rule per DDS</h2>
+      <h2 id="dds-field-title">One ordered stream, one clear rule per structure</h2>
       <p>
-        watershed does not hide every conflict behind the same merge story. Each
-        DDS has a small, explicit rule: what can be applied optimistically, what
-        must wait for sequencing, and what shape can be persisted in a summary.
+        watershed doesn’t paper over conflicts with one catch-all merge. Each
+        structure states a small, clear rule: what can show up instantly, what
+        has to wait for the server to confirm it, and what gets saved so a client
+        can reload later.
       </p>
       <p class="dds-atlas-note">
-        Only a few of watershed’s kernels are shown here. The rest — grouped by
-        family — live in the field atlas, each with its own live demo.
+        Only a few of watershed’s structures are shown here. The rest — grouped
+        by family — live in the field atlas, our full catalog, each with its own
+        live demo.
       </p>
       <nav class="family-nav" aria-label="Data structures in depth">
         <span class="annot">Zoom in by family</span>
@@ -161,11 +163,11 @@ const flow = [
                 <dd>{dds.rule}</dd>
               </div>
               <div>
-                <dt>Optimistic behavior</dt>
+                <dt>Before it’s confirmed</dt>
                 <dd>{dds.pending}</dd>
               </div>
               <div>
-                <dt>Summary shape</dt>
+                <dt>What gets saved</dt>
                 <dd>{dds.summary}</dd>
               </div>
             </dl>
@@ -186,11 +188,10 @@ const flow = [
   <div class="flow-inner">
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Maps, counters, G-counters, OR-maps, OR-sets, G-sets, 2P-sets, claims, register collections,
-      ordered collections, and pact maps all ride one ordered document stream — the
-      same one the live SharedMap demo above runs on. Open any family to switch the
-      visible kernel; they stay hosted together, just like DDSes sharing a Fluid
-      container.
+      Every structure above rides the same ordered stream of changes — the very
+      one the live SharedMap demo runs on. Open any family to switch which
+      structure is on screen; they all stay hosted together, just like structures
+      sharing a single Fluid document.
     </p>
 
     <ol class="flow-steps">

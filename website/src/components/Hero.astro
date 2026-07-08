@@ -45,10 +45,11 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
       Edit upstream.<br />Converge <em>downstream.</em>
     </h1>
     <p class="lede">
-      watershed is a Gleam client toolkit for Fluid Framework distributed data
-      structures. Clients edit locally without waiting; a Fluid-compatible server
-      sequences every op; every replica reaches the same state — on the BEAM and
-      in the browser, from one pure core.
+      watershed lets many people edit the same data at once without losing each
+      other’s changes. Each client updates instantly, a server puts every edit in
+      one order, and every copy ends up identical — the same Gleam core running on
+      the server (the BEAM) and in the browser. It’s wire-compatible with
+      Microsoft’s Fluid Framework.
     </p>
     <div class="cta-row">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">

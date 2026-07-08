@@ -20,27 +20,30 @@ import Ecosystem from "../components/Ecosystem.astro";
       <Fragment slot="intro">
         <p>
           On a photorevised survey sheet, magenta marks updates not yet
-          field-checked. This demo borrows that color code: pending edits are
-          drawn in <strong class="k-pending">magenta</strong> and sequenced
-          state in <strong class="k-seq">ink</strong>. All three clients run
-          watershed’s real <code>map_kernel</code> Gleam code over one ordered
-          stream — a shared map, the DDS most apps reach for first.
+          field-checked. This demo borrows that color code: edits that aren’t
+          confirmed yet are drawn in <strong class="k-pending">magenta</strong>,
+          confirmed state in <strong class="k-seq">ink</strong>. All three
+          clients run watershed’s real <code>map_kernel</code> Gleam code,
+          sharing one ordered list of changes — a shared map, the collaborative
+          structure most apps reach for first.
         </p>
         <p class="demo-hint">
-          Nudge a gauge, race a concurrent write, stretch the link latency — the
-          replicas always converge on last-write-wins.
+          Nudge a gauge, have two clients write at once, stretch the network
+          delay — the copies always agree, and the most recent write to a key
+          wins.
         </p>
         <aside class="demo-bug-teaser">
           <p>
-            <strong>…but last-write-wins has a famous failure mode.</strong>
-            Store a <em>counter</em> in this map and concurrent increments
-            silently overwrite each other — the classic distributed-systems bug.
+            <strong>…but “most recent write wins” has a famous failure mode.</strong>
+            Store a <em>counter</em> in this map and have two people add to it at
+            once — their increments silently overwrite each other instead of
+            adding up. It’s the classic distributed-systems bug.
           </p>
           <a href="/counter-bug">Watch a boat vanish, live →</a>
         </aside>
         <p class="demo-hint">
           Every other structure runs the same way on its own page. Start with the
-          <a href="/structures">field atlas →</a>
+          <a href="/structures">field atlas</a> — the full catalog →
         </p>
       </Fragment>
     </Demo>
