@@ -2,10 +2,20 @@
 // Phoenix JS client. The Gleam `runtime_js` module drives the pure core
 // (`runtime_core`/`wire`/`map_kernel`) over this shim — no OTP, no aquamarine.
 //
-// The `phoenix` package is resolved by the consuming app's bundler; watershed's
-// own `gleam build --target javascript` only emits this file, it does not bundle
-// it, so the bare import below is never executed at library-build time.
-import { Socket } from "phoenix";
+// `phoenix` is an *optional peer dependency*: only the real (browser) transport
+// needs it. The in-memory `sluice` test driver injects its own transport and
+// never calls `connect`, so watershed's own test suite must be able to load
+// this module without `phoenix` installed. A guarded top-level-await dynamic
+// import gives us that: it resolves `Socket` at module-load in an app bundle
+// (esbuild inlines the dynamic import, so it settles before `connect` is ever
+// called, keeping `connect` synchronous), and degrades to `undefined` in a
+// server-free test run where `phoenix` is absent.
+let Socket;
+try {
+  ({ Socket } = await import("phoenix"));
+} catch {
+  // phoenix not installed — fine unless the real transport's connect() is used.
+}
 
 // Levee document-channel events the runtime cares about. Everything else
 // (summary acks, pongs) is ignored, matching the erlang runtime. `signal`
@@ -26,6 +36,12 @@ const CHANNEL_EVENTS = [
 // dynamic decoders consume directly. Returns the Channel (its `.socket` back
 // reference is used by push/close).
 export function connect(url, topic, joinPayloadJson, onEvent, onJoin, onClose) {
+  if (Socket === undefined) {
+    throw new Error(
+      "watershed: the real transport requires the 'phoenix' package. " +
+        "Install it, or use the in-memory sluice test driver instead.",
+    );
+  }
   const socket = new Socket(url, {});
   socket.connect();
 
