@@ -1,18 +1,11 @@
-// Live Sudoku convergence demo, running the *real* watershed runtime against an
-// in-browser server. Three "clients" are genuine `watershed_js` documents —
-// full runtime, real wire codecs, real pending/ack queues — talking to one
-// `sluice_js` (the in-memory levee stand-in that ships in the library for
-// deterministic tests). No fake TS sequencer, no server: a cell edit renders
-// optimistically and pushes an op that the sluice sequences (assigning a global
-// SN); delivery is explicit, so the demo "pumps" one frame at a time on a paced
-// timer and every replica converges on the last sequenced value per cell.
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
+// Live Sudoku convergence demo: three real watershed_js documents editing one
+// shared root SharedMap, driven through the in-memory sluice (see
+// ./demo/sluice-rig.ts for the shared orchestration). No fake TS sequencer, no
+// server — a cell edit renders optimistically and pushes an op the sluice
+// sequences; delivery is paced one hop at a time and every replica converges.
 import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { prefersReducedMotion } from "./demo/timing.ts";
-import { createFlowLayer } from "./demo/flow-dots.ts";
-import { createLatencyControls } from "./demo/controls.ts";
-import { createOpLog } from "./demo/op-log.ts";
+import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -23,17 +16,6 @@ const CLIENT_LABEL: Record<string, string> = {
 const BOARD_SIZE = 4;
 const DIGITS = [1, 2, 3, 4];
 const RACE_CELL = { row: 1, col: 1 };
-// Base per-hop delivery delay (scaled by the pace control).
-const HOP_MS = 520;
-
-interface Client {
-  id: string;
-  doc: unknown;
-  map: unknown;
-  el: Element;
-  cursor: number;
-  pending: string[];
-}
 
 function cellKey(row: number, col: number): string {
   return `r${row}c${col}`;
@@ -43,14 +25,6 @@ function cellLabel(row: number, col: number): string {
   return `r${row + 1}c${col + 1}`;
 }
 
-// Gleam `Some(x)` carries the value at index 0; `None` has no such field.
-function some<T>(option: unknown): T | null {
-  if (option && typeof option === "object" && 0 in option) {
-    return (option as { 0: T })[0];
-  }
-  return null;
-}
-
 function readInt(optionValue: unknown): number | null {
   const value = some<unknown>(optionValue);
   if (value == null) return null;
@@ -58,11 +32,11 @@ function readInt(optionValue: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function cellValue(client: Client, row: number, col: number): number | null {
-  return readInt(watershed.get(client.map, cellKey(row, col)));
+function cellValue(client: RigClient, row: number, col: number): number | null {
+  return readInt(watershed.get(client.handle, cellKey(row, col)));
 }
 
-function canonicalBoard(client: Client): string {
+function canonicalBoard(client: RigClient): string {
   const cells: Array<number | null> = [];
   for (let row = 0; row < BOARD_SIZE; row += 1) {
     for (let col = 0; col < BOARD_SIZE; col += 1) {
@@ -73,91 +47,42 @@ function canonicalBoard(client: Client): string {
 }
 
 export function initSudokuDemo() {
-  const rig = document.querySelector("[data-sudoku-rig]");
-  if (!rig) return;
+  let rig: ReturnType<typeof createSluiceRig> = null;
 
-  const flowLayer = rig.querySelector("[data-flow-layer]");
-  const seqNode = rig.querySelector("[data-seq-node]");
-  const seqCounter = rig.querySelector("[data-seq-counter]");
-  const opLogEl = rig.querySelector("[data-op-log]");
-  const statusEl = document.querySelector("[data-sudoku-status]");
-  const latencyInput = document.querySelector("[data-sudoku-latency]");
-  const latencyOut = document.querySelector("[data-sudoku-latency-out]");
-  const paceInput = document.querySelector("[data-sudoku-pace]");
-  const paceOut = document.querySelector("[data-sudoku-pace-out]");
-  const varianceToggle = document.querySelector("[data-sudoku-latency-variance]");
-  const raceBtn = document.querySelector("[data-sudoku-race]");
-  const seedBtn = document.querySelector("[data-sudoku-seed]");
-  const resetBtn = document.querySelector("[data-sudoku-reset]");
-
-  const section = document.querySelector("#sudoku-demo");
-  if (
-    !(flowLayer instanceof HTMLElement) ||
-    !(seqNode instanceof HTMLElement) ||
-    !(seqCounter instanceof HTMLElement) ||
-    !(opLogEl instanceof HTMLOListElement) ||
-    !(statusEl instanceof HTMLElement) ||
-    !(latencyInput instanceof HTMLInputElement) ||
-    !(latencyOut instanceof HTMLElement) ||
-    !(paceInput instanceof HTMLInputElement) ||
-    !(paceOut instanceof HTMLElement) ||
-    !(varianceToggle instanceof HTMLInputElement) ||
-    !(raceBtn instanceof HTMLButtonElement) ||
-    !(seedBtn instanceof HTMLButtonElement) ||
-    !(resetBtn instanceof HTMLButtonElement) ||
-    !(section instanceof HTMLElement)
-  ) {
-    return;
+  function setCell(clientId: string, row: number, col: number, digit: number) {
+    if (!rig) return;
+    const client = rig.clients[clientId];
+    const key = cellKey(row, col);
+    rig.submit(
+      client,
+      key,
+      () => watershed.set(client.handle, key, json.int(digit)),
+      `${cellLabel(row, col)} → ${digit}`,
+    );
   }
 
-  for (const el of section.querySelectorAll("button, input")) {
-    if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) el.disabled = false;
+  function clearCell(clientId: string, row: number, col: number) {
+    if (!rig) return;
+    const client = rig.clients[clientId];
+    const key = cellKey(row, col);
+    rig.submit(
+      client,
+      key,
+      () => watershed.delete$(client.handle, key),
+      `${cellLabel(row, col)} clear`,
+    );
   }
 
-  const controls = createLatencyControls({
-    latencyInput,
-    latencyOut,
-    paceInput,
-    paceOut,
-    varianceToggle,
-  });
-  const flow = createFlowLayer(flowLayer, prefersReducedMotion);
-  const opLog = createOpLog(opLogEl, { max: 24 });
-
-  const clients: Record<string, Client> = {};
-  for (const id of CLIENT_IDS) {
-    const el = rig.querySelector(`[data-client="${id}"]`);
-    if (!el) return;
-    clients[id] = { id, doc: null, map: null, el, cursor: CLIENT_IDS.indexOf(id), pending: [] };
+  function cycleCell(clientId: string, row: number, col: number) {
+    if (!rig) return;
+    const client = rig.clients[clientId];
+    const value = cellValue(client, row, col);
+    const digit = value == null ? DIGITS[client.cursor % DIGITS.length] : (value % BOARD_SIZE) + 1;
+    client.cursor += 1;
+    setCell(clientId, row, col, digit);
   }
 
-  let server: unknown = null;
-  // sluice client id (e.g. "sluice-client-1") → demo id ("a"/"b"/"c").
-  const sidToId: Record<string, string> = {};
-  // SN → human label, captured at submit time so the op log can name each op.
-  const labelBySn = new Map<number, string>();
-  let pumpTimer: ReturnType<typeof setTimeout> | null = null;
-
-  function boot() {
-    server = sluice.start("default", "sudoku-demo");
-    for (const id of CLIENT_IDS) {
-      const doc = sluice.connect(server, `user-${id}`);
-      clients[id].doc = doc;
-      clients[id].map = watershed.root(doc);
-      clients[id].pending = [];
-      clients[id].cursor = CLIENT_IDS.indexOf(id);
-    }
-    // Complete every handshake before any editing.
-    sluice.settle(server);
-    for (const key of Object.keys(sidToId)) delete sidToId[key];
-    for (const id of CLIENT_IDS) {
-      const result = sluice.client_id(server, clients[id].doc);
-      if (result.isOk()) sidToId[result[0] as string] = id;
-    }
-    labelBySn.clear();
-  }
-
-  function render(client: Client) {
+  function renderBoard(client: RigClient) {
     const boardEl = client.el.querySelector("[data-board]");
     if (!boardEl) return;
     boardEl.replaceChildren();
@@ -183,13 +108,13 @@ export function initSudokuDemo() {
           }. Press to write the next digit; Shift plus Enter or Space clears.`,
         );
         button.addEventListener("click", (event) => {
-          if (event.shiftKey) localClear(client.id, row, col);
-          else localCycle(client.id, row, col);
+          if (event.shiftKey) clearCell(client.id, row, col);
+          else cycleCell(client.id, row, col);
         });
         button.addEventListener("keydown", (event) => {
           if ((event.key === "Enter" || event.key === " ") && event.shiftKey) {
             event.preventDefault();
-            localClear(client.id, row, col);
+            clearCell(client.id, row, col);
           }
         });
         boardEl.append(button);
@@ -204,150 +129,33 @@ export function initSudokuDemo() {
     }
   }
 
-  function converged(): boolean {
-    const sigs = CLIENT_IDS.map((id) => canonicalBoard(clients[id]));
-    const identical = sigs.every((s) => s === sigs[0]);
-    const anyPending = CLIENT_IDS.some((id) => clients[id].pending.length > 0);
-    return identical && !anyPending && !sluice.pending(server);
-  }
+  rig = createSluiceRig({
+    rig: "[data-sudoku-rig]",
+    status: "[data-sudoku-status]",
+    section: "#sudoku-demo",
+    control: "sudoku",
+    document: "sudoku-demo",
+    clientIds: CLIENT_IDS,
+    clientLabel: CLIENT_LABEL,
+    setup: (clients) => {
+      for (const id of CLIENT_IDS) clients[id].handle = watershed.root(clients[id].doc);
+    },
+    render: renderBoard,
+    canonical: canonicalBoard,
+  });
+  if (!rig) return;
 
-  function renderStatus() {
-    statusEl.innerHTML = converged()
-      ? '<span class="stamp converged">Converged</span> all boards identical · nothing pending'
-      : '<span class="stamp revising">Revising</span> ops in flight';
-  }
-
-  function stampSeqCounter(seq: number) {
-    seqCounter.textContent = `SN ${seq}`;
-    seqCounter.classList.remove("stamped");
-    void seqCounter.offsetWidth;
-    seqCounter.classList.add("stamped");
-  }
-
-  function logOp(seq: number, authorId: string, label: string) {
-    const li = document.createElement("li");
-    const meta = document.createElement("span");
-    meta.className = "op-meta";
-    meta.textContent = `SN ${seq} · ${CLIENT_LABEL[authorId].replace("Client ", "")}`;
-    const pathEl = document.createElement("span");
-    pathEl.className = "op-path";
-    pathEl.textContent = label;
-    const kindEl = document.createElement("span");
-    kindEl.className = "op-kind";
-    kindEl.textContent = "op";
-    li.append(meta, pathEl, kindEl);
-    opLog.push(li);
-  }
-
-  // Deliver one queued frame, animate its hop, and keep pumping while anything
-  // is still owed to a client.
-  function pump() {
-    if (pumpTimer != null) return;
-    pumpTimer = setTimeout(pumpTick, controls.paced(HOP_MS));
-  }
-
-  function pumpTick() {
-    pumpTimer = null;
-    const delivery = some<{
-      to: string;
-      event: string;
-      sequence_number: number;
-      author: string;
-    }>(sluice.step_info(server));
-    if (delivery == null) {
-      renderStatus();
-      return;
-    }
-
-    const toId = sidToId[delivery.to];
-    if (delivery.event === "op" && toId) {
-      const isEcho = delivery.to === delivery.author;
-      flow.animateDot(
-        seqNode,
-        clients[toId].el,
-        controls.sampleLatency(),
-        true,
-        `SN ${delivery.sequence_number}`,
-      );
-      if (isEcho) {
-        const authorId = sidToId[delivery.author] ?? toId;
-        stampSeqCounter(delivery.sequence_number);
-        logOp(
-          delivery.sequence_number,
-          authorId,
-          labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
-        );
-      }
-      // The frame is already applied to the runtime; refresh that board and
-      // clear its pending marks once it is fully acked.
-      if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
-      render(clients[toId]);
-    }
-
-    renderStatus();
-    if (sluice.pending(server)) pump();
-  }
-
-  function localEdit(client: Client, key: string, label: string) {
-    const sn = sluice.sequence_number(server);
-    labelBySn.set(sn, label);
-    if (!client.pending.includes(key)) client.pending.push(key);
-    render(client);
-    renderStatus();
-    // Submit hop: client → sequencer (the op is already sequenced synchronously).
-    flow.animateDot(client.el, seqNode, controls.sampleLatency(), false, label);
-    pump();
-  }
-
-  function localSet(clientId: string, row: number, col: number, digit: number) {
-    const client = clients[clientId];
-    const key = cellKey(row, col);
-    watershed.set(client.map, key, json.int(digit));
-    localEdit(client, key, `${cellLabel(row, col)} → ${digit}`);
-  }
-
-  function localClear(clientId: string, row: number, col: number) {
-    const client = clients[clientId];
-    const key = cellKey(row, col);
-    watershed.delete$(client.map, key);
-    localEdit(client, key, `${cellLabel(row, col)} clear`);
-  }
-
-  function localCycle(clientId: string, row: number, col: number) {
-    const client = clients[clientId];
-    const value = cellValue(client, row, col);
-    const digit = value == null ? DIGITS[client.cursor % DIGITS.length] : (value % BOARD_SIZE) + 1;
-    client.cursor += 1;
-    localSet(clientId, row, col, digit);
-  }
-
-  raceBtn.addEventListener("click", () => {
+  document.querySelector("[data-sudoku-race]")?.addEventListener("click", () => {
     const { row, col } = RACE_CELL;
-    localSet("a", row, col, 1);
-    localSet("b", row, col, 3);
-    localSet("c", row, col, 4);
+    setCell("a", row, col, 1);
+    setCell("b", row, col, 3);
+    setCell("c", row, col, 4);
   });
-
-  seedBtn.addEventListener("click", () => {
-    localSet("a", 0, 0, 1);
-    localSet("a", 0, 3, 4);
-    localSet("b", 3, 0, 2);
-    localSet("c", 3, 3, 3);
+  document.querySelector("[data-sudoku-seed]")?.addEventListener("click", () => {
+    setCell("a", 0, 0, 1);
+    setCell("a", 0, 3, 4);
+    setCell("b", 3, 0, 2);
+    setCell("c", 3, 3, 3);
   });
-
-  resetBtn.addEventListener("click", () => {
-    if (pumpTimer != null) {
-      clearTimeout(pumpTimer);
-      pumpTimer = null;
-    }
-    boot();
-    seqCounter.textContent = "SN 0";
-    opLog.clear();
-    for (const id of CLIENT_IDS) render(clients[id]);
-    renderStatus();
-  });
-
-  boot();
-  for (const id of CLIENT_IDS) render(clients[id]);
-  renderStatus();
+  document.querySelector("[data-sudoku-reset]")?.addEventListener("click", () => rig?.reset());
 }
