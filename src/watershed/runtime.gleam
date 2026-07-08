@@ -596,14 +596,16 @@ pub fn load_version(
 /// Ask the transport to connect, routing its lifecycle callbacks into actor
 /// messages. Called at startup and on every reconnect.
 fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
-  transport.connect(TransportCallbacks(
-    on_ready: fn(handle) { process.send(runtime, ChannelReady(handle)) },
-    on_event: fn(event, payload) {
-      process.send(runtime, Inbound(event, payload))
-    },
-    on_fail: fn(reason) { process.send(runtime, ChannelFailed(reason)) },
-    on_close: fn(reason) { process.send(runtime, ChannelClosed(reason)) },
-  ))
+  transport.connect(
+    TransportCallbacks(
+      on_ready: fn(handle) { process.send(runtime, ChannelReady(handle)) },
+      on_event: fn(event, payload) {
+        process.send(runtime, Inbound(event, payload))
+      },
+      on_fail: fn(reason) { process.send(runtime, ChannelFailed(reason)) },
+      on_close: fn(reason) { process.send(runtime, ChannelClosed(reason)) },
+    ),
+  )
 }
 
 @target(erlang)
@@ -1269,15 +1271,10 @@ fn handle_inbound(
 
     "nack" -> {
       let nacks =
-        require(
-          decode.run(payload, socket.nacks_decoder()),
-          "nack payload",
-        )
+        require(decode.run(payload, socket.nacks_decoder()), "nack payload")
       case list.any(nacks, nack_is_fatal) {
         True ->
-          panic as {
-            "fatal nack from server: " <> string.inspect(payload)
-          }
+          panic as { "fatal nack from server: " <> string.inspect(payload) }
         False ->
           case state.phase {
             Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
@@ -1314,10 +1311,7 @@ fn settle_reconnect(
 @target(erlang)
 fn op_message(payload: Dynamic) -> List(SequencedDocumentMessage) {
   let message =
-    require(
-      decode.run(payload, socket.op_message_decoder()),
-      "op payload",
-    )
+    require(decode.run(payload, socket.op_message_decoder()), "op payload")
   message.ops
 }
 

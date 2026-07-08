@@ -202,9 +202,7 @@ pub fn claims_first_writer_wins_test() {
 }
 
 @target(erlang)
-fn await_claim(
-  reply: runtime.ClaimSubmitReply,
-) -> claims_kernel.ClaimOutcome {
+fn await_claim(reply: runtime.ClaimSubmitReply) -> claims_kernel.ClaimOutcome {
   let assert runtime.Pending(outcome) = reply
   let assert Ok(resolved) = process.receive(from: outcome, within: 5000)
   resolved

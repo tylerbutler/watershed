@@ -35,14 +35,14 @@ import watershed_js
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A running in-memory server for one document.
 @target(javascript)
+/// A running in-memory server for one document.
 pub opaque type Sluice {
   Sluice(cell: Cell(State), tenant: String, document: String)
 }
 
-/// Start a sluice for one document.
 @target(javascript)
+/// Start a sluice for one document.
 pub fn start(tenant tenant: String, document document: String) -> Sluice {
   Sluice(
     cell: transport_js.new_cell(State(
@@ -55,9 +55,9 @@ pub fn start(tenant tenant: String, document document: String) -> Sluice {
   )
 }
 
+@target(javascript)
 /// Connect a fresh client, returning a real `watershed_js.Document`. The
 /// handshake completes on the next `settle` (delivery is explicit).
-@target(javascript)
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
@@ -77,10 +77,7 @@ pub fn connect(
   let state = transport_js.get_cell(sluice.cell)
   case state.last_registered {
     Some(client_id) -> {
-      transport_js.set_cell(
-        sluice.cell,
-        State(..state, last_registered: None),
-      )
+      transport_js.set_cell(sluice.cell, State(..state, last_registered: None))
       case find_conn(state.conns, client_id) {
         Ok(conn) -> conn.on_join()
         Error(_) -> Nil
@@ -91,16 +88,16 @@ pub fn connect(
   document
 }
 
+@target(javascript)
 /// Deliver queued frames until the system is quiescent. Synchronous: each
 /// delivery's reaction is pushed back into the core before the next iteration.
-@target(javascript)
 pub fn settle(sluice: Sluice) -> Nil {
   drain(sluice.cell)
 }
 
+@target(javascript)
 /// Deliver exactly one queued frame (to a non-paused client), returning `False`
 /// when nothing was deliverable.
-@target(javascript)
 pub fn step(sluice: Sluice) -> Bool {
   let state = transport_js.get_cell(sluice.cell)
   case core.take(state.core) {
@@ -116,9 +113,9 @@ pub fn step(sluice: Sluice) -> Bool {
   }
 }
 
+@target(javascript)
 /// Advance the sluice's logical clock, so TTL-based logic (presence prune) is
 /// testable without real time passing.
-@target(javascript)
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   transport_js.set_cell(
@@ -193,7 +190,12 @@ fn register(
 }
 
 @target(javascript)
-fn push(cell: Cell(State), client_id: String, event: String, payload: Json) -> Nil {
+fn push(
+  cell: Cell(State),
+  client_id: String,
+  event: String,
+  payload: Json,
+) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(
     cell,
@@ -223,16 +225,19 @@ type State {
 }
 
 @target(javascript)
-fn find_conn(conns: List(#(String, Conn)), client_id: String) -> Result(Conn, Nil) {
+fn find_conn(
+  conns: List(#(String, Conn)),
+  client_id: String,
+) -> Result(Conn, Nil) {
   case list.key_find(conns, client_id) {
     Ok(conn) -> Ok(conn)
     Error(_) -> Error(Nil)
   }
 }
 
+@target(javascript)
 /// Serialize a queued `Json` frame and re-parse it as `Dynamic` — the exact
 /// trip a frame takes over a real socket before the runtime decodes it.
-@target(javascript)
 fn to_dynamic(payload: Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   dynamic

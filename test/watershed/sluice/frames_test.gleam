@@ -154,7 +154,10 @@ pub fn encode_connected_is_decodable_test() {
       document_id: "dice",
       scopes: ["doc:read", "doc:write"],
       checkpoint_sequence_number: 2,
-      initial_messages: [a_sequenced(1, 1, "sluice-client-0"), a_sequenced(2, 1, "sluice-client-1")],
+      initial_messages: [
+        a_sequenced(1, 1, "sluice-client-0"),
+        a_sequenced(2, 1, "sluice-client-1"),
+      ],
       timestamp: 1000,
     )
   let assert Ok(connected) =

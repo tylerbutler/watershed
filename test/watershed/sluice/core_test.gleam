@@ -12,7 +12,7 @@ import startest/expect
 import spillway/message
 import spillway/types
 
-import watershed/sluice/core.{type Sluice, type Outbound}
+import watershed/sluice/core.{type Outbound, type Sluice}
 import watershed/wire
 import watershed/wire/socket
 
@@ -61,7 +61,8 @@ fn connect_message() -> message.ConnectMessage {
 fn connect(sluice: Sluice, last_seen: option.Option(Int)) -> #(Sluice, String) {
   let #(sluice, client_id) = core.register(sluice)
   let payload = socket.encode_connect_document(connect_message(), last_seen)
-  let sluice = core.handle(sluice, client_id, "connect_document", to_dynamic(payload))
+  let sluice =
+    core.handle(sluice, client_id, "connect_document", to_dynamic(payload))
   #(sluice, client_id)
 }
 
@@ -114,7 +115,10 @@ pub fn connect_replies_with_connected_frame_test() {
   frame.event |> expect.to_equal("connect_document_success")
 
   let assert Ok(connected) =
-    json.parse(json.to_string(frame.payload), socket.connected_message_decoder())
+    json.parse(
+      json.to_string(frame.payload),
+      socket.connected_message_decoder(),
+    )
   connected.client_id |> expect.to_equal(client_id)
   connected.checkpoint_sequence_number |> expect.to_equal(Some(0))
 }
@@ -172,9 +176,11 @@ pub fn reconnect_catch_up_replays_exactly_the_gap_test() {
 
   let assert [frame] = frames
   let assert Ok(connected) =
-    json.parse(json.to_string(frame.payload), socket.connected_message_decoder())
-  let sns =
-    list.map(connected.initial_messages, fn(op) { op.sequence_number })
+    json.parse(
+      json.to_string(frame.payload),
+      socket.connected_message_decoder(),
+    )
+  let sns = list.map(connected.initial_messages, fn(op) { op.sequence_number })
   sns |> expect.to_equal([2, 3])
   connected.checkpoint_sequence_number |> expect.to_equal(Some(3))
 }

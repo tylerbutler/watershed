@@ -185,7 +185,8 @@ fn submit_signal_decoder() -> Decoder(SignalSubmission) {
         content: first.0,
         signal_type: first.1,
       ))
-    [] -> decode.failure(SignalSubmission(client_id, json.null(), None), "signal")
+    [] ->
+      decode.failure(SignalSubmission(client_id, json.null(), None), "signal")
   }
 }
 
@@ -286,7 +287,10 @@ pub fn encode_sequenced(op: Sequenced) -> Json {
 /// Build a `signal` broadcast (inverse of `socket.ripple_message_decoder`).
 /// levee strips the ripple `type` on broadcast for Fluid compatibility, so it
 /// is deliberately omitted; consumers discriminate on the content envelope.
-pub fn encode_signal(from_client from_client: String, content content: Json) -> Json {
+pub fn encode_signal(
+  from_client from_client: String,
+  content content: Json,
+) -> Json {
   json.object([
     #("clientId", json.string(from_client)),
     #("content", content),
@@ -302,7 +306,11 @@ const block_size = 65_536
 
 const max_message_size = 16_384
 
-fn run(payload: Dynamic, decoder: Decoder(a), what: String) -> Result(a, String) {
+fn run(
+  payload: Dynamic,
+  decoder: Decoder(a),
+  what: String,
+) -> Result(a, String) {
   decode.run(payload, decoder)
   |> result.map_error(fn(_) { "malformed " <> what })
 }

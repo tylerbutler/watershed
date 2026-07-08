@@ -206,11 +206,13 @@ pub fn start_with_transport(
     ))
 
   let handle =
-    transport.connect(TransportCallbacks(
-      on_event: fn(event, payload) { on_event(cell, event, payload) },
-      on_join: fn() { on_join(cell) },
-      on_close: fn() { on_close(cell) },
-    ))
+    transport.connect(
+      TransportCallbacks(
+        on_event: fn(event, payload) { on_event(cell, event, payload) },
+        on_join: fn() { on_join(cell) },
+        on_close: fn() { on_close(cell) },
+      ),
+    )
 
   cell_set(cell, State(..cell_get(cell), channel: Some(handle)))
   Runtime(cell: cell)

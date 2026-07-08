@@ -52,15 +52,15 @@ const call_timeout_ms = 5000
 // Public API
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A running in-memory server for one document.
 @target(erlang)
+/// A running in-memory server for one document.
 pub opaque type Sluice {
   Sluice(actor: Subject(Message), tenant: String, document: String)
 }
 
+@target(erlang)
 /// Start a sluice for one document. `tenant`/`document` name the logical
 /// document the way `watershed.connect` would.
-@target(erlang)
 pub fn start(
   tenant tenant: String,
   document document: String,
@@ -78,10 +78,10 @@ pub fn start(
   })
 }
 
+@target(erlang)
 /// Connect a fresh client, returning a real `watershed.Document`. The handshake
 /// completes on the next `settle` (delivery is explicit), so callers connect
 /// every client, then `settle` once before editing.
-@target(erlang)
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
@@ -109,18 +109,18 @@ pub fn connect(
   }
 }
 
+@target(erlang)
 /// Deliver queued frames until the system is quiescent: every pending op has
 /// reached every client and no client has produced new ops in response.
-@target(erlang)
 pub fn settle(sluice: Sluice) -> Nil {
   barrier_all(sluice)
   drain(sluice)
 }
 
+@target(erlang)
 /// Deliver exactly one queued frame (to a non-paused client), returning `False`
 /// when nothing was deliverable. The building block for scripted races:
 /// `pause` one client, then `step` to release another's op first.
-@target(erlang)
 pub fn step(sluice: Sluice) -> Bool {
   barrier_all(sluice)
   case take_and_deliver(sluice) {
@@ -132,9 +132,9 @@ pub fn step(sluice: Sluice) -> Bool {
   }
 }
 
+@target(erlang)
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered.
-@target(erlang)
 pub fn pause(sluice: Sluice, document: watershed.Document) -> Nil {
   let subject = watershed.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -142,8 +142,8 @@ pub fn pause(sluice: Sluice, document: watershed.Document) -> Nil {
   })
 }
 
-/// Release a paused client's held frames back into the deliverable queue.
 @target(erlang)
+/// Release a paused client's held frames back into the deliverable queue.
 pub fn resume(sluice: Sluice, document: watershed.Document) -> Nil {
   let subject = watershed.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -151,9 +151,9 @@ pub fn resume(sluice: Sluice, document: watershed.Document) -> Nil {
   })
 }
 
+@target(erlang)
 /// Advance the sluice's logical clock, so TTL-based logic (presence prune) is
 /// testable without real time passing.
-@target(erlang)
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Advance(ms, reply)
@@ -182,10 +182,10 @@ fn take_and_deliver(sluice: Sluice) -> Bool {
   })
 }
 
+@target(erlang)
 /// Flush every connected runtime's mailbox. A synchronous call returns only
 /// after the actor has processed all prior messages, so any pending edit has
 /// synchronously pushed its op into the core by the time this returns.
-@target(erlang)
 fn barrier_all(sluice: Sluice) -> Nil {
   let subjects =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: Subjects)
@@ -341,9 +341,9 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 // Internals
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 /// Serialize a queued `Json` frame and re-parse it as `Dynamic` — the exact
 /// trip a frame takes over a real socket before the runtime decodes it.
-@target(erlang)
 fn to_dynamic(payload: Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   dynamic
@@ -361,10 +361,7 @@ fn client_id_of(
 }
 
 @target(erlang)
-fn result_map(
-  result: Result(a, e),
-  transform: fn(a) -> b,
-) -> Result(b, e) {
+fn result_map(result: Result(a, e), transform: fn(a) -> b) -> Result(b, e) {
   case result {
     Ok(value) -> Ok(transform(value))
     Error(error) -> Error(error)

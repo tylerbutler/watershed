@@ -61,7 +61,10 @@ pub opaque type Sluice {
 
 /// A fresh sluice for one document. `now_ms` starts at 0 and only moves via
 /// `advance`, so TTL logic (presence prune) is testable without sleeping.
-pub fn new(tenant_id tenant_id: String, document_id document_id: String) -> Sluice {
+pub fn new(
+  tenant_id tenant_id: String,
+  document_id document_id: String,
+) -> Sluice {
   Sluice(
     document_id: document_id,
     tenant_id: tenant_id,
@@ -99,7 +102,10 @@ pub fn advance(sluice: Sluice, ms: Int) -> Sluice {
 /// this just mints the id the driver keys the link by.
 pub fn register(sluice: Sluice) -> #(Sluice, String) {
   let client_id = "sluice-client-" <> int.to_string(sluice.next_client_number)
-  #(Sluice(..sluice, next_client_number: sluice.next_client_number + 1), client_id)
+  #(
+    Sluice(..sluice, next_client_number: sluice.next_client_number + 1),
+    client_id,
+  )
 }
 
 /// Drop a client: remove it from the sequencer's MSN calculation and from the
@@ -148,7 +154,11 @@ pub fn handle(
   }
 }
 
-fn on_connect_document(sluice: Sluice, client_id: String, payload: Dynamic) -> Sluice {
+fn on_connect_document(
+  sluice: Sluice,
+  client_id: String,
+  payload: Dynamic,
+) -> Sluice {
   case frames.decode_connect_document(payload) {
     Error(_) -> sluice
     Ok(request) -> {
@@ -185,13 +195,19 @@ fn on_submit_op(sluice: Sluice, payload: Dynamic) -> Sluice {
     Error(_) -> sluice
     Ok(submit) ->
       list.flatten(submit.batches)
-      |> list.fold(sluice, fn(sluice, op) { sequence_op(sluice, submit.client_id, op) })
+      |> list.fold(sluice, fn(sluice, op) {
+        sequence_op(sluice, submit.client_id, op)
+      })
   }
 }
 
 /// Assign a sequence number to one op and broadcast it to every connected
 /// client — including the author, whose echo is the ack its kernel awaits.
-fn sequence_op(sluice: Sluice, client_id: String, op: frames.SubmittedOp) -> Sluice {
+fn sequence_op(
+  sluice: Sluice,
+  client_id: String,
+  op: frames.SubmittedOp,
+) -> Sluice {
   case
     sequencing.assign_sequence_number(
       sluice.seq,
@@ -221,7 +237,11 @@ fn sequence_op(sluice: Sluice, client_id: String, op: frames.SubmittedOp) -> Slu
   }
 }
 
-fn on_request_ops(sluice: Sluice, client_id: String, payload: Dynamic) -> Sluice {
+fn on_request_ops(
+  sluice: Sluice,
+  client_id: String,
+  payload: Dynamic,
+) -> Sluice {
   case frames.decode_request_ops(payload) {
     Error(_) -> sluice
     Ok(from) -> {
@@ -260,7 +280,9 @@ fn on_signal(sluice: Sluice, payload: Dynamic) -> Sluice {
       // ripple), stripping the `type` tag the way levee does.
       connected_ids(sluice)
       |> list.filter(fn(id) { id != signal.client_id })
-      |> list.fold(sluice, fn(sluice, id) { enqueue(sluice, id, "signal", frame) })
+      |> list.fold(sluice, fn(sluice, id) {
+        enqueue(sluice, id, "signal", frame)
+      })
     }
   }
 }
@@ -281,7 +303,9 @@ pub fn take(sluice: Sluice) -> #(Sluice, Option(Outbound)) {
 
 /// Whether any frame is deliverable right now (a non-paused client is owed one).
 pub fn has_pending(sluice: Sluice) -> Bool {
-  list.any(sluice.outbox, fn(frame) { !set.contains(sluice.paused, frame.client_id) })
+  list.any(sluice.outbox, fn(frame) {
+    !set.contains(sluice.paused, frame.client_id)
+  })
 }
 
 /// Every frame currently queued, oldest first (paused or not). For assertions
@@ -304,7 +328,12 @@ pub fn sequence_number(sluice: Sluice) -> Int {
 // Internals
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn enqueue(sluice: Sluice, client_id: String, event: String, payload: Json) -> Sluice {
+fn enqueue(
+  sluice: Sluice,
+  client_id: String,
+  event: String,
+  payload: Json,
+) -> Sluice {
   Sluice(
     ..sluice,
     outbox: list.append(sluice.outbox, [Outbound(client_id, event, payload)]),
