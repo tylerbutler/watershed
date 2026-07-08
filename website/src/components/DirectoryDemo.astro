@@ -10,14 +10,15 @@ const clients = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="dir-demo-title">A shared folder tree, live</h2>
     <p>
-      All three clients edit one shared directory through watershed’s real
-      <code>directory_kernel</code> — a byte-compatible port of Fluid
-      Framework’s <code>SharedDirectory</code>: a recursive
-      <code>SharedMap</code> where every folder holds its own key/value
-      readings <em>and</em> a set of named child folders. It’s compiled to
-      JavaScript and running in your browser. Local edits are drawn in
-      <strong class="k-pending">magenta</strong> until the sequencer stamps
-      them; server-sequenced state is <strong class="k-seq">ink</strong>.
+      All three clients are real <code>watershed</code> documents sharing one
+      <code>SharedDirectory</code> — a recursive <code>SharedMap</code> where
+      every folder holds its own key/value readings <em>and</em> a set of named
+      child folders. One client creates it and shares the handle; the others
+      resolve it. They talk to one <code>sluice</code>, the in-memory server
+      that ships in the library for deterministic tests — the real runtime, no
+      backend. Local edits are drawn in
+      <strong class="k-pending">magenta</strong> until the sluice stamps them;
+      server-sequenced state is <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
       Add folders and readings on any client, delete a folder, or press
@@ -144,14 +145,16 @@ const clients = [
   <noscript>
     <p class="demo-noscript">
       The live demo needs JavaScript — it runs watershed’s actual
-      <code>directory_kernel</code> as a compiled JavaScript module in your
+      the real watershed runtime and the in-memory <code>sluice</code> as
+      compiled JavaScript in your
       browser. The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-dir-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s SharedDirectory kernel as
-    compiled JavaScript, and this browser didn’t load it. The rest of the page
+    The live demo couldn’t start — it runs the real watershed runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page
     works fine without it.
   </p>
 </section>
