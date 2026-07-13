@@ -71,6 +71,38 @@ pub fn map_lww_converges_test() {
 }
 
 @target(javascript)
+pub fn diagnostics_track_pending_and_sequenced_ops_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "diagnostics-js")
+  let doc = sluice_js.connect(sluice, "user-a")
+
+  let connecting = watershed_js.diagnostics(doc)
+  connecting.phase |> expect.to_equal("connecting")
+  connecting.synced |> expect.to_be_false()
+
+  sluice_js.settle(sluice)
+  let ready = watershed_js.diagnostics(doc)
+  ready.phase |> expect.to_equal("ready")
+  ready.last_seen_sequence_number |> expect.to_equal(Some(0))
+  ready.next_client_sequence_number |> expect.to_equal(Some(1))
+  ready.in_flight_count |> expect.to_equal(0)
+  ready.buffered_out_of_order_count |> expect.to_equal(0)
+  ready.synced |> expect.to_be_true()
+
+  watershed_js.set(watershed_js.root(doc), "k", json.int(1))
+  let pending = watershed_js.diagnostics(doc)
+  pending.last_seen_sequence_number |> expect.to_equal(Some(0))
+  pending.next_client_sequence_number |> expect.to_equal(Some(2))
+  pending.in_flight_count |> expect.to_equal(1)
+  pending.synced |> expect.to_be_false()
+
+  sluice_js.settle(sluice)
+  let sequenced = watershed_js.diagnostics(doc)
+  sequenced.last_seen_sequence_number |> expect.to_equal(Some(1))
+  sequenced.in_flight_count |> expect.to_equal(0)
+  sequenced.synced |> expect.to_be_true()
+}
+
+@target(javascript)
 pub fn pause_holds_delivery_until_resume_test() {
   let sluice = sluice_js.start(tenant: "default", document: "pause-js")
   let doc_a = sluice_js.connect(sluice, "user-a")

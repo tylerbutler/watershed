@@ -43,6 +43,25 @@ Open **two** browser tabs on <http://localhost:8080>. Roll in one; the other
 updates. Hit **Force reconnect** and keep rolling — nothing is lost or
 duplicated. Each tab is a distinct client (random user id).
 
+## Debugging divergence
+
+Each tab includes a **Diagnostics** panel and writes the same trace to the
+browser console. When two tabs disagree, preserve both console logs and compare:
+
+- `phase`: a tab stuck in `reconnecting` or `catching-up` has not reconciled.
+- `sn`: both quiescent tabs should reach the same last-seen sequence number.
+- `in_flight`: local edits still awaiting their sequenced acknowledgement.
+- `buffered`: out-of-order ops waiting for a missing sequence number.
+- `resubmit_at`: the reconnect checkpoint that must be reached before pending
+  edits are restamped and resubmitted.
+- `client`: changes after reconnect; use it with local/remote map event lines to
+  identify which connection authored an operation.
+
+In DevTools, enable **Preserve log**, reproduce the problem, then capture the
+WebSocket frames alongside the console output. A useful failure report includes
+both tabs' diagnostic logs, the first sequence number where `sn` differs, and
+whether either tab has nonzero `in_flight` or `buffered`.
+
 > The demo mints an HS256 dev JWT in the browser using levee's dev secret. This
 > is for local dev only; a real deployment issues tokens from a backend and
 > never ships the tenant secret to the client.

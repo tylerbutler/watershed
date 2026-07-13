@@ -120,6 +120,11 @@ pub opaque type Document {
 }
 
 @target(javascript)
+/// Read-only connection and sequencing state for diagnostics and example UIs.
+pub type Diagnostics =
+  runtime_js.Diagnostics
+
+@target(javascript)
 pub opaque type SharedMap {
   SharedMap(runtime: runtime_js.Runtime, address: String)
 }
@@ -2274,6 +2279,12 @@ pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
 /// Useful to wait for quiescence before summarizing.
 pub fn is_synced(document: Document) -> Bool {
   runtime_js.is_synced(document.runtime)
+}
+
+@target(javascript)
+/// Snapshot the document runtime's connection and sequencing state.
+pub fn diagnostics(document: Document) -> Diagnostics {
+  runtime_js.diagnostics(document.runtime)
 }
 
 @target(javascript)

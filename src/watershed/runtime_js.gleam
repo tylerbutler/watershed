@@ -161,6 +161,21 @@ pub opaque type Runtime {
 }
 
 @target(javascript)
+/// Read-only runtime state intended for diagnostics and example tooling.
+pub type Diagnostics {
+  Diagnostics(
+    phase: String,
+    client_id: Option(String),
+    last_seen_sequence_number: Option(Int),
+    next_client_sequence_number: Option(Int),
+    in_flight_count: Int,
+    buffered_out_of_order_count: Int,
+    resubmit_checkpoint: Option(Int),
+    synced: Bool,
+  )
+}
+
+@target(javascript)
 /// Start a runtime: open the Phoenix socket, join the topic, and begin the
 /// handshake. `on_ready` fires once with `Ok(Nil)` when the document has
 /// bootstrapped, or `Error(reason)` if the connection is rejected.
@@ -1168,7 +1183,65 @@ pub fn close(runtime: Runtime) -> Nil {
 /// Whether the document is fully caught up: every local edit has been
 /// acknowledged by the server, so the confirmed state is complete and stable.
 pub fn is_synced(runtime: Runtime) -> Bool {
-  read(runtime.cell, False, runtime_core.is_synced)
+  case cell_get(runtime.cell).phase {
+    Ready(core, None) -> runtime_core.is_synced(core)
+    _ -> False
+  }
+}
+
+@target(javascript)
+/// Snapshot connection and sequencing state for diagnostics. This does not
+/// mutate the runtime and is safe to poll from a debug UI.
+pub fn diagnostics(runtime: Runtime) -> Diagnostics {
+  case cell_get(runtime.cell).phase {
+    Connecting ->
+      Diagnostics(
+        phase: "connecting",
+        client_id: None,
+        last_seen_sequence_number: None,
+        next_client_sequence_number: None,
+        in_flight_count: 0,
+        buffered_out_of_order_count: 0,
+        resubmit_checkpoint: None,
+        synced: False,
+      )
+    Reconnecting(core) ->
+      diagnostics_from_core(core, "reconnecting", None, False)
+    Ready(core, Some(checkpoint)) ->
+      diagnostics_from_core(core, "catching-up", Some(checkpoint), False)
+    Ready(core, None) ->
+      diagnostics_from_core(core, "ready", None, runtime_core.is_synced(core))
+    Failed(reason) ->
+      Diagnostics(
+        phase: "failed: " <> reason,
+        client_id: None,
+        last_seen_sequence_number: None,
+        next_client_sequence_number: None,
+        in_flight_count: 0,
+        buffered_out_of_order_count: 0,
+        resubmit_checkpoint: None,
+        synced: False,
+      )
+  }
+}
+
+@target(javascript)
+fn diagnostics_from_core(
+  core: runtime_core.Core,
+  phase: String,
+  checkpoint: Option(Int),
+  synced: Bool,
+) -> Diagnostics {
+  Diagnostics(
+    phase: phase,
+    client_id: Some(core.client_id),
+    last_seen_sequence_number: Some(core.last_seen_sn),
+    next_client_sequence_number: Some(core.next_csn),
+    in_flight_count: list.length(core.in_flight),
+    buffered_out_of_order_count: list.length(core.out_of_order),
+    resubmit_checkpoint: checkpoint,
+    synced: synced,
+  )
 }
 
 @target(javascript)
