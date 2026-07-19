@@ -13,9 +13,9 @@ const CLIENT_LABEL: Record<string, string> = {
   b: "Client B",
   c: "Client C",
 };
-const BOARD_SIZE = 4;
-const DIGITS = [1, 2, 3, 4];
-const RACE_CELL = { row: 1, col: 1 };
+const BOARD_SIZE = 9;
+const DIGITS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const RACE_CELL = { row: 4, col: 4 };
 
 function cellKey(row: number, col: number): string {
   return `r${row}c${col}`;
@@ -44,6 +44,20 @@ function canonicalBoard(client: RigClient): string {
     }
   }
   return JSON.stringify(cells);
+}
+
+function eventCell(event: Event): HTMLButtonElement | null {
+  const target = event.target;
+  if (!(target instanceof Element)) return null;
+  const cell = target.closest(".sudoku-cell");
+  return cell instanceof HTMLButtonElement ? cell : null;
+}
+
+function cellPosition(cell: HTMLButtonElement): { row: number; col: number } | null {
+  const row = Number(cell.dataset.row);
+  const col = Number(cell.dataset.col);
+  if (!Number.isInteger(row) || !Number.isInteger(col)) return null;
+  return { row, col };
 }
 
 export function initSudokuDemo() {
@@ -82,43 +96,121 @@ export function initSudokuDemo() {
     setCell(clientId, row, col, digit);
   }
 
-  function renderBoard(client: RigClient) {
-    const boardEl = client.el.querySelector("[data-board]");
-    if (!boardEl) return;
-    boardEl.replaceChildren();
+  function focusCell(boardEl: HTMLElement, row: number, col: number) {
+    const boundedRow = Math.max(0, Math.min(BOARD_SIZE - 1, row));
+    const boundedCol = Math.max(0, Math.min(BOARD_SIZE - 1, col));
+    const next = boardEl.querySelector(
+      `[data-row="${boundedRow}"][data-col="${boundedCol}"]`,
+    );
+    if (next instanceof HTMLButtonElement) next.focus();
+  }
 
+  function buildBoard(client: RigClient, boardEl: HTMLElement) {
+    if (boardEl.childElementCount === BOARD_SIZE * BOARD_SIZE) return;
+
+    const fragment = document.createDocumentFragment();
     for (let row = 0; row < BOARD_SIZE; row += 1) {
       for (let col = 0; col < BOARD_SIZE; col += 1) {
-        const key = cellKey(row, col);
-        const value = cellValue(client, row, col);
-        const pending = client.pending.includes(key);
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "sudoku-cell";
+        button.className = "sudoku-cell is-empty";
         button.dataset.row = String(row);
         button.dataset.col = String(col);
-        button.textContent = value == null ? "·" : String(value);
-        button.classList.toggle("is-empty", value == null);
-        button.classList.toggle("k-pending", pending);
-        button.classList.toggle("k-seq", !pending && value != null);
-        button.setAttribute(
-          "aria-label",
-          `${CLIENT_LABEL[client.id]} ${cellLabel(row, col)} ${
-            value == null ? "empty" : `digit ${value}`
-          }. Press to write the next digit; Shift plus Enter or Space clears.`,
-        );
-        button.addEventListener("click", (event) => {
-          if (event.shiftKey) clearCell(client.id, row, col);
-          else cycleCell(client.id, row, col);
-        });
-        button.addEventListener("keydown", (event) => {
-          if ((event.key === "Enter" || event.key === " ") && event.shiftKey) {
-            event.preventDefault();
-            clearCell(client.id, row, col);
-          }
-        });
-        boardEl.append(button);
+        button.setAttribute("role", "gridcell");
+        button.setAttribute("aria-rowindex", String(row + 1));
+        button.setAttribute("aria-colindex", String(col + 1));
+        button.tabIndex = row === 0 && col === 0 ? 0 : -1;
+        fragment.append(button);
       }
+    }
+    boardEl.replaceChildren(fragment);
+
+    boardEl.addEventListener("focusin", (event) => {
+      const focused = eventCell(event);
+      if (!focused) return;
+      for (const cell of boardEl.querySelectorAll(".sudoku-cell")) {
+        if (cell instanceof HTMLButtonElement) {
+          cell.tabIndex = cell === focused ? 0 : -1;
+        }
+      }
+    });
+    boardEl.addEventListener("click", (event) => {
+      const cell = eventCell(event);
+      const position = cell ? cellPosition(cell) : null;
+      if (!position) return;
+      if (event.shiftKey) clearCell(client.id, position.row, position.col);
+      else cycleCell(client.id, position.row, position.col);
+    });
+    boardEl.addEventListener("keydown", (event) => {
+      if (!(event instanceof KeyboardEvent)) return;
+      const cell = eventCell(event);
+      const position = cell ? cellPosition(cell) : null;
+      if (!position) return;
+
+      if (
+        /^[1-9]$/.test(event.key) &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        event.preventDefault();
+        setCell(client.id, position.row, position.col, Number(event.key));
+        return;
+      }
+      if (event.key === "Delete" || event.key === "Backspace" || event.key === "0") {
+        event.preventDefault();
+        clearCell(client.id, position.row, position.col);
+        return;
+      }
+      if ((event.key === "Enter" || event.key === " ") && event.shiftKey) {
+        event.preventDefault();
+        clearCell(client.id, position.row, position.col);
+        return;
+      }
+
+      const moves: Record<string, { row: number; col: number }> = {
+        ArrowUp: { row: position.row - 1, col: position.col },
+        ArrowDown: { row: position.row + 1, col: position.col },
+        ArrowLeft: { row: position.row, col: position.col - 1 },
+        ArrowRight: { row: position.row, col: position.col + 1 },
+        Home: {
+          row: event.ctrlKey ? 0 : position.row,
+          col: 0,
+        },
+        End: {
+          row: event.ctrlKey ? BOARD_SIZE - 1 : position.row,
+          col: BOARD_SIZE - 1,
+        },
+      };
+      const next = moves[event.key];
+      if (!next) return;
+      event.preventDefault();
+      focusCell(boardEl, next.row, next.col);
+    });
+  }
+
+  function renderBoard(client: RigClient) {
+    const boardEl = client.el.querySelector("[data-board]");
+    if (!(boardEl instanceof HTMLElement)) return;
+    buildBoard(client, boardEl);
+
+    for (const button of boardEl.querySelectorAll(".sudoku-cell")) {
+      if (!(button instanceof HTMLButtonElement)) continue;
+      const position = cellPosition(button);
+      if (!position) continue;
+      const key = cellKey(position.row, position.col);
+      const value = cellValue(client, position.row, position.col);
+      const pending = client.pending.includes(key);
+      button.textContent = value == null ? "·" : String(value);
+      button.classList.toggle("is-empty", value == null);
+      button.classList.toggle("k-pending", pending);
+      button.classList.toggle("k-seq", !pending && value != null);
+      button.setAttribute(
+        "aria-label",
+        `${CLIENT_LABEL[client.id]} row ${position.row + 1}, column ${
+          position.col + 1
+        }, ${value == null ? "empty" : `digit ${value}`}. Type 1 through 9 to set; Delete clears.`,
+      );
     }
 
     const count = client.pending.length;
@@ -148,14 +240,14 @@ export function initSudokuDemo() {
   document.querySelector("[data-sudoku-race]")?.addEventListener("click", () => {
     const { row, col } = RACE_CELL;
     setCell("a", row, col, 1);
-    setCell("b", row, col, 3);
-    setCell("c", row, col, 4);
+    setCell("b", row, col, 5);
+    setCell("c", row, col, 9);
   });
   document.querySelector("[data-sudoku-seed]")?.addEventListener("click", () => {
-    setCell("a", 0, 0, 1);
-    setCell("a", 0, 3, 4);
-    setCell("b", 3, 0, 2);
-    setCell("c", 3, 3, 3);
+    setCell("a", 0, 0, 5);
+    setCell("a", 0, 8, 9);
+    setCell("b", 8, 0, 8);
+    setCell("c", 8, 8, 2);
   });
   document.querySelector("[data-sudoku-reset]")?.addEventListener("click", () => rig?.reset());
 }
