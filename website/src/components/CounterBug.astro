@@ -2,8 +2,10 @@
 // The counter-in-a-map bug: a live, real-`map_kernel` demonstration of the
 // classic distributed-systems lost update. Two lock gauge houses keep one
 // running tally in a SharedMap; concurrent read-modify-write drops a boat under
-// last-write-wins. A second live rig (per-replica keys) shows the fix. Both run
-// watershed's real JS-compiled Gleam kernel; rough-notation draws the attention.
+// last-write-wins. A second rig (per-replica keys summed — the PN-counter
+// construction) shows why commuting writes converge, and a third runs the real
+// `counter_kernel` (SharedCounter): signed delta ops, no reads at all. All rigs
+// run watershed's JS-compiled Gleam kernels; rough-notation draws the attention.
 ---
 
 <section id="counter-bug" class="cb" aria-label="The counter-in-a-map bug, demonstrated">
@@ -94,14 +96,14 @@
 
     <!-- ── the fix ───────────────────────────────────────────────────────── -->
     <div class="cb-fix-copy">
-      <p class="annot">The fix · make the writes commute</p>
+      <p class="annot">Fix one · make the writes commute</p>
       <p>
         Nothing is wrong with the map — a counter just is not a single mutable
         cell. Give each replica its own key and sum them, and the two writes
         never contend. The <em>same</em> race now converges on the right total,
-        through the <em>same</em> <code>map_kernel</code>. That accounting is
-        exactly what watershed's <a href="/structures/counters">SharedCounter</a>
-        does for you: increments are commutative deltas, not overwrites.
+        through the <em>same</em> <code>map_kernel</code>. This is the classic
+        per-replica-column construction (a PN-counter): it proves the principle
+        that only commuting writes survive concurrency.
       </p>
     </div>
 
@@ -177,6 +179,91 @@
           </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
             Play the fix
+          </button>
+          <button type="button" class="cb-btn" data-reset>Reset</button>
+        </div>
+      </div>
+    </figure>
+
+    <!-- ── the SharedCounter fix ─────────────────────────────────────────── -->
+    <div class="cb-fix-copy">
+      <p class="annot">Fix two · ship the delta</p>
+      <p>
+        Watershed's <a href="/structures/counters">SharedCounter</a> goes
+        further: the op <em>is</em> the delta. A client never reads the tally to
+        write it back — it sends <code>increment(+1)</code>, or
+        <code>increment(−1)</code> for a correction, and signed deltas sum the
+        same in any order. This rig runs the real
+        <code>counter_kernel</code> — the SharedCounter engine itself, not a
+        map at all.
+      </p>
+    </div>
+
+    <figure
+      class="cb-rig cb-rig-fix"
+      data-counter-bug="counter"
+      data-caption-idle="Press “Play the SharedCounter fix” to run the same race — plus a −1 correction — through the real counter_kernel."
+      data-state="idle"
+    >
+      <figcaption class="cb-rig-label annot">
+        <span class="cb-badge cb-badge-fix">SharedCounter · signed delta ops</span>
+        <code>counter_kernel · boats-locked</code>
+      </figcaption>
+
+      <div class="cb-stage">
+        <div class="cb-house" data-house="a">
+          <header><h3>Upstream house</h3><span class="annot">Client A</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked</span>
+            <span class="cb-value" data-cell="a">41</span>
+          </div>
+        </div>
+
+        <div class="cb-seq-col" aria-hidden="true">
+          <span class="annot">sequencer</span>
+          <div class="cb-seq" data-seq></div>
+        </div>
+
+        <div class="cb-house" data-house="b">
+          <header><h3>Downstream house</h3><span class="annot">Client B</span></header>
+          <div class="cb-tally">
+            <span class="annot">boats-locked</span>
+            <span class="cb-value" data-cell="b">41</span>
+          </div>
+        </div>
+      </div>
+
+      <p class="cb-caption" data-caption aria-live="polite"></p>
+
+      <div class="cb-verdict cb-verdict-fix" data-verdict hidden>
+        <div class="cb-figure">
+          <span class="annot">tally recorded</span>
+          <span class="cb-fig-num cb-fig-win" data-recorded>43</span>
+        </div>
+        <p class="cb-verdict-note">
+          Every delta counted — two <code>+1</code>s and a <code>−1</code>
+          correction — in whatever order the sequencer picked.
+        </p>
+      </div>
+
+      <div class="cb-foot">
+        <ol class="cb-log annot" data-log aria-label="Operation log"></ol>
+        <div class="cb-controls">
+          <label class="cb-pace">
+            <span class="annot">Speed</span>
+            <input
+              type="range"
+              min="0.25"
+              max="1.5"
+              step="0.25"
+              value="0.5"
+              data-cb-pace
+              title="Playback speed — how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
+            />
+            <output data-cb-pace-out>0.5×</output>
+          </label>
+          <button type="button" class="cb-btn cb-btn-primary" data-play>
+            Play the SharedCounter fix
           </button>
           <button type="button" class="cb-btn" data-reset>Reset</button>
         </div>
