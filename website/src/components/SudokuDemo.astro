@@ -21,7 +21,9 @@ const clients = [
       server-sequenced state is <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
-      Click any cell to write the next digit, or Shift-click to clear it. Press
+      Click a cell to cycle its digit, or focus one and type <code>1</code>–<code
+        >9</code
+      > (Backspace clears, arrow keys move between cells). Press
       <strong>Race the same cell</strong> and A, B, and C write different digits
       to <code>r1c1</code> at the same instant. The sluice sequences those writes
       FIFO, and every replica converges on the last sequenced value.
@@ -45,9 +47,9 @@ const clients = [
             class="board"
             data-board
             role="grid"
-            aria-label={`${c.name} 4 by 4 Sudoku cell map`}
+            aria-label={`${c.name} 9 by 9 Sudoku cell map`}
           />
-          <p class="board-note annot">keys r0c0–r3c3 · values 1–4</p>
+          <p class="board-note annot">keys r0c0–r8c8 · values 1–9</p>
         </article>
       ))
     }
@@ -251,23 +253,28 @@ const clients = [
   }
 
   .board {
-    --cell: clamp(2.55rem, 5.8vw, 3.45rem);
+    --cell: clamp(1.6rem, 4.4vw, 2.35rem);
     display: grid;
-    grid-template-columns: repeat(4, var(--cell));
+    grid-template-columns: repeat(9, var(--cell));
     grid-auto-rows: var(--cell);
     justify-content: center;
     padding: var(--space-md) var(--space-md) var(--space-sm);
     font-family: var(--font-mono);
   }
 
-  .sudoku-cell {
+  /* The cells below `.board` are created at runtime by sudoku-demo.ts, so they
+     never carry Astro's scoping attribute. Scope these rules under the
+     template's `.board` (which does) via `:global(...)` so they match the
+     injected cells — otherwise the cells fall back to default button styling
+     and lose their borders, box divisions, and pending/empty states. */
+  .board :global(.sudoku-cell) {
     margin: 0;
     border: 1px solid var(--hairline);
     border-radius: 0;
     background: var(--bg);
     color: var(--ink);
     font: inherit;
-    font-size: 1.35rem;
+    font-size: 1.05rem;
     font-weight: 650;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
@@ -278,49 +285,44 @@ const clients = [
       border-color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .sudoku-cell:nth-child(2n) {
-    border-right-color: var(--ink);
-  }
-
-  .sudoku-cell:nth-child(n + 5):nth-child(-n + 8) {
-    border-bottom-color: var(--ink);
-  }
-
-  .sudoku-cell:nth-child(4n + 1) {
-    border-left-color: var(--ink);
-  }
-
-  .sudoku-cell:nth-child(-n + 4) {
+  /* 3×3 box divisions and the outer frame. The render loop adds these classes
+     from each cell's row/col, which reads far cleaner than nth-child arithmetic
+     across a flat 81-cell grid. */
+  .board :global(.sudoku-cell.bx-t) {
     border-top-color: var(--ink);
   }
 
-  .sudoku-cell:nth-child(4n) {
-    border-right-color: var(--ink);
-  }
-
-  .sudoku-cell:nth-child(n + 13) {
+  .board :global(.sudoku-cell.bx-b) {
     border-bottom-color: var(--ink);
   }
 
-  .sudoku-cell.is-empty {
+  .board :global(.sudoku-cell.bx-l) {
+    border-left-color: var(--ink);
+  }
+
+  .board :global(.sudoku-cell.bx-r) {
+    border-right-color: var(--ink);
+  }
+
+  .board :global(.sudoku-cell.is-empty) {
     color: var(--hairline);
     font-weight: 400;
   }
 
-  .sudoku-cell.k-pending {
+  .board :global(.sudoku-cell.k-pending) {
     color: var(--overprint-deep);
     background: var(--overprint-faint);
     border-color: var(--overprint);
   }
 
-  .sudoku-cell:hover:enabled,
-  .sudoku-cell:focus-visible {
+  .board :global(.sudoku-cell:hover:enabled),
+  .board :global(.sudoku-cell:focus-visible) {
     background: var(--overprint-faint);
     outline: 2px solid var(--overprint);
     outline-offset: -2px;
   }
 
-  .sudoku-cell:active:enabled {
+  .board :global(.sudoku-cell:active:enabled) {
     transform: scale(0.96);
   }
 
