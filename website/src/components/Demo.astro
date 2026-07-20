@@ -1166,7 +1166,7 @@ const PICKER_CELLS = [
      at the same card width as the others rather than stretching edge to edge. */
   .rig .client[data-client="c"] {
     justify-self: center;
-    width: min(100%, 20rem);
+    width: min(100%, 24rem);
   }
 
   .client {
@@ -1762,12 +1762,45 @@ const PICKER_CELLS = [
     white-space: nowrap;
   }
 
-  .task-actions {
-    max-width: 14rem;
-  }
-
   .task-actions button {
     flex: 1 1 6.4rem;
+  }
+
+  /* These tables carry an action column of buttons alongside three data
+     columns. With auto table-layout their intrinsic width exceeds the client
+     card, so the right-aligned buttons escaped past the border. Fixed layout
+     pins each table to the card width and the action column is sized to hold
+     its widest button (Volunteer/Propose/Revise), so the buttons always stay
+     inside — wrapping to stack when the column is narrow. The first column and
+     the middle data columns are proportional so all three card widths adapt;
+     the action column stays a fixed rem so the button never clips. */
+  .register-table,
+  .task-table,
+  .pact-table {
+    table-layout: fixed;
+  }
+
+  .register-table th:first-child,
+  .task-table th:first-child,
+  .pact-table th:first-child {
+    width: 30%;
+  }
+
+  .task-table th:last-child,
+  .pact-table th:last-child {
+    width: 7rem;
+  }
+
+  .register-table th:last-child {
+    width: 6rem;
+  }
+
+  /* Tighten the cell gutters on these dense four-column tables so the middle
+     data columns keep room for their headers on the narrowest card. */
+  .register-table :is(th, td),
+  .task-table :is(th, td),
+  .pact-table :is(th, td) {
+    padding-inline: var(--space-sm);
   }
 
   .channel {
