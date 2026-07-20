@@ -102,7 +102,7 @@ const counters: Structure[] = [
     summary: "per-client tallies survive reconnect and repeated delivery",
     how: [
       "A single G-counter can only grow, which rules out decrements. A PN counter restores them by pairing two G-counters: a positive ledger and a negative ledger, each keyed by replica. The value you read is the positive sum minus the negative sum.",
-      "Because each half is a max-merge CRDT, the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently — the demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter could not survive that.",
+      "Because each half is a max-merge CRDT, the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently — the demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter needs the runtime's sequence-number dedup to survive that; here the merge alone is enough.",
     ],
     useCases: [
       "Counters that go up and down under unreliable delivery — reserve/release, like/unlike",
