@@ -100,6 +100,12 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     orset: ["[data-orset-value]"],
     gset: ["[data-gset-value]"],
     twopset: ["[data-twopset-value]"],
+    ormap: ["[data-ormap-value]"],
+    claims: ["[data-holder]"],
+    registers: ["[data-register-atomic]", "[data-register-lww]"],
+    ordered: ["[data-ordered-queue]", "[data-ordered-jobs]"],
+    tasks: ["[data-task-assignee]", "[data-task-waiters]"],
+    pact: ["[data-pact-accepted]", "[data-pact-pending]"],
   };
 
   function isEventDriven(ddsId) {
@@ -219,6 +225,49 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
         "2P-set — tombstone wins; a retired marker never comes back. Watch a row flash magenta on edit, then ink as the op is sequenced and applied. Race a re-place against a retire and both replicas keep the tombstone; a re-delivered retire is absorbed, so nothing moves.",
       );
     },
+    // OR-map is optimistic: logging or striking a stockpile mutates the local
+    // ledger before it is sequenced, so the value flashes magenta on edit.
+    ormap() {
+      setNote(
+        "OR-map — add-wins, observed-remove. Each stockpile carries its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
+      );
+    },
+    // Claims are non-optimistic (see renderClaims in demo.js): a filed claim
+    // prints nothing until it round-trips, so the origin never flashes magenta —
+    // the holder only flashes ink on the writer that wins the slot.
+    claims() {
+      setNote(
+        "Claims — first writer wins. A filed claim prints nothing optimistically: the holder stays ink until the sequencer stamps it, then flashes ink on the winner. Race two claims for one slot and only the first-sequenced writer lands; the loser's row never changes.",
+      );
+    },
+    // Registers: the atomic slot is non-optimistic — a revision files without
+    // moving the printed value, which flashes ink only as the op is sequenced.
+    registers() {
+      setNote(
+        "Registers — atomic wins, losers retained as versions. A revision files without changing the slot: watch the atomic and LWW values flash ink as the op is sequenced and applied. A write that knew the current atomic sequence wins; concurrent losers still append a version, so LWW can diverge from atomic.",
+      );
+    },
+    // Ordered collection is non-optimistic: adds and acquires take effect only in
+    // server order, so the queue and held jobs flash ink as each op is sequenced.
+    ordered() {
+      setNote(
+        "Ordered collection — FIFO by sequence. Adds enter the queue in server order and acquires take the front item: watch the queue and held-jobs values flash ink as each op is sequenced and applied. A racing acquire may come back empty because the earlier SN already took the front.",
+      );
+    },
+    // TaskManager is optimistic: volunteering assigns locally before the op is
+    // sequenced, so the assignee and waiters flash magenta on edit.
+    tasks() {
+      setNote(
+        "TaskManager — one assignee, FIFO waiters. Volunteers join a per-task queue in sequenced order: watch the assignee and waiters flash magenta on a local volunteer, then ink as the op is sequenced and applied. The first connected volunteer owns the task; abandon promotes the next waiter.",
+      );
+    },
+    // Pact map is non-optimistic: a proposal only prints once sequenced, and the
+    // accepted value only lands after a full quorum signs off — both ink.
+    pact() {
+      setNote(
+        "Pact map — quorum acceptance. A proposal first prints as pending with a frozen signoff list: watch the pending value flash ink as it is sequenced, then the accepted value flash ink once every connected client signs off. A leave drains the list.",
+      );
+    },
   };
 
   function render(ddsId) {
@@ -233,8 +282,10 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     if (recipe) {
       recipe();
     } else {
+      // Every structure in the picker has a recipe above; this is only reached
+      // if a new view is added without one. Point the reader at a covered view.
       setNote(
-        "Field notes cover Shared map, Shared counter, PN counter, G-counter, OR-set, G-set, and 2P-set so far — switch to one of those to see its behavior marked up.",
+        "Field notes aren't marked up for this structure yet — switch to another view to see its behavior annotated.",
       );
     }
     // The persistent narration bracket is for the static structures; the
