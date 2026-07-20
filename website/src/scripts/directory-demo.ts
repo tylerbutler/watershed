@@ -137,6 +137,7 @@ export function initDirectoryDemo() {
     btn.className = "node-action" + (extraClass ? " " + extraClass : "");
     btn.textContent = text;
     btn.setAttribute("aria-label", aria);
+    btn.title = aria; // the glyphs are terse, so expose the full label on hover
     btn.addEventListener("click", onClick);
     return btn;
   }
@@ -156,9 +157,9 @@ export function initDirectoryDemo() {
     const actions = document.createElement("span");
     actions.className = "dir-actions";
     actions.append(
-      actionBtn("+ folder", `Add a folder under ${path} on ${CLIENT_LABEL[client.id]}`, () =>
+      actionBtn("+/", `Add a folder under ${path} on ${CLIENT_LABEL[client.id]}`, () =>
         localCreate(client.id, path)),
-      actionBtn("+ reading", `Add a reading in ${path} on ${CLIENT_LABEL[client.id]}`, () =>
+      actionBtn("+=", `Add a reading in ${path} on ${CLIENT_LABEL[client.id]}`, () =>
         localSet(client.id, path)),
     );
     if (!isRoot) {
