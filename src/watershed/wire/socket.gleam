@@ -471,7 +471,7 @@ pub fn document_message_decoder() -> Decoder(DocumentMessage) {
 
 pub fn token_claims_decoder() -> Decoder(token.TokenClaims) {
   use document_id <- decode.field("documentId", decode.string)
-  use scopes <- decode.field("scopes", decode.list(decode.string))
+  use scopes <- decode.field("scopes", decode.list(scope_decoder()))
   use tenant_id <- decode.field("tenantId", decode.string)
   use user <- decode.field("user", user_decoder())
   use issued_at <- decode.field("iat", decode.int)
@@ -480,7 +480,7 @@ pub fn token_claims_decoder() -> Decoder(token.TokenClaims) {
   use jti <- decode.optional_field("jti", None, decode.optional(decode.string))
   decode.success(token.TokenClaims(
     document_id: document_id,
-    scopes: token.scopes_from_strings(scopes),
+    scopes: scopes,
     tenant_id: tenant_id,
     user: user,
     issued_at: issued_at,
@@ -488,6 +488,14 @@ pub fn token_claims_decoder() -> Decoder(token.TokenClaims) {
     version: version,
     jti: jti,
   ))
+}
+
+fn scope_decoder() -> Decoder(token.Scope) {
+  use value <- decode.then(decode.string)
+  case token.scope_from_string(value) {
+    Ok(scope) -> decode.success(scope)
+    Error(_) -> decode.failure(token.DocRead, "Scope")
+  }
 }
 
 fn service_configuration_decoder() -> Decoder(ServiceConfiguration) {

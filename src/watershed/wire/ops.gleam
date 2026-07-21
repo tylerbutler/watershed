@@ -21,9 +21,11 @@
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{None, Some}
 
 import lattice_core/replica_id
+import lattice_core/version_vector
 import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
@@ -1064,9 +1066,39 @@ fn pn_counter_delta_decoder() -> Decoder(pn_counter.PNCounter) {
 
 fn sequence_delta_decoder() -> Decoder(sequence.Sequence(Json)) {
   use encoded <- decode.then(decode.string)
-  case sequence.from_json(encoded, wire.json_value_decoder()) {
-    Ok(delta) -> decode.success(delta)
+  case json.parse(encoded, sequence_delta_shape_decoder()) {
     Error(_) -> decode.failure(default_sequence_delta(), "SequenceDelta")
+    Ok(Nil) ->
+      case sequence.from_json(encoded, wire.json_value_decoder()) {
+        Ok(delta) -> decode.success(delta)
+        Error(_) -> decode.failure(default_sequence_delta(), "SequenceDelta")
+      }
+  }
+}
+
+fn sequence_delta_shape_decoder() -> Decoder(Nil) {
+  use frontier <- decode.then(decode.at(
+    ["state", "frontier"],
+    version_vector.decoder(),
+  ))
+  use forwardings <- decode.then(decode.at(
+    ["state", "forwardings"],
+    decode.list(decode.dynamic),
+  ))
+  use segment_kinds <- decode.then(decode.at(
+    ["state", "segments"],
+    decode.list({
+      use kind <- decode.field("kind", decode.string)
+      decode.success(kind)
+    }),
+  ))
+  case
+    version_vector.is_empty(frontier)
+    && list.is_empty(forwardings)
+    && list.all(segment_kinds, fn(kind) { kind == "item" })
+  {
+    True -> decode.success(Nil)
+    False -> decode.failure(Nil, "SequenceDelta")
   }
 }
 

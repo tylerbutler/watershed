@@ -1075,15 +1075,32 @@ fn same_sequence_shape(
   echoed: sequence_kernel.SequenceOp,
 ) -> Bool {
   case ours, echoed {
-    sequence_kernel.Insert(i, value, _), sequence_kernel.Insert(i2, value2, _)
-    -> i == i2 && same_json_value(value, value2)
-    sequence_kernel.Delete(i, _), sequence_kernel.Delete(i2, _) -> i == i2
-    sequence_kernel.Move(from, to, _), sequence_kernel.Move(from2, to2, _) ->
-      from == from2 && to == to2
-    sequence_kernel.Replace(i, value, _), sequence_kernel.Replace(i2, value2, _)
-    -> i == i2 && same_json_value(value, value2)
+    sequence_kernel.Insert(i, value, delta),
+      sequence_kernel.Insert(i2, value2, delta2)
+    ->
+      i == i2
+      && same_json_value(value, value2)
+      && same_sequence_delta(delta, delta2)
+    sequence_kernel.Delete(i, delta), sequence_kernel.Delete(i2, delta2) ->
+      i == i2 && same_sequence_delta(delta, delta2)
+    sequence_kernel.Move(from, to, delta),
+      sequence_kernel.Move(from2, to2, delta2)
+    -> from == from2 && to == to2 && same_sequence_delta(delta, delta2)
+    sequence_kernel.Replace(i, value, delta),
+      sequence_kernel.Replace(i2, value2, delta2)
+    ->
+      i == i2
+      && same_json_value(value, value2)
+      && same_sequence_delta(delta, delta2)
     _, _ -> False
   }
+}
+
+fn same_sequence_delta(ours: Sequence(Json), echoed: Sequence(Json)) -> Bool {
+  wire.json_semantically_equal(
+    sequence.to_json(ours, fn(value) { value }),
+    sequence.to_json(echoed, fn(value) { value }),
+  )
 }
 
 fn same_directory_shape(
@@ -1243,14 +1260,7 @@ fn same_entries(
 }
 
 fn same_json_value(ours: Json, echoed: Json) -> Bool {
-  case json.parse(json.to_string(ours), wire.json_value_decoder()) {
-    Ok(normalized_ours) ->
-      case json.parse(json.to_string(echoed), wire.json_value_decoder()) {
-        Ok(normalized_echoed) -> normalized_ours == normalized_echoed
-        Error(_) -> False
-      }
-    Error(_) -> False
-  }
+  wire.json_semantically_equal(ours, echoed)
 }
 
 /// Handle addresses reachable from the channel's current values, for

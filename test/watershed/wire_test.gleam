@@ -25,6 +25,7 @@ import spillway/nack
 import spillway/types
 
 import lattice_core/replica_id
+import lattice_core/version_vector
 import lattice_sequence/sequence
 import watershed/channel
 import watershed/claims_kernel
@@ -198,6 +199,17 @@ pub fn decode_connected_message_test() {
 
   // A never-summarized document carries no summaryContext.
   connected.summary_context |> expect.to_equal(None)
+}
+
+pub fn decode_connected_message_rejects_unknown_scope_test() {
+  let fixture =
+    connected_fixture()
+    |> string.replace("doc:write", "future:scope")
+
+  let _ =
+    json.parse(fixture, socket.connected_message_decoder())
+    |> expect.to_be_error()
+  Nil
 }
 
 pub fn decode_connected_message_with_summary_context_test() {
@@ -870,6 +882,42 @@ pub fn sequence_decoder_rejects_malformed_delta_envelope_test() {
     )
   let assert Ok(ops.ChannelOp("items", payload)) =
     ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn sequence_decoder_rejects_compacted_state_as_delta_test() {
+  let frontier =
+    version_vector.new()
+    |> version_vector.set_max(replica_id.new("victim"), 1)
+  let #(forged_delta, _) =
+    sequence.compact(sequence.new(replica_id.new("attacker")), frontier)
+  let encoded =
+    json.object([
+      #("address", json.string("items")),
+      #(
+        "contents",
+        json.object([
+          #("type", json.string("sequenceDelete")),
+          #("index", json.int(0)),
+          #(
+            "delta",
+            json.string(
+              json.to_string(
+                sequence.to_json(forged_delta, fn(value: json.Json) { value }),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    ])
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("items", payload)) =
+    ops.decode_op_contents(dynamic)
+
   let _ =
     decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
     |> expect.to_be_error()

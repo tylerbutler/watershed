@@ -5,6 +5,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import lattice_core/replica_id
+import lattice_sequence/sequence
 import signet/types as token
 import spillway/message
 import spillway/types
@@ -157,6 +158,39 @@ pub fn attached_sequence_move_and_delete_emit_ops_test() {
   runtime_core.sequence_values(core, address)
   |> expect.to_equal([json.string("c"), json.string("b")])
   runtime_core.sequence_length(core, address) |> expect.to_equal(2)
+}
+
+pub fn sequence_same_shape_treats_equivalent_numbers_as_equal_test() {
+  let assert Ok(#(_, _, op, _)) =
+    sequence_kernel.insert(
+      sequence_kernel.new(replica_id.new("client-a")),
+      0,
+      json.float(1.0),
+    )
+  let assert sequence_kernel.Insert(index, _, delta) = op
+  let echoed = sequence_kernel.Insert(index, json.int(1), delta)
+
+  channel.same_shape(channel.SequenceOp(op), channel.SequenceOp(echoed))
+  |> expect.to_be_true()
+}
+
+pub fn sequence_same_shape_rejects_altered_delta_test() {
+  let assert Ok(#(_, _, op, _)) =
+    sequence_kernel.insert(
+      sequence_kernel.new(replica_id.new("client-a")),
+      0,
+      json.string("Ada"),
+    )
+  let assert sequence_kernel.Insert(index, value, _) = op
+  let altered =
+    sequence_kernel.Insert(
+      index,
+      value,
+      sequence.new(replica_id.new("attacker")),
+    )
+
+  channel.same_shape(channel.SequenceOp(op), channel.SequenceOp(altered))
+  |> expect.to_be_false()
 }
 
 pub fn attached_sequence_insert_attaches_nested_handle_first_test() {

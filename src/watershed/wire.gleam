@@ -14,8 +14,11 @@
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 
 /// A client-authored op ready for `submitOp`. Mirrors the fields the TS
 /// driver's `submitCore` puts on the wire. Constructed by `wire/ops`,
@@ -106,4 +109,65 @@ pub fn dynamic_to_json(value: Dynamic) -> Json {
     Ok(decoded) -> decoded
     Error(_) -> json.null()
   }
+}
+
+type ComparableJson {
+  ComparableNull
+  ComparableBool(Bool)
+  ComparableString(String)
+  ComparableNumber(Float)
+  ComparableInteger(Int)
+  ComparableArray(List(ComparableJson))
+  ComparableObject(List(#(String, ComparableJson)))
+}
+
+const max_safe_json_integer = 9_007_199_254_740_991
+
+const min_safe_json_integer = -9_007_199_254_740_991
+
+/// Compare JSON values by their data semantics rather than their encoded
+/// spelling. Object key order is ignored, and safe integral floats compare
+/// equal to integers so JavaScript number normalization cannot break echoes.
+pub fn json_semantically_equal(ours: Json, echoed: Json) -> Bool {
+  case
+    json.parse(json.to_string(ours), comparable_json_decoder()),
+    json.parse(json.to_string(echoed), comparable_json_decoder())
+  {
+    Ok(ours), Ok(echoed) -> ours == echoed
+    _, _ -> False
+  }
+}
+
+fn comparable_json_decoder() -> Decoder(ComparableJson) {
+  let non_null =
+    decode.one_of(decode.string |> decode.map(ComparableString), or: [
+      decode.bool |> decode.map(ComparableBool),
+      decode.int
+        |> decode.map(fn(value) {
+          case
+            value >= min_safe_json_integer && value <= max_safe_json_integer
+          {
+            True -> ComparableNumber(int.to_float(value))
+            False -> ComparableInteger(value)
+          }
+        }),
+      decode.float |> decode.map(ComparableNumber),
+      decode.list(decode.recursive(comparable_json_decoder))
+        |> decode.map(ComparableArray),
+      decode.dict(decode.string, decode.recursive(comparable_json_decoder))
+        |> decode.map(fn(object) {
+          ComparableObject(
+            object
+            |> dict.to_list
+            |> list.sort(fn(a, b) { string.compare(a.0, b.0) }),
+          )
+        }),
+    ])
+  decode.optional(non_null)
+  |> decode.map(fn(value) {
+    case value {
+      Some(inner) -> inner
+      None -> ComparableNull
+    }
+  })
 }
