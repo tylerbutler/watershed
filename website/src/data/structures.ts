@@ -243,6 +243,33 @@ const maps: Structure[] = [
   },
 ];
 
+const sequences: Structure[] = [
+  {
+    id: "sequence",
+    name: "SharedSequence",
+    module: "sequence_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    demoHref: "/sequence",
+    tagline:
+      "An ordered list many people can edit at once — insert, move, and reorder without losing anyone’s changes.",
+    rule: "each item keeps a stable identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers",
+    optimistic:
+      "your edit shows immediately in magenta; items slide when the sequenced order lands",
+    summary: "the sequenced list reloads intact; pending edits replay on top",
+    how: [
+      "A shared sequence holds an ordered list of JSON values. You address an edit by index — insert at 2, move 4 to 1 — but the index only records intent. Underneath, every item carries a stable identity, and the CRDT delta that ships is expressed against identities, not positions. That is what lets two replicas edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
+      "The lattice merge is duplicate- and order-tolerant: a delta delivered twice, or after its neighbors, is absorbed without disturbing the list. Local edits apply optimistically and ride the sequenced stream as deltas; if the server rejects one, it rolls back and the remaining pending edits replay over the sequenced base.",
+      "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation — one pending entry, one wire op, one event. Unlike SharedMap or SharedDirectory, this is not a Fluid Framework port; the wire format is watershed’s own.",
+    ],
+    useCases: [
+      "Shared itineraries, checklists, and ordered plans edited by many hands",
+      "Reorderable collections — playlists, priority queues, kanban lanes — where a move must not clobber a concurrent edit",
+      "The ordered substrate beneath a future collaborative-text DDS",
+    ],
+  },
+];
+
 const transforms: Structure[] = [
   {
     id: "json_ot",
@@ -402,6 +429,16 @@ export const categories: Category[] = [
       "SharedMap resolves each key by server order and is wire-compatible with Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
+  },
+  {
+    slug: "sequences",
+    name: "Sequences",
+    tagline: "Ordered lists that stay ordered while everyone rearranges them.",
+    lede: [
+      "Order is the hardest thing to agree on. An index is only meaningful against one version of a list — the moment two people insert, move, or delete concurrently, “position 3” names different items on different screens.",
+      "Sequences resolve that by giving every item a stable identity beneath its index. Positions are how you address an edit; identities are how edits merge. Concurrent inserts at one spot both land, a move follows the item rather than the slot, and every replica converges on the same order.",
+    ],
+    structures: sequences,
   },
   {
     slug: "coordination",
