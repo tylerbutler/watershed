@@ -4,7 +4,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
 
 <RuntimeLayout
   slug="redelivery"
-  description="Why a re-delivered CRDT delta is absorbed as a non-event in watershed: the merge is idempotent by construction, so a duplicate changes nothing after the first — the at-least-once safety an order-based counter cannot offer."
+  description="How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides — so a re-delivered delta is a non-event at either layer."
 >
   <div class="g-block">
     <h2>At-least-once is the honest assumption</h2>
@@ -12,37 +12,39 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       Real networks do not deliver exactly once. An ack gets lost and the client
       resends; a <a href="/runtime/reconnect">reconnecting</a> peer replays a
       window it already saw; a retry races the original. Sooner or later the same
-      update arrives twice. Whether that is harmless or catastrophic depends
-      entirely on how the structure absorbs it.
+      update arrives twice, and the system has to make that a non-event.
     </p>
     <p>
-      Store a running total as a plain last-write-wins integer and a redelivery
-      is only the beginning of the trouble — concurrent increments already lose
-      each other, as the <a href="/counter-bug">counter bug</a> shows. But even a
-      naive operation-based counter that applied deltas directly would break the
-      moment one delta arrived twice: "add 5" replayed is <code>+10</code>. The
-      total silently drifts, and no sequence number can un-count it.
+      watershed's first line of defense is the runtime itself. Every sequenced
+      message carries a sequence number, and each client tracks the last one it
+      has applied; anything at or below that mark is dropped before any
+      structure sees it. That check protects every kind — including the
+      op-based <a href="/structures/counters">SharedCounter</a>, whose
+      "add 5" applied twice really would be <code>+10</code>. The duplicate
+      never reaches the kernel, so there is nothing to un-count.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Merge, don't apply</h2>
     <p>
-      watershed's counters are <a href="/models">CRDTs</a>, and a CRDT is built
-      so its merge is <strong>idempotent</strong>: merging the same value a
-      second time changes nothing. A
-      <a href="/structures/counters#pn">PN counter</a> does not ship "add 5"; it
-      ships its two grow-only tallies — total fill and total cut — and the
-      receiver merges by taking the pairwise maximum of what it has and what
-      arrived. Take the max of a number with itself and you get the same number.
-      The duplicate lands, the merge runs, and the state does not move.
+      watershed's lattice counters go one layer deeper. A
+      <a href="/models">CRDT</a> is built so its merge is
+      <strong>idempotent</strong>: merging the same value a second time changes
+      nothing. A <a href="/structures/counters#pn">PN counter</a> does not ship
+      "add 5"; it ships its two grow-only tallies — total fill and total cut —
+      and the receiver merges by taking the pairwise maximum of what it has and
+      what arrived. Take the max of a number with itself and you get the same
+      number. The duplicate lands, the merge runs, and the state does not move.
     </p>
     <p>
-      Because correctness lives in the merge and not in the delivery, these
-      structures still ride watershed's one sequenced stream but do not
-      <em>depend</em> on it for safety. Duplicate delivery is absorbed by the
-      data type itself — the guarantee an order-based DDS, which leans on the
-      sequence number to dedupe, cannot make for free.
+      That puts the safety in the structure itself rather than one layer up. An
+      op-based counter is safe because the runtime checks sequence numbers
+      before applying; a lattice CRDT would converge even if nothing did. A
+      duplicate that reached the kernel by any path — a summary overlapping a
+      replay window, a sync that never passed through the sequencer — is still
+      a no-op. Same outcome on the sequenced stream; a different layer holding
+      the guarantee.
     </p>
   </div>
 
@@ -50,11 +52,12 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     <h2>Watch it absorb, live</h2>
     <p>
       The demo makes this witnessable. In PN-counter mode a
-      <strong>Re-deliver last delta</strong> button asks the sequencer to re-send
-      the last sequenced delta with <em>no new sequence number</em> — a genuine
-      duplicate, not a fresh op. The merge swallows it, the signed total holds,
-      and the op log records the redelivery as an italic, muted non-event rather
-      than a change:
+      <strong>Re-deliver last delta</strong> button re-sends the last sequenced
+      delta with <em>no new sequence number</em> — and hands it straight to each
+      replica's kernel, deliberately skipping the runtime's sequence-number
+      check so the merge is the only thing standing. It swallows the duplicate
+      anyway: the signed total holds, and the op log records the redelivery as
+      an italic, muted non-event rather than a change:
     </p>
     <figure class="oplog" aria-label="Op-log excerpt: a duplicate delta absorbed">
       <div class="oplog-line">
@@ -68,11 +71,12 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     </figure>
     <div class="g-note">
       <p>
-        <strong>This is the line an op-based counter could not survive.</strong>
-        The same delta, delivered twice, has to be a no-op the second time — and
-        here it visibly is. It is the sharpest demonstration of why the merge
-        model, not the sequence number, is what makes these structures safe under
-        an unreliable link.
+        <strong>This is the line the runtime never lets an op-based counter
+        see.</strong> Hand the same duplicate to <code>counter_kernel</code>
+        directly and it would add again — which is why the sequence-number check
+        in front of it is load-bearing. The lattice kernels need no such guard:
+        the duplicate reaches the merge and the merge shrugs. Both are safe on
+        the stream; only one is safe without it.
       </p>
     </div>
   </div>
@@ -80,9 +84,11 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      CRDT deltas are merged, not applied, and the merge is idempotent — so a
-      re-delivered delta is absorbed as a non-event, giving watershed's counters,
-      sets, and maps at-least-once safety no order-based structure gets for free.
+      Every structure survives re-delivery on the sequenced stream, because the
+      runtime drops any sequence number it has already seen. CRDTs carry a
+      second, deeper guarantee: their merge is idempotent, so a duplicate is a
+      non-event even when it reaches the kernel itself — safety that lives in
+      the data type, not the delivery.
     </p>
   </div>
 </RuntimeLayout>

@@ -50,17 +50,19 @@ const ledger = [
     <div class="guarantees">
       <h2 id="rigor-title">What is proven, what is next</h2>
       <p>
-        The current runtime is tested against an oracle, a live levee server,
-        and adversarial operation orderings. The ledger separates implemented
-        pieces from the DDS work still on the roadmap.
+        The runtime is tested three ways: against a reference model, against a
+        live levee server, and against deliberately nasty orderings of
+        operations. The ledger separates what’s built from the work still on the
+        roadmap.
       </p>
       <dl class="claims">
         <div data-reveal="rise">
           <dt>Property-tested convergence</dt>
           <dd>
-            qcheck drives 1,000 iterations each of convergence across
-            authorship and submit-timing interleavings, ack transparency, and
-            rebase equivalence.
+            qcheck runs 1,000 randomized rounds each, checking that clients end
+            up in the same state no matter who wrote what or when, that
+            acknowledgements don’t change the result, and that replaying edits
+            lands the same state.
           </dd>
         </div>
         <div data-reveal="rise">

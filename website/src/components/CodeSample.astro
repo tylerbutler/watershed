@@ -38,9 +38,9 @@ pub fn main() {
       <p>
         A <code>SharedMap</code> is just a map — <code>set</code>,
         <code>get</code>, <code>subscribe</code>. There is no merge callback to
-        write and no conflict handler to forget: the server sequences every op,
-        last-writer-wins per key, and each replica applies the same ops in the
-        same order.
+        write and no conflict handler to forget: the server puts every change in
+        one order, the most recent write to a key wins, and every client applies
+        the same changes in the same order.
       </p>
       <p>
         The same API runs on the Erlang target as an OTP actor and on the

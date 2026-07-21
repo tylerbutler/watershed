@@ -21,12 +21,13 @@ const clients = [
       server-sequenced state is <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
-      Click a cell to cycle its digit, or focus one and type <code>1</code>–<code
-        >9</code
-      > (Backspace clears, arrow keys move between cells). Press
+      Click any cell to cycle its digit, type <strong>1–9</strong> to write
+      directly, or press Delete or Shift-click to clear. Arrow keys move across
+      each board. Press
       <strong>Race the same cell</strong> and A, B, and C write different digits
-      to <code>r1c1</code> at the same instant. The sluice sequences those writes
-      FIFO, and every replica converges on the last sequenced value.
+      to the center cell, <code>r4c4</code>, at the same instant. The sluice
+      sequences those writes FIFO, and every replica converges on the last
+      sequenced value.
     </p>
   </div>
 
@@ -48,8 +49,10 @@ const clients = [
             data-board
             role="grid"
             aria-label={`${c.name} 9 by 9 Sudoku cell map`}
+            aria-rowcount="9"
+            aria-colcount="9"
           />
-          <p class="board-note annot">keys r0c0–r8c8 · values 1–9</p>
+          <p class="board-note annot">81 keys · r0c0–r8c8 · values 1–9</p>
         </article>
       ))
     }
@@ -217,7 +220,7 @@ const clients = [
 
   .rig .client[data-client="c"] {
     justify-self: center;
-    width: min(100%, 24rem);
+    width: min(100%, 32rem);
   }
 
   .client {
@@ -253,28 +256,29 @@ const clients = [
   }
 
   .board {
-    --cell: clamp(1.6rem, 4.4vw, 2.35rem);
     display: grid;
-    grid-template-columns: repeat(9, var(--cell));
-    grid-auto-rows: var(--cell);
-    justify-content: center;
-    padding: var(--space-md) var(--space-md) var(--space-sm);
+    grid-template-columns: repeat(9, minmax(0, 1fr));
+    grid-template-rows: repeat(9, minmax(0, 1fr));
+    width: min(calc(100% - 2rem), 30rem);
+    aspect-ratio: 1;
+    margin: var(--space-md) auto var(--space-sm);
+    border: 2px solid var(--ink);
     font-family: var(--font-mono);
   }
 
-  /* The cells below `.board` are created at runtime by sudoku-demo.ts, so they
-     never carry Astro's scoping attribute. Scope these rules under the
-     template's `.board` (which does) via `:global(...)` so they match the
-     injected cells — otherwise the cells fall back to default button styling
-     and lose their borders, box divisions, and pending/empty states. */
   .board :global(.sudoku-cell) {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
     margin: 0;
-    border: 1px solid var(--hairline);
+    border: 0;
+    border-right: 1px solid var(--hairline);
+    border-bottom: 1px solid var(--hairline);
     border-radius: 0;
     background: var(--bg);
     color: var(--ink);
     font: inherit;
-    font-size: 1.05rem;
+    font-size: clamp(0.9rem, 2vw, 1.35rem);
     font-weight: 650;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
@@ -285,23 +289,23 @@ const clients = [
       border-color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  /* 3×3 box divisions and the outer frame. The render loop adds these classes
-     from each cell's row/col, which reads far cleaner than nth-child arithmetic
-     across a flat 81-cell grid. */
-  .board :global(.sudoku-cell.bx-t) {
-    border-top-color: var(--ink);
+  .board :global(.sudoku-cell:nth-child(3n)) {
+    border-right-width: 2px;
+    border-right-color: var(--ink);
   }
 
-  .board :global(.sudoku-cell.bx-b) {
+  .board :global(.sudoku-cell:nth-child(9n)) {
+    border-right: 0;
+  }
+
+  .board :global(.sudoku-cell:nth-child(n + 19):nth-child(-n + 27)),
+  .board :global(.sudoku-cell:nth-child(n + 46):nth-child(-n + 54)) {
+    border-bottom-width: 2px;
     border-bottom-color: var(--ink);
   }
 
-  .board :global(.sudoku-cell.bx-l) {
-    border-left-color: var(--ink);
-  }
-
-  .board :global(.sudoku-cell.bx-r) {
-    border-right-color: var(--ink);
+  .board :global(.sudoku-cell:nth-child(n + 73)) {
+    border-bottom: 0;
   }
 
   .board :global(.sudoku-cell.is-empty) {
@@ -603,16 +607,11 @@ const clients = [
 
   @media (max-width: 460px) {
     .board {
-      --cell: min(18vw, 3rem);
+      width: calc(100% - 1.5rem);
     }
   }
 
   @media (pointer: coarse) {
-    .sudoku-cell {
-      min-inline-size: 2.75rem;
-      min-block-size: 2.75rem;
-    }
-
     .race-btn,
     .reset-btn {
       padding: 0.85rem 1.2rem;

@@ -37,8 +37,8 @@ export const runtimeDocs: RuntimeDoc[] = [
     slug: "redelivery",
     title: "Idempotent re-delivery",
     gloss:
-      "Why a re-sent delta lands as a non-event — the at-least-once safety an order-based counter could never survive.",
-    concept: "re-deliver · merge · absorb",
+      "Why a re-sent delta lands as a non-event — dropped by the runtime's sequence-number check, or absorbed by an idempotent merge.",
+    concept: "re-deliver · dedupe · absorb",
   },
   {
     slug: "presence",
