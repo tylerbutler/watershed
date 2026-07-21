@@ -22,10 +22,10 @@ import gleam/option.{type Option, None, Some}
 import lattice_core/replica_id
 import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/or_map.{type ORMap}
+import lattice_sequence/sequence.{type Sequence}
 import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
 import lattice_sets/two_p_set.{type TwoPSet}
-import lattice_sequence/sequence.{type Sequence}
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
@@ -395,7 +395,10 @@ pub fn from_snapshot(
     OrderedCollectionSnapshot(queue, jobs) ->
       OrderedCollectionState(ordered_collection_kernel.from_summary(queue, jobs))
     SequenceSummary(state) ->
-      SequenceState(sequence_kernel.from_sequenced(state, replica_id.new(replica)))
+      SequenceState(sequence_kernel.from_sequenced(
+        state,
+        replica_id.new(replica),
+      ))
   }
 }
 
@@ -981,16 +984,16 @@ pub fn ack_local(
     SequenceState(kernel), SequenceOp(op) ->
       case local {
         SequenceMeta(message_id) ->
-          case sequence_kernel.ack_local_with_message_id(kernel, op, message_id) {
+          case
+            sequence_kernel.ack_local_with_message_id(kernel, op, message_id)
+          {
             Ok(kernel) -> Ok(#(SequenceState(kernel), [], None))
             Error(sequence_kernel.UnexpectedAck(detail))
             | Error(sequence_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
           }
         _ ->
-          Error(UnexpectedAck(
-            "sequence ack is missing its local message id",
-          ))
+          Error(UnexpectedAck("sequence ack is missing its local message id"))
       }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
@@ -1072,15 +1075,12 @@ fn same_sequence_shape(
   echoed: sequence_kernel.SequenceOp,
 ) -> Bool {
   case ours, echoed {
-    sequence_kernel.Insert(i, value, _),
-      sequence_kernel.Insert(i2, value2, _)
+    sequence_kernel.Insert(i, value, _), sequence_kernel.Insert(i2, value2, _)
     -> i == i2 && same_json_value(value, value2)
     sequence_kernel.Delete(i, _), sequence_kernel.Delete(i2, _) -> i == i2
-    sequence_kernel.Move(from, to, _),
-      sequence_kernel.Move(from2, to2, _)
-    -> from == from2 && to == to2
-    sequence_kernel.Replace(i, value, _),
-      sequence_kernel.Replace(i2, value2, _)
+    sequence_kernel.Move(from, to, _), sequence_kernel.Move(from2, to2, _) ->
+      from == from2 && to == to2
+    sequence_kernel.Replace(i, value, _), sequence_kernel.Replace(i2, value2, _)
     -> i == i2 && same_json_value(value, value2)
     _, _ -> False
   }

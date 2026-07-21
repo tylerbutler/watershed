@@ -116,10 +116,7 @@ pub fn insert(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(
-  #(SequenceState, List(SequenceEvent), SequenceOp, Int),
-  EditError,
-) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
   case sequence.try_insert_with_delta(state.optimistic, index, value) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Insert(index, value, delta)))
@@ -131,10 +128,7 @@ pub fn insert(
 pub fn delete(
   state: SequenceState,
   index: Int,
-) -> Result(
-  #(SequenceState, List(SequenceEvent), SequenceOp, Int),
-  EditError,
-) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Delete(index, delta)))
@@ -147,17 +141,10 @@ pub fn move(
   state: SequenceState,
   from_index: Int,
   to_index: Int,
-) -> Result(
-  #(SequenceState, List(SequenceEvent), SequenceOp, Int),
-  EditError,
-) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
   case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
     Ok(#(optimistic, delta)) ->
-      Ok(finish_local(
-        state,
-        optimistic,
-        Move(from_index, to_index, delta),
-      ))
+      Ok(finish_local(state, optimistic, Move(from_index, to_index, delta)))
     Error(sequence.MoveFromIndexOutOfBounds(index, length)) ->
       Error(MoveFromOutOfBounds(index, length))
     Error(sequence.MoveToIndexOutOfBounds(index, length_after_removal)) ->
@@ -169,10 +156,7 @@ pub fn replace(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(
-  #(SequenceState, List(SequenceEvent), SequenceOp, Int),
-  EditError,
-) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(ReplaceOutOfBounds(index, length))
@@ -229,15 +213,16 @@ fn do_ack(
       }
       case pending_op == op && id_matches {
         True ->
-          Ok(SequenceState(
-            ..state,
-            sequenced: sequence.merge(state.sequenced, op_delta(op)),
-            pending: rest,
-          ))
+          Ok(
+            SequenceState(
+              ..state,
+              sequenced: sequence.merge(state.sequenced, op_delta(op)),
+              pending: rest,
+            ),
+          )
         False ->
           Error(UnexpectedAck(
-            "expected pending message "
-            <> int.to_string(pending_message_id),
+            "expected pending message " <> int.to_string(pending_message_id),
           ))
       }
     }
@@ -319,19 +304,29 @@ pub fn check_cache_coherence(state: SequenceState) -> Result(Nil, String) {
 pub fn edit_error_detail(error: EditError) -> String {
   case error {
     InsertOutOfBounds(index, length) ->
-      "insert index " <> int.to_string(index) <> " outside 0.."
+      "insert index "
+      <> int.to_string(index)
+      <> " outside 0.."
       <> int.to_string(length)
     DeleteOutOfBounds(index, length) ->
-      "delete index " <> int.to_string(index) <> " invalid for length "
+      "delete index "
+      <> int.to_string(index)
+      <> " invalid for length "
       <> int.to_string(length)
     MoveFromOutOfBounds(index, length) ->
-      "move source index " <> int.to_string(index) <> " invalid for length "
+      "move source index "
+      <> int.to_string(index)
+      <> " invalid for length "
       <> int.to_string(length)
     MoveToOutOfBounds(index, length_after_removal) ->
-      "move destination index " <> int.to_string(index) <> " outside 0.."
+      "move destination index "
+      <> int.to_string(index)
+      <> " outside 0.."
       <> int.to_string(length_after_removal)
     ReplaceOutOfBounds(index, length) ->
-      "replace index " <> int.to_string(index) <> " invalid for length "
+      "replace index "
+      <> int.to_string(index)
+      <> " invalid for length "
       <> int.to_string(length)
   }
 }

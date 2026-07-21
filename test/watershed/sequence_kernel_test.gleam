@@ -42,7 +42,10 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
       sequence_kernel.PendingOp(op: pending_insert_a, message_id: pending_id0),
       sequence_kernel.PendingOp(op: pending_insert_b, message_id: pending_id1),
       sequence_kernel.PendingOp(op: pending_move_b, message_id: pending_id2),
-      sequence_kernel.PendingOp(op: pending_replace_nine, message_id: pending_id3),
+      sequence_kernel.PendingOp(
+        op: pending_replace_nine,
+        message_id: pending_id3,
+      ),
     ] -> {
       pending_insert_a |> expect.to_equal(insert_a)
       pending_insert_b |> expect.to_equal(insert_b)
@@ -57,7 +60,8 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
   }
 
   case replace_nine {
-    sequence_kernel.Replace(1, value, _) -> value |> expect.to_equal(json.int(9))
+    sequence_kernel.Replace(1, value, _) ->
+      value |> expect.to_equal(json.int(9))
     _ -> panic as "expected replace op"
   }
 
@@ -67,7 +71,12 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
       0,
       json.object([#("a", json.int(1)), #("b", json.int(2))]),
     )
-  let assert Ok(#(semantic_state, semantic_events, semantic_replace, semantic_id)) =
+  let assert Ok(#(
+    semantic_state,
+    semantic_events,
+    semantic_replace,
+    semantic_id,
+  )) =
     sequence_kernel.replace(
       semantic_state,
       0,
@@ -81,7 +90,10 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
   case semantic_state.pending {
     [
       sequence_kernel.PendingOp(_, 0),
-      sequence_kernel.PendingOp(op: pending_semantic_replace, message_id: pending_semantic_id),
+      sequence_kernel.PendingOp(
+        op: pending_semantic_replace,
+        message_id: pending_semantic_id,
+      ),
     ] -> {
       pending_semantic_replace |> expect.to_equal(semantic_replace)
       pending_semantic_id |> expect.to_equal(1)
@@ -91,7 +103,9 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
   case semantic_replace {
     sequence_kernel.Replace(0, value, _) ->
       value
-      |> expect.to_equal(json.object([#("b", json.int(2)), #("a", json.int(1))]))
+      |> expect.to_equal(
+        json.object([#("b", json.int(2)), #("a", json.int(1))]),
+      )
     _ -> panic as "expected semantic replace op"
   }
 
@@ -139,9 +153,9 @@ pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
     sequence_kernel.insert(state_a, 1, json.string("b"))
   let before_ack = sequence_kernel.values(state_a)
   sequence_kernel.ack_local(state_a, second_op)
-  |> expect.to_equal(Error(
-    sequence_kernel.UnexpectedAck("expected pending message 0"),
-  ))
+  |> expect.to_equal(
+    Error(sequence_kernel.UnexpectedAck("expected pending message 0")),
+  )
   let state_a = ack(state_a, first_op)
   sequence_kernel.values(state_a) |> expect.to_equal(before_ack)
   let state_a = ack(state_a, second_op)
@@ -151,7 +165,8 @@ pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
 
   let state_b = sequence_kernel.new(replica_id.new("b"))
   let #(state_b, first_events) = sequence_kernel.apply_remote(state_b, first_op)
-  let #(state_b, second_events) = sequence_kernel.apply_remote(state_b, first_op)
+  let #(state_b, second_events) =
+    sequence_kernel.apply_remote(state_b, first_op)
   sequence_kernel.values(state_b) |> expect.to_equal([json.string("a")])
   first_events
   |> expect.to_equal([sequence_kernel.SequenceChanged([json.string("a")])])
@@ -163,9 +178,9 @@ pub fn ack_local_with_message_id_validates_message_id_test() {
     sequence_kernel.insert(new_a(), 0, json.string("a"))
 
   sequence_kernel.ack_local_with_message_id(state, op, message_id + 1)
-  |> expect.to_equal(Error(
-    sequence_kernel.UnexpectedAck("expected pending message 0"),
-  ))
+  |> expect.to_equal(
+    Error(sequence_kernel.UnexpectedAck("expected pending message 0")),
+  )
   sequence_kernel.values(state) |> expect.to_equal([json.string("a")])
   sequence_kernel.sequenced_values(state) |> expect.to_equal([])
   state.pending |> expect.to_equal([sequence_kernel.PendingOp(op, message_id)])
@@ -191,11 +206,18 @@ pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() {
   |> expect.to_equal([sequence_kernel.PendingOp(local_op, local_message_id)])
   sequence_kernel.values(state_a)
   |> expect.to_equal([json.string("a"), json.string("b")])
-  events |> expect.to_equal([sequence_kernel.SequenceChanged(sequence_kernel.values(state_a))])
+  events
+  |> expect.to_equal([
+    sequence_kernel.SequenceChanged(sequence_kernel.values(state_a)),
+  ])
   sequence_kernel.check_cache_coherence(state_a) |> expect.to_equal(Ok(Nil))
 
   let assert Ok(state_a) =
-    sequence_kernel.ack_local_with_message_id(state_a, local_op, local_message_id)
+    sequence_kernel.ack_local_with_message_id(
+      state_a,
+      local_op,
+      local_message_id,
+    )
   sequence_kernel.values(state_a)
   |> expect.to_equal([json.string("a"), json.string("b")])
 }
@@ -225,10 +247,10 @@ pub fn summary_round_trips_and_rebrands_test() {
   let assert Ok(#(state, _, _, _)) =
     sequence_kernel.insert(state, 1, json.string("pending"))
   let raw = json.to_string(sequence_kernel.summary(state))
-  let assert Ok(loaded) =
-    sequence_kernel.from_summary(raw, replica_id.new("c"))
+  let assert Ok(loaded) = sequence_kernel.from_summary(raw, replica_id.new("c"))
   sequence_kernel.values(loaded) |> expect.to_equal([json.string("a")])
-  sequence_kernel.sequenced_values(loaded) |> expect.to_equal([json.string("a")])
+  sequence_kernel.sequenced_values(loaded)
+  |> expect.to_equal([json.string("a")])
   loaded.replica_id |> expect.to_equal(replica_id.new("c"))
   loaded.pending |> expect.to_equal([])
   loaded.next_pending_message_id |> expect.to_equal(0)
@@ -294,7 +316,8 @@ pub fn concurrent_inserts_and_replace_delete_move_converge_test() {
     sequence_kernel.apply_remote(ack(state_a, insert_a), insert_b)
   let #(state_b, _) =
     sequence_kernel.apply_remote(ack(state_b, insert_b), insert_a)
-  sequence_kernel.values(state_a) |> expect.to_equal(sequence_kernel.values(state_b))
+  sequence_kernel.values(state_a)
+  |> expect.to_equal(sequence_kernel.values(state_b))
 
   let assert Ok(#(state_a, _, replace_a, _)) =
     sequence_kernel.replace(state_a, 0, json.string("A"))
@@ -303,5 +326,6 @@ pub fn concurrent_inserts_and_replace_delete_move_converge_test() {
     sequence_kernel.apply_remote(ack(state_a, replace_a), move_b)
   let #(state_b, _) =
     sequence_kernel.apply_remote(ack(state_b, move_b), replace_a)
-  sequence_kernel.values(state_a) |> expect.to_equal(sequence_kernel.values(state_b))
+  sequence_kernel.values(state_a)
+  |> expect.to_equal(sequence_kernel.values(state_b))
 }
