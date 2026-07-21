@@ -16,11 +16,14 @@ gleam_http = ">= 4.0.0 and < 5.0.0"
 gleam_httpc = ">= 5.0.0 and < 6.0.0"
 gleam_fetch = ">= 1.4.0 and < 2.0.0"
 gleam_javascript = ">= 1.0.0 and < 2.0.0"
-lattice_core = ">= 1.0.0 and < 2.0.0"
+lattice_core = { path = "../lattice/packages/lattice_core" }
 lattice_counters = ">= 1.1.0 and < 2.0.0"
 lattice_maps = ">= 1.1.0 and < 2.0.0"
 lattice_registers = ">= 1.1.0 and < 2.0.0"
 lattice_sets = ">= 1.1.0 and < 2.0.0"
+lattice_sequence = { path = "../lattice/packages/lattice_sequence" }
+lattice_text_core = { path = "../lattice/packages/lattice_text_core" }
+lattice_text = { path = "../lattice/packages/lattice_text" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
 aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
 
