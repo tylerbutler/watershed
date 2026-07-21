@@ -45,11 +45,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 
 @target(erlang)
+import signet/types as token
+@target(erlang)
 import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
 @target(erlang)
-import spillway/types.{
-  Client, ClientCapabilities, ClientDetails, User, WriteMode,
-}
+import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
 @target(erlang)
 import watershed/channel.{type ChannelEvent}
@@ -237,7 +237,7 @@ fn build_connect_message(
         device: None,
       ),
       permission: [],
-      user: User(id: user_id, properties: dict.new()),
+      user: token.User(id: user_id, properties: dict.new()),
       scopes: ["doc:read", "doc:write", "summary:write"],
       timestamp: None,
     ),

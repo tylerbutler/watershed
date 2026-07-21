@@ -10,6 +10,7 @@ import gleam/json
 import gleam/option.{None, Some}
 import startest/expect
 
+import signet/types as token
 import spillway/message
 import spillway/types
 
@@ -38,7 +39,7 @@ fn test_client() -> types.Client {
       device: None,
     ),
     permission: [],
-    user: types.User(id: "user-1", properties: dict.new()),
+    user: token.User(id: "user-1", properties: dict.new()),
     scopes: ["doc:read", "doc:write"],
     timestamp: None,
   )

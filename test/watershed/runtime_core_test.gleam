@@ -14,6 +14,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 
+import signet/types as token
 import spillway/message
 import spillway/types
 
@@ -138,11 +139,11 @@ fn connected_message(
   checkpoint checkpoint: Int,
 ) -> message.ConnectedMessage {
   message.ConnectedMessage(
-    claims: types.TokenClaims(
+    claims: token.TokenClaims(
       document_id: "dice",
-      scopes: ["doc:read", "doc:write"],
+      scopes: [token.DocRead, token.DocWrite],
       tenant_id: "default",
-      user: types.User(id: "user-2", properties: dict.new()),
+      user: token.User(id: "user-2", properties: dict.new()),
       issued_at: 0,
       expiration: 0,
       version: "1.0",

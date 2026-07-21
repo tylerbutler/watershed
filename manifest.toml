@@ -38,9 +38,10 @@ packages = [
   { name = "prng", version = "5.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "prng", source = "hex", outer_checksum = "29DA88BCFB54D06DD1472951DF101E9524878056D139DA2616B04350B403CE10" },
   { name = "qcheck", version = "1.0.4", build_tools = ["gleam"], requirements = ["exception", "gleam_regexp", "gleam_stdlib", "gleam_yielder", "prng"], otp_app = "qcheck", source = "hex", outer_checksum = "BD9B18C1602FBC667E3E139ED270458F8C743ED791F892CC90989CE10478C4FA" },
   { name = "roost", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/roost.git", commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127" },
+  { name = "signet", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_crypto", "gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/signet", commit = "51843ffe6f38a57c295e1a139fd926dc947eca6d" },
   { name = "simplifile", version = "2.5.0", build_tools = ["gleam"], requirements = ["filepath", "gleam_stdlib"], otp_app = "simplifile", source = "hex", outer_checksum = "6C72DCCDF25C38A5931740B30E823969F33106831FD1637719B5EDBCA30027A4" },
   { name = "snag", version = "1.2.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "snag", source = "hex", outer_checksum = "274F41D6C3ECF99F7686FDCE54183333E41D2C1CA5A3A673F9A8B2C7A4401077" },
-  { name = "spillway", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/spillway", commit = "15e9e8c3737fc9c1bd52876b78c56d571db508e4" },
+  { name = "spillway", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "signet"], source = "git", repo = "https://github.com/tylerbutler/spillway", commit = "25f515cf67027e4b2db2344c3abb2141056e45fc" },
   { name = "startest", version = "0.8.0", build_tools = ["gleam"], requirements = ["argv", "bigben", "exception", "gleam_community_ansi", "gleam_erlang", "gleam_javascript", "gleam_regexp", "gleam_stdlib", "gleam_time", "glint", "simplifile", "tom"], otp_app = "startest", source = "hex", outer_checksum = "47362F1D9DFEFC2F81C590F73A5BFBE902F427408EFBFB48765A05512AED02DC" },
   { name = "tom", version = "2.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib", "gleam_time"], otp_app = "tom", source = "hex", outer_checksum = "DCF04CB7AB35D58CFC598C66EA2E1816D160759802C89B2BA6238780D59BC256" },
 ]
@@ -67,6 +68,7 @@ lattice_sets = { version = ">= 1.1.0 and < 2.0.0" }
 lattice_text = { path = "../lattice/packages/lattice_text" }
 lattice_text_core = { path = "../lattice/packages/lattice_text_core" }
 qcheck = { version = ">= 1.0.0 and < 2.0.0" }
+signet = { git = "https://github.com/tylerbutler/signet", ref = "main" }
 simplifile = { version = ">= 2.5.0 and < 3.0.0" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
 startest = { version = ">= 0.8.0 and < 1.0.0" }

@@ -19,6 +19,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 
+import signet/types as token
 import spillway/message
 import spillway/nack
 import spillway/types
@@ -61,7 +62,7 @@ fn test_client() -> types.Client {
       device: None,
     ),
     permission: [],
-    user: types.User(id: "user-1", properties: dict.new()),
+    user: token.User(id: "user-1", properties: dict.new()),
     scopes: ["doc:read", "doc:write"],
     timestamp: None,
   )
@@ -183,6 +184,7 @@ pub fn decode_connected_message_test() {
   connected.version |> expect.to_equal("^0.1.0")
   connected.supported_versions |> expect.to_equal(["^0.1.0", "^1.0.0"])
   connected.claims.document_id |> expect.to_equal("dice")
+  connected.claims.scopes |> expect.to_equal([token.DocRead, token.DocWrite])
   connected.claims.user.id |> expect.to_equal("user-1")
   connected.service_configuration.block_size |> expect.to_equal(65_536)
 

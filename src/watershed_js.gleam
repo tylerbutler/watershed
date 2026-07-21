@@ -48,11 +48,11 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 @target(javascript)
+import signet/types as token
+@target(javascript)
 import spillway/message.{type SignalMessage, ConnectMessage}
 @target(javascript)
-import spillway/types.{
-  Client, ClientCapabilities, ClientDetails, User, WriteMode,
-}
+import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
 @target(javascript)
 import gleam/result
@@ -224,7 +224,7 @@ pub fn connect(
           device: None,
         ),
         permission: [],
-        user: User(id: config.user_id, properties: dict.new()),
+        user: token.User(id: config.user_id, properties: dict.new()),
         scopes: ["doc:read", "doc:write", "summary:write"],
         timestamp: None,
       ),
@@ -273,7 +273,7 @@ pub fn connect_via(
           device: None,
         ),
         permission: [],
-        user: User(id: user_id, properties: dict.new()),
+        user: token.User(id: user_id, properties: dict.new()),
         scopes: ["doc:read", "doc:write", "summary:write"],
         timestamp: None,
       ),

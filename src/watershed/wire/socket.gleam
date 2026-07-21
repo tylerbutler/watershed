@@ -15,6 +15,7 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
+import signet/types as token
 import spillway/message.{
   type ConnectError, type ConnectMessage, type ConnectedMessage, type OpMessage,
   type SignalMessage, type SummaryContext, ConnectError, ConnectedMessage,
@@ -24,9 +25,8 @@ import spillway/nack.{type Nack, type NackContent, Nack, NackContent}
 import spillway/types.{
   type Client, type ClientDetails, type ConnectionMode, type DocumentMessage,
   type SequencedDocumentMessage, type ServiceConfiguration, type SignalClient,
-  type TokenClaims, type User, Client, ClientCapabilities, ClientDetails,
-  DocumentMessage, ReadMode, SequencedDocumentMessage, ServiceConfiguration,
-  SignalClient, TokenClaims, User, WriteMode,
+  Client, ClientCapabilities, ClientDetails, DocumentMessage, ReadMode,
+  SequencedDocumentMessage, ServiceConfiguration, SignalClient, WriteMode,
 }
 
 import watershed/wire.{type OutboundOp}
@@ -174,7 +174,7 @@ fn encode_client_details(details: ClientDetails) -> Json {
   )
 }
 
-fn encode_user(user: User) -> Json {
+fn encode_user(user: token.User) -> Json {
   json.object([
     #("id", json.string(user.id)),
     ..list.map(dict.to_list(user.properties), fn(property) {
@@ -469,7 +469,7 @@ pub fn document_message_decoder() -> Decoder(DocumentMessage) {
   ))
 }
 
-pub fn token_claims_decoder() -> Decoder(TokenClaims) {
+pub fn token_claims_decoder() -> Decoder(token.TokenClaims) {
   use document_id <- decode.field("documentId", decode.string)
   use scopes <- decode.field("scopes", decode.list(decode.string))
   use tenant_id <- decode.field("tenantId", decode.string)
@@ -478,9 +478,9 @@ pub fn token_claims_decoder() -> Decoder(TokenClaims) {
   use expiration <- decode.field("exp", decode.int)
   use version <- decode.field("ver", decode.string)
   use jti <- decode.optional_field("jti", None, decode.optional(decode.string))
-  decode.success(TokenClaims(
+  decode.success(token.TokenClaims(
     document_id: document_id,
-    scopes: scopes,
+    scopes: token.scopes_from_strings(scopes),
     tenant_id: tenant_id,
     user: user,
     issued_at: issued_at,
@@ -588,7 +588,7 @@ pub fn client_decoder() -> Decoder(Client) {
   )
   use user <- decode.optional_field(
     "user",
-    User(id: "", properties: dict.new()),
+    token.User(id: "", properties: dict.new()),
     user_decoder(),
   )
   use scopes <- decode.optional_field("scopes", [], decode.list(decode.string))
@@ -645,8 +645,8 @@ fn client_details_decoder() -> Decoder(ClientDetails) {
   ))
 }
 
-fn user_decoder() -> Decoder(User) {
+fn user_decoder() -> Decoder(token.User) {
   use id <- decode.field("id", decode.string)
   use all_fields <- decode.then(decode.dict(decode.string, decode.dynamic))
-  decode.success(User(id: id, properties: dict.delete(all_fields, "id")))
+  decode.success(token.User(id: id, properties: dict.delete(all_fields, "id")))
 }

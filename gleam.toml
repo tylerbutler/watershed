@@ -24,6 +24,7 @@ lattice_sets = ">= 1.1.0 and < 2.0.0"
 lattice_sequence = { path = "../lattice/packages/lattice_sequence" }
 lattice_text_core = { path = "../lattice/packages/lattice_text_core" }
 lattice_text = { path = "../lattice/packages/lattice_text" }
+signet = { git = "https://github.com/tylerbutler/signet", ref = "main" }
 spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
 aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
 

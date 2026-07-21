@@ -5,6 +5,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 
+import signet/types as token
 import spillway/message
 import spillway/types
 import watershed/channel
@@ -16,11 +17,11 @@ const client_id = "default_doc_1"
 
 fn connected_message() -> message.ConnectedMessage {
   message.ConnectedMessage(
-    claims: types.TokenClaims(
+    claims: token.TokenClaims(
       document_id: "doc",
-      scopes: ["doc:read", "doc:write"],
+      scopes: [token.DocRead, token.DocWrite],
       tenant_id: "default",
-      user: types.User(id: "user", properties: dict.new()),
+      user: token.User(id: "user", properties: dict.new()),
       issued_at: 0,
       expiration: 0,
       version: "1.0",
