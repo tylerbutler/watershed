@@ -275,3 +275,58 @@ pub fn shared_sequence_converges_test() {
   watershed_js.sequence_delete(sequence_a, 99)
   |> expect.to_equal(Error("delete index 99 invalid for length 3"))
 }
+
+@target(javascript)
+/// Convergence-to-equal is a weak oracle on its own: a sequence that dropped
+/// every element under a concurrent move would satisfy it. The reorderable
+/// playlist example (`examples/playlist_lustre`) promises that concurrent
+/// reorders neither duplicate nor lose tracks, so pin that directly —
+/// length preserved, no duplicates, and the racing replace still present.
+pub fn concurrent_sequence_move_preserves_every_element_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "sequence-move-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(sequence_a) = watershed_js.create_sequence(doc_a)
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 0, json.string("one"))
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 1, json.string("two"))
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 2, json.string("three"))
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "tracks",
+    watershed_js.sequence_handle_of(sequence_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "tracks")
+  let assert Ok(sequence_b) = watershed_js.resolve_sequence(doc_b, handle)
+  watershed_js.sequence_values(sequence_b)
+  |> expect.to_equal([
+    json.string("one"),
+    json.string("two"),
+    json.string("three"),
+  ])
+
+  // A lifts the head to the tail while B rewrites a different element. Move
+  // destinations are interpreted after removal, so 2 is the tail of the
+  // two-element list left behind — the same arithmetic the example's ↓ button
+  // uses.
+  let assert Ok(Nil) = watershed_js.sequence_move(sequence_a, 0, 2)
+  let assert Ok(Nil) =
+    watershed_js.sequence_replace(sequence_b, 1, json.string("TWO"))
+  sluice_js.settle(sluice)
+
+  let values_a = watershed_js.sequence_values(sequence_a)
+  let values_b = watershed_js.sequence_values(sequence_b)
+
+  values_a |> expect.to_equal(values_b)
+  list.length(values_a) |> expect.to_equal(3)
+  list.unique(values_a) |> expect.to_equal(values_a)
+  list.contains(values_a, json.string("TWO")) |> expect.to_be_true()
+  list.contains(values_a, json.string("one")) |> expect.to_be_true()
+  list.contains(values_a, json.string("three")) |> expect.to_be_true()
+}

@@ -69,8 +69,11 @@ The erlang-only modules are gated with `@target(erlang)` so
 runtime. See [`examples/dice_lustre`](examples/dice_lustre) for a Lustre SPA
 whose entire client is Gleam, verified converging against a live `just server`,
 [`examples/dice_cli`](examples/dice_cli) for its Erlang-target CLI counterpart,
-and [`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
-scoreboard whose per-player records use the [typed document layer](#typed-documents).
+[`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
+scoreboard whose per-player records use the [typed document layer](#typed-documents),
+and [`examples/playlist_lustre`](examples/playlist_lustre) for a reorderable
+playlist on `SharedSequence` — the example that exercises `move`, the
+convergent reorder no other DDS here offers.
 
 For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
 Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and

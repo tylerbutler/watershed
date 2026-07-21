@@ -1,0 +1,19 @@
+{
+  "name": "playlist_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phoenix JS client dependency for the watershed Lustre playlist example",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/playlist_lustre/playlist_lustre.mjs --bundle --format=esm --outfile=dist/playlist_lustre.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.8",
+    "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}
