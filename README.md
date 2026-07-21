@@ -1,11 +1,12 @@
 # watershed
 
-A Gleam (BEAM) DDS client toolkit for [levee](https://github.com/tylerbutler/levee) —
-collaborative data structures with optimistic local edits, convergence guaranteed
-by server sequencing, and reconnect safety. SharedMap is the anchor DDS;
-SharedCounter, OR-set, claims, and the other channel kinds ride the same runtime,
-and an opt-in [typed document layer](#typed-documents) declares a document's shape
-once.
+A Gleam Fluid Framework DDS client toolkit for Erlang and JavaScript. It provides
+collaborative data structures with optimistic local edits, convergence through
+server sequencing, and reconnect safety. SharedMap is the anchor DDS;
+SharedCounter, SharedSequence, OR-set, claims, and the other channel kinds share
+the same runtime. An opt-in [typed document layer](#typed-documents) declares a
+document's shape once. [levee](https://github.com/tylerbutler/levee) is one
+compatible server implementation.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -38,6 +39,10 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   FluidFramework's `counter.ts` delta semantics: integer increments, optimistic
   local apply, FIFO acks, local message-id validation, stashed ops, rollback,
   and summary seeding.
+- **SharedSequence kernel: done.** `watershed/sequence_kernel` uses
+  `lattice_sequence` for optimistic insert, delete, and move operations over
+  arbitrary JSON values, with summaries, stashed ops, rollback, and
+  multi-client convergence.
 - **M2 — shared test corpus: done.** 20 scenarios generated from the TS
   `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
 - **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
@@ -50,14 +55,14 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 
 ## Targets
 
-The pure core (`map_kernel`, `counter_kernel`, `wire`, `runtime_core`) is
-target-agnostic. Two runtimes sit on top:
+The pure core (`map_kernel`, `counter_kernel`, `sequence_kernel`, `wire`,
+`runtime_core`) is target-agnostic. Two runtimes sit on top:
 
 | Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
 | Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
-| Pure core | `map_kernel` · `counter_kernel` · `wire` · `runtime_core` | ← identical, shared |
+| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `wire` · `runtime_core` | ← identical, shared |
 
 The erlang-only modules are gated with `@target(erlang)` so
 `gleam build --target javascript` compiles just the pure core plus the JS
@@ -73,6 +78,31 @@ a presence effect — so an app declares its wiring instead of hand-bridging
 watershed's callbacks into `dispatch` (and deferring each to dodge the
 mid-`update` clobber). Both Lustre examples are built on it.
 
+## Shared sequences
+
+`SharedSequence` is a collaborative Array-like DDS that stores arbitrary JSON
+values. The Erlang and JavaScript facades expose the same create, resolve,
+insert, delete, move, replace, read, and subscription operations:
+
+```gleam
+import gleam/json
+
+let assert Ok(items) = watershed.create_sequence(doc)
+let assert Ok(Nil) =
+  watershed.sequence_insert(items, 0, json.string("first"))
+let assert Ok(Nil) =
+  watershed.sequence_insert(items, 1, json.string("second"))
+let assert Ok(Nil) = watershed.sequence_move(items, 0, 1)
+watershed.sequence_values(items)
+// [json.string("second"), json.string("first")]
+```
+
+Move destinations are interpreted after removing the source value. Replace is
+one Watershed operation composed by merging `lattice_sequence` delete and insert
+deltas; `lattice_sequence` has no native replace primitive. This Array-like DDS
+is the foundation for collaborative text editing, but watershed does not yet
+expose a text-specific API.
+
 ## Typed documents
 
 `watershed/schema` adds an opt-in typed view over a SharedMap: declare a
@@ -84,7 +114,12 @@ Declare each slot as a field — a plain value, a nested typed map (`ChildField`
 or a handle to any other channel kind (`ChannelField`):
 
 ```gleam
-import watershed/schema.{type ChannelField, type CounterChannel, type Field}
+import watershed/schema.{
+  type ChannelField,
+  type CounterChannel,
+  type Field,
+  type SequenceChannel,
+}
 
 pub type Doc
 pub fn title() -> Field(Doc, String) {
@@ -92,6 +127,9 @@ pub fn title() -> Field(Doc, String) {
 }
 pub fn mistakes() -> ChannelField(Doc, CounterChannel) {
   schema.channel_field("mistakes")
+}
+pub fn items() -> ChannelField(Doc, SequenceChannel) {
+  schema.channel_field("items")
 }
 ```
 
@@ -102,14 +140,16 @@ create / race / retry bootstrap apps used to hand-write:
 let root = watershed.typed(watershed.root(doc))
 watershed.ensure_field(root, title(), "Untitled")
 let assert Ok(counter) = watershed.ensure_counter(doc, root, mistakes())
+let assert Ok(sequence) = watershed.ensure_sequence(doc, root, items())
 ```
 
 For a whole record spread across keys, the `record1`..`record9` builders plus
 `sealed_known` derive the decoder *and* the encoder from one prop list so they
 cannot drift (see [`examples/scoreboard_cli`](examples/scoreboard_cli)). Events
-narrow per field or per channel via `subscribe_field` / `subscribe_counter` /
-`subscribe_typed`. [`examples/sudoku_lustre`](examples/sudoku_lustre) shows the
-full pattern end to end.
+narrow per field or per channel via `subscribe_field`, `subscribe_counter`,
+`subscribe_sequence`, and `subscribe_typed`.
+[`examples/sudoku_lustre`](examples/sudoku_lustre) shows the full pattern end to
+end.
 
 ## Development
 
