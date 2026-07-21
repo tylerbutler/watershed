@@ -16,9 +16,18 @@ import gleam/string
 import startest/expect
 
 @target(javascript)
+import watershed/schema
+@target(javascript)
+import watershed/sequence_kernel
+@target(javascript)
 import watershed/sluice_js
 @target(javascript)
+import watershed/transport_js
+@target(javascript)
 import watershed_js
+
+@target(javascript)
+type SequenceFields
 
 @target(javascript)
 fn same_entries(
@@ -159,4 +168,110 @@ fn drain_op_meta(
         _ -> drain_op_meta(sluice, acc)
       }
   }
+}
+
+@target(javascript)
+pub fn sequence_subscription_narrows_local_events_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "sequence-subscription-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let assert Ok(sequence) = watershed_js.create_sequence(document)
+  let events = transport_js.new_cell([])
+  watershed_js.subscribe_sequence(sequence, fn(event) {
+    transport_js.set_cell(events, [event])
+  })
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence, 0, json.string("first"))
+
+  transport_js.get_cell(events)
+  |> expect.to_equal([
+    sequence_kernel.SequenceChanged([json.string("first")]),
+  ])
+}
+
+@target(javascript)
+pub fn ensure_sequence_adopts_stored_field_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "ensure-sequence-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let field: schema.ChannelField(SequenceFields, schema.SequenceChannel) =
+    schema.channel_field("items")
+  let root_a: watershed_js.TypedMap(SequenceFields) =
+    watershed_js.root_typed(doc_a)
+  let root_b: watershed_js.TypedMap(SequenceFields) =
+    watershed_js.root_typed(doc_b)
+  sluice_js.settle(sluice)
+
+  let assert Ok(sequence_a) = watershed_js.create_sequence(doc_a)
+  watershed_js.set_sequence_field(root_a, field, sequence_a)
+  sluice_js.settle(sluice)
+
+  let result = transport_js.new_cell(None)
+  watershed_js.ensure_sequence(doc_b, root_b, field, fn(value) {
+    transport_js.set_cell(result, Some(value))
+  })
+  let assert Some(Ok(sequence_b)) = transport_js.get_cell(result)
+  let assert Ok(Some(resolved)) =
+    watershed_js.resolve_sequence_field(doc_b, root_b, field)
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 0, json.string("ensured"))
+  sluice_js.settle(sluice)
+  watershed_js.sequence_values(sequence_b)
+  |> expect.to_equal(watershed_js.sequence_values(resolved))
+}
+
+@target(javascript)
+pub fn shared_sequence_converges_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "shared-sequence-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(sequence_a) = watershed_js.create_sequence(doc_a)
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 0, json.string("base"))
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "items",
+    watershed_js.sequence_handle_of(sequence_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(sequence_handle) =
+    watershed_js.get(watershed_js.root(doc_b), "items")
+  let assert Ok(sequence_b) =
+    watershed_js.resolve_sequence(doc_b, sequence_handle)
+  case
+    watershed_js.resolve_sequence(
+      doc_b,
+      watershed_js.handle_of(watershed_js.root(doc_b)),
+    )
+  {
+    Error(_) -> Nil
+    Ok(_) ->
+      panic as "expected map handle resolution to fail for SharedSequence"
+  }
+
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_a, 1, json.string("a"))
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(sequence_b, 1, json.string("b"))
+  sluice_js.settle(sluice)
+
+  watershed_js.sequence_values(sequence_a)
+  |> expect.to_equal(watershed_js.sequence_values(sequence_b))
+
+  let assert Ok(Nil) = watershed_js.sequence_move(sequence_a, 0, 2)
+  let assert Ok(Nil) =
+    watershed_js.sequence_replace(sequence_b, 0, json.string("B"))
+  sluice_js.settle(sluice)
+  watershed_js.sequence_values(sequence_a)
+  |> expect.to_equal(watershed_js.sequence_values(sequence_b))
+
+  watershed_js.sequence_delete(sequence_a, 99)
+  |> expect.to_equal(Error("delete index 99 invalid for length 3"))
 }

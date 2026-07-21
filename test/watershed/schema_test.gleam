@@ -460,3 +460,9 @@ pub fn sealed_allows_version_key_test() {
   schema.decode_entries(s, entries)
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
 }
+
+pub fn sequence_channel_field_test() {
+  let items: schema.ChannelField(Player, schema.SequenceChannel) =
+    schema.channel_field("items")
+  schema.channel_field_key(items) |> expect.to_equal("items")
+}

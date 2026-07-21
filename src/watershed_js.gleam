@@ -91,6 +91,8 @@ import watershed/schema.{
   type FieldError,
 }
 @target(javascript)
+import watershed/sequence_kernel
+@target(javascript)
 import watershed/task_manager_kernel
 @target(javascript)
 import watershed/transport_js
@@ -172,6 +174,11 @@ pub opaque type PactMap {
 @target(javascript)
 pub opaque type OrderedCollection {
   OrderedCollection(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedSequence {
+  SharedSequence(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -619,6 +626,24 @@ pub fn resolve_or_set_field(
 }
 
 @target(javascript)
+pub fn set_sequence_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+  sequence: SharedSequence,
+) -> Nil {
+  put_channel_field(typed_map, field, sequence_handle_of(sequence))
+}
+
+@target(javascript)
+pub fn resolve_sequence_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+) -> Result(Option(SharedSequence), String) {
+  get_channel_field(document, typed_map, field, resolve_sequence)
+}
+
+@target(javascript)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
@@ -977,6 +1002,26 @@ pub fn ensure_or_set(
       set_or_set_field(typed_map, field, or_set)
     },
     fn() { resolve_or_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+pub fn ensure_sequence(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+  done: fn(Result(SharedSequence, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use sequence <- result.map(create_sequence(document))
+      set_sequence_field(typed_map, field, sequence)
+    },
+    fn() { resolve_sequence_field(document, typed_map, field) },
     done,
   )
 }
@@ -1448,6 +1493,103 @@ pub fn subscribe_or_set(
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Shared sequences ──────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_sequence(document: Document) -> Result(SharedSequence, String) {
+  runtime_js.create_sequence(document.runtime)
+  |> result.map(fn(address) {
+    SharedSequence(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn sequence_handle_of(sequence: SharedSequence) -> Json {
+  handle.encode_handle(sequence.address)
+}
+
+@target(javascript)
+pub fn resolve_sequence(
+  document: Document,
+  value: Json,
+) -> Result(SharedSequence, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_sequence(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedSequence(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Insert `value` at zero-based `index`, from `0` through the sequence length.
+pub fn sequence_insert(
+  sequence: SharedSequence,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  runtime_js.sequence_insert(sequence.runtime, sequence.address, index, value)
+}
+
+@target(javascript)
+/// Delete the value at a zero-based `index`, from `0` through `length - 1`.
+pub fn sequence_delete(
+  sequence: SharedSequence,
+  index: Int,
+) -> Result(Nil, String) {
+  runtime_js.sequence_delete(sequence.runtime, sequence.address, index)
+}
+
+@target(javascript)
+/// Move a value between zero-based indexes; the destination is evaluated after
+/// removing the source value.
+pub fn sequence_move(
+  sequence: SharedSequence,
+  from_index: Int,
+  to_index: Int,
+) -> Result(Nil, String) {
+  runtime_js.sequence_move(
+    sequence.runtime,
+    sequence.address,
+    from_index,
+    to_index,
+  )
+}
+
+@target(javascript)
+/// Replace the value at a zero-based `index` as one collaborative operation.
+pub fn sequence_replace(
+  sequence: SharedSequence,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  runtime_js.sequence_replace(sequence.runtime, sequence.address, index, value)
+}
+
+@target(javascript)
+pub fn sequence_values(sequence: SharedSequence) -> List(Json) {
+  runtime_js.sequence_values(sequence.runtime, sequence.address)
+}
+
+@target(javascript)
+pub fn sequence_length(sequence: SharedSequence) -> Int {
+  runtime_js.sequence_length(sequence.runtime, sequence.address)
+}
+
+@target(javascript)
+pub fn subscribe_sequence(
+  sequence: SharedSequence,
+  handler: fn(sequence_kernel.SequenceEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
+  case event {
+    channel.SequenceEvent(inner) -> Some(inner)
     _ -> None
   }
 }

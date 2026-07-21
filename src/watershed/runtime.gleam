@@ -65,7 +65,8 @@ import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
   InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
-  InitRegisterCollection, InitTaskManager, InitTwoPSet,
+  InitRegisterCollection, InitSequence, InitTaskManager, InitTwoPSet,
+  SequenceChannel,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -181,6 +182,29 @@ pub type Msg {
   AcquireOrderedItem(address: String, reply: Subject(String))
   CompleteOrderedItem(address: String, acquire_id: String)
   ReleaseOrderedItem(address: String, acquire_id: String)
+  InsertSequenceItem(
+    address: String,
+    index: Int,
+    value: Json,
+    reply: Subject(Result(Nil, String)),
+  )
+  DeleteSequenceItem(
+    address: String,
+    index: Int,
+    reply: Subject(Result(Nil, String)),
+  )
+  MoveSequenceItem(
+    address: String,
+    from_index: Int,
+    to_index: Int,
+    reply: Subject(Result(Nil, String)),
+  )
+  ReplaceSequenceItem(
+    address: String,
+    index: Int,
+    value: Json,
+    reply: Subject(Result(Nil, String)),
+  )
   SubmitJsonOt(address: String, components: json_ot.Op)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
@@ -229,6 +253,7 @@ pub type Msg {
   /// Create a new detached ConsensusOrderedCollection channel, same lifecycle
   /// as `CreateMap`.
   CreateOrderedCollection(reply: Subject(Result(String, String)))
+  CreateSequence(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateOrSet(reply: Subject(Result(String, String)))
@@ -241,6 +266,7 @@ pub type Msg {
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
+  ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   /// Summarize the current confirmed state to levee storage, replying with the
   /// summary handle (git tree SHA) on success.
   Summarize(reply: Subject(Result(String, String)))
@@ -286,6 +312,8 @@ pub type Msg {
   GetOrSetValues(address: String, reply: Subject(List(String)))
   GSetContains(address: String, element: String, reply: Subject(Bool))
   GetGSetValues(address: String, reply: Subject(List(String)))
+  GetSequenceValues(address: String, reply: Subject(List(Json)))
+  GetSequenceLength(address: String, reply: Subject(Int))
   TwoPSetContains(address: String, element: String, reply: Subject(Bool))
   GetTwoPSetValues(address: String, reply: Subject(List(String)))
   DirectorySet(address: String, path: String, key: String, value: Json)
@@ -449,6 +477,16 @@ pub fn start_with_transport(
 /// Block until the handshake completes (or fails).
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
+}
+
+@target(erlang)
+pub fn resolve_sequence(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(Nil, String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    ResolveSequence(address, reply)
+  })
 }
 
 @target(erlang)
@@ -769,6 +807,36 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.ordered_release(core, address, acquire_id)
       })
+    InsertSequenceItem(address, index, value, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.sequence_insert(core, address, index, value) },
+        "sequence insert",
+      )
+    DeleteSequenceItem(address, index, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.sequence_delete(core, address, index) },
+        "sequence delete",
+      )
+    MoveSequenceItem(address, from_index, to_index, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) {
+          runtime_core.sequence_move(core, address, from_index, to_index)
+        },
+        "sequence move",
+      )
+    ReplaceSequenceItem(address, index, value, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.sequence_replace(core, address, index, value) },
+        "sequence replace",
+      )
     SubmitJsonOt(address, components) ->
       edit(state, fn(core) {
         runtime_core.submit_json_ot(core, address, components)
@@ -839,6 +907,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CreateOrSet(reply) ->
       create_channel(state, reply, InitOrSet, "create_or_set")
     CreateGSet(reply) -> create_channel(state, reply, InitGSet, "create_g_set")
+    CreateSequence(reply) ->
+      create_channel(state, reply, InitSequence, "create_sequence")
     CreateDirectory(reply) ->
       create_channel(state, reply, InitDirectory, "create_directory")
     DirectorySet(address, path, key, value) ->
@@ -887,6 +957,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           )
       }
       process.send(reply, result)
+      actor.continue(state)
+    }
+    ResolveSequence(address, reply) -> {
+      process.send(reply, resolve_sequence_address(state, address))
       actor.continue(state)
     }
 
@@ -997,6 +1071,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, [], runtime_core.g_set_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetSequenceValues(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.sequence_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetSequenceLength(address, reply) -> {
+      process.send(
+        reply,
+        read(state, 0, runtime_core.sequence_length(_, address)),
       )
       actor.continue(state)
     }
@@ -1233,6 +1321,19 @@ fn create_channel(
       )
       actor.continue(state)
     }
+  }
+}
+
+@target(erlang)
+fn resolve_sequence_address(
+  state: State,
+  address: String,
+) -> Result(Nil, String) {
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      runtime_core.require_channel_type(core, address, SequenceChannel)
+      |> result.map_error(string.inspect)
+    _ -> Error("resolve_sequence requires a ready document connection")
   }
 }
 
@@ -1663,6 +1764,71 @@ fn edit(
     // Edits are only reachable through handles returned after await_ready,
     // so this is either a race with a failure or API misuse.
     _ -> panic as "edit before the document connection is ready"
+  }
+}
+
+@target(erlang)
+fn edit_sequence_with_result(
+  state: State,
+  reply: Subject(Result(Nil, String)),
+  operate: fn(runtime_core.Core) ->
+    Result(
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
+  verb: String,
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Ok(#(core, events, outbound)) -> {
+          process.send(reply, Ok(Nil))
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
+          process.send(reply, Error(detail))
+          actor.continue(state)
+        }
+        Error(error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(error)),
+          )
+          actor.continue(state)
+        }
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Ok(#(core, events, _outbound)) -> {
+          process.send(reply, Ok(Nil))
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
+          process.send(reply, Error(detail))
+          actor.continue(state)
+        }
+        Error(error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(error)),
+          )
+          actor.continue(state)
+        }
+      }
+    _ -> {
+      process.send(
+        reply,
+        Error(verb <> " before the document connection is ready"),
+      )
+      actor.continue(state)
+    }
   }
 }
 

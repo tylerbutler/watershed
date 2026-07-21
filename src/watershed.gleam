@@ -85,6 +85,8 @@ import watershed/schema.{
   type FieldError,
 }
 @target(erlang)
+import watershed/sequence_kernel
+@target(erlang)
 import watershed/task_manager_kernel
 @target(erlang)
 import watershed/two_p_set_kernel
@@ -172,6 +174,11 @@ pub opaque type PactMap {
 @target(erlang)
 pub opaque type OrderedCollection {
   OrderedCollection(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedSequence {
+  SharedSequence(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -634,6 +641,24 @@ pub fn resolve_or_set_field(
 }
 
 @target(erlang)
+pub fn set_sequence_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+  sequence: SharedSequence,
+) -> Nil {
+  put_channel_field(typed_map, field, sequence_handle_of(sequence))
+}
+
+@target(erlang)
+pub fn resolve_sequence_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+) -> Result(Option(SharedSequence), String) {
+  get_channel_field(document, typed_map, field, resolve_sequence)
+}
+
+@target(erlang)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
@@ -975,6 +1000,24 @@ pub fn ensure_or_set(
       set_or_set_field(typed_map, field, or_set)
     },
     fn() { resolve_or_set_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+pub fn ensure_sequence(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.SequenceChannel),
+) -> Result(SharedSequence, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use sequence <- result.map(create_sequence(document))
+      set_sequence_field(typed_map, field, sequence)
+    },
+    fn() { resolve_sequence_field(document, typed_map, field) },
   )
 }
 
@@ -1526,6 +1569,115 @@ pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared sequences
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+pub fn create_sequence(document: Document) -> Result(SharedSequence, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateSequence,
+  )
+  |> result.map(fn(address) {
+    SharedSequence(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn sequence_handle_of(sequence: SharedSequence) -> Json {
+  handle.encode_handle(sequence.address)
+}
+
+@target(erlang)
+pub fn resolve_sequence(
+  document: Document,
+  value: Json,
+) -> Result(SharedSequence, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_sequence(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedSequence(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Insert `value` at zero-based `index`, from `0` through the sequence length.
+pub fn sequence_insert(
+  sequence: SharedSequence,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.InsertSequenceItem(sequence.address, index, value, reply)
+  })
+}
+
+@target(erlang)
+/// Delete the value at a zero-based `index`, from `0` through `length - 1`.
+pub fn sequence_delete(
+  sequence: SharedSequence,
+  index: Int,
+) -> Result(Nil, String) {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DeleteSequenceItem(sequence.address, index, reply)
+  })
+}
+
+@target(erlang)
+/// Move a value between zero-based indexes; the destination is evaluated after
+/// removing the source value.
+pub fn sequence_move(
+  sequence: SharedSequence,
+  from_index: Int,
+  to_index: Int,
+) -> Result(Nil, String) {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.MoveSequenceItem(sequence.address, from_index, to_index, reply)
+  })
+}
+
+@target(erlang)
+/// Replace the value at a zero-based `index` as one collaborative operation.
+pub fn sequence_replace(
+  sequence: SharedSequence,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.ReplaceSequenceItem(sequence.address, index, value, reply)
+  })
+}
+
+@target(erlang)
+pub fn sequence_values(sequence: SharedSequence) -> List(Json) {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetSequenceValues(sequence.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn sequence_length(sequence: SharedSequence) -> Int {
+  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetSequenceLength(sequence.address, reply)
+  })
+}
+
+@target(erlang)
+pub fn subscribe_sequence(
+  sequence: SharedSequence,
+) -> Subject(sequence_kernel.SequenceEvent) {
+  use event <- subscribe_narrowed(sequence.runtime, sequence.address)
+  case event {
+    channel.SequenceEvent(inner) -> Some(inner)
     _ -> None
   }
 }

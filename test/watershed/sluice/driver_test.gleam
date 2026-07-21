@@ -26,7 +26,14 @@ import watershed/claims_kernel
 @target(erlang)
 import watershed/runtime
 @target(erlang)
+import watershed/schema
+@target(erlang)
+import watershed/sequence_kernel
+@target(erlang)
 import watershed/sluice
+
+@target(erlang)
+type SequenceFields
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -242,4 +249,96 @@ pub fn ripple_broadcasts_to_peers_test() {
   let ripples_c = watershed.subscribe_ripples(doc_c)
   sluice.settle(sluice)
   process.receive(from: ripples_c, within: 10) |> expect.to_equal(Error(Nil))
+}
+
+@target(erlang)
+pub fn sequence_subscription_narrows_local_events_test() {
+  let sluice = start("sequence-subscription")
+  let document = connect(sluice, "user-a")
+  sluice.settle(sluice)
+
+  let assert Ok(sequence) = watershed.create_sequence(document)
+  let events = watershed.subscribe_sequence(sequence)
+  let assert Ok(Nil) =
+    watershed.sequence_insert(sequence, 0, json.string("first"))
+
+  let assert Ok(event) = process.receive(from: events, within: 100)
+  event
+  |> expect.to_equal(sequence_kernel.SequenceChanged([json.string("first")]))
+}
+
+@target(erlang)
+pub fn ensure_sequence_adopts_stored_field_test() {
+  let sluice = start("ensure-sequence")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let field: schema.ChannelField(SequenceFields, schema.SequenceChannel) =
+    schema.channel_field("items")
+  let root_a: watershed.TypedMap(SequenceFields) = watershed.root_typed(doc_a)
+  let root_b: watershed.TypedMap(SequenceFields) = watershed.root_typed(doc_b)
+  sluice.settle(sluice)
+
+  let assert Ok(sequence_a) = watershed.create_sequence(doc_a)
+  watershed.set_sequence_field(root_a, field, sequence_a)
+  sluice.settle(sluice)
+
+  let assert Ok(sequence_b) = watershed.ensure_sequence(doc_b, root_b, field)
+  let assert Ok(Some(resolved)) =
+    watershed.resolve_sequence_field(doc_b, root_b, field)
+  let assert Ok(Nil) =
+    watershed.sequence_insert(sequence_a, 0, json.string("ensured"))
+  sluice.settle(sluice)
+  watershed.sequence_values(sequence_b)
+  |> expect.to_equal(watershed.sequence_values(resolved))
+}
+
+@target(erlang)
+pub fn shared_sequence_converges_test() {
+  let sluice = start("shared-sequence")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(sequence_a) = watershed.create_sequence(doc_a)
+  let assert Ok(Nil) =
+    watershed.sequence_insert(sequence_a, 0, json.string("base"))
+  watershed.set(
+    watershed.root(doc_a),
+    "items",
+    watershed.sequence_handle_of(sequence_a),
+  )
+  sluice.settle(sluice)
+
+  let assert Some(sequence_handle) =
+    watershed.get(watershed.root(doc_b), "items")
+  let assert Ok(sequence_b) = watershed.resolve_sequence(doc_b, sequence_handle)
+  case
+    watershed.resolve_sequence(
+      doc_b,
+      watershed.handle_of(watershed.root(doc_b)),
+    )
+  {
+    Error(_) -> Nil
+    Ok(_) ->
+      panic as "expected map handle resolution to fail for SharedSequence"
+  }
+
+  let assert Ok(Nil) =
+    watershed.sequence_insert(sequence_a, 1, json.string("a"))
+  let assert Ok(Nil) =
+    watershed.sequence_insert(sequence_b, 1, json.string("b"))
+  sluice.settle(sluice)
+
+  watershed.sequence_values(sequence_a)
+  |> expect.to_equal(watershed.sequence_values(sequence_b))
+
+  let assert Ok(Nil) = watershed.sequence_move(sequence_a, 0, 2)
+  let assert Ok(Nil) =
+    watershed.sequence_replace(sequence_b, 0, json.string("B"))
+  sluice.settle(sluice)
+  watershed.sequence_values(sequence_a)
+  |> expect.to_equal(watershed.sequence_values(sequence_b))
+
+  watershed.sequence_delete(sequence_a, 99)
+  |> expect.to_equal(Error("delete index 99 invalid for length 3"))
 }

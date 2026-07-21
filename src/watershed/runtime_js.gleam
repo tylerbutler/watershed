@@ -564,6 +564,63 @@ pub fn g_set_values(runtime: Runtime, address: String) -> List(String) {
   read(runtime.cell, [], runtime_core.g_set_values(_, address))
 }
 
+@target(javascript)
+pub fn sequence_insert(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_insert(core, address, index, value)
+  })
+}
+
+@target(javascript)
+pub fn sequence_delete(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_delete(core, address, index)
+  })
+}
+
+@target(javascript)
+pub fn sequence_move(
+  runtime: Runtime,
+  address: String,
+  from_index: Int,
+  to_index: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_move(core, address, from_index, to_index)
+  })
+}
+
+@target(javascript)
+pub fn sequence_replace(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_replace(core, address, index, value)
+  })
+}
+
+@target(javascript)
+pub fn sequence_values(runtime: Runtime, address: String) -> List(Json) {
+  read(runtime.cell, [], runtime_core.sequence_values(_, address))
+}
+
+@target(javascript)
+pub fn sequence_length(runtime: Runtime, address: String) -> Int {
+  read(runtime.cell, 0, runtime_core.sequence_length(_, address))
+}
+
 // ── SharedDirectory ─────────────────────────────────────────────────────────
 
 @target(javascript)
@@ -963,6 +1020,11 @@ pub fn create_g_set(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
+pub fn create_sequence(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitSequence, "create_sequence")
+}
+
+@target(javascript)
 pub fn create_two_p_set(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitTwoPSet, "create_two_p_set")
 }
@@ -1093,6 +1155,28 @@ pub fn resolve_address(
         <> address
         <> " (a foreign attach may still be in flight; retry)",
       )
+  }
+}
+
+@target(javascript)
+pub fn resolve_sequence(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case
+        runtime_core.require_channel_type(
+          core,
+          address,
+          channel.SequenceChannel,
+        )
+      {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("resolve_sequence requires a ready document connection")
   }
 }
 
@@ -1798,6 +1882,45 @@ fn edit(
     }
     // Edits before ready are dropped (the demo gates edits behind on_ready).
     _ -> Nil
+  }
+}
+
+@target(javascript)
+fn edit_sequence_with_result(
+  cell: Cell(State),
+  operate: fn(runtime_core.Core) ->
+    Result(
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
+) -> Result(Nil, String) {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Ok(#(core, events, outbound)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
+          }
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Ok(#(core, events, _outbound)) -> {
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("sequence edit before the document connection is ready")
   }
 }
 

@@ -141,6 +141,9 @@ pub type PactMapChannel
 /// A consensus ordered collection (a sequenced work queue).
 pub type OrderedCollectionChannel
 
+/// A collaborative ordered sequence of arbitrary JSON values.
+pub type SequenceChannel
+
 /// A typed key whose stored value is a handle to a channel of `kind`.
 pub opaque type ChannelField(schema, kind) {
   ChannelField(key: String)

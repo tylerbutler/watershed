@@ -2788,6 +2788,23 @@ fn locate_channel(
   }
 }
 
+/// Verify that `address` resolves to the requested channel type.
+pub fn require_channel_type(
+  core: Core,
+  address: String,
+  expected: channel.ChannelType,
+) -> Result(Nil, CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  let state = case located {
+    Detached(state) | Attached(state) -> state
+  }
+  let actual = channel.channel_type(state)
+  case actual == expected {
+    True -> Ok(Nil)
+    False -> Error(WrongChannelType(address, expected, actual))
+  }
+}
+
 fn attach_dependencies(
   core: Core,
   value: Json,
