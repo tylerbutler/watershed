@@ -24,6 +24,7 @@ import spillway/nack
 import spillway/types
 
 import lattice_core/replica_id
+import lattice_sequence/sequence
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
@@ -33,6 +34,7 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/sequence_kernel
 import watershed/wire
 import watershed/wire/ops
 import watershed/wire/socket
@@ -700,6 +702,176 @@ fn string_contains(haystack: String, needle: String) -> Bool {
 
 fn list_each(items: List(a), run: fn(a) -> b) -> Nil {
   list.each(items, run)
+}
+
+fn simple_sequence_value() -> json.Json {
+  json.object([#("name", json.string("Ada"))])
+}
+
+fn noncanonical_nested_sequence_value() -> json.Json {
+  json.object([
+    #("zebra", json.string("tail")),
+    #(
+      "alpha",
+      json.object([
+        #("omega", json.string("last")),
+        #(
+          "middle",
+          json.preprocessed_array([
+            json.string("Countess"),
+            json.object([
+              #("beta", json.int(2)),
+              #("alpha", json.bool(True)),
+            ]),
+          ]),
+        ),
+        #(
+          "details",
+          json.object([
+            #(
+              "history",
+              json.preprocessed_array([
+                json.int(1815),
+                json.object([
+                  #("zeta", json.null()),
+                  #("tags", json.preprocessed_array([json.string("math")])),
+                ]),
+              ]),
+            ),
+          ]),
+        ),
+      ]),
+    ),
+  ])
+}
+
+fn sample_sequence_insert_op() -> sequence_kernel.SequenceOp {
+  let assert Ok(#(_, _, op, _)) =
+    sequence_kernel.insert(
+      sequence_kernel.new(replica_id.new("client-a")),
+      0,
+      simple_sequence_value(),
+    )
+  op
+}
+
+fn sample_sequence_delete_op() -> sequence_kernel.SequenceOp {
+  let state = sequence_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, _, _)) =
+    sequence_kernel.insert(state, 0, json.string("Ada"))
+  let assert Ok(#(_, _, op, _)) = sequence_kernel.delete(state, 0)
+  op
+}
+
+fn sample_sequence_move_op() -> sequence_kernel.SequenceOp {
+  let state = sequence_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, _, _)) =
+    sequence_kernel.insert(state, 0, json.string("Ada"))
+  let assert Ok(#(state, _, _, _)) =
+    sequence_kernel.insert(state, 1, json.string("Grace"))
+  let assert Ok(#(_, _, op, _)) = sequence_kernel.move(state, 0, 1)
+  op
+}
+
+fn sample_sequence_replace_op() -> sequence_kernel.SequenceOp {
+  let state = sequence_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, _, _)) =
+    sequence_kernel.insert(state, 0, json.string("Grace"))
+  let assert Ok(#(_, _, op, _)) =
+    sequence_kernel.replace(state, 0, simple_sequence_value())
+  op
+}
+
+fn sample_noncanonical_sequence_insert_op() -> sequence_kernel.SequenceOp {
+  let assert Ok(#(_, _, op, _)) =
+    sequence_kernel.insert(
+      sequence_kernel.new(replica_id.new("client-a")),
+      0,
+      noncanonical_nested_sequence_value(),
+    )
+  op
+}
+
+fn decode_sequence_channel_round_trip(
+  op: sequence_kernel.SequenceOp,
+) -> sequence_kernel.SequenceOp {
+  let encoded =
+    ops.encode_channel_envelope("items", channel.SequenceOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("items", payload)) =
+    ops.decode_op_contents(dynamic)
+  let assert Ok(channel.SequenceOp(decoded)) =
+    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+  decoded
+}
+
+fn assert_sequence_channel_round_trip(op: sequence_kernel.SequenceOp) {
+  decode_sequence_channel_round_trip(op) |> expect.to_equal(op)
+}
+
+pub fn sequence_insert_channel_op_round_trips_test() {
+  assert_sequence_channel_round_trip(sample_sequence_insert_op())
+}
+
+pub fn sequence_delete_channel_op_round_trips_test() {
+  assert_sequence_channel_round_trip(sample_sequence_delete_op())
+}
+
+pub fn sequence_move_channel_op_round_trips_test() {
+  assert_sequence_channel_round_trip(sample_sequence_move_op())
+}
+
+pub fn sequence_replace_channel_op_round_trips_test() {
+  assert_sequence_channel_round_trip(sample_sequence_replace_op())
+}
+
+pub fn sequence_insert_noncanonical_json_semantics_round_trip_test() {
+  let original = sample_noncanonical_sequence_insert_op()
+  let decoded = decode_sequence_channel_round_trip(original)
+
+  channel.same_shape(channel.SequenceOp(original), channel.SequenceOp(decoded))
+  |> expect.to_be_true()
+
+  let fresh = fn() { sequence_kernel.new(replica_id.new("observer")) }
+  let #(original_state, _) = sequence_kernel.apply_remote(fresh(), original)
+  let #(decoded_state, _) = sequence_kernel.apply_remote(fresh(), decoded)
+
+  channel.same_snapshot(
+    channel.SequenceSummary(original_state.sequenced),
+    channel.SequenceSummary(decoded_state.sequenced),
+  )
+  |> expect.to_be_true()
+}
+
+pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() {
+  let op = sample_sequence_insert_op()
+  let encoded =
+    ops.encode_channel_envelope("items", channel.SequenceOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("items", payload)) =
+    ops.decode_op_contents(dynamic)
+  let assert Ok(delta) =
+    decode.run(payload, decode.at(["delta"], decode.string))
+  let _ =
+    sequence.from_json(delta, wire.json_value_decoder())
+    |> expect.to_be_ok()
+  Nil
+}
+
+pub fn sequence_decoder_rejects_malformed_delta_envelope_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"items\",\"contents\":{\"type\":\"sequenceDelete\",\"index\":0,\"delta\":\"not-json\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("items", payload)) =
+    ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+    |> expect.to_be_error()
+  Nil
 }
 
 // New tests for attach ops and the summary blob

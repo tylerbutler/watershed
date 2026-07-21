@@ -27,6 +27,7 @@ import lattice_core/replica_id
 import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_sequence/sequence
 import lattice_sets/g_set
 import lattice_sets/or_set
 import lattice_sets/two_p_set
@@ -44,6 +45,7 @@ import watershed/ordered_collection_kernel.{type OrderedOp}
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel.{type PnCounterOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
+import watershed/sequence_kernel.{type SequenceOp}
 import watershed/task_manager_kernel.{type TaskManagerOp}
 import watershed/two_p_set_kernel.{type TwoPSetOp}
 import watershed/wire.{type OutboundOp}
@@ -153,8 +155,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
     channel.PactMapOp(op) -> encode_pact_map_op(op)
     channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
-    channel.SequenceOp(_) ->
-      panic as "sequence op encoding is not available"
+    channel.SequenceOp(op) -> encode_sequence_op(op)
   }
 }
 
@@ -188,7 +189,7 @@ pub fn channel_op_decoder(
     channel.OrderedCollectionChannel ->
       ordered_op_decoder() |> decode.map(channel.OrderedCollectionOp)
     channel.SequenceChannel ->
-      decode.failure(channel.MapOp(Clear), "SequenceOp")
+      sequence_op_decoder() |> decode.map(channel.SequenceOp)
   }
 }
 
@@ -692,6 +693,72 @@ pub fn ordered_op_decoder() -> Decoder(OrderedOp) {
   }
 }
 
+pub fn sequence_op_decoder() -> Decoder(SequenceOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "sequenceInsert" -> {
+      use index <- decode.field("index", decode.int)
+      use value <- decode.field("value", wire.json_value_decoder())
+      use delta <- decode.field("delta", sequence_delta_decoder())
+      decode.success(sequence_kernel.Insert(index, value, delta))
+    }
+    "sequenceDelete" -> {
+      use index <- decode.field("index", decode.int)
+      use delta <- decode.field("delta", sequence_delta_decoder())
+      decode.success(sequence_kernel.Delete(index, delta))
+    }
+    "sequenceMove" -> {
+      use from_index <- decode.field("fromIndex", decode.int)
+      use to_index <- decode.field("toIndex", decode.int)
+      use delta <- decode.field("delta", sequence_delta_decoder())
+      decode.success(sequence_kernel.Move(from_index, to_index, delta))
+    }
+    "sequenceReplace" -> {
+      use index <- decode.field("index", decode.int)
+      use value <- decode.field("value", wire.json_value_decoder())
+      use delta <- decode.field("delta", sequence_delta_decoder())
+      decode.success(sequence_kernel.Replace(index, value, delta))
+    }
+    _ ->
+      decode.failure(
+        sequence_kernel.Delete(0, default_sequence_delta()),
+        "SequenceOp",
+      )
+  }
+}
+
+pub fn encode_sequence_op(op: SequenceOp) -> Json {
+  case op {
+    sequence_kernel.Insert(index, value, delta) ->
+      json.object([
+        #("type", json.string("sequenceInsert")),
+        #("index", json.int(index)),
+        #("value", value),
+        #("delta", sequence_delta_json(delta)),
+      ])
+    sequence_kernel.Delete(index, delta) ->
+      json.object([
+        #("type", json.string("sequenceDelete")),
+        #("index", json.int(index)),
+        #("delta", sequence_delta_json(delta)),
+      ])
+    sequence_kernel.Move(from_index, to_index, delta) ->
+      json.object([
+        #("type", json.string("sequenceMove")),
+        #("fromIndex", json.int(from_index)),
+        #("toIndex", json.int(to_index)),
+        #("delta", sequence_delta_json(delta)),
+      ])
+    sequence_kernel.Replace(index, value, delta) ->
+      json.object([
+        #("type", json.string("sequenceReplace")),
+        #("index", json.int(index)),
+        #("value", value),
+        #("delta", sequence_delta_json(delta)),
+      ])
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -710,6 +777,10 @@ fn two_p_set_delta_json(delta: two_p_set.TwoPSet(String)) -> Json {
 
 fn pn_counter_delta_json(delta: pn_counter.PNCounter) -> Json {
   json.string(json.to_string(pn_counter.to_json(delta)))
+}
+
+fn sequence_delta_json(delta: sequence.Sequence(Json)) -> Json {
+  json.string(json.to_string(sequence.to_json(delta, fn(value) { value })))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -991,8 +1062,20 @@ fn pn_counter_delta_decoder() -> Decoder(pn_counter.PNCounter) {
   }
 }
 
+fn sequence_delta_decoder() -> Decoder(sequence.Sequence(Json)) {
+  use encoded <- decode.then(decode.string)
+  case sequence.from_json(encoded, wire.json_value_decoder()) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_sequence_delta(), "SequenceDelta")
+  }
+}
+
 fn default_pn_counter_delta() -> pn_counter.PNCounter {
   pn_counter.new(replica_id.new(""))
+}
+
+fn default_sequence_delta() -> sequence.Sequence(Json) {
+  sequence.new(replica_id.new(""))
 }
 
 fn default_two_p_set_delta() -> two_p_set.TwoPSet(String) {
