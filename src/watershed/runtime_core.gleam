@@ -39,6 +39,7 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
@@ -100,6 +101,7 @@ pub type CoreError {
   /// A directory edit was rejected by the kernel (unknown path, invalid
   /// subdirectory name). Retryable API misuse, not document corruption.
   DirectoryOpFailed(address: String, detail: String)
+  SequenceOpFailed(address: String, detail: String)
 }
 
 pub type Bootstrapped {
@@ -1924,6 +1926,128 @@ pub fn or_set_remove(
   }
 }
 
+fn mutate_sequence(
+  core: Core,
+  address: String,
+  dependencies: Option(Json),
+  mutate: fn(sequence_kernel.SequenceState) ->
+    Result(
+      #(
+        sequence_kernel.SequenceState,
+        List(sequence_kernel.SequenceEvent),
+        sequence_kernel.SequenceOp,
+        Int,
+      ),
+      sequence_kernel.EditError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_sequence(core, address) {
+    Error(error) -> Error(error)
+    Ok(Detached(kernel)) ->
+      case mutate(kernel) {
+        Error(error) ->
+          Error(SequenceOpFailed(
+            address,
+            sequence_kernel.edit_error_detail(error),
+          ))
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.SequenceState(kernel)),
+              tag_sequence_events(address, events),
+              [],
+            ),
+          )
+      }
+    Ok(Attached(kernel)) ->
+      case mutate(kernel) {
+        Error(error) ->
+          Error(SequenceOpFailed(
+            address,
+            sequence_kernel.edit_error_detail(error),
+          ))
+        Ok(#(kernel, events, op, message_id)) -> {
+          let #(core, attach_outbound) = case dependencies {
+            Some(value) -> attach_dependencies(core, value)
+            None -> #(core, [])
+          }
+          let #(core, events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.SequenceState(kernel),
+              tag_sequence_events(address, events),
+              channel.SequenceOp(op),
+              channel.SequenceMeta(message_id),
+            )
+          Ok(#(core, events, list.append(attach_outbound, outbound)))
+        }
+      }
+  }
+}
+
+pub fn sequence_insert(
+  core: Core,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_sequence(core, address, Some(value), sequence_kernel.insert(
+    _,
+    index,
+    value,
+  ))
+}
+
+pub fn sequence_delete(
+  core: Core,
+  address: String,
+  index: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_sequence(core, address, None, sequence_kernel.delete(_, index))
+}
+
+pub fn sequence_move(
+  core: Core,
+  address: String,
+  from_index: Int,
+  to_index: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_sequence(core, address, None, sequence_kernel.move(
+    _,
+    from_index,
+    to_index,
+  ))
+}
+
+pub fn sequence_replace(
+  core: Core,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_sequence(core, address, Some(value), sequence_kernel.replace(
+    _,
+    index,
+    value,
+  ))
+}
+
 pub fn g_set_add(
   core: Core,
   address: String,
@@ -2514,6 +2638,23 @@ fn locate_or_set(
   }
 }
 
+fn locate_sequence(
+  core: Core,
+  address: String,
+) -> Result(Located(sequence_kernel.SequenceState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.SequenceState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.SequenceState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.SequenceChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_g_set(
   core: Core,
   address: String,
@@ -2854,6 +2995,13 @@ fn tag_or_set_events(
   list.map(events, fn(event) { #(address, channel.OrSetEvent(event)) })
 }
 
+fn tag_sequence_events(
+  address: String,
+  events: List(sequence_kernel.SequenceEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.SequenceEvent(event)) })
+}
+
 fn tag_g_set_events(
   address: String,
   events: List(g_set_kernel.GSetEvent),
@@ -3049,6 +3197,20 @@ pub fn or_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.OrSetState(kernel)) -> or_set_kernel.values(kernel)
     _ -> []
+  }
+}
+
+pub fn sequence_values(core: Core, address: String) -> List(Json) {
+  case find_channel(core, address) {
+    Some(channel.SequenceState(kernel)) -> sequence_kernel.values(kernel)
+    _ -> []
+  }
+}
+
+pub fn sequence_length(core: Core, address: String) -> Int {
+  case find_channel(core, address) {
+    Some(channel.SequenceState(kernel)) -> sequence_kernel.length(kernel)
+    _ -> 0
   }
 }
 
