@@ -267,13 +267,18 @@ const clients = [
     color: var(--ink);
   }
 
-  .dir-node {
+  /* The tree DOM below `.tree` is built at runtime by directory-demo.ts, so it
+     never carries Astro's scoping attribute. Scoping these rules under the
+     template's `.tree` (which does carry it) via `:global(...)` lets them match
+     the injected nodes while staying contained to this component — the same
+     pattern the op-log and flow-dot rules use. */
+  .tree :global(.dir-node) {
     display: flex;
     flex-direction: column;
     gap: 0.15rem;
   }
 
-  .dir-head {
+  .tree :global(.dir-head) {
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
@@ -282,17 +287,17 @@ const clients = [
     transition: color var(--dur-state) var(--ease-out-quart);
   }
 
-  .dir-head.pending .dir-name {
+  .tree :global(.dir-head.pending .dir-name) {
     color: var(--overprint-deep);
   }
 
-  .dir-name {
+  .tree :global(.dir-name) {
     color: var(--waterline);
     font-weight: 600;
     white-space: nowrap;
   }
 
-  .dir-actions {
+  .tree :global(.dir-actions) {
     display: inline-flex;
     gap: 0.15rem;
     margin-inline-start: auto;
@@ -300,18 +305,19 @@ const clients = [
     transition: opacity var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .dir-head:hover .dir-actions,
-  .dir-head:focus-within .dir-actions {
+  .tree :global(.dir-head:hover .dir-actions),
+  .tree :global(.dir-head:focus-within .dir-actions) {
     opacity: 1;
   }
 
-  .node-action {
-    padding: 0.05rem 0.45rem;
+  .tree :global(.node-action) {
+    padding: 0.05rem 0.4rem;
     border: 1px solid var(--hairline);
     border-radius: 2px;
     background: var(--bg);
     font-family: var(--font-mono);
-    font-size: 0.7rem;
+    font-size: 0.85rem;
+    line-height: 1.2;
     color: var(--muted);
     cursor: pointer;
     transition:
@@ -320,22 +326,22 @@ const clients = [
       color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .node-action:hover:enabled {
+  .tree :global(.node-action:hover:enabled) {
     background: var(--overprint-faint);
     border-color: var(--overprint);
     color: var(--overprint-deep);
   }
 
-  .node-action:active:enabled {
+  .tree :global(.node-action:active:enabled) {
     transform: scale(0.97);
   }
 
-  .node-action.dir-del:hover:enabled {
+  .tree :global(.node-action.dir-del:hover:enabled) {
     color: var(--overprint-deep);
     border-color: var(--overprint);
   }
 
-  .dir-keys {
+  .tree :global(.dir-keys) {
     list-style: none;
     margin: 0;
     padding: 0 0 0 1.1rem;
@@ -344,7 +350,7 @@ const clients = [
     gap: 0.05rem;
   }
 
-  .dir-key {
+  .tree :global(.dir-key) {
     display: flex;
     align-items: baseline;
     gap: 0.4rem;
@@ -352,26 +358,26 @@ const clients = [
     border-radius: 2px;
   }
 
-  .dk-key {
+  .tree :global(.dk-key) {
     color: var(--muted);
   }
 
-  .dk-key::after {
+  .tree :global(.dk-key::after) {
     content: "=";
     color: var(--hairline-strong, var(--muted));
     margin-inline-start: 0.35rem;
   }
 
-  .dk-val {
+  .tree :global(.dk-val) {
     color: var(--ink);
   }
 
-  .dir-key.pending .dk-key,
-  .dir-key.pending .dk-val {
+  .tree :global(.dir-key.pending .dk-key),
+  .tree :global(.dir-key.pending .dk-val) {
     color: var(--overprint-deep);
   }
 
-  .dir-children {
+  .tree :global(.dir-children) {
     padding-inline-start: 1.1rem;
     border-inline-start: 1px solid var(--hairline);
     margin-inline-start: 0.35rem;
@@ -651,12 +657,12 @@ const clients = [
   }
 
   @media (pointer: coarse) {
-    .node-action {
+    .tree :global(.node-action) {
       min-inline-size: 2.2rem;
       min-block-size: 2rem;
     }
 
-    .dir-actions {
+    .tree :global(.dir-actions) {
       opacity: 1;
     }
 

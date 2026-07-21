@@ -480,6 +480,12 @@ export function initDemo() {
     "orset",
     "gset",
     "twopset",
+    "ormap",
+    "claims",
+    "registers",
+    "ordered",
+    "tasks",
+    "pact",
   ]);
   // Shared demo infrastructure: latency/pace/jitter controls, the flow-dot
   // layer, the op-log, and the FIFO sequencer transport. Latency and jitter
@@ -1570,7 +1576,7 @@ export function initDemo() {
     }
     const [next, _events, op] = result[0];
     client.ormap = next;
-    render(client);
+    fieldNotes.trackChange("ormap", client.el, true, () => render(client));
     submit(clientId, "ormap", op);
   }
 
@@ -1578,7 +1584,7 @@ export function initDemo() {
     const client = clients[clientId];
     const [next, _events, op] = orMapKernel.remove(client.ormap, key);
     client.ormap = next;
-    render(client);
+    fieldNotes.trackChange("ormap", client.el, true, () => render(client));
     submit(clientId, "ormap", op);
   }
 
@@ -1649,7 +1655,9 @@ export function initDemo() {
       return;
     }
     client.claims = result[0].state;
-    render(client);
+    // Non-optimistic: the holder does not change here, so this flashes nothing
+    // on the origin; the ink flash lands only when the winner is sequenced.
+    fieldNotes.trackChange("claims", client.el, true, () => render(client));
     submit(clientId, "claims", result[0].op);
   }
 
@@ -1663,7 +1671,8 @@ export function initDemo() {
     );
     registerPending[clientId].add(key);
     registerNotes[clientId][key] = "revision filed";
-    render(client);
+    // Non-optimistic: the atomic/LWW values move only when sequenced (ink).
+    fieldNotes.trackChange("registers", client.el, true, () => render(client));
     submit(clientId, "registers", op);
   }
 
@@ -1674,7 +1683,7 @@ export function initDemo() {
     const op = orderedKernel.add(client.ordered, json.string(value));
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "add filed";
-    render(client);
+    fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
 
@@ -1684,7 +1693,7 @@ export function initDemo() {
     const op = orderedKernel.acquire(`${clientId}${orderedAcquireSerial}`);
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "acquire filed";
-    render(client);
+    fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
 
@@ -1695,7 +1704,7 @@ export function initDemo() {
     const op = orderedKernel.complete(job.id);
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "complete filed";
-    render(client);
+    fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
 
@@ -1706,7 +1715,7 @@ export function initDemo() {
     const op = orderedKernel.release(job.id);
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "release filed";
-    render(client);
+    fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
 
@@ -1724,7 +1733,7 @@ export function initDemo() {
       outcome instanceof taskManagerKernel.AssignedNow
         ? "assigned locally · filing"
         : "volunteer filed";
-    render(client);
+    fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     if (maybeOp instanceof Some) {
       submit(clientId, "tasks", { op: maybeOp[0], messageId });
     }
@@ -1741,7 +1750,7 @@ export function initDemo() {
     );
     client.taskmanager = next;
     taskNotes[clientId][taskId] = "abandon filed";
-    render(client);
+    fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     if (maybeOp instanceof Some) {
       submit(clientId, "tasks", { op: maybeOp[0], messageId });
     }
@@ -1764,7 +1773,7 @@ export function initDemo() {
     const [next, op] = result[0];
     client.taskmanager = next;
     taskNotes[clientId][taskId] = "complete filed";
-    render(client);
+    fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     submit(clientId, "tasks", { op, messageId });
   }
 
@@ -1783,7 +1792,8 @@ export function initDemo() {
     }
     pactPending[clientId].add(key);
     pactNotes[clientId][key] = "proposal filed";
-    render(client);
+    // Non-optimistic: pending/accepted print only when sequenced (ink).
+    fieldNotes.trackChange("pact", client.el, true, () => render(client));
     submit(clientId, "pact", op[0]);
   }
 
@@ -1797,7 +1807,8 @@ export function initDemo() {
     }
     pactPending[clientId].add(key);
     pactNotes[clientId][key] = "delete filed";
-    render(client);
+    // Non-optimistic: pending/accepted print only when sequenced (ink).
+    fieldNotes.trackChange("pact", client.el, true, () => render(client));
     submit(clientId, "pact", op[0]);
   }
 

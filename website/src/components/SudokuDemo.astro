@@ -266,7 +266,7 @@ const clients = [
     font-family: var(--font-mono);
   }
 
-  .sudoku-cell {
+  .board :global(.sudoku-cell) {
     min-width: 0;
     min-height: 0;
     padding: 0;
@@ -289,44 +289,44 @@ const clients = [
       border-color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .sudoku-cell:nth-child(3n) {
+  .board :global(.sudoku-cell:nth-child(3n)) {
     border-right-width: 2px;
     border-right-color: var(--ink);
   }
 
-  .sudoku-cell:nth-child(9n) {
+  .board :global(.sudoku-cell:nth-child(9n)) {
     border-right: 0;
   }
 
-  .sudoku-cell:nth-child(n + 19):nth-child(-n + 27),
-  .sudoku-cell:nth-child(n + 46):nth-child(-n + 54) {
+  .board :global(.sudoku-cell:nth-child(n + 19):nth-child(-n + 27)),
+  .board :global(.sudoku-cell:nth-child(n + 46):nth-child(-n + 54)) {
     border-bottom-width: 2px;
     border-bottom-color: var(--ink);
   }
 
-  .sudoku-cell:nth-child(n + 73) {
+  .board :global(.sudoku-cell:nth-child(n + 73)) {
     border-bottom: 0;
   }
 
-  .sudoku-cell.is-empty {
+  .board :global(.sudoku-cell.is-empty) {
     color: var(--hairline);
     font-weight: 400;
   }
 
-  .sudoku-cell.k-pending {
+  .board :global(.sudoku-cell.k-pending) {
     color: var(--overprint-deep);
     background: var(--overprint-faint);
     border-color: var(--overprint);
   }
 
-  .sudoku-cell:hover:enabled,
-  .sudoku-cell:focus-visible {
+  .board :global(.sudoku-cell:hover:enabled),
+  .board :global(.sudoku-cell:focus-visible) {
     background: var(--overprint-faint);
     outline: 2px solid var(--overprint);
     outline-offset: -2px;
   }
 
-  .sudoku-cell:active:enabled {
+  .board :global(.sudoku-cell:active:enabled) {
     transform: scale(0.96);
   }
 
