@@ -98,7 +98,14 @@ export function initSequenceDemo() {
       data.nameCursor += CLIENT_IDS.length;
       if (!visible.has(name)) return name;
     }
-    return SPARE_NAMES[pane(client).nameCursor % SPARE_NAMES.length];
+    // Pool exhausted: disambiguate within this client's own name class with a
+    // numeric suffix, so cross-client uniqueness (the mod-3 disjointness that
+    // keeps concurrent inserts collision-free) is preserved.
+    const base = SPARE_NAMES[data.nameCursor % SPARE_NAMES.length];
+    data.nameCursor += CLIENT_IDS.length;
+    let n = 2;
+    while (visible.has(`${base} ${n}`)) n++;
+    return `${base} ${n}`;
   }
 
   function submitOp(
