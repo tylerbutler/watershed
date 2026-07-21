@@ -27,14 +27,14 @@ packages = [
   { name = "gluegun", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib", "gun"], source = "git", repo = "https://github.com/tylerbutler/gluegun.git", commit = "532af1ac0308ff93c8a957467dbb638859593c93" },
   { name = "gun", version = "2.4.1", build_tools = ["make", "rebar3"], requirements = ["cowlib"], otp_app = "gun", source = "hex", outer_checksum = "1450575B4D393AA0811322727B90AD1DD94B5C10026F54A1641785BCBD250384" },
   { name = "interior", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_erlang", "gleam_otp", "gleam_stdlib"], otp_app = "interior", source = "hex", outer_checksum = "EE2728791E34400CB3CD986B6AD0E02A2F970F50B5ED59896E2820702C7DDD29" },
-  { name = "lattice_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "local", path = "../lattice/packages/lattice_core" },
+  { name = "lattice_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], otp_app = "lattice_core", source = "hex", outer_checksum = "E0A7CC27CB58795D10DF4B7186891FDBF90F10A5FBF34C5862E5E936814A2CD5" },
   { name = "lattice_counters", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_counters", source = "hex", outer_checksum = "1F5FA78BC2E516A025D63E7DE2E4A9FE898950BD6E835812E50AECB4FB9E1F8A" },
   { name = "lattice_maps", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core", "lattice_counters", "lattice_registers", "lattice_sets"], otp_app = "lattice_maps", source = "hex", outer_checksum = "12219BAA64C96949966FDBDDA0ADB228451C8DBC29AB8B0EC04D875E76D911DD" },
   { name = "lattice_registers", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_registers", source = "hex", outer_checksum = "727CE644A64DD9A1E29441DA243EB52B0CE4959F5782B569FA97DF6793E2B06D" },
-  { name = "lattice_sequence", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], source = "local", path = "../lattice/packages/lattice_sequence" },
+  { name = "lattice_sequence", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_sequence", source = "hex", outer_checksum = "57050F98183A8F6EC41FA9B6D64ACF2477AE2B97CF52CCFF82D314A5676C28E5" },
   { name = "lattice_sets", version = "1.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core"], otp_app = "lattice_sets", source = "hex", outer_checksum = "BA81DF518B2A25D9E77012262D08D06B959BD7A6C22B98D4F82550823A1E98AF" },
-  { name = "lattice_text", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core", "lattice_sequence", "lattice_text_core"], source = "local", path = "../lattice/packages/lattice_text" },
-  { name = "lattice_text_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], source = "local", path = "../lattice/packages/lattice_text_core" },
+  { name = "lattice_text", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib", "lattice_core", "lattice_sequence", "lattice_text_core"], otp_app = "lattice_text", source = "hex", outer_checksum = "C52984F69176C08A2A4E3BD01828E0264073315E755286D29591A6BEBF48EDC9" },
+  { name = "lattice_text_core", version = "1.0.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "lattice_text_core", source = "hex", outer_checksum = "8F896500BD6F420E19C847155E8DBEEC371E110BEE823869F2DE5F23A57479E4" },
   { name = "prng", version = "5.1.0", build_tools = ["gleam"], requirements = ["gleam_stdlib"], otp_app = "prng", source = "hex", outer_checksum = "29DA88BCFB54D06DD1472951DF101E9524878056D139DA2616B04350B403CE10" },
   { name = "qcheck", version = "1.0.4", build_tools = ["gleam"], requirements = ["exception", "gleam_regexp", "gleam_stdlib", "gleam_yielder", "prng"], otp_app = "qcheck", source = "hex", outer_checksum = "BD9B18C1602FBC667E3E139ED270458F8C743ED791F892CC90989CE10478C4FA" },
   { name = "roost", version = "0.1.0", build_tools = ["gleam"], requirements = ["gleam_json", "gleam_stdlib"], source = "git", repo = "https://github.com/tylerbutler/roost.git", commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127" },
@@ -59,14 +59,14 @@ gleam_javascript = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_json = { version = ">= 3.0.0 and < 4.0.0" }
 gleam_otp = { version = ">= 1.0.0 and < 2.0.0" }
 gleam_stdlib = { version = ">= 0.62.0 and < 2.0.0" }
-lattice_core = { path = "../lattice/packages/lattice_core" }
+lattice_core = { version = ">= 1.0.0 and < 2.0.0" }
 lattice_counters = { version = ">= 1.1.0 and < 2.0.0" }
 lattice_maps = { version = ">= 1.1.0 and < 2.0.0" }
 lattice_registers = { version = ">= 1.1.0 and < 2.0.0" }
-lattice_sequence = { path = "../lattice/packages/lattice_sequence" }
+lattice_sequence = { version = ">= 1.0.0 and < 2.0.0" }
 lattice_sets = { version = ">= 1.1.0 and < 2.0.0" }
-lattice_text = { path = "../lattice/packages/lattice_text" }
-lattice_text_core = { path = "../lattice/packages/lattice_text_core" }
+lattice_text = { version = ">= 1.0.0 and < 2.0.0" }
+lattice_text_core = { version = ">= 1.0.0 and < 2.0.0" }
 qcheck = { version = ">= 1.0.0 and < 2.0.0" }
 signet = { git = "https://github.com/tylerbutler/signet", ref = "main" }
 simplifile = { version = ">= 2.5.0 and < 3.0.0" }
