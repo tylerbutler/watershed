@@ -156,3 +156,33 @@ replica (ink).
       the log box flashes on sequence; each replica flashes ink as its dot lands;
       toggling field notes off clears everything; no console errors.
 - [ ] Reduced motion respected (marks draw instantly, still correct).
+
+## Field notes on the rig demos
+
+The dedicated demo pages (`/directory`, `/sudoku`, `/json-ot`, `/sequence`)
+run on the sluice rig (`website/src/scripts/demo/sluice-rig.ts`), not the
+homepage engine, and their render functions rebuild or re-position DOM instead
+of mutating text in place — so the node-identity snapshot in `tutorial.js`
+cannot see their changes.
+
+`website/src/scripts/demo/rig-notes.ts` is the rig-side variant. It keeps the
+event-driven model and the color grammar, but inverts the contract: the demo
+script owns the diff (it knows which of its keyed elements changed) and calls
+`flashEls(changedEls, pending)`; the module only draws. A `MutationObserver`
+on the op log replaces `flashLog` — the rig prints one line per sequenced op,
+so an added `<li>` *is* the "op sequenced" moment (only `<li>` additions count: rough-notation inserts its annotation svg beside the boxed line, and reacting to that would loop).
+
+Onboarding a rig demo:
+
+- give the page a field-notes checkbox and a caption `<p class="field-note">`,
+  wired through `createRigNotes({ rig, toggle, note, caption })`;
+- diff in the demo's render — compare the previous visible state to the new
+  one and collect the changed elements;
+- call `flashEls(changed, pending)` with `pending = true` only on the origin's
+  optimistic render (magenta), `false` on sequenced applies (ink);
+- static marks stay out, same as the event-driven set upstream.
+
+The **sequence** demo (`/sequence`) is the reference: stations are keyed by
+waypoint name, its render compares the previous order to the new one, and any
+position whose value changed flashes — magenta as the author edits, ink on
+every replica as the op lands.
