@@ -44,7 +44,7 @@ const models = [
       "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with a single-op-in-flight client protocol. Concurrent list inserts have their indices transformed so every replica converges identically — the classic approach behind collaborative text editors.",
     ],
     tradeoff:
-      "Minimal per-op metadata and a natural fit for ordered sequences, at the cost of transform functions that must be correct for every pair of op types.",
+      "Minimal per-op metadata and a natural fit for ordered sequences — though SharedSequence now reaches the same ground by merge — at the cost of transform functions that must be correct for every pair of op types.",
     members: [{ name: "json_ot", href: "/json-ot" }],
   },
 ];
