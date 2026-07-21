@@ -73,12 +73,21 @@ export function createRigNotes(config: {
     if (!active) clearFlashes();
   });
 
-  // The rig prints one op-log line per sequenced op, so a childList mutation
-  // is the "op sequenced" moment — box the newest line, like flashLog upstream.
+  // The rig prints one op-log line per sequenced op, so an added <li> is the
+  // "op sequenced" moment — box the newest line, like flashLog upstream.
+  // Filter to real <li> additions: rough-notation inserts its own annotation
+  // svg as a sibling inside the observed <ol>, and reacting to that insertion
+  // (or its later removal) would retrigger this observer in an endless loop.
   const log = config.rig.querySelector("[data-op-log]");
   if (log) {
-    new MutationObserver(() => {
+    new MutationObserver((records) => {
       if (!active) return;
+      const liAdded = records.some((record) =>
+        Array.from(record.addedNodes).some(
+          (node) => node instanceof Element && node.tagName === "LI",
+        ),
+      );
+      if (!liAdded) return;
       flash(
         log.querySelector("li"),
         { type: "box", color: cssVar("--ink"), strokeWidth: 2, padding: 3 },
