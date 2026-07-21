@@ -25,6 +25,7 @@ import lattice_maps/or_map.{type ORMap}
 import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
 import lattice_sets/two_p_set.{type TwoPSet}
+import lattice_sequence/sequence.{type Sequence}
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
@@ -40,6 +41,7 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
@@ -61,6 +63,7 @@ pub type ChannelType {
   JsonOtChannel
   DirectoryChannel
   OrderedCollectionChannel
+  SequenceChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -80,6 +83,7 @@ pub type ChannelInit {
   InitJsonOt
   InitDirectory
   InitOrderedCollection
+  InitSequence
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -98,6 +102,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     JsonOtChannel -> wire.channel_type_json_ot
     DirectoryChannel -> wire.channel_type_directory
     OrderedCollectionChannel -> wire.channel_type_ordered_collection
+    SequenceChannel -> wire.channel_type_sequence
   }
 }
 
@@ -119,6 +124,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_directory -> Ok(DirectoryChannel)
     _ if raw == wire.channel_type_ordered_collection ->
       Ok(OrderedCollectionChannel)
+    _ if raw == wire.channel_type_sequence -> Ok(SequenceChannel)
     _ -> Error(Nil)
   }
 }
@@ -139,6 +145,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitJsonOt -> JsonOtChannel
     InitDirectory -> DirectoryChannel
     InitOrderedCollection -> OrderedCollectionChannel
+    InitSequence -> SequenceChannel
   }
 }
 
@@ -158,6 +165,7 @@ pub type ChannelState {
   JsonOtState(json_ot_kernel.JsonOtState)
   DirectoryState(directory_kernel.DirectoryState)
   OrderedCollectionState(ordered_collection_kernel.OrderedState)
+  SequenceState(sequence_kernel.SequenceState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -183,6 +191,7 @@ pub type ChannelOp {
   /// per-directory counter.
   DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
   OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
+  SequenceOp(sequence_kernel.SequenceOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -201,6 +210,7 @@ pub type ChannelEvent {
   JsonOtEvent(json_ot_kernel.JsonOtEvent)
   DirectoryEvent(directory_kernel.DirectoryEvent)
   OrderedCollectionEvent(ordered_collection_kernel.OrderedEvent)
+  SequenceEvent(sequence_kernel.SequenceEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -225,6 +235,7 @@ pub type Snapshot {
     queue: List(Json),
     jobs: List(#(String, ordered_collection_kernel.JobEntry)),
   )
+  SequenceSummary(state: Sequence(Json))
 }
 
 pub type Resolution {
@@ -244,6 +255,7 @@ pub type LocalOpMeta {
   TwoPSetMeta(message_id: Int)
   TaskManagerMeta(message_id: Int)
   DirectoryMeta(message_id: Int)
+  SequenceMeta(message_id: Int)
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
@@ -292,6 +304,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     JsonOtState(_) -> JsonOtChannel
     DirectoryState(_) -> DirectoryChannel
     OrderedCollectionState(_) -> OrderedCollectionChannel
+    SequenceState(_) -> SequenceChannel
   }
 }
 
@@ -311,6 +324,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     JsonOtSnapshot(_) -> JsonOtChannel
     DirectorySnapshot(_) -> DirectoryChannel
     OrderedCollectionSnapshot(_, _) -> OrderedCollectionChannel
+    SequenceSummary(_) -> SequenceChannel
   }
 }
 
@@ -339,6 +353,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitDirectory -> DirectoryState(directory_kernel.new())
     InitOrderedCollection ->
       OrderedCollectionState(ordered_collection_kernel.new())
+    InitSequence -> SequenceState(sequence_kernel.new(replica_id.new(replica)))
   }
 }
 
@@ -379,6 +394,8 @@ pub fn from_snapshot(
       DirectoryState(directory_kernel.from_summary(summary))
     OrderedCollectionSnapshot(queue, jobs) ->
       OrderedCollectionState(ordered_collection_kernel.from_summary(queue, jobs))
+    SequenceSummary(state) ->
+      SequenceState(sequence_kernel.from_sequenced(state, replica_id.new(replica)))
   }
 }
 
@@ -409,6 +426,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
         ordered_collection_kernel.summary_queue(kernel),
         ordered_collection_kernel.summary_jobs(kernel),
       )
+    SequenceState(kernel) -> SequenceSummary(kernel.sequenced)
   }
 }
 
@@ -461,6 +479,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
         ordered_collection_kernel.summary_queue(kernel),
         ordered_collection_kernel.summary_jobs(kernel),
       )
+    SequenceState(kernel) -> SequenceSummary(kernel.optimistic)
   }
 }
 
@@ -474,6 +493,8 @@ pub fn attach_state(
     GSetState(kernel) -> GSetState(g_set_kernel.promote_attach(kernel))
     TwoPSetState(kernel) ->
       TwoPSetState(two_p_set_kernel.promote_attach(kernel))
+    SequenceState(kernel) ->
+      SequenceState(sequence_kernel.promote_attach(kernel))
     RegisterCollectionState(_) ->
       from_snapshot(attach_snapshot(state), replica:)
     _ -> from_snapshot(attach_snapshot(state), replica: replica)
@@ -587,6 +608,10 @@ pub fn apply_remote(
           [],
         ),
       )
+    }
+    SequenceState(kernel), SequenceOp(op) -> {
+      let #(kernel, events) = sequence_kernel.apply_remote(kernel, op)
+      Ok(#(SequenceState(kernel), list.map(events, SequenceEvent), []))
     }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
@@ -747,6 +772,8 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has task-manager metadata"))
         DirectoryMeta(_) ->
           Error(UnexpectedAck("counter ack has directory metadata"))
+        SequenceMeta(_) ->
+          Error(UnexpectedAck("counter ack has sequence metadata"))
       }
     PnCounterState(kernel), PnCounterOp(op) ->
       case local {
@@ -774,6 +801,8 @@ pub fn ack_local(
           Error(UnexpectedAck("pn-counter ack has task-manager metadata"))
         DirectoryMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has directory metadata"))
+        SequenceMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has sequence metadata"))
       }
     OrMapState(kernel), OrMapOp(op) ->
       case local {
@@ -797,6 +826,8 @@ pub fn ack_local(
           Error(UnexpectedAck("or-map ack has task-manager metadata"))
         DirectoryMeta(_) ->
           Error(UnexpectedAck("or-map ack has directory metadata"))
+        SequenceMeta(_) ->
+          Error(UnexpectedAck("or-map ack has sequence metadata"))
       }
     OrSetState(kernel), OrSetOp(op) ->
       case local {
@@ -814,7 +845,8 @@ pub fn ack_local(
         | GSetMeta(_)
         | TwoPSetMeta(_)
         | TaskManagerMeta(_)
-        | DirectoryMeta(_) ->
+        | DirectoryMeta(_)
+        | SequenceMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
       }
     GSetState(kernel), GSetOp(op) ->
@@ -833,7 +865,8 @@ pub fn ack_local(
         | OrSetMeta(_)
         | TwoPSetMeta(_)
         | TaskManagerMeta(_)
-        | DirectoryMeta(_) ->
+        | DirectoryMeta(_)
+        | SequenceMeta(_) ->
           Error(UnexpectedAck("g-set ack is missing its local message id"))
       }
     TwoPSetState(kernel), TwoPSetOp(op) ->
@@ -854,7 +887,8 @@ pub fn ack_local(
         | OrSetMeta(_)
         | GSetMeta(_)
         | TaskManagerMeta(_)
-        | DirectoryMeta(_) ->
+        | DirectoryMeta(_)
+        | SequenceMeta(_) ->
           Error(UnexpectedAck("two-p-set ack is missing its local message id"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
@@ -944,6 +978,20 @@ pub fn ack_local(
         None,
       ))
     }
+    SequenceState(kernel), SequenceOp(op) ->
+      case local {
+        SequenceMeta(message_id) ->
+          case sequence_kernel.ack_local_with_message_id(kernel, op, message_id) {
+            Ok(kernel) -> Ok(#(SequenceState(kernel), [], None))
+            Error(sequence_kernel.UnexpectedAck(detail))
+            | Error(sequence_kernel.UnexpectedRollback(detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        _ ->
+          Error(UnexpectedAck(
+            "sequence ack is missing its local message id",
+          ))
+      }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -1014,6 +1062,26 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
       our_id == echoed_id && same_directory_shape(ours, echoed)
     OrderedCollectionOp(ours), OrderedCollectionOp(echoed) ->
       same_ordered_shape(ours, echoed)
+    SequenceOp(ours), SequenceOp(echoed) -> same_sequence_shape(ours, echoed)
+    _, _ -> False
+  }
+}
+
+fn same_sequence_shape(
+  ours: sequence_kernel.SequenceOp,
+  echoed: sequence_kernel.SequenceOp,
+) -> Bool {
+  case ours, echoed {
+    sequence_kernel.Insert(i, value, _),
+      sequence_kernel.Insert(i2, value2, _)
+    -> i == i2 && same_json_value(value, value2)
+    sequence_kernel.Delete(i, _), sequence_kernel.Delete(i2, _) -> i == i2
+    sequence_kernel.Move(from, to, _),
+      sequence_kernel.Move(from2, to2, _)
+    -> from == from2 && to == to2
+    sequence_kernel.Replace(i, value, _),
+      sequence_kernel.Replace(i2, value2, _)
+    -> i == i2 && same_json_value(value, value2)
     _, _ -> False
   }
 }
@@ -1151,6 +1219,11 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     ->
       json.to_string(encode_ordered_snapshot(our_queue, our_jobs))
       == json.to_string(encode_ordered_snapshot(echoed_queue, echoed_jobs))
+    SequenceSummary(ours), SequenceSummary(echoed) ->
+      same_json_value(
+        sequence.to_json(ours, fn(value) { value }),
+        sequence.to_json(echoed, fn(value) { value }),
+      )
     _, _ -> False
   }
 }
@@ -1249,6 +1322,10 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       )
       |> list.flat_map(handle.collect_handle_addresses)
       |> list.unique
+    SequenceState(kernel) ->
+      sequence_kernel.values(kernel)
+      |> list.flat_map(handle.collect_handle_addresses)
+      |> list.unique
   }
 }
 
@@ -1271,6 +1348,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     DirectorySnapshot(summary) -> encode_directory_summary(summary)
     OrderedCollectionSnapshot(queue, jobs) ->
       encode_ordered_snapshot(queue, jobs)
+    SequenceSummary(state) -> sequence.to_json(state, fn(value) { value })
   }
 }
 
@@ -1328,6 +1406,16 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     DirectoryChannel ->
       directory_summary_decoder() |> decode.map(DirectorySnapshot)
     OrderedCollectionChannel -> ordered_snapshot_decoder()
+    SequenceChannel -> sequence_summary_decoder()
+  }
+}
+
+fn sequence_summary_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case sequence.from_json(encoded, wire.json_value_decoder()) {
+    Ok(state) -> decode.success(SequenceSummary(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "SequenceSummary")
   }
 }
 

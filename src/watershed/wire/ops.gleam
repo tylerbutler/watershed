@@ -153,6 +153,8 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
     channel.PactMapOp(op) -> encode_pact_map_op(op)
     channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
+    channel.SequenceOp(_) ->
+      panic as "sequence op encoding is not available"
   }
 }
 
@@ -185,6 +187,8 @@ pub fn channel_op_decoder(
       pact_map_op_decoder() |> decode.map(channel.PactMapOp)
     channel.OrderedCollectionChannel ->
       ordered_op_decoder() |> decode.map(channel.OrderedCollectionOp)
+    channel.SequenceChannel ->
+      decode.failure(channel.MapOp(Clear), "SequenceOp")
   }
 }
 
