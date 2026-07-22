@@ -60,7 +60,7 @@ export function createFlowLayer(
         { transform: `translate(${x0 - 5}px, ${y0 - 5}px)`, opacity: 0.3 },
         { transform: `translate(${x1 - 5}px, ${y1 - 5}px)`, opacity: 1 },
       ],
-      { duration: Math.max(180, duration), easing: "ease-in-out" },
+      { duration: Math.max(1, duration), easing: "ease-in-out" },
     );
     anim.onfinish = () => dot.remove();
   }

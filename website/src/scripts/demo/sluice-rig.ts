@@ -48,8 +48,6 @@ export interface RigConfig {
   document: string;
   clientIds: string[];
   clientLabel: Record<string, string>;
-  /** Base per-hop delivery delay in ms (scaled by the pace control). */
-  hopMs?: number;
   setup: (clients: Record<string, RigClient>, server: unknown) => void;
   render: (client: RigClient) => void;
   canonical: (client: RigClient) => string;
@@ -129,7 +127,6 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   });
   const flow: FlowLayer = createFlowLayer(flowLayer, prefersReducedMotion);
   const opLog: OpLog = createOpLog(opLogEl, { max: 24 });
-  const hopMs = config.hopMs ?? 520;
 
   const clients: Record<string, RigClient> = {};
   for (const id of config.clientIds) {
@@ -149,7 +146,13 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   let server: unknown = null;
   const sidToId: Record<string, string> = {};
   const labelBySn = new Map<number, string>();
+  const outboundBySn = new Map<
+    number,
+    { client: RigClient; latency: number; label: string; started: boolean }
+  >();
+  const deliveryTimers = new Set<ReturnType<typeof setTimeout>>();
   let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  let inFlight = 0;
 
   function boot() {
     server = sluice.start(config.document, config.document);
@@ -179,7 +182,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     const sigs = config.clientIds.map((id) => config.canonical(clients[id]));
     const identical = sigs.every((s) => s === sigs[0]);
     const anyPending = config.clientIds.some((id) => clients[id].pending.length > 0);
-    return identical && !anyPending && !sluice.pending(server);
+    return identical && !anyPending && !sluice.pending(server) && inFlight === 0;
   }
 
   function renderStatus() {
@@ -213,16 +216,36 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function pump() {
     if (pumpTimer != null) return;
-    pumpTimer = setTimeout(pumpTick, controls.paced(hopMs));
+    const next = some<Delivery>(sluice.peek_info(server));
+    if (next == null) {
+      renderStatus();
+      return;
+    }
+    const outbound =
+      next.event === "op" ? outboundBySn.get(next.sequence_number) : null;
+    const latency = outbound?.latency ?? controls.sampleLatency();
+    const duration = controls.paced(latency);
+    if (outbound && !outbound.started) {
+      outbound.started = true;
+      flow.animateDot(
+        outbound.client.el,
+        seqNode,
+        duration,
+        false,
+        outbound.label,
+      );
+    }
+    pumpTimer = setTimeout(pumpTick, duration);
   }
 
-  function deliver(delivery: Delivery) {
+  function deliver(delivery: Delivery): number {
     const toId = sidToId[delivery.to];
-    if (delivery.event !== "op" || !toId) return;
+    if (delivery.event !== "op" || !toId) return 0;
+    const duration = controls.paced(controls.sampleLatency());
     flow.animateDot(
       seqNode,
       clients[toId].el,
-      controls.sampleLatency(),
+      duration,
       true,
       `SN ${delivery.sequence_number}`,
     );
@@ -235,10 +258,16 @@ export function createSluiceRig(config: RigConfig): Rig | null {
         labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
       );
     }
-    // Frame already applied to the runtime; refresh the board and clear its
-    // pending marks once fully acked.
-    if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
-    config.render(clients[toId]);
+    inFlight += 1;
+    const timer = setTimeout(() => {
+      deliveryTimers.delete(timer);
+      if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
+      config.render(clients[toId]);
+      inFlight = Math.max(0, inFlight - 1);
+      renderStatus();
+    }, duration);
+    deliveryTimers.add(timer);
+    return duration;
   }
 
   function pumpTick() {
@@ -252,24 +281,34 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     // A real server fans one op out to every client at once, so drain the whole
     // broadcast wave — every queued frame sharing this op's sequence number — in
     // a single tick. Each recipient's dot still carries its own sampled latency,
-    // so they land staggered by per-link jitter, not by the pump. Distinct ops
-    // (different SNs) stay paced one hop apart; non-op frames deliver singly.
+    // so they land staggered by per-link jitter, not by the pump. Wait for the
+    // slowest return leg before starting the next op, keeping runtime updates and
+    // their visual arrivals in lock-step.
+    let nextDelay = 0;
     if (first.event === "op") {
       const waveSn = first.sequence_number;
+      if (outboundBySn.delete(waveSn)) inFlight = Math.max(0, inFlight - 1);
       let next: Delivery | null = first;
       while (next != null && next.event === "op" && next.sequence_number === waveSn) {
         const delivery = some<Delivery>(sluice.step_info(server));
         if (delivery == null) break;
-        deliver(delivery);
+        nextDelay = Math.max(nextDelay, deliver(delivery));
         next = some<Delivery>(sluice.peek_info(server));
       }
     } else {
       const delivery = some<Delivery>(sluice.step_info(server));
-      if (delivery != null) deliver(delivery);
+      if (delivery != null) nextDelay = deliver(delivery);
     }
 
     renderStatus();
-    if (sluice.pending(server)) pump();
+    if (nextDelay > 0) {
+      pumpTimer = setTimeout(() => {
+        pumpTimer = null;
+        pump();
+      }, nextDelay);
+    } else if (sluice.pending(server)) {
+      pump();
+    }
   }
 
   function submit(
@@ -281,10 +320,16 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     write();
     const sn = sluice.sequence_number(server);
     labelBySn.set(sn, label);
+    outboundBySn.set(sn, {
+      client,
+      latency: controls.sampleLatency(),
+      label,
+      started: false,
+    });
+    inFlight += 1;
     if (marker && !client.pending.includes(marker)) client.pending.push(marker);
     config.render(client);
     renderStatus();
-    flow.animateDot(client.el, seqNode, controls.sampleLatency(), false, label);
     pump();
   }
 
@@ -297,6 +342,11 @@ export function createSluiceRig(config: RigConfig): Rig | null {
       clearTimeout(pumpTimer);
       pumpTimer = null;
     }
+    for (const timer of deliveryTimers) clearTimeout(timer);
+    deliveryTimers.clear();
+    outboundBySn.clear();
+    inFlight = 0;
+    flowLayer.replaceChildren();
     boot();
     seqCounter.textContent = "SN 0";
     opLog.clear();
