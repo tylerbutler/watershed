@@ -16,11 +16,12 @@
 // The sluice is DDS-agnostic (it sequences opaque wire frames), so this harness
 // is too: it never mentions maps, folders, or text.
 import * as sluice from "../../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import * as watershed from "../../../../build/dev/javascript/watershed/watershed_js.mjs";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";
 import { createLatencyControls, type LatencyControls } from "./controls.ts";
 import { createOpLog, type OpLog } from "./op-log.ts";
+
+const FIFO_GAP_MS = 25;
 
 export interface RigClient {
   id: string;
@@ -148,10 +149,12 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   const labelBySn = new Map<number, string>();
   const outboundBySn = new Map<
     number,
-    { client: RigClient; latency: number; label: string; started: boolean }
+    { client: RigClient; label: string; arrivalAt: number }
   >();
+  const pendingBySn = new Map<number, { client: RigClient; marker: string }>();
   const deliveryTimers = new Set<ReturnType<typeof setTimeout>>();
   let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastOutboundArrival = 0;
   let inFlight = 0;
 
   function boot() {
@@ -223,24 +226,15 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     }
     const outbound =
       next.event === "op" ? outboundBySn.get(next.sequence_number) : null;
-    const latency = outbound?.latency ?? controls.sampleLatency();
-    const duration = controls.paced(latency);
-    if (outbound && !outbound.started) {
-      outbound.started = true;
-      flow.animateDot(
-        outbound.client.el,
-        seqNode,
-        duration,
-        false,
-        outbound.label,
-      );
-    }
-    pumpTimer = setTimeout(pumpTick, duration);
+    const delay = outbound
+      ? Math.max(0, outbound.arrivalAt - performance.now())
+      : controls.paced(controls.sampleLatency());
+    pumpTimer = setTimeout(pumpTick, delay);
   }
 
-  function deliver(delivery: Delivery): number {
+  function deliver(delivery: Delivery) {
     const toId = sidToId[delivery.to];
-    if (delivery.event !== "op" || !toId) return 0;
+    if (delivery.event !== "op" || !toId) return;
     const duration = controls.paced(controls.sampleLatency());
     flow.animateDot(
       seqNode,
@@ -261,13 +255,26 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     inFlight += 1;
     const timer = setTimeout(() => {
       deliveryTimers.delete(timer);
-      if (watershed.is_synced(clients[toId].doc)) clients[toId].pending = [];
+      if (delivery.to === delivery.author) {
+        const pending = pendingBySn.get(delivery.sequence_number);
+        if (pending?.client === clients[toId]) {
+          pendingBySn.delete(delivery.sequence_number);
+          const markerStillPending = [...pendingBySn.values()].some(
+            (entry) =>
+              entry.client === pending.client && entry.marker === pending.marker,
+          );
+          if (!markerStillPending) {
+            pending.client.pending = pending.client.pending.filter(
+              (marker) => marker !== pending.marker,
+            );
+          }
+        }
+      }
       config.render(clients[toId]);
       inFlight = Math.max(0, inFlight - 1);
       renderStatus();
     }, duration);
     deliveryTimers.add(timer);
-    return duration;
   }
 
   function pumpTick() {
@@ -281,10 +288,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     // A real server fans one op out to every client at once, so drain the whole
     // broadcast wave — every queued frame sharing this op's sequence number — in
     // a single tick. Each recipient's dot still carries its own sampled latency,
-    // so they land staggered by per-link jitter, not by the pump. Wait for the
-    // slowest return leg before starting the next op, keeping runtime updates and
-    // their visual arrivals in lock-step.
-    let nextDelay = 0;
+    // so they land staggered by per-link jitter, not by the pump. The next
+    // client→sequencer op keeps travelling independently while these return legs
+    // are in flight.
     if (first.event === "op") {
       const waveSn = first.sequence_number;
       if (outboundBySn.delete(waveSn)) inFlight = Math.max(0, inFlight - 1);
@@ -292,23 +298,16 @@ export function createSluiceRig(config: RigConfig): Rig | null {
       while (next != null && next.event === "op" && next.sequence_number === waveSn) {
         const delivery = some<Delivery>(sluice.step_info(server));
         if (delivery == null) break;
-        nextDelay = Math.max(nextDelay, deliver(delivery));
+        deliver(delivery);
         next = some<Delivery>(sluice.peek_info(server));
       }
     } else {
       const delivery = some<Delivery>(sluice.step_info(server));
-      if (delivery != null) nextDelay = deliver(delivery);
+      if (delivery != null) deliver(delivery);
     }
 
     renderStatus();
-    if (nextDelay > 0) {
-      pumpTimer = setTimeout(() => {
-        pumpTimer = null;
-        pump();
-      }, nextDelay);
-    } else if (sluice.pending(server)) {
-      pump();
-    }
+    if (sluice.pending(server)) pump();
   }
 
   function submit(
@@ -320,16 +319,25 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     write();
     const sn = sluice.sequence_number(server);
     labelBySn.set(sn, label);
+    const now = performance.now();
+    const arrivalAt = Math.max(
+      now + controls.paced(controls.sampleLatency()),
+      lastOutboundArrival + controls.paced(FIFO_GAP_MS),
+    );
+    lastOutboundArrival = arrivalAt;
     outboundBySn.set(sn, {
       client,
-      latency: controls.sampleLatency(),
       label,
-      started: false,
+      arrivalAt,
     });
     inFlight += 1;
-    if (marker && !client.pending.includes(marker)) client.pending.push(marker);
+    if (marker) {
+      pendingBySn.set(sn, { client, marker });
+      if (!client.pending.includes(marker)) client.pending.push(marker);
+    }
     config.render(client);
     renderStatus();
+    flow.animateDot(client.el, seqNode, arrivalAt - now, false, label);
     pump();
   }
 
@@ -345,6 +353,8 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     for (const timer of deliveryTimers) clearTimeout(timer);
     deliveryTimers.clear();
     outboundBySn.clear();
+    pendingBySn.clear();
+    lastOutboundArrival = 0;
     inFlight = 0;
     flowLayer.replaceChildren();
     boot();
