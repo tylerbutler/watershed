@@ -181,6 +181,98 @@ test("numeric peer id matches string author id for own-operation identity", () =
   assert.equal(peerOne.selection.index, 2);
 });
 
+test("authorSelectionAlreadyApplied skips only the author's cached entry", () => {
+  // Simulates a presence/roster path that has already delivered the
+  // author's post-edit selection (e.g. a synchronous, zero-latency
+  // broadcast racing ahead of a latency-modelled op delivery): the cached
+  // "alice" entry is already her position *after* this delta, so
+  // transforming it again would double-shift it. Bob's cache still needs
+  // the ordinary transform.
+  const { adapter, transformSelection } = makeConfig();
+  adapter.replacePeerSelections([
+    { id: "alice", selection: { index: 2, length: 0 } },
+    { id: "bob", selection: { index: 5, length: 1 } },
+  ]);
+  transformSelection.calls.length = 0;
+  adapter.applyChange({
+    delta: { ops: [{ insert: "y" }], shift: 3 },
+    local: false,
+    author: "alice",
+    authorSelectionAlreadyApplied: true,
+  });
+  // Only bob's cached selection was transformed; alice's was left alone.
+  assert.equal(transformSelection.calls.length, 1);
+  assert.equal(transformSelection.calls[0].selection.index, 5);
+  assert.equal(transformSelection.calls[0].isOwnOperation, false);
+
+  const snapshot = adapter.getPeerSelections();
+  const alice = snapshot.find((p) => p.id === "alice");
+  const bob = snapshot.find((p) => p.id === "bob");
+  assert.deepEqual(alice.selection, { index: 2, length: 0 }); // untouched
+  assert.deepEqual(bob.selection, { index: 8, length: 1 }); // shifted by 3
+});
+
+test("authorSelectionAlreadyApplied has no effect when author is unknown", () => {
+  const { adapter, transformSelection } = makeConfig();
+  adapter.replacePeerSelections([
+    { id: "alice", selection: { index: 2, length: 0 } },
+    { id: "bob", selection: { index: 5, length: 1 } },
+  ]);
+  transformSelection.calls.length = 0;
+  adapter.applyChange({
+    delta: { ops: [{ insert: "y" }] },
+    local: false,
+    // No author, so no cached entry is identified as "the author's" —
+    // the flag can't skip anything and every peer transforms as usual.
+    authorSelectionAlreadyApplied: true,
+  });
+  assert.equal(transformSelection.calls.length, 2);
+  for (const call of transformSelection.calls) {
+    assert.equal(call.isOwnOperation, false);
+  }
+});
+
+test("default contract (authorSelectionAlreadyApplied omitted) still transforms the known author's cache — Task 7 behavior intact", () => {
+  const { adapter, transformSelection } = makeConfig();
+  adapter.replacePeerSelections([
+    { id: "alice", selection: { index: 2, length: 0 } },
+    { id: "bob", selection: { index: 5, length: 1 } },
+  ]);
+  transformSelection.calls.length = 0;
+  adapter.applyChange({
+    delta: { ops: [{ insert: "y" }], shift: 3 },
+    local: false,
+    author: "alice",
+    // authorSelectionAlreadyApplied omitted entirely.
+  });
+  assert.equal(transformSelection.calls.length, 2);
+  const aliceCall = transformSelection.calls.find((c) => c.selection.index === 2);
+  const bobCall = transformSelection.calls.find((c) => c.selection.index === 5);
+  assert.equal(aliceCall.isOwnOperation, true);
+  assert.equal(bobCall.isOwnOperation, false);
+  const snapshot = adapter.getPeerSelections();
+  assert.deepEqual(snapshot.find((p) => p.id === "alice").selection, {
+    index: 5,
+    length: 0,
+  });
+});
+
+test("authorSelectionAlreadyApplied: false is equivalent to omitting it", () => {
+  const { adapter, transformSelection } = makeConfig();
+  adapter.replacePeerSelections([
+    { id: "alice", selection: { index: 2, length: 0 } },
+  ]);
+  transformSelection.calls.length = 0;
+  adapter.applyChange({
+    delta: { ops: [{ insert: "y" }], shift: 3 },
+    local: false,
+    author: "alice",
+    authorSelectionAlreadyApplied: false,
+  });
+  assert.equal(transformSelection.calls.length, 1);
+  assert.equal(transformSelection.calls[0].isOwnOperation, true);
+});
+
 test("remote delta with unknown author uses own=false for all peers", () => {
   const { adapter, transformSelection } = makeConfig();
   adapter.replacePeerSelections([

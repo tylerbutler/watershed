@@ -25,7 +25,12 @@
 //     never route `send_ripple`/`subscribe_ripples`), so peer selections
 //     travel over a small isolated in-page roster broadcaster instead — it
 //     exercises the identical adapter reconciliation semantics the real
-//     ripple transport would.
+//     ripple transport would. That broadcaster is synchronous (same-page,
+//     no simulated latency) and always races ahead of the rig's
+//     latency-modelled op delivery, so a remote RichTextChanged's author
+//     entry is already post-edit by the time it lands here; `applyChange`
+//     is called with `authorSelectionAlreadyApplied: true` so the adapter
+//     leaves that one cached entry alone instead of double-shifting it.
 import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
 import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime_js.mjs";
 import * as richText from "../../../build/dev/javascript/watershed/watershed/rich_text.mjs";
@@ -444,6 +449,18 @@ export function initRichTextDemo() {
             delta: ops,
             local: changed.local,
             author: changed.local ? undefined : (currentRemoteAuthor?.id ?? undefined),
+            // This demo's roster (see createRoster above) broadcasts a
+            // client's own selection synchronously the instant Quill
+            // recomputes it — including right after that client's own
+            // local edit — while the corresponding op still travels the
+            // rig's simulated network latency. So by the time that op
+            // lands here as a remote RichTextChanged, every peer's cache
+            // already holds the author's *post-edit* selection, not their
+            // pre-edit one. Transforming it again through this same delta
+            // (the adapter's default contract) would double-shift it; tell
+            // the adapter to leave the author's cached entry untouched
+            // while still transforming every other cached peer as usual.
+            authorSelectionAlreadyApplied: true,
           });
         });
         loadBaselineInto(client);

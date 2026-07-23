@@ -49,6 +49,21 @@
  *   isn't available (e.g. anonymous broadcast); the adapter then treats
  *   every cached peer as remote and relies on the next heartbeat to
  *   reconcile.
+ * @property {boolean} [authorSelectionAlreadyApplied] - `true` when the
+ *   caller's own presence/roster path has *already* delivered `author`'s
+ *   post-edit selection to every peer's cache by the time this delta
+ *   arrives here — e.g. a synchronous, zero-latency presence broadcast
+ *   racing ahead of a simulated- or real-latency op delivery. The default
+ *   contract (omitted or `false`) transforms `author`'s cached selection
+ *   through `delta` with `isOwnOperation=true` exactly like any other
+ *   cached peer, on the assumption that the cache reflects `author`'s
+ *   selection *before* this delta. When that assumption doesn't hold —
+ *   because presence already raced ahead and the cached value is `author`'s
+ *   position *after* this same delta — transforming it again would shift it
+ *   a second time. Set `true` in that case: `author`'s cached selection (if
+ *   any) is left untouched, while every *other* cached peer is still
+ *   transformed through `delta` as usual. Has no effect when `author` is
+ *   omitted, since no cached entry is then identified as the author's.
  */
 
 /**
@@ -194,16 +209,29 @@ export function createRichTextAdapter(config) {
    * transformed as a remote (isOwnOperation=false) change. Compared against
    * cached peer ids via `canonicalId`, so numeric and string forms of the
    * same id (e.g. `1` and `"1"`) match.
+   *
+   * `skipAuthorTransform` — see `RichTextChangeEvent.authorSelectionAlreadyApplied`
+   * — leaves `ownAuthorId`'s cached entry untouched instead of transforming
+   * it, when the caller's own presence path has already delivered that
+   * peer's post-edit selection ahead of `delta`. Every other cached peer is
+   * still transformed as usual.
    * @param {unknown} delta
    * @param {string|number|undefined} ownAuthorId
+   * @param {boolean} [skipAuthorTransform]
    */
-  function transformPeersThroughDelta(delta, ownAuthorId) {
+  function transformPeersThroughDelta(delta, ownAuthorId, skipAuthorTransform) {
     if (peers.size === 0) return;
     const ownKey = ownAuthorId !== undefined ? canonicalId(ownAuthorId) : undefined;
     let touched = false;
     for (const [id, entry] of peers) {
       if (entry.selection == null) continue;
       const isOwnOperation = ownKey !== undefined && id === ownKey;
+      if (skipAuthorTransform && isOwnOperation) {
+        // Already the author's post-edit position (delivered out-of-band,
+        // ahead of this delta) — transforming it again would double-shift
+        // it, so leave this one cached entry as-is.
+        continue;
+      }
       const transformed = transformSelection(
         cloneSelection(entry.selection),
         delta,
@@ -255,7 +283,7 @@ export function createRichTextAdapter(config) {
     /** @param {RichTextChangeEvent} event */
     applyChange(event) {
       if (destroyed) return;
-      const { delta, local, author } = event;
+      const { delta, local, author, authorSelectionAlreadyApplied } = event;
       if (local) {
         // The editor already rendered this optimistically when the user
         // typed it (see handleTextChange); applying it again — or
@@ -263,7 +291,7 @@ export function createRichTextAdapter(config) {
         return;
       }
       editor.updateContents(delta, API_SOURCE);
-      transformPeersThroughDelta(delta, author);
+      transformPeersThroughDelta(delta, author, authorSelectionAlreadyApplied === true);
     },
 
     /** @param {Iterable<PeerSelectionEntry>} nextPeers */
