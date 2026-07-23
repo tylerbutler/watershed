@@ -64,7 +64,8 @@ pub fn rich_text_channel_type_round_trips_test() {
 }
 
 pub fn rich_text_init_type_and_new_dispatch_test() {
-  channel.init_type(channel.InitRichText) |> expect.to_equal(channel.RichTextChannel)
+  channel.init_type(channel.InitRichText)
+  |> expect.to_equal(channel.RichTextChannel)
 
   let state = channel.new(channel.InitRichText, replica: "client-a")
   channel.channel_type(state) |> expect.to_equal(channel.RichTextChannel)
@@ -216,6 +217,35 @@ pub fn rich_text_same_shape_requires_ref_seq_and_delta_equality_test() {
     rich_text_kernel.RichTextWireOp(1, delta("[{\"insert\":\"B\"}]"))
   channel.same_shape(channel.RichTextOp(op), channel.RichTextOp(different_delta))
   |> expect.to_be_false()
+}
+
+pub fn rich_text_submit_canonicalizes_before_wire_round_trip_test() {
+  let attributes = rich_text.attributes([])
+  let assert Ok(raw) =
+    rich_text.delta_retain(rich_text.empty_delta(), 1, attributes)
+  let assert Ok(raw) = rich_text.delta_delete(raw, 1)
+  let assert Ok(raw) = rich_text.delta_retain(raw, 1, attributes)
+  let canonical = delta("[{\"retain\":1},{\"delete\":1}]")
+  let kernel =
+    rich_text_kernel.from_document(0, document("[{\"insert\":\"ABC\"}]"))
+  let assert Ok(#(kernel, Some(wire_op), _)) =
+    rich_text_kernel.submit(kernel, raw, 0)
+
+  kernel.inflight |> expect.to_equal(Some(canonical))
+  wire_op
+  |> expect.to_equal(rich_text_kernel.RichTextWireOp(0, canonical))
+
+  let encoded =
+    ops.encode_channel_envelope("doc-1", channel.RichTextOp(wire_op))
+    |> json.to_string
+  let assert Ok(dynamic_value) = json.parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc-1", payload)) =
+    ops.decode_op_contents(dynamic_value)
+  let assert Ok(decoded) =
+    decode.run(payload, ops.channel_op_decoder(channel.RichTextChannel))
+
+  channel.same_shape(channel.RichTextOp(wire_op), decoded)
+  |> expect.to_be_true()
 }
 
 pub fn rich_text_same_snapshot_requires_canonical_document_equality_test() {

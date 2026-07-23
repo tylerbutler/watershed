@@ -120,6 +120,10 @@ pub fn submit(
   #(RichTextState, Option(RichTextWireOp), List(RichTextEvent)),
   KernelError,
 ) {
+  use delta <- result.try(
+    rich_text.delta_operations(delta)
+    |> result.map_error(RichTextFailure),
+  )
   use current <- result.try(view(state))
   use _ <- result.try(apply_op(current, delta))
   let events = [RichTextChanged(delta, True)]
