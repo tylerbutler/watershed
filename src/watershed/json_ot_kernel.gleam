@@ -29,11 +29,17 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order
 import gleam/result
 import watershed/json_ot.{
   type JsonValue, type Op, type PathKey, type Side, Lft, Rgt,
 }
+import watershed/ot_client.{LogEntry}
+
+/// A sequenced op remembered for the concurrency window, already transformed
+/// into the context it was applied in (head context at its `seq`). An alias
+/// for `ot_client`'s shared log-entry shape, concretized to json0's `Op`.
+type LogEntry =
+  ot_client.LogEntry(Op)
 
 /// Server-confirmed document, the concurrency-window `log`, and the single
 /// in-flight op plus a composed buffer of later optimistic edits.
@@ -59,12 +65,6 @@ pub type JsonOtState {
     /// message. `None` when there is nothing pending to send.
     outbound: Option(JsonOtWireOp),
   )
-}
-
-/// A sequenced op remembered for the concurrency window, already transformed
-/// into the context it was applied in (head context at its `seq`).
-pub type LogEntry {
-  LogEntry(seq: Int, author: Int, op: Op)
 }
 
 /// An op as it travels on the wire: the components plus the reference sequence
@@ -216,30 +216,33 @@ pub fn apply_remote(
   author: Int,
   msn: Int,
 ) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
-  use op_head <- result.try(to_head_context(
+  use op_head <- result.try(ot_client.to_head_context(
     state.log,
     wire.ref_seq,
     seq,
-    author,
     wire.components,
+    fn(current, e) { transform(current, e.op, side_of(author, e.author)) },
   ))
   use sequenced <- result.try(apply_op(state.sequenced, op_head))
   // Rebase the in-flight op, then the buffer (which lives one context deeper),
   // advancing the remote op past each so the next rebase is well-formed.
-  use #(inflight, remote_after_inflight) <- result.try(rebase_opt(
+  use #(inflight, remote_after_inflight) <- result.try(ot_client.rebase_pending(
     state.inflight,
     op_head,
-    state.self,
-    author,
+    fn(local, remote) { transform(local, remote, side_of(state.self, author)) },
+    fn(remote, local) { transform(remote, local, side_of(author, state.self)) },
   ))
-  use #(buffer, _remote_after_buffer) <- result.try(rebase_opt(
+  use #(buffer, _remote_after_buffer) <- result.try(ot_client.rebase_pending(
     state.buffer,
     remote_after_inflight,
-    state.self,
-    author,
+    fn(local, remote) { transform(local, remote, side_of(state.self, author)) },
+    fn(remote, local) { transform(remote, local, side_of(author, state.self)) },
   ))
   let log =
-    gc_log(list.append(state.log, [LogEntry(seq, author, op_head)]), msn)
+    ot_client.gc_log(
+      list.append(state.log, [LogEntry(seq, author, op_head)]),
+      msn,
+    )
   let state =
     JsonOtState(
       ..state,
@@ -249,43 +252,6 @@ pub fn apply_remote(
       buffer: buffer,
     )
   Ok(#(state, events_for(op_head, False)))
-}
-
-/// Fold the incoming op past every logged op sequenced strictly between its
-/// `ref_seq` and `seq`, in seq order. Under the single-in-flight invariant none
-/// of these share the incoming op's author, so the window is gap-free and this
-/// lands the op in head context.
-fn to_head_context(
-  log: List(LogEntry),
-  ref_seq: Int,
-  seq: Int,
-  author: Int,
-  op: Op,
-) -> Result(Op, KernelError) {
-  log
-  |> list.filter(fn(e) { e.seq > ref_seq && e.seq < seq })
-  |> list.sort(fn(a, b) { int_compare(a.seq, b.seq) })
-  |> list.try_fold(op, fn(current, e) {
-    transform(current, e.op, side_of(author, e.author))
-  })
-}
-
-/// Rebase an optional local op past the remote op, returning the rebased local
-/// op and the remote op advanced past it (for the next-deeper rebase).
-fn rebase_opt(
-  local: Option(Op),
-  remote: Op,
-  self: Int,
-  author: Int,
-) -> Result(#(Option(Op), Op), KernelError) {
-  case local {
-    None -> Ok(#(None, remote))
-    Some(local) -> {
-      use rebased <- result.try(transform(local, remote, side_of(self, author)))
-      use advanced <- result.try(transform(remote, local, side_of(author, self)))
-      Ok(#(Some(rebased), advanced))
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -314,15 +280,13 @@ pub fn ack_local(
     Some(inflight) -> {
       use sequenced <- result.try(apply_op(state.sequenced, inflight))
       let log =
-        gc_log(
+        ot_client.gc_log(
           list.append(state.log, [LogEntry(seq, state.self, inflight)]),
           msn,
         )
       // Release the buffer as the next in-flight op, if any.
-      let #(next_inflight, to_send) = case state.buffer {
-        None -> #(None, None)
-        Some(buffer) -> #(Some(buffer), Some(JsonOtWireOp(seq, buffer)))
-      }
+      let #(next_inflight, to_send) =
+        ot_client.promote_buffer(state.buffer, seq, JsonOtWireOp)
       let state =
         JsonOtState(
           ..state,
@@ -343,10 +307,8 @@ pub fn ack_local(
 pub fn take_outbound(
   state: JsonOtState,
 ) -> #(JsonOtState, Option(JsonOtWireOp)) {
-  case state.outbound {
-    None -> #(state, None)
-    Some(op) -> #(JsonOtState(..state, outbound: None), Some(op))
-  }
+  let #(outbound, taken) = ot_client.take_pending(state.outbound)
+  #(JsonOtState(..state, outbound: outbound), taken)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,29 +319,12 @@ pub fn take_outbound(
 /// the op whose author has the smaller id is `Lft`. Symmetric and replicated,
 /// so every client breaks the same tie the same way.
 fn side_of(author_x: Int, author_y: Int) -> Side {
-  case author_x < author_y {
+  case ot_client.author_precedes(author_x, author_y) {
     True -> Lft
     False -> Rgt
   }
 }
 
-/// Drop log entries that can no longer fall inside any future op's window: an
-/// op's `ref_seq` is at least the MSN, so entries at or below the MSN are dead.
-fn gc_log(log: List(LogEntry), msn: Int) -> List(LogEntry) {
-  list.filter(log, fn(e) { e.seq > msn })
-}
-
 fn events_for(op: Op, local: Bool) -> List(JsonOtEvent) {
   list.map(op, fn(component) { DocChanged(component.path, local) })
-}
-
-fn int_compare(a: Int, b: Int) -> order.Order {
-  case a < b {
-    True -> order.Lt
-    False ->
-      case a > b {
-        True -> order.Gt
-        False -> order.Eq
-      }
-  }
 }
