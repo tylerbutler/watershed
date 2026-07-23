@@ -1,0 +1,262 @@
+// Reusable bridge between a Quill-compatible editor and Watershed's
+// SharedRichText callbacks. This module is dependency-free (no Quill import)
+// so it can be unit-tested with a fake editor and Node's built-in test
+// runner; the real rich-text demo (a later task) wires an actual Quill
+// instance plus the generated `rich_text`/`rich_text_kernel` bindings through
+// the injected callbacks below.
+//
+// The adapter never hard-codes a generated Gleam module path: conversion,
+// submission, and transform behaviour all arrive as plain functions in
+// `config`, so this file stays reusable across demos and testable without a
+// build.
+
+/**
+ * A normalized cursor/selection range, independent of Quill's `Range` class.
+ * @typedef {Object} RichTextSelection
+ * @property {number} index
+ * @property {number} length
+ */
+
+/**
+ * One entry in the peer-selection cache: a stable peer/user id plus their
+ * last-known selection and optional display metadata (name, color, ...).
+ * Consumers may attach any extra fields; the adapter passes them through
+ * unmodified (shallow-cloned) alongside `selection`.
+ * @typedef {Object} PeerSelectionEntry
+ * @property {string|number} id
+ * @property {RichTextSelection|null} selection
+ * @property {string} [name]
+ * @property {string} [color]
+ */
+
+/**
+ * The shape the caller uses to hand the adapter a RichText change event
+ * (e.g. from `rich_text_kernel.RichTextChanged`), without coupling this
+ * module to that generated type.
+ * @typedef {Object} RichTextChangeEvent
+ * @property {unknown} delta - Quill-style delta (e.g. `{ops: [...]}`).
+ * @property {boolean} local - `true` for the optimistic echo of our own
+ *   submitted edit; `false` for a genuine remote change.
+ * @property {string|number} [author] - Peer/user id who authored a remote
+ *   change, when known. Omit or leave `undefined` when the author isn't
+ *   available (e.g. anonymous broadcast); the adapter then treats every
+ *   cached peer as remote and relies on the next heartbeat to reconcile.
+ */
+
+/**
+ * Structural subset of Quill's instance API this adapter depends on. Any
+ * object exposing these four methods (real Quill, or a test double) works.
+ * @typedef {Object} QuillLikeEditor
+ * @property {(event: string, handler: (...args: any[]) => void) => void} on
+ * @property {(event: string, handler: (...args: any[]) => void) => void} off
+ * @property {(delta: unknown, source: string) => unknown} updateContents
+ * @property {(delta: unknown, source?: string) => unknown} setContents
+ */
+
+/**
+ * Pure selection-transform callback, corresponding to
+ * `rich_text.transform_selection`. Must not mutate `selection` or `delta`.
+ * @callback TransformSelection
+ * @param {RichTextSelection} selection
+ * @param {unknown} delta
+ * @param {boolean} isOwnOperation
+ * @returns {RichTextSelection}
+ */
+
+/**
+ * @typedef {Object} RichTextAdapterConfig
+ * @property {QuillLikeEditor} editor
+ * @property {(delta: unknown) => void} submitChange - Forward a
+ *   user-originated delta to Watershed (e.g. a kernel's `change`/`submit`).
+ * @property {(selection: RichTextSelection|null) => void} onLocalSelection -
+ *   Publish the local user's normalized selection (e.g. into presence).
+ * @property {(peers: ReadonlyArray<PeerSelectionEntry>) => void} onPeerSelections -
+ *   Render the current peer-selection roster. Called with an immutable
+ *   snapshot whenever the cache changes.
+ * @property {TransformSelection} transformSelection
+ * @property {Iterable<PeerSelectionEntry>} [initialPeers] - Optional seed
+ *   roster (e.g. from an initial presence snapshot).
+ */
+
+/**
+ * @typedef {Object} RichTextAdapter
+ * @property {(event: RichTextChangeEvent) => void} applyChange
+ * @property {(peers: Iterable<PeerSelectionEntry>) => void} replacePeerSelections
+ * @property {(documentDelta: unknown) => void} loadDocument
+ * @property {() => void} destroy
+ * @property {() => ReadonlyArray<PeerSelectionEntry>} getPeerSelections
+ */
+
+const USER_SOURCE = "user";
+const API_SOURCE = "api";
+// Full-document load/reset (initial load or reconnect) is not an incremental
+// edit relative to current content, so it must never be treated as an
+// undoable delta. "silent" keeps Quill's History module from recording or
+// transforming it, unlike the "api" source used for incremental remote ops.
+const SILENT_SOURCE = "silent";
+
+/** @param {RichTextSelection|null|undefined} selection */
+function cloneSelection(selection) {
+  if (selection == null) return null;
+  return { index: selection.index, length: selection.length };
+}
+
+/** @param {PeerSelectionEntry} entry */
+function clonePeerEntry(entry) {
+  return { ...entry, selection: cloneSelection(entry.selection) };
+}
+
+/**
+ * @param {RichTextAdapterConfig} config
+ * @returns {RichTextAdapter}
+ */
+export function createRichTextAdapter(config) {
+  if (!config || typeof config !== "object") {
+    throw new TypeError("createRichTextAdapter requires a config object");
+  }
+  const {
+    editor,
+    submitChange,
+    onLocalSelection,
+    onPeerSelections,
+    transformSelection,
+    initialPeers,
+  } = config;
+  for (const [key, value] of [
+    ["editor", editor],
+    ["submitChange", submitChange],
+    ["onLocalSelection", onLocalSelection],
+    ["onPeerSelections", onPeerSelections],
+    ["transformSelection", transformSelection],
+  ]) {
+    if (value == null) {
+      throw new TypeError(`createRichTextAdapter requires config.${key}`);
+    }
+  }
+
+  /** @type {Map<string|number, PeerSelectionEntry>} */
+  const peers = new Map();
+  if (initialPeers) {
+    for (const entry of initialPeers) {
+      peers.set(entry.id, clonePeerEntry(entry));
+    }
+  }
+
+  let destroyed = false;
+
+  function snapshotPeers() {
+    return Array.from(peers.values(), clonePeerEntry);
+  }
+
+  function emitPeers() {
+    onPeerSelections(snapshotPeers());
+  }
+
+  /**
+   * Transform every cached peer selection through `delta`. `ownAuthorId`
+   * identifies the peer whose own operation this is (isOwnOperation=true
+   * for that one peer, false for the rest); pass `undefined` when the
+   * operation isn't attributable to any cached peer, so every entry is
+   * transformed as a remote (isOwnOperation=false) change.
+   * @param {unknown} delta
+   * @param {string|number|undefined} ownAuthorId
+   */
+  function transformPeersThroughDelta(delta, ownAuthorId) {
+    if (peers.size === 0) return;
+    let touched = false;
+    for (const [id, entry] of peers) {
+      if (entry.selection == null) continue;
+      const isOwnOperation = ownAuthorId !== undefined && id === ownAuthorId;
+      const transformed = transformSelection(
+        cloneSelection(entry.selection),
+        delta,
+        isOwnOperation,
+      );
+      peers.set(id, { ...entry, selection: cloneSelection(transformed) });
+      touched = true;
+    }
+    if (touched) emitPeers();
+  }
+
+  /** @param {{index: number, length: number}|null|undefined} range */
+  function normalizeSelection(range) {
+    if (range == null) return null;
+    return { index: range.index, length: range.length };
+  }
+
+  /**
+   * @param {unknown} delta
+   * @param {unknown} _oldDelta
+   * @param {string} source
+   */
+  function handleTextChange(delta, _oldDelta, source) {
+    if (destroyed) return;
+    // Only genuine user edits are submitted; anything the adapter itself
+    // applied (source "api" from `applyChange`, or "silent" from
+    // `loadDocument`) must never be resubmitted.
+    if (source !== USER_SOURCE) return;
+    submitChange(delta);
+    // The local user's own edit — every cached peer is necessarily remote
+    // relative to it.
+    transformPeersThroughDelta(delta, undefined);
+  }
+
+  /**
+   * @param {{index: number, length: number}|null} range
+   * @param {{index: number, length: number}|null} _oldRange
+   * @param {string} _source
+   */
+  function handleSelectionChange(range, _oldRange, _source) {
+    if (destroyed) return;
+    onLocalSelection(normalizeSelection(range));
+  }
+
+  editor.on("text-change", handleTextChange);
+  editor.on("selection-change", handleSelectionChange);
+
+  return {
+    /** @param {RichTextChangeEvent} event */
+    applyChange(event) {
+      if (destroyed) return;
+      const { delta, local, author } = event;
+      if (local) {
+        // The editor already rendered this optimistically when the user
+        // typed it (see handleTextChange); applying it again — or
+        // re-transforming peers through it a second time — would be wrong.
+        return;
+      }
+      editor.updateContents(delta, API_SOURCE);
+      transformPeersThroughDelta(delta, author);
+    },
+
+    /** @param {Iterable<PeerSelectionEntry>} nextPeers */
+    replacePeerSelections(nextPeers) {
+      if (destroyed) return;
+      peers.clear();
+      for (const entry of nextPeers) {
+        if (entry == null || entry.id == null) {
+          throw new TypeError("peer selection entry requires an id");
+        }
+        peers.set(entry.id, clonePeerEntry(entry));
+      }
+      emitPeers();
+    },
+
+    /** @param {unknown} documentDelta */
+    loadDocument(documentDelta) {
+      if (destroyed) return;
+      editor.setContents(documentDelta, SILENT_SOURCE);
+    },
+
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      editor.off("text-change", handleTextChange);
+      editor.off("selection-change", handleSelectionChange);
+    },
+
+    getPeerSelections() {
+      return snapshotPeers();
+    },
+  };
+}

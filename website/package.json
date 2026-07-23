@@ -8,7 +8,8 @@
     "dev": "astro dev",
     "prebuild": "cd .. && gleam build --target javascript",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.5",
