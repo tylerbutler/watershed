@@ -1,4 +1,4 @@
-// Field notes for the sluice-rig demos (sequence, and any future rig page).
+// Field notes for the sluice-rig sequence demo.
 //
 // The homepage engine's field-notes module (tutorial.js) snapshots live values
 // by node identity, which requires renders that mutate nodes in place. The rig

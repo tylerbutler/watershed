@@ -216,28 +216,42 @@ pub fn apply_remote(
   author: Int,
   msn: Int,
 ) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
-  use op_head <- result.try(ot_client.to_head_context(
-    state.log,
-    wire.ref_seq,
-    seq,
-    wire.components,
-    fn(current, e) { transform(current, e.op, side_of(author, e.author)) },
-  ))
+  use op_head <- result.try(
+    ot_client.to_head_context(
+      state.log,
+      wire.ref_seq,
+      seq,
+      wire.components,
+      fn(current, e) { transform(current, e.op, side_of(author, e.author)) },
+    ),
+  )
   use sequenced <- result.try(apply_op(state.sequenced, op_head))
   // Rebase the in-flight op, then the buffer (which lives one context deeper),
   // advancing the remote op past each so the next rebase is well-formed.
-  use #(inflight, remote_after_inflight) <- result.try(ot_client.rebase_pending(
-    state.inflight,
-    op_head,
-    fn(local, remote) { transform(local, remote, side_of(state.self, author)) },
-    fn(remote, local) { transform(remote, local, side_of(author, state.self)) },
-  ))
-  use #(buffer, _remote_after_buffer) <- result.try(ot_client.rebase_pending(
-    state.buffer,
-    remote_after_inflight,
-    fn(local, remote) { transform(local, remote, side_of(state.self, author)) },
-    fn(remote, local) { transform(remote, local, side_of(author, state.self)) },
-  ))
+  use #(inflight, remote_after_inflight) <- result.try(
+    ot_client.rebase_pending(
+      state.inflight,
+      op_head,
+      fn(local, remote) {
+        transform(local, remote, side_of(state.self, author))
+      },
+      fn(remote, local) {
+        transform(remote, local, side_of(author, state.self))
+      },
+    ),
+  )
+  use #(buffer, _remote_after_buffer) <- result.try(
+    ot_client.rebase_pending(
+      state.buffer,
+      remote_after_inflight,
+      fn(local, remote) {
+        transform(local, remote, side_of(state.self, author))
+      },
+      fn(remote, local) {
+        transform(remote, local, side_of(author, state.self))
+      },
+    ),
+  )
   let log =
     ot_client.gc_log(
       list.append(state.log, [LogEntry(seq, author, op_head)]),

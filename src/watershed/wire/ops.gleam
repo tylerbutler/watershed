@@ -33,6 +33,7 @@ import lattice_sequence/sequence
 import lattice_sets/g_set
 import lattice_sets/or_set
 import lattice_sets/two_p_set
+import lattice_text/text
 import watershed/channel
 import watershed/claims_kernel.{type ClaimOp, Claim}
 import watershed/counter_kernel.{type CounterOp, Increment}
@@ -51,6 +52,7 @@ import watershed/rich_text
 import watershed/rich_text_kernel.{type RichTextWireOp, RichTextWireOp}
 import watershed/sequence_kernel.{type SequenceOp}
 import watershed/task_manager_kernel.{type TaskManagerOp}
+import watershed/text_kernel.{type TextOp}
 import watershed/two_p_set_kernel.{type TwoPSetOp}
 import watershed/wire.{type OutboundOp}
 
@@ -161,6 +163,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
     channel.SequenceOp(op) -> encode_sequence_op(op)
     channel.RichTextOp(op) -> encode_rich_text_op(op)
+    channel.TextOp(op) -> encode_text_op(op)
   }
 }
 
@@ -197,6 +200,7 @@ pub fn channel_op_decoder(
       sequence_op_decoder() |> decode.map(channel.SequenceOp)
     channel.RichTextChannel ->
       rich_text_op_decoder() |> decode.map(channel.RichTextOp)
+    channel.TextChannel -> text_op_decoder() |> decode.map(channel.TextOp)
   }
 }
 
@@ -743,6 +747,45 @@ pub fn sequence_op_decoder() -> Decoder(SequenceOp) {
   }
 }
 
+/// Decode a `TextOp`'s wire tag. Diagnostic intent fields (indexes/ranges/
+/// value) travel alongside the authoritative CRDT `delta`; a malformed or
+/// missing `delta` fails this decoder (and therefore stage-two decoding)
+/// before the op ever reaches the kernel.
+pub fn text_op_decoder() -> Decoder(TextOp) {
+  use op_type <- decode.field("type", decode.string)
+  case op_type {
+    "textInsert" -> {
+      use index <- decode.field("index", decode.int)
+      use value <- decode.field("value", decode.string)
+      use delta <- decode.field("delta", text_delta_decoder())
+      decode.success(text_kernel.Insert(index, value, delta))
+    }
+    "textDeleteRange" -> {
+      use start <- decode.field("start", decode.int)
+      use end <- decode.field("end", decode.int)
+      use delta <- decode.field("delta", text_delta_decoder())
+      decode.success(text_kernel.DeleteRange(start, end, delta))
+    }
+    "textReplaceRange" -> {
+      use start <- decode.field("start", decode.int)
+      use end <- decode.field("end", decode.int)
+      use value <- decode.field("value", decode.string)
+      use delta <- decode.field("delta", text_delta_decoder())
+      decode.success(text_kernel.ReplaceRange(start, end, value, delta))
+    }
+    "textAppend" -> {
+      use value <- decode.field("value", decode.string)
+      use delta <- decode.field("delta", text_delta_decoder())
+      decode.success(text_kernel.Append(value, delta))
+    }
+    _ ->
+      decode.failure(
+        text_kernel.DeleteRange(0, 0, default_text_delta()),
+        "TextOp",
+      )
+  }
+}
+
 pub fn encode_sequence_op(op: SequenceOp) -> Json {
   case op {
     sequence_kernel.Insert(index, value, delta) ->
@@ -775,6 +818,42 @@ pub fn encode_sequence_op(op: SequenceOp) -> Json {
   }
 }
 
+/// Encode a `TextOp` for the wire. Every constructor carries the diagnostic
+/// intent fields (indexes/ranges/value) alongside the authoritative CRDT
+/// `delta`; a remote replica applies `delta`, never the diagnostic fields.
+pub fn encode_text_op(op: TextOp) -> Json {
+  case op {
+    text_kernel.Insert(index, value, delta) ->
+      json.object([
+        #("type", json.string("textInsert")),
+        #("index", json.int(index)),
+        #("value", json.string(value)),
+        #("delta", text_delta_json(delta)),
+      ])
+    text_kernel.DeleteRange(start, end, delta) ->
+      json.object([
+        #("type", json.string("textDeleteRange")),
+        #("start", json.int(start)),
+        #("end", json.int(end)),
+        #("delta", text_delta_json(delta)),
+      ])
+    text_kernel.ReplaceRange(start, end, value, delta) ->
+      json.object([
+        #("type", json.string("textReplaceRange")),
+        #("start", json.int(start)),
+        #("end", json.int(end)),
+        #("value", json.string(value)),
+        #("delta", text_delta_json(delta)),
+      ])
+    text_kernel.Append(value, delta) ->
+      json.object([
+        #("type", json.string("textAppend")),
+        #("value", json.string(value)),
+        #("delta", text_delta_json(delta)),
+      ])
+  }
+}
+
 fn delta_json(delta: or_map.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
@@ -797,6 +876,10 @@ fn pn_counter_delta_json(delta: pn_counter.PNCounter) -> Json {
 
 fn sequence_delta_json(delta: sequence.Sequence(Json)) -> Json {
   json.string(json.to_string(sequence.to_json(delta, fn(value) { value })))
+}
+
+fn text_delta_json(delta: text.Text) -> Json {
+  json.string(json.to_string(text.to_json(delta)))
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
@@ -1134,12 +1217,37 @@ fn sequence_delta_shape_decoder() -> Decoder(Nil) {
   }
 }
 
+// `lattice_text` 1.0.0 stores its backing `lattice_sequence.Sequence(String)`
+// and serializes it with `sequence.to_json`, so a `Text` delta is wire-shaped
+// identically to a `Sequence` delta. Reusing `sequence_delta_shape_decoder`
+// here checks the same invariant an authentic op delta must hold: empty
+// frontier, no forwardings, and item-only segments. A delta failing that
+// shape check — most notably a compacted state, which has tombstones and a
+// non-empty frontier — is rejected before `text.from_json` ever runs, so a
+// forged "delta" can't smuggle a full (and potentially stale-relative)
+// state into a channel op.
+fn text_delta_decoder() -> Decoder(text.Text) {
+  use encoded <- decode.then(decode.string)
+  case json.parse(encoded, sequence_delta_shape_decoder()) {
+    Error(_) -> decode.failure(default_text_delta(), "TextDelta")
+    Ok(Nil) ->
+      case text.from_json(encoded) {
+        Ok(delta) -> decode.success(delta)
+        Error(_) -> decode.failure(default_text_delta(), "TextDelta")
+      }
+  }
+}
+
 fn default_pn_counter_delta() -> pn_counter.PNCounter {
   pn_counter.new(replica_id.new(""))
 }
 
 fn default_sequence_delta() -> sequence.Sequence(Json) {
   sequence.new(replica_id.new(""))
+}
+
+fn default_text_delta() -> text.Text {
+  text.new(replica_id.new(""))
 }
 
 fn default_two_p_set_delta() -> two_p_set.TwoPSet(String) {

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a convergent `SharedText` DDS for collaborative plain-text editing, backed by the local `lattice_text` CRDT with grapheme-based indexing and cursor anchors.
+**Goal:** Add a convergent `SharedText` DDS for collaborative plain-text editing, backed by the `lattice_text` CRDT (Hex 1.0.0) with grapheme-based indexing and cursor anchors.
 
 **Architecture:** A pure `text_kernel` will keep sequenced, optimistic, and pending CRDT state, mirroring the sequence kernel. The closed channel sums, wire codecs, runtime core, Erlang and JavaScript runtimes, and public facades will expose insert, delete-range, replace-range, append, value, length, substring, anchors, handles, typed fields, and subscriptions. Empty edits validate their indexes and then succeed as no-ops without producing channel ops.
 
@@ -10,16 +10,17 @@
 
 **Prerequisite:** The collaborative sequence DDS plan
 (`docs/superpowers/plans/2026-07-20-collaborative-sequence-dds.md`) is fully
-implemented. That plan links `lattice_text` as a local dependency (its Task 1)
-and establishes the kernel, channel, wire, runtime, and fuzz patterns this
-plan extends. Verify before starting:
+implemented. That plan establishes the kernel, channel, wire, runtime, and
+fuzz patterns this plan extends. `lattice_text` resolves from Hex as version
+`1.0.0` (`gleam.toml`: `lattice_text = ">= 1.0.0 and < 2.0.0"`), not a local
+path dependency. Verify before starting:
 
 ```bash
 rg 'lattice_text' gleam.toml manifest.toml
 gleam test sequence_kernel
 ```
 
-Expected: `lattice_text` resolves as a local dependency and the sequence
+Expected: `lattice_text` resolves from Hex at `1.0.0` and the sequence
 kernel tests pass.
 
 ---

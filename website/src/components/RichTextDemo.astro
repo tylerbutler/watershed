@@ -21,9 +21,10 @@ const clients = [
       the same units a JavaScript string indexes by, so no conversion happens
       at the editor boundary. Each editor keeps at most one op in flight;
       anything typed while it's outstanding composes into a single buffered
-      op behind it. This is SharedRichText, watershed's OT-backed rich text —
-      distinct from a future CRDT <code>SharedText</code>, which will
-      converge by merge rather than by transform.
+      op behind it. This is SharedRichText, watershed's OT-backed rich text. For
+      CRDT-backed plain text, <a href="/text"><code>SharedText</code></a> indexes
+      graphemes by stable identity and converges by merge rather than by
+      transform.
     </p>
     <p class="demo-hint">
       Local edits apply the instant you type — Quill's own optimistic model,

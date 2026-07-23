@@ -3,10 +3,11 @@
 A Gleam Fluid Framework DDS client toolkit for Erlang and JavaScript. It provides
 collaborative data structures with optimistic local edits, convergence through
 server sequencing, and reconnect safety. SharedMap is the anchor DDS;
-SharedCounter, SharedSequence, SharedRichText, OR-set, claims, and the other
-channel kinds share the same runtime. An opt-in [typed document layer](#typed-documents)
-declares a document's shape once. [levee](https://github.com/tylerbutler/levee)
-is one compatible server implementation.
+SharedCounter, SharedSequence, SharedText, SharedRichText, OR-set, claims, and
+the other channel kinds share the same runtime. An opt-in
+[typed document layer](#typed-documents) declares a document's shape once.
+[levee](https://github.com/tylerbutler/levee) is one compatible server
+implementation.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -48,6 +49,13 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   `watershed/rich_text_kernel` rides that algebra on the same single-op-in-flight
   client-transform protocol as `watershed/json_ot_kernel`. See
   [Shared rich text](#shared-rich-text) below.
+- **SharedText kernel: done.** `watershed/text_kernel` uses `lattice_text` for
+  optimistic collaborative plain-text editing: grapheme-indexed `insert`,
+  `delete_range`, `replace_range`, and `append` over an optimistic string, plus
+  cursor anchors that survive concurrent edits. Indexing is by Unicode grapheme
+  (never UTF-16 code unit), replace is one composed op, and the wire format is
+  watershed's own delta over the `lattice_text` identity CRDT — **not** a port
+  of Fluid Framework's SharedString merge-tree format.
 - **M2 — shared test corpus: done.** 20 scenarios generated from the TS
   `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
 - **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
@@ -61,14 +69,14 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 ## Targets
 
 The pure core (`map_kernel`, `counter_kernel`, `sequence_kernel`, `rich_text`,
-`rich_text_kernel`, `wire`, `runtime_core`) is target-agnostic. Two runtimes
-sit on top:
+`rich_text_kernel`, `text_kernel`, `wire`, `runtime_core`) is target-agnostic.
+Two runtimes sit on top:
 
 | Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
 | Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
-| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `rich_text` · `rich_text_kernel` · `wire` · `runtime_core` | ← identical, shared |
+| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `rich_text` · `rich_text_kernel` · `text_kernel` · `wire` · `runtime_core` | ← identical, shared |
 
 The erlang-only modules are gated with `@target(erlang)` so
 `gleam build --target javascript` compiles just the pure core plus the JS
@@ -79,13 +87,17 @@ whose entire client is Gleam, verified converging against a live `just server`,
 scoreboard whose per-player records use the [typed document layer](#typed-documents),
 and [`examples/playlist_lustre`](examples/playlist_lustre) for a reorderable
 playlist on `SharedSequence` — the example that exercises `move`, the
-convergent reorder no other DDS here offers.
+convergent reorder no other DDS here offers, and
+[`examples/text_lustre`](examples/text_lustre) for a collaborative plain-text
+editor on `SharedText`, diffing each `<textarea>` keystroke into one
+grapheme-indexed op (mirrored by the [live `/text`
+demo](https://watershed.tylerbutler.com/text)).
 
 For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
 Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and
 a presence effect — so an app declares its wiring instead of hand-bridging
 watershed's callbacks into `dispatch` (and deferring each to dodge the
-mid-`update` clobber). Both Lustre examples are built on it.
+mid-`update` clobber). Every Lustre example here is built on it.
 
 ## Shared sequences
 
@@ -108,15 +120,16 @@ watershed.sequence_values(items)
 
 Move destinations are interpreted after removing the source value. Replace is
 one Watershed operation composed by merging `lattice_sequence` delete and insert
-deltas; `lattice_sequence` has no native replace primitive.
+deltas; `lattice_sequence` has no native replace primitive. This Array-like DDS
+is the substrate beneath collaborative text; the text-specific API is
+[`SharedText`](#shared-text).
 
 ## Shared rich text
 
 `SharedRichText` is a collaborative rich-text DDS for Quill-style editors. It
 is **OT-backed** (client-transform over a central sequencer, the same protocol
-`json_ot_kernel` uses), not the CRDT-backed `SharedText` planned for plain
-grapheme-indexed text — the two are separate, non-interchangeable designs;
-`SharedRichText` ships today, `SharedText` does not exist yet.
+`json_ot_kernel` uses), not the CRDT-backed `SharedText` used for plain
+grapheme-indexed text. The two are separate, non-interchangeable designs.
 
 - `watershed/rich_text` is a checked port of `quill-delta@4.2.1` composed with
   `rich-text@4.1.0` (the [ot-types](https://github.com/ottypes) Quill OT type):
@@ -134,7 +147,7 @@ grapheme-indexed text — the two are separate, non-interchangeable designs;
   `null` value *removes* that formatting attribute rather than setting it —
   standard Quill Delta `compose` semantics.
 - Positions are **UTF-16 code units**, matching Quill/JavaScript string
-  indexing exactly (not grapheme clusters, unlike `SharedSequence`/the planned
+  indexing exactly (not grapheme clusters, unlike `SharedSequence` and
   `SharedText`). A `retain`/`delete` boundary that lands inside a supplementary
   character's UTF-16 surrogate pair is rejected rather than silently
   truncating a scalar.
@@ -173,6 +186,54 @@ against the same `rich_text`/`rich_text_kernel` modules — see
 [`website/src/scripts/rich-text-demo.ts`](website/src/scripts/rich-text-demo.ts)
 for a full three-editor Quill wiring, live at the
 [`/rich-text`](website/src/pages/rich-text.astro) website demo.
+
+## Shared text
+
+`SharedText` is a collaborative plain-text DDS for many typists on one string,
+backed by `lattice_text`. All indexes are **grapheme** indexes (Unicode
+extended grapheme clusters), so an emoji or a combining sequence counts as one
+unit — never a UTF-16 code-unit offset. The Erlang and JavaScript facades expose
+the same create, resolve, mutate, read, anchor, and subscription operations:
+
+```gleam
+let assert Ok(body) = watershed.create_text(doc)
+let assert Ok(Nil) = watershed.text_append(body, "hello world")
+let assert Ok(Nil) = watershed.text_insert(body, 5, ",")       // "hello, world"
+let assert Ok(Nil) = watershed.text_delete_range(body, 0, 5)   // ", world"
+let assert Ok(Nil) = watershed.text_replace_range(body, 2, 7, "there") // ", there"
+watershed.text_value(body)
+// ", there"
+```
+
+- Edits are **optimistic**: a local mutation shows immediately in the optimistic
+  string and rides the sequenced stream as a delta; if the server rejects it the
+  kernel rolls back and replays the remaining pending edits over the sequenced
+  base. `text_value`, `text_length`, and `text_substring` read the optimistic
+  view; every mutation returns `Result` and an out-of-bounds index is refused,
+  not clamped. An empty edit validates its index and then succeeds as a no-op.
+- **Replace is one composed operation** — a delete and an insert at the same
+  place merged into a single pending entry, one wire op, one event — not a
+  delete + insert pair.
+- **Anchors** (`text_anchor_at`, `text_start_anchor`, `text_end_anchor`,
+  `text_resolve_anchor`, `text_anchor_to_json`, `text_anchor_from_json`) pin a
+  stable position that survives concurrent edits and merges: as text is inserted
+  or deleted before an anchor, `text_resolve_anchor` reports its shifted grapheme
+  index. This is the primitive shared cursors are built on; broadcasting them
+  (presence) is out of scope for this release.
+- `subscribe_text` delivers a `text_kernel.TextEvent` carrying the full
+  post-edit optimistic string, for local and remote edits alike.
+
+Unlike SharedMap and SharedCounter — byte-for-byte ports of the Fluid Framework
+formats — `SharedText` is **not** a port of Fluid's `SharedString`. It uses
+watershed's own delta wire format over the `lattice_text` identity CRDT (the
+same identity lattice as `SharedSequence`), not Fluid's interval merge-tree
+format. This first release also excludes rich-text formatting and attributes,
+range-delta events, tombstone compaction and forwarding retention, the
+`lattice_fugue` / `lattice_text_fugue` variants, and presence-based shared
+cursors.
+
+See [`examples/text_lustre`](examples/text_lustre) for a full collaborative
+editor and the [live `/text` demo](https://watershed.tylerbutler.com/text).
 
 ## Typed documents
 

@@ -49,11 +49,12 @@ import watershed/schema.{
 }
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
+import watershed/text_kernel
 import watershed_js.{
   type Claims, type Document, type OrMap, type OrSet, type OrderedCollection,
   type PactMap, type PnCounter, type RegisterCollection, type Ripple,
-  type SharedCounter, type SharedMap, type SharedSequence, type TaskManager,
-  type TypedMap, type WatershedConfig, WatershedConfig,
+  type SharedCounter, type SharedMap, type SharedSequence, type SharedText,
+  type TaskManager, type TypedMap, type WatershedConfig, WatershedConfig,
 }
 
 @external(javascript, "./watershed_lustre_ffi.mjs", "queue_microtask")
@@ -212,6 +213,21 @@ pub fn subscribe_sequence(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.subscribe_sequence(sequence, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a text channel. `to_msg` receives each local and remote
+/// `text_kernel.TextEvent` — a `TextChanged` carrying the full post-edit
+/// optimistic string, so insert, delete, replace, and append all surface the
+/// same way (never a stale author index). Re-read the channel on it to render
+/// committed optimistic state.
+pub fn subscribe_text(
+  text: SharedText,
+  to_msg to_msg: fn(text_kernel.TextEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_text(text, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -406,6 +422,19 @@ pub fn ensure_sequence(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.ensure_sequence(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Ensure a text channel exists under `field`, seeding an empty one if absent.
+pub fn ensure_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+  to_msg to_msg: fn(Result(SharedText, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_text(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }

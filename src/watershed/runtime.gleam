@@ -65,8 +65,8 @@ import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
   InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
-  InitRegisterCollection, InitRichText, InitSequence, InitTaskManager,
-  InitTwoPSet, SequenceChannel,
+  InitRegisterCollection, InitRichText, InitSequence, InitTaskManager, InitText,
+  InitTwoPSet, SequenceChannel, TextChannel,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -86,6 +86,8 @@ import watershed/rich_text
 import watershed/runtime_core
 @target(erlang)
 import watershed/task_manager_kernel
+@target(erlang)
+import watershed/text_kernel
 @target(erlang)
 import watershed/wire
 @target(erlang)
@@ -207,6 +209,38 @@ pub type Msg {
     value: Json,
     reply: Subject(Result(Nil, String)),
   )
+  /// Insert `value` at zero-based grapheme `index`. Empty edits
+  /// (`value == ""`) are true no-ops: they succeed without producing an
+  /// event or an outbound op.
+  InsertText(
+    address: String,
+    index: Int,
+    value: String,
+    reply: Subject(Result(Nil, String)),
+  )
+  /// Delete the graphemes in `[start, end)`. An empty range is a no-op.
+  DeleteRangeText(
+    address: String,
+    start: Int,
+    end: Int,
+    reply: Subject(Result(Nil, String)),
+  )
+  /// Replace the graphemes in `[start, end)` with `value` as one
+  /// collaborative operation. Replacing an empty range with `""` is a
+  /// no-op.
+  ReplaceRangeText(
+    address: String,
+    start: Int,
+    end: Int,
+    value: String,
+    reply: Subject(Result(Nil, String)),
+  )
+  /// Append `value` to the end of the text. Appending `""` is a no-op.
+  AppendText(
+    address: String,
+    value: String,
+    reply: Subject(Result(Nil, String)),
+  )
   SubmitJsonOt(address: String, components: json_ot.Op)
   SubmitRichText(address: String, delta: rich_text.Delta)
   IncrementOrMap(address: String, key: String, amount: Int)
@@ -257,6 +291,8 @@ pub type Msg {
   /// as `CreateMap`.
   CreateOrderedCollection(reply: Subject(Result(String, String)))
   CreateSequence(reply: Subject(Result(String, String)))
+  /// Create a new detached text channel, same lifecycle as `CreateMap`.
+  CreateText(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
   CreateOrSet(reply: Subject(Result(String, String)))
@@ -271,6 +307,7 @@ pub type Msg {
   /// retryable — a foreign attach may still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
+  ResolveText(address: String, reply: Subject(Result(Nil, String)))
   /// Summarize the current confirmed state to levee storage, replying with the
   /// summary handle (git tree SHA) on success.
   Summarize(reply: Subject(Result(String, String)))
@@ -321,6 +358,38 @@ pub type Msg {
   GetGSetValues(address: String, reply: Subject(List(String)))
   GetSequenceValues(address: String, reply: Subject(List(Json)))
   GetSequenceLength(address: String, reply: Subject(Int))
+  /// The text channel's current optimistic visible string, `""` when the
+  /// address is missing or not a text channel.
+  GetTextValue(address: String, reply: Subject(String))
+  /// The text channel's current optimistic grapheme count, `0` when the
+  /// address is missing or not a text channel.
+  GetTextLength(address: String, reply: Subject(Int))
+  /// The graphemes in `[start, end)` of the text channel's optimistic
+  /// string. An explicit error string when `start..end` is invalid, the
+  /// address is missing, or the address is not a text channel.
+  GetTextSubstring(
+    address: String,
+    start: Int,
+    end: Int,
+    reply: Subject(Result(String, String)),
+  )
+  /// Create a stable anchor at the gap before/after the optimistic
+  /// grapheme at `index`, per `bias`. An explicit error string on an
+  /// out-of-bounds index, a missing address, or a non-text channel.
+  TextAnchorAt(
+    address: String,
+    index: Int,
+    bias: text_kernel.Bias,
+    reply: Subject(Result(text_kernel.TextAnchor, String)),
+  )
+  /// Resolve an anchor to its current optimistic grapheme index. An
+  /// explicit error string on a stale/unknown anchor target, a missing
+  /// address, or a non-text channel.
+  TextResolveAnchor(
+    address: String,
+    anchor: text_kernel.TextAnchor,
+    reply: Subject(Result(Int, String)),
+  )
   TwoPSetContains(address: String, element: String, reply: Subject(Bool))
   GetTwoPSetValues(address: String, reply: Subject(List(String)))
   DirectorySet(address: String, path: String, key: String, value: Json)
@@ -494,6 +563,46 @@ pub fn resolve_sequence(
   process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
     ResolveSequence(address, reply)
   })
+}
+
+@target(erlang)
+pub fn resolve_text(
+  runtime: Subject(Msg),
+  address: String,
+) -> Result(Nil, String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
+    ResolveText(address, reply)
+  })
+}
+
+@target(erlang)
+/// An anchor at the start of the text. Always resolves to `0`. Pure — no
+/// actor round trip since it carries no document state.
+pub fn text_start_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_start_anchor()
+}
+
+@target(erlang)
+/// An anchor at the end of the text. Always resolves to the current
+/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_end_anchor()
+}
+
+@target(erlang)
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors. Pure.
+pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
+  runtime_core.text_anchor_to_json(anchor)
+}
+
+@target(erlang)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
+/// An explicit error string on malformed JSON. Pure.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(text_kernel.TextAnchor, String) {
+  runtime_core.text_anchor_from_json(json_string)
 }
 
 @target(erlang)
@@ -844,6 +953,36 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         fn(core) { runtime_core.sequence_replace(core, address, index, value) },
         "sequence replace",
       )
+    InsertText(address, index, value, reply) ->
+      edit_text_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.text_insert(core, address, index, value) },
+        "text insert",
+      )
+    DeleteRangeText(address, start, end, reply) ->
+      edit_text_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.text_delete_range(core, address, start, end) },
+        "text delete_range",
+      )
+    ReplaceRangeText(address, start, end, value, reply) ->
+      edit_text_with_result(
+        state,
+        reply,
+        fn(core) {
+          runtime_core.text_replace_range(core, address, start, end, value)
+        },
+        "text replace_range",
+      )
+    AppendText(address, value, reply) ->
+      edit_text_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.text_append(core, address, value) },
+        "text append",
+      )
     SubmitJsonOt(address, components) ->
       edit(state, fn(core) {
         runtime_core.submit_json_ot(core, address, components)
@@ -920,6 +1059,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     CreateGSet(reply) -> create_channel(state, reply, InitGSet, "create_g_set")
     CreateSequence(reply) ->
       create_channel(state, reply, InitSequence, "create_sequence")
+    CreateText(reply) -> create_channel(state, reply, InitText, "create_text")
     CreateDirectory(reply) ->
       create_channel(state, reply, InitDirectory, "create_directory")
     DirectorySet(address, path, key, value) ->
@@ -974,6 +1114,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
     ResolveSequence(address, reply) -> {
       process.send(reply, resolve_sequence_address(state, address))
+      actor.continue(state)
+    }
+    ResolveText(address, reply) -> {
+      process.send(reply, resolve_text_address(state, address))
       actor.continue(state)
     }
 
@@ -1105,6 +1249,47 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, 0, runtime_core.sequence_length(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetTextValue(address, reply) -> {
+      process.send(reply, read(state, "", runtime_core.text_value(_, address)))
+      actor.continue(state)
+    }
+    GetTextLength(address, reply) -> {
+      process.send(reply, read(state, 0, runtime_core.text_length(_, address)))
+      actor.continue(state)
+    }
+    GetTextSubstring(address, start, end, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("text substring requires a ready document connection"),
+          runtime_core.text_substring(_, address, start, end),
+        ),
+      )
+      actor.continue(state)
+    }
+    TextAnchorAt(address, index, bias, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("text anchor_at requires a ready document connection"),
+          runtime_core.text_anchor_at(_, address, index, bias),
+        ),
+      )
+      actor.continue(state)
+    }
+    TextResolveAnchor(address, anchor, reply) -> {
+      process.send(
+        reply,
+        read(
+          state,
+          Error("text resolve_anchor requires a ready document connection"),
+          runtime_core.text_resolve_anchor(_, address, anchor),
+        ),
       )
       actor.continue(state)
     }
@@ -1354,6 +1539,16 @@ fn resolve_sequence_address(
       runtime_core.require_channel_type(core, address, SequenceChannel)
       |> result.map_error(string.inspect)
     _ -> Error("resolve_sequence requires a ready document connection")
+  }
+}
+
+@target(erlang)
+fn resolve_text_address(state: State, address: String) -> Result(Nil, String) {
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      runtime_core.require_channel_type(core, address, TextChannel)
+      |> result.map_error(string.inspect)
+    _ -> Error("resolve_text requires a ready document connection")
   }
 }
 
@@ -1831,6 +2026,71 @@ fn edit_sequence_with_result(
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
         Error(runtime_core.SequenceOpFailed(_, detail)) -> {
+          process.send(reply, Error(detail))
+          actor.continue(state)
+        }
+        Error(error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(error)),
+          )
+          actor.continue(state)
+        }
+      }
+    _ -> {
+      process.send(
+        reply,
+        Error(verb <> " before the document connection is ready"),
+      )
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn edit_text_with_result(
+  state: State,
+  reply: Subject(Result(Nil, String)),
+  operate: fn(runtime_core.Core) ->
+    Result(
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
+  verb: String,
+) -> actor.Next(State, Msg) {
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Ok(#(core, events, outbound)) -> {
+          process.send(reply, Ok(Nil))
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> {
+          process.send(reply, Error(detail))
+          actor.continue(state)
+        }
+        Error(error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(error)),
+          )
+          actor.continue(state)
+        }
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Ok(#(core, events, _outbound)) -> {
+          process.send(reply, Ok(Nil))
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> {
           process.send(reply, Error(detail))
           actor.continue(state)
         }

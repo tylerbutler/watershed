@@ -22,11 +22,13 @@ import Ecosystem from "../components/Ecosystem.astro";
         identical single-op-in-flight client-transform machinery, so three
         real Quill editors can share one document with genuine concurrent
         typing, formatting, and deletion, and always converge on the same
-        text, formatting, and embeds. SharedRichText is OT-backed; a future
-        CRDT <code>SharedText</code> will converge the other way, by merge.
+        text, formatting, and embeds. SharedRichText is OT-backed; the
+        CRDT-backed <a href="/text"><code>SharedText</code></a> handles plain
+        text with grapheme identities and merge-based convergence.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="#rt-demo">Jump to the demo ↓</a>
+        <a class="cta-quiet" href="/text">Compare SharedText →</a>
         <a class="cta-quiet" href="https://github.com/tylerbutler/watershed">
           Read the source
         </a>

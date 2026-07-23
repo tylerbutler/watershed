@@ -265,7 +265,32 @@ const sequences: Structure[] = [
     useCases: [
       "Shared itineraries, checklists, and ordered plans edited by many hands",
       "Reorderable collections — playlists, priority queues, kanban lanes — where a move must not clobber a concurrent edit",
-      "The ordered substrate beneath a future collaborative-text DDS",
+      "The ordered substrate beneath SharedText — the collaborative plain-text DDS built on the same identity lattice",
+    ],
+  },
+  {
+    id: "text",
+    name: "SharedText",
+    module: "text_kernel",
+    kind: "CRDT",
+    onHomepage: false,
+    demoHref: "/text",
+    tagline:
+      "A string many people can type into at once — insert, delete, and replace characters without losing anyone’s keystrokes.",
+    rule: "every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge instead of fighting over character offsets",
+    optimistic:
+      "your keystroke shows immediately in magenta; the text reflows when the sequenced order lands",
+    summary: "the sequenced string reloads intact; pending edits replay on top",
+    how: [
+      "A shared text holds an ordered run of graphemes — user-perceived characters. You address an edit by grapheme index — insert at 6, delete 3..7, replace 0..5 — but the index only records intent against your current view. Underneath, every grapheme carries a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. That is what lets two typists edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order rather than clobbering one another.",
+      "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity — so a cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
+      "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation — delete the span and insert the replacement at the same place — so it is a single pending entry, one wire op, one event, even across a range.",
+      "Anchors are stable positions that survive concurrent edits: pin one to a grapheme’s identity, keep editing around it, and resolve it back to a live index later — the basis for shared cursors and selections that don’t drift when a neighbor inserts. Like SharedSequence, and unlike SharedMap or SharedDirectory, SharedText is not a Fluid Framework port: it does not use Fluid’s SharedString / interval merge-tree wire format. The delta format is watershed’s own, built on the same identity lattice as SharedSequence.",
+    ],
+    useCases: [
+      "Collaborative notes, captions, and comment fields edited by many hands at once",
+      "Live-typed labels and single-line fields where two people may touch the same word",
+      "Anything needing shared cursors or selections that stay put as neighbors type — anchors track identities, not offsets",
     ],
   },
 ];
@@ -305,7 +330,7 @@ const transforms: Structure[] = [
     summary: "the document reloads to the same text, formatting, and embeds everywhere",
     how: [
       "SharedRichText runs the identical single-op-in-flight client-transform protocol as json_ot, over a different algebra: a faithful port of rich-text/quill-delta, where operations retain, insert, or delete spans of text, each optionally carrying an attribute patch (bold, color, …) or wrapping an embed (an image) instead of plain text. Positions are counted in UTF-16 code units — the same units Quill and JavaScript strings themselves use — so the runtime and the editor never disagree about where an edit lands.",
-      "Each client keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. Remote deltas arrive already advanced into the client's optimistic view — the runtime applies them incrementally to the editor rather than replacing the whole document — and cursor/selection positions are transformed through every local and remote edit the same way the text itself is. This is watershed's OT-backed rich text, distinct from a future CRDT SharedText, which will converge by merge instead of transform.",
+      "Each client keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. Remote deltas arrive already advanced into the client's optimistic view — the runtime applies them incrementally to the editor rather than replacing the whole document — and cursor/selection positions are transformed through every local and remote edit the same way the text itself is. This is watershed's OT-backed rich text. SharedText is the CRDT-backed plain-text counterpart: it indexes graphemes by stable identity and converges by merge instead of transform.",
     ],
     useCases: [
       "Collaborative rich-text editors — Quill, and anything built on the quill-delta/rich-text algebra",
@@ -477,7 +502,7 @@ export const categories: Category[] = [
     tagline: "One shared document, kept in agreement as everyone edits.",
     lede: [
       "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed; a future CRDT SharedText will converge the other way, by merge.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
     ],
     structures: transforms,
   },

@@ -30,30 +30,18 @@ const ledger = [
     detail: "Recursive SharedMap hierarchy wired as a runtime channel, byte-compatible with Fluid's SharedDirectory",
     status: "implemented",
   },
-  {
-    id: "R1",
-    name: "Membership channels",
-    detail: "Promote the ordered-collection and PactMap kernels to runtime channels with sequenced membership-leave handling",
-    status: "planned",
-  },
-  {
-    id: "R2",
-    name: "Sequence bedrock",
-    detail: "A persistent merge-tree redesign for string and sequence collaborative types",
-    status: "researching",
-  },
 ];
 ---
 
 <section class="rigor" aria-labelledby="rigor-title">
   <div class="rigor-inner">
     <div class="guarantees">
-      <h2 id="rigor-title">What is proven, what is next</h2>
+      <h2 id="rigor-title">What is implemented and proven</h2>
       <p>
         The runtime is tested three ways: against a reference model, against a
         live levee server, and against deliberately nasty orderings of
-        operations. The ledger separates what’s built from the work still on the
-        roadmap.
+        operations. The ledger lists the implemented pieces covered by those
+        checks.
       </p>
       <dl class="claims">
         <div data-reveal="rise">
@@ -85,14 +73,11 @@ const ledger = [
 
     <div class="ledger-wrap">
       <table class="ledger">
-        <caption class="annot">Roadmap ledger</caption>
+        <caption class="annot">Implementation ledger</caption>
         <tbody>
           {
             ledger.map((row) => (
-              <tr
-                class:list={[{ pending: row.status !== "implemented" }]}
-                data-reveal="rise"
-              >
+              <tr data-reveal="rise">
                 <th scope="row">{row.id}</th>
                 <td>
                   <span class="ledger-name">{row.name}</span>
@@ -217,16 +202,6 @@ const ledger = [
     text-transform: uppercase;
     white-space: nowrap;
     width: 1%;
-  }
-
-  /* magenta rows are roadmap overprint: planned, not yet field-checked */
-  .ledger tr.pending .ledger-name,
-  .ledger tr.pending .ledger-status {
-    color: var(--overprint-deep);
-  }
-
-  .ledger tr.pending .ledger-status {
-    font-style: italic;
   }
 
   @media (max-width: 860px) {

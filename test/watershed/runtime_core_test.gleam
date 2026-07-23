@@ -12,6 +12,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 
 import signet/types as token
@@ -19,6 +20,7 @@ import spillway/message
 import spillway/types
 
 import lattice_core/replica_id
+import lattice_sequence/sequence.{After, Before}
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
@@ -29,6 +31,7 @@ import watershed/register_collection_kernel
 import watershed/rich_text
 import watershed/rich_text_kernel
 import watershed/runtime_core.{type Core}
+import watershed/text_kernel
 import watershed/wire
 import watershed/wire/ops
 
@@ -362,14 +365,16 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
               contents,
               ops.channel_op_decoder(channel.RegisterCollectionChannel),
             ),
-            decode.run(contents, ops.channel_op_decoder(channel.ClaimsChannel))
+            decode.run(contents, ops.channel_op_decoder(channel.ClaimsChannel)),
+            decode.run(contents, ops.channel_op_decoder(channel.TextChannel))
           {
-            Ok(op), _, _, _, _ -> DecodedChannelOp(address: address, op: op)
-            _, Ok(op), _, _, _ -> DecodedChannelOp(address: address, op: op)
-            _, _, Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
-            _, _, _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
-            _, _, _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
-            Error(_), Error(_), Error(_), Error(_), Error(_) ->
+            Ok(op), _, _, _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, Ok(op), _, _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, Ok(op), _, _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, Ok(op), _, _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, _, Ok(op), _ -> DecodedChannelOp(address: address, op: op)
+            _, _, _, _, _, Ok(op) -> DecodedChannelOp(address: address, op: op)
+            Error(_), Error(_), Error(_), Error(_), Error(_), Error(_) ->
               panic as "failed to decode outbound op contents"
           }
         Error(_) -> panic as "failed to decode outbound contents"
@@ -2987,4 +2992,548 @@ pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() {
     #(2, DecodedChannelOp(address: "root", op: second)),
   ])
   core.next_csn |> expect.to_equal(3)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Text channels
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn text_op_message(
+  address address: String,
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  op op: text_kernel.TextOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_channel_envelope(
+      address,
+      channel.TextOp(op),
+    )),
+  )
+}
+
+fn text_attach_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  snapshot snapshot: channel.Snapshot,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_attach(address, snapshot)),
+  )
+}
+
+/// A sequenced (acknowledged) `TextState` seeded with `value`, authored by a
+/// throwaway replica id — used to build attach/summary fixtures.
+fn seeded_text(value: String) -> text_kernel.TextState {
+  let state = text_kernel.new(replica_id.new("seed"))
+  case value {
+    "" -> state
+    _ -> {
+      let assert Ok(#(state, _, Some(text_kernel.Submission(op, message_id)))) =
+        text_kernel.insert(state, 0, value)
+      let assert Ok(state) =
+        text_kernel.ack_local_with_message_id(state, op, message_id)
+      state
+    }
+  }
+}
+
+/// A `TextOp` authored by a completely independent, empty replica —
+/// standing in for a genuinely concurrent remote edit, mirroring
+/// `remote_tally_op`'s use of a fresh kernel instance.
+fn remote_text_insert_op(index: Int, value: String) -> text_kernel.TextOp {
+  let state = text_kernel.new(replica_id.new(other_client_id))
+  let assert Ok(#(_, _, Some(text_kernel.Submission(op, _)))) =
+    text_kernel.insert(state, index, value)
+  op
+}
+
+pub fn text_create_detached_reports_text_type_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+
+  runtime_core.require_channel_type(core, "doc", channel.TextChannel)
+  |> expect.to_equal(Ok(Nil))
+  runtime_core.text_value(core, "doc") |> expect.to_equal("")
+  runtime_core.text_length(core, "doc") |> expect.to_equal(0)
+}
+
+pub fn text_mutation_on_wrong_channel_type_is_rejected_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+
+  runtime_core.text_insert(core, "tally", 0, "x")
+  |> expect.to_equal(
+    Error(runtime_core.WrongChannelType(
+      "tally",
+      expected: channel.TextChannel,
+      actual: channel.CounterChannel,
+    )),
+  )
+}
+
+pub fn text_mutation_on_missing_channel_is_unknown_channel_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  runtime_core.text_insert(core, "missing", 0, "x")
+  |> expect.to_equal(
+    Error(runtime_core.UnknownChannel(address: "missing", sequence_number: 1)),
+  )
+}
+
+pub fn text_reads_default_for_missing_or_wrong_channel_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+
+  runtime_core.text_value(core, "missing") |> expect.to_equal("")
+  runtime_core.text_length(core, "missing") |> expect.to_equal(0)
+  runtime_core.text_value(core, "tally") |> expect.to_equal("")
+  runtime_core.text_length(core, "tally") |> expect.to_equal(0)
+}
+
+pub fn detached_text_insert_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
+  ])
+  outbound |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hello")
+  runtime_core.text_length(core, "doc") |> expect.to_equal(5)
+}
+
+pub fn detached_text_delete_range_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_delete_range(core, "doc", 1, 3)
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("hlo"))),
+  ])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hlo")
+}
+
+pub fn detached_text_replace_range_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_replace_range(core, "doc", 0, 1, "H")
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("Hello"))),
+  ])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("Hello")
+}
+
+pub fn detached_text_append_produces_no_outbound_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_append(core, "doc", " world")
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("hello world"))),
+  ])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hello world")
+}
+
+pub fn detached_text_valid_empty_edits_are_true_no_ops_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_insert(core, "doc", 1, "")
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_delete_range(core, "doc", 1, 1)
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_replace_range(core, "doc", 2, 2, "")
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+
+  let assert Ok(#(_core, events, outbound)) =
+    runtime_core.text_append(core, "doc", "")
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+}
+
+pub fn text_insert_out_of_bounds_is_text_op_failed_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+
+  runtime_core.text_insert(core, "doc", 5, "x")
+  |> expect.to_equal(
+    Error(runtime_core.TextOpFailed("doc", "insert index 5 outside 0..0")),
+  )
+}
+
+pub fn text_delete_range_out_of_bounds_is_text_op_failed_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  runtime_core.text_delete_range(core, "doc", 1, 10)
+  |> expect.to_equal(
+    Error(runtime_core.TextOpFailed(
+      "doc",
+      "delete range 1..10 invalid for length 3",
+    )),
+  )
+}
+
+pub fn text_replace_range_out_of_bounds_is_text_op_failed_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  runtime_core.text_replace_range(core, "doc", 0, 10, "x")
+  |> expect.to_equal(
+    Error(runtime_core.TextOpFailed(
+      "doc",
+      "replace range 0..10 invalid for length 3",
+    )),
+  )
+}
+
+pub fn text_optimistic_reads_value_length_substring_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "hi 👋 world")
+
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hi 👋 world")
+  runtime_core.text_length(core, "doc") |> expect.to_equal(10)
+  runtime_core.text_substring(core, "doc", 0, 2) |> expect.to_equal(Ok("hi"))
+  runtime_core.text_substring(core, "doc", 3, 4) |> expect.to_equal(Ok("👋"))
+  runtime_core.text_substring(core, "doc", 0, 10)
+  |> expect.to_equal(Ok("hi 👋 world"))
+}
+
+pub fn text_substring_invalid_range_is_explicit_error_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  runtime_core.text_substring(core, "doc", 2, 1)
+  |> expect.to_equal(Error("substring range 2..1 invalid for length 3"))
+}
+
+pub fn text_substring_missing_channel_is_explicit_error_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  runtime_core.text_substring(core, "missing", 0, 1)
+  |> expect.to_equal(Error(
+    "text substring requires a text channel at missing, found none",
+  ))
+}
+
+pub fn text_attach_via_handle_then_ops_round_trip_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+
+  // Storing the handle attaches the (still-empty) text with its optimistic
+  // state.
+  let assert Ok(#(core, _, outbound)) =
+    runtime_core.set(core, "root", "doc", handle.encode_handle("doc"))
+  let assert [attach_outbound, root_outbound] =
+    list.map(outbound, decode_outbound_contents)
+  let assert DecodedAttach(address: "doc", snapshot: attach_snapshot) =
+    attach_outbound
+  let assert channel.TextSummary(attach_text) = attach_snapshot
+  text_kernel.from_sequenced(attach_text, replica_id.new("test-loader"))
+  |> text_kernel.value
+  |> expect.to_equal("")
+  root_outbound
+  |> expect.to_equal(DecodedChannelOp(
+    address: "root",
+    op: channel.MapOp(Set("doc", handle.encode_handle("doc"))),
+  ))
+
+  // Server echoes both; the acks retire them silently.
+  let #(core, events) =
+    apply_tagged(
+      core,
+      text_attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "doc",
+        snapshot: attach_snapshot,
+      ),
+    )
+  events |> expect.to_equal([])
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "root",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("doc", handle.encode_handle("doc")),
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+
+  // An attached insert goes on the wire with the next CSN, tagged with
+  // TextMeta so the ack path can match it FIFO.
+  let assert Ok(#(core, events, [outbound_op])) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
+  ])
+  outbound_op.client_sequence_number |> expect.to_equal(3)
+  let assert DecodedChannelOp(address: "doc", op: channel.TextOp(own_op)) =
+    decode_outbound_contents(outbound_op)
+
+  // A concurrent remote insert from an independent replica, also anchored at
+  // the shared document start, merges into the optimistic view.
+  let remote_op = remote_text_insert_op(0, "hi ")
+  let #(core, events) =
+    apply_tagged(
+      core,
+      text_op_message(
+        address: "doc",
+        client_id: other_client_id,
+        sn: 4,
+        csn: 1,
+        op: remote_op,
+      ),
+    )
+  let assert [#("doc", channel.TextEvent(text_kernel.TextChanged(_)))] = events
+  // Total grapheme count is order-independent: both concurrent inserts
+  // landed somewhere in the merged optimistic text.
+  runtime_core.text_length(core, "doc") |> expect.to_equal(8)
+
+  // Our own echo retires the pending insert without events (ack transparency).
+  let #(core, events) =
+    apply_tagged(
+      core,
+      text_op_message(
+        address: "doc",
+        client_id: our_client_id,
+        sn: 5,
+        csn: 3,
+        op: own_op,
+      ),
+    )
+  events |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.text_length(core, "doc") |> expect.to_equal(8)
+}
+
+pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "seed")
+  let assert Ok(#(core, _, outbound)) =
+    runtime_core.set(core, "root", "doc", handle.encode_handle("doc"))
+  let assert [attach_outbound, _] = list.map(outbound, decode_outbound_contents)
+  let assert DecodedAttach(address: "doc", snapshot: attach_snapshot) =
+    attach_outbound
+  let #(core, _) =
+    apply_tagged(
+      core,
+      text_attach_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "doc",
+        snapshot: attach_snapshot,
+      ),
+    )
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_op_message(
+        address: "root",
+        client_id: our_client_id,
+        sn: 3,
+        csn: 2,
+        op: Set("doc", handle.encode_handle("doc")),
+      ),
+    )
+
+  let before_csn = core.next_csn
+  let before_in_flight = core.in_flight
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.text_insert(core, "doc", 2, "")
+  events |> expect.to_equal([])
+  outbound |> expect.to_equal([])
+  core.next_csn |> expect.to_equal(before_csn)
+  core.in_flight |> expect.to_equal(before_in_flight)
+  runtime_core.text_value(core, "doc") |> expect.to_equal("seed")
+}
+
+pub fn text_summary_round_trip_reload_with_new_replica_test() {
+  let seeded = seeded_text("hello")
+  let summary =
+    runtime_core.Summary(sequence_number: 5, channels: [
+      #("root", channel.MapSnapshot([])),
+      #("doc", channel.TextSummary(seeded.sequenced)),
+    ])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to complete"
+  }
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hello")
+
+  // The reloaded channel's sequenced summary is rebranded to the connecting
+  // client's replica id (so future local deltas use the correct author),
+  // even though the content and its original authorship are unchanged.
+  let assert [#("root", channel.MapSnapshot([])), #("doc", doc_snapshot)] =
+    runtime_core.summary_channels(core)
+  let assert channel.TextSummary(reloaded) = doc_snapshot
+  text_kernel.from_sequenced(reloaded, replica_id.new("checker"))
+  |> text_kernel.value
+  |> expect.to_equal("hello")
+
+  // A further attached edit stamps against the loaded replica's identity and
+  // the summary's sequence number.
+  let assert Ok(#(core, events, [outbound_op])) =
+    runtime_core.text_append(core, "doc", "!")
+  events
+  |> expect.to_equal([
+    #("doc", channel.TextEvent(text_kernel.TextChanged("hello!"))),
+  ])
+  outbound_op.reference_sequence_number |> expect.to_equal(5)
+  runtime_core.text_value(core, "doc") |> expect.to_equal("hello!")
+}
+
+pub fn text_anchor_at_and_resolve_track_position_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "hello")
+
+  let assert Ok(anchor) = runtime_core.text_anchor_at(core, "doc", 5, After)
+
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "say ")
+  runtime_core.text_resolve_anchor(core, "doc", anchor)
+  |> expect.to_equal(Ok(9))
+}
+
+pub fn text_start_and_end_anchors_track_boundaries_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  runtime_core.text_resolve_anchor(
+    core,
+    "doc",
+    runtime_core.text_start_anchor(),
+  )
+  |> expect.to_equal(Ok(0))
+  runtime_core.text_resolve_anchor(core, "doc", runtime_core.text_end_anchor())
+  |> expect.to_equal(Ok(3))
+
+  let assert Ok(#(core, _, _)) = runtime_core.text_append(core, "doc", "de")
+  runtime_core.text_resolve_anchor(core, "doc", runtime_core.text_end_anchor())
+  |> expect.to_equal(Ok(5))
+}
+
+pub fn text_anchor_at_out_of_bounds_is_explicit_error_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+
+  runtime_core.text_anchor_at(core, "doc", 4, Before)
+  |> expect.to_equal(Error("anchor index 4 outside 0..3"))
+}
+
+pub fn text_anchor_at_missing_channel_is_explicit_error_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  runtime_core.text_anchor_at(core, "missing", 0, Before)
+  |> expect.to_equal(Error(
+    "text anchor_at requires a text channel at missing, found none",
+  ))
+}
+
+pub fn text_resolve_anchor_missing_channel_is_explicit_error_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+
+  runtime_core.text_resolve_anchor(
+    core,
+    "missing",
+    runtime_core.text_start_anchor(),
+  )
+  |> expect.to_equal(Error(
+    "text resolve_anchor requires a text channel at missing, found none",
+  ))
+}
+
+pub fn text_anchor_json_round_trips_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "doc", 0, "abcde")
+
+  let assert Ok(anchor) = runtime_core.text_anchor_at(core, "doc", 2, After)
+  let assert Ok(decoded) =
+    runtime_core.text_anchor_from_json(
+      json.to_string(runtime_core.text_anchor_to_json(anchor)),
+    )
+  runtime_core.text_resolve_anchor(core, "doc", decoded)
+  |> expect.to_equal(Ok(2))
+  decoded |> expect.to_equal(anchor)
+}
+
+pub fn text_anchor_from_json_rejects_malformed_json_test() {
+  // Empty input always yields a stable, target-independent error variant.
+  case runtime_core.text_anchor_from_json("") {
+    Error(msg) -> {
+      // Must carry the human-readable context prefix.
+      msg
+      |> expect.to_equal("invalid anchor JSON: unexpected end of input")
+      // Must not expose a raw debug/inspect representation.
+      let contains_debug_repr = string.contains(msg, "DecodeError(")
+      contains_debug_repr |> expect.to_equal(False)
+    }
+    Ok(_) -> panic as "expected malformed anchor JSON to fail"
+  }
 }

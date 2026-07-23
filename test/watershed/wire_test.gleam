@@ -27,6 +27,7 @@ import spillway/types
 import lattice_core/replica_id
 import lattice_core/version_vector
 import lattice_sequence/sequence
+import lattice_text/text
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
@@ -37,6 +38,7 @@ import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/sequence_kernel
+import watershed/text_kernel
 import watershed/wire
 import watershed/wire/ops
 import watershed/wire/socket
@@ -1352,4 +1354,276 @@ pub fn register_collection_snapshot_round_trip_test() {
     }
     _ -> panic as "register collection attach decode failed"
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SharedText wire codecs
+
+fn sample_text_insert_op() -> text_kernel.TextOp {
+  let assert Ok(#(_, _, Some(text_kernel.Submission(op, _)))) =
+    text_kernel.insert(
+      text_kernel.new(replica_id.new("client-a")),
+      0,
+      "héllo 👩🏽‍🚀 мир",
+    )
+  op
+}
+
+fn sample_text_delete_range_op() -> text_kernel.TextOp {
+  let state = text_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, Some(text_kernel.Submission(_, _)))) =
+    text_kernel.insert(state, 0, "héllo 👩🏽‍🚀 мир")
+  let assert Ok(#(_, _, Some(text_kernel.Submission(op, _)))) =
+    text_kernel.delete_range(state, 0, 2)
+  op
+}
+
+fn sample_text_replace_range_op() -> text_kernel.TextOp {
+  let state = text_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, Some(text_kernel.Submission(_, _)))) =
+    text_kernel.insert(state, 0, "héllo 👩🏽‍🚀 мир")
+  let assert Ok(#(_, _, Some(text_kernel.Submission(op, _)))) =
+    text_kernel.replace_range(state, 0, 3, "🎉🎊")
+  op
+}
+
+fn sample_text_append_op() -> text_kernel.TextOp {
+  let state = text_kernel.new(replica_id.new("client-a"))
+  let assert Ok(#(state, _, Some(text_kernel.Submission(_, _)))) =
+    text_kernel.insert(state, 0, "héllo")
+  let assert #(_, _, Some(text_kernel.Submission(op, _))) =
+    text_kernel.append(state, " 👩🏽‍🚀 мир")
+  op
+}
+
+fn decode_text_channel_round_trip(
+  op: text_kernel.TextOp,
+) -> text_kernel.TextOp {
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(channel.TextOp(decoded)) =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+  decoded
+}
+
+fn assert_text_channel_round_trip(op: text_kernel.TextOp) {
+  decode_text_channel_round_trip(op) |> expect.to_equal(op)
+}
+
+pub fn text_channel_type_wire_name_test() {
+  channel.type_to_string(channel.TextChannel) |> expect.to_equal("text")
+  channel.type_from_string("text") |> expect.to_equal(Ok(channel.TextChannel))
+}
+
+pub fn text_insert_channel_op_round_trips_test() {
+  assert_text_channel_round_trip(sample_text_insert_op())
+}
+
+pub fn text_delete_range_channel_op_round_trips_test() {
+  assert_text_channel_round_trip(sample_text_delete_range_op())
+}
+
+pub fn text_replace_range_channel_op_round_trips_test() {
+  assert_text_channel_round_trip(sample_text_replace_range_op())
+}
+
+pub fn text_append_channel_op_round_trips_test() {
+  assert_text_channel_round_trip(sample_text_append_op())
+}
+
+pub fn text_channel_op_stage_two_decode_test() {
+  let op = sample_text_append_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  case ops.decode_op_contents(dynamic) {
+    Ok(ops.ChannelOp(address, payload)) -> {
+      address |> expect.to_equal("doc")
+      decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+      |> expect.to_equal(Ok(channel.TextOp(op)))
+      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      |> expect.to_be_error()
+      decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+      |> expect.to_be_error()
+      Nil
+    }
+    _ -> panic as "text channel op decode failed"
+  }
+}
+
+pub fn text_insert_envelope_carries_intent_fields_test() {
+  let op = sample_text_insert_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(op_type) =
+    decode.run(payload, decode.at(["type"], decode.string))
+  let assert Ok(index) = decode.run(payload, decode.at(["index"], decode.int))
+  let assert Ok(value) =
+    decode.run(payload, decode.at(["value"], decode.string))
+  op_type |> expect.to_equal("textInsert")
+  index |> expect.to_equal(0)
+  value |> expect.to_equal("héllo 👩🏽‍🚀 мир")
+}
+
+pub fn text_delete_range_envelope_carries_intent_fields_test() {
+  let op = sample_text_delete_range_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(op_type) =
+    decode.run(payload, decode.at(["type"], decode.string))
+  let assert Ok(start) = decode.run(payload, decode.at(["start"], decode.int))
+  let assert Ok(end) = decode.run(payload, decode.at(["end"], decode.int))
+  op_type |> expect.to_equal("textDeleteRange")
+  start |> expect.to_equal(0)
+  end |> expect.to_equal(2)
+}
+
+pub fn text_replace_range_envelope_carries_intent_fields_test() {
+  let op = sample_text_replace_range_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(op_type) =
+    decode.run(payload, decode.at(["type"], decode.string))
+  let assert Ok(start) = decode.run(payload, decode.at(["start"], decode.int))
+  let assert Ok(end) = decode.run(payload, decode.at(["end"], decode.int))
+  let assert Ok(value) =
+    decode.run(payload, decode.at(["value"], decode.string))
+  op_type |> expect.to_equal("textReplaceRange")
+  start |> expect.to_equal(0)
+  end |> expect.to_equal(3)
+  value |> expect.to_equal("🎉🎊")
+}
+
+pub fn text_append_envelope_carries_intent_fields_test() {
+  let op = sample_text_append_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(op_type) =
+    decode.run(payload, decode.at(["type"], decode.string))
+  let assert Ok(value) =
+    decode.run(payload, decode.at(["value"], decode.string))
+  op_type |> expect.to_equal("textAppend")
+  value |> expect.to_equal(" 👩🏽‍🚀 мир")
+}
+
+pub fn text_delta_stays_double_encoded_in_channel_payload_test() {
+  let op = sample_text_insert_op()
+  let encoded =
+    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(delta) =
+    decode.run(payload, decode.at(["delta"], decode.string))
+  let _ = text.from_json(delta) |> expect.to_be_ok()
+  Nil
+}
+
+pub fn text_decoder_rejects_malformed_delta_envelope_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"doc\",\"contents\":{\"type\":\"textDeleteRange\",\"start\":0,\"end\":1,\"delta\":\"not-json\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn text_decoder_rejects_compacted_state_as_delta_test() {
+  let frontier =
+    version_vector.new()
+    |> version_vector.set_max(replica_id.new("victim"), 1)
+  let #(forged_delta, _) =
+    text.compact(text.new(replica_id.new("attacker")), frontier)
+  let encoded =
+    json.object([
+      #("address", json.string("doc")),
+      #(
+        "contents",
+        json.object([
+          #("type", json.string("textDeleteRange")),
+          #("start", json.int(0)),
+          #("end", json.int(0)),
+          #("delta", json.string(json.to_string(text.to_json(forged_delta)))),
+        ]),
+      ),
+    ])
+    |> json.to_string
+  let dynamic = parse(encoded, decode.dynamic)
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn text_decoder_rejects_missing_index_field_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"doc\",\"contents\":{\"type\":\"textInsert\",\"value\":\"a\",\"delta\":\"\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn text_decoder_rejects_missing_range_fields_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"doc\",\"contents\":{\"type\":\"textReplaceRange\",\"start\":0,\"value\":\"a\",\"delta\":\"\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn text_decoder_rejects_missing_delta_field_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"doc\",\"contents\":{\"type\":\"textAppend\",\"value\":\"a\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
+}
+
+pub fn text_decoder_rejects_unknown_op_type_test() {
+  let dynamic =
+    parse(
+      "{\"address\":\"doc\",\"contents\":{\"type\":\"textFrobnicate\",\"delta\":\"\"}}",
+      decode.dynamic,
+    )
+  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let _ =
+    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    |> expect.to_be_error()
+  Nil
 }

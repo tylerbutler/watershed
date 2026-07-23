@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text
 
 # Run tests
 test:
@@ -71,7 +71,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-dice _deps-sudoku _deps-playlist
+deps: _deps-gleam _deps-dice _deps-sudoku _deps-playlist _deps-text
 
 _deps-gleam:
     gleam deps download
@@ -84,6 +84,9 @@ _deps-sudoku:
 
 _deps-playlist:
     pnpm --dir examples/playlist_lustre install
+
+_deps-text:
+    pnpm --dir examples/text_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -104,3 +107,6 @@ _build-sudoku:
 
 _build-playlist:
     pnpm --dir examples/playlist_lustre run build
+
+_build-text:
+    pnpm --dir examples/text_lustre run build
