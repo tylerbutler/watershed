@@ -1,0 +1,159 @@
+{
+  "formatVersion": 1,
+  "name": "overlapping-deletes",
+  "description": "Pin overlapping delete rebases and inverse restoration.",
+  "base": [
+    {
+      "insert": "abcdef"
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "delete": 3
+      }
+    ],
+    "b": [
+      {
+        "retain": 2
+      },
+      {
+        "delete": 3
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "abcdef"
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 1
+        },
+        {
+          "delete": 3
+        }
+      ],
+      "b": [
+        {
+          "retain": 2
+        },
+        {
+          "delete": 3
+        }
+      ]
+    },
+    "compose": [
+      {
+        "retain": 1
+      },
+      {
+        "delete": 3
+      },
+      {
+        "retain": 1
+      },
+      {
+        "delete": 3
+      }
+    ]
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "aef"
+      }
+    ],
+    "b": [
+      {
+        "insert": "abf"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": "bcd"
+      }
+    ],
+    "b": [
+      {
+        "retain": 2
+      },
+      {
+        "insert": "cde"
+      }
+    ],
+    "compose": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": "bcd"
+      },
+      {
+        "retain": 1
+      },
+      {
+        "insert": "f"
+      }
+    ]
+  },
+  "cursor": {
+    "through": "compose",
+    "index": 5,
+    "isOwnOp": false,
+    "result": 2
+  },
+  "selection": {
+    "through": "compose",
+    "index": 1,
+    "length": 4,
+    "isOwnOp": false,
+    "result": {
+      "index": 1,
+      "length": 1
+    }
+  },
+  "compose": [
+    {
+      "retain": 1
+    },
+    {
+      "delete": 3
+    },
+    {
+      "retain": 1
+    },
+    {
+      "delete": 3
+    }
+  ],
+  "transform": {
+    "left": [
+      {
+        "retain": 1
+      },
+      {
+        "delete": 1
+      }
+    ],
+    "right": [
+      {
+        "retain": 1
+      },
+      {
+        "delete": 1
+      }
+    ]
+  }
+}

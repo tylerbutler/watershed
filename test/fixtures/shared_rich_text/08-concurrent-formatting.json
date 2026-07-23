@@ -1,0 +1,175 @@
+{
+  "formatVersion": 1,
+  "name": "concurrent-formatting",
+  "description": "Resolve concurrent formatting with conflicting attribute changes.",
+  "base": [
+    {
+      "insert": "hello",
+      "attributes": {
+        "bold": true
+      }
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": null,
+          "italic": true
+        }
+      }
+    ],
+    "b": [
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": true,
+          "color": "#f00"
+        }
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "hello",
+        "attributes": {
+          "bold": true
+        }
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 5,
+          "attributes": {
+            "bold": null,
+            "italic": true
+          }
+        }
+      ],
+      "b": [
+        {
+          "retain": 5,
+          "attributes": {
+            "bold": true,
+            "color": "#f00"
+          }
+        }
+      ]
+    },
+    "compose": [
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": true,
+          "color": "#f00",
+          "italic": true
+        }
+      }
+    ]
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "hello",
+        "attributes": {
+          "italic": true
+        }
+      }
+    ],
+    "b": [
+      {
+        "insert": "hello",
+        "attributes": {
+          "bold": true,
+          "color": "#f00"
+        }
+      }
+    ],
+    "compose": [
+      {
+        "insert": "hello",
+        "attributes": {
+          "bold": true,
+          "color": "#f00",
+          "italic": true
+        }
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": true,
+          "italic": null
+        }
+      }
+    ],
+    "b": [
+      {
+        "retain": 5,
+        "attributes": {
+          "color": null
+        }
+      }
+    ],
+    "compose": [
+      {
+        "retain": 5,
+        "attributes": {
+          "color": null,
+          "italic": null
+        }
+      }
+    ]
+  },
+  "cursor": {
+    "through": "compose",
+    "index": 2,
+    "isOwnOp": false,
+    "result": 2
+  },
+  "selection": {
+    "through": "compose",
+    "index": 0,
+    "length": 5,
+    "isOwnOp": false,
+    "result": {
+      "index": 0,
+      "length": 5
+    }
+  },
+  "compose": [
+    {
+      "retain": 5,
+      "attributes": {
+        "bold": true,
+        "color": "#f00",
+        "italic": true
+      }
+    }
+  ],
+  "transform": {
+    "left": [
+      {
+        "retain": 5,
+        "attributes": {
+          "italic": true
+        }
+      }
+    ],
+    "right": [
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": null,
+          "italic": true
+        }
+      }
+    ]
+  }
+}

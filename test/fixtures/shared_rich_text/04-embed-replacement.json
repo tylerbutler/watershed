@@ -1,0 +1,130 @@
+{
+  "formatVersion": 1,
+  "name": "embed-replacement",
+  "description": "Replace an embed and preserve embed attributes.",
+  "base": [
+    {
+      "insert": "A"
+    },
+    {
+      "insert": {
+        "image": "cat.png"
+      },
+      "attributes": {
+        "alt": "cat"
+      }
+    },
+    {
+      "insert": "B"
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": {
+          "video": "dog.mp4"
+        },
+        "attributes": {
+          "width": 640,
+          "height": 360
+        }
+      },
+      {
+        "delete": 1
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "A"
+      },
+      {
+        "insert": {
+          "image": "cat.png"
+        },
+        "attributes": {
+          "alt": "cat"
+        }
+      },
+      {
+        "insert": "B"
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 1
+        },
+        {
+          "insert": {
+            "video": "dog.mp4"
+          },
+          "attributes": {
+            "width": 640,
+            "height": 360
+          }
+        },
+        {
+          "delete": 1
+        }
+      ]
+    }
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "A"
+      },
+      {
+        "attributes": {
+          "width": 640,
+          "height": 360
+        },
+        "insert": {
+          "video": "dog.mp4"
+        }
+      },
+      {
+        "insert": "B"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "attributes": {
+          "alt": "cat"
+        },
+        "insert": {
+          "image": "cat.png"
+        }
+      },
+      {
+        "delete": 1
+      }
+    ]
+  },
+  "cursor": {
+    "through": "a",
+    "index": 1,
+    "isOwnOp": true,
+    "result": 2
+  },
+  "selection": {
+    "through": "a",
+    "index": 0,
+    "length": 3,
+    "isOwnOp": false,
+    "result": {
+      "index": 0,
+      "length": 3
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "formatVersion": 1,
+  "name": "same-position-insert",
+  "description": "Pin same-position insert tie-breaking for left/right transforms.",
+  "base": [],
+  "deltas": {
+    "a": [
+      {
+        "insert": "A"
+      }
+    ],
+    "b": [
+      {
+        "insert": "B"
+      }
+    ]
+  },
+  "normalized": {
+    "base": [],
+    "deltas": {
+      "a": [
+        {
+          "insert": "A"
+        }
+      ],
+      "b": [
+        {
+          "insert": "B"
+        }
+      ]
+    },
+    "compose": [
+      {
+        "insert": "BA"
+      }
+    ]
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "A"
+      }
+    ],
+    "b": [
+      {
+        "insert": "B"
+      }
+    ],
+    "compose": [
+      {
+        "insert": "BA"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "delete": 1
+      }
+    ],
+    "b": [
+      {
+        "delete": 1
+      }
+    ],
+    "compose": [
+      {
+        "delete": 2
+      }
+    ]
+  },
+  "cursor": {
+    "through": "compose",
+    "index": 0,
+    "isOwnOp": true,
+    "result": 2
+  },
+  "selection": {
+    "through": "compose",
+    "index": 0,
+    "length": 0,
+    "isOwnOp": true,
+    "result": {
+      "index": 2,
+      "length": 0
+    }
+  },
+  "compose": [
+    {
+      "insert": "BA"
+    }
+  ],
+  "transform": {
+    "left": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": "A"
+      }
+    ],
+    "right": [
+      {
+        "insert": "A"
+      }
+    ]
+  }
+}

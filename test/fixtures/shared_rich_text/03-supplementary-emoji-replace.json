@@ -1,0 +1,79 @@
+{
+  "formatVersion": 1,
+  "name": "supplementary-emoji-replace",
+  "description": "Replace a supplementary emoji with mixed retain/delete/insert ops.",
+  "base": [
+    {
+      "insert": "A😀B"
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": "x"
+      },
+      {
+        "delete": 2
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "A😀B"
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 1
+        },
+        {
+          "insert": "x"
+        },
+        {
+          "delete": 2
+        }
+      ]
+    }
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "AxB"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 1
+      },
+      {
+        "insert": "😀"
+      },
+      {
+        "delete": 1
+      }
+    ]
+  },
+  "cursor": {
+    "through": "a",
+    "index": 3,
+    "isOwnOp": false,
+    "result": 2
+  },
+  "selection": {
+    "through": "a",
+    "index": 0,
+    "length": 4,
+    "isOwnOp": false,
+    "result": {
+      "index": 0,
+      "length": 3
+    }
+  }
+}

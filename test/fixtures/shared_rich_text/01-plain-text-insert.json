@@ -1,0 +1,70 @@
+{
+  "formatVersion": 1,
+  "name": "plain-text-insert",
+  "description": "Insert plain ASCII text into a plain text document.",
+  "base": [
+    {
+      "insert": "Hello world"
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 6
+      },
+      {
+        "insert": "beautiful "
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "Hello world"
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 6
+        },
+        {
+          "insert": "beautiful "
+        }
+      ]
+    }
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "Hello beautiful world"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 6
+      },
+      {
+        "delete": 10
+      }
+    ]
+  },
+  "cursor": {
+    "through": "a",
+    "index": 6,
+    "isOwnOp": true,
+    "result": 16
+  },
+  "selection": {
+    "through": "a",
+    "index": 0,
+    "length": 11,
+    "isOwnOp": false,
+    "result": {
+      "index": 0,
+      "length": 21
+    }
+  }
+}

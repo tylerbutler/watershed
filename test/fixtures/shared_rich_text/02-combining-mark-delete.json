@@ -1,0 +1,70 @@
+{
+  "formatVersion": 1,
+  "name": "combining-mark-delete",
+  "description": "Delete a single combining mark using UTF-16 offsets.",
+  "base": [
+    {
+      "insert": "Café noir"
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 4
+      },
+      {
+        "delete": 1
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "Café noir"
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 4
+        },
+        {
+          "delete": 1
+        }
+      ]
+    }
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "Cafe noir"
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 4
+      },
+      {
+        "insert": "́"
+      }
+    ]
+  },
+  "cursor": {
+    "through": "a",
+    "index": 5,
+    "isOwnOp": false,
+    "result": 4
+  },
+  "selection": {
+    "through": "a",
+    "index": 3,
+    "length": 3,
+    "isOwnOp": false,
+    "result": {
+      "index": 3,
+      "length": 2
+    }
+  }
+}

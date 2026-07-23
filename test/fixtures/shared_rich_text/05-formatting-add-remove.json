@@ -1,0 +1,100 @@
+{
+  "formatVersion": 1,
+  "name": "formatting-add-remove",
+  "description": "Add and remove inline formatting on an existing formatted span.",
+  "base": [
+    {
+      "insert": "Hello "
+    },
+    {
+      "insert": "world",
+      "attributes": {
+        "bold": true
+      }
+    }
+  ],
+  "deltas": {
+    "a": [
+      {
+        "retain": 6
+      },
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": null,
+          "italic": true
+        }
+      }
+    ]
+  },
+  "normalized": {
+    "base": [
+      {
+        "insert": "Hello "
+      },
+      {
+        "insert": "world",
+        "attributes": {
+          "bold": true
+        }
+      }
+    ],
+    "deltas": {
+      "a": [
+        {
+          "retain": 6
+        },
+        {
+          "retain": 5,
+          "attributes": {
+            "bold": null,
+            "italic": true
+          }
+        }
+      ]
+    }
+  },
+  "apply": {
+    "a": [
+      {
+        "insert": "Hello "
+      },
+      {
+        "insert": "world",
+        "attributes": {
+          "italic": true
+        }
+      }
+    ]
+  },
+  "inverse": {
+    "a": [
+      {
+        "retain": 6
+      },
+      {
+        "retain": 5,
+        "attributes": {
+          "bold": true,
+          "italic": null
+        }
+      }
+    ]
+  },
+  "cursor": {
+    "through": "a",
+    "index": 6,
+    "isOwnOp": false,
+    "result": 6
+  },
+  "selection": {
+    "through": "a",
+    "index": 6,
+    "length": 5,
+    "isOwnOp": false,
+    "result": {
+      "index": 6,
+      "length": 5
+    }
+  }
+}
