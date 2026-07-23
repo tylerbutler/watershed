@@ -3,10 +3,10 @@
 A Gleam Fluid Framework DDS client toolkit for Erlang and JavaScript. It provides
 collaborative data structures with optimistic local edits, convergence through
 server sequencing, and reconnect safety. SharedMap is the anchor DDS;
-SharedCounter, SharedSequence, OR-set, claims, and the other channel kinds share
-the same runtime. An opt-in [typed document layer](#typed-documents) declares a
-document's shape once. [levee](https://github.com/tylerbutler/levee) is one
-compatible server implementation.
+SharedCounter, SharedSequence, SharedRichText, OR-set, claims, and the other
+channel kinds share the same runtime. An opt-in [typed document layer](#typed-documents)
+declares a document's shape once. [levee](https://github.com/tylerbutler/levee)
+is one compatible server implementation.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -43,6 +43,11 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   `lattice_sequence` for optimistic insert, delete, and move operations over
   arbitrary JSON values, with summaries, stashed ops, rollback, and
   multi-client convergence.
+- **SharedRichText kernel: done.** `watershed/rich_text` is a checked port of
+  `quill-delta@4.2.1`/`rich-text@4.1.0` (the ot-types Quill format);
+  `watershed/rich_text_kernel` rides that algebra on the same single-op-in-flight
+  client-transform protocol as `watershed/json_ot_kernel`. See
+  [Shared rich text](#shared-rich-text) below.
 - **M2 — shared test corpus: done.** 20 scenarios generated from the TS
   `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
 - **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
@@ -55,14 +60,15 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 
 ## Targets
 
-The pure core (`map_kernel`, `counter_kernel`, `sequence_kernel`, `wire`,
-`runtime_core`) is target-agnostic. Two runtimes sit on top:
+The pure core (`map_kernel`, `counter_kernel`, `sequence_kernel`, `rich_text`,
+`rich_text_kernel`, `wire`, `runtime_core`) is target-agnostic. Two runtimes
+sit on top:
 
 | Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
 | Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
-| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `wire` · `runtime_core` | ← identical, shared |
+| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `rich_text` · `rich_text_kernel` · `wire` · `runtime_core` | ← identical, shared |
 
 The erlang-only modules are gated with `@target(erlang)` so
 `gleam build --target javascript` compiles just the pure core plus the JS
@@ -102,9 +108,71 @@ watershed.sequence_values(items)
 
 Move destinations are interpreted after removing the source value. Replace is
 one Watershed operation composed by merging `lattice_sequence` delete and insert
-deltas; `lattice_sequence` has no native replace primitive. This Array-like DDS
-is the foundation for collaborative text editing, but watershed does not yet
-expose a text-specific API.
+deltas; `lattice_sequence` has no native replace primitive.
+
+## Shared rich text
+
+`SharedRichText` is a collaborative rich-text DDS for Quill-style editors. It
+is **OT-backed** (client-transform over a central sequencer, the same protocol
+`json_ot_kernel` uses), not the CRDT-backed `SharedText` planned for plain
+grapheme-indexed text — the two are separate, non-interchangeable designs;
+`SharedRichText` ships today, `SharedText` does not exist yet.
+
+- `watershed/rich_text` is a checked port of `quill-delta@4.2.1` composed with
+  `rich-text@4.1.0` (the [ot-types](https://github.com/ottypes) Quill OT type):
+  pure `apply`/`compose`/`transform`/`invert` over Quill Delta documents and
+  changes. `watershed/rich_text_kernel` rides that algebra on the client
+  runtime; the public API is `SharedRichText` (`watershed.gleam` on BEAM,
+  `runtime_js.create_rich_text` / `submit_rich_text` / `rich_text_view` on
+  JavaScript). Upstream license notices for both ported packages are in
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+- Documents and deltas are JSON arrays of Quill Delta ops: `{"insert": ...}`,
+  `{"retain": n, "attributes": {...}}`, and `{"delete": n}`, matching the wire
+  format Quill itself emits and consumes. An `insert` op's value is either a
+  string or an embed (any other JSON value); embeds always have length `1`
+  regardless of their JSON shape. In a `retain` op's `attributes` patch, a
+  `null` value *removes* that formatting attribute rather than setting it —
+  standard Quill Delta `compose` semantics.
+- Positions are **UTF-16 code units**, matching Quill/JavaScript string
+  indexing exactly (not grapheme clusters, unlike `SharedSequence`/the planned
+  `SharedText`). A `retain`/`delete` boundary that lands inside a supplementary
+  character's UTF-16 surrogate pair is rejected rather than silently
+  truncating a scalar.
+- `rich_text.transform_position` / `transform_selection` carry a caret or
+  selection range through a remote delta, so editors and shared-cursor
+  presence can re-anchor a peer's cursor without recomputing it from scratch.
+- The kernel keeps **at most one local operation in flight**; further local
+  edits compose into a single pending buffer until the in-flight op is
+  acknowledged, then that buffer becomes the next in-flight op.
+- Remote (and local) change events carry the delta already transformed into
+  the *current optimistic view's* context — not just the confirmed document —
+  so an editor can apply it incrementally (`updateContents`) instead of
+  re-rendering the whole document, and presence code can transform cached
+  peer selections through the same delta.
+- Summaries persist only sequenced (fully acknowledged) state. A detached
+  channel's `attach` snapshot, by contrast, includes its optimistic state
+  (pending local edits), matching every other optimistic kernel here.
+- Unlike Quill/Fluid's `SharedString`, the data-structure layer does not
+  require or assume a document-final trailing newline; that convention, where
+  wanted, is an editor-layer concern.
+
+```gleam
+import watershed/rich_text
+
+let assert Ok(doc) = watershed.create_rich_text(document)
+let assert Ok(delta) =
+  rich_text.delta_insert_text(rich_text.empty_delta(), "Hello", rich_text.attributes([]))
+watershed.submit_rich_text(doc, delta)
+watershed.rich_text_view(doc)
+// Some(document containing [{"insert": "Hello"}])
+```
+
+JavaScript/Lustre apps use the equivalent `runtime_js` functions
+(`create_rich_text`, `submit_rich_text`, `rich_text_view`, plus `subscribe`)
+against the same `rich_text`/`rich_text_kernel` modules — see
+[`website/src/scripts/rich-text-demo.ts`](website/src/scripts/rich-text-demo.ts)
+for a full three-editor Quill wiring, live at the
+[`/rich-text`](website/src/pages/rich-text.astro) website demo.
 
 ## Typed documents
 

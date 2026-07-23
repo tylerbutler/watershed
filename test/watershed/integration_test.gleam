@@ -53,6 +53,8 @@ import watershed/map_kernel
 @target(erlang)
 import watershed/or_map_kernel.{Register, RegisterMode, Tally, TallyMode}
 @target(erlang)
+import watershed/rich_text
+@target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/schema
@@ -1171,6 +1173,102 @@ fn resolve_json_ot_key_or_panic(
     Ok(jot) -> jot
     Error(reason) ->
       panic as { "resolving json_ot at key " <> key <> " failed: " <> reason }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SharedRichText live tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Two clients converge on concurrent SharedRichText edits over the
+/// `richText` wire channel: client A creates the channel and stores its
+/// handle on the root map (the normal detached create/attach lifecycle),
+/// client B resolves it from that handle, and both submit non-overlapping
+/// concurrent edits — A bolds a text prefix, B appends emoji text — that
+/// must transform against each other and land in the same optimistic
+/// document on both sides regardless of author tie-break order.
+pub fn rich_text_converges_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_rich_text_converge_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_rich_text_converge_test() -> Nil {
+  let document = "ws-rt-cv-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  let assert Ok(rt_a) = watershed.create_rich_text(doc_a)
+  watershed.set(map_a, "doc", watershed.rich_text_handle_of(rt_a))
+  let rt_b = resolve_rich_text_key_or_panic(doc_b, map_b, "doc")
+
+  // Seed plain text and wait for both sides to see it before diverging.
+  let assert Ok(seed) =
+    rich_text.delta_from_json_string("[{\"insert\":\"Hello World\"}]")
+  watershed.submit_rich_text(rt_a, seed)
+  let assert Ok(seeded) =
+    rich_text.document_from_json_string("[{\"insert\":\"Hello World\"}]")
+  wait_until(50, fn() { watershed.rich_text_view(rt_b) == Some(seeded) })
+  |> expect.to_be_true()
+
+  // A bolds "Hello" (the first 5 UTF-16 code units); B concurrently appends
+  // an emoji after "World". The two edits' ranges never overlap, so both the
+  // formatting and the inserted emoji text survive OT transform on both
+  // sides no matter which author the server treats as lower priority.
+  let assert Ok(a_edit) =
+    rich_text.delta_retain(
+      rich_text.empty_delta(),
+      5,
+      rich_text.attributes([#("bold", json_ot.VBool(True))]),
+    )
+  watershed.submit_rich_text(rt_a, a_edit)
+
+  let assert Ok(b_retain) =
+    rich_text.delta_retain(
+      rich_text.empty_delta(),
+      11,
+      rich_text.attributes([]),
+    )
+  let assert Ok(b_edit) =
+    rich_text.delta_insert_text(b_retain, " 😀", rich_text.attributes([]))
+  watershed.submit_rich_text(rt_b, b_edit)
+
+  let assert Ok(expected) =
+    rich_text.document_from_json_string(
+      "[{\"insert\":\"Hello\",\"attributes\":{\"bold\":true}},{\"insert\":\" World 😀\"}]",
+    )
+  wait_until(50, fn() {
+    watershed.rich_text_view(rt_a) == watershed.rich_text_view(rt_b)
+    && watershed.rich_text_view(rt_a) == Some(expected)
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn resolve_rich_text_key_or_panic(
+  doc: watershed.Document,
+  map: watershed.SharedMap,
+  key: String,
+) -> watershed.SharedRichText {
+  let resolved =
+    wait_until_ok(50, fn() {
+      case watershed.get(map, key) {
+        None -> Error("key absent")
+        Some(value) -> watershed.resolve_rich_text(doc, value)
+      }
+    })
+  case resolved {
+    Ok(rt) -> rt
+    Error(reason) ->
+      panic as { "resolving rich_text at key " <> key <> " failed: " <> reason }
   }
 }
 
