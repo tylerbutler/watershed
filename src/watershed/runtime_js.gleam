@@ -54,6 +54,8 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy}
 @target(javascript)
+import watershed/rich_text
+@target(javascript)
 import watershed/runtime_core
 @target(javascript)
 import watershed/task_manager_kernel
@@ -460,6 +462,28 @@ pub fn json_ot_view(
   address: String,
 ) -> Option(json_ot.JsonValue) {
   read(runtime.cell, None, runtime_core.json_ot_view(_, address))
+}
+
+@target(javascript)
+/// Optimistically submit a rich-text delta to the channel at `address`.
+pub fn submit_rich_text(
+  runtime: Runtime,
+  address: String,
+  delta: rich_text.Delta,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.submit_rich_text(core, address, delta)
+  })
+}
+
+@target(javascript)
+/// The rich-text channel's optimistic document, `None` when the address is
+/// missing or not a rich-text channel.
+pub fn rich_text_view(
+  runtime: Runtime,
+  address: String,
+) -> Option(rich_text.Document) {
+  read(runtime.cell, None, runtime_core.rich_text_view(_, address))
 }
 
 @target(javascript)
@@ -1047,6 +1071,12 @@ pub fn create_claims(runtime: Runtime) -> Result(String, String) {
 /// Create a new detached json0 channel, same lifecycle as `create_map`.
 pub fn create_json_ot(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitJsonOt, "create_json_ot")
+}
+
+@target(javascript)
+/// Create a new detached rich-text channel, same lifecycle as `create_map`.
+pub fn create_rich_text(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitRichText, "create_rich_text")
 }
 
 @target(javascript)

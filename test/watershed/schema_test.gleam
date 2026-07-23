@@ -84,6 +84,12 @@ pub fn ordered_collection_channel_field_test() {
   schema.channel_field_key(jobs) |> expect.to_equal("jobs")
 }
 
+pub fn rich_text_channel_field_test() {
+  let body: schema.ChannelField(Player, schema.RichTextChannel) =
+    schema.channel_field("body")
+  schema.channel_field_key(body) |> expect.to_equal("body")
+}
+
 // ── Round-trips: encode_value then decode_value ──────────────────────────────
 
 pub fn string_round_trip_test() {

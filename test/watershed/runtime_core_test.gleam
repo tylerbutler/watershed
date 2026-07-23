@@ -26,6 +26,8 @@ import watershed/handle
 import watershed/map_kernel.{Delete, Set, ValueChanged}
 import watershed/or_map_kernel
 import watershed/register_collection_kernel
+import watershed/rich_text
+import watershed/rich_text_kernel
 import watershed/runtime_core.{type Core}
 import watershed/wire
 import watershed/wire/ops
@@ -268,6 +270,49 @@ fn root_size(core: Core) -> Int {
 
 fn root_entries(core: Core) -> List(#(String, Json)) {
   runtime_core.entries(core, "root")
+}
+
+fn rich_text_document(raw: String) -> rich_text.Document {
+  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  document
+}
+
+fn rich_text_delta(raw: String) -> rich_text.Delta {
+  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  delta
+}
+
+fn rich_text_op_message(
+  client_id client_id: String,
+  sn sn: Int,
+  csn csn: Int,
+  address address: String,
+  op op: rich_text_kernel.RichTextWireOp,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(client_id),
+    sn: sn,
+    csn: csn,
+    message_type: "op",
+    contents: to_dynamic(ops.encode_channel_envelope(
+      address,
+      channel.RichTextOp(op),
+    )),
+  )
+}
+
+fn attached_rich_text_core() -> Core {
+  let summary =
+    runtime_core.Summary(sequence_number: 1, channels: [
+      #("root", channel.MapSnapshot([])),
+      #("rich", channel.RichTextSnapshot(rich_text.empty_document())),
+    ])
+  case
+    runtime_core.bootstrap(connected_message([], 1), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected rich-text summary bootstrap to complete"
+  }
 }
 
 fn root_set(
@@ -1295,6 +1340,135 @@ pub fn detached_edits_produce_no_outbound_test() {
     }
     Error(_) -> panic as "expected detached edit to succeed"
   }
+}
+
+pub fn detached_rich_text_submit_updates_view_and_tags_event_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core = runtime_core.create_detached(core, "rich", channel.InitRichText)
+  let delta = rich_text_delta("[{\"insert\":\"A\"}]")
+
+  let assert Ok(#(core, events, outbound)) =
+    runtime_core.submit_rich_text(core, "rich", delta)
+
+  events
+  |> expect.to_equal([
+    #(
+      "rich",
+      channel.RichTextEvent(rich_text_kernel.RichTextChanged(delta, True)),
+    ),
+  ])
+  outbound |> expect.to_equal([])
+  core.in_flight |> expect.to_equal([])
+  runtime_core.rich_text_view(core, "rich")
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+}
+
+pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test() {
+  let core = attached_rich_text_core()
+  let first = rich_text_delta("[{\"insert\":\"A\"}]")
+  let second = rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]")
+
+  let assert Ok(#(core, local_events, [outbound])) =
+    runtime_core.submit_rich_text(core, "rich", first)
+  outbound.client_sequence_number |> expect.to_equal(1)
+  local_events
+  |> expect.to_equal([
+    #(
+      "rich",
+      channel.RichTextEvent(rich_text_kernel.RichTextChanged(first, True)),
+    ),
+  ])
+
+  let assert Ok(#(core, buffered_events, [])) =
+    runtime_core.submit_rich_text(core, "rich", second)
+  buffered_events
+  |> expect.to_equal([
+    #(
+      "rich",
+      channel.RichTextEvent(rich_text_kernel.RichTextChanged(second, True)),
+    ),
+  ])
+  runtime_core.rich_text_view(core, "rich")
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+
+  let assert Ok(#(core, ingested)) =
+    runtime_core.handle_sequenced(
+      core,
+      rich_text_op_message(
+        client_id: our_client_id,
+        sn: 2,
+        csn: 1,
+        address: "rich",
+        op: rich_text_kernel.RichTextWireOp(1, first),
+      ),
+    )
+  let assert [promoted] = ingested.outbound
+  promoted.client_sequence_number |> expect.to_equal(2)
+  promoted.reference_sequence_number |> expect.to_equal(2)
+  core.in_flight
+  |> expect.to_equal([
+    runtime_core.InFlightOp(
+      client_id: our_client_id,
+      csn: 2,
+      address: "rich",
+      op: channel.RichTextOp(rich_text_kernel.RichTextWireOp(2, second)),
+      meta: channel.NoMeta,
+    ),
+  ])
+}
+
+pub fn remote_rich_text_submit_tags_nonlocal_event_test() {
+  let core = attached_rich_text_core()
+  let delta = rich_text_delta("[{\"insert\":\"remote\"}]")
+  let assert Ok(#(core, ingested)) =
+    runtime_core.handle_sequenced(
+      core,
+      rich_text_op_message(
+        client_id: other_client_id,
+        sn: 2,
+        csn: 1,
+        address: "rich",
+        op: rich_text_kernel.RichTextWireOp(1, delta),
+      ),
+    )
+
+  ingested.events
+  |> expect.to_equal([
+    #(
+      "rich",
+      channel.RichTextEvent(rich_text_kernel.RichTextChanged(delta, False)),
+    ),
+  ])
+  runtime_core.rich_text_view(core, "rich")
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"remote\"}]")))
+}
+
+pub fn rich_text_submit_reports_type_and_algebra_errors_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  runtime_core.submit_rich_text(
+    core,
+    "root",
+    rich_text_delta("[{\"insert\":\"A\"}]"),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.WrongChannelType(
+      "root",
+      expected: channel.RichTextChannel,
+      actual: channel.MapChannel,
+    )),
+  )
+
+  let core = runtime_core.create_detached(core, "rich", channel.InitRichText)
+  runtime_core.submit_rich_text(
+    core,
+    "rich",
+    rich_text_delta("[{\"delete\":1}]"),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.AckMismatch(
+      "rich-text invalid apply: documents may contain inserts only",
+    )),
+  )
 }
 
 pub fn handle_set_emits_recursive_attach_post_order_test() {

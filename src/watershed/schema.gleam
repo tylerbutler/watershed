@@ -124,6 +124,9 @@ pub type TaskManagerChannel
 pub type JsonOtChannel
 
 /// BEAM-facade only until the kind gains a JS facade.
+pub type RichTextChannel
+
+/// BEAM-facade only until the kind gains a JS facade.
 pub type GSetChannel
 
 /// BEAM-facade only until the kind gains a JS facade.

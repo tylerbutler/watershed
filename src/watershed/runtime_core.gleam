@@ -39,6 +39,8 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/rich_text
+import watershed/rich_text_kernel
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
@@ -475,9 +477,9 @@ pub fn handle_sequenced(
     _ -> {
       use #(core, events, resolutions) <- result.try(apply_one(core, msg))
       use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
-      // A single-in-flight kernel (json0) may have promoted a buffered op to
-      // the wire while acking its own op; collect and stamp those now, after
-      // every op in this batch has been applied and rebased.
+      // A single-in-flight kernel (json0 or rich text) may have promoted a
+      // buffered op to the wire while acking its own op; collect and stamp
+      // those now, after every op in this batch has been applied and rebased.
       let #(core, outbound) = collect_released_ops(core)
       Ok(#(
         core,
@@ -498,8 +500,8 @@ pub fn handle_sequenced(
 ///
 ///   1. the generic per-channel `owed` buffer (any `channel.apply_remote` arm
 ///      that returned owed ops — e.g. a consensus `Accept`), and
-///   2. json0's single-in-flight kernel buffer promotion, drained via
-///      `channel.take_outbound`.
+///   2. json0 and rich-text single-in-flight kernel buffer promotion, drained
+///      via `channel.take_outbound`.
 ///
 /// Returns the stamped outbound ops in channel order (owed before kernel-buffer
 /// within each channel).
@@ -527,7 +529,8 @@ fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
   }
 }
 
-/// Drain a json0 kernel's promoted buffer for one channel, stamping the op.
+/// Drain a single-in-flight kernel's promoted buffer for one channel, stamping
+/// the op.
 fn drain_kernel_outbound(
   core: Core,
   address: String,
@@ -1700,6 +1703,68 @@ pub fn json_ot_view(core: Core, address: String) -> Option(json_ot.JsonValue) {
   }
 }
 
+/// Submit a rich-text delta authored against the channel's current optimistic
+/// document. As with json0, one delta is sent immediately and later deltas are
+/// buffered until `collect_released_ops` drains the kernel's promoted outbound.
+pub fn submit_rich_text(
+  core: Core,
+  address: String,
+  delta: rich_text.Delta,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_rich_text(core, address) {
+    Error(core_error) -> Error(core_error)
+    Ok(Detached(kernel)) ->
+      case rich_text_kernel.submit(kernel, delta, core.last_seen_sn) {
+        Ok(#(kernel, _wire, events)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.RichTextState(kernel)),
+              tag_rich_text_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(AckMismatch(rich_text_kernel_error_detail(err)))
+      }
+    Ok(Attached(kernel)) ->
+      case rich_text_kernel.submit(kernel, delta, core.last_seen_sn) {
+        Ok(#(kernel, Some(wire), events)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.RichTextState(kernel),
+            tag_rich_text_events(address, events),
+            channel.RichTextOp(wire),
+            channel.NoMeta,
+          ))
+        Ok(#(kernel, None, events)) ->
+          Ok(
+            #(
+              put_attached_channel(core, address, channel.RichTextState(kernel)),
+              tag_rich_text_events(address, events),
+              [],
+            ),
+          )
+        Error(err) -> Error(AckMismatch(rich_text_kernel_error_detail(err)))
+      }
+  }
+}
+
+/// The channel's current optimistic rich-text document, or `None` if the
+/// address is not a rich-text channel or its view cannot be computed.
+pub fn rich_text_view(
+  core: Core,
+  address: String,
+) -> Option(rich_text.Document) {
+  case find_channel(core, address) {
+    Some(channel.RichTextState(kernel)) ->
+      option.from_result(rich_text_kernel.view(kernel))
+    _ -> None
+  }
+}
+
 fn json_ot_kernel_error_detail(err: json_ot_kernel.KernelError) -> String {
   case err {
     json_ot_kernel.UnexpectedAck(detail) -> detail
@@ -1708,6 +1773,20 @@ fn json_ot_kernel_error_detail(err: json_ot_kernel.KernelError) -> String {
         json_ot.BadPath(detail) -> "json0 bad path: " <> detail
         json_ot.BadValue(detail) -> "json0 bad value: " <> detail
         json_ot.UnknownSubtype(name) -> "json0 unknown subtype: " <> name
+      }
+  }
+}
+
+fn rich_text_kernel_error_detail(err: rich_text_kernel.KernelError) -> String {
+  case err {
+    rich_text_kernel.UnexpectedAck(detail) -> detail
+    rich_text_kernel.RichTextFailure(algebra) ->
+      case algebra {
+        rich_text.Malformed(component, reason) ->
+          "rich-text malformed " <> component <> ": " <> reason
+        rich_text.InvalidApply(reason) -> "rich-text invalid apply: " <> reason
+        rich_text.InvalidBoundary(offset) ->
+          "rich-text invalid boundary at offset " <> int.to_string(offset)
       }
   }
 }
@@ -2757,6 +2836,23 @@ fn locate_json_ot(
   }
 }
 
+fn locate_rich_text(
+  core: Core,
+  address: String,
+) -> Result(Located(rich_text_kernel.RichTextState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.RichTextState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.RichTextState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.RichTextChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_directory(
   core: Core,
   address: String,
@@ -2980,6 +3076,13 @@ fn tag_json_ot_events(
   events: List(json_ot_kernel.JsonOtEvent),
 ) -> List(#(String, ChannelEvent)) {
   list.map(events, fn(event) { #(address, channel.JsonOtEvent(event)) })
+}
+
+fn tag_rich_text_events(
+  address: String,
+  events: List(rich_text_kernel.RichTextEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.RichTextEvent(event)) })
 }
 
 fn tag_ordered_events(

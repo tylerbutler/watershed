@@ -65,8 +65,8 @@ import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
   InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
   InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
-  InitRegisterCollection, InitSequence, InitTaskManager, InitTwoPSet,
-  SequenceChannel,
+  InitRegisterCollection, InitRichText, InitSequence, InitTaskManager,
+  InitTwoPSet, SequenceChannel,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -80,6 +80,8 @@ import watershed/json_ot
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy}
+@target(erlang)
+import watershed/rich_text
 @target(erlang)
 import watershed/runtime_core
 @target(erlang)
@@ -206,6 +208,7 @@ pub type Msg {
     reply: Subject(Result(Nil, String)),
   )
   SubmitJsonOt(address: String, components: json_ot.Op)
+  SubmitRichText(address: String, delta: rich_text.Delta)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
@@ -262,6 +265,7 @@ pub type Msg {
   CreateRegisterCollection(reply: Subject(Result(String, String)))
   CreateClaims(reply: Subject(Result(String, String)))
   CreateJsonOt(reply: Subject(Result(String, String)))
+  CreateRichText(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
   /// Whether a channel exists at `address` (attached or detached). Errors are
   /// retryable — a foreign attach may still be in flight.
@@ -301,6 +305,9 @@ pub type Msg {
   /// The json0 channel's optimistic document, `None` when the address is missing
   /// or not a json0 channel.
   GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
+  /// The rich-text channel's optimistic document, `None` when the address is
+  /// missing or not a rich-text channel.
+  GetRichTextView(address: String, reply: Subject(Option(rich_text.Document)))
   GetOrMapValue(
     address: String,
     key: String,
@@ -841,6 +848,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.submit_json_ot(core, address, components)
       })
+    SubmitRichText(address, delta) ->
+      edit(state, fn(core) {
+        runtime_core.submit_rich_text(core, address, delta)
+      })
     IncrementOrMap(address, key, amount) ->
       edit(state, fn(core) {
         runtime_core.or_map_increment(core, address, key, amount)
@@ -942,6 +953,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitClaims, "create_claims")
     CreateJsonOt(reply) ->
       create_channel(state, reply, InitJsonOt, "create_json_ot")
+    CreateRichText(reply) ->
+      create_channel(state, reply, InitRichText, "create_rich_text")
     CreateTaskManager(reply) ->
       create_channel(state, reply, InitTaskManager, "create_task_manager")
 
@@ -1025,6 +1038,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, None, runtime_core.json_ot_view(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetRichTextView(address, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.rich_text_view(_, address)),
       )
       actor.continue(state)
     }

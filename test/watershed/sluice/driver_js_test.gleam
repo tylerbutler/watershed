@@ -16,6 +16,10 @@ import gleam/string
 import startest/expect
 
 @target(javascript)
+import watershed/rich_text
+@target(javascript)
+import watershed/runtime_js
+@target(javascript)
 import watershed/schema
 @target(javascript)
 import watershed/sequence_kernel
@@ -42,6 +46,18 @@ fn normalize(entries: List(#(String, json.Json))) -> List(#(String, String)) {
   entries
   |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
   |> list.sort(fn(x, y) { string.compare(x.0, y.0) })
+}
+
+@target(javascript)
+fn rich_text_document(raw: String) -> rich_text.Document {
+  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  document
+}
+
+@target(javascript)
+fn rich_text_delta(raw: String) -> rich_text.Delta {
+  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  delta
 }
 
 @target(javascript)
@@ -329,4 +345,27 @@ pub fn concurrent_sequence_move_preserves_every_element_test() {
   list.contains(values_a, json.string("TWO")) |> expect.to_be_true()
   list.contains(values_a, json.string("one")) |> expect.to_be_true()
   list.contains(values_a, json.string("three")) |> expect.to_be_true()
+}
+
+@target(javascript)
+pub fn runtime_rich_text_create_submit_and_view_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "runtime-rich-text-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+  let runtime = watershed_js.runtime_of(document)
+  let assert Ok(address) = runtime_js.create_rich_text(runtime)
+  let first = rich_text_delta("[{\"insert\":\"A\"}]")
+
+  runtime_js.submit_rich_text(runtime, address, first)
+  runtime_js.rich_text_view(runtime, address)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+
+  runtime_js.submit_rich_text(
+    runtime,
+    address,
+    rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]"),
+  )
+  runtime_js.rich_text_view(runtime, address)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
 }

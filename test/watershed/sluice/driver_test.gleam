@@ -24,6 +24,10 @@ import watershed
 @target(erlang)
 import watershed/claims_kernel
 @target(erlang)
+import watershed/rich_text
+@target(erlang)
+import watershed/rich_text_kernel
+@target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/schema
@@ -34,6 +38,9 @@ import watershed/sluice
 
 @target(erlang)
 type SequenceFields
+
+@target(erlang)
+type RichTextFields
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -64,6 +71,18 @@ fn normalize(entries: List(#(String, json.Json))) -> List(#(String, String)) {
   entries
   |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
   |> list.sort(fn(x, y) { string.compare(x.0, y.0) })
+}
+
+@target(erlang)
+fn rich_text_document(raw: String) -> rich_text.Document {
+  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  document
+}
+
+@target(erlang)
+fn rich_text_delta(raw: String) -> rich_text.Delta {
+  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  delta
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -341,4 +360,75 @@ pub fn shared_sequence_converges_test() {
 
   watershed.sequence_delete(sequence_a, 99)
   |> expect.to_equal(Error("delete index 99 invalid for length 3"))
+}
+
+@target(erlang)
+pub fn shared_rich_text_create_resolve_submit_view_subscribe_test() {
+  let sluice = start("shared-rich-text")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(rich_text_a) = watershed.create_rich_text(doc_a)
+  let events = watershed.subscribe_rich_text(rich_text_a)
+  let first = rich_text_delta("[{\"insert\":\"A\"}]")
+  watershed.submit_rich_text(rich_text_a, first)
+  let assert Ok(local_event) = process.receive(from: events, within: 100)
+  local_event
+  |> expect.to_equal(rich_text_kernel.RichTextChanged(first, True))
+  watershed.rich_text_view(rich_text_a)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+
+  let handle = watershed.rich_text_handle_of(rich_text_a)
+  watershed.set(watershed.root(doc_a), "rich", handle)
+  sluice.settle(sluice)
+  watershed.get(watershed.root(doc_b), "rich") |> expect.to_equal(Some(handle))
+  let assert Ok(rich_text_b) = watershed.resolve_rich_text(doc_b, handle)
+  watershed.rich_text_view(rich_text_b)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+
+  watershed.submit_rich_text(
+    rich_text_b,
+    rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]"),
+  )
+  sluice.settle(sluice)
+  watershed.rich_text_view(rich_text_a)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+  watershed.rich_text_view(rich_text_b)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+}
+
+@target(erlang)
+pub fn typed_rich_text_field_set_resolve_and_ensure_test() {
+  let sluice = start("typed-rich-text")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let field: schema.ChannelField(RichTextFields, schema.RichTextChannel) =
+    schema.channel_field("rich")
+  let root_a: watershed.TypedMap(RichTextFields) = watershed.root_typed(doc_a)
+  let root_b: watershed.TypedMap(RichTextFields) = watershed.root_typed(doc_b)
+  sluice.settle(sluice)
+
+  let assert Ok(rich_text_a) = watershed.create_rich_text(doc_a)
+  watershed.set_rich_text_field(root_a, field, rich_text_a)
+  sluice.settle(sluice)
+  let assert Ok(Some(rich_text_b)) =
+    watershed.resolve_rich_text_field(doc_b, root_b, field)
+
+  watershed.submit_rich_text(
+    rich_text_a,
+    rich_text_delta("[{\"insert\":\"typed\"}]"),
+  )
+  sluice.settle(sluice)
+  watershed.rich_text_view(rich_text_b)
+  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"typed\"}]")))
+
+  let empty_field: schema.ChannelField(RichTextFields, schema.RichTextChannel) =
+    schema.channel_field("ensured")
+  let assert Ok(ensured) =
+    watershed.ensure_rich_text(doc_b, root_b, empty_field)
+  let assert Ok(Some(resolved)) =
+    watershed.resolve_rich_text_field(doc_b, root_b, empty_field)
+  watershed.rich_text_view(ensured)
+  |> expect.to_equal(watershed.rich_text_view(resolved))
 }

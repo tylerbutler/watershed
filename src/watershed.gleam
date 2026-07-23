@@ -78,6 +78,10 @@ import watershed/or_set_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
+import watershed/rich_text
+@target(erlang)
+import watershed/rich_text_kernel
+@target(erlang)
 import watershed/runtime
 @target(erlang)
 import watershed/schema.{
@@ -119,6 +123,11 @@ pub opaque type SharedCounter {
 @target(erlang)
 pub opaque type JsonOt {
   JsonOt(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type SharedRichText {
+  SharedRichText(runtime: Subject(runtime.Msg), address: String)
 }
 
 @target(erlang)
@@ -601,6 +610,26 @@ pub fn resolve_json_ot_field(
 }
 
 @target(erlang)
+/// Store a handle to `rich_text` under a typed channel field.
+pub fn set_rich_text_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  rich_text: SharedRichText,
+) -> Nil {
+  put_channel_field(typed_map, field, rich_text_handle_of(rich_text))
+}
+
+@target(erlang)
+/// Resolve the rich-text channel referenced by a typed channel field.
+pub fn resolve_rich_text_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+) -> Result(Option(SharedRichText), String) {
+  get_channel_field(document, typed_map, field, resolve_rich_text)
+}
+
+@target(erlang)
 /// Store a handle to `or_map` under a typed channel field.
 pub fn set_or_map_field(
   typed_map: TypedMap(s),
@@ -961,6 +990,25 @@ pub fn ensure_json_ot(
       set_json_ot_field(typed_map, field, json_ot)
     },
     fn() { resolve_json_ot_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a rich-text channel exists under `field`.
+pub fn ensure_rich_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+) -> Result(SharedRichText, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use rich_text <- result.map(create_rich_text(document))
+      set_rich_text_field(typed_map, field, rich_text)
+    },
+    fn() { resolve_rich_text_field(document, typed_map, field) },
   )
 }
 
@@ -1399,6 +1447,85 @@ pub fn subscribe_json_ot(
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
   case event {
     channel.JsonOtEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared rich text
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new rich-text channel. Same detached lifecycle as `create_map`.
+pub fn create_rich_text(document: Document) -> Result(SharedRichText, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateRichText,
+  )
+  |> result.map(fn(address) {
+    SharedRichText(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
+  handle.encode_handle(rich_text.address)
+}
+
+@target(erlang)
+/// Resolve a handle value to the SharedRichText it references. Existence is
+/// checked, not channel type. Errors are retryable, as with `resolve`.
+pub fn resolve_rich_text(
+  document: Document,
+  value: Json,
+) -> Result(SharedRichText, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_ms,
+        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        SharedRichText(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Optimistically submit a rich-text delta to the channel.
+pub fn submit_rich_text(
+  rich_text: SharedRichText,
+  delta: rich_text.Delta,
+) -> Nil {
+  process.send(
+    rich_text.runtime,
+    runtime.SubmitRichText(rich_text.address, delta),
+  )
+}
+
+@target(erlang)
+/// The channel's current optimistic rich-text document, `None` when the address
+/// is not a rich-text channel.
+pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
+  process.call(rich_text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetRichTextView(rich_text.address, reply)
+  })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this rich-text channel's local and remote
+/// change events.
+pub fn subscribe_rich_text(
+  rich_text: SharedRichText,
+) -> Subject(rich_text_kernel.RichTextEvent) {
+  use event <- subscribe_narrowed(rich_text.runtime, rich_text.address)
+  case event {
+    channel.RichTextEvent(inner) -> Some(inner)
     _ -> None
   }
 }
