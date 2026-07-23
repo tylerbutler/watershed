@@ -2,6 +2,7 @@
 
 import gleam/int
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import watershed/json_ot.{type JsonValue}
 import watershed/rich_text/attribute_map.{type Attributes}
 import watershed/rich_text/utf16
@@ -17,6 +18,10 @@ pub type Kind {
   Insert
   DeleteKind
   RetainKind
+}
+
+pub type IteratorError {
+  SplitBoundary(offset: Int)
 }
 
 pub type Iterator {
@@ -51,10 +56,13 @@ pub fn peek_length(iterator: Iterator) -> Option(Int) {
   }
 }
 
-pub fn take(iterator: Iterator, requested: Int) -> #(Operation, Iterator) {
+pub fn take(
+  iterator: Iterator,
+  requested: Int,
+) -> Result(#(Operation, Iterator), IteratorError) {
   let Iterator(ops, offset) = iterator
   case ops {
-    [] -> #(Retain(requested, attribute_map.empty()), iterator)
+    [] -> Ok(#(Retain(requested, attribute_map.empty()), iterator))
     [operation, ..rest] -> {
       let available = length(operation) - offset
       let amount = int.min(requested, available)
@@ -62,7 +70,8 @@ pub fn take(iterator: Iterator, requested: Int) -> #(Operation, Iterator) {
         True -> Iterator(rest, 0)
         False -> Iterator(ops, offset + amount)
       }
-      #(split(operation, offset, amount), next)
+      split(operation, offset, amount)
+      |> result.map(fn(part) { #(part, next) })
     }
   }
 }
@@ -83,14 +92,19 @@ pub fn attributes(operation: Operation) -> Attributes {
   }
 }
 
-fn split(operation: Operation, offset: Int, amount: Int) -> Operation {
+fn split(
+  operation: Operation,
+  offset: Int,
+  amount: Int,
+) -> Result(Operation, IteratorError) {
   case operation {
     InsertText(text, attrs) -> {
-      let assert Ok(part) = utf16.slice(text, offset, amount)
-      InsertText(part, attrs)
+      utf16.slice(text, offset, amount)
+      |> result.map(InsertText(_, attrs))
+      |> result.map_error(fn(_) { SplitBoundary(offset + amount) })
     }
-    InsertEmbed(value, attrs) -> InsertEmbed(value, attrs)
-    Delete(_) -> Delete(amount)
-    Retain(_, attrs) -> Retain(amount, attrs)
+    InsertEmbed(value, attrs) -> Ok(InsertEmbed(value, attrs))
+    Delete(_) -> Ok(Delete(amount))
+    Retain(_, attrs) -> Ok(Retain(amount, attrs))
   }
 }

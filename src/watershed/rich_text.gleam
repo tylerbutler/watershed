@@ -10,8 +10,8 @@ import watershed/json_ot.{
 }
 import watershed/rich_text/attribute_map.{type Attributes}
 import watershed/rich_text/op_iterator.{
-  type Iterator, type Operation, Delete, DeleteKind, Insert, InsertEmbed,
-  InsertText, Retain, RetainKind,
+  type Iterator, type IteratorError, type Operation, Delete, DeleteKind, Insert,
+  InsertEmbed, InsertText, Retain, RetainKind, SplitBoundary,
 }
 import watershed/rich_text/utf16
 
@@ -223,10 +223,10 @@ pub fn normalize(delta: Delta) -> Delta {
 }
 
 /// Quill Delta compose. `b` is interpreted against the result of `a`.
-pub fn compose(a: Delta, b: Delta) -> Delta {
+pub fn compose(a: Delta, b: Delta) -> Result(Delta, Error) {
   let left = op_iterator.new(operations_delta(a))
   let right = op_iterator.new(operations_delta(b))
-  Delta(compose_loop(left, right, []))
+  compose_loop(left, right, []) |> result.map(Delta)
 }
 
 /// Apply is deliberately the same compose routine as upstream
@@ -237,7 +237,7 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
     operations_delta(delta),
   ))
   let snapshot = Delta(operations_document(document))
-  let Delta(result_ops) = compose(snapshot, delta)
+  use Delta(result_ops) <- result.try(compose(snapshot, delta))
   document_operations(Document(result_ops))
   |> result.map_error(fn(error) {
     case error {
@@ -248,14 +248,14 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
 }
 
 /// rich-text adapter semantics: `b.transform(a, side == Left)`.
-pub fn transform(a: Delta, b: Delta, side: Side) -> Delta {
+pub fn transform(a: Delta, b: Delta, side: Side) -> Result(Delta, Error) {
   transform_core(
     op_iterator.new(operations_delta(b)),
     op_iterator.new(operations_delta(a)),
     side == Left,
     [],
   )
-  |> Delta
+  |> result.map(Delta)
 }
 
 pub fn invert(delta: Delta, base: Document) -> Result(Delta, Error) {
@@ -268,7 +268,11 @@ pub fn invert(delta: Delta, base: Document) -> Result(Delta, Error) {
 }
 
 /// rich-text's transformCursor: `delta.transformPosition(index, !is_own_op)`.
-pub fn transform_position(delta: Delta, index: Int, is_own_op: Bool) -> Int {
+pub fn transform_position(
+  delta: Delta,
+  index: Int,
+  is_own_op: Bool,
+) -> Result(Int, Error) {
   transform_position_loop(
     op_iterator.new(operations_delta(delta)),
     index,
@@ -281,11 +285,15 @@ pub fn transform_selection(
   delta: Delta,
   selection: Selection,
   is_own_op: Bool,
-) -> Selection {
+) -> Result(Selection, Error) {
   let Selection(index, selected_length) = selection
-  let start = transform_position(delta, index, is_own_op)
-  let end = transform_position(delta, index + selected_length, is_own_op)
-  Selection(start, end - start)
+  use start <- result.try(transform_position(delta, index, is_own_op))
+  use end <- result.try(transform_position(
+    delta,
+    index + selected_length,
+    is_own_op,
+  ))
+  Ok(Selection(start, end - start))
 }
 
 pub fn selection(index: Int, length: Int) -> Result(Selection, Error) {
@@ -546,23 +554,23 @@ fn compose_loop(
   left: Iterator,
   right: Iterator,
   result: List(Operation),
-) -> List(Operation) {
+) -> Result(List(Operation), Error) {
   case op_iterator.has_next(left) || op_iterator.has_next(right) {
-    False -> chop(result)
+    False -> Ok(chop(result))
     True -> {
       let amount = next_amount(left, right)
       case op_iterator.peek_kind(right), op_iterator.peek_kind(left) {
         Insert, _ -> {
-          let #(op, next_right) = op_iterator.take(right, amount)
+          use #(op, next_right) <- result.try(take_checked(right, amount))
           compose_loop(left, next_right, push(result, op))
         }
         _, DeleteKind -> {
-          let #(op, next_left) = op_iterator.take(left, amount)
+          use #(op, next_left) <- result.try(take_checked(left, amount))
           compose_loop(next_left, right, push(result, op))
         }
         _, _ -> {
-          let #(left_op, next_left) = op_iterator.take(left, amount)
-          let #(right_op, next_right) = op_iterator.take(right, amount)
+          use #(left_op, next_left) <- result.try(take_checked(left, amount))
+          use #(right_op, next_right) <- result.try(take_checked(right, amount))
           let next_result = case right_op {
             Retain(_, right_attrs) ->
               case left_op {
@@ -611,14 +619,14 @@ fn transform_core(
   other: Iterator,
   priority: Bool,
   result: List(Operation),
-) -> List(Operation) {
+) -> Result(List(Operation), Error) {
   case op_iterator.has_next(source) || op_iterator.has_next(other) {
-    False -> chop(result)
+    False -> Ok(chop(result))
     True ->
       case op_iterator.peek_kind(source), op_iterator.peek_kind(other) {
         Insert, Insert if priority -> {
           let amount = unwrap_length(source)
-          let #(op, next_source) = op_iterator.take(source, amount)
+          use #(op, next_source) <- result.try(take_checked(source, amount))
           transform_core(
             next_source,
             other,
@@ -628,7 +636,7 @@ fn transform_core(
         }
         Insert, RetainKind -> {
           let amount = unwrap_length(source)
-          let #(op, next_source) = op_iterator.take(source, amount)
+          use #(op, next_source) <- result.try(take_checked(source, amount))
           transform_core(
             next_source,
             other,
@@ -638,7 +646,7 @@ fn transform_core(
         }
         Insert, DeleteKind -> {
           let amount = unwrap_length(source)
-          let #(op, next_source) = op_iterator.take(source, amount)
+          use #(op, next_source) <- result.try(take_checked(source, amount))
           transform_core(
             next_source,
             other,
@@ -648,13 +656,16 @@ fn transform_core(
         }
         _, Insert -> {
           let amount = unwrap_length(other)
-          let #(op, next_other) = op_iterator.take(other, amount)
+          use #(op, next_other) <- result.try(take_checked(other, amount))
           transform_core(source, next_other, priority, push(result, op))
         }
         _, _ -> {
           let amount = next_amount(source, other)
-          let #(source_op, next_source) = op_iterator.take(source, amount)
-          let #(other_op, next_other) = op_iterator.take(other, amount)
+          use #(source_op, next_source) <- result.try(take_checked(
+            source,
+            amount,
+          ))
+          use #(other_op, next_other) <- result.try(take_checked(other, amount))
           let next_result = case source_op, other_op {
             Delete(_), _ -> result
             _, Delete(_) -> push(result, other_op)
@@ -742,7 +753,7 @@ fn take_document(
         None -> Ok(#(pieces, iterator))
         Some(available) -> {
           let take = int.min(amount, available)
-          let #(piece, next) = op_iterator.take(iterator, take)
+          use #(piece, next) <- result.try(take_checked(iterator, take))
           take_document(next, amount - take, list.append(pieces, [piece]))
         }
       }
@@ -758,13 +769,13 @@ fn transform_position_loop(
   index: Int,
   offset: Int,
   priority: Bool,
-) -> Int {
+) -> Result(Int, Error) {
   case op_iterator.has_next(iterator) && offset <= index {
-    False -> index
+    False -> Ok(index)
     True -> {
       let amount = unwrap_length(iterator)
       let kind = op_iterator.peek_kind(iterator)
-      let #(_, next) = op_iterator.take(iterator, amount)
+      use #(_, next) <- result.try(take_checked(iterator, amount))
       case kind {
         DeleteKind ->
           transform_position_loop(
@@ -803,6 +814,19 @@ fn next_amount(a: Iterator, b: Iterator) -> Int {
 fn unwrap_length(iterator: Iterator) -> Int {
   let assert Some(amount) = op_iterator.peek_length(iterator)
   amount
+}
+
+fn take_checked(
+  iterator: Iterator,
+  amount: Int,
+) -> Result(#(Operation, Iterator), Error) {
+  op_iterator.take(iterator, amount) |> result.map_error(iterator_error)
+}
+
+fn iterator_error(error: IteratorError) -> Error {
+  case error {
+    SplitBoundary(offset) -> InvalidBoundary(offset)
+  }
 }
 
 fn normalize_operations(
@@ -937,8 +961,12 @@ fn consume_document(
               case utf16.boundary(text, amount) {
                 False -> Error(InvalidBoundary(offset + amount))
                 True -> {
-                  let assert Ok(remaining_text) =
+                  use remaining_text <- result.try(
                     utf16.slice(text, amount, width - amount)
+                    |> result.map_error(fn(_) {
+                      InvalidBoundary(offset + amount)
+                    }),
+                  )
                   Ok(#(
                     [InsertText(remaining_text, attrs), ..rest],
                     offset + amount,

@@ -72,20 +72,47 @@ pub fn compose_apply_invert_and_utf16_test() {
   |> expect.to_equal(Error(rich_text.InvalidBoundary(2)))
 }
 
+pub fn direct_algebra_surrogate_boundaries_are_checked_test() {
+  let assert Ok(emoji) =
+    rich_text.delta_from_json_string("[{\"insert\":\"😀\"}]")
+  let assert Ok(split) =
+    rich_text.delta_from_json_string("[{\"retain\":1},{\"delete\":1}]")
+
+  // Compose must split the left insert at this boundary, so it reports the
+  // UTF-16 offset rather than leaking the iterator's old pattern-match panic.
+  rich_text.compose(emoji, split)
+  |> expect.to_equal(Error(rich_text.InvalidBoundary(1)))
+
+  let assert Ok(base) =
+    rich_text.document_from_json_string("[{\"insert\":\"😀\"}]")
+  rich_text.invert(split, base)
+  |> expect.to_equal(Error(rich_text.InvalidBoundary(1)))
+
+  // Transform itself does not split inserts in Quill's control flow, but its
+  // public checked Result ensures any iterator split is typed rather than raw.
+  case rich_text.transform(split, emoji, rich_text.Left) {
+    Ok(_) -> Nil
+    Error(error) ->
+      panic as { "unexpected transform error: " <> string.inspect(error) }
+  }
+}
+
 pub fn same_position_side_and_selection_test() {
   let assert Ok(a) = rich_text.delta_from_json_string("[{\"insert\":\"A\"}]")
   let assert Ok(b) = rich_text.delta_from_json_string("[{\"insert\":\"B\"}]")
-  rich_text.transform(a, b, rich_text.Left)
+  let assert Ok(left) = rich_text.transform(a, b, rich_text.Left)
+  left
   |> encoded_delta
   |> expect.to_equal("[{\"retain\":1},{\"insert\":\"A\"}]")
-  rich_text.transform(a, b, rich_text.Right)
+  let assert Ok(right) = rich_text.transform(a, b, rich_text.Right)
+  right
   |> encoded_delta
   |> expect.to_equal("[{\"insert\":\"A\"}]")
-  rich_text.transform_position(rich_text.compose(a, b), 0, True)
-  |> expect.to_equal(2)
+  let assert Ok(composed) = rich_text.compose(a, b)
+  rich_text.transform_position(composed, 0, True) |> expect.to_equal(Ok(2))
   let assert Ok(selection) = rich_text.selection(0, 0)
-  rich_text.transform_selection(rich_text.compose(a, b), selection, True)
-  |> expect.to_equal(rich_text.Selection(2, 0))
+  rich_text.transform_selection(composed, selection, True)
+  |> expect.to_equal(Ok(rich_text.Selection(2, 0)))
 }
 
 fn replay_fixture(file: String) {
@@ -116,7 +143,7 @@ fn replay_fixture(file: String) {
       let assert Ok(b) = rich_text.delta_from_json(b_json)
       let assert Ok(applied_b) = rich_text.apply(base, b)
       expect_document(applied_b, required(apply, "b"))
-      let composed = rich_text.compose(a, b)
+      let assert Ok(composed) = rich_text.compose(a, b)
       expect_delta(composed, required(root, "compose"))
       let inverse_composed = case rich_text.invert(composed, base) {
         Ok(value) -> value
@@ -125,18 +152,14 @@ fn replay_fixture(file: String) {
       }
       expect_delta(inverse_composed, required(inverse, "compose"))
       let transform = object(required(root, "transform"))
-      expect_delta(
-        rich_text.transform(a, b, rich_text.Left),
-        required(transform, "left"),
-      )
-      expect_delta(
-        rich_text.transform(a, b, rich_text.Right),
-        required(transform, "right"),
-      )
-      let assert Ok(after_a_then_b) =
-        rich_text.apply(applied_a, rich_text.transform(b, a, rich_text.Right))
-      let assert Ok(after_b_then_a) =
-        rich_text.apply(applied_b, rich_text.transform(a, b, rich_text.Left))
+      let assert Ok(left) = rich_text.transform(a, b, rich_text.Left)
+      expect_delta(left, required(transform, "left"))
+      let assert Ok(right) = rich_text.transform(a, b, rich_text.Right)
+      expect_delta(right, required(transform, "right"))
+      let assert Ok(b_star) = rich_text.transform(b, a, rich_text.Right)
+      let assert Ok(after_a_then_b) = rich_text.apply(applied_a, b_star)
+      let assert Ok(a_star) = rich_text.transform(a, b, rich_text.Left)
+      let assert Ok(after_b_then_a) = rich_text.apply(applied_b, a_star)
       after_a_then_b |> expect.to_equal(after_b_then_a)
       case get(apply, "compose") {
         None -> Nil
@@ -198,7 +221,7 @@ fn check_cursor_and_selection(
     integer(required(cursor, "index")),
     boolean(required(cursor, "isOwnOp")),
   )
-  |> expect.to_equal(integer(required(cursor, "result")))
+  |> expect.to_equal(Ok(integer(required(cursor, "result"))))
 
   let selection = object(required(root, "selection"))
   let selection_delta =
@@ -214,10 +237,12 @@ fn check_cursor_and_selection(
     input,
     boolean(required(selection, "isOwnOp")),
   )
-  |> expect.to_equal(rich_text.Selection(
-    integer(required(result, "index")),
-    integer(required(result, "length")),
-  ))
+  |> expect.to_equal(
+    Ok(rich_text.Selection(
+      integer(required(result, "index")),
+      integer(required(result, "length")),
+    )),
+  )
 }
 
 fn through_delta(
