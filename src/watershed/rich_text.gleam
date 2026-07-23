@@ -11,7 +11,7 @@ import watershed/json_ot.{
 import watershed/rich_text/attribute_map.{type Attributes}
 import watershed/rich_text/op_iterator.{
   type Iterator, type IteratorError, type Operation, Delete, DeleteKind, Insert,
-  InsertEmbed, InsertText, Retain, RetainKind, SplitBoundary,
+  InsertEmbed, InsertText, Retain, SplitBoundary,
 }
 import watershed/rich_text/utf16
 
@@ -624,39 +624,27 @@ fn transform_core(
     False -> Ok(chop(result))
     True ->
       case op_iterator.peek_kind(source), op_iterator.peek_kind(other) {
-        Insert, Insert if priority -> {
-          let amount = unwrap_length(source)
-          use #(op, next_source) <- result.try(take_checked(source, amount))
-          transform_core(
-            next_source,
-            other,
-            priority,
-            push(result, Retain(op_iterator.length(op), attribute_map.empty())),
-          )
-        }
-        Insert, RetainKind -> {
-          let amount = unwrap_length(source)
-          use #(op, next_source) <- result.try(take_checked(source, amount))
-          transform_core(
-            next_source,
-            other,
-            priority,
-            push(result, Retain(op_iterator.length(op), attribute_map.empty())),
-          )
-        }
-        Insert, DeleteKind -> {
-          let amount = unwrap_length(source)
-          use #(op, next_source) <- result.try(take_checked(source, amount))
-          transform_core(
-            next_source,
-            other,
-            priority,
-            push(result, Retain(op_iterator.length(op), attribute_map.empty())),
-          )
-        }
+        Insert, other_kind ->
+          case priority || other_kind != Insert {
+            True -> {
+              use #(op, next_source) <- result.try(take_remaining(source))
+              transform_core(
+                next_source,
+                other,
+                priority,
+                push(
+                  result,
+                  Retain(op_iterator.length(op), attribute_map.empty()),
+                ),
+              )
+            }
+            False -> {
+              use #(op, next_other) <- result.try(take_remaining(other))
+              transform_core(source, next_other, priority, push(result, op))
+            }
+          }
         _, Insert -> {
-          let amount = unwrap_length(other)
-          use #(op, next_other) <- result.try(take_checked(other, amount))
+          use #(op, next_other) <- result.try(take_remaining(other))
           transform_core(source, next_other, priority, push(result, op))
         }
         _, _ -> {
@@ -773,15 +761,15 @@ fn transform_position_loop(
   case op_iterator.has_next(iterator) && offset <= index {
     False -> Ok(index)
     True -> {
-      let amount = unwrap_length(iterator)
       let kind = op_iterator.peek_kind(iterator)
-      use #(_, next) <- result.try(take_checked(iterator, amount))
+      use #(operation, next) <- result.try(take_remaining(iterator))
+      let amount = op_iterator.length(operation)
       case kind {
         DeleteKind ->
           transform_position_loop(
             next,
             index - int.min(amount, index - offset),
-            offset + amount,
+            offset,
             priority,
           )
         Insert ->
@@ -811,16 +799,18 @@ fn next_amount(a: Iterator, b: Iterator) -> Int {
   }
 }
 
-fn unwrap_length(iterator: Iterator) -> Int {
-  let assert Some(amount) = op_iterator.peek_length(iterator)
-  amount
-}
-
 fn take_checked(
   iterator: Iterator,
   amount: Int,
 ) -> Result(#(Operation, Iterator), Error) {
   op_iterator.take(iterator, amount) |> result.map_error(iterator_error)
+}
+
+fn take_remaining(iterator: Iterator) -> Result(#(Operation, Iterator), Error) {
+  case op_iterator.peek_length(iterator) {
+    Some(amount) -> take_checked(iterator, amount)
+    None -> Error(InvalidApply("iterator unexpectedly exhausted"))
+  }
 }
 
 fn iterator_error(error: IteratorError) -> Error {

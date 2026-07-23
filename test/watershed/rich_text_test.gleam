@@ -97,6 +97,27 @@ pub fn direct_algebra_surrogate_boundaries_are_checked_test() {
   }
 }
 
+pub fn delete_then_insert_cursor_and_selection_test() {
+  // The retain holds the insertion after the deleted prefix in canonical
+  // operation order. The delete must leave `offset` unchanged so the cursor
+  // and range collapse before later operations are considered.
+  let assert Ok(delta) =
+    rich_text.delta_from_json_string(
+      "[{\"delete\":5},{\"retain\":1},{\"insert\":\"abc\"}]",
+    )
+
+  // Local priority reaches the later insertion after the deletion.
+  rich_text.transform_position(delta, 6, True) |> expect.to_equal(Ok(4))
+  let assert Ok(cursor) = rich_text.selection(6, 0)
+  rich_text.transform_selection(delta, cursor, True)
+  |> expect.to_equal(Ok(rich_text.Selection(4, 0)))
+
+  // Remote priority leaves the cursor at the retained boundary.
+  rich_text.transform_position(delta, 6, False) |> expect.to_equal(Ok(1))
+  rich_text.transform_selection(delta, cursor, False)
+  |> expect.to_equal(Ok(rich_text.Selection(1, 0)))
+}
+
 pub fn same_position_side_and_selection_test() {
   let assert Ok(a) = rich_text.delta_from_json_string("[{\"insert\":\"A\"}]")
   let assert Ok(b) = rich_text.delta_from_json_string("[{\"insert\":\"B\"}]")
