@@ -292,6 +292,27 @@ const transforms: Structure[] = [
       "Interop with ottypes / ShareDB json0 clients",
     ],
   },
+  {
+    id: "rich_text",
+    name: "SharedRichText",
+    module: "rich_text_kernel",
+    kind: "OT",
+    onHomepage: false,
+    demoHref: "/rich-text",
+    tagline: "The json_ot protocol turned on rich text — three Quill editors, one document, real concurrent formatting.",
+    rule: "one shared rich-text document; concurrent typing, formatting, and deletes are transformed to fit around each other",
+    optimistic: "you edit instantly in Quill; your in-flight delta is adjusted as other people’s confirmed edits arrive",
+    summary: "the document reloads to the same text, formatting, and embeds everywhere",
+    how: [
+      "SharedRichText runs the identical single-op-in-flight client-transform protocol as json_ot, over a different algebra: a faithful port of rich-text/quill-delta, where operations retain, insert, or delete spans of text, each optionally carrying an attribute patch (bold, color, …) or wrapping an embed (an image) instead of plain text. Positions are counted in UTF-16 code units — the same units Quill and JavaScript strings themselves use — so the runtime and the editor never disagree about where an edit lands.",
+      "Each client keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. Remote deltas arrive already advanced into the client's optimistic view — the runtime applies them incrementally to the editor rather than replacing the whole document — and cursor/selection positions are transformed through every local and remote edit the same way the text itself is. This is watershed's OT-backed rich text, distinct from a future CRDT SharedText, which will converge by merge instead of transform.",
+    ],
+    useCases: [
+      "Collaborative rich-text editors — Quill, and anything built on the quill-delta/rich-text algebra",
+      "Documents where formatting and embeds must survive concurrent edits, not just plain characters",
+      "Teams already invested in the OT model (ShareDB-style) who want rich text alongside json_ot's structured documents",
+    ],
+  },
 ];
 
 const coordination: Structure[] = [
@@ -456,7 +477,7 @@ export const categories: Category[] = [
     tagline: "One shared document, kept in agreement as everyone edits.",
     lede: [
       "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed; a future CRDT SharedText will converge the other way, by merge.",
     ],
     structures: transforms,
   },

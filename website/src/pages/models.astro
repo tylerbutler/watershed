@@ -9,6 +9,9 @@ const dds = categories
 const crdt = categories
   .flatMap((c) => c.structures.map((s) => ({ ...s, slug: c.slug })))
   .filter((s) => s.kind === "CRDT");
+const ot = categories
+  .flatMap((c) => c.structures.map((s) => ({ ...s, slug: c.slug })))
+  .filter((s) => s.kind === "OT");
 
 const models = [
   {
@@ -41,11 +44,14 @@ const models = [
     gloss: "Converges by transforming ops past one another.",
     body: [
       "OT takes the opposite tack from CRDTs: instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions so that applying them in different orders still lands everyone in the same place.",
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with a single-op-in-flight client protocol. Concurrent list inserts have their indices transformed so every replica converges identically — the classic approach behind collaborative text editors.",
+      "watershed ships two OT kernels on the identical single-op-in-flight client protocol: json_ot, a faithful port of the ottypes json0 algebra for structured JSON documents, and SharedRichText, the same protocol over quill-delta's rich-text algebra — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Concurrent list inserts, or concurrent text edits and formatting, have their positions transformed so every replica converges identically.",
     ],
     tradeoff:
-      "Minimal per-op metadata and a natural fit for ordered sequences — though SharedSequence now reaches the same ground by merge — at the cost of transform functions that must be correct for every pair of op types.",
-    members: [{ name: "json_ot", href: "/json-ot" }],
+      "Minimal per-op metadata and a natural fit for ordered sequences and rich text — though SharedSequence now reaches similar ground by merge — at the cost of transform functions that must be correct for every pair of op types.",
+    members: ot.map((s) => ({
+      name: s.name,
+      href: s.demoHref ?? `/structures/${s.slug}#${s.id}`,
+    })),
   },
 ];
 
@@ -197,10 +203,12 @@ const rows = [
             <a href="/structures/maps#ormap">OR-map</a>.
           </li>
           <li>
-            <strong>Reach for OT for ordered sequences.</strong> Collaborative
-            text and lists, where positions shift as others edit, are what
-            transform functions were built for — see the
-            <a href="/json-ot">json_ot demo</a>.
+            <strong>Reach for OT for ordered sequences and rich text.</strong>
+            Collaborative text and lists, where positions shift as others
+            edit, are what transform functions were built for — see the
+            <a href="/json-ot">json_ot demo</a> for structured JSON or the
+            <a href="/rich-text">SharedRichText demo</a> for a real
+            three-editor Quill session.
           </li>
         </ol>
         <div class="mod-cta">

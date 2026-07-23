@@ -1,0 +1,654 @@
+---
+const clients = [
+  { id: "a", name: "Client A" },
+  { id: "b", name: "Client B" },
+  { id: "c", name: "Client C" },
+];
+---
+
+<section id="rt-demo" class="demo" aria-labelledby="rt-demo-title">
+  <div class="demo-head" data-reveal="rise">
+    <h2 id="rt-demo-title">SharedRichText, live</h2>
+    <p>
+      All three editors are real <code>watershed</code> documents sharing one
+      rich-text channel over the <code>rich_text_kernel</code> — the same
+      single-op-in-flight client-transform protocol as the
+      <a href="/json-ot">json_ot demo</a>, but its algebra is quill-delta's:
+      operations <em>retain</em>, <em>insert</em>, or <em>delete</em> spans of
+      text, each optionally carrying an attribute patch (bold, color, …) or
+      wrapping an embed (an image, say) instead of plain text. Positions are
+      counted in UTF-16 code units, matching how Quill itself addresses text —
+      the same units a JavaScript string indexes by, so no conversion happens
+      at the editor boundary. Each editor keeps at most one op in flight;
+      anything typed while it's outstanding composes into a single buffered
+      op behind it. This is SharedRichText, watershed's OT-backed rich text —
+      distinct from a future CRDT <code>SharedText</code>, which will
+      converge by merge rather than by transform.
+    </p>
+    <p class="demo-hint">
+      Local edits apply the instant you type — Quill's own optimistic model,
+      no different from typing into any editor. Race two clients at the same
+      spot, format concurrently, or delete under someone else's formatting,
+      then watch the op log and the canonical text below each editor converge.
+      Peer cursors (dashed, colored) track where the other two are looking,
+      transformed through every edit exactly like the local caret is.
+    </p>
+  </div>
+
+  <div class="rig" data-rt-rig>
+    {
+      clients.map((c) => (
+        <article
+          class="client"
+          data-client={c.id}
+          aria-label={`${c.name} editor`}
+          style={`grid-area: ${c.id}`}
+        >
+          <header class="client-head">
+            <h3>{c.name}</h3>
+            <span class="pending-count annot" data-pending-count>
+              synced
+            </span>
+          </header>
+          <div class="quill-mount" data-quill-root />
+          <footer class="client-foot">
+            <p class="canonical annot" data-canonical />
+            <ul
+              class="peer-list"
+              data-peer-list
+              aria-label={`Peer selections visible to ${c.name}`}
+            />
+          </footer>
+        </article>
+      ))
+    }
+
+    <div class="channel" style="grid-area: seq">
+      <div class="seq-node" data-seq-node>
+        <span class="annot">Sequencer</span>
+        <output class="seq-counter" data-seq-counter aria-label="Latest sequence number">
+          SN&nbsp;0
+        </output>
+      </div>
+      <ol
+        class="op-log"
+        data-op-log
+        aria-live="polite"
+        aria-label="Sequenced rich-text ops, newest first"
+      >
+      </ol>
+    </div>
+
+    <div class="flow-layer" data-flow-layer aria-hidden="true"></div>
+  </div>
+
+  <div class="demo-controls" data-reveal="rise">
+    <label class="latency">
+      <span class="annot">Link latency</span>
+      <input
+        type="range"
+        min="100"
+        max="2000"
+        step="100"
+        value="700"
+        data-rt-latency
+        disabled
+      />
+      <output data-rt-latency-out>700 ms</output>
+    </label>
+    <label class="pace">
+      <span class="annot">Animation speed</span>
+      <input
+        type="range"
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="0.5"
+        data-rt-pace
+        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        disabled
+      />
+      <output data-rt-pace-out>0.5×</output>
+    </label>
+    <label class="field-notes-toggle">
+      <input
+        type="checkbox"
+        data-rt-latency-variance
+        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step."
+        disabled
+      />
+      <span class="annot">Jitter ±50&nbsp;ms</span>
+    </label>
+    <p class="status" data-rt-status role="status">
+      <span class="stamp converged">Converged</span>
+      replicas identical · nothing pending
+    </p>
+  </div>
+
+  <div class="scenario-row" data-reveal="rise">
+    <button type="button" class="scenario-btn" data-rt-race-type disabled>
+      Race: type at the same spot
+    </button>
+    <button type="button" class="scenario-btn" data-rt-race-format disabled>
+      Race: bold vs. color, same span
+    </button>
+    <button type="button" class="scenario-btn" data-rt-race-delete disabled>
+      Race: delete vs. format
+    </button>
+    <button type="button" class="scenario-btn" data-rt-embed disabled>
+      Insert an image embed
+    </button>
+    <button type="button" class="step-btn" data-rt-step disabled>
+      Step one delivery
+    </button>
+    <button type="button" class="step-btn" data-rt-settle disabled>
+      Settle to quiescence
+    </button>
+    <button
+      type="button"
+      class="reset-btn"
+      data-rt-reset
+      aria-label="Reset all three editors to the formatted baseline"
+      disabled
+    >
+      Reset
+    </button>
+  </div>
+
+  <p class="controls-hint">
+    The scenario buttons submit through each editor's own Quill instance —
+    the same path a real keystroke takes — so what you're watching is the
+    genuine client-transform protocol, not a scripted animation. Manual
+    typing and toolbar formatting work in all three editors too; try editing
+    one while a race is still in flight in another.
+  </p>
+
+  <noscript>
+    <p class="demo-noscript">
+      The live demo needs JavaScript — it runs the real watershed runtime,
+      the <code>rich_text_kernel</code>, and the in-memory <code>sluice</code>
+      as compiled JavaScript in your browser, plus Quill for the editor
+      surface. The rest of the page works fine without it.
+    </p>
+  </noscript>
+
+  <p class="demo-noscript" data-rt-fallback hidden>
+    The live demo couldn’t start — it runs the real watershed runtime against
+    the in-memory <code>sluice</code> and a real Quill editor as compiled
+    JavaScript, and this browser didn’t load it. The rest of the page works
+    fine without it.
+  </p>
+</section>
+
+<script>
+  try {
+    const { initRichTextDemo } = await import("../scripts/rich-text-demo.ts");
+    initRichTextDemo();
+  } catch (error) {
+    console.error("watershed rich-text demo failed to start", error);
+    const note = document.querySelector("[data-rt-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
+</script>
+
+<style>
+  /* A third, locally-scoped accent alongside the site's magenta
+     (--overprint) / blue (--waterline) pair, for a third client's peer
+     cursor and swatch. Chosen in the same oklch family, and — like a USGS
+     sheet's green contour ink — reads as "original ground truth" next to
+     magenta's "unverified revision", keeping the peer-color trio legible
+     without introducing an unrelated hue to the palette. */
+  :root {
+    --client-a: var(--overprint-deep);
+    --client-b: var(--waterline);
+    --client-c: oklch(42% 0.13 150);
+  }
+
+  .demo {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-head {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .demo-head p {
+    margin-top: var(--space-lg);
+  }
+
+  .demo-hint {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  /* ── client / editor grid ─────────────────────────────────────────────── */
+  .rig {
+    position: relative;
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: grid;
+    grid-template-areas:
+      "a seq b"
+      "c c   c";
+    grid-template-columns: 1fr minmax(11rem, 0.7fr) 1fr;
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  .rig .client[data-client="c"] {
+    justify-self: center;
+    width: min(100%, 26rem);
+  }
+
+  .client {
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .client-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .client-head h3 {
+    font-size: 1rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .pending-count {
+    color: var(--muted);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  .pending-count.is-pending {
+    color: var(--overprint-deep);
+  }
+
+  /* Quill mounts its own toolbar + editor as siblings inside this node. */
+  .quill-mount {
+    min-height: 8rem;
+  }
+
+  .quill-mount :global(.ql-toolbar.ql-snow) {
+    border: none;
+    border-bottom: 1px solid var(--hairline);
+    font-family: var(--font-sans);
+  }
+
+  .quill-mount :global(.ql-container.ql-snow) {
+    border: none;
+    font-family: var(--font-sans);
+  }
+
+  .quill-mount :global(.ql-editor) {
+    min-height: 7rem;
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .quill-mount :global(.ql-editor.ql-blank::before) {
+    color: var(--muted);
+    font-style: normal;
+  }
+
+  /* Presence cursors: quill-cursors paints inline styles for color, so this
+     just tightens the flag/caret to the site's mono/annotation language. */
+  .quill-mount :global(.ql-cursor-name) {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+  }
+
+  .client-foot {
+    margin-top: auto;
+    padding: var(--space-sm) var(--space-md) var(--space-md);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .canonical {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .peer-list {
+    margin: var(--space-xs) 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2xs) var(--space-sm);
+  }
+
+  .peer-list li {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+
+  .peer-list :global(.peer-swatch) {
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+  }
+
+  /* ── channel / sequencer ──────────────────────────────────────────────── */
+  .channel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    padding-top: clamp(var(--space-md), 6vw, 4.5rem);
+  }
+
+  .seq-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-lg);
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--bg);
+  }
+
+  .seq-counter {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .seq-counter.stamped {
+    animation: stamp 380ms var(--ease-out-quart);
+  }
+
+  @keyframes stamp {
+    0% {
+      color: var(--overprint);
+      transform: scale(1.12);
+    }
+    100% {
+      color: var(--ink);
+      transform: none;
+    }
+  }
+
+  .op-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: var(--muted);
+    overflow: hidden;
+    max-height: 13.5rem;
+    mask-image: linear-gradient(black 55%, transparent 96%);
+  }
+
+  .op-log :global(li) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.4rem;
+    justify-content: center;
+    padding: 0.12rem 0;
+  }
+
+  .op-log :global(.op-meta) {
+    color: var(--muted);
+  }
+
+  .op-log :global(.op-path) {
+    color: var(--waterline);
+  }
+
+  .op-log :global(.op-kind) {
+    color: var(--ink);
+  }
+
+  .op-log :global(li:first-child .op-meta) {
+    color: var(--ink);
+  }
+
+  .flow-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--z-flow);
+  }
+
+  :global(.flow-dot) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced) {
+    background: var(--ink);
+  }
+
+  :global(.flow-dot-label) {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.625rem;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--bg);
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced .flow-dot-label) {
+    background: var(--ink);
+  }
+
+  /* ── controls ─────────────────────────────────────────────────────────── */
+  .demo-controls {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+
+  .latency,
+  .pace {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .latency input,
+  .pace input {
+    accent-color: var(--overprint);
+    width: clamp(8rem, 18vw, 14rem);
+  }
+
+  .latency output,
+  .pace output {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    min-width: 5ch;
+  }
+
+  .field-notes-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+  }
+
+  .field-notes-toggle input {
+    accent-color: var(--overprint);
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
+  }
+
+  .status {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .status :global(.stamp) {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border: 1.5px solid currentColor;
+    transform: rotate(-2deg);
+  }
+
+  .status :global(.stamp.converged) {
+    color: var(--waterline);
+  }
+
+  .status :global(.stamp.revising) {
+    color: var(--overprint-deep);
+  }
+
+  /* ── scenario row ─────────────────────────────────────────────────────── */
+  .scenario-row {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-md);
+  }
+
+  .scenario-btn,
+  .step-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .step-btn {
+    border-color: var(--hairline);
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .scenario-btn:hover:enabled,
+  .step-btn:hover:enabled {
+    background: var(--overprint-faint);
+  }
+
+  .scenario-btn:active:enabled,
+  .step-btn:active:enabled,
+  .reset-btn:active:enabled {
+    transform: scale(0.97);
+  }
+
+  .reset-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    color: var(--muted);
+    font-weight: 400;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .reset-btn:hover:enabled {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .scenario-btn:disabled,
+  .step-btn:disabled,
+  .reset-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .controls-hint {
+    max-width: 68rem;
+    margin: var(--space-sm) auto 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .demo-noscript {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 1080px) {
+    .rig {
+      grid-template-areas: "a" "seq" "b" "c";
+      grid-template-columns: 1fr;
+    }
+
+    .rig .client[data-client="c"] {
+      justify-self: stretch;
+      width: auto;
+    }
+
+    .op-log {
+      max-height: 5.7rem;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .scenario-btn,
+    .step-btn,
+    .reset-btn {
+      padding: 0.85rem 1.2rem;
+    }
+  }
+</style>

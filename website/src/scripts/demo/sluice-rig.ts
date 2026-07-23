@@ -52,6 +52,23 @@ export interface RigConfig {
   setup: (clients: Record<string, RigClient>, server: unknown) => void;
   render: (client: RigClient) => void;
   canonical: (client: RigClient) => string;
+  /**
+   * Optional hook fired just before each queued frame is actually delivered
+   * (i.e. before the `sluice.step_info` call whose synchronous side effect
+   * hands the frame to the recipient runtime, which may in turn fan out a
+   * subscribed `ChannelEvent` before this hook returns). Lets a caller that
+   * needs to know *who authored* the op about to land — the rig already
+   * resolves sluice's sid to a `RigClient` for its own bookkeeping — thread
+   * that identity into a runtime `subscribe` handler without the rig needing
+   * to know anything about the kernel it's carrying. `author` is `null` for
+   * non-`"op"` events (handshake, signal) or when the author isn't a tracked
+   * client.
+   */
+  onBeforeDeliver?: (
+    delivery: Delivery,
+    author: RigClient | null,
+    to: RigClient,
+  ) => void;
 }
 
 export interface Rig {
@@ -67,6 +84,17 @@ export interface Rig {
   reset: () => void;
   renderAll: () => void;
   renderStatus: () => void;
+  /**
+   * Deliver exactly the next queued wave (one op's broadcast, or one
+   * handshake/signal frame) immediately, bypassing the paced network-latency
+   * timer. A no-op when nothing is queued.
+   */
+  step: () => void;
+  /**
+   * Drain every queued frame immediately (no animation, no paced delay) and
+   * clear all pending markers — "fast forward to convergence".
+   */
+  settleNow: () => void;
 }
 
 // Gleam `Some(x)` carries the value at index 0; `None` has no such field.
@@ -77,7 +105,7 @@ export function some<T>(option: unknown): T | null {
   return null;
 }
 
-interface Delivery {
+export interface Delivery {
   to: string;
   event: string;
   sequence_number: number;
@@ -232,6 +260,41 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     pumpTimer = setTimeout(pumpTick, delay);
   }
 
+  /** Stamp the sequencer counter and append an op-log line, but only once —
+   * on the delivery back to the op's own author (the "ack" leg). */
+  function ackIfAuthor(delivery: Delivery) {
+    if (delivery.to !== delivery.author) return;
+    const authorId = sidToId[delivery.author] ?? delivery.to;
+    stampSeqCounter(delivery.sequence_number);
+    logOp(
+      delivery.sequence_number,
+      authorId,
+      labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
+    );
+  }
+
+  /** Clear the delivered op's pending marker (if this was its author's ack)
+   * and re-render the recipient. Shared by the animated and instant paths so
+   * a manual `settleNow` drain lands identically to the paced one. */
+  function landDelivery(toId: string, delivery: Delivery) {
+    if (delivery.to === delivery.author) {
+      const pending = pendingBySn.get(delivery.sequence_number);
+      if (pending?.client === clients[toId]) {
+        pendingBySn.delete(delivery.sequence_number);
+        const markerStillPending = [...pendingBySn.values()].some(
+          (entry) =>
+            entry.client === pending.client && entry.marker === pending.marker,
+        );
+        if (!markerStillPending) {
+          pending.client.pending = pending.client.pending.filter(
+            (marker) => marker !== pending.marker,
+          );
+        }
+      }
+    }
+    config.render(clients[toId]);
+  }
+
   function deliver(delivery: Delivery) {
     const toId = sidToId[delivery.to];
     if (delivery.event !== "op" || !toId) return;
@@ -243,38 +306,27 @@ export function createSluiceRig(config: RigConfig): Rig | null {
       true,
       `SN ${delivery.sequence_number}`,
     );
-    if (delivery.to === delivery.author) {
-      const authorId = sidToId[delivery.author] ?? toId;
-      stampSeqCounter(delivery.sequence_number);
-      logOp(
-        delivery.sequence_number,
-        authorId,
-        labelBySn.get(delivery.sequence_number) ?? `SN ${delivery.sequence_number}`,
-      );
-    }
+    ackIfAuthor(delivery);
     inFlight += 1;
     const timer = setTimeout(() => {
       deliveryTimers.delete(timer);
-      if (delivery.to === delivery.author) {
-        const pending = pendingBySn.get(delivery.sequence_number);
-        if (pending?.client === clients[toId]) {
-          pendingBySn.delete(delivery.sequence_number);
-          const markerStillPending = [...pendingBySn.values()].some(
-            (entry) =>
-              entry.client === pending.client && entry.marker === pending.marker,
-          );
-          if (!markerStillPending) {
-            pending.client.pending = pending.client.pending.filter(
-              (marker) => marker !== pending.marker,
-            );
-          }
-        }
-      }
-      config.render(clients[toId]);
+      landDelivery(toId, delivery);
       inFlight = Math.max(0, inFlight - 1);
       renderStatus();
     }, duration);
     deliveryTimers.add(timer);
+  }
+
+  function fireBeforeDeliver(delivery: Delivery) {
+    if (!config.onBeforeDeliver) return;
+    const authorId = sidToId[delivery.author];
+    const toId = sidToId[delivery.to];
+    if (!toId) return;
+    config.onBeforeDeliver(
+      delivery,
+      authorId ? clients[authorId] : null,
+      clients[toId],
+    );
   }
 
   function pumpTick() {
@@ -296,18 +348,73 @@ export function createSluiceRig(config: RigConfig): Rig | null {
       if (outboundBySn.delete(waveSn)) inFlight = Math.max(0, inFlight - 1);
       let next: Delivery | null = first;
       while (next != null && next.event === "op" && next.sequence_number === waveSn) {
+        // step_info's delivery to the runtime is synchronous — fire the hook
+        // (e.g. to stamp the upcoming subscribe callback with its author)
+        // just before that side effect, using the still-undelivered peek.
+        fireBeforeDeliver(next);
         const delivery = some<Delivery>(sluice.step_info(server));
         if (delivery == null) break;
         deliver(delivery);
         next = some<Delivery>(sluice.peek_info(server));
       }
     } else {
+      fireBeforeDeliver(first);
       const delivery = some<Delivery>(sluice.step_info(server));
       if (delivery != null) deliver(delivery);
     }
 
     renderStatus();
     if (sluice.pending(server)) pump();
+  }
+
+  /** Deliver exactly the next queued wave immediately, no paced delay. */
+  function step() {
+    if (pumpTimer != null) {
+      clearTimeout(pumpTimer);
+      pumpTimer = null;
+    }
+    pumpTick();
+  }
+
+  /**
+   * Drain every queued frame immediately (no animation, no paced delay) —
+   * "fast forward to convergence". Unlike calling `sluice.settle` directly,
+   * this still routes each delivery through `deliver`'s ack/pending-clear
+   * bookkeeping and `config.onBeforeDeliver` (one delivery at a time, via
+   * `peek_info`/`step_info`, exactly like `pumpTick`'s wave loop), so the op
+   * log, sequence counter, and any author-routing a caller hooked in stay
+   * correct after a bulk settle, not just after the paced path.
+   */
+  function settleNow() {
+    if (pumpTimer != null) {
+      clearTimeout(pumpTimer);
+      pumpTimer = null;
+    }
+    for (const timer of deliveryTimers) clearTimeout(timer);
+    deliveryTimers.clear();
+    inFlight = 0;
+    let guard = 0;
+    const GUARD_LIMIT = 20000; // pathological-loop backstop, never expected
+    while (guard < GUARD_LIMIT) {
+      const next = some<Delivery>(sluice.peek_info(server));
+      if (next == null) break;
+      if (next.event === "op") outboundBySn.delete(next.sequence_number);
+      fireBeforeDeliver(next);
+      const delivery = some<Delivery>(sluice.step_info(server));
+      if (delivery == null) break;
+      const toId = sidToId[delivery.to];
+      if (delivery.event === "op" && toId) {
+        ackIfAuthor(delivery);
+        landDelivery(toId, delivery);
+      }
+      guard += 1;
+    }
+    outboundBySn.clear();
+    pendingBySn.clear();
+    lastOutboundArrival = 0;
+    for (const id of config.clientIds) clients[id].pending = [];
+    renderAll();
+    renderStatus();
   }
 
   function submit(
@@ -375,5 +482,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     reset,
     renderAll,
     renderStatus,
+    step,
+    settleNow,
   };
 }
