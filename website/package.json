@@ -2,7 +2,7 @@
   "name": "watershed-website",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@11.13.1",
   "scripts": {
     "predev": "cd .. && gleam build --target javascript",
     "dev": "astro dev",
@@ -12,9 +12,9 @@
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs"
   },
   "dependencies": {
-    "@fontsource-variable/archivo": "^5.2.5",
-    "@fontsource/fragment-mono": "^5.2.5",
-    "astro": "^6.4.6",
+    "@fontsource-variable/archivo": "^5.2.8",
+    "@fontsource/fragment-mono": "^5.2.8",
+    "astro": "^7.1.0",
     "quill": "2.0.3",
     "quill-cursors": "4.0.4",
     "rough-notation": "^0.5.1"
