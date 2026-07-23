@@ -47,6 +47,8 @@ import watershed/ordered_collection_kernel.{type OrderedOp}
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel.{type PnCounterOp}
 import watershed/register_collection_kernel.{type WriteOp, Write}
+import watershed/rich_text
+import watershed/rich_text_kernel.{type RichTextWireOp, RichTextWireOp}
 import watershed/sequence_kernel.{type SequenceOp}
 import watershed/task_manager_kernel.{type TaskManagerOp}
 import watershed/two_p_set_kernel.{type TwoPSetOp}
@@ -158,6 +160,7 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
     channel.PactMapOp(op) -> encode_pact_map_op(op)
     channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
     channel.SequenceOp(op) -> encode_sequence_op(op)
+    channel.RichTextOp(op) -> encode_rich_text_op(op)
   }
 }
 
@@ -192,6 +195,8 @@ pub fn channel_op_decoder(
       ordered_op_decoder() |> decode.map(channel.OrderedCollectionOp)
     channel.SequenceChannel ->
       sequence_op_decoder() |> decode.map(channel.SequenceOp)
+    channel.RichTextChannel ->
+      rich_text_op_decoder() |> decode.map(channel.RichTextOp)
   }
 }
 
@@ -422,6 +427,15 @@ pub fn encode_json_ot_op(op: JsonOtWireOp) -> Json {
   json.object([
     #("refSeq", json.int(op.ref_seq)),
     #("components", json_ot.op_to_json(op.components)),
+  ])
+}
+
+/// Encode a rich-text op envelope: the reference sequence number the delta
+/// was authored against plus the delta's canonical Quill-Delta JSON array.
+pub fn encode_rich_text_op(op: RichTextWireOp) -> Json {
+  json.object([
+    #("refSeq", json.int(op.ref_seq)),
+    #("delta", rich_text.delta_to_json(op.delta)),
   ])
 }
 
@@ -990,6 +1004,24 @@ pub fn json_ot_op_decoder() -> Decoder(JsonOtWireOp) {
   use ref_seq <- decode.field("refSeq", decode.int)
   use components <- decode.field("components", json_ot.op_decoder())
   decode.success(JsonOtWireOp(ref_seq, components))
+}
+
+/// Strict decoder for a rich-text op envelope. The `delta` field must decode
+/// as a well-formed Quill Delta (an insert/delete/retain operation array);
+/// malformed deltas fail the whole decode rather than silently dropping the
+/// op.
+pub fn rich_text_op_decoder() -> Decoder(RichTextWireOp) {
+  use ref_seq <- decode.field("refSeq", decode.int)
+  use delta <- decode.field("delta", rich_text_delta_decoder())
+  decode.success(RichTextWireOp(ref_seq, delta))
+}
+
+fn rich_text_delta_decoder() -> Decoder(rich_text.Delta) {
+  use raw <- decode.then(json_ot.decoder())
+  case rich_text.delta_from_json(raw) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(rich_text.empty_delta(), "RichTextDelta")
+  }
 }
 
 pub fn task_manager_op_decoder() -> Decoder(TaskManagerOp) {

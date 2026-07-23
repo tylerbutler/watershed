@@ -15,6 +15,7 @@
 //// Kernels stay pure and runtime-unaware; this module only wraps them.
 
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -41,6 +42,8 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/rich_text
+import watershed/rich_text_kernel
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
@@ -64,6 +67,7 @@ pub type ChannelType {
   DirectoryChannel
   OrderedCollectionChannel
   SequenceChannel
+  RichTextChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -84,6 +88,7 @@ pub type ChannelInit {
   InitDirectory
   InitOrderedCollection
   InitSequence
+  InitRichText
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -103,6 +108,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     DirectoryChannel -> wire.channel_type_directory
     OrderedCollectionChannel -> wire.channel_type_ordered_collection
     SequenceChannel -> wire.channel_type_sequence
+    RichTextChannel -> wire.channel_type_rich_text
   }
 }
 
@@ -125,6 +131,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_ordered_collection ->
       Ok(OrderedCollectionChannel)
     _ if raw == wire.channel_type_sequence -> Ok(SequenceChannel)
+    _ if raw == wire.channel_type_rich_text -> Ok(RichTextChannel)
     _ -> Error(Nil)
   }
 }
@@ -146,6 +153,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitDirectory -> DirectoryChannel
     InitOrderedCollection -> OrderedCollectionChannel
     InitSequence -> SequenceChannel
+    InitRichText -> RichTextChannel
   }
 }
 
@@ -166,6 +174,7 @@ pub type ChannelState {
   DirectoryState(directory_kernel.DirectoryState)
   OrderedCollectionState(ordered_collection_kernel.OrderedState)
   SequenceState(sequence_kernel.SequenceState)
+  RichTextState(rich_text_kernel.RichTextState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -192,6 +201,7 @@ pub type ChannelOp {
   DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
   OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
   SequenceOp(sequence_kernel.SequenceOp)
+  RichTextOp(rich_text_kernel.RichTextWireOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -211,6 +221,7 @@ pub type ChannelEvent {
   DirectoryEvent(directory_kernel.DirectoryEvent)
   OrderedCollectionEvent(ordered_collection_kernel.OrderedEvent)
   SequenceEvent(sequence_kernel.SequenceEvent)
+  RichTextEvent(rich_text_kernel.RichTextEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -236,6 +247,7 @@ pub type Snapshot {
     jobs: List(#(String, ordered_collection_kernel.JobEntry)),
   )
   SequenceSummary(state: Sequence(Json))
+  RichTextSnapshot(document: rich_text.Document)
 }
 
 pub type Resolution {
@@ -305,6 +317,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     DirectoryState(_) -> DirectoryChannel
     OrderedCollectionState(_) -> OrderedCollectionChannel
     SequenceState(_) -> SequenceChannel
+    RichTextState(_) -> RichTextChannel
   }
 }
 
@@ -325,6 +338,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     DirectorySnapshot(_) -> DirectoryChannel
     OrderedCollectionSnapshot(_, _) -> OrderedCollectionChannel
     SequenceSummary(_) -> SequenceChannel
+    RichTextSnapshot(_) -> RichTextChannel
   }
 }
 
@@ -354,6 +368,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitOrderedCollection ->
       OrderedCollectionState(ordered_collection_kernel.new())
     InitSequence -> SequenceState(sequence_kernel.new(replica_id.new(replica)))
+    InitRichText -> RichTextState(rich_text_kernel.new(client_id.to_int(replica)))
   }
 }
 
@@ -399,6 +414,11 @@ pub fn from_snapshot(
         state,
         replica_id.new(replica),
       ))
+    RichTextSnapshot(document) ->
+      RichTextState(rich_text_kernel.from_summary(
+        client_id.to_int(replica),
+        document,
+      ))
   }
 }
 
@@ -430,6 +450,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
         ordered_collection_kernel.summary_jobs(kernel),
       )
     SequenceState(kernel) -> SequenceSummary(kernel.sequenced)
+    RichTextState(kernel) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
   }
 }
 
@@ -483,6 +504,11 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
         ordered_collection_kernel.summary_jobs(kernel),
       )
     SequenceState(kernel) -> SequenceSummary(kernel.optimistic)
+    RichTextState(kernel) ->
+      case rich_text_kernel.view(kernel) {
+        Ok(document) -> RichTextSnapshot(document)
+        Error(_) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
+      }
   }
 }
 
@@ -616,6 +642,23 @@ pub fn apply_remote(
       let #(kernel, events) = sequence_kernel.apply_remote(kernel, op)
       Ok(#(SequenceState(kernel), list.map(events, SequenceEvent), []))
     }
+    RichTextState(kernel), RichTextOp(op) ->
+      case
+        rich_text_kernel.apply_remote(
+          kernel,
+          op,
+          meta.seq,
+          meta.author,
+          meta.min_seq,
+        )
+      {
+        Ok(#(kernel, events)) ->
+          Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), []))
+        Error(rich_text_kernel.UnexpectedAck(detail)) ->
+          Error(UnexpectedAck(detail))
+        Error(rich_text_kernel.RichTextFailure(err)) ->
+          Error(CorruptRemoteOp(rich_text_error_detail(err)))
+      }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -995,6 +1038,15 @@ pub fn ack_local(
         _ ->
           Error(UnexpectedAck("sequence ack is missing its local message id"))
       }
+    RichTextState(kernel), RichTextOp(op) ->
+      case rich_text_kernel.ack_local(kernel, op, meta.seq, meta.min_seq) {
+        Ok(#(kernel, events)) ->
+          Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), None))
+        Error(rich_text_kernel.UnexpectedAck(detail)) ->
+          Error(UnexpectedAck(detail))
+        Error(rich_text_kernel.RichTextFailure(err)) ->
+          Error(CorruptRemoteOp(rich_text_error_detail(err)))
+      }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -1009,6 +1061,18 @@ fn json_ot_error_detail(err: json_ot.OtError) -> String {
   }
 }
 
+/// A human-readable detail string for a rich-text pure-algebra failure, for
+/// wrapping in a `ChannelError`.
+fn rich_text_error_detail(err: rich_text.Error) -> String {
+  case err {
+    rich_text.Malformed(component, reason) ->
+      "rich-text malformed " <> component <> ": " <> reason
+    rich_text.InvalidApply(reason) -> "rich-text invalid apply: " <> reason
+    rich_text.InvalidBoundary(offset) ->
+      "rich-text invalid boundary at offset " <> int.to_string(offset)
+  }
+}
+
 /// Drain an op the kernel released onto the wire while an ack was ingested
 /// (json0's single-in-flight buffer promotion). Only json0 channels produce
 /// one; every other channel returns `None`.
@@ -1019,6 +1083,10 @@ pub fn take_outbound(
     JsonOtState(kernel) -> {
       let #(kernel, out) = json_ot_kernel.take_outbound(kernel)
       #(JsonOtState(kernel), option.map(out, JsonOtOp))
+    }
+    RichTextState(kernel) -> {
+      let #(kernel, out) = rich_text_kernel.take_outbound(kernel)
+      #(RichTextState(kernel), option.map(out, RichTextOp))
     }
     _ -> #(state, None)
   }
@@ -1066,6 +1134,8 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     OrderedCollectionOp(ours), OrderedCollectionOp(echoed) ->
       same_ordered_shape(ours, echoed)
     SequenceOp(ours), SequenceOp(echoed) -> same_sequence_shape(ours, echoed)
+    RichTextOp(ours), RichTextOp(echoed) ->
+      ours.ref_seq == echoed.ref_seq && ours.delta == echoed.delta
     _, _ -> False
   }
 }
@@ -1241,6 +1311,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
         sequence.to_json(ours, fn(value) { value }),
         sequence.to_json(echoed, fn(value) { value }),
       )
+    RichTextSnapshot(ours), RichTextSnapshot(echoed) -> ours == echoed
     _, _ -> False
   }
 }
@@ -1336,6 +1407,13 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       sequence_kernel.values(kernel)
       |> list.flat_map(handle.collect_handle_addresses)
       |> list.unique
+    RichTextState(kernel) -> {
+      let document = case rich_text_kernel.view(kernel) {
+        Ok(document) -> document
+        Error(_) -> rich_text_kernel.summary(kernel)
+      }
+      handle.collect_handle_addresses(rich_text.document_to_json(document))
+    }
   }
 }
 
@@ -1359,6 +1437,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     OrderedCollectionSnapshot(queue, jobs) ->
       encode_ordered_snapshot(queue, jobs)
     SequenceSummary(state) -> sequence.to_json(state, fn(value) { value })
+    RichTextSnapshot(document) -> rich_text.document_to_json(document)
   }
 }
 
@@ -1417,6 +1496,15 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
       directory_summary_decoder() |> decode.map(DirectorySnapshot)
     OrderedCollectionChannel -> ordered_snapshot_decoder()
     SequenceChannel -> sequence_summary_decoder()
+    RichTextChannel -> rich_text_snapshot_decoder()
+  }
+}
+
+fn rich_text_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(json_ot.decoder())
+  case rich_text.document_from_json(value) {
+    Ok(document) -> decode.success(RichTextSnapshot(document))
+    Error(_) -> decode.failure(MapSnapshot([]), "RichTextSnapshot")
   }
 }
 

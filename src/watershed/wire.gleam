@@ -66,6 +66,8 @@ pub const channel_type_directory = "directory"
 
 pub const channel_type_sequence = "sequence"
 
+pub const channel_type_rich_text = "richText"
+
 /// Encode map entries as the ordered `[{key, value}]` array shared by attach
 /// snapshots and summary blob channels.
 pub fn encode_entries(entries: List(#(String, Json))) -> Json {
