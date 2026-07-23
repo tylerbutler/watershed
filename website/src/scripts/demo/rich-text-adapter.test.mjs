@@ -156,6 +156,31 @@ test("remote delta with known author uses own=true only for that peer", () => {
   assert.equal(bobCall.isOwnOperation, false);
 });
 
+test("numeric peer id matches string author id for own-operation identity", () => {
+  const { adapter, transformSelection } = makeConfig();
+  // Peer cached under a numeric id...
+  adapter.replacePeerSelections([
+    { id: 1, selection: { index: 2, length: 0 } },
+    { id: 2, selection: { index: 5, length: 1 } },
+  ]);
+  transformSelection.calls.length = 0;
+  // ...but the remote event reports the author as a string.
+  adapter.applyChange({
+    delta: { ops: [{ insert: "y" }] },
+    local: false,
+    author: "1",
+  });
+  const peerOneCall = transformSelection.calls.find((c) => c.selection.index === 2);
+  const peerTwoCall = transformSelection.calls.find((c) => c.selection.index === 5);
+  assert.equal(peerOneCall.isOwnOperation, true);
+  assert.equal(peerTwoCall.isOwnOperation, false);
+  // The original numeric id is preserved for display on the cached entry.
+  const snapshot = adapter.getPeerSelections();
+  const peerOne = snapshot.find((p) => p.id === 1);
+  assert.equal(typeof peerOne.id, "number");
+  assert.equal(peerOne.selection.index, 2);
+});
+
 test("remote delta with unknown author uses own=false for all peers", () => {
   const { adapter, transformSelection } = makeConfig();
   adapter.replacePeerSelections([
@@ -248,4 +273,48 @@ test("caller-owned inputs are not mutated", () => {
   assert.equal(JSON.stringify(delta), frozenDeltaOps);
   assert.deepEqual(peerEntry.selection, { index: 2, length: 0 });
   assert.equal(remoteEvent.delta, delta);
+});
+
+test("transformSelection contract: wrapper reorders args and unwraps a generated-style Result", () => {
+  // Stand-in for the generated `rich_text.transform_selection(delta,
+  // selection, is_own_op) -> Result(Selection, Error)` FFI export: Gleam's
+  // argument order (delta first), returning a tagged Ok/Error rather than a
+  // plain Selection.
+  function fakeGeneratedTransformSelection(delta, selection, isOwnOp) {
+    if (delta?.malformed) {
+      return { isOk: false, error: "Malformed" };
+    }
+    const shift = typeof delta?.shift === "number" ? delta.shift : 0;
+    return {
+      isOk: true,
+      value: { index: selection.index + shift, length: selection.length },
+    };
+  }
+
+  // The integration wrapper callers must supply per the TransformSelection
+  // JSDoc contract: reorder to (selection, delta, isOwnOperation) and
+  // unwrap the Result, falling back to the untransformed selection on Error.
+  function wrapGeneratedTransformSelection(selection, delta, isOwnOperation) {
+    const result = fakeGeneratedTransformSelection(delta, selection, isOwnOperation);
+    if (!result.isOk) {
+      return selection; // explicit fallback on Error
+    }
+    return result.value;
+  }
+
+  const { editor, adapter } = makeConfig({
+    transformSelection: wrapGeneratedTransformSelection,
+  });
+  adapter.replacePeerSelections([{ id: "alice", selection: { index: 2, length: 0 } }]);
+
+  // Successful transform: the wrapper's unwrapped value is used.
+  editor.emitTextChange({ ops: [{ insert: "z" }], shift: 3 }, {}, "user");
+  let alice = adapter.getPeerSelections().find((p) => p.id === "alice");
+  assert.deepEqual(alice.selection, { index: 5, length: 0 });
+
+  // Error case: the wrapper falls back to the untransformed selection
+  // instead of leaking the Result wrapper into the cache.
+  editor.emitTextChange({ ops: [], malformed: true }, {}, "user");
+  alice = adapter.getPeerSelections().find((p) => p.id === "alice");
+  assert.deepEqual(alice.selection, { index: 5, length: 0 });
 });

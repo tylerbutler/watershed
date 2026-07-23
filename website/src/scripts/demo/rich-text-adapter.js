@@ -22,6 +22,12 @@
  * last-known selection and optional display metadata (name, color, ...).
  * Consumers may attach any extra fields; the adapter passes them through
  * unmodified (shallow-cloned) alongside `selection`.
+ *
+ * `id` may be a `string` or `number`, but is canonicalized (see
+ * `canonicalId`) for cache keys and author-identity comparisons so that,
+ * e.g., peer id `1` and author id `"1"` are treated as the same peer. The
+ * original `id` value supplied here is preserved on cached/snapshotted
+ * entries for display.
  * @typedef {Object} PeerSelectionEntry
  * @property {string|number} id
  * @property {RichTextSelection|null} selection
@@ -38,9 +44,11 @@
  * @property {boolean} local - `true` for the optimistic echo of our own
  *   submitted edit; `false` for a genuine remote change.
  * @property {string|number} [author] - Peer/user id who authored a remote
- *   change, when known. Omit or leave `undefined` when the author isn't
- *   available (e.g. anonymous broadcast); the adapter then treats every
- *   cached peer as remote and relies on the next heartbeat to reconcile.
+ *   change, when known. Compared against cached peer ids via `canonicalId`
+ *   (so `1` and `"1"` match). Omit or leave `undefined` when the author
+ *   isn't available (e.g. anonymous broadcast); the adapter then treats
+ *   every cached peer as remote and relies on the next heartbeat to
+ *   reconcile.
  */
 
 /**
@@ -54,8 +62,22 @@
  */
 
 /**
- * Pure selection-transform callback, corresponding to
- * `rich_text.transform_selection`. Must not mutate `selection` or `delta`.
+ * Pure selection-transform callback. This is **not** the generated
+ * `rich_text.transform_selection` FFI export itself — that Gleam function
+ * has signature `transform_selection(delta, selection, is_own_op) ->
+ * Result(Selection, Error)`, a different argument order and a wrapped
+ * result. Callers must supply a thin integration wrapper around it that:
+ *
+ *   1. Reorders arguments to `(selection, delta, isOwnOperation)`, calling
+ *      the generated function as
+ *      `transform_selection(delta, selection, isOwnOperation)`.
+ *   2. Unwraps the returned `Result(Selection, Error)`, surfacing or
+ *      falling back explicitly on `Error` (e.g. log and return the
+ *      untransformed `selection`, or rethrow) — never pass the `Result`
+ *      wrapper itself through as if it were a `RichTextSelection`.
+ *
+ * Must not mutate `selection` or `delta`.
+ *
  * @callback TransformSelection
  * @param {RichTextSelection} selection
  * @param {unknown} delta
@@ -94,6 +116,18 @@ const API_SOURCE = "api";
 // undoable delta. "silent" keeps Quill's History module from recording or
 // transforming it, unlike the "api" source used for incremental remote ops.
 const SILENT_SOURCE = "silent";
+
+/**
+ * Canonicalize a peer/author id for cache keys and identity comparisons, so
+ * that numeric and string representations of the same id (e.g. `1` and
+ * `"1"`) can never silently disagree. The original, non-canonicalized `id`
+ * is preserved on cached entries for display.
+ * @param {string|number} id
+ * @returns {string}
+ */
+function canonicalId(id) {
+  return typeof id === "number" ? String(id) : id;
+}
 
 /** @param {RichTextSelection|null|undefined} selection */
 function cloneSelection(selection) {
@@ -134,11 +168,11 @@ export function createRichTextAdapter(config) {
     }
   }
 
-  /** @type {Map<string|number, PeerSelectionEntry>} */
+  /** @type {Map<string, PeerSelectionEntry>} keyed by canonicalId(entry.id) */
   const peers = new Map();
   if (initialPeers) {
     for (const entry of initialPeers) {
-      peers.set(entry.id, clonePeerEntry(entry));
+      peers.set(canonicalId(entry.id), clonePeerEntry(entry));
     }
   }
 
@@ -157,16 +191,19 @@ export function createRichTextAdapter(config) {
    * identifies the peer whose own operation this is (isOwnOperation=true
    * for that one peer, false for the rest); pass `undefined` when the
    * operation isn't attributable to any cached peer, so every entry is
-   * transformed as a remote (isOwnOperation=false) change.
+   * transformed as a remote (isOwnOperation=false) change. Compared against
+   * cached peer ids via `canonicalId`, so numeric and string forms of the
+   * same id (e.g. `1` and `"1"`) match.
    * @param {unknown} delta
    * @param {string|number|undefined} ownAuthorId
    */
   function transformPeersThroughDelta(delta, ownAuthorId) {
     if (peers.size === 0) return;
+    const ownKey = ownAuthorId !== undefined ? canonicalId(ownAuthorId) : undefined;
     let touched = false;
     for (const [id, entry] of peers) {
       if (entry.selection == null) continue;
-      const isOwnOperation = ownAuthorId !== undefined && id === ownAuthorId;
+      const isOwnOperation = ownKey !== undefined && id === ownKey;
       const transformed = transformSelection(
         cloneSelection(entry.selection),
         delta,
@@ -237,7 +274,7 @@ export function createRichTextAdapter(config) {
         if (entry == null || entry.id == null) {
           throw new TypeError("peer selection entry requires an id");
         }
-        peers.set(entry.id, clonePeerEntry(entry));
+        peers.set(canonicalId(entry.id), clonePeerEntry(entry));
       }
       emitPeers();
     },
