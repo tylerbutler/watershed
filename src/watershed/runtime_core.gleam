@@ -43,6 +43,7 @@ import watershed/rich_text
 import watershed/rich_text_kernel
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
+import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/ops
@@ -104,6 +105,11 @@ pub type CoreError {
   /// subdirectory name). Retryable API misuse, not document corruption.
   DirectoryOpFailed(address: String, detail: String)
   SequenceOpFailed(address: String, detail: String)
+  /// A local text edit was rejected by the kernel (out-of-bounds insert
+  /// index, invalid delete/replace range). Retryable API misuse, not
+  /// document corruption. Valid empty edits never reach this path; the
+  /// kernel reports them as successful no-ops (see `text_kernel`).
+  TextOpFailed(address: String, detail: String)
 }
 
 pub type Bootstrapped {
@@ -2127,6 +2133,117 @@ pub fn sequence_replace(
   ))
 }
 
+/// Text mutations route through `Option(text_kernel.Submission)` rather than
+/// always producing an op: valid empty edits (see `text_kernel` module docs)
+/// are true no-ops. `Some` updates state, emits events, and stamps/submits
+/// one channel op when attached; `None` leaves state and runtime submission
+/// counters untouched and produces no event and no outbound op.
+fn mutate_text(
+  core: Core,
+  address: String,
+  mutate: fn(text_kernel.TextState) ->
+    Result(
+      #(
+        text_kernel.TextState,
+        List(text_kernel.TextEvent),
+        Option(text_kernel.Submission),
+      ),
+      text_kernel.EditError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  case locate_text(core, address) {
+    Error(error) -> Error(error)
+    Ok(Detached(kernel)) ->
+      case mutate(kernel) {
+        Error(error) ->
+          Error(TextOpFailed(address, text_kernel.edit_error_detail(error)))
+        Ok(#(kernel, events, _submission)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.TextState(kernel)),
+              tag_text_events(address, events),
+              [],
+            ),
+          )
+      }
+    Ok(Attached(kernel)) ->
+      case mutate(kernel) {
+        Error(error) ->
+          Error(TextOpFailed(address, text_kernel.edit_error_detail(error)))
+        Ok(#(kernel, events, Some(text_kernel.Submission(op, message_id)))) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.TextState(kernel),
+            tag_text_events(address, events),
+            channel.TextOp(op),
+            channel.TextMeta(message_id),
+          ))
+        Ok(#(kernel, events, None)) ->
+          Ok(
+            #(
+              put_attached_channel(core, address, channel.TextState(kernel)),
+              tag_text_events(address, events),
+              [],
+            ),
+          )
+      }
+  }
+}
+
+pub fn text_insert(
+  core: Core,
+  address: String,
+  index: Int,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_text(core, address, text_kernel.insert(_, index, value))
+}
+
+pub fn text_delete_range(
+  core: Core,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_text(core, address, text_kernel.delete_range(_, start, end))
+}
+
+pub fn text_replace_range(
+  core: Core,
+  address: String,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_text(core, address, text_kernel.replace_range(_, start, end, value))
+}
+
+pub fn text_append(
+  core: Core,
+  address: String,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  CoreError,
+) {
+  mutate_text(core, address, fn(kernel) {
+    Ok(text_kernel.append(kernel, value))
+  })
+}
+
 pub fn g_set_add(
   core: Core,
   address: String,
@@ -2734,6 +2851,23 @@ fn locate_sequence(
   }
 }
 
+fn locate_text(
+  core: Core,
+  address: String,
+) -> Result(Located(text_kernel.TextState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.TextState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.TextState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.TextChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_g_set(
   core: Core,
   address: String,
@@ -3122,6 +3256,13 @@ fn tag_sequence_events(
   list.map(events, fn(event) { #(address, channel.SequenceEvent(event)) })
 }
 
+fn tag_text_events(
+  address: String,
+  events: List(text_kernel.TextEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.TextEvent(event)) })
+}
+
 fn tag_g_set_events(
   address: String,
   events: List(g_set_kernel.GSetEvent),
@@ -3331,6 +3472,152 @@ pub fn sequence_length(core: Core, address: String) -> Int {
   case find_channel(core, address) {
     Some(channel.SequenceState(kernel)) -> sequence_kernel.length(kernel)
     _ -> 0
+  }
+}
+
+/// The text channel's current optimistic visible string, `""` when the
+/// address is missing or not a text channel.
+pub fn text_value(core: Core, address: String) -> String {
+  case find_channel(core, address) {
+    Some(channel.TextState(kernel)) -> text_kernel.value(kernel)
+    _ -> ""
+  }
+}
+
+/// The text channel's current optimistic grapheme count, `0` when the
+/// address is missing or not a text channel.
+pub fn text_length(core: Core, address: String) -> Int {
+  case find_channel(core, address) {
+    Some(channel.TextState(kernel)) -> text_kernel.length(kernel)
+    _ -> 0
+  }
+}
+
+/// The graphemes in `[start, end)` of the text channel's optimistic string.
+/// An explicit error string when `start..end` is invalid, the address is
+/// missing, or the address is not a text channel.
+pub fn text_substring(
+  core: Core,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(String, String) {
+  case find_channel(core, address) {
+    Some(channel.TextState(kernel)) ->
+      case text_kernel.substring(kernel, start, end) {
+        Ok(value) -> Ok(value)
+        Error(error) -> Error(text_kernel.edit_error_detail(error))
+      }
+    _ ->
+      Error(
+        "text substring requires a text channel at "
+        <> address
+        <> ", found none",
+      )
+  }
+}
+
+/// Create a stable anchor at the gap at `index`; `bias` selects which
+/// adjacent grapheme the anchor binds to (`Before` binds to the following
+/// grapheme, `After` to the preceding one — see `text_kernel.Bias`). An
+/// explicit error string on an out-of-bounds index, a missing address, or a
+/// non-text channel.
+pub fn text_anchor_at(
+  core: Core,
+  address: String,
+  index: Int,
+  bias: text_kernel.Bias,
+) -> Result(text_kernel.TextAnchor, String) {
+  case find_channel(core, address) {
+    Some(channel.TextState(kernel)) ->
+      case text_kernel.anchor_at(kernel, index, bias) {
+        Ok(anchor) -> Ok(anchor)
+        Error(error) -> Error(text_kernel.anchor_error_detail(error))
+      }
+    _ ->
+      Error(
+        "text anchor_at requires a text channel at "
+        <> address
+        <> ", found none",
+      )
+  }
+}
+
+/// Resolve an anchor to a current optimistic grapheme index. An explicit
+/// error string on a stale/unknown anchor target, a missing address, or a
+/// non-text channel.
+pub fn text_resolve_anchor(
+  core: Core,
+  address: String,
+  anchor: text_kernel.TextAnchor,
+) -> Result(Int, String) {
+  case find_channel(core, address) {
+    Some(channel.TextState(kernel)) ->
+      case text_kernel.resolve_anchor(kernel, anchor) {
+        Ok(index) -> Ok(index)
+        Error(error) -> Error(text_kernel.anchor_error_detail(error))
+      }
+    _ ->
+      Error(
+        "text resolve_anchor requires a text channel at "
+        <> address
+        <> ", found none",
+      )
+  }
+}
+
+/// An anchor at the start of the text. Always resolves to 0. Pure —
+/// doesn't need a `Core`/`address` since it carries no document state.
+pub fn text_start_anchor() -> text_kernel.TextAnchor {
+  text_kernel.start_anchor()
+}
+
+/// An anchor at the end of the text. Always resolves to the current
+/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> text_kernel.TextAnchor {
+  text_kernel.end_anchor()
+}
+
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors.
+pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
+  text_kernel.anchor_to_json(anchor)
+}
+
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
+/// An explicit error string on malformed JSON.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(text_kernel.TextAnchor, String) {
+  case text_kernel.anchor_from_json(json_string) {
+    Ok(anchor) -> Ok(anchor)
+    Error(error) ->
+      Error("invalid anchor JSON: " <> format_json_decode_error(error))
+  }
+}
+
+/// Format a `json.DecodeError` as a human-readable string.
+/// Follows the variant-pattern convention established in roost/frame.gleam.
+fn format_json_decode_error(error: json.DecodeError) -> String {
+  case error {
+    json.UnexpectedEndOfInput -> "unexpected end of input"
+    json.UnexpectedByte(byte) -> "unexpected byte: " <> byte
+    json.UnexpectedSequence(seq) -> "unexpected sequence: " <> seq
+    json.UnableToDecode(errors) ->
+      "unable to decode: "
+      <> string.join(
+        list.map(errors, fn(e) {
+          "expected "
+          <> e.expected
+          <> ", found "
+          <> e.found
+          <> case e.path {
+            [] -> ""
+            path -> " at " <> string.join(path, ".")
+          }
+        }),
+        "; ",
+      )
   }
 }
 

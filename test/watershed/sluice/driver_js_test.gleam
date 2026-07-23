@@ -26,12 +26,17 @@ import watershed/sequence_kernel
 @target(javascript)
 import watershed/sluice_js
 @target(javascript)
+import watershed/text_kernel
+@target(javascript)
 import watershed/transport_js
 @target(javascript)
 import watershed_js
 
 @target(javascript)
 type SequenceFields
+
+@target(javascript)
+type TextFields
 
 @target(javascript)
 fn same_entries(
@@ -368,4 +373,249 @@ pub fn runtime_rich_text_create_submit_and_view_test() {
   )
   runtime_js.rich_text_view(runtime, address)
   |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared text
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn shared_text_converges_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "shared-text-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(text_a) = watershed_js.create_text(doc_a)
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 0, "base")
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "doc",
+    watershed_js.text_handle_of(text_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(text_handle) =
+    watershed_js.get(watershed_js.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed_js.resolve_text(doc_b, text_handle)
+  // A map handle does not resolve as text.
+  case
+    watershed_js.resolve_text(
+      doc_b,
+      watershed_js.handle_of(watershed_js.root(doc_b)),
+    )
+  {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected map handle resolution to fail for SharedText"
+  }
+  watershed_js.text_value(text_b) |> expect.to_equal("base")
+
+  // Concurrent inserts at the same index (both authors type at the gap
+  // before "base" before either has seen the other's edit) still converge:
+  // both replicas end up with the same string, containing both insertions.
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 0, "A-")
+  let assert Ok(Nil) = watershed_js.text_insert(text_b, 0, "B-")
+  sluice_js.settle(sluice)
+
+  watershed_js.text_value(text_a)
+  |> expect.to_equal(watershed_js.text_value(text_b))
+  let converged = watershed_js.text_value(text_a)
+  string.contains(converged, "A-") |> expect.to_be_true()
+  string.contains(converged, "B-") |> expect.to_be_true()
+  string.contains(converged, "base") |> expect.to_be_true()
+
+  // Overlapping delete-range (A) racing a replace-range (B) over intersecting
+  // spans still converges deterministically once both sides have merged.
+  let assert Ok(Nil) =
+    watershed_js.text_replace_range(
+      text_a,
+      0,
+      watershed_js.text_length(text_a),
+      "abcdef",
+    )
+  sluice_js.settle(sluice)
+  let assert Ok(Nil) = watershed_js.text_delete_range(text_a, 1, 4)
+  let assert Ok(Nil) = watershed_js.text_replace_range(text_b, 2, 5, "XY")
+  sluice_js.settle(sluice)
+  watershed_js.text_value(text_a)
+  |> expect.to_equal(watershed_js.text_value(text_b))
+
+  // An append racing a concurrent insert also converges.
+  let assert Ok(Nil) = watershed_js.text_append(text_a, "!!!")
+  let assert Ok(Nil) = watershed_js.text_insert(text_b, 0, ">>")
+  sluice_js.settle(sluice)
+  watershed_js.text_value(text_a)
+  |> expect.to_equal(watershed_js.text_value(text_b))
+
+  // A late joiner replays history and lands on the same text.
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+  let assert Some(handle_for_c) =
+    watershed_js.get(watershed_js.root(doc_c), "doc")
+  let assert Ok(text_c) = watershed_js.resolve_text(doc_c, handle_for_c)
+  watershed_js.text_value(text_c)
+  |> expect.to_equal(watershed_js.text_value(text_a))
+}
+
+@target(javascript)
+pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
+  // "e" + combining acute (U+0301) is one grapheme cluster, and a
+  // ZWJ-joined family emoji is a single grapheme despite many codepoints —
+  // both must survive concurrent edits and index math intact.
+  let sluice =
+    sluice_js.start(tenant: "default", document: "shared-text-emoji-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(text_a) = watershed_js.create_text(doc_a)
+  let combining_e = "e\u{0301}"
+  let family =
+    "👩" <> "\u{200D}" <> "👩" <> "\u{200D}" <> "👧" <> "\u{200D}" <> "👦"
+  let assert Ok(Nil) =
+    watershed_js.text_insert(text_a, 0, combining_e <> family)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "doc",
+    watershed_js.text_handle_of(text_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed_js.resolve_text(doc_b, handle)
+  watershed_js.text_length(text_b) |> expect.to_equal(2)
+  watershed_js.text_value(text_b) |> expect.to_equal(combining_e <> family)
+  watershed_js.text_substring(text_b, 0, 1) |> expect.to_equal(Ok(combining_e))
+  watershed_js.text_substring(text_b, 1, 2) |> expect.to_equal(Ok(family))
+
+  // Concurrent grapheme-cluster inserts between the two clusters, plus a
+  // mixed-script append, converge to the same visible string on both sides.
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 1, "🎉")
+  let assert Ok(Nil) = watershed_js.text_append(text_b, "日д")
+  sluice_js.settle(sluice)
+
+  watershed_js.text_value(text_a)
+  |> expect.to_equal(watershed_js.text_value(text_b))
+  watershed_js.text_length(text_a) |> expect.to_equal(5)
+  watershed_js.text_value(text_a)
+  |> expect.to_equal(combining_e <> "🎉" <> family <> "日д")
+}
+
+@target(javascript)
+pub fn shared_text_invalid_bounds_return_errors_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "shared-text-invalid-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let assert Ok(text) = watershed_js.create_text(document)
+  let assert Ok(Nil) = watershed_js.text_insert(text, 0, "hello")
+
+  watershed_js.text_insert(text, 99, "x")
+  |> expect.to_equal(Error("insert index 99 outside 0..5"))
+  watershed_js.text_insert(text, -1, "x")
+  |> expect.to_equal(Error("insert index -1 outside 0..5"))
+  watershed_js.text_delete_range(text, 3, 1)
+  |> expect.to_equal(Error("delete range 3..1 invalid for length 5"))
+  watershed_js.text_delete_range(text, 0, 99)
+  |> expect.to_equal(Error("delete range 0..99 invalid for length 5"))
+  watershed_js.text_replace_range(text, 0, 99, "x")
+  |> expect.to_equal(Error("replace range 0..99 invalid for length 5"))
+  watershed_js.text_substring(text, 0, 99)
+  |> expect.to_equal(Error("substring range 0..99 invalid for length 5"))
+
+  // None of the rejected edits changed the text or left pending debris.
+  watershed_js.text_value(text) |> expect.to_equal("hello")
+}
+
+@target(javascript)
+pub fn shared_text_no_op_edits_do_not_submit_test() {
+  // No-op edits (an empty insert/append, or a zero-length delete/replace)
+  // must not submit a channel op: subscribers see no event, and a peer that
+  // never delivers anything still converges since nothing was ever sent.
+  let sluice =
+    sluice_js.start(tenant: "default", document: "shared-text-no-op-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(text_a) = watershed_js.create_text(doc_a)
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 0, "hello")
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "doc",
+    watershed_js.text_handle_of(text_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed_js.resolve_text(doc_b, handle)
+
+  let events = transport_js.new_cell([])
+  watershed_js.subscribe_text(text_a, fn(event) {
+    transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+  })
+
+  // An empty insert at a valid index is a no-op: it returns Ok(Nil), fires
+  // no event, and never reaches the wire.
+  watershed_js.text_insert(text_a, 2, "") |> expect.to_equal(Ok(Nil))
+  // A zero-length delete-range/replace-range is likewise a no-op.
+  watershed_js.text_delete_range(text_a, 2, 2) |> expect.to_equal(Ok(Nil))
+  watershed_js.text_replace_range(text_a, 2, 2, "") |> expect.to_equal(Ok(Nil))
+  // Appending "" is a no-op too.
+  watershed_js.text_append(text_a, "") |> expect.to_equal(Ok(Nil))
+
+  transport_js.get_cell(events) |> expect.to_equal([])
+  sluice_js.settle(sluice)
+
+  // Nothing was ever submitted, so B never saw an update and both sides
+  // remain exactly "hello".
+  watershed_js.text_value(text_a) |> expect.to_equal("hello")
+  watershed_js.text_value(text_b) |> expect.to_equal("hello")
+}
+
+@target(javascript)
+pub fn shared_text_subscription_narrows_local_events_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "shared-text-subscription-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let assert Ok(text) = watershed_js.create_text(document)
+  let events = transport_js.new_cell([])
+  watershed_js.subscribe_text(text, fn(event) {
+    transport_js.set_cell(events, [event])
+  })
+  let assert Ok(Nil) = watershed_js.text_insert(text, 0, "first")
+
+  transport_js.get_cell(events)
+  |> expect.to_equal([text_kernel.TextChanged("first")])
+}
+
+@target(javascript)
+pub fn ensure_text_adopts_stored_field_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "ensure-text-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let field: schema.ChannelField(TextFields, schema.TextChannel) =
+    schema.channel_field("body")
+  let root_a: watershed_js.TypedMap(TextFields) = watershed_js.root_typed(doc_a)
+  let root_b: watershed_js.TypedMap(TextFields) = watershed_js.root_typed(doc_b)
+  sluice_js.settle(sluice)
+
+  let assert Ok(text_a) = watershed_js.create_text(doc_a)
+  watershed_js.set_text_field(root_a, field, text_a)
+  sluice_js.settle(sluice)
+
+  let result = transport_js.new_cell(None)
+  watershed_js.ensure_text(doc_b, root_b, field, fn(value) {
+    transport_js.set_cell(result, Some(value))
+  })
+  let assert Some(Ok(text_b)) = transport_js.get_cell(result)
+  let assert Ok(Some(resolved)) =
+    watershed_js.resolve_text_field(doc_b, root_b, field)
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 0, "ensured")
+  sluice_js.settle(sluice)
+  watershed_js.text_value(text_b)
+  |> expect.to_equal(watershed_js.text_value(resolved))
 }

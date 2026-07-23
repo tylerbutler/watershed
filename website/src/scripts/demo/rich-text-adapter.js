@@ -1,9 +1,8 @@
 // Reusable bridge between a Quill-compatible editor and Watershed's
 // SharedRichText callbacks. This module is dependency-free (no Quill import)
-// so it can be unit-tested with a fake editor and Node's built-in test
-// runner; the real rich-text demo (a later task) wires an actual Quill
-// instance plus the generated `rich_text`/`rich_text_kernel` bindings through
-// the injected callbacks below.
+// so it can be unit-tested with a fake editor and Node's built-in test runner.
+// The rich-text demo wires an actual Quill instance plus the generated
+// `rich_text`/`rich_text_kernel` bindings through the injected callbacks below.
 //
 // The adapter never hard-codes a generated Gleam module path: conversion,
 // submission, and transform behaviour all arrive as plain functions in

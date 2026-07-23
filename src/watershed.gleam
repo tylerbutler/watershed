@@ -45,6 +45,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 
 @target(erlang)
+import lattice_sequence/sequence.{After, Before}
+
+@target(erlang)
 import signet/types as token
 @target(erlang)
 import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
@@ -92,6 +95,8 @@ import watershed/schema.{
 import watershed/sequence_kernel
 @target(erlang)
 import watershed/task_manager_kernel
+@target(erlang)
+import watershed/text_kernel
 @target(erlang)
 import watershed/two_p_set_kernel
 @target(erlang)
@@ -189,6 +194,34 @@ pub opaque type OrderedCollection {
 pub opaque type SharedSequence {
   SharedSequence(runtime: Subject(runtime.Msg), address: String)
 }
+
+@target(erlang)
+pub opaque type SharedText {
+  SharedText(runtime: Subject(runtime.Msg), address: String)
+}
+
+@target(erlang)
+/// A stable position in a `SharedText`'s optimistic string that survives
+/// concurrent edits and merges. Opaque so callers can't construct one
+/// without going through `text_anchor_at`, `text_start_anchor`,
+/// `text_end_anchor`, or `text_anchor_from_json`.
+pub type TextAnchor =
+  text_kernel.TextAnchor
+
+@target(erlang)
+/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
+/// gap. `bias_before` binds to the following grapheme (inserts at the gap
+/// push it right); `bias_after` binds to the preceding grapheme (inserts at
+/// the gap land after it). Re-exported so callers don't need a direct
+/// `lattice_sequence` dependency to build one.
+pub type Bias =
+  text_kernel.Bias
+
+@target(erlang)
+pub const bias_before: Bias = Before
+
+@target(erlang)
+pub const bias_after: Bias = After
 
 @target(erlang)
 /// Connect to a document, blocking until the handshake completes and the
@@ -688,6 +721,26 @@ pub fn resolve_sequence_field(
 }
 
 @target(erlang)
+/// Store a handle to `text` under a typed channel field.
+pub fn set_text_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+  text: SharedText,
+) -> Nil {
+  put_channel_field(typed_map, field, text_handle_of(text))
+}
+
+@target(erlang)
+/// Resolve the text channel referenced by a typed channel field.
+pub fn resolve_text_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+) -> Result(Option(SharedText), String) {
+  get_channel_field(document, typed_map, field, resolve_text)
+}
+
+@target(erlang)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
@@ -1066,6 +1119,26 @@ pub fn ensure_sequence(
       set_sequence_field(typed_map, field, sequence)
     },
     fn() { resolve_sequence_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Ensure a text channel exists under `field`, seeding an empty one if the
+/// slot is empty.
+pub fn ensure_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+) -> Result(SharedText, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use text <- result.map(create_text(document))
+      set_text_field(typed_map, field, text)
+    },
+    fn() { resolve_text_field(document, typed_map, field) },
   )
 }
 
@@ -1805,6 +1878,187 @@ pub fn subscribe_sequence(
   use event <- subscribe_narrowed(sequence.runtime, sequence.address)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared text
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+pub fn create_text(document: Document) -> Result(SharedText, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_ms,
+    sending: runtime.CreateText,
+  )
+  |> result.map(fn(address) {
+    SharedText(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn text_handle_of(text: SharedText) -> Json {
+  handle.encode_handle(text.address)
+}
+
+@target(erlang)
+pub fn resolve_text(
+  document: Document,
+  value: Json,
+) -> Result(SharedText, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_text(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedText(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Insert `value` at zero-based grapheme `index`, from `0` through the text
+/// length. Inserting `""` is a no-op: it returns `Ok(Nil)` without emitting
+/// an event or submitting a channel op.
+pub fn text_insert(
+  text: SharedText,
+  index: Int,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.InsertText(text.address, index, value, reply)
+  })
+}
+
+@target(erlang)
+/// Delete the graphemes in `[start, end)`. An empty range (`start == end`)
+/// is a no-op.
+pub fn text_delete_range(
+  text: SharedText,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.DeleteRangeText(text.address, start, end, reply)
+  })
+}
+
+@target(erlang)
+/// Replace the graphemes in `[start, end)` with `value` as one
+/// collaborative operation. Replacing an empty range with `""` is a no-op.
+pub fn text_replace_range(
+  text: SharedText,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.ReplaceRangeText(text.address, start, end, value, reply)
+  })
+}
+
+@target(erlang)
+/// Append `value` to the end of the text. Appending `""` is a no-op.
+pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.AppendText(text.address, value, reply)
+  })
+}
+
+@target(erlang)
+/// The text's current optimistic visible string.
+pub fn text_value(text: SharedText) -> String {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetTextValue(text.address, reply)
+  })
+}
+
+@target(erlang)
+/// The text's current optimistic grapheme count.
+pub fn text_length(text: SharedText) -> Int {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetTextLength(text.address, reply)
+  })
+}
+
+@target(erlang)
+/// The graphemes in `[start, end)` of the text's optimistic string. An
+/// explicit error string when `start..end` is invalid.
+pub fn text_substring(
+  text: SharedText,
+  start: Int,
+  end: Int,
+) -> Result(String, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetTextSubstring(text.address, start, end, reply)
+  })
+}
+
+@target(erlang)
+/// Create a stable anchor at the gap before/after the optimistic grapheme
+/// at `index`, per `bias` (see `bias_before`/`bias_after`). An explicit
+/// error string on an out-of-bounds index.
+pub fn text_anchor_at(
+  text: SharedText,
+  index: Int,
+  bias: Bias,
+) -> Result(TextAnchor, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.TextAnchorAt(text.address, index, bias, reply)
+  })
+}
+
+@target(erlang)
+/// Resolve an anchor to its current optimistic grapheme index. An explicit
+/// error string on a stale/unknown anchor target (the holder should
+/// re-anchor).
+pub fn text_resolve_anchor(
+  text: SharedText,
+  anchor: TextAnchor,
+) -> Result(Int, String) {
+  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.TextResolveAnchor(text.address, anchor, reply)
+  })
+}
+
+@target(erlang)
+/// An anchor at the start of the text. Always resolves to `0`.
+pub fn text_start_anchor() -> TextAnchor {
+  runtime.text_start_anchor()
+}
+
+@target(erlang)
+/// An anchor at the end of the text. Always resolves to the current
+/// grapheme length, tracking growth.
+pub fn text_end_anchor() -> TextAnchor {
+  runtime.text_end_anchor()
+}
+
+@target(erlang)
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors.
+pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
+  runtime.text_anchor_to_json(anchor)
+}
+
+@target(erlang)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
+/// An explicit error string on malformed JSON.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(TextAnchor, String) {
+  runtime.text_anchor_from_json(json_string)
+}
+
+@target(erlang)
+/// Subscribe the calling process to this text's events, local and remote
+/// alike. The subject carries `text_kernel.TextEvent` — text events only.
+pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
+  use event <- subscribe_narrowed(text.runtime, text.address)
+  case event {
+    channel.TextEvent(inner) -> Some(inner)
     _ -> None
   }
 }

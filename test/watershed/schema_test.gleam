@@ -472,3 +472,70 @@ pub fn sequence_channel_field_test() {
     schema.channel_field("items")
   schema.channel_field_key(items) |> expect.to_equal("items")
 }
+
+// ── TextChannel ───────────────────────────────────────────────────────────────
+//
+// TextChannel is a phantom kind tag for collaborative plain-text channels.
+// Like every ChannelField, it carries only the key at runtime; the kind
+// guides the compiler to the matching facade resolver family.
+
+pub fn text_channel_field_key_returns_key_test() {
+  let body: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("body")
+  schema.channel_field_key(body) |> expect.to_equal("body")
+}
+
+pub fn text_channel_kind_is_phantom_test() {
+  // The kind tag scopes a field to one resolver family at compile time:
+  // passing a TextChannel field to `resolve_sequence_field` or
+  // `resolve_counter_field` would be a type error (pinned here as
+  // documentation — it cannot be a runtime case).
+  let doc: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("doc")
+  let items: schema.ChannelField(Player, schema.SequenceChannel) =
+    schema.channel_field("items")
+  schema.channel_field_key(doc) |> expect.to_equal("doc")
+  schema.channel_field_key(items) |> expect.to_equal("items")
+}
+
+pub fn text_channel_composes_with_typed_map_fields_test() {
+  // A typed map tagged `Player` can hold plain Fields *and* ChannelFields of
+  // any kind — all share the same phantom schema tag. This confirms TextChannel
+  // integrates with the full field vocabulary without special machinery.
+  let name_field: schema.Field(Player, String) = name()
+  let total_field: schema.Field(Player, Int) = total()
+  let bio: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("bio")
+  let notes: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("notes")
+  schema.field_key(name_field) |> expect.to_equal("name")
+  schema.field_key(total_field) |> expect.to_equal("total")
+  schema.channel_field_key(bio) |> expect.to_equal("bio")
+  schema.channel_field_key(notes) |> expect.to_equal("notes")
+}
+
+pub fn text_channel_composes_with_child_field_test() {
+  // A typed map can mix ChildField (nested typed map), plain Field, and
+  // ChannelField(TextChannel) — all bound to the same schema phantom.
+  let roster: schema.ChildField(Player, Player) = schema.child_field("roster")
+  let bio: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("bio")
+  schema.child_key(roster) |> expect.to_equal("roster")
+  schema.channel_field_key(bio) |> expect.to_equal("bio")
+}
+
+pub fn text_channel_field_in_record_schema_test() {
+  // ChannelFields are declared alongside the Schema's plain fields; here we
+  // confirm the phantom tag stays coherent: all accessors are tagged Player
+  // and no runtime error occurs when querying keys from both field kinds in
+  // the same logical map shape.
+  let s = schema.record1(Solo, schema.prop(name(), fn(s: Solo) { s.name }))
+  let doc: schema.ChannelField(Player, schema.TextChannel) =
+    schema.channel_field("doc")
+  // The channel field key is accessible alongside the record schema.
+  schema.channel_field_key(doc) |> expect.to_equal("doc")
+  // The record schema encodes/decodes its declared fields normally.
+  let value = Solo(name: "lin")
+  let entries = apply_ops([], schema.encode_ops(s, value))
+  schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
+}

@@ -1,0 +1,714 @@
+---
+const clients = [
+  { id: "a", name: "Client A" },
+  { id: "b", name: "Client B" },
+  { id: "c", name: "Client C" },
+];
+---
+
+<section id="text-demo" class="demo" aria-labelledby="text-demo-title">
+  <div class="demo-head" data-reveal="rise">
+    <h2 id="text-demo-title">One shared string, live</h2>
+    <p>
+      All three clients are real <code>watershed</code> documents sharing one
+      <code>SharedText</code> — a collaboratively-typed string. One client
+      creates it and shares the handle; the others resolve it. They talk to one
+      <code>sluice</code>, the in-memory server that ships in the library for
+      deterministic tests — the real runtime, no backend. Type in any editor:
+      your keystrokes show in <strong class="k-pending">magenta</strong> while
+      pending, then settle to <strong class="k-seq">ink</strong> once the sluice
+      sequences them and every replica lands the same text.
+    </p>
+    <p class="demo-hint">
+      Every keystroke is diffed into <em>one</em> minimal grapheme edit — an
+      insert, delete, or replace against <strong>grapheme indexes</strong>,
+      never raw UTF-16 offsets. Stage a race: <strong>Crowd an insert</strong>
+      has B and C type different words at the same spot; <strong
+        >Overlapping edit</strong
+      > has B replace a word while C deletes across it. Both converge, because
+      each grapheme keeps a stable identity — the delta names graphemes, not
+      character positions.
+    </p>
+    <p class="grapheme-legend">
+      The seed text is grapheme-rich on purpose.
+      <span class="g-chip">👨‍👩‍👧</span> is a
+      <strong>ZWJ sequence</strong> — several code points joined into
+      <em>one</em> grapheme, one index; a cursor can never split it. The
+      <strong>í</strong> in <span class="g-chip">río</span> is a letter plus a
+      <strong>combining accent</strong> — again one grapheme. And
+      <span class="g-chip">🏞️</span> carries a variation selector. SharedText
+      indexes by grapheme, so none of these can be bisected by an edit.
+    </p>
+  </div>
+
+  <div class="rig" data-text-rig>
+    {
+      clients.map((c) => (
+        <article
+          class="client"
+          data-client={c.id}
+          aria-label={`${c.name} replica`}
+          style={`grid-area: ${c.id}`}
+        >
+          <header class="client-head">
+            <h3>{c.name}</h3>
+            <span class="counts">
+              <span class="grapheme-count annot" data-grapheme-count>
+                0 graphemes
+              </span>
+              <span class="pending-count annot" data-pending-count>
+                0 pending
+              </span>
+            </span>
+          </header>
+          <label class="editor-label annot" for={`text-editor-${c.id}`}>
+            {c.name} editor — type to edit the shared text
+          </label>
+          <textarea
+            id={`text-editor-${c.id}`}
+            class="text-editor"
+            data-text-editor
+            rows="3"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            aria-describedby={`anchor-readout-${c.id}`}
+            disabled
+          />
+          <div class="pane-actions">
+            <button type="button" class="node-action" data-anchor-pin disabled>
+              Pin anchor at caret
+            </button>
+            <button
+              type="button"
+              class="node-action"
+              data-anchor-clear
+              disabled
+            >
+              Clear
+            </button>
+            <button type="button" class="node-action" data-text-append disabled>
+              Append ⇣
+            </button>
+          </div>
+          <p
+            class="anchor-readout annot"
+            id={`anchor-readout-${c.id}`}
+            data-anchor-readout
+            role="status"
+          >
+            no anchor pinned
+          </p>
+        </article>
+      ))
+    }
+
+    <div class="channel" style="grid-area: seq">
+      <div class="seq-node" data-seq-node>
+        <span class="annot">Sequencer</span>
+        <output
+          class="seq-counter"
+          data-seq-counter
+          aria-label="Latest sequence number"
+        >
+          SN&nbsp;0
+        </output>
+      </div>
+      <ol
+        class="op-log"
+        data-op-log
+        aria-live="polite"
+        aria-label="Sequenced operations, newest first"
+      >
+      </ol>
+    </div>
+
+    <div class="flow-layer" data-flow-layer aria-hidden="true"></div>
+  </div>
+
+  <div class="demo-controls" data-reveal="rise">
+    <label class="latency">
+      <span class="annot">Link latency</span>
+      <input
+        type="range"
+        min="100"
+        max="2000"
+        step="100"
+        value="700"
+        data-text-latency
+        disabled
+      />
+      <output data-text-latency-out>700 ms</output>
+    </label>
+    <label class="pace">
+      <span class="annot">Animation speed</span>
+      <input
+        type="range"
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="0.5"
+        data-text-pace
+        title="Playback multiplier — how fast the whole animation plays on screen. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        disabled
+      />
+      <output data-text-pace-out>0.5×</output>
+    </label>
+    <label class="toggle">
+      <input
+        type="checkbox"
+        data-text-latency-variance
+        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step and arrival order can shuffle."
+        disabled
+      />
+      <span class="annot">Jitter ±50&nbsp;ms</span>
+    </label>
+    <button type="button" class="race-btn" data-text-race-insert disabled>
+      Crowd an insert
+    </button>
+    <button type="button" class="race-btn" data-text-race-overlap disabled>
+      Overlapping edit
+    </button>
+    <button
+      type="button"
+      class="reset-btn"
+      data-text-reset
+      aria-label="Reset all replicas to the seed text"
+      disabled
+    >
+      Reset
+    </button>
+    <p class="status" data-text-status role="status">
+      <span class="stamp converged">Converged</span>
+      all replicas identical · nothing pending
+    </p>
+  </div>
+
+  <p class="controls-hint">
+    <strong>Link latency</strong> is the simulated network delay — the demo’s
+    physics. <strong>Animation speed</strong> just scales how fast that plays on
+    screen. <strong>Jitter</strong> adds random ±50&nbsp;ms per hop, so ops stop
+    travelling in lock-step and their arrival order can shuffle. Only latency
+    and jitter change the outcome.
+  </p>
+
+  <noscript>
+    <p class="demo-noscript">
+      The live demo needs JavaScript — it runs the real watershed runtime and
+      the in-memory <code>sluice</code> as compiled JavaScript in your browser.
+      The rest of the page works fine without it.
+    </p>
+  </noscript>
+
+  <p class="demo-noscript" data-text-fallback hidden>
+    The live demo couldn’t start — it runs the real watershed runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page works fine without it.
+  </p>
+</section>
+
+<script>
+  try {
+    const { initTextDemo } = await import("../scripts/text-demo.ts");
+    initTextDemo();
+  } catch (error) {
+    console.error("watershed text demo failed to start", error);
+    const note = document.querySelector("[data-text-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
+</script>
+
+<style>
+  .demo {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-head {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .demo-head p {
+    margin-top: var(--space-lg);
+  }
+
+  .demo-hint {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .grapheme-legend {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+  }
+
+  .g-chip {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    background: var(--surface);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+
+  .k-pending {
+    color: var(--overprint-deep);
+  }
+
+  .k-seq {
+    color: var(--ink);
+  }
+
+  .rig {
+    position: relative;
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: grid;
+    grid-template-areas:
+      "a seq b"
+      "c c   c";
+    grid-template-columns: 1fr minmax(9rem, 0.55fr) 1fr;
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  .rig .client[data-client="c"] {
+    justify-self: center;
+    width: min(100%, 32rem);
+  }
+
+  .client {
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 var(--space-sm);
+  }
+
+  .client-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .client-head h3 {
+    font-size: 1rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .counts {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+  }
+
+  .grapheme-count {
+    color: var(--muted);
+  }
+
+  .pending-count {
+    color: var(--muted);
+    transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  .pending-count.is-pending {
+    color: var(--overprint-deep);
+  }
+
+  .editor-label {
+    color: var(--muted);
+    padding: var(--space-sm) var(--space-md) var(--space-2xs);
+  }
+
+  .text-editor {
+    margin: 0 var(--space-md);
+    padding: var(--space-sm);
+    border: 1px solid var(--hairline);
+    border-radius: 2px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    resize: vertical;
+    min-height: 4.5rem;
+    caret-color: var(--overprint);
+    transition:
+      border-color var(--dur-feedback) var(--ease-out-quart),
+      box-shadow var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .text-editor:focus-visible {
+    outline: none;
+    border-color: var(--waterline);
+    box-shadow: 0 0 0 2px var(--waterline);
+  }
+
+  /* Pending = local edits not yet sequenced: magenta overprint, per the map
+     grammar. Cleared to ink once the sluice stamps them. */
+  .client.pending .text-editor {
+    border-color: var(--overprint);
+    box-shadow: 0 0 0 1px var(--overprint);
+  }
+
+  .client.pending .editor-label {
+    color: var(--overprint-deep);
+  }
+
+  .pane-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    padding: var(--space-sm) var(--space-md) var(--space-2xs);
+  }
+
+  .node-action {
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--hairline);
+    border-radius: 2px;
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.2;
+    color: var(--muted);
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      border-color var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .node-action:hover:enabled {
+    background: var(--overprint-faint);
+    border-color: var(--overprint);
+    color: var(--overprint-deep);
+  }
+
+  .node-action:active:enabled {
+    transform: scale(0.97);
+  }
+
+  .node-action:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .anchor-readout {
+    margin: var(--space-2xs) var(--space-md) 0;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  /* A pinned anchor is a local, unsequenced annotation → magenta. */
+  .anchor-readout.is-pinned {
+    color: var(--overprint-deep);
+  }
+
+  /* ── channel / sequencer / op log ──────────────────────────────────────── */
+  .channel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-md);
+    padding-top: clamp(var(--space-md), 5vw, 3.5rem);
+  }
+
+  .seq-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-lg);
+    border: 1px solid var(--ink);
+    border-radius: 999px;
+    background: var(--bg);
+  }
+
+  .seq-counter {
+    font-family: var(--font-mono);
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+  }
+
+  .seq-counter.stamped {
+    animation: stamp 380ms var(--ease-out-quart);
+  }
+
+  @keyframes stamp {
+    0% {
+      color: var(--overprint);
+      transform: scale(1.12);
+    }
+    100% {
+      color: var(--ink);
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .seq-counter.stamped {
+      animation: none;
+    }
+  }
+
+  .op-log {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: var(--muted);
+    overflow: hidden;
+    max-height: 13.5rem;
+    mask-image: linear-gradient(black 55%, transparent 96%);
+  }
+
+  .op-log :global(li) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.4rem;
+    justify-content: center;
+    padding: 0.12rem 0;
+  }
+
+  .op-log :global(.op-meta) {
+    color: var(--muted);
+  }
+
+  .op-log :global(.op-path) {
+    color: var(--waterline);
+  }
+
+  .op-log :global(.op-kind) {
+    color: var(--ink);
+  }
+
+  .op-log :global(li:first-child .op-meta) {
+    color: var(--ink);
+  }
+
+  .flow-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: var(--z-flow);
+  }
+
+  :global(.flow-dot) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced) {
+    background: var(--ink);
+  }
+
+  :global(.flow-dot-label) {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(-50%);
+    white-space: nowrap;
+    font-size: 0.625rem;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    padding: 2px 5px;
+    border-radius: 4px;
+    color: var(--bg);
+    background: var(--overprint);
+  }
+
+  :global(.flow-dot.sequenced .flow-dot-label) {
+    background: var(--ink);
+  }
+
+  /* ── controls ──────────────────────────────────────────────────────────── */
+  .demo-controls {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xl);
+  }
+
+  .latency,
+  .pace {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .latency input,
+  .pace input {
+    accent-color: var(--overprint);
+    width: clamp(8rem, 18vw, 14rem);
+  }
+
+  .latency output,
+  .pace output {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+    min-width: 5ch;
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+  }
+
+  .toggle input {
+    accent-color: var(--overprint);
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
+  }
+
+  .controls-hint {
+    max-width: 68rem;
+    margin: var(--space-sm) auto 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .race-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .race-btn:hover:enabled {
+    background: var(--overprint-faint);
+  }
+
+  .race-btn:active:enabled {
+    transform: scale(0.97);
+  }
+
+  .reset-btn {
+    padding: 0.65rem 1.2rem;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    color: var(--muted);
+    font-weight: 400;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .reset-btn:hover:enabled {
+    background: var(--surface);
+    color: var(--ink);
+  }
+
+  .reset-btn:active:enabled {
+    transform: scale(0.97);
+  }
+
+  .race-btn:disabled,
+  .reset-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .status {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .status :global(.stamp) {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.55rem;
+    border: 1.5px solid currentColor;
+    transform: rotate(-2deg);
+  }
+
+  .status :global(.stamp.converged) {
+    color: var(--waterline);
+  }
+
+  .status :global(.stamp.revising) {
+    color: var(--overprint-deep);
+  }
+
+  .demo-noscript {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 1080px) {
+    .rig {
+      grid-template-areas: "a" "seq" "b" "c";
+      grid-template-columns: 1fr;
+    }
+
+    .rig .client[data-client="c"] {
+      justify-self: stretch;
+      width: auto;
+    }
+
+    .op-log {
+      max-height: 5.7rem;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .node-action {
+      min-block-size: 2.2rem;
+    }
+
+    .race-btn,
+    .reset-btn {
+      padding: 0.85rem 1.2rem;
+    }
+  }
+</style>

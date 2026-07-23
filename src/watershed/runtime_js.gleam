@@ -60,6 +60,8 @@ import watershed/runtime_core
 @target(javascript)
 import watershed/task_manager_kernel
 @target(javascript)
+import watershed/text_kernel
+@target(javascript)
 import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/wire
@@ -645,6 +647,153 @@ pub fn sequence_length(runtime: Runtime, address: String) -> Int {
   read(runtime.cell, 0, runtime_core.sequence_length(_, address))
 }
 
+// ── SharedText ───────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Insert `value` at the optimistic grapheme `index`. An empty `value` at a
+/// valid index is a no-op: `Ok(Nil)` with no outbound effect (see
+/// `text_kernel` module docs).
+pub fn text_insert(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_insert(core, address, index, value)
+  })
+}
+
+@target(javascript)
+/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
+/// a no-op.
+pub fn text_delete_range(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_delete_range(core, address, start, end)
+  })
+}
+
+@target(javascript)
+/// Replace the graphemes in `[start, end)` with `value`. Only an empty range
+/// replaced with `""` is a no-op.
+pub fn text_replace_range(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_replace_range(core, address, start, end, value)
+  })
+}
+
+@target(javascript)
+/// Insert `value` at the end of the text. An empty `value` is a no-op.
+pub fn text_append(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_append(core, address, value)
+  })
+}
+
+@target(javascript)
+/// The text channel's current optimistic visible string, `""` when the
+/// address is missing or not a text channel.
+pub fn text_value(runtime: Runtime, address: String) -> String {
+  read(runtime.cell, "", runtime_core.text_value(_, address))
+}
+
+@target(javascript)
+/// The text channel's current optimistic grapheme count, `0` when the
+/// address is missing or not a text channel.
+pub fn text_length(runtime: Runtime, address: String) -> Int {
+  read(runtime.cell, 0, runtime_core.text_length(_, address))
+}
+
+@target(javascript)
+/// The graphemes in `[start, end)` of the text channel's optimistic string.
+pub fn text_substring(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(String, String) {
+  read(
+    runtime.cell,
+    Error("text_substring requires a ready document connection"),
+    runtime_core.text_substring(_, address, start, end),
+  )
+}
+
+@target(javascript)
+/// Create a stable anchor at the gap at `index`; `bias` selects which
+/// adjacent grapheme the anchor binds to (`Before` binds to the following
+/// grapheme, `After` to the preceding one).
+pub fn text_anchor_at(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  bias: text_kernel.Bias,
+) -> Result(text_kernel.TextAnchor, String) {
+  read(
+    runtime.cell,
+    Error("text_anchor_at requires a ready document connection"),
+    runtime_core.text_anchor_at(_, address, index, bias),
+  )
+}
+
+@target(javascript)
+/// Resolve an anchor to a current optimistic grapheme index.
+pub fn text_resolve_anchor(
+  runtime: Runtime,
+  address: String,
+  anchor: text_kernel.TextAnchor,
+) -> Result(Int, String) {
+  read(
+    runtime.cell,
+    Error("text_resolve_anchor requires a ready document connection"),
+    runtime_core.text_resolve_anchor(_, address, anchor),
+  )
+}
+
+@target(javascript)
+/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
+/// need a `Runtime`/address since it carries no document state.
+pub fn text_start_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_start_anchor()
+}
+
+@target(javascript)
+/// An anchor at the end of the text. Always resolves to the current
+/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_end_anchor()
+}
+
+@target(javascript)
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors.
+pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
+  runtime_core.text_anchor_to_json(anchor)
+}
+
+@target(javascript)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(text_kernel.TextAnchor, String) {
+  runtime_core.text_anchor_from_json(json_string)
+}
+
 // ── SharedDirectory ─────────────────────────────────────────────────────────
 
 @target(javascript)
@@ -1049,6 +1198,12 @@ pub fn create_sequence(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
+/// Create a new detached text channel, same lifecycle as `create_map`.
+pub fn create_text(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitText, "create_text")
+}
+
+@target(javascript)
 pub fn create_two_p_set(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitTwoPSet, "create_two_p_set")
 }
@@ -1207,6 +1362,21 @@ pub fn resolve_sequence(
         Error(error) -> Error(string.inspect(error))
       }
     _ -> Error("resolve_sequence requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn resolve_text(runtime: Runtime, address: String) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case
+        runtime_core.require_channel_type(core, address, channel.TextChannel)
+      {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("resolve_text requires a ready document connection")
   }
 }
 
@@ -1951,6 +2121,45 @@ fn edit_sequence_with_result(
         Error(error) -> Error(string.inspect(error))
       }
     _ -> Error("sequence edit before the document connection is ready")
+  }
+}
+
+@target(javascript)
+fn edit_text_with_result(
+  cell: Cell(State),
+  operate: fn(runtime_core.Core) ->
+    Result(
+      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      runtime_core.CoreError,
+    ),
+) -> Result(Nil, String) {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Ok(#(core, events, outbound)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
+          }
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Ok(#(core, events, _outbound)) -> {
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("text edit before the document connection is ready")
   }
 }
 

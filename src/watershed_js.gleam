@@ -58,6 +58,9 @@ import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 import gleam/result
 
 @target(javascript)
+import lattice_sequence/sequence.{After, Before}
+
+@target(javascript)
 import watershed/channel.{type ChannelEvent}
 @target(javascript)
 import watershed/claims_kernel
@@ -94,6 +97,8 @@ import watershed/schema.{
 import watershed/sequence_kernel
 @target(javascript)
 import watershed/task_manager_kernel
+@target(javascript)
+import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
@@ -180,6 +185,34 @@ pub opaque type OrderedCollection {
 pub opaque type SharedSequence {
   SharedSequence(runtime: runtime_js.Runtime, address: String)
 }
+
+@target(javascript)
+pub opaque type SharedText {
+  SharedText(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+/// A stable position in a `SharedText`'s optimistic string that survives
+/// concurrent edits and merges. Opaque — construct one with `text_anchor_at`,
+/// `text_start_anchor`, or `text_end_anchor`, or decode one with
+/// `text_anchor_from_json`.
+pub type TextAnchor =
+  text_kernel.TextAnchor
+
+@target(javascript)
+/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
+/// gap. `Before` binds to the following grapheme (inserts at the gap push it
+/// right); `After` binds to the preceding grapheme (inserts at the gap land
+/// after it). Re-exported so callers don't need a direct `lattice_sequence`
+/// dependency to build one.
+pub type Bias =
+  text_kernel.Bias
+
+@target(javascript)
+pub const bias_before: Bias = Before
+
+@target(javascript)
+pub const bias_after: Bias = After
 
 @target(javascript)
 pub opaque type JsonOt {
@@ -644,6 +677,26 @@ pub fn resolve_sequence_field(
 }
 
 @target(javascript)
+/// Store a handle to `text` under a typed channel field.
+pub fn set_text_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+  text: SharedText,
+) -> Nil {
+  put_channel_field(typed_map, field, text_handle_of(text))
+}
+
+@target(javascript)
+/// Resolve the text channel referenced by a typed channel field.
+pub fn resolve_text_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+) -> Result(Option(SharedText), String) {
+  get_channel_field(document, typed_map, field, resolve_text)
+}
+
+@target(javascript)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
@@ -1022,6 +1075,28 @@ pub fn ensure_sequence(
       set_sequence_field(typed_map, field, sequence)
     },
     fn() { resolve_sequence_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a text channel exists under `field`, seeding one if the slot is
+/// empty.
+pub fn ensure_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TextChannel),
+  done: fn(Result(SharedText, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use text <- result.map(create_text(document))
+      set_text_field(typed_map, field, text)
+    },
+    fn() { resolve_text_field(document, typed_map, field) },
     done,
   )
 }
@@ -1590,6 +1665,166 @@ pub fn subscribe_sequence(
   use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Shared text ───────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_text(document: Document) -> Result(SharedText, String) {
+  runtime_js.create_text(document.runtime)
+  |> result.map(fn(address) {
+    SharedText(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn text_handle_of(text: SharedText) -> Json {
+  handle.encode_handle(text.address)
+}
+
+@target(javascript)
+pub fn resolve_text(
+  document: Document,
+  value: Json,
+) -> Result(SharedText, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_text(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedText(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Insert `value` at the optimistic grapheme `index`, from `0` through the
+/// text length. An empty `value` at a valid index is a no-op.
+pub fn text_insert(
+  text: SharedText,
+  index: Int,
+  value: String,
+) -> Result(Nil, String) {
+  runtime_js.text_insert(text.runtime, text.address, index, value)
+}
+
+@target(javascript)
+/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
+/// a no-op.
+pub fn text_delete_range(
+  text: SharedText,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  runtime_js.text_delete_range(text.runtime, text.address, start, end)
+}
+
+@target(javascript)
+/// Replace the graphemes in `[start, end)` with `value` as one collaborative
+/// operation. Only an empty range replaced with `""` is a no-op.
+pub fn text_replace_range(
+  text: SharedText,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(Nil, String) {
+  runtime_js.text_replace_range(text.runtime, text.address, start, end, value)
+}
+
+@target(javascript)
+/// Insert `value` at the end of the text. An empty `value` is a no-op.
+pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
+  runtime_js.text_append(text.runtime, text.address, value)
+}
+
+@target(javascript)
+/// The text's current optimistic visible string.
+pub fn text_value(text: SharedText) -> String {
+  runtime_js.text_value(text.runtime, text.address)
+}
+
+@target(javascript)
+/// The text's current optimistic grapheme count.
+pub fn text_length(text: SharedText) -> Int {
+  runtime_js.text_length(text.runtime, text.address)
+}
+
+@target(javascript)
+/// The graphemes in `[start, end)` of the text's optimistic string. An
+/// explicit error string when `start..end` is invalid.
+pub fn text_substring(
+  text: SharedText,
+  start: Int,
+  end: Int,
+) -> Result(String, String) {
+  runtime_js.text_substring(text.runtime, text.address, start, end)
+}
+
+@target(javascript)
+/// Create a stable anchor at the gap before the optimistic grapheme at
+/// `index`, biased with `bias_before`/`bias_after`. An explicit error string
+/// on an out-of-bounds index.
+pub fn text_anchor_at(
+  text: SharedText,
+  index: Int,
+  bias: Bias,
+) -> Result(TextAnchor, String) {
+  runtime_js.text_anchor_at(text.runtime, text.address, index, bias)
+}
+
+@target(javascript)
+/// Resolve an anchor to a current optimistic grapheme index. An explicit
+/// error string on a stale/unknown anchor target.
+pub fn text_resolve_anchor(
+  text: SharedText,
+  anchor: TextAnchor,
+) -> Result(Int, String) {
+  runtime_js.text_resolve_anchor(text.runtime, text.address, anchor)
+}
+
+@target(javascript)
+/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
+/// need a `SharedText` since it carries no document state.
+pub fn text_start_anchor() -> TextAnchor {
+  runtime_js.text_start_anchor()
+}
+
+@target(javascript)
+/// An anchor at the end of the text. Always resolves to the current grapheme
+/// length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> TextAnchor {
+  runtime_js.text_end_anchor()
+}
+
+@target(javascript)
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors.
+pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
+  runtime_js.text_anchor_to_json(anchor)
+}
+
+@target(javascript)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`. An
+/// explicit error string on malformed JSON.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(TextAnchor, String) {
+  runtime_js.text_anchor_from_json(json_string)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// text channel. The handler receives `text_kernel.TextEvent` — text events
+/// only.
+pub fn subscribe_text(
+  text: SharedText,
+  handler: fn(text_kernel.TextEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(text.runtime, text.address, handler)
+  case event {
+    channel.TextEvent(inner) -> Some(inner)
     _ -> None
   }
 }

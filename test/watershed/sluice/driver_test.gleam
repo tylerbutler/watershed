@@ -35,12 +35,17 @@ import watershed/schema
 import watershed/sequence_kernel
 @target(erlang)
 import watershed/sluice
+@target(erlang)
+import watershed/text_kernel
 
 @target(erlang)
 type SequenceFields
 
 @target(erlang)
 type RichTextFields
+
+@target(erlang)
+type TextFields
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -431,4 +436,211 @@ pub fn typed_rich_text_field_set_resolve_and_ensure_test() {
     watershed.resolve_rich_text_field(doc_b, root_b, empty_field)
   watershed.rich_text_view(ensured)
   |> expect.to_equal(watershed.rich_text_view(resolved))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared text
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+pub fn shared_text_converges_test() {
+  let sluice = start("shared-text")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(text_a) = watershed.create_text(doc_a)
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, "base")
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
+  sluice.settle(sluice)
+
+  let assert Some(text_handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed.resolve_text(doc_b, text_handle)
+  // A map handle does not resolve as text.
+  case
+    watershed.resolve_text(doc_b, watershed.handle_of(watershed.root(doc_b)))
+  {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected map handle resolution to fail for SharedText"
+  }
+  watershed.text_value(text_b) |> expect.to_equal("base")
+
+  // Concurrent inserts at the same index (both authors type at the gap
+  // before "base" before either has seen the other's edit) still converge:
+  // both replicas end up with the same string, containing both insertions.
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, "A-")
+  let assert Ok(Nil) = watershed.text_insert(text_b, 0, "B-")
+  sluice.settle(sluice)
+
+  watershed.text_value(text_a) |> expect.to_equal(watershed.text_value(text_b))
+  let converged = watershed.text_value(text_a)
+  string.contains(converged, "A-") |> expect.to_be_true()
+  string.contains(converged, "B-") |> expect.to_be_true()
+  string.contains(converged, "base") |> expect.to_be_true()
+
+  // Overlapping delete-range (A) racing a replace-range (B) over intersecting
+  // spans still converges deterministically once both sides have merged.
+  let assert Ok(Nil) =
+    watershed.text_replace_range(
+      text_a,
+      0,
+      watershed.text_length(text_a),
+      "abcdef",
+    )
+  sluice.settle(sluice)
+  let assert Ok(Nil) = watershed.text_delete_range(text_a, 1, 4)
+  let assert Ok(Nil) = watershed.text_replace_range(text_b, 2, 5, "XY")
+  sluice.settle(sluice)
+  watershed.text_value(text_a) |> expect.to_equal(watershed.text_value(text_b))
+
+  // An append racing a concurrent insert also converges.
+  let assert Ok(Nil) = watershed.text_append(text_a, "!!!")
+  let assert Ok(Nil) = watershed.text_insert(text_b, 0, ">>")
+  sluice.settle(sluice)
+  watershed.text_value(text_a) |> expect.to_equal(watershed.text_value(text_b))
+
+  // A late joiner replays history and lands on the same text.
+  let doc_c = connect(sluice, "user-c")
+  sluice.settle(sluice)
+  let assert Some(handle_for_c) = watershed.get(watershed.root(doc_c), "doc")
+  let assert Ok(text_c) = watershed.resolve_text(doc_c, handle_for_c)
+  watershed.text_value(text_c) |> expect.to_equal(watershed.text_value(text_a))
+}
+
+@target(erlang)
+pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
+  // "e" + combining acute (U+0301) is one grapheme cluster, and a
+  // ZWJ-joined family emoji is a single grapheme despite many codepoints —
+  // both must survive concurrent edits and index math intact.
+  let sluice = start("shared-text-emoji")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(text_a) = watershed.create_text(doc_a)
+  let combining_e = "e\u{0301}"
+  let family =
+    "👩" <> "\u{200D}" <> "👩" <> "\u{200D}" <> "👧" <> "\u{200D}" <> "👦"
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, combining_e <> family)
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
+  sluice.settle(sluice)
+
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed.resolve_text(doc_b, handle)
+  watershed.text_length(text_b) |> expect.to_equal(2)
+  watershed.text_value(text_b) |> expect.to_equal(combining_e <> family)
+  watershed.text_substring(text_b, 0, 1) |> expect.to_equal(Ok(combining_e))
+  watershed.text_substring(text_b, 1, 2) |> expect.to_equal(Ok(family))
+
+  // Concurrent grapheme-cluster inserts between the two clusters, plus a
+  // mixed-script append, converge to the same visible string on both sides.
+  let assert Ok(Nil) = watershed.text_insert(text_a, 1, "🎉")
+  let assert Ok(Nil) = watershed.text_append(text_b, "日д")
+  sluice.settle(sluice)
+
+  watershed.text_value(text_a) |> expect.to_equal(watershed.text_value(text_b))
+  watershed.text_length(text_a) |> expect.to_equal(5)
+  watershed.text_value(text_a)
+  |> expect.to_equal(combining_e <> "🎉" <> family <> "日д")
+}
+
+@target(erlang)
+pub fn shared_text_invalid_bounds_return_errors_test() {
+  let sluice = start("shared-text-invalid-bounds")
+  let document = connect(sluice, "user-a")
+  sluice.settle(sluice)
+
+  let assert Ok(text) = watershed.create_text(document)
+  let assert Ok(Nil) = watershed.text_insert(text, 0, "hello")
+
+  watershed.text_insert(text, 99, "x")
+  |> expect.to_equal(Error("insert index 99 outside 0..5"))
+  watershed.text_insert(text, -1, "x")
+  |> expect.to_equal(Error("insert index -1 outside 0..5"))
+  watershed.text_delete_range(text, 3, 1)
+  |> expect.to_equal(Error("delete range 3..1 invalid for length 5"))
+  watershed.text_delete_range(text, 0, 99)
+  |> expect.to_equal(Error("delete range 0..99 invalid for length 5"))
+  watershed.text_replace_range(text, 0, 99, "x")
+  |> expect.to_equal(Error("replace range 0..99 invalid for length 5"))
+  watershed.text_substring(text, 0, 99)
+  |> expect.to_equal(Error("substring range 0..99 invalid for length 5"))
+
+  // None of the rejected edits changed the text or left pending debris.
+  watershed.text_value(text) |> expect.to_equal("hello")
+}
+
+@target(erlang)
+pub fn shared_text_no_op_edits_do_not_submit_test() {
+  // No-op edits (an empty insert/append, or a zero-length delete/replace)
+  // must not submit a channel op: subscribers see no event, and a peer that
+  // never delivers anything still converges since nothing was ever sent.
+  let sluice = start("shared-text-no-op")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(text_a) = watershed.create_text(doc_a)
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, "hello")
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
+  sluice.settle(sluice)
+
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(text_b) = watershed.resolve_text(doc_b, handle)
+  let events_a = watershed.subscribe_text(text_a)
+
+  // An empty insert at a valid index is a no-op: it returns Ok(Nil), fires
+  // no event, and never reaches the wire.
+  watershed.text_insert(text_a, 2, "") |> expect.to_equal(Ok(Nil))
+  // A zero-length delete-range/replace-range is likewise a no-op.
+  watershed.text_delete_range(text_a, 2, 2) |> expect.to_equal(Ok(Nil))
+  watershed.text_replace_range(text_a, 2, 2, "") |> expect.to_equal(Ok(Nil))
+  // Appending "" is a no-op too.
+  watershed.text_append(text_a, "") |> expect.to_equal(Ok(Nil))
+
+  process.receive(from: events_a, within: 10) |> expect.to_equal(Error(Nil))
+  sluice.settle(sluice)
+
+  // Nothing was ever submitted, so B never saw an update and both sides
+  // remain exactly "hello".
+  watershed.text_value(text_a) |> expect.to_equal("hello")
+  watershed.text_value(text_b) |> expect.to_equal("hello")
+}
+
+@target(erlang)
+pub fn shared_text_subscription_narrows_local_events_test() {
+  let sluice = start("shared-text-subscription")
+  let document = connect(sluice, "user-a")
+  sluice.settle(sluice)
+
+  let assert Ok(text) = watershed.create_text(document)
+  let events = watershed.subscribe_text(text)
+  let assert Ok(Nil) = watershed.text_insert(text, 0, "first")
+
+  let assert Ok(event) = process.receive(from: events, within: 100)
+  event |> expect.to_equal(text_kernel.TextChanged("first"))
+}
+
+@target(erlang)
+pub fn ensure_text_adopts_stored_field_test() {
+  let sluice = start("ensure-text")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let field: schema.ChannelField(TextFields, schema.TextChannel) =
+    schema.channel_field("body")
+  let root_a: watershed.TypedMap(TextFields) = watershed.root_typed(doc_a)
+  let root_b: watershed.TypedMap(TextFields) = watershed.root_typed(doc_b)
+  sluice.settle(sluice)
+
+  let assert Ok(text_a) = watershed.create_text(doc_a)
+  watershed.set_text_field(root_a, field, text_a)
+  sluice.settle(sluice)
+
+  let assert Ok(text_b) = watershed.ensure_text(doc_b, root_b, field)
+  let assert Ok(Some(resolved)) =
+    watershed.resolve_text_field(doc_b, root_b, field)
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, "ensured")
+  sluice.settle(sluice)
+  watershed.text_value(text_b)
+  |> expect.to_equal(watershed.text_value(resolved))
 }

@@ -27,6 +27,7 @@ import lattice_sequence/sequence.{type Sequence}
 import lattice_sets/g_set.{type GSet}
 import lattice_sets/or_set.{type ORSet}
 import lattice_sets/two_p_set.{type TwoPSet}
+import lattice_text/text.{type Text}
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
@@ -46,6 +47,7 @@ import watershed/rich_text
 import watershed/rich_text_kernel
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
+import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 
@@ -68,6 +70,7 @@ pub type ChannelType {
   OrderedCollectionChannel
   SequenceChannel
   RichTextChannel
+  TextChannel
 }
 
 /// Creation parameters for a channel. Most channel types need only their
@@ -89,6 +92,7 @@ pub type ChannelInit {
   InitOrderedCollection
   InitSequence
   InitRichText
+  InitText
 }
 
 pub fn type_to_string(channel_type: ChannelType) -> String {
@@ -109,6 +113,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     OrderedCollectionChannel -> wire.channel_type_ordered_collection
     SequenceChannel -> wire.channel_type_sequence
     RichTextChannel -> wire.channel_type_rich_text
+    TextChannel -> wire.channel_type_text
   }
 }
 
@@ -132,6 +137,7 @@ pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
       Ok(OrderedCollectionChannel)
     _ if raw == wire.channel_type_sequence -> Ok(SequenceChannel)
     _ if raw == wire.channel_type_rich_text -> Ok(RichTextChannel)
+    _ if raw == wire.channel_type_text -> Ok(TextChannel)
     _ -> Error(Nil)
   }
 }
@@ -154,6 +160,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitOrderedCollection -> OrderedCollectionChannel
     InitSequence -> SequenceChannel
     InitRichText -> RichTextChannel
+    InitText -> TextChannel
   }
 }
 
@@ -175,6 +182,7 @@ pub type ChannelState {
   OrderedCollectionState(ordered_collection_kernel.OrderedState)
   SequenceState(sequence_kernel.SequenceState)
   RichTextState(rich_text_kernel.RichTextState)
+  TextState(text_kernel.TextState)
 }
 
 /// A kernel op as it travels through the runtime (in-flight queue, ack
@@ -202,6 +210,7 @@ pub type ChannelOp {
   OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
   SequenceOp(sequence_kernel.SequenceOp)
   RichTextOp(rich_text_kernel.RichTextWireOp)
+  TextOp(text_kernel.TextOp)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -222,6 +231,7 @@ pub type ChannelEvent {
   OrderedCollectionEvent(ordered_collection_kernel.OrderedEvent)
   SequenceEvent(sequence_kernel.SequenceEvent)
   RichTextEvent(rich_text_kernel.RichTextEvent)
+  TextEvent(text_kernel.TextEvent)
 }
 
 /// A channel's state as the persisted formats carry it: the attach op's
@@ -248,6 +258,7 @@ pub type Snapshot {
   )
   SequenceSummary(state: Sequence(Json))
   RichTextSnapshot(document: rich_text.Document)
+  TextSummary(state: Text)
 }
 
 pub type Resolution {
@@ -268,6 +279,7 @@ pub type LocalOpMeta {
   TaskManagerMeta(message_id: Int)
   DirectoryMeta(message_id: Int)
   SequenceMeta(message_id: Int)
+  TextMeta(message_id: Int)
 }
 
 /// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
@@ -318,6 +330,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     OrderedCollectionState(_) -> OrderedCollectionChannel
     SequenceState(_) -> SequenceChannel
     RichTextState(_) -> RichTextChannel
+    TextState(_) -> TextChannel
   }
 }
 
@@ -339,6 +352,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     OrderedCollectionSnapshot(_, _) -> OrderedCollectionChannel
     SequenceSummary(_) -> SequenceChannel
     RichTextSnapshot(_) -> RichTextChannel
+    TextSummary(_) -> TextChannel
   }
 }
 
@@ -368,7 +382,9 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitOrderedCollection ->
       OrderedCollectionState(ordered_collection_kernel.new())
     InitSequence -> SequenceState(sequence_kernel.new(replica_id.new(replica)))
-    InitRichText -> RichTextState(rich_text_kernel.new(client_id.to_int(replica)))
+    InitRichText ->
+      RichTextState(rich_text_kernel.new(client_id.to_int(replica)))
+    InitText -> TextState(text_kernel.new(replica_id.new(replica)))
   }
 }
 
@@ -419,6 +435,8 @@ pub fn from_snapshot(
         client_id.to_int(replica),
         document,
       ))
+    TextSummary(state) ->
+      TextState(text_kernel.from_sequenced(state, replica_id.new(replica)))
   }
 }
 
@@ -451,6 +469,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
       )
     SequenceState(kernel) -> SequenceSummary(kernel.sequenced)
     RichTextState(kernel) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
+    TextState(kernel) -> TextSummary(kernel.sequenced)
   }
 }
 
@@ -509,6 +528,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
         Ok(document) -> RichTextSnapshot(document)
         Error(_) -> RichTextSnapshot(rich_text_kernel.summary(kernel))
       }
+    TextState(kernel) -> TextSummary(kernel.optimistic)
   }
 }
 
@@ -524,6 +544,7 @@ pub fn attach_state(
       TwoPSetState(two_p_set_kernel.promote_attach(kernel))
     SequenceState(kernel) ->
       SequenceState(sequence_kernel.promote_attach(kernel))
+    TextState(kernel) -> TextState(text_kernel.promote_attach(kernel))
     RegisterCollectionState(_) ->
       from_snapshot(attach_snapshot(state), replica:)
     _ -> from_snapshot(attach_snapshot(state), replica: replica)
@@ -659,6 +680,10 @@ pub fn apply_remote(
         Error(rich_text_kernel.RichTextFailure(err)) ->
           Error(CorruptRemoteOp(rich_text_error_detail(err)))
       }
+    TextState(kernel), TextOp(op) -> {
+      let #(kernel, events) = text_kernel.apply_remote(kernel, op)
+      Ok(#(TextState(kernel), list.map(events, TextEvent), []))
+    }
     state, _ -> Error(wrong_channel_type(state, "remote op"))
   }
 }
@@ -820,6 +845,7 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has directory metadata"))
         SequenceMeta(_) ->
           Error(UnexpectedAck("counter ack has sequence metadata"))
+        TextMeta(_) -> Error(UnexpectedAck("counter ack has text metadata"))
       }
     PnCounterState(kernel), PnCounterOp(op) ->
       case local {
@@ -849,6 +875,7 @@ pub fn ack_local(
           Error(UnexpectedAck("pn-counter ack has directory metadata"))
         SequenceMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has sequence metadata"))
+        TextMeta(_) -> Error(UnexpectedAck("pn-counter ack has text metadata"))
       }
     OrMapState(kernel), OrMapOp(op) ->
       case local {
@@ -874,6 +901,7 @@ pub fn ack_local(
           Error(UnexpectedAck("or-map ack has directory metadata"))
         SequenceMeta(_) ->
           Error(UnexpectedAck("or-map ack has sequence metadata"))
+        TextMeta(_) -> Error(UnexpectedAck("or-map ack has text metadata"))
       }
     OrSetState(kernel), OrSetOp(op) ->
       case local {
@@ -892,7 +920,8 @@ pub fn ack_local(
         | TwoPSetMeta(_)
         | TaskManagerMeta(_)
         | DirectoryMeta(_)
-        | SequenceMeta(_) ->
+        | SequenceMeta(_)
+        | TextMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
       }
     GSetState(kernel), GSetOp(op) ->
@@ -912,7 +941,8 @@ pub fn ack_local(
         | TwoPSetMeta(_)
         | TaskManagerMeta(_)
         | DirectoryMeta(_)
-        | SequenceMeta(_) ->
+        | SequenceMeta(_)
+        | TextMeta(_) ->
           Error(UnexpectedAck("g-set ack is missing its local message id"))
       }
     TwoPSetState(kernel), TwoPSetOp(op) ->
@@ -934,7 +964,8 @@ pub fn ack_local(
         | GSetMeta(_)
         | TaskManagerMeta(_)
         | DirectoryMeta(_)
-        | SequenceMeta(_) ->
+        | SequenceMeta(_)
+        | TextMeta(_) ->
           Error(UnexpectedAck("two-p-set ack is missing its local message id"))
       }
     RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
@@ -1047,6 +1078,17 @@ pub fn ack_local(
         Error(rich_text_kernel.RichTextFailure(err)) ->
           Error(CorruptRemoteOp(rich_text_error_detail(err)))
       }
+    TextState(kernel), TextOp(op) ->
+      case local {
+        TextMeta(message_id) ->
+          case text_kernel.ack_local_with_message_id(kernel, op, message_id) {
+            Ok(kernel) -> Ok(#(TextState(kernel), [], None))
+            Error(text_kernel.UnexpectedAck(detail))
+            | Error(text_kernel.UnexpectedRollback(detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        _ -> Error(UnexpectedAck("text ack is missing its local message id"))
+      }
     state, _ -> Error(wrong_channel_type(state, "local ack"))
   }
 }
@@ -1136,6 +1178,7 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     SequenceOp(ours), SequenceOp(echoed) -> same_sequence_shape(ours, echoed)
     RichTextOp(ours), RichTextOp(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.delta == echoed.delta
+    TextOp(ours), TextOp(echoed) -> same_text_shape(ours, echoed)
     _, _ -> False
   }
 }
@@ -1171,6 +1214,36 @@ fn same_sequence_delta(ours: Sequence(Json), echoed: Sequence(Json)) -> Bool {
     sequence.to_json(ours, fn(value) { value }),
     sequence.to_json(echoed, fn(value) { value }),
   )
+}
+
+/// Whether two text ops carry the same diagnostic shape (index/value
+/// intent) *and* the same authoritative CRDT delta, mirroring
+/// `same_sequence_shape`. The diagnostic fields alone would let a corrupted
+/// or tampered delta slip past the FIFO ack-matching sanity check; comparing
+/// the delta too preserves that tamper/corruption detection while still
+/// treating a delta produced by honest reconnect/resubmit (which encodes to
+/// the same canonical JSON) as equal.
+fn same_text_shape(
+  ours: text_kernel.TextOp,
+  echoed: text_kernel.TextOp,
+) -> Bool {
+  case ours, echoed {
+    text_kernel.Insert(i, value, delta), text_kernel.Insert(i2, value2, delta2)
+    -> i == i2 && value == value2 && same_text_delta(delta, delta2)
+    text_kernel.DeleteRange(s, e, delta),
+      text_kernel.DeleteRange(s2, e2, delta2)
+    -> s == s2 && e == e2 && same_text_delta(delta, delta2)
+    text_kernel.ReplaceRange(s, e, value, delta),
+      text_kernel.ReplaceRange(s2, e2, value2, delta2)
+    -> s == s2 && e == e2 && value == value2 && same_text_delta(delta, delta2)
+    text_kernel.Append(value, delta), text_kernel.Append(value2, delta2) ->
+      value == value2 && same_text_delta(delta, delta2)
+    _, _ -> False
+  }
+}
+
+fn same_text_delta(ours: Text, echoed: Text) -> Bool {
+  wire.json_semantically_equal(text.to_json(ours), text.to_json(echoed))
 }
 
 fn same_directory_shape(
@@ -1312,6 +1385,8 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
         sequence.to_json(echoed, fn(value) { value }),
       )
     RichTextSnapshot(ours), RichTextSnapshot(echoed) -> ours == echoed
+    TextSummary(ours), TextSummary(echoed) ->
+      same_json_value(text.to_json(ours), text.to_json(echoed))
     _, _ -> False
   }
 }
@@ -1414,6 +1489,8 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       }
       handle.collect_handle_addresses(rich_text.document_to_json(document))
     }
+    // Text holds only graphemes, never nested DDS handles.
+    TextState(_) -> []
   }
 }
 
@@ -1438,6 +1515,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
       encode_ordered_snapshot(queue, jobs)
     SequenceSummary(state) -> sequence.to_json(state, fn(value) { value })
     RichTextSnapshot(document) -> rich_text.document_to_json(document)
+    TextSummary(state) -> text.to_json(state)
   }
 }
 
@@ -1497,6 +1575,7 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     OrderedCollectionChannel -> ordered_snapshot_decoder()
     SequenceChannel -> sequence_summary_decoder()
     RichTextChannel -> rich_text_snapshot_decoder()
+    TextChannel -> text_summary_decoder()
   }
 }
 
@@ -1514,6 +1593,15 @@ fn sequence_summary_decoder() -> Decoder(Snapshot) {
   case sequence.from_json(encoded, wire.json_value_decoder()) {
     Ok(state) -> decode.success(SequenceSummary(state))
     Error(_) -> decode.failure(MapSnapshot([]), "SequenceSummary")
+  }
+}
+
+fn text_summary_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case text.from_json(encoded) {
+    Ok(state) -> decode.success(TextSummary(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "TextSummary")
   }
 }
 

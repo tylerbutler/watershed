@@ -27,6 +27,7 @@ import watershed/fuzz/kernel_fuzz_test
 import watershed/fuzz/map_model
 import watershed/fuzz/or_map_model
 import watershed/fuzz/pn_counter_model
+import watershed/fuzz/text_model
 
 /// Replays one fixture file, returning `Error` with a human-readable
 /// explanation on any decode problem or reproduction mismatch.
@@ -48,6 +49,7 @@ fn replay_fixture(path: String) -> Result(Nil, String) {
     "pn_counter" -> replay_with(pn_counter_model.model(), content, path)
     "or_map" -> replay_with(or_map_model.model(), content, path)
     "directory" -> replay_with(directory_model.model(), content, path)
+    "text" -> replay_with(text_model.model(), content, path)
     "toy-sum" ->
       replay_with(kernel_fuzz_test.sum_model_with_check(), content, path)
     other ->

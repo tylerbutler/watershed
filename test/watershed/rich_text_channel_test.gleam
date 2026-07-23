@@ -91,7 +91,9 @@ pub fn rich_text_op_round_trips_through_channel_envelope_test() {
   let op =
     rich_text_kernel.RichTextWireOp(
       3,
-      delta("[{\"retain\":2},{\"insert\":\"X\",\"attributes\":{\"bold\":true}}]"),
+      delta(
+        "[{\"retain\":2},{\"insert\":\"X\",\"attributes\":{\"bold\":true}}]",
+      ),
     )
   let encoded =
     ops.encode_channel_envelope("doc-1", channel.RichTextOp(op))
@@ -106,10 +108,7 @@ pub fn rich_text_op_round_trips_through_channel_envelope_test() {
 
 pub fn rich_text_op_decoder_rejects_non_array_delta_test() {
   let assert Ok(dynamic_value) =
-    json.parse(
-      "{\"refSeq\":0,\"delta\":\"not-an-array\"}",
-      decode.dynamic,
-    )
+    json.parse("{\"refSeq\":0,\"delta\":\"not-an-array\"}", decode.dynamic)
   let _ =
     decode.run(dynamic_value, ops.rich_text_op_decoder())
     |> expect.to_be_error()
@@ -210,12 +209,18 @@ pub fn rich_text_same_shape_requires_ref_seq_and_delta_equality_test() {
 
   let different_ref_seq =
     rich_text_kernel.RichTextWireOp(2, delta("[{\"insert\":\"A\"}]"))
-  channel.same_shape(channel.RichTextOp(op), channel.RichTextOp(different_ref_seq))
+  channel.same_shape(
+    channel.RichTextOp(op),
+    channel.RichTextOp(different_ref_seq),
+  )
   |> expect.to_be_false()
 
   let different_delta =
     rich_text_kernel.RichTextWireOp(1, delta("[{\"insert\":\"B\"}]"))
-  channel.same_shape(channel.RichTextOp(op), channel.RichTextOp(different_delta))
+  channel.same_shape(
+    channel.RichTextOp(op),
+    channel.RichTextOp(different_delta),
+  )
   |> expect.to_be_false()
 }
 
@@ -261,12 +266,18 @@ pub fn rich_text_same_snapshot_requires_canonical_document_equality_test() {
 
 pub fn rich_text_apply_remote_dispatch_test() {
   let state = channel.RichTextState(rich_text_kernel.new(1))
-  let op = channel.RichTextOp(rich_text_kernel.RichTextWireOp(0, delta(
-    "[{\"insert\":\"X\"}]",
-  )))
+  let op =
+    channel.RichTextOp(rich_text_kernel.RichTextWireOp(
+      0,
+      delta("[{\"insert\":\"X\"}]"),
+    ))
 
   let assert Ok(#(state, events, owed)) =
-    channel.apply_remote(state, op, meta(seq: 1, min_seq: 1, author: 0, self_id: 1))
+    channel.apply_remote(
+      state,
+      op,
+      meta(seq: 1, min_seq: 1, author: 0, self_id: 1),
+    )
   owed |> expect.to_equal([])
   let assert channel.RichTextState(kernel) = state
   rich_text_kernel.summary(kernel)
@@ -297,9 +308,8 @@ pub fn rich_text_ack_local_dispatch_uses_no_meta_test() {
   events |> expect.to_equal([])
   resolution |> expect.to_equal(None)
   let assert channel.RichTextState(kernel) = state
-  rich_text_kernel.summary(kernel) |> expect.to_equal(document(
-    "[{\"insert\":\"A\"}]",
-  ))
+  rich_text_kernel.summary(kernel)
+  |> expect.to_equal(document("[{\"insert\":\"A\"}]"))
 }
 
 pub fn rich_text_take_outbound_drains_buffered_op_test() {
@@ -320,9 +330,10 @@ pub fn rich_text_take_outbound_drains_buffered_op_test() {
     )
 
   let #(state, outbound) = channel.take_outbound(state)
-  outbound |> expect.to_equal(Some(channel.RichTextOp(
-    rich_text_kernel.RichTextWireOp(1, b),
-  )))
+  outbound
+  |> expect.to_equal(
+    Some(channel.RichTextOp(rich_text_kernel.RichTextWireOp(1, b))),
+  )
   let #(_, again) = channel.take_outbound(state)
   again |> expect.to_equal(None)
 }
@@ -335,7 +346,11 @@ pub fn rich_text_wrong_channel_type_errors_test() {
       delta("[{\"insert\":\"A\"}]"),
     ))
   let _ =
-    channel.apply_remote(state, op, meta(seq: 1, min_seq: -1, author: 0, self_id: 1))
+    channel.apply_remote(
+      state,
+      op,
+      meta(seq: 1, min_seq: -1, author: 0, self_id: 1),
+    )
     |> expect.to_be_error()
   Nil
 }

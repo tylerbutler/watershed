@@ -11,8 +11,9 @@ grapheme indexes, so emoji and combining sequences count as one unit.
 
 This design builds on the collaborative sequence DDS plan
 (`docs/superpowers/plans/2026-07-20-collaborative-sequence-dds.md`). It assumes
-that plan is implemented first: the local `lattice_text` dependency is linked,
-and the kernel, channel, wire, and runtime patterns it establishes exist.
+that plan is implemented first: the `lattice_text` dependency (Hex 1.0.0) is
+resolved, and the kernel, channel, wire, and runtime patterns it establishes
+exist.
 
 ## Scope
 
