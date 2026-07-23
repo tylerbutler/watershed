@@ -29,6 +29,10 @@ Each fixture is one JSON file with:
 - `inverse.*`: `delta.invert(base)` for each delta, plus the composed delta
 - `cursor` / `selection`: transformed through the delta named in `through`
 
+The `normalized` block is intentionally redundant: `rich-text@4.1.0` treats
+`normalize()` as an identity function, so the fixture stores the raw normalized
+serialization to pin that behavior for the future Gleam port.
+
 The `same-position-insert` fixture pins the upstream adapter tie-break:
 
 - `transform(A, B, left)` → `[{ "retain": 1 }, { "insert": "A" }]`

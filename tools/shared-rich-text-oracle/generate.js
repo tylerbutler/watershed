@@ -224,7 +224,7 @@ function writeFixtures() {
 }
 
 function validateFixtures() {
-  const expected = new Map(expectedFiles());
+  const expected = new Map(expectedFiles().map(([file, text]) => [file, JSON.parse(text)]));
   const actualFiles = fs
     .readdirSync(fixtureDir)
     .filter((file) => file.endsWith('.json'))
@@ -238,12 +238,52 @@ function validateFixtures() {
   }
 
   for (const file of actualFiles) {
-    const actual = fs.readFileSync(path.join(fixtureDir, file), 'utf8');
+    const actual = JSON.parse(fs.readFileSync(path.join(fixtureDir, file), 'utf8'));
     const wanted = expected.get(file);
-    if (actual !== wanted) {
-      throw new Error(`fixture mismatch: ${file}`);
+    const mismatch = firstMismatch(wanted, actual);
+    if (mismatch) {
+      throw new Error(`fixture mismatch: ${file} at ${mismatch}`);
     }
   }
+}
+
+function firstMismatch(expected, actual) {
+  const knownKeys = [
+    'formatVersion',
+    'name',
+    'description',
+    'base',
+    'deltas',
+    'normalized',
+    'apply',
+    'inverse',
+    'compose',
+    'transform',
+    'cursor',
+    'selection',
+  ];
+  const keys = [
+    ...knownKeys,
+    ...Object.keys(expected).filter((key) => !knownKeys.includes(key)),
+    ...Object.keys(actual).filter((key) => !knownKeys.includes(key)),
+  ];
+  for (const key of keys) {
+    const expectedHas = Object.prototype.hasOwnProperty.call(expected, key);
+    const actualHas = Object.prototype.hasOwnProperty.call(actual, key);
+    if (!expectedHas && !actualHas) continue;
+    if (expectedHas !== actualHas) return `top-level key "${key}" presence`;
+    const expectedJson = JSON.stringify(expected[key]);
+    const actualJson = JSON.stringify(actual[key]);
+    if (expectedJson !== actualJson) {
+      return `top-level key "${key}" expected ${truncate(expectedJson)} got ${truncate(actualJson)}`;
+    }
+  }
+  return '';
+}
+
+function truncate(text, max = 160) {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '…';
 }
 
 const check = process.argv.includes('--check');
