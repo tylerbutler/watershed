@@ -1,6 +1,13 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import appSource from "../../../../examples/bench_book_lustre/src/bench_book_lustre.gleam?raw";
+import buildScript from "../../../../examples/bench_book_lustre/build.mjs?raw";
+import schemaSource from "../../../../examples/bench_book_lustre/src/doc_schema.gleam?raw";
+import gleamToml from "../../../../examples/bench_book_lustre/gleam.toml?raw";
+import packageJson from "../../../../examples/bench_book_lustre/package.json?raw";
+import pnpmWorkspace from "../../../../examples/bench_book_lustre/pnpm-workspace.yaml?raw";
+import indexHtml from "../../../../examples/bench_book_lustre/index.html?raw";
 
 const connect = `import lustre/effect.{type Effect}
 import watershed_lustre
@@ -47,12 +54,17 @@ const update = `fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     // A channel resolved → keep its handle and subscribe to it.
-    EnsuredReadings(readings) -> #(
+    EnsuredReadings(Ok(readings)) -> #(
       Model(..model, readings: Some(readings)),
       watershed_lustre.subscribe(readings, fn(_event) { SharedChanged }),
     )
 
-    // Any sequenced change (local or remote) → re-snapshot from the channels.
+    EnsuredReadings(Error(reason)) -> #(
+      Model(..model, error: Some(reason)),
+      effect.none(),
+    )
+
+    // Any visible change (optimistic local or applied remote) → re-snapshot.
     SharedChanged -> #(snapshot(model), effect.none())
 
     // Presence roster changed → re-render the peer markers.
@@ -120,9 +132,10 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
     <p>
       The <code>ensure_*</code> calls from step 02 are the same here, batched as
       effects. Each channel ensure dispatches its handle back; in
-      <code>update</code> you store the handle and subscribe to the channel, so
-      every sequenced change — yours or a peer’s — dispatches a
-      <code>SharedChanged</code> you re-render from.
+      <code>update</code> you store the handle and subscribe to the channel.
+      An optimistic local edit dispatches <code>SharedChanged</code> at once. A
+      remote edit dispatches the same message when it reaches your replica.
+      Both re-snapshot the shared state through one render path.
     </p>
     <span class="g-file">bootstrap</span>
     <figure class="g-code">
@@ -154,6 +167,72 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
         for this step.
       </p>
     </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Complete working project</h2>
+    <p>
+      The snippets above isolate each lifecycle step. These are all the files
+      required to run Bench Book. The guide reads them from the checked-in
+      example, so the displayed source and the compiled source cannot drift.
+    </p>
+    <p>
+      Put the files in the structure below, start a levee development server on
+      port <code>4000</code>, then run <code>pnpm install</code>,
+      <code>pnpm build</code>, and <code>pnpm serve</code>. Open
+      <code>http://localhost:8080</code> in two tabs to see local edits render
+      immediately and remote edits arrive through the same subscriptions.
+    </p>
+    <figure class="g-code">
+      <Code
+        code={`bench_book_lustre/
+├── gleam.toml
+├── package.json
+├── pnpm-workspace.yaml
+├── build.mjs
+├── index.html
+└── src/
+    ├── doc_schema.gleam
+    └── bench_book_lustre.gleam`}
+        lang="text"
+        theme="css-variables"
+      />
+    </figure>
+
+    <span class="g-file">gleam.toml</span>
+    <figure class="g-code">
+      <Code code={gleamToml} lang="toml" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">package.json</span>
+    <figure class="g-code">
+      <Code code={packageJson} lang="json" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">pnpm-workspace.yaml</span>
+    <figure class="g-code">
+      <Code code={pnpmWorkspace} lang="yaml" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">build.mjs</span>
+    <figure class="g-code">
+      <Code code={buildScript} lang="javascript" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">index.html</span>
+    <figure class="g-code">
+      <Code code={indexHtml} lang="html" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">src/doc_schema.gleam</span>
+    <figure class="g-code">
+      <Code code={schemaSource} lang="gleam" theme="css-variables" />
+    </figure>
+
+    <span class="g-file">src/bench_book_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={appSource} lang="gleam" theme="css-variables" />
+    </figure>
   </div>
 
   <div class="g-out">

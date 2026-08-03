@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bench Book</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 42rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+      }
+      header, .actions, .station {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      header {
+        justify-content: space-between;
+      }
+      button {
+        padding: 0.5rem 0.75rem;
+        font: inherit;
+      }
+      .status, .peers {
+        color: #666;
+      }
+      .error {
+        color: #b42318;
+      }
+      .station {
+        justify-content: space-between;
+        border-top: 1px solid #ddd;
+        padding: 0.75rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/bench_book_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

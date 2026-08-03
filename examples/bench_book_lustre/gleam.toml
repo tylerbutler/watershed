@@ -1,0 +1,13 @@
+name = "bench_book_lustre"
+version = "1.0.0"
+description = "Complete Bench Book example from the watershed build guide"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+lustre = ">= 5.0.0 and < 6.0.0"
+watershed = { path = "../.." }
+watershed_lustre = { path = "../../watershed_lustre" }

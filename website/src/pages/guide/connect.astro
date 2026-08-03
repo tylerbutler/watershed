@@ -2,10 +2,14 @@
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 
-const beam = `import gleam/io
+const beam = `import gleam/erlang/process
 import gleam/json
 import watershed
-import watershed/map_kernel.{ValueChanged}
+import watershed/channel.{type ChannelEvent}
+
+type Msg {
+  MapChanged(ChannelEvent)
+}
 
 pub fn main() {
   // Blocks until the op history has replayed locally.
@@ -18,19 +22,17 @@ pub fn main() {
       token: token,
       user_id: "surveyor-ada",
     )
-
   let survey = watershed.root(doc)
+  let events = watershed.subscribe(survey)
+  let selector =
+    process.new_selector()
+    |> process.select_map(events, MapChanged)
 
-  // Optimistic: applies locally now, sequences on the server.
+  // Subscribe first: this local write emits immediately.
   watershed.set(survey, "title", json.string("Mill Race — spring survey"))
 
-  // One ordered stream of local + remote changes.
-  watershed.subscribe(survey, fn(event) {
-    case event {
-      ValueChanged(key:, ..) -> io.println("revised: " <> key)
-      _ -> Nil
-    }
-  })
+  // The same subject also receives remote changes as they are applied.
+  let MapChanged(_event) = process.selector_receive_forever(selector)
 }`;
 
 const js = `import gleam/io
@@ -134,12 +136,18 @@ pub fn main() {
       There is no merge callback to write and no conflict handler to forget.
     </p>
     <p>
-      A <code>set</code> applies to your local replica <em>immediately</em> so
-      the UI never waits on the network, and is sent to the server to be
-      sequenced. When the sequencer stamps it — and when other clients’ writes
-      arrive — your <code>subscribe</code> handler sees them in the same
-      server-assigned order every replica sees. That single ordered stream is
-      the whole convergence contract; last write wins per key.
+      A <code>set</code> applies to your local replica <em>immediately</em> and
+      emits a local subscription event, so subscribe before you make edits.
+      Remote writes emit when the runtime applies them to your replica. Both
+      event origins should re-read the visible state through the same render
+      path. A server acknowledgement may emit nothing when it does not change
+      that visible state.
+    </p>
+    <p>
+      The server still assigns the order that resolves concurrent writes.
+      Subscriptions tell your app when its local view changed; sequencing tells
+      replicas which value wins. For a map, the last sequenced write wins per
+      key.
     </p>
     <p>
       Storing a plain string under <code>"title"</code> works, but you don’t want
