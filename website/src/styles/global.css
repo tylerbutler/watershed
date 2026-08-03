@@ -18,12 +18,15 @@
   --waterline-faint: oklch(37% 0.095 240 / 0.35);
   --hairline: oklch(25% 0.02 260 / 0.22);
   --hairline-faint: oklch(25% 0.02 260 / 0.11);
+  --syntax-string: oklch(31% 0.07 240);
+  --syntax-punctuation: oklch(38% 0.015 260);
 
   /* type */
   --font-sans:
     "Archivo Variable", "Archivo", system-ui, "Segoe UI", "Helvetica Neue",
     sans-serif;
-  --font-mono: "Commit Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   --text-display: clamp(2.7rem, 5vw + 1.35rem, 5.4rem);
   --text-h2: clamp(1.85rem, 2.2vw + 1.1rem, 2.9rem);
@@ -117,10 +120,8 @@ code,
 kbd,
 samp {
   font-family: var(--font-mono);
-  font-variant-ligatures: common-ligatures contextual;
-  font-feature-settings:
-    "liga" 1,
-    "calt" 1;
+  font-variant-ligatures: contextual;
+  font-feature-settings: "calt" 1;
 }
 
 ::selection {

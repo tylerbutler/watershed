@@ -12,11 +12,14 @@ export const watershedCodeTheme = {
     },
     {
       scope: ["keyword.control.gleam", "keyword", "storage"],
-      settings: { foreground: "var(--overprint-deep)" },
+      settings: {
+        foreground: "var(--overprint-deep)",
+        fontStyle: "bold",
+      },
     },
     {
       scope: ["keyword.operator.gleam", "keyword.operator"],
-      settings: { foreground: "var(--muted)" },
+      settings: { foreground: "var(--muted)", fontStyle: "" },
     },
     {
       scope: [
@@ -25,7 +28,10 @@ export const watershedCodeTheme = {
         "support.type",
         "constant.language",
       ],
-      settings: { foreground: "var(--waterline)" },
+      settings: {
+        foreground: "var(--waterline)",
+        fontStyle: "bold",
+      },
     },
     {
       scope: [
@@ -33,7 +39,10 @@ export const watershedCodeTheme = {
         "entity.name.function",
         "support.function",
       ],
-      settings: { foreground: "var(--ink)" },
+      settings: {
+        foreground: "var(--ink)",
+        fontStyle: "bold",
+      },
     },
     {
       scope: [
@@ -45,7 +54,7 @@ export const watershedCodeTheme = {
     },
     {
       scope: ["string", "string.quoted.double.gleam"],
-      settings: { foreground: "var(--waterline)" },
+      settings: { foreground: "var(--syntax-string)" },
     },
     {
       scope: ["constant.character.escape.gleam", "constant.numeric"],
@@ -53,7 +62,7 @@ export const watershedCodeTheme = {
     },
     {
       scope: ["punctuation", "meta.brace", "meta.delimiter"],
-      settings: { foreground: "var(--muted)" },
+      settings: { foreground: "var(--syntax-punctuation)" },
     },
     {
       scope: ["entity.name.tag", "markup.heading"],
