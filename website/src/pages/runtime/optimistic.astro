@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const local = `import gleam/json
 import watershed
@@ -47,7 +48,7 @@ let assert Ok(_) = watershed.get(survey, "depth-07")
       replica receives the same edit in the same position and applies it too.
     </p>
     <figure class="g-code">
-      <Code code={local} lang="gleam" theme="css-variables" />
+      <Code code={local} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
       Because the local apply is synchronous, <code>get</code> is

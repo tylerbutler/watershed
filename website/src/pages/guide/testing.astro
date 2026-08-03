@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const test = `import gleam/json
 import gleam/option.{Some}
@@ -75,7 +76,7 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     </p>
     <span class="g-file">test/convergence_test.gleam</span>
     <figure class="g-code">
-      <Code code={test} lang="gleam" theme="css-variables" />
+      <Code code={test} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -87,7 +88,7 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       delivers one frame at a time so you control the order the sequencer sees:
     </p>
     <figure class="g-code">
-      <Code code={race} lang="gleam" theme="css-variables" />
+      <Code code={race} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>

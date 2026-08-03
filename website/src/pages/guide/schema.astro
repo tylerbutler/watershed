@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const schemaFile = `import gleam/dynamic/decode
 import gleam/json
@@ -99,7 +100,7 @@ fn station_schema() -> schema.Schema(Station, StationState) {
     </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
-      <Code code={schemaFile} lang="gleam" theme="css-variables" />
+      <Code code={schemaFile} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -115,7 +116,7 @@ fn station_schema() -> schema.Schema(Station, StationState) {
     </p>
     <span class="g-file">src/bench_book.gleam</span>
     <figure class="g-code">
-      <Code code={bootstrap} lang="gleam" theme="css-variables" />
+      <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -129,7 +130,7 @@ fn station_schema() -> schema.Schema(Station, StationState) {
       decode to your type.
     </p>
     <figure class="g-code">
-      <Code code={readwrite} lang="gleam" theme="css-variables" />
+      <Code code={readwrite} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
@@ -151,7 +152,7 @@ fn station_schema() -> schema.Schema(Station, StationState) {
       sibling fields still merge.
     </p>
     <figure class="g-code">
-      <Code code={record} lang="gleam" theme="css-variables" />
+      <Code code={record} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
       The <a href="https://github.com/tylerbutler/watershed/tree/main/examples/scoreboard_cli">

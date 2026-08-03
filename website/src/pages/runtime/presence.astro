@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const cfg = `import watershed/presence
 
@@ -63,7 +64,7 @@ pub const config = presence.Config(heartbeat_ms: 2000, ttl_ms: 6500)`;
       roster automatically.
     </p>
     <figure class="g-code">
-      <Code code={cfg} lang="gleam" theme="css-variables" />
+      <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
       The defaults re-announce every two seconds and expire a peer after six and

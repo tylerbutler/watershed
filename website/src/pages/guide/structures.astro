@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const swap = `// readings as last-write-wins — the default, wire-compatible SharedMap.
 pub fn readings() -> ChannelField(Survey, MapChannel) {
@@ -62,7 +63,7 @@ watershed.increment(flags, 1)
       <code>ensure_*</code> call:
     </p>
     <figure class="g-code">
-      <Code code={swap} lang="gleam" theme="css-variables" />
+      <Code code={swap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -77,7 +78,7 @@ watershed.increment(flags, 1)
       under last-write-wins.
     </p>
     <figure class="g-code">
-      <Code code={counter} lang="gleam" theme="css-variables" />
+      <Code code={counter} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>

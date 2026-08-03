@@ -1,5 +1,6 @@
 ---
 import { Code } from "astro:components";
+import { watershedCodeTheme } from "../styles/code-theme";
 
 const sample = `import gleam/json
 import watershed
@@ -57,7 +58,7 @@ pub fn main() {
       </p>
     </div>
     <figure class="code-figure" data-reveal="rise">
-      <Code code={sample} lang="gleam" theme="css-variables" />
+      <Code code={sample} lang="gleam" theme={watershedCodeTheme} />
       <figcaption class="annot">examples · erlang + javascript targets</figcaption>
     </figure>
   </div>
@@ -123,17 +124,6 @@ pub fn main() {
     overflow-x: auto;
     font-size: 0.875rem;
     line-height: 1.7;
-    --astro-code-foreground: var(--ink);
-    --astro-code-background: var(--bg);
-    --astro-code-token-keyword: var(--overprint-deep);
-    --astro-code-token-string: var(--waterline);
-    --astro-code-token-string-expression: var(--waterline);
-    --astro-code-token-constant: var(--ink);
-    --astro-code-token-comment: var(--muted);
-    --astro-code-token-function: var(--ink);
-    --astro-code-token-parameter: var(--ink);
-    --astro-code-token-punctuation: var(--muted);
-    --astro-code-token-link: var(--waterline);
   }
 
   figcaption {

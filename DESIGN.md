@@ -35,8 +35,9 @@ ink = sequenced/confirmed, waterline = linework and links.
 - **Archivo Variable** (`@fontsource-variable/archivo/wdth.css`): the width
   axis is the voice. Display/headings at `font-stretch` 115–122%,
   weight 620–650; body at normal width.
-- **Fragment Mono**: code, data, and the `.annot` map-margin annotation style
-  (uppercase, 0.07em tracking, 0.8125rem).
+- **Commit Mono**: code, data, and the `.annot` map-margin annotation style
+  (uppercase, 0.07em tracking, 0.8125rem). Programming ligatures are enabled
+  through its restrained contextual-alternate set.
 - Display: `clamp(2.7rem, 5vw + 1.35rem, 5.4rem)`, line-height 0.99,
   letter-spacing −0.025em. H2: `clamp(1.85rem, 2.2vw + 1.1rem, 2.9rem)`.
   Body 1.0625rem / 1.65, measure ≤62ch.

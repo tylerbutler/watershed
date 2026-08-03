@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 
 const beam = `import gleam/erlang/process
 import gleam/json
@@ -100,13 +101,13 @@ pub fn main() {
       </div>
       <div class="g-tab-panels">
         <figure class="g-code g-panel g-panel-beam">
-          <Code code={beam} lang="gleam" theme="css-variables" />
+          <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
           <figcaption class="annot">
             src/bench_book.gleam · erlang target
           </figcaption>
         </figure>
         <figure class="g-code g-panel g-panel-js">
-          <Code code={js} lang="gleam" theme="css-variables" />
+          <Code code={js} lang="gleam" theme={watershedCodeTheme} />
           <figcaption class="annot">
             src/bench_book.gleam · javascript target
           </figcaption>

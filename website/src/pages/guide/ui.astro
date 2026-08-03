@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
 import appSource from "../../../../examples/bench_book_lustre/src/bench_book_lustre.gleam?raw";
 import buildScript from "../../../../examples/bench_book_lustre/build.mjs?raw";
 import schemaSource from "../../../../examples/bench_book_lustre/src/doc_schema.gleam?raw";
@@ -123,7 +124,7 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
       <code>init</code> and handle the messages in <code>update</code>.
     </p>
     <figure class="g-code">
-      <Code code={connect} lang="gleam" theme="css-variables" />
+      <Code code={connect} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -139,11 +140,11 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
     </p>
     <span class="g-file">bootstrap</span>
     <figure class="g-code">
-      <Code code={bootstrap} lang="gleam" theme="css-variables" />
+      <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <span class="g-file">update</span>
     <figure class="g-code">
-      <Code code={update} lang="gleam" theme="css-variables" />
+      <Code code={update} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
@@ -156,7 +157,7 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
       changes. Render the markers unconditionally from that roster.
     </p>
     <figure class="g-code">
-      <Code code={presence} lang="gleam" theme="css-variables" />
+      <Code code={presence} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
@@ -195,43 +196,43 @@ fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
     ├── doc_schema.gleam
     └── bench_book_lustre.gleam`}
         lang="text"
-        theme="css-variables"
+        theme={watershedCodeTheme}
       />
     </figure>
 
     <span class="g-file">gleam.toml</span>
     <figure class="g-code">
-      <Code code={gleamToml} lang="toml" theme="css-variables" />
+      <Code code={gleamToml} lang="toml" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">package.json</span>
     <figure class="g-code">
-      <Code code={packageJson} lang="json" theme="css-variables" />
+      <Code code={packageJson} lang="json" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">pnpm-workspace.yaml</span>
     <figure class="g-code">
-      <Code code={pnpmWorkspace} lang="yaml" theme="css-variables" />
+      <Code code={pnpmWorkspace} lang="yaml" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">build.mjs</span>
     <figure class="g-code">
-      <Code code={buildScript} lang="javascript" theme="css-variables" />
+      <Code code={buildScript} lang="javascript" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">index.html</span>
     <figure class="g-code">
-      <Code code={indexHtml} lang="html" theme="css-variables" />
+      <Code code={indexHtml} lang="html" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
-      <Code code={schemaSource} lang="gleam" theme="css-variables" />
+      <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
     </figure>
 
     <span class="g-file">src/bench_book_lustre.gleam</span>
     <figure class="g-code">
-      <Code code={appSource} lang="gleam" theme="css-variables" />
+      <Code code={appSource} lang="gleam" theme={watershedCodeTheme} />
     </figure>
   </div>
 
