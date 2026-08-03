@@ -2,8 +2,8 @@
 // The counter-in-a-map bug: a live, real-`map_kernel` demonstration of the
 // classic distributed-systems lost update. Two lock gauge houses keep one
 // running tally in a SharedMap; concurrent read-modify-write drops a boat under
-// last-write-wins. A second rig (per-replica keys summed — the PN-counter
-// construction) shows why commuting writes converge, and a third runs the real
+// last-write-wins. A second rig (positive-only per-replica keys summed — the
+// shape of a G-counter) shows how disjoint writes avoid the race, and a third runs the real
 // `counter_kernel` (SharedCounter): signed delta ops, no reads at all. All rigs
 // run watershed's JS-compiled Gleam kernels; rough-notation draws the attention.
 ---
@@ -101,9 +101,11 @@
         Nothing is wrong with the map — a counter just is not a single mutable
         cell. Give each replica its own key and sum them, and the two writes
         never contend. The <em>same</em> race now converges on the right total,
-        through the <em>same</em> <code>map_kernel</code>. This is the classic
-        per-replica-column construction (a PN-counter): it proves the principle
-        that only commuting writes survive concurrency.
+        through the <em>same</em> <code>map_kernel</code>. This positive-only
+        per-replica-column layout is the shape of a G-counter. Here each replica
+        writes only its own monotonically increasing key; a true G-counter also
+        merges those columns by pairwise maximum, making duplicate delivery
+        idempotent.
       </p>
     </div>
 

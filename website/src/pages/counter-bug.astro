@@ -15,12 +15,12 @@ import Ecosystem from "../components/Ecosystem.astro";
       </p>
       <h1>A counter is not<br />a <em>map cell.</em></h1>
       <p class="lede">
-        The SharedMap on the homepage converges cleanly — last-write-wins is the
-        right rule for a map. But it is the single most common way a first
-        collaborative <strong>counter</strong> loses data: store a running count
-        in a map cell, do read-modify-write from two clients at once, and one
-        increment is silently overwritten. Here it is, live, through watershed's
-        real <code>map_kernel</code>.
+        SharedMap resolves each key to the write with the higher server sequence
+        number. That gives every replica the same value, but it does not preserve
+        read-modify-write intent: if two clients read the same count and each
+        writes <code>count + 1</code>, both submit the same replacement value and
+        the later write contributes no additional increment. Here it is, live,
+        through watershed's real <code>map_kernel</code>.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="#counter-bug">See the bug ↓</a>

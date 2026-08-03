@@ -166,7 +166,8 @@ fn station_schema() -> schema.Schema(Station, StationState) {
     <p>
       Declare a document’s shape in one file, bootstrap its channels with a
       batch of <code>ensure_*</code> calls, and read and write typed fields
-      through a decode boundary that never lets a peer corrupt your state.
+      through a boundary that reports values which do not decode as the
+      declared type.
     </p>
   </div>
 </GuideLayout>

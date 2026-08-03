@@ -4,13 +4,14 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 
 const local = `import gleam/json
+import gleam/option.{Some}
 import watershed
 
 // set applies to your replica *now* — get reads it back before the
 // server has seen it. The UI never waits on the network.
 watershed.set(survey, "depth-07", json.float(3.4))
-let assert Ok(_) = watershed.get(survey, "depth-07")
-// => 3.4, already visible. This value is *pending*: drawn in magenta,
+let assert Some(value) = watershed.get(survey, "depth-07")
+// => Some(3.4), already visible. This value is *pending*: drawn in magenta,
 // a prediction of where the server's order will place it.`;
 ---
 
@@ -53,10 +54,12 @@ let assert Ok(_) = watershed.get(survey, "depth-07")
     <p>
       Because the local apply is synchronous, <code>get</code> is
       read-your-writes: it returns your pending value the instant you set it.
-      Your <code>subscribe</code> handler, meanwhile, delivers the
-      <em>sequenced</em> stream — the same server-assigned order every replica
-      observes — so the UI you build on it always converges even while individual
-      edits are still in flight.
+      A map subscription reports visible local and remote changes: the
+      optimistic write emits immediately, and a remote write emits when it is
+      applied. An acknowledgement emits no event when it only confirms the
+      already-visible value. Sequence numbers still determine the converged
+      winner; subscriptions are a local view-change stream, not a
+      sequenced-only feed.
     </p>
   </div>
 

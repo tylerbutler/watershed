@@ -99,7 +99,7 @@ const clients = [
         step="0.25"
         value="0.5"
         data-dir-pace
-        title="Playback multiplier — how fast the whole animation plays on screen. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-dir-pace-out>0.5×</output>
@@ -108,7 +108,7 @@ const clients = [
       <input
         type="checkbox"
         data-dir-latency-variance
-        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step and arrival order can shuffle."
+        title="Add random ±50 ms per hop; arrival order may change."
         disabled
       />
       <span class="annot">Jitter ±50&nbsp;ms</span>
@@ -135,19 +135,15 @@ const clients = [
   </div>
 
   <p class="controls-hint">
-    <strong>Link latency</strong> is the simulated network delay — the demo’s
-    physics. <strong>Animation speed</strong> just scales how fast that plays on
-    screen. <strong>Jitter</strong> adds random ±50&nbsp;ms per hop, so ops stop
-    travelling in lock-step and their arrival order can shuffle. Only latency
-    and jitter change the outcome.
+    Latency and jitter affect simulated arrival order; animation speed changes
+    playback only.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs watershed’s actual
-      the real watershed runtime and the in-memory <code>sluice</code> as
-      compiled JavaScript in your
-      browser. The rest of the page works fine without it.
+      The live demo needs JavaScript — it runs the watershed runtime and
+      in-memory <code>sluice</code> compiled for the browser. The rest of the
+      page works without it.
     </p>
   </noscript>
 

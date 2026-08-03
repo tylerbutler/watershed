@@ -117,7 +117,8 @@ const PICKER_CELLS = [
       </p>
       <p class="demo-hint">
         Nudge a gauge, race a concurrent write, stretch the link latency — the
-        replicas always converge, each structure by its own rule.
+        replicas settle to the same state after the stream drains, each
+        structure by its own rule.
       </p>
       <p class="demo-hint">
         These structures converge by merge rules. For the other family —
@@ -802,7 +803,7 @@ const PICKER_CELLS = [
         step="0.25"
         value="0.5"
         data-pace
-        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-pace-out>0.5×</output>
@@ -811,7 +812,7 @@ const PICKER_CELLS = [
       <input
         type="checkbox"
         data-latency-variance
-        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step. Models an unstable network where arrival order can shuffle."
+        title="Add random ±50 ms per hop; arrival order may change."
         disabled
       />
       <span class="annot">Jitter ±50&nbsp;ms</span>
@@ -849,11 +850,8 @@ const PICKER_CELLS = [
   </div>
 
   <p class="controls-hint">
-    <strong>Link latency</strong> is the simulated network delay — the demo's
-    physics. <strong>Animation speed</strong> just scales how fast that plays
-    on screen (on-screen time = latency ÷ speed). Slowing the animation only
-    stretches the playback; it never changes ordering or which writes collide —
-    only latency does that.
+    Latency and jitter affect simulated arrival order; animation speed changes
+    playback only.
   </p>
 
   <noscript>

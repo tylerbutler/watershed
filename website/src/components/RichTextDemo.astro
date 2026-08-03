@@ -106,7 +106,7 @@ const clients = [
         step="0.25"
         value="0.5"
         data-rt-pace
-        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-rt-pace-out>0.5×</output>
@@ -115,7 +115,7 @@ const clients = [
       <input
         type="checkbox"
         data-rt-latency-variance
-        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step."
+        title="Add random ±50 ms per hop; arrival order may change."
         disabled
       />
       <span class="annot">Jitter ±50&nbsp;ms</span>

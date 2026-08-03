@@ -2,8 +2,9 @@
 //
 // A SharedMap (last-write-wins per key) is the wrong home for a running count.
 // The classic footgun is read-modify-write on a shared integer cell: two
-// clients read the same value, both write value+1, and the sequencer keeps the
-// *last* write outright — one increment silently vanishes (a lost update).
+// clients read the same value, both write value+1, and the value carried by the
+// higher-sequence-number write remains — the final value reflects one
+// increment rather than two (a lost update).
 //
 // Both rigs below run watershed's real `map_kernel`, compiled with
 // `gleam build --target javascript`, over one in-page sequencer that stamps
@@ -13,8 +14,9 @@
 //   • The BUG rig stores the tally in one shared key. Concurrent read-modify-
 //     write races drop a boat, because LWW overwrites instead of merging.
 //   • The FIX rig stores each gauge house's tally under its own key and sums
-//     them (the classic PN-counter construction). The identical race converges
-//     on the correct total — the ops no longer contend for one cell.
+//     them (the positive-only per-replica shape used by a G-counter). The
+//     identical race converges on the correct total because the ops no longer
+//     contend for one cell.
 //   • The COUNTER rig runs the real `counter_kernel` — watershed's
 //     SharedCounter engine. Ops are signed deltas (`increment(+1)`,
 //     `increment(-1)`); clients never read-modify-write, so there is nothing

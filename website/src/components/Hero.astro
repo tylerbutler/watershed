@@ -45,11 +45,11 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
       Edit upstream.<br />Converge <em>downstream.</em>
     </h1>
     <p class="lede">
-      watershed lets many people edit the same data at once without losing each
-      other’s changes. Each client updates instantly, a server puts every edit in
-      one order, and every copy ends up identical — the same Gleam core running on
-      the server (the BEAM) and in the browser. It’s wire-compatible with
-      Microsoft’s Fluid Framework.
+      watershed applies local operations optimistically, then reconciles them
+      against one server-assigned order. Each structure defines its own conflict
+      policy — last-write-wins, additive, observed-remove, or transform — and the
+      same Gleam core runs on the BEAM and in the browser. SharedMap operations
+      use Microsoft Fluid Framework’s wire shape.
     </p>
     <div class="cta-row">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">

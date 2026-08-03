@@ -35,7 +35,7 @@ const models = [
       "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count — safety the structure carries itself, where an order-based DDS relies on the runtime deduping by sequence number.",
     ],
     tradeoff:
-      "Survives duplicate and reordered delivery and works offline, at the cost of per-item metadata — tags and tombstones — that grows over time.",
+      "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",
     members: crdt.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
   },
   {
@@ -70,21 +70,21 @@ const rows = [
   },
   {
     axis: "Duplicate / reordered delivery",
-    dds: "guarded by sequence numbers",
-    crdt: "absorbed by the merge itself",
-    ot: "handled by the in-flight protocol",
+    dds: "runtime orders and deduplicates by sequence number",
+    crdt: "merge is designed to absorb repeats and reordering",
+    ot: "client protocol buffers and transforms the ordered stream",
   },
   {
     axis: "Per-item metadata",
-    dds: "minimal",
-    crdt: "grows — tags and tombstones",
-    ot: "minimal, per op",
+    dds: "structure-dependent; often a value plus sequence data",
+    crdt: "type-dependent; may include replica slots, tags, or tombstones",
+    ot: "document state plus in-flight and buffered ops",
   },
   {
     axis: "Offline / unreliable links",
-    dds: "policy-dependent",
-    crdt: "strong — the design point",
-    ot: "workable with buffering",
+    dds: "policy and client persistence determine safety",
+    crdt: "merge supports it; storage and transport still required",
+    ot: "requires buffered ops and ordered reconnect",
   },
   {
     axis: "Best fit",
@@ -196,8 +196,9 @@ const rows = [
           </li>
           <li>
             <strong>Reach for a CRDT when delivery is unreliable.</strong> Offline
-            edits, at-least-once delivery, or a counter that must survive a
-            re-sent delta call for a merge that does not care about order —
+            edits backed by durable local storage, at-least-once delivery, or a
+            counter that must survive a re-sent delta call for a merge that does
+            not care about order —
             <a href="/structures/counters#pn">PN counter</a>,
             <a href="/structures/sets#orset">OR-set</a>, or
             <a href="/structures/maps#ormap">OR-map</a>.
@@ -214,7 +215,7 @@ const rows = [
         <div class="mod-cta">
           <a class="cta-primary" href="/structures">Back to the field guide</a>
           <a class="cta-quiet" href="/runtime">How the runtime behaves →</a>
-          <a class="cta-quiet" href="/#demo">Watch all three converge ↓</a>
+          <a class="cta-quiet" href="/#demo">Compare live merge policies ↓</a>
         </div>
       </div>
     </section>

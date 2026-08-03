@@ -153,7 +153,7 @@ const clients = [
         step="0.25"
         value="0.5"
         data-jot-pace
-        title="Playback multiplier — how fast the whole animation plays on screen. On-screen time = link latency ÷ speed. It only changes how fast you watch; the simulated outcome is identical at any speed."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-jot-pace-out>0.5×</output>
@@ -162,7 +162,7 @@ const clients = [
       <input
         type="checkbox"
         data-jot-latency-variance
-        title="Add random ±50 ms jitter to each hop's link latency, so ops no longer travel in lock-step. Models an unstable network where arrival order can shuffle."
+        title="Add random ±50 ms per hop; arrival order may change."
         disabled
       />
       <span class="annot">Jitter ±50&nbsp;ms</span>
@@ -186,12 +186,8 @@ const clients = [
   </div>
 
   <p class="controls-hint">
-    <strong>Link latency</strong> is the simulated network delay — the demo's
-    physics. <strong>Animation speed</strong> just scales how fast that plays
-    on screen (on-screen time = latency ÷ speed). <strong>Jitter</strong> adds
-    random ±50&nbsp;ms per hop, so ops stop travelling in lock-step and their
-    arrival order can shuffle. Only latency and jitter change the outcome —
-    animation speed only changes how fast you watch.
+    Latency and jitter affect simulated arrival order; animation speed changes
+    playback only.
   </p>
 
   <noscript>

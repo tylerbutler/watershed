@@ -4,16 +4,16 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
 
 <RuntimeLayout
   slug="reconnect"
-  description="How a watershed client rejoins a document after a dropped connection: it rehydrates from a server summary and replays only the ops since, the same from_summary path a fresh client and the demo's baseline replicas take — so reconnect is not a special case."
+  description="How a watershed client rejoins after a dropped connection: pending operations are resubmitted, while fresh bootstrap uses an available server summary plus later operations or falls back to replaying retained history."
 >
   <div class="g-block">
     <h2>A dropped link is not a lost document</h2>
     <p>
       Connections fail: a laptop sleeps, a tunnel closes, a phone walks out of
       signal. The question is never whether it happens but what state you come
-      back to. In watershed a reconnecting client rejoins the same flow it left,
-      lands on the current converged state, and streams forward again — without
-      replaying the document's entire history to get there.
+      back to. watershed reconnects the transport, remaps the client id, and
+      resubmits pending operations against the server’s current reference
+      sequence number before live delivery resumes.
     </p>
   </div>
 
@@ -22,11 +22,11 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     <p>
       A long-lived document accumulates thousands of ops. Replaying all of them
       on every join would make reconnection slower the older the document got.
-      Instead the server periodically <strong>summarises</strong> converged state
-      into a snapshot stamped with the sequence number it covers. A returning
-      client loads that summary through <code>from_summary</code> and then
-      replays only the ops <em>after</em> it — the gap it missed, not the whole
-      river.
+      An application can explicitly call <code>summarize(document)</code> to
+      write the client’s current confirmed channel snapshots to levee storage.
+      The server records the sequence number covered by that summary. On a later
+      bootstrap, watershed loads an available summary and applies operations
+      after that point.
     </p>
     <p>
       Every channel knows how to serialise and rebuild itself this way, so the
@@ -39,20 +39,20 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   </div>
 
   <div class="g-block">
-    <h2>The same path a fresh client takes</h2>
+    <h2>Summary when available, history when not</h2>
     <p>
-      The reason to trust reconnection is that it is not a separate code path.
-      A brand-new client joining for the first time also boots by loading a
-      summary and replaying the tail — reconnecting is the identical operation,
-      just with a sequence number you have seen before. There is no
-      resume-from-disconnect branch that only runs on the unhappy path and only
-      breaks in production.
+      A fresh bootstrap does not require a summary. If the server provides one,
+      the runtime seeds channels from it and replays the supplied tail. Without
+      one, it starts empty and replays the retained initial messages. If that
+      batch begins after a missing prefix, the runtime pages the gap from the
+      deltas endpoint before declaring the document ready.
     </p>
     <p>
-      The live demo leans on exactly this. Its two clients boot from a baseline
-      summary built under a dedicated <code>survey-baseline</code> replica —
-      the same <code>from_summary</code> call a reconnecting surveyor makes.
-      Because persisted sequence numbers ride along in the summary,
+      Kernel demos also exercise <code>from_summary</code> directly by building
+      baseline replicas under a dedicated <code>survey-baseline</code>
+      identity. That validates channel snapshot decoding, but it is not the
+      transport reconnect path. Because required sequence metadata rides along
+      in snapshots,
       order-sensitive structures like <a href="/structures/coordination#claims">claims</a>
       stay correct after a load: a slot that was claimed before you dropped is
       still claimed when you return, and a compare-and-set still refers to the
@@ -61,8 +61,9 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     <div class="g-note">
       <p>
         <strong>Reconnect is a resync, not a reset.</strong> You do not lose the
-        document and you do not fork a divergent copy — you catch the flow back
-        up from the last point it summarised. Ephemeral signals are the
+        document and you do not fork a divergent copy. Pending durable
+        operations are resubmitted and confirmed history catches the runtime
+        up. Ephemeral signals are the
         exception by design: a <a href="/runtime/presence">ripple</a> broadcast
         while you were gone is not in any summary and will not replay, which is
         exactly right for a cursor and exactly why durable state belongs in a
@@ -74,10 +75,10 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      A reconnecting client rehydrates from a summary and replays only the gap —
-      the same <code>from_summary</code> path every fresh client and every
-      baseline replica uses — so rejoining after a drop lands you on current,
-      correct, converged state instead of a special-case recovery routine.
+      Summaries are explicit checkpoints, not a requirement. Bootstrap uses one
+      when available and otherwise replays retained history; reconnect preserves
+      pending durable operations by resubmitting them against the resumed
+      session.
     </p>
   </div>
 </RuntimeLayout>

@@ -27,7 +27,7 @@ const ledger = [
   {
     id: "B5",
     name: "SharedDirectory",
-    detail: "Recursive SharedMap hierarchy wired as a runtime channel, byte-compatible with Fluid's SharedDirectory",
+    detail: "Recursive SharedMap hierarchy wired as a runtime channel, modeled on Fluid SharedDirectory operations",
     status: "implemented",
   },
 ];
@@ -36,7 +36,7 @@ const ledger = [
 <section class="rigor" aria-labelledby="rigor-title">
   <div class="rigor-inner">
     <div class="guarantees">
-      <h2 id="rigor-title">What is implemented and proven</h2>
+      <h2 id="rigor-title">What is implemented and tested</h2>
       <p>
         The runtime is tested three ways: against a reference model, against a
         live levee server, and against deliberately nasty orderings of
@@ -47,18 +47,21 @@ const ledger = [
         <div data-reveal="rise">
           <dt>Property-tested convergence</dt>
           <dd>
-            qcheck runs 1,000 randomized rounds each, checking that clients end
-            up in the same state no matter who wrote what or when, that
-            acknowledgements don’t change the result, and that replaying edits
-            lands the same state.
+            The fuzz harness runs randomized command traces across multiple
+            clients, including partial sequencing and delivery, reconnect,
+            rollback, stashed ops, and summary-loaded joins. It checks model
+            invariants after each command and convergence after a final sync;
+            qcheck shrinks failures and the harness records a replayable trace.
           </dd>
         </div>
         <div data-reveal="rise">
           <dt>Byte-identical wire format</dt>
           <dd>
-            Ops match <code>@fluidframework/map</code> exactly —
-            <code>{"{"}type, key, value{"}"}</code> down to the byte — verified
-            against a corpus generated from the TypeScript kernel itself.
+            SharedMap operation encoding follows
+            <code>@fluidframework/map</code>’s
+            <code>{"{"}type, key, value{"}"}</code> shape. A corpus generated
+            from the TypeScript implementation checks map state, event, and
+            convergence semantics against the reference behavior.
           </dd>
         </div>
         <div data-reveal="rise">

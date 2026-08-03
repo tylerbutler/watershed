@@ -46,22 +46,22 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
 
 <GuideLayout
   slug="testing"
-  description="Step six of the watershed build guide: the sluice is an in-memory levee that runs the real runtime and real server sequencing over an injected transport, so you can write deterministic multi-client convergence tests with explicit delivery and no infrastructure."
+  description="Step six of the watershed build guide: the sluice is an in-memory sequencer that runs the production client runtime over an injected transport, so you can write deterministic multi-client convergence tests with explicit delivery and no infrastructure."
 >
   <div class="g-block">
     <h2>Prove convergence without a server</h2>
     <p>
       A multiplayer app’s core claim is that every client ends up in the same
       state. Testing that used to mean two browser tabs and a live server. The
-      <strong>sluice</strong> replaces both: an in-memory levee — a
-      deterministic, single-process stand-in for the server.
+      <strong>sluice</strong> replaces both with a deterministic,
+      single-process sequencer and transport.
     </p>
     <p>
       Crucially, it isn’t a mock. It runs the <em>real</em> runtime — the same
       codecs, pending queues, resubmit, and reconnect catch-up — over an injected
-      transport, and the <em>real</em> server sequencing. A passing sluice test
-      exercises production code paths end to end; it just supplies its own
-      network.
+      transport, together with the same sequencing module used by the server.
+      It exercises the production client paths without claiming to reproduce
+      levee’s storage, authentication, or network boundary.
     </p>
   </div>
 
@@ -69,10 +69,11 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     <h2>Delivery is explicit</h2>
     <p>
       The trick that makes convergence testable is that nothing is delivered
-      until you say so. Ops sequence the moment they’re submitted, but arrive
-      only when you call <code>settle</code> (deliver until quiescent) or
-      <code>step</code> (deliver one frame). Races stop being timing accidents
-      and become a sequence of calls.
+      to clients until you say so. Client submissions are processed and
+      sequenced synchronously; their resulting inbound frames remain queued.
+      <code>settle</code> drains those frames to quiescence, while
+      <code>step</code> delivers one queued frame. This separates server order
+      from the order in which each replica observes it.
     </p>
     <span class="g-file">test/convergence_test.gleam</span>
     <figure class="g-code">
@@ -83,21 +84,23 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
   <div class="g-block">
     <h2>Script the race</h2>
     <p>
-      When you need a specific interleaving — “both surveyors write
-      <code>station-4</code>, deliver B’s frame first” — <code>step</code>
-      delivers one frame at a time so you control the order the sequencer sees:
+      When you need to inspect an intermediate state,
+      <code>step</code> advances one inbound frame at a time. It does not
+      reorder operations already sequenced; submission call order determines
+      that order in sluice:
     </p>
     <figure class="g-code">
       <Code code={race} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>More controls.</strong> <code>pause</code> / <code>resume</code>
-        (on the erlang <code>sluice</code>) hold a client’s frames to script
-        delivery order across clients, and <code>advance(ms)</code> moves the
-        sluice’s logical clock so presence TTL expiry is testable without ever
-        sleeping. The erlang <code>watershed/sluice</code> mirrors
-        <code>sluice_js</code> call for call.
+        <strong>More controls.</strong> Both <code>sluice</code> and
+        <code>sluice_js</code> provide <code>pause</code> /
+        <code>resume</code> to hold one client’s inbound frames, and
+        <code>advance(ms)</code> moves the sequencer’s logical clock for frame
+        timestamps. Presence uses the target runtime’s wall clock. JavaScript
+        also exposes <code>step_info</code> with delivery metadata for
+        visualizations and scripted assertions.
       </p>
     </div>
   </div>
@@ -112,9 +115,10 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     </p>
     <p>
       The <a href="https://github.com/tylerbutler/watershed/tree/main/examples">
-      examples</a> take it from here: <code>sudoku_lustre</code> is the full
-      typed-and-presence build, <code>scoreboard_cli</code> shows the record
-      schema layer, and each ships a real sluice convergence test you can read.
+      examples</a> take it from here: <code>sudoku_lustre</code> uses typed
+      fields and presence and includes a <code>sluice_js</code> convergence
+      test. <code>scoreboard_cli</code> demonstrates typed nested maps and
+      record decoding, but does not currently ship a sluice test.
     </p>
   </div>
 

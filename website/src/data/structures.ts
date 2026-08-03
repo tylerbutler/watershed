@@ -172,7 +172,7 @@ const sets: Structure[] = [
     ],
     useCases: [
       "Collaborative selections, tags, labels, and shopping carts",
-      "Presence and roster sets edited concurrently by many clients",
+      "Durable roster membership edited concurrently by many clients; transient online presence belongs in ripples",
       "Any removable set where re-adding a just-removed item must work",
     ],
   },
@@ -191,8 +191,8 @@ const maps: Structure[] = [
       "your writes show instantly, then lock in once the server confirms them",
     summary: "entries reload with the exact keys a Fluid app expects",
     how: [
-      "watershed’s flagship DDS, and a byte-compatible port of Fluid Framework’s SharedMap. Keys map to JSON values. Each set is sequenced, and for a given key the write with the highest sequence number wins.",
-      "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Because the summary uses the same key names as the Fluid wire ops, it is interchangeable with Fluid’s own.",
+      "watershed’s flagship DDS models Fluid Framework’s SharedMap operation encoding and merge semantics. Keys map to JSON values. Each set is sequenced, and for a given key the write with the highest sequence number wins.",
+      "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence, but they do not establish interchangeability for every Fluid container and summary version.",
     ],
     useCases: [
       "Shared application state and settings objects edited by many clients",
@@ -232,7 +232,7 @@ const maps: Structure[] = [
     optimistic: "folder and key edits show immediately until the server confirms them",
     summary: "the whole folder tree reloads intact",
     how: [
-      "SharedDirectory is SharedMap made recursive, and a byte-compatible port of Fluid Framework’s. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
+      "SharedDirectory is SharedMap made recursive, with operation shapes and semantics modeled on Fluid Framework’s SharedDirectory. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Each set is sequenced, and the highest sequence number wins per key.",
       "The hard part isn’t the storage — it’s hierarchical identity. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op’s reference sequence number, so a stale op targeting an old instance of a path is ignored while concurrent same-name creates merge into a single folder. That is what a flat map cannot express.",
     ],
     useCases: [
@@ -472,7 +472,7 @@ export const categories: Category[] = [
     tagline: "Keyed state, resolved two different ways.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed’s maps span that choice.",
-      "SharedMap resolves each key by server order and is wire-compatible with Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "SharedMap resolves each key by server order and follows Fluid Framework’s map operation shape. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
   },
@@ -501,7 +501,7 @@ export const categories: Category[] = [
     name: "Transforms",
     tagline: "One shared document, kept in agreement as everyone edits.",
     lede: [
-      "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
+      "Some structures above converge by a CRDT merge; others interpret one server order. This family uses operational transform, rewriting concurrent operations to account for one another.",
       "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
     ],
     structures: transforms,

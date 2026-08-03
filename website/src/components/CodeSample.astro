@@ -2,9 +2,15 @@
 import { Code } from "astro:components";
 import { watershedCodeTheme } from "../styles/code-theme";
 
-const sample = `import gleam/json
+const sample = `import gleam/erlang/process
+import gleam/io
+import gleam/json
 import watershed
-import watershed/map_kernel.{ValueChanged}
+import watershed/map_kernel.{type MapEvent, ValueChanged}
+
+type Msg {
+  MapChanged(MapEvent)
+}
 
 pub fn main() {
   // Connect, blocking until the op history has replayed locally.
@@ -19,29 +25,30 @@ pub fn main() {
     )
   let gauges = watershed.root(doc)
 
-  // Optimistic write: applies now, sequences on the server.
+  let selector =
+    process.new_selector()
+    |> process.select_map(watershed.subscribe(gauges), MapChanged)
+
+  // Optimistic write: applies now and emits locally, then goes to the server.
   watershed.set(gauges, "mill-race", json.int(24))
 
-  // Every replica observes the same sequence of changes.
-  watershed.subscribe(gauges, fn(event) {
-    case event {
-      ValueChanged(key:, ..) -> io.println("revised: " <> key)
-      _ -> Nil
-    }
-  })
+  let MapChanged(event) = process.selector_receive_forever(selector)
+  case event {
+    ValueChanged(key:, ..) -> io.println("revised: " <> key)
+    _ -> Nil
+  }
 }`;
 ---
 
 <section class="code-sample" aria-labelledby="code-title">
   <div class="code-inner">
     <div class="code-prose">
-      <h2 id="code-title">Reads like a map, syncs like a river</h2>
+      <h2 id="code-title">A map over one sequenced stream</h2>
       <p>
-        A <code>SharedMap</code> is just a map — <code>set</code>,
+        <code>SharedMap</code> exposes familiar operations — <code>set</code>,
         <code>get</code>, <code>subscribe</code>. There is no merge callback to
-        write and no conflict handler to forget: the server puts every change in
-        one order, the most recent write to a key wins, and every client applies
-        the same changes in the same order.
+        install: local writes apply optimistically, the server assigns their
+        sequence numbers, and the highest-sequenced write wins per key.
       </p>
       <p>
         The same API runs on the Erlang target as an OTP actor and on the

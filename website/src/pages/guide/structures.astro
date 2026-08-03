@@ -3,19 +3,26 @@ import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 
-const swap = `// readings as last-write-wins — the default, wire-compatible SharedMap.
-pub fn readings() -> ChannelField(Survey, MapChannel) {
-  schema.channel_field("readings")
-}
-let assert Ok(readings) = watershed.ensure_map(doc, root, doc_schema.readings())
+const swap = `import watershed
+import watershed/or_map_kernel.{RegisterMode}
+import watershed/schema.{type ChannelField, type OrMapChannel}
 
-// ── one edit swaps the merge model to observed-remove (OR-map): now a
-//    concurrent re-reading survives another surveyor deleting the station ──
+// Replace the previous ChannelField(Survey, MapChannel) declaration.
 pub fn readings() -> ChannelField(Survey, OrMapChannel) {
   schema.channel_field("readings")
 }
-let assert Ok(readings) =
-  watershed.ensure_or_map(doc, root, doc_schema.readings())`;
+
+pub fn ensure_readings(
+  doc: watershed.Document,
+  root: watershed.TypedMap(Survey),
+) -> Result(watershed.OrMap, String) {
+  watershed.ensure_or_map(
+    doc,
+    root,
+    readings(),
+    mode: RegisterMode,
+  )
+}`;
 
 const counter = `// flags is a counter, not a number in the map. Each surveyor sends a
 // signed DELTA, so two concurrent +1s converge on +2 — never clobber.
@@ -59,12 +66,25 @@ watershed.increment(flags, 1)
       But if a surveyor can <em>delete</em> a station while another is
       re-measuring it, last-write-wins can silently lose the re-reading. Swap the
       kind to an <a href="/structures/maps#ormap">OR-map</a> and observed-remove
-      semantics keep the concurrent write. The schema change is one type and one
-      <code>ensure_*</code> call:
+      semantics keep the concurrent write. For a new slot, declare
+      <code>OrMapChannel</code> and choose the required value mode when ensuring
+      it:
     </p>
     <figure class="g-code">
       <Code code={swap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
+    <div class="g-note">
+      <p>
+        <strong>A type edit is not an in-place migration.</strong> If
+        <code>readings</code> already contains a SharedMap handle,
+        <code>ensure_or_map</code> does not convert its data or replace that
+        channel. Deploy a new field key, copy values with an explicit migration,
+        then retire the old field. <code>RegisterMode</code> stores string
+        registers, so this depth example also needs an explicit string
+        representation; use <code>TallyMode</code> only for integer tally
+        leaves.
+      </p>
+    </div>
   </div>
 
   <div class="g-block">
@@ -125,8 +145,8 @@ watershed.increment(flags, 1)
     <span class="annot">You can now</span>
     <p>
       Choose a merge model per slot — order it, merge it, or coordinate it —
-      and change your mind later with a one-line schema edit, because the kind
-      is declared in exactly one place.
+      and keep that choice explicit in the schema. Changing an occupied slot’s
+      kind requires a data migration, not only a type edit.
     </p>
   </div>
 </GuideLayout>

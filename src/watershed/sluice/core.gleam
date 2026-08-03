@@ -60,7 +60,7 @@ pub opaque type Sluice {
 }
 
 /// A fresh sluice for one document. `now_ms` starts at 0 and only moves via
-/// `advance`, so TTL logic (presence prune) is testable without sleeping.
+/// `advance`, keeping protocol frame timestamps deterministic in tests.
 pub fn new(
   tenant_id tenant_id: String,
   document_id document_id: String,
@@ -87,8 +87,7 @@ pub fn now(sluice: Sluice) -> Int {
   sluice.now_ms
 }
 
-/// Advance the logical clock, so time-dependent behavior (presence TTL) can be
-/// driven deterministically.
+/// Advance the logical clock used for protocol frame timestamps.
 pub fn advance(sluice: Sluice, ms: Int) -> Sluice {
   Sluice(..sluice, now_ms: sluice.now_ms + ms)
 }
