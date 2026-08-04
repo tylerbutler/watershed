@@ -6,8 +6,7 @@
 //// whole new value on `input`, so the naïve bridge — write the whole string
 //// back as one replace — clobbers every concurrent remote keystroke. Instead,
 //// each `input` event is diffed against the channel's *current optimistic
-//// value* ([`grapheme_diff`](grapheme_diff.gleam)), and exactly one minimal op
-//// is sent:
+//// value* and exactly one minimal op is sent:
 ////
 //// - `text_insert`       — you typed a character (or pasted a run)
 //// - `text_delete_range` — you deleted a selection or backspaced
@@ -18,6 +17,13 @@
 //// UTF-16 code units: an emoji or a combining mark is one CRDT index, so ops
 //// land where the user meant them to.
 ////
+//// That whole bridge — snapshot, diff, one minimal op, error folding, and
+//// holding the caret still while a peer edits around it — is
+//// `watershed_lustre/textarea`, a nested MVU triple this app holds as
+//// `editor` and routes messages through. What is left here is what an app
+//// actually owns: connecting, bootstrapping the schema, layout, and the
+//// mutations the component does not perform (append, anchors).
+////
 //// Every mutation returns `Result(Nil, String)` — an index can go stale when a
 //// peer edits between render and keystroke — and the app surfaces the runtime's
 //// message in a banner rather than asserting.
@@ -26,6 +32,8 @@
 //// document: as remote edits insert and delete text before it, its resolved
 //// grapheme index moves with the content, which is the property that makes
 //// shared cursors possible (though broadcasting them is out of scope here).
+//// The component uses the same primitive internally for the user's caret,
+//// which is why a peer's keystroke no longer teleports it.
 ////
 //// Open two browser tabs against the same `just server` document to watch edits
 //// converge grapheme-for-grapheme.
@@ -45,9 +53,9 @@ import lustre/event
 import watershed/text_kernel
 import watershed_js.{type Document, type SharedText, type TextAnchor}
 import watershed_lustre
+import watershed_lustre/textarea
 
 import doc_schema
-import grapheme_diff.{type Edit}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -77,10 +85,10 @@ type Model {
   Model(
     status: Status,
     doc: Option(Document),
-    body_channel: Option(SharedText),
+    /// The bound `<textarea>`. `None` until `ensure_text` resolves — the
+    /// component is constructed with a live channel, never an empty one.
+    editor: Option(textarea.Model),
     user_id: String,
-    text: String,
-    length: Int,
     draft_append: String,
     anchor: Option(TextAnchor),
     anchor_pos: Option(Int),
@@ -96,7 +104,7 @@ type Msg {
   EnsuredBody(Result(SharedText, String))
   BodyChanged(text_kernel.TextEvent)
   DiagnosticsTick
-  InputChanged(String)
+  Editor(textarea.Msg)
   DraftAppendChanged(String)
   AppendClicked
   PinAnchorClicked
@@ -111,10 +119,8 @@ fn init(_args) -> #(Model, Effect(Msg)) {
     Model(
       status: Connecting,
       doc: None,
-      body_channel: None,
+      editor: None,
       user_id: user_id,
-      text: "",
-      length: 0,
       draft_append: "",
       anchor: None,
       anchor_pos: None,
@@ -140,42 +146,51 @@ fn init(_args) -> #(Model, Effect(Msg)) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    // The handle is ready: seed the title and bootstrap the body text channel.
-    // `ensure_text` creates and attaches one only if the slot is empty, so
-    // every tab runs this unconditionally without racing to a duplicate — the
-    // property that makes joiners converge on the *same* document.
+    // The handle arrives before the handshake does, so it is good for reads and
+    // optimistic edits but not yet for *creating* a channel. Start the
+    // diagnostics poll and wait.
     GotHandle(doc) -> {
       let diagnostics = watershed_js.diagnostics(doc)
-      let root = watershed_js.root_typed(doc)
       let model =
         Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
         |> add_diagnostic(
           "document handle acquired · " <> diagnostic_line(diagnostics),
         )
-      #(
-        model,
-        effect.batch([
-          watershed_lustre.ensure_field(
-            root,
-            doc_schema.title(),
-            "watershed shared document",
-          ),
-          watershed_lustre.ensure_text(
-            doc,
-            root,
-            doc_schema.body(),
-            EnsuredBody,
-          ),
-          watershed_lustre.after(250, DiagnosticsTick),
-        ]),
-      )
+      #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
+    // Handshake and history replay are done: now seed the title and bootstrap
+    // the body text channel. `ensure_text` creates and attaches one only if the
+    // slot is empty, so every tab runs this unconditionally without racing to a
+    // duplicate — the property that makes joiners converge on the *same*
+    // document. Attaching a channel needs a ready connection, which is why this
+    // waits rather than firing alongside the handle.
     Connected(Ok(_)) -> {
       let model =
-        snapshot(Model(..model, status: Ready))
+        Model(..model, status: Ready)
         |> add_diagnostic("initial handshake complete")
-      #(model, effect.none())
+      case model.doc {
+        None -> #(model, effect.none())
+        Some(doc) -> {
+          let root = watershed_js.root_typed(doc)
+          #(
+            model,
+            effect.batch([
+              watershed_lustre.ensure_field(
+                root,
+                doc_schema.title(),
+                "watershed shared document",
+              ),
+              watershed_lustre.ensure_text(
+                doc,
+                root,
+                doc_schema.body(),
+                EnsuredBody,
+              ),
+            ]),
+          )
+        }
+      }
     }
     Connected(Error(reason)) -> {
       let model =
@@ -184,22 +199,33 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
-    // The body resolved: subscribe, then take a first snapshot so a tab joining
-    // an existing document renders its text without waiting for an edit.
+    // The body resolved: hand the live channel to the component, which
+    // subscribes and takes its own first snapshot so a tab joining an existing
+    // document renders its text without waiting for an edit. The second
+    // subscription here is this app's own — a channel fans out to every
+    // subscriber — and drives the diagnostics panel and the pinned anchor.
     EnsuredBody(Ok(text)) -> {
+      let #(editor, editor_effect) = textarea.init(text)
       let model =
-        snapshot(Model(..model, body_channel: Some(text)))
+        Model(..model, editor: Some(editor))
+        |> refresh_anchor
         |> add_diagnostic("body text channel ready")
-      #(model, watershed_lustre.subscribe_text(text, BodyChanged))
+      #(
+        model,
+        effect.batch([
+          effect.map(editor_effect, Editor),
+          watershed_lustre.subscribe_text(text, BodyChanged),
+        ]),
+      )
     }
     EnsuredBody(Error(reason)) -> {
       let model = add_diagnostic(model, "body text channel failed · " <> reason)
       #(Model(..model, last_error: Some(reason)), effect.none())
     }
 
-    // A text event fired (local or remote). `TextChanged` carries the full
-    // post-edit optimistic string, but we re-read the channel anyway so the
-    // rendered value and the anchor position always reflect committed state.
+    // A text event fired (local or remote). The component re-renders itself off
+    // its own subscription; this arm is the app's share of the same event — the
+    // diagnostics trace and the pinned anchor's resolved position.
     BodyChanged(event) -> {
       let diagnostics = case model.doc {
         Some(doc) -> Some(watershed_js.diagnostics(doc))
@@ -211,7 +237,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> event_line(event)
       }
       let model =
-        snapshot(Model(..model, diagnostics: diagnostics))
+        Model(..model, diagnostics: diagnostics)
+        |> refresh_anchor
         |> add_diagnostic(detail)
       #(model, effect.none())
     }
@@ -230,18 +257,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
-    // The core of the demo. The textarea handed us its *whole* new value; diff
-    // it against the channel's current optimistic string and send exactly one
-    // minimal op — never a whole-document replace, never a UTF-16 offset.
-    InputChanged(new_value) ->
-      case model.body_channel {
+    // The core of the demo, and now one line of routing: the component owns the
+    // diff, the minimal op, and the rejected-index banner. Read
+    // `textarea.value`/`length`/`error` off the returned model to see what it
+    // did — no callbacks to plumb.
+    Editor(inner) ->
+      case model.editor {
         None -> #(model, effect.none())
-        Some(text) -> {
-          let current = watershed_js.text_value(text)
-          let edit = grapheme_diff.diff(old: current, new: new_value)
-          let result = apply_edit(text, edit)
-          let model = snapshot(model) |> record(result, edit_verb(edit))
-          #(model, effect.none())
+        Some(editor) -> {
+          let #(editor, editor_effect) = textarea.update(editor, inner)
+          #(
+            Model(..model, editor: Some(editor)),
+            effect.map(editor_effect, Editor),
+          )
         }
       }
 
@@ -254,13 +282,16 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // insert the textarea diff would produce. Appends to the end regardless of
     // where the caret is.
     AppendClicked ->
-      case model.body_channel, model.draft_append {
+      case model.editor, model.draft_append {
         _, "" -> #(model, effect.none())
         None, _ -> #(model, effect.none())
-        Some(text), value -> {
-          let result = watershed_js.text_append(text, value)
+        Some(editor), value -> {
+          // An edit the component does not own. It needs no notification: the
+          // channel's own event re-snapshots the component a microtask later.
+          let result = watershed_js.text_append(textarea.channel(editor), value)
           let model =
-            snapshot(Model(..model, draft_append: ""))
+            Model(..model, draft_append: "")
+            |> refresh_anchor
             |> record(result, "append")
           #(model, effect.none())
         }
@@ -270,16 +301,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // delete text before it, `text_resolve_anchor` reports its shifted grapheme
     // position — re-resolved on every snapshot.
     PinAnchorClicked ->
-      case model.body_channel {
+      case model.editor {
         None -> #(model, effect.none())
-        Some(text) -> {
-          let index = watershed_js.text_length(text)
+        Some(editor) -> {
+          let text = textarea.channel(editor)
+          let index = textarea.length(editor)
           case
             watershed_js.text_anchor_at(text, index, watershed_js.bias_before)
           {
             Ok(anchor) -> {
               let model =
-                snapshot(Model(..model, anchor: Some(anchor)))
+                Model(..model, anchor: Some(anchor))
+                |> refresh_anchor
                 |> record(Ok(Nil), "anchor")
                 |> add_diagnostic(
                   "anchor pinned at grapheme " <> int.to_string(index),
@@ -311,30 +344,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// Run a computed `Edit` against the resolved channel as one minimal op.
-fn apply_edit(text: SharedText, edit: Edit) -> Result(Nil, String) {
-  case edit {
-    grapheme_diff.NoChange -> Ok(Nil)
-    grapheme_diff.Insert(index, value) ->
-      watershed_js.text_insert(text, index, value)
-    grapheme_diff.Delete(start, end) ->
-      watershed_js.text_delete_range(text, start, end)
-    grapheme_diff.Replace(start, end, value) ->
-      watershed_js.text_replace_range(text, start, end, value)
-  }
-}
-
-fn edit_verb(edit: Edit) -> String {
-  case edit {
-    grapheme_diff.NoChange -> "noop"
-    grapheme_diff.Insert(..) -> "insert"
-    grapheme_diff.Delete(..) -> "delete"
-    grapheme_diff.Replace(..) -> "replace"
-  }
-}
-
-/// Fold an edit result into the model: clear the banner on success, surface the
-/// runtime's own message on failure.
+/// Fold the result of an app-owned mutation into the model: clear the banner on
+/// success, surface the runtime's own message on failure. The component folds
+/// its own edits the same way — see `current_error`.
 fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
   case result {
     Ok(Nil) -> Model(..model, last_error: None)
@@ -344,30 +356,37 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
   }
 }
 
-/// Re-read the optimistic text and re-resolve the pinned anchor into the model.
-fn snapshot(model: Model) -> Model {
-  case model.body_channel {
-    None -> model
-    Some(text) ->
-      Model(
-        ..model,
-        text: watershed_js.text_value(text),
-        length: watershed_js.text_length(text),
-      )
-      |> refresh_anchor
-  }
-}
-
 /// Resolve the pinned anchor to its current grapheme position, or drop it to
 /// `None` if it has gone stale/unknown.
 fn refresh_anchor(model: Model) -> Model {
-  case model.body_channel, model.anchor {
-    Some(text), Some(anchor) ->
-      case watershed_js.text_resolve_anchor(text, anchor) {
+  case model.editor, model.anchor {
+    Some(editor), Some(anchor) ->
+      case watershed_js.text_resolve_anchor(textarea.channel(editor), anchor) {
         Ok(pos) -> Model(..model, anchor_pos: Some(pos))
         Error(_) -> Model(..model, anchor_pos: None)
       }
     _, _ -> Model(..model, anchor_pos: None)
+  }
+}
+
+/// The text's length in graphemes, or zero before the channel resolves.
+fn text_length(model: Model) -> Int {
+  case model.editor {
+    Some(editor) -> textarea.length(editor)
+    None -> 0
+  }
+}
+
+/// The banner to show: a rejected keystroke from the component takes precedence
+/// over an older app-owned failure.
+fn current_error(model: Model) -> Option(String) {
+  case model.editor {
+    Some(editor) ->
+      case textarea.error(editor) {
+        Some(reason) -> Some(reason)
+        None -> model.last_error
+      }
+    None -> model.last_error
   }
 }
 
@@ -461,24 +480,39 @@ fn status_line(model: Model) -> Element(Msg) {
       connection
       <> runtime
       <> " · "
-      <> int.to_string(model.length)
+      <> int.to_string(text_length(model))
       <> " graphemes",
     ),
   ])
 }
 
+/// All that is left of the editor here: presentation, plus the `element.map`
+/// that lifts the component's messages into this app's `Msg`. The attributes
+/// are the caller's to choose; the value binding and the input handler are the
+/// component's.
 fn editor_view(model: Model) -> Element(Msg) {
-  html.textarea(
-    [
-      class("editor"),
-      rows(10),
-      placeholder("Start typing — every keystroke is one grapheme op…"),
-      event.on_input(InputChanged),
-      attribute.attribute("aria-label", "collaborative document body"),
-      disabled(model.body_channel == None),
-    ],
-    model.text,
-  )
+  case model.editor {
+    Some(editor) ->
+      textarea.view(editor, [
+        class("editor"),
+        rows(10),
+        placeholder("Start typing — every keystroke is one grapheme op…"),
+        attribute.attribute("aria-label", "collaborative document body"),
+      ])
+      |> element.map(Editor)
+
+    None ->
+      html.textarea(
+        [
+          class("editor"),
+          rows(10),
+          placeholder("connecting…"),
+          attribute.attribute("aria-label", "collaborative document body"),
+          disabled(True),
+        ],
+        "",
+      )
+  }
 }
 
 fn append_view(model: Model) -> Element(Msg) {
@@ -501,7 +535,7 @@ fn append_view(model: Model) -> Element(Msg) {
 
 fn error_view(model: Model) -> Element(Msg) {
   html.p([class("error"), attribute.attribute("role", "alert")], [
-    html.text(option.unwrap(model.last_error, "")),
+    html.text(option.unwrap(current_error(model), "")),
   ])
 }
 
@@ -511,7 +545,7 @@ fn anchor_view(model: Model) -> Element(Msg) {
       "pinned · resolves to grapheme "
       <> int.to_string(pos)
       <> " of "
-      <> int.to_string(model.length)
+      <> int.to_string(text_length(model))
     Some(_), None -> "pinned · anchor target is currently unresolvable"
     None, _ -> "no anchor pinned"
   }
@@ -526,7 +560,7 @@ fn anchor_view(model: Model) -> Element(Msg) {
     html.p([class("anchor-detail")], [html.text(detail)]),
     html.div([class("compose")], [
       html.button(
-        [event.on_click(PinAnchorClicked), disabled(model.body_channel == None)],
+        [event.on_click(PinAnchorClicked), disabled(model.editor == None)],
         [html.text("Pin anchor at end")],
       ),
       html.button(

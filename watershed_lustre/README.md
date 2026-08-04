@@ -60,8 +60,8 @@ only wraps the callback-shaped surface.
 **Subscriptions** — each delivers its channel's own event type, never the
 14-variant union:
 `subscribe` (map) and `subscribe_counter` / `_or_map` / `_or_set` /
-`_register_collection` / `_claims` / `_task_manager`, plus `subscribe_ripples`
-for ephemeral document ripples.
+`_register_collection` / `_claims` / `_task_manager` / `_sequence` / `_text`,
+plus `subscribe_ripples` for ephemeral document ripples.
 
 **Typed** (over a `watershed/schema` `TypedMap`):
 `subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
@@ -71,7 +71,8 @@ so a document's nested structure is an `effect.batch` in `init`:
 `ensure_map` / `ensure_counter` / `ensure_or_map` / `ensure_or_set` /
 `ensure_register_collection` / `ensure_claims` / `ensure_task_manager` /
 `ensure_pn_counter` / `ensure_pact_map` / `ensure_ordered_collection` /
-`ensure_child`, and `ensure_field` (synchronous set-if-absent).
+`ensure_sequence` / `ensure_text` / `ensure_child`, and `ensure_field`
+(synchronous set-if-absent).
 
 **Presence** — the heartbeat driver as effects:
 `presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`
@@ -79,7 +80,47 @@ starts it and hands the `Handle` back; `announce(handle, payload)` broadcasts.
 
 **Timers & misc**: `after(ms, msg)`, `submit_ripple`, `force_reconnect`.
 
-See [`examples/sudoku_lustre`](../examples/sudoku_lustre) for the typed +
+## Components
+
+Where the effects above wrap watershed's callbacks, these wrap a whole
+DDS↔widget bridge — the part every app would otherwise copy by hand.
+
+**`watershed_lustre/textarea`** — a `<textarea>` bound to a `SharedText`, as a
+nested MVU triple. `init(channel)` takes the resolved channel and subscribes;
+the parent routes `Msg` through `update` and `element.map`s the `view`:
+
+```gleam
+EnsuredBody(Ok(channel)) -> {
+  let #(editor, fx) = textarea.init(channel)
+  #(Model(..model, editor: Some(editor)), effect.map(fx, Editor))
+}
+
+// view — caller attributes are yours, the value binding and handler are its
+textarea.view(editor, [rows(10), class("editor")]) |> element.map(Editor)
+```
+
+It owns the snapshot discipline, the grapheme diff that turns a whole-value
+`input` event into one minimal op, and the folding of a rejected stale index
+into `textarea.error`. Read `value` / `length` / `error` / `selection` /
+`channel` off the model — no callbacks to plumb.
+
+It also keeps the caret still. A remote edit rewrites the element's value, and
+the browser leaves the caret at a code-unit offset into a string that no longer
+exists; the component holds the selection as `TextAnchor`s instead, resolves
+them after each remote edit, and writes the caret back from
+`effect.before_paint` — after the DOM is patched, before the browser paints, so
+there is no visible jump. `selection(model)` exposes the tracked range as
+grapheme indices, which is what a shared-cursor overlay would broadcast.
+
+Two pure modules underneath it, useful on their own:
+
+| Module | What it does |
+| --- | --- |
+| `watershed_lustre/grapheme_diff` | the one minimal `Insert`/`Delete`/`Replace` between two strings, in grapheme clusters |
+| `watershed_lustre/grapheme_offset` | UTF-16 code-unit offsets (what the browser reports) ↔ grapheme indices (what the CRDT addresses) |
+
+See [`examples/text_lustre`](../examples/text_lustre) for the component in an
+app, [`examples/sudoku_lustre`](../examples/sudoku_lustre) for the typed +
 presence surface end to end, and [`examples/dice_lustre`](../examples/dice_lustre)
 for the minimal untyped case. JavaScript target only; consumed as a path
 dependency inside the watershed monorepo (hex publication follows watershed's).

@@ -3,7 +3,9 @@ version = "0.1.0"
 description = "Lustre effect bindings for watershed — connect, subscription, and timer effects that make the JS DDS client feel framework-native"
 licences = ["MIT"]
 repository = { type = "github", user = "tylerbutler", repo = "watershed" }
-gleam = ">= 1.7.0"
+# `assert` in the test suite requires 1.11; the library itself still compiles
+# on 1.7.
+gleam = ">= 1.11.0"
 target = "javascript"
 
 [dependencies]
@@ -12,3 +14,6 @@ gleam_json = ">= 3.0.0 and < 4.0.0"
 gleam_javascript = ">= 1.0.0 and < 2.0.0"
 lustre = ">= 5.0.0 and < 6.0.0"
 watershed = { path = ".." }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"

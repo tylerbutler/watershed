@@ -17,8 +17,16 @@ default:
 build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text
 
 # Run tests
-test:
+test: _test-gleam _test-lustre
+
+_test-gleam:
     gleam test
+
+# Unit tests for the Lustre bindings package. Its pure modules (grapheme diff,
+# UTF-16 offset conversion) have their own gleeunit suite — startest cannot be
+# shared here, it pins gleam_stdlib < 1.0 while lustre is on 1.x.
+_test-lustre:
+    cd watershed_lustre && gleam test
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
