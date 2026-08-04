@@ -104,10 +104,37 @@
 //// commits a partial composition; the next `input` event diffs the remainder,
 //// so the document still catches up. Mature collaborative editors ship the same
 //// trade.
+////
+//// ## Shared cursors
+////
+//// [`cursor`](#cursor) hands out this client's selection as a pair of anchors,
+//// and [`set_peers`](#set_peers) takes everyone else's back. Broadcasting them
+//// is yours — the component never touches presence — but the *shape* of what
+//// travels is not negotiable: a grapheme index means nothing to a peer, whose
+//// replica has moved on by the time it lands. Anchors bind to content, so the
+//// receiver resolves them against their own copy and gets the position you
+//// meant, which is the same reason your own caret survives a remote edit.
+////
+//// Drawing them is the component's, because a `<textarea>` will not do it and
+//// will not even say where its own text is: the glyphs live in shadow DOM the
+//// page cannot reach, and there is no API mapping offset 37 to a pixel. So
+//// [`view`](#view) returns a wrapper holding the textarea, an overlay for the
+//// drawn cursors, and a hidden **mirror** — the same string in a normal element
+//// with the same typography, where a DOM `Range` answers the question directly
+//// and `getClientRects` splits a wrapped selection into one rect per line for
+//// free. Measuring happens in the same `before_paint` window as caret
+//// restoration and reports back as a message, so a cursor is never painted at a
+//// stale position and the loop cannot run away: the reply writes geometry and
+//// asks for nothing.
+////
+//// A peer whose anchors this replica cannot resolve yet — content they have
+//// only just created — is simply not drawn until the op arrives.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/float
 import gleam/int
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
@@ -132,9 +159,17 @@ fn restore_selection(
   end: Int,
 ) -> Nil
 
+/// Measure peer cursor ranges against the mirror. Takes and returns JSON rather
+/// than Gleam lists so the boundary stays a plain string on both sides.
+@external(javascript, "./textarea_ffi.mjs", "measure_cursors")
+fn measure_cursors(root: Dynamic, instance: String, request: String) -> String
+
 /// The attribute the caret restorer finds the element by. Stamped after the
 /// caller's attributes, so it cannot be overridden.
 const instance_attribute = "data-watershed-textarea"
+
+/// The attribute the measurer finds this instance's mirror by.
+const mirror_attribute = "data-watershed-mirror"
 
 /// What a caret decoder yields when the element reported no selection at all.
 /// Distinct from `0`, which is a real caret at the head of the document.
@@ -164,7 +199,51 @@ pub opaque type Model {
     /// one echo is safe: any real keystroke produces a different value.
     committed: Option(String),
     error: Option(String),
+    /// Peer cursors to draw, with their measured geometry. Set by
+    /// [`set_peers`](#set_peers); the rects are filled in by the measuring
+    /// effect a paint later.
+    peers: List(Peer),
   )
+}
+
+/// Another user's selection, ready to draw.
+///
+/// Build one with [`peer`](#peer) from a [`Cursor`](#Cursor) you decoded off
+/// your presence channel. Everything past `cursor` is the component's to fill:
+/// where the anchors resolve in *this* replica, and where that lands on screen.
+pub opaque type Peer {
+  Peer(
+    id: String,
+    label: String,
+    colour: String,
+    cursor: Cursor,
+    /// Where the cursor resolves here, in UTF-16 code units. `None` while an
+    /// anchor references content this replica has not merged yet — the peer is
+    /// simply not drawn until it does.
+    range: Option(#(Int, Int)),
+    /// A zero-width rect at a collapsed cursor, measured a paint later.
+    caret: Option(Rect),
+    /// One rect per line box of a selected range.
+    bands: List(Rect),
+  )
+}
+
+/// A rectangle in pixels, relative to the textarea's border box and already
+/// corrected for its scroll position.
+type Rect {
+  Rect(x: Float, y: Float, width: Float, height: Float)
+}
+
+/// A position in the document, expressed the only way that survives being sent
+/// to someone else.
+///
+/// A grapheme index is meaningless to a peer: by the time it arrives their
+/// replica has moved on, and the index points somewhere else. A pair of anchors
+/// binds to *content*, so the receiver resolves it against their own copy and
+/// gets the position the sender meant. That is the same property the component
+/// already relies on to hold your own caret still under a remote edit.
+pub opaque type Cursor {
+  Cursor(start: TextAnchor, end: TextAnchor)
 }
 
 /// An IME session in flight.
@@ -215,6 +294,9 @@ pub opaque type Msg {
   CompositionStarted(value: String, sel_start: Int, sel_end: Int)
   /// An IME session committed. Carries the element's final value and caret.
   CompositionEnded(value: String, sel_start: Int, sel_end: Int)
+  /// Peer cursor geometry, measured off the mirror between the vdom patching
+  /// it and the browser painting. Carries the FFI's JSON response.
+  Measured(String)
 }
 
 /// Bind a resolved text channel. Subscribes to it and takes the first snapshot,
@@ -227,16 +309,19 @@ pub opaque type Msg {
 /// like before that moment.
 pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
   let model =
-    snapshot(Model(
-      channel:,
-      instance: new_instance(),
-      value: "",
-      length: 0,
-      selection: None,
-      composing: None,
-      committed: None,
-      error: None,
-    ))
+    snapshot(
+      Model(
+        channel:,
+        instance: new_instance(),
+        value: "",
+        length: 0,
+        selection: None,
+        composing: None,
+        committed: None,
+        error: None,
+        peers: [],
+      ),
+    )
 
   #(model, watershed_lustre.subscribe_text(channel, KernelEvent))
 }
@@ -257,6 +342,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> settle(model, rendered)
       }
     }
+
+    // Geometry only — deliberately the one arm that starts nothing, so the
+    // measure/paint loop terminates.
+    Measured(response) -> #(place(model, response), effect.none())
 
     // The textarea handed over its whole new value.
     UserInput(value:, sel_start:, sel_end:) ->
@@ -291,15 +380,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           // Re-anchor against the string the *browser* holds, which is the one
           // the reported offsets index into. It is the snapshot too, unless the
           // op was rejected — the one case where the two disagree.
-          let model = anchor(model, value, sel_start, sel_end)
+          let model = locate(anchor(model, value, sel_start, sel_end))
 
           case model.value == value {
             // Accepted: the browser already placed the caret and is rendering
-            // the same string the model is. Nothing to restore.
-            True -> #(model, effect.none())
+            // the same string the model is. Nothing to restore — but the text
+            // grew or shrank, so the peers need re-measuring against it.
+            True -> #(model, measure(model))
             // Rejected: the view is about to snap back to the runtime's text,
             // so the caret needs placing in it.
-            False -> #(model, restore(model))
+            False -> #(model, effect.batch([restore(model), measure(model)]))
           }
         }
       }
@@ -387,7 +477,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
           // The rendered value just went from frozen to live, so the vdom is
           // about to write the element and reset its caret to the end.
-          #(model, restore(model))
+          let model = locate(model)
+          #(model, effect.batch([restore(model), measure(model)]))
         }
       }
   }
@@ -418,21 +509,32 @@ fn settle(model: Model, rendered: String) -> #(Model, Effect(Msg)) {
     // would be fighting them for it.
     True -> #(model, effect.none())
     // The text moved under the element. The anchors moved with it, so resolve
-    // them and put the caret back before the browser paints.
+    // them and put the caret back before the browser paints — and re-place the
+    // peers, whose cursors travelled with the same content.
     False -> {
-      let model = resolve(model)
-      #(model, restore(model))
+      let model = locate(resolve(model))
+      #(model, effect.batch([restore(model), measure(model)]))
     }
   }
 }
 
 /// A controlled `<textarea>` bound to the channel.
 ///
-/// Caller attributes are applied first and the component's own last, so
-/// presentation — `rows`, `placeholder`, `class`, `disabled`, ARIA — is yours
-/// to set, while the value binding, the instance marker, and the event handlers
-/// always win. `class` and `style` merge rather than replace, so a caller class
-/// is additive.
+/// Caller attributes go on the `<textarea>` itself, applied before the
+/// component's own, so presentation — `rows`, `placeholder`, `class`,
+/// `disabled`, ARIA — is yours to set while the value binding, the instance
+/// marker, and the event handlers always win. `class` and `style` merge rather
+/// than replace, so a caller class is additive.
+///
+/// **The returned element is a wrapper, not the textarea.** Peer cursors have
+/// to be drawn *somewhere*, and a `<textarea>` renders only its own text — no
+/// highlights, no carets but the user's. So the textarea ships inside a
+/// `position: relative` box alongside two siblings it needs but you should not
+/// style: a hidden mirror used to measure where a peer's range falls, and an
+/// overlay holding the drawn cursors. Both are inert (`aria-hidden`,
+/// `pointer-events: none`) and both collapse to nothing when no peer is
+/// present. Layout still behaves, because the wrapper takes its size from the
+/// textarea — but a selector like `.editor + p` now needs to look outside it.
 pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
   let bindings =
     list.append(attrs, [
@@ -452,6 +554,17 @@ pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
       event.on("compositionend", value_decoder(CompositionEnded)),
     ])
 
+  html.div(
+    [
+      attribute.style("position", "relative"),
+      attribute.style("display", "block"),
+    ],
+    [mirror_view(model), overlay_view(model), field_view(model, bindings)],
+  )
+}
+
+/// The bound element itself.
+fn field_view(model: Model, bindings: List(Attribute(Msg))) -> Element(Msg) {
   case model.composing {
     None -> html.textarea(bindings, model.value)
 
@@ -480,6 +593,128 @@ pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
       element.element("textarea", bindings, [element.text(composition.frozen)])
   }
 }
+
+/// An invisible copy of the text, laid out exactly as the textarea lays it out.
+///
+/// This is how a peer's position becomes pixels. The browser will not tell you
+/// where offset 37 of a `<textarea>` is — there is no API for it, because the
+/// text lives in shadow DOM the page cannot reach. A mirror puts the same
+/// string in a normal element with the same typography and wrapping, where a
+/// DOM `Range` over its text node answers the question directly, and
+/// `getClientRects` even splits a wrapped selection into one rect per line for
+/// free.
+///
+/// The text is rendered as a single child so the FFI can rely on finding one
+/// text node. It stays in the tree with no peers present — an empty mirror
+/// costs one hidden div, and keeping it mounted means the first cursor to
+/// arrive measures against a mirror the browser has already laid out.
+fn mirror_view(model: Model) -> Element(Msg) {
+  html.div(
+    [
+      attribute.attribute(mirror_attribute, model.instance),
+      attribute.attribute("aria-hidden", "true"),
+      attribute.style("position", "absolute"),
+      attribute.style("top", "0"),
+      attribute.style("left", "0"),
+      // Visible to layout, invisible to the eye, and untouchable by the mouse:
+      // `display: none` would refuse to lay out and measure as zero.
+      attribute.style("visibility", "hidden"),
+      attribute.style("pointer-events", "none"),
+      attribute.style("z-index", "-1"),
+      // Everything else that decides where a glyph lands — font, padding,
+    // border width, wrapping — is copied off the live textarea at measure
+    // time, because only then is the caller's own CSS settled.
+    ],
+    [html.text(model.value)],
+  )
+}
+
+/// The drawn cursors: one band per line of each peer's selection, a caret where
+/// it is collapsed, and a name tag on the caret.
+///
+/// Inert by construction — this sits *over* the textarea, so anything here that
+/// took a click would take it away from the user typing underneath.
+fn overlay_view(model: Model) -> Element(Msg) {
+  html.div(
+    [
+      attribute.attribute("aria-hidden", "true"),
+      attribute.style("position", "absolute"),
+      attribute.style("inset", "0"),
+      attribute.style("overflow", "hidden"),
+      attribute.style("pointer-events", "none"),
+    ],
+    list.flat_map(model.peers, peer_view),
+  )
+}
+
+fn peer_view(peer: Peer) -> List(Element(Msg)) {
+  let bands =
+    list.map(peer.bands, fn(band) {
+      html.div(
+        [
+          attribute.style("position", "absolute"),
+          attribute.style("left", px(band.x)),
+          attribute.style("top", px(band.y)),
+          attribute.style("width", px(band.width)),
+          attribute.style("height", px(band.height)),
+          attribute.style("background", peer.colour),
+          // Legible over text without hiding it, and without needing the
+          // caller to know the peer's colour is a highlight.
+          attribute.style("opacity", "0.25"),
+          attribute.style("border-radius", "0.125rem"),
+        ],
+        [],
+      )
+    })
+
+  let caret = case peer.caret {
+    None -> []
+    Some(rect) -> [
+      html.div(
+        [
+          attribute.style("position", "absolute"),
+          attribute.style("left", px(rect.x)),
+          attribute.style("top", px(rect.y)),
+          attribute.style("width", "2px"),
+          attribute.style("height", px(rect.height)),
+          attribute.style("background", peer.colour),
+        ],
+        [
+          html.span(
+            [
+              attribute.style("position", "absolute"),
+              // Above the caret, except on the first line, where there is no
+              // room and the overlay would clip it — then hang it below.
+              case rect.y <. label_height {
+                True -> attribute.style("top", "100%")
+                False -> attribute.style("top", "-1.15em")
+              },
+              attribute.style("left", "-1px"),
+              attribute.style("padding", "0 0.25rem"),
+              attribute.style("border-radius", "0.25rem"),
+              attribute.style("background", peer.colour),
+              attribute.style("color", "white"),
+              attribute.style("font-size", "0.7rem"),
+              attribute.style("line-height", "1.5"),
+              attribute.style("white-space", "nowrap"),
+            ],
+            [html.text(peer.label)],
+          ),
+        ],
+      ),
+    ]
+  }
+
+  list.append(bands, caret)
+}
+
+fn px(value: Float) -> String {
+  float.to_string(value) <> "px"
+}
+
+/// Roughly how tall a name tag renders. Only used to decide which side of the
+/// caret it hangs off, so an approximation is enough.
+const label_height = 18.0
 
 // ── Accessors ────────────────────────────────────────────────────────────────
 
@@ -510,6 +745,109 @@ pub fn error(model: Model) -> Option(String) {
 /// read a shared-cursor overlay wants.
 pub fn selection(model: Model) -> Option(#(Int, Int)) {
   option.map(model.selection, fn(selection) { selection.range })
+}
+
+// ── Shared cursors ───────────────────────────────────────────────────────────
+
+/// This client's selection as a pair of anchors, ready to broadcast, or `None`
+/// before the user has placed a caret.
+///
+/// Send it on every [`selection`](#selection) change — announcing is cheap and
+/// a cursor that only moves when you *type* reads as broken to everyone else.
+pub fn cursor(model: Model) -> Option(Cursor) {
+  option.map(model.selection, fn(selection) {
+    Cursor(start: selection.start, end: selection.end)
+  })
+}
+
+/// Encode a cursor for the wire.
+///
+/// The anchors travel as embedded JSON strings, which is the shape
+/// `watershed_js.text_anchor_from_json` reads back.
+pub fn cursor_to_json(cursor: Cursor) -> Json {
+  json.object([
+    #("start", json.string(anchor_json(cursor.start))),
+    #("end", json.string(anchor_json(cursor.end))),
+  ])
+}
+
+fn anchor_json(anchor: TextAnchor) -> String {
+  json.to_string(watershed_js.text_anchor_to_json(anchor))
+}
+
+/// Decode a cursor produced by [`cursor_to_json`](#cursor_to_json), for nesting
+/// inside your own presence payload decoder.
+pub fn cursor_decoder() -> Decoder(Cursor) {
+  use start <- decode.field("start", anchor_decoder())
+  use end <- decode.field("end", anchor_decoder())
+
+  decode.success(Cursor(start:, end:))
+}
+
+fn anchor_decoder() -> Decoder(TextAnchor) {
+  use encoded <- decode.then(decode.string)
+  case watershed_js.text_anchor_from_json(encoded) {
+    Ok(anchor) -> decode.success(anchor)
+    // A malformed anchor is one peer's cursor, not a reason to drop the whole
+    // roster — the zero value is discarded by `decode`'s error path anyway.
+    Error(_) -> decode.failure(watershed_js.text_start_anchor(), "TextAnchor")
+  }
+}
+
+/// A peer's cursor to draw. `id` must be stable per user (the presence user id
+/// is the obvious choice) — it is what keeps a measurement attached to the
+/// right peer. `colour` is any CSS colour.
+pub fn peer(
+  id id: String,
+  label label: String,
+  colour colour: String,
+  cursor cursor: Cursor,
+) -> Peer {
+  Peer(id:, label:, colour:, cursor:, range: None, caret: None, bands: [])
+}
+
+/// Replace the set of peer cursors drawn over the text, and measure them.
+///
+/// Call this from your presence roster handler. Peers whose cursor has not
+/// moved keep their existing geometry, so a roster update caused by someone
+/// else does not make every cursor flicker.
+pub fn set_peers(model: Model, peers: List(Peer)) -> #(Model, Effect(Msg)) {
+  let peers =
+    list.map(peers, fn(peer) {
+      case list.find(model.peers, fn(old) { old.id == peer.id }) {
+        // Same peer, same cursor: keep what was already measured.
+        Ok(old) if old.cursor == peer.cursor -> old
+        _ -> peer
+      }
+    })
+
+  let model = locate(Model(..model, peers:))
+  #(model, measure(model))
+}
+
+/// Resolve every peer's anchors against this replica and convert to the code
+/// units the DOM measures in. Runs whenever the peers change or the text moves.
+fn locate(model: Model) -> Model {
+  let peers =
+    list.map(model.peers, fn(peer) {
+      let range = case
+        watershed_js.text_resolve_anchor(model.channel, peer.cursor.start),
+        watershed_js.text_resolve_anchor(model.channel, peer.cursor.end)
+      {
+        Ok(start), Ok(end) ->
+          Some(#(
+            grapheme_offset.to_utf16(model.value, int.min(start, end)),
+            grapheme_offset.to_utf16(model.value, int.max(start, end)),
+          ))
+        // An anchor this replica cannot name yet — usually content the peer
+        // has only just created. Drop the cursor rather than guess; it comes
+        // back on the next announce, by which time the op will have arrived.
+        _, _ -> None
+      }
+      Peer(..peer, range:)
+    })
+
+  Model(..model, peers:)
 }
 
 /// The channel the component is bound to, for edits it does not own —
@@ -634,6 +972,77 @@ fn pin(model: Model, start: Int, end: Int) -> Model {
     // An index the CRDT will not name is one no caret should be placed at.
     _, _ -> Model(..model, selection: None)
   }
+}
+
+// ── Peer cursor measurement ──────────────────────────────────────────────────
+
+/// Ask the mirror where each peer's range lands, in the same `before_paint`
+/// window the caret uses — after the vdom has written the mirror's text, before
+/// anything is painted, so a cursor never shows up at a stale position.
+///
+/// The reply comes back as a message rather than being applied here, which is
+/// what keeps this loop finite: `Measured` writes geometry and nothing else, so
+/// it cannot ask for another measurement.
+fn measure(model: Model) -> Effect(Msg) {
+  let drawable =
+    list.filter_map(model.peers, fn(peer) {
+      case peer.range {
+        Some(#(start, end)) ->
+          Ok(
+            json.object([
+              #("id", json.string(peer.id)),
+              #("start", json.int(start)),
+              #("end", json.int(end)),
+            ]),
+          )
+        None -> Error(Nil)
+      }
+    })
+
+  case drawable {
+    [] -> effect.none()
+    _ -> {
+      let request = json.to_string(json.preprocessed_array(drawable))
+      let instance = model.instance
+      use dispatch, root <- effect.before_paint
+      dispatch(Measured(measure_cursors(root, instance, request)))
+    }
+  }
+}
+
+/// Fold measured geometry back onto the peers it belongs to, matched by id
+/// rather than by position — the roster can change between asking and answering.
+fn place(model: Model, response: String) -> Model {
+  case json.parse(response, decode.list(measurement_decoder())) {
+    Error(_) -> model
+    Ok(measurements) -> {
+      let peers =
+        list.map(model.peers, fn(peer) {
+          case list.find(measurements, fn(m) { m.0 == peer.id }) {
+            Ok(#(_, caret, bands)) -> Peer(..peer, caret:, bands:)
+            Error(_) -> Peer(..peer, caret: None, bands: [])
+          }
+        })
+      Model(..model, peers:)
+    }
+  }
+}
+
+fn measurement_decoder() -> Decoder(#(String, Option(Rect), List(Rect))) {
+  use id <- decode.field("id", decode.string)
+  use caret <- decode.field("caret", decode.optional(rect_decoder()))
+  use bands <- decode.field("bands", decode.list(rect_decoder()))
+
+  decode.success(#(id, caret, bands))
+}
+
+fn rect_decoder() -> Decoder(Rect) {
+  use x <- decode.field("x", decode.float)
+  use y <- decode.field("y", decode.float)
+  use width <- decode.field("width", decode.float)
+  use height <- decode.field("height", decode.float)
+
+  decode.success(Rect(x:, y:, width:, height:))
 }
 
 /// Write the tracked selection back into the element in the window between the

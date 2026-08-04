@@ -38,8 +38,11 @@
 //// Open two browser tabs against the same `just server` document to watch edits
 //// converge grapheme-for-grapheme.
 
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/io
+import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
@@ -50,6 +53,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed/presence.{type Peer}
+import watershed/presence_js.{type Handle}
 import watershed/text_kernel
 import watershed_js.{type Document, type SharedText, type TextAnchor}
 import watershed_lustre
@@ -66,6 +71,52 @@ const tenant = "dev-tenant"
 const tenant_secret = "levee-dev-secret-change-in-production"
 
 const document_id = "text"
+
+// ── Presence payload: where everyone's cursor is ─────────────────────────────
+//
+// The component hands out its selection as a `textarea.Cursor` — a pair of
+// anchors, not indices, because an index means nothing to a peer whose replica
+// has moved on since. Everything here is app-owned: what else rides along, and
+// what each peer is called and coloured.
+
+type Editing {
+  Editing(cursor: Option(textarea.Cursor))
+}
+
+fn encode_editing(editing: Editing) -> Json {
+  json.object([
+    #("cursor", case editing.cursor {
+      Some(cursor) -> textarea.cursor_to_json(cursor)
+      None -> json.null()
+    }),
+  ])
+}
+
+fn editing_decoder() -> Decoder(Editing) {
+  use cursor <- decode.field(
+    "cursor",
+    decode.optional(textarea.cursor_decoder()),
+  )
+  decode.success(Editing(cursor:))
+}
+
+/// A stable colour per user, so a peer keeps the same one across a session.
+fn colour_for(user_id: String) -> String {
+  let palette = [
+    "#e5484d", "#0090ff", "#30a46c", "#f76b15", "#8e4ec6", "#e93d82",
+  ]
+  let index =
+    user_id
+    |> string.to_utf_codepoints
+    |> list.fold(0, fn(total, point) {
+      total + string.utf_codepoint_to_int(point)
+    })
+  let count = list.length(palette)
+  case list.drop(palette, index % count) {
+    [colour, ..] -> colour
+    [] -> "#0090ff"
+  }
+}
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -95,6 +146,10 @@ type Model {
     last_error: Option(String),
     diagnostics: Option(watershed_js.Diagnostics),
     diagnostic_log: List(String),
+    /// The presence driver, once started, and the last cursor announced
+    /// through it — kept so a re-announce only fires when it actually moved.
+    presence: Option(Handle(Editing)),
+    announced: Option(textarea.Cursor),
   )
 }
 
@@ -110,6 +165,8 @@ type Msg {
   PinAnchorClicked
   ClearAnchorClicked
   ReconnectClicked
+  PresenceStarted(Handle(Editing))
+  PeersChanged(List(Peer(Editing)))
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
@@ -127,6 +184,8 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       last_error: None,
       diagnostics: None,
       diagnostic_log: [],
+      presence: None,
+      announced: None,
     )
   #(
     model,
@@ -186,6 +245,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 root,
                 doc_schema.body(),
                 EnsuredBody,
+              ),
+              watershed_lustre.presence(
+                document: doc,
+                user_id: model.user_id,
+                config: presence.default_config,
+                encode: encode_editing,
+                decode: editing_decoder(),
+                started: PresenceStarted,
+                on_peers: PeersChanged,
               ),
             ]),
           )
@@ -266,6 +334,41 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(editor) -> {
           let #(editor, editor_effect) = textarea.update(editor, inner)
+          // Any message may have moved the caret, so this is where the cursor
+          // gets broadcast. `announce_cursor` no-ops unless it actually moved:
+          // re-anchoring after a remote edit yields the same anchor values when
+          // the caret tracked the same content, so a peer typing does not make
+          // every client re-announce.
+          let #(model, announce) =
+            announce_cursor(Model(..model, editor: Some(editor)))
+          #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
+        }
+      }
+
+    PresenceStarted(handle) ->
+      announce_cursor(Model(..model, presence: Some(handle)))
+
+    // The roster changed. Rebuild the component's peer list from it — the
+    // component owns resolving each cursor and drawing it; this owns who the
+    // peers are and what they look like.
+    PeersChanged(peers) ->
+      case model.editor {
+        None -> #(model, effect.none())
+        Some(editor) -> {
+          let cursors =
+            list.filter_map(peers, fn(peer) {
+              case peer.payload.cursor {
+                Some(cursor) ->
+                  Ok(textarea.peer(
+                    id: peer.user,
+                    label: peer.user,
+                    colour: colour_for(peer.user),
+                    cursor: cursor,
+                  ))
+                None -> Error(Nil)
+              }
+            })
+          let #(editor, editor_effect) = textarea.set_peers(editor, cursors)
           #(
             Model(..model, editor: Some(editor)),
             effect.map(editor_effect, Editor),
@@ -341,6 +444,27 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         )
         None -> #(model, effect.none())
       }
+  }
+}
+
+/// Broadcast this client's cursor, but only when it has actually moved.
+///
+/// The anchors are value-comparable, and re-anchoring after a remote edit
+/// produces the *same* anchors whenever the caret tracked the same content — so
+/// this stays quiet through a peer's typing and fires only on a real move.
+fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
+  let current = case model.editor {
+    Some(editor) -> textarea.cursor(editor)
+    None -> None
+  }
+
+  case model.presence, current == model.announced {
+    _, True -> #(model, effect.none())
+    None, _ -> #(Model(..model, announced: current), effect.none())
+    Some(handle), False -> #(
+      Model(..model, announced: current),
+      watershed_lustre.announce(handle, Editing(cursor: current)),
+    )
   }
 }
 

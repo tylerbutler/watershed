@@ -173,6 +173,63 @@ selection and a peer edits inside that selection, the commit replaces the wrong
 extent. The document still converges. (A remote *delete* at the site is fine —
 anchors on deleted items resolve to the gap the deleted text left behind.)
 
+## Shared cursors
+
+Open two tabs and you see the other's caret and selection, labelled and
+coloured, moving as they move and shifting as either of you edits.
+
+What travels is a pair of **anchors**, not a pair of offsets. An offset is
+meaningless to a peer: by the time it arrives their replica has applied edits
+yours had not, and the number points somewhere else. Anchors bind to content, so
+the receiver resolves them against their own copy and lands where the sender
+meant — the same property that keeps your own caret still under a remote edit.
+The component hands its selection over as `textarea.Cursor` and takes peers'
+back through `textarea.set_peers`; this app owns everything in between:
+
+```gleam
+// what rides on presence
+type Editing {
+  Editing(cursor: Option(textarea.Cursor))
+}
+
+// the roster arrives -> hand it to the component, with names and colours
+PeersChanged(peers) -> {
+  let cursors = list.filter_map(peers, ...textarea.peer(id:, label:, colour:, cursor:))
+  let #(editor, fx) = textarea.set_peers(editor, cursors)
+  ...
+}
+```
+
+Announcing is deliberately conditional on the cursor having *moved*. Anchors
+compare by value, and re-anchoring after a remote edit yields the same anchors
+whenever the caret tracked the same content — so a peer typing does not make
+every client re-broadcast.
+
+Drawing is the component's job, because a `<textarea>` will not do it: it
+renders only its own text, and it will not even say where that text is — the
+glyphs live in shadow DOM, with no API from offset to pixel. So `textarea.view`
+returns a wrapper holding the textarea, an overlay, and a hidden **mirror**: the
+same string in an ordinary element with the same typography, where a DOM `Range`
+gives the answer and `getClientRects` splits a wrapped selection into one
+rectangle per line for free.
+
+> **`view` returns a wrapper, not the textarea.** Caller attributes still land
+> on the `<textarea>`, so `class("editor")` styles what you expect. But a
+> sibling selector reaching *out* of the editor now has to account for the extra
+> element.
+
+### Manual checklist
+
+| In tab B                       | Expected in tab A                                  |
+| ------------------------------ | -------------------------------------------------- |
+| place a caret                  | thin coloured bar with B's name, at the same spot   |
+| select a few words             | translucent band over exactly those words           |
+| select across a line wrap      | one band per line, not one box over both            |
+| put the caret on the first line | the name tag flips below it rather than being clipped |
+| type before A's cursor          | A's own caret keeps its neighbours (see above)      |
+| **in A**, type before B's caret | B's drawn cursor stays on the same text             |
+| close tab B                    | B's cursor disappears within the presence TTL (~6.5s) |
+
 ## Bootstrapping — one channel, many tabs
 
 The root map is typed ([`src/doc_schema.gleam`](src/doc_schema.gleam)) with one

@@ -151,7 +151,7 @@ case model.editor {
 
 **TA4 — IME composition guard. ✅ done 2026-08-03.** Freeze/diff/re-map per the design above. Exit gate: manual test with a CJK IME (macOS Pinyin or JS `compositionstart` simulation in `smoke.gleam`) plus a concurrent remote edit during composition.
 
-**TA5 (deferred) — wrappers and cursors.** (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple, once a story exists for passing the handle (likely `Document`-by-unsafe-property + `text_handle_of` Json, or a registry keyed by string); valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
+**TA5 — wrappers and cursors.** (b) shipped 2026-08-03; (a) still deferred. (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple, once a story exists for passing the handle (likely `Document`-by-unsafe-property + `text_handle_of` Json, or a registry keyed by string); valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
 
 ## As-built notes (TA1–TA2)
 
@@ -329,6 +329,66 @@ resolve, with both biases collapsing to the gap the item left behind. The
 `drift` fallback to zero fires only on a genuinely `UnknownAnchorTarget` —
 an item this replica has not merged, or one compacted away whose forwarding
 entry has expired.
+
+## As-built notes (TA5b — shared cursors)
+
+The plan's sketch was one sentence: "broadcast over presence/ripples and render
+peer selections with a mirror-div overlay." Both halves held. What it did not
+say:
+
+- **`view` now returns a wrapper, not the textarea.** Peer cursors have to be
+  drawn somewhere and a `<textarea>` renders only its own text, so the element
+  ships inside a `position: relative` box with a hidden mirror and an overlay.
+  Caller attributes still go on the textarea, so `class("editor")` behaves; a
+  sibling selector reaching out of the editor does not. This is the one
+  breaking change in the rung and the example was its only consumer.
+- **Anchors travel; indices do not.** Stated in the plan as a convenience
+  (`anchor_to_json` exists) but it is really a correctness requirement — an
+  index is meaningless on a replica that has moved on. `Cursor` is opaque and
+  carries the two anchors; the app nests `cursor_to_json` / `cursor_decoder`
+  inside its own presence payload.
+- **Measurement is a `Range` over the mirror's text node, not marker spans.**
+  The usual mirror technique splices `<span>`s at the offsets and reads their
+  offsetTop/offsetLeft. A DOM `Range` needs no splicing, and `getClientRects`
+  returns one rect per line box — so a selection across a wrap comes out as two
+  bands with no extra work. Collapsed ranges have no client rects but do have a
+  bounding box, which is exactly the caret position.
+- **The measure→render loop is closed by construction.** `set_peers` and any
+  text change schedule a `before_paint` measurement that dispatches `Measured`;
+  `Measured` writes geometry and starts nothing. That, rather than a dirty flag
+  or a rect comparison, is what guarantees termination.
+- **The mirror is positioned at `textarea.offsetTop/offsetLeft`, and its width
+  is derived rather than copied.** Both were bugs in the first draft. The
+  textarea is in flow and carries a margin, so the wrapper's origin is not the
+  textarea's; and `getComputedStyle().width` reports the *content* width
+  regardless of `box-sizing`, so copying width and box-sizing together shrinks
+  the mirror by its padding and it wraps in the wrong places. Width now comes
+  from `clientWidth` minus padding, which also accounts for a scrollbar.
+- **Announce is conditional on the cursor having moved**, which turns out to be
+  free: re-anchoring after a remote edit produces *equal* anchors whenever the
+  caret tracked the same content, so value comparison is exactly the "did the
+  user move" signal, and a peer typing does not make everyone re-broadcast.
+- **Name tags flip below the caret on the first line**, where the overlay's
+  `overflow: hidden` would otherwise clip them.
+
+Verified in two browser tabs against `docker compose up`: a peer selection
+highlights exactly the selected words; a selection across a line wrap renders as
+two bands rather than one box; a collapsed caret draws a bar plus a legible name
+tag; a local insert *before* a peer's caret leaves that caret on the same text
+(anchor tracking through presence, end to end); cursors are bidirectional with a
+stable per-user colour; and a closed tab's cursor disappears within the presence
+TTL. No console errors. 33 unit tests, the 864 root tests, and `smoke.gleam`
+against a live levee container all pass.
+
+Not done, and not attempted: **TA5(a)**, the custom-element wrapper. It still
+needs a story for passing an opaque `SharedText` across a property boundary, and
+nothing in this rung moved that along.
+
+Known gaps, deliberate for v1: a textarea resized by its drag handle does not
+re-measure (no message fires), and neither does a window resize — cursors
+correct themselves on the next edit or roster update. Scrolling is handled, but
+by subtracting scroll at measure time rather than by listening, so a cursor is
+stale between a scroll and the next measurement.
 
 ## Testing strategy
 
