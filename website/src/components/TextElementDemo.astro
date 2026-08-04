@@ -1,0 +1,212 @@
+---
+const panes = [
+  { id: "a", name: "Client A" },
+  { id: "b", name: "Client B" },
+];
+---
+
+<section
+  id="text-element-demo"
+  class="demo"
+  aria-labelledby="text-element-demo-title"
+>
+  <div class="demo-head" data-reveal="rise">
+    <h2 id="text-element-demo-title">All of that, as one tag</h2>
+    <p>
+      Everything the rig above does by hand ships as a
+      component: <code>&lt;watershed-textarea&gt;</code>, the <code>watershed_lustre</code> editor
+      compiled from Gleam and registered as a custom element. These two panes
+      are that element — real documents, one shared <code>SharedText</code>,
+      the same in-memory sluice — and this page contributes <em>no editor code at all</em>.
+      The channel goes in as one property (<code>el.channel&nbsp;=&nbsp;text</code>);
+      edits, errors, and this user’s cursor come back out as DOM events; the
+      other pane’s cursor goes back in as data.
+    </p>
+    <p class="demo-hint">
+      The component owns what the naïve bridge gets wrong: each keystroke is
+      diffed into one minimal grapheme op, a peer’s edit can’t teleport your
+      caret, and an IME composition survives remote
+      keystrokes. <strong>Select a few words in one pane</strong> and a named
+      highlight appears in the other — then type before them and watch it stay
+      glued to those words. It travels as content-bound anchors, not offsets,
+      which is the same machinery that keeps your own caret in place.
+    </p>
+  </div>
+
+  <div class="element-rig" data-reveal="rise">
+    {
+      panes.map((pane) => (
+        <article class="pane" data-pane={pane.id} aria-label={`${pane.name} editor`}>
+          <header class="pane-head">
+            <h3>{pane.name}</h3>
+            <span class="annot" data-count>
+              0 graphemes
+            </span>
+          </header>
+          <watershed-textarea rows="5" />
+          <p class="pane-error annot" data-error role="status" />
+        </article>
+      ))
+    }
+  </div>
+
+  <p class="controls-hint">
+    Cursors here hop panes through a property assignment; in a real app
+    the <code>cursor</code> event’s payload rides your presence channel
+    unchanged.
+  </p>
+
+  <noscript>
+    <p class="demo-noscript">
+      The live demo needs JavaScript — it runs the real watershed runtime and
+      the compiled editor component in your browser. The rest of the page works
+      fine without it.
+    </p>
+  </noscript>
+
+  <p class="demo-noscript" data-text-element-fallback hidden>
+    The live demo couldn’t start — it runs the compiled
+    <code>&lt;watershed-textarea&gt;</code> component against the in-memory
+    <code>sluice</code>, and this browser didn’t load it. The rest of the page
+    works fine without it.
+  </p>
+</section>
+
+<script>
+  try {
+    const { initTextElementDemo } = await import(
+      "../scripts/text-element-demo.ts"
+    );
+    initTextElementDemo();
+  } catch (error) {
+    console.error("watershed textarea element demo failed to start", error);
+    const note = document.querySelector("[data-text-element-fallback]");
+    if (note instanceof HTMLElement) note.hidden = false;
+  }
+</script>
+
+<style>
+  .demo {
+    padding: var(--space-section) var(--content-pad);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-head {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .demo-head p {
+    margin-top: var(--space-lg);
+  }
+
+  .demo-hint {
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .element-rig {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  .pane {
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    padding: 0 0 var(--space-sm);
+  }
+
+  .pane-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .pane-head h3 {
+    font-size: 1rem;
+    font-weight: 650;
+    font-stretch: 115%;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+  }
+
+  .pane-head .annot {
+    color: var(--muted);
+  }
+
+  watershed-textarea {
+    display: block;
+    margin: var(--space-sm) var(--space-md) 0;
+  }
+
+  /* The element's inner textarea is shadow DOM, addressable via its part. */
+  watershed-textarea::part(textarea) {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: var(--space-sm);
+    border: 1px solid var(--hairline);
+    border-radius: 2px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    resize: vertical;
+    min-height: 7rem;
+    caret-color: var(--overprint);
+  }
+
+  watershed-textarea::part(textarea):focus-visible {
+    outline: none;
+    border-color: var(--waterline);
+    box-shadow: 0 0 0 2px var(--waterline);
+  }
+
+  .pane-error {
+    margin: var(--space-2xs) var(--space-md) 0;
+    min-height: 1.1em;
+    color: var(--overprint-deep);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    line-height: 1.4;
+  }
+
+  .controls-hint {
+    max-width: 68rem;
+    margin: var(--space-sm) auto 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .demo-noscript {
+    max-width: 68rem;
+    margin: var(--space-lg) auto 0;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 900px) {
+    .element-rig {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
