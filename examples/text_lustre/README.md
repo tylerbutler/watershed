@@ -52,8 +52,10 @@ and the pinned anchor, both reaching the channel through `textarea.channel`.
 Editing the channel behind the component's back is safe: the channel fans out
 to every subscriber, so the component re-snapshots itself a microtask later.
 
-It also keeps your caret where you left it when a peer edits around you — see
-[Caret preservation](#caret-preservation) below.
+It also keeps your caret where you left it when a peer edits around you, and
+keeps an IME composition alive through the same interruption — see
+[Caret preservation](#caret-preservation) and [IME composition](#ime-composition)
+below.
 
 ## Op coverage
 
@@ -123,6 +125,51 @@ on the same document and text like `🌊🌊ABCDE(ZZZ)FGHIJ`:
 Use an emoji or a combining mark for at least one insert — that is where a
 code-unit offset and a grapheme index disagree, and where a bridge that skipped
 the conversion silently lands the caret in the wrong place.
+
+## IME composition
+
+Typing 拼音 or かな runs a *composition session*: the browser puts provisional
+text in the element and only settles it when you pick a candidate. None of those
+intermediates is an edit the document should see, and — the part that bites —
+writing to the element's `value` mid-session cancels the session outright.
+
+That last point is sharper in Lustre than it looks. A `<textarea>` that has
+dispatched events is *controlled*, meaning its `value` property is re-applied on
+every diff whether or not the string changed. So holding the rendered value
+still is not enough; any re-render at all during a session would clobber the
+provisional text. The component instead renders the textarea with **no value
+binding at all** for the duration, leaving the vdom nothing to re-apply, and
+remembers the string the element held when the session opened.
+
+Committing then means diffing the element's final value against that remembered
+base — which is in the coordinates of a document that peers may have edited
+since. A second anchor, pinned at the caret when the session opened, measures
+how far the site drifted, and `grapheme_diff.shift` carries the edit that far so
+it lands in the right place as one op.
+
+### Manual checklist
+
+With two tabs and an IME active in tab B (macOS Pinyin, Windows Microsoft IME,
+or `ibus`/`fcitx` on Linux):
+
+| In tab B                              | In tab A                      | Expected in B                                        |
+| ------------------------------------- | ----------------------------- | ---------------------------------------------------- |
+| compose a word, don't commit           | nothing                       | grapheme count does **not** move while composing      |
+| compose a word, commit                 | nothing                       | committed text lands once, as one op                  |
+| compose a word, don't commit           | insert **before** the site    | your composition survives untouched                   |
+| …then commit it                        | —                             | composed text lands **after** A's insert, not at the old offset |
+| compose over a selection, commit       | nothing                       | the selection is replaced, not appended to            |
+| compose at the end, don't commit       | **delete** text before it     | commit still lands at the end                         |
+
+The third and fourth rows are the ones worth the trouble: they are the whole
+reason the session is anchored rather than just frozen. If you have no IME to
+hand, the same sequences can be driven with synthetic `CompositionEvent`s from
+the devtools console — dispatch `compositionstart`, assign `textarea.value`, then
+dispatch `compositionend`.
+
+Known gap: if a peer deletes the exact grapheme the site is anchored to, the
+anchor stops resolving and the composition lands where it was typed rather than
+where the site moved. The document still converges.
 
 ## Bootstrapping — one channel, many tabs
 

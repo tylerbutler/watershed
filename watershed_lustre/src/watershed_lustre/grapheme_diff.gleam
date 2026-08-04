@@ -90,6 +90,39 @@ pub fn diff(old old: String, new new: String) -> Edit {
   }
 }
 
+/// Re-address an edit so it applies to text that has moved under it: every
+/// index shifts by `by`, and the inserted content is untouched.
+///
+/// An IME composition is what needs this. The composed text can only be
+/// recovered by diffing the element's final value against the value it held
+/// when the session opened, which puts the resulting edit in the coordinates of
+/// a string that may be several remote keystrokes out of date. Tracking the
+/// composition site with a `TextAnchor` gives the distance it travelled; this
+/// carries the edit that far.
+///
+/// Indices clamp at zero — a peer can delete more before the site than the site
+/// was offset by, and index 0 is a position that exists where a negative one is
+/// not. Both ends of a range move together, so `start <= end` survives. Nothing
+/// clamps at the upper end: an index past the end of the text is a rejection the
+/// runtime should report, not one to quietly relocate.
+pub fn shift(edit: Edit, by amount: Int) -> Edit {
+  case edit {
+    NoChange -> NoChange
+    Insert(index:, value:) -> Insert(index: nudge(index, amount), value:)
+    Delete(start:, end:) ->
+      Delete(start: nudge(start, amount), end: nudge(end, amount))
+    Replace(start:, end:, value:) ->
+      Replace(start: nudge(start, amount), end: nudge(end, amount), value:)
+  }
+}
+
+fn nudge(index: Int, amount: Int) -> Int {
+  case index + amount < 0 {
+    True -> 0
+    False -> index + amount
+  }
+}
+
 fn common_prefix_length(a: List(String), b: List(String), acc: Int) -> Int {
   case a, b {
     [x, ..xs], [y, ..ys] if x == y -> common_prefix_length(xs, ys, acc + 1)

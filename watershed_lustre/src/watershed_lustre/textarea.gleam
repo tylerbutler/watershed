@@ -70,6 +70,40 @@
 //// tracking regardless, but note that a blurred element retains the offsets
 //// the browser last had, so a remote edit that lands while the user is
 //// elsewhere leaves the *browser's* caret stale until they next place it.
+////
+//// ## How an IME composition survives a remote edit
+////
+//// Typing 拼音 or かな runs a *composition session*: the browser puts provisional
+//// text in the element and fires `input` for each intermediate, none of which
+//// is an edit the document should see. Worse, writing to the element's `value`
+//// mid-session cancels the session outright in most browsers — so a controlled
+//// textarea re-rendering a peer's keystroke would destroy whatever the user was
+//// in the middle of composing.
+////
+//// So for the duration of a session the component renders the textarea with no
+//// value binding at all, and remembers the string the element held when the
+//// session opened. Merely holding that string still would not be enough: Lustre
+//// classes a textarea that has dispatched events as *controlled* and re-applies
+//// its `value` on every diff, changed or not, so any re-render during a session
+//// would overwrite the provisional text whatever value the component picked.
+//// Dropping the binding leaves the vdom nothing to re-apply and the element to
+//// the IME. The channel goes on applying remote edits and the model goes on
+//// snapshotting them — only the element is held back.
+////
+//// Committing at `compositionend` therefore means diffing the element's final
+//// value against that frozen base, which yields the composed edit in the
+//// coordinates of a document several remote keystrokes out of date. A second
+//// anchor, pinned at the caret when the session opened, measures how far the
+//// composition site drifted; [`grapheme_diff.shift`](./grapheme_diff.html#shift)
+//// carries the edit that far, and it lands as one op.
+////
+//// Two v1 limitations, documented rather than papered over. A remote edit
+//// landing *inside* the region being composed over can interleave oddly — the
+//// CRDT still converges, but the local visual during that window is
+//// best-effort. And a browser that reports a stale value at `compositionend`
+//// commits a partial composition; the next `input` event diffs the remainder,
+//// so the document still catches up. Mature collaborative editors ship the same
+//// trade.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -117,7 +151,36 @@ pub opaque type Model {
     value: String,
     length: Int,
     selection: Option(Selection),
+    /// The IME session in flight, if any. While this is `Some` the view renders
+    /// its frozen value instead of `value`, and user input is left alone.
+    composing: Option(Composition),
+    /// The value the element held at the last composition commit.
+    ///
+    /// Browsers disagree on whether `input` fires before or after
+    /// `compositionend`; the ones that fire it after report this same value a
+    /// moment later. Diffing it again would re-apply the composition and, when
+    /// a peer edited during the session, undo their work — the channel has
+    /// moved on but the element has not been repainted yet. Suppressing exactly
+    /// one echo is safe: any real keystroke produces a different value.
+    committed: Option(String),
     error: Option(String),
+  )
+}
+
+/// An IME session in flight.
+type Composition {
+  Composition(
+    /// The element's value when the session opened — what the view keeps
+    /// rendering, so the vdom never writes to the element and cancels the
+    /// session, and what the final value is diffed against to recover the
+    /// composed edit.
+    frozen: String,
+    /// Where the caret sat when the session opened, in graphemes into `frozen`.
+    origin: Int,
+    /// The same position, but tracking content, so a remote edit during the
+    /// session can be measured. `None` if the runtime would not name that
+    /// position: the session still runs, just without drift correction.
+    site: Option(TextAnchor),
   )
 }
 
@@ -147,6 +210,11 @@ pub opaque type Msg {
   UserInput(value: String, sel_start: Int, sel_end: Int)
   /// The user moved the caret or changed the selection without editing.
   UserSelect(sel_start: Int, sel_end: Int)
+  /// An IME session opened. Carries the element's value and caret as they stood
+  /// before any provisional text was inserted.
+  CompositionStarted(value: String, sel_start: Int, sel_end: Int)
+  /// An IME session committed. Carries the element's final value and caret.
+  CompositionEnded(value: String, sel_start: Int, sel_end: Int)
 }
 
 /// Bind a resolved text channel. Subscribes to it and takes the first snapshot,
@@ -165,6 +233,8 @@ pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
       value: "",
       length: 0,
       selection: None,
+      composing: None,
+      committed: None,
       error: None,
     ))
 
@@ -177,53 +247,182 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     KernelEvent(_) -> {
       let rendered = model.value
       let model = snapshot(model)
-      case model.value == rendered {
-        // The ordinary case for a local keystroke: the channel is echoing text
-        // the model already rendered, so the vdom write is a no-op and the
-        // browser's own caret is exactly where the user put it. Touching the
-        // selection here would be fighting them for it.
-        True -> #(model, effect.none())
-        // The text moved under the element. The anchors moved with it, so
-        // resolve them and put the caret back before the browser paints.
-        False -> {
-          let model = resolve(model)
+      case model.composing {
+        // The element belongs to the IME until the session commits. The model
+        // still tracks the channel — it is authoritative, and the anchors have
+        // to keep moving with the content — but the view goes on rendering the
+        // frozen value and no caret is written. Doing either here would cancel
+        // the composition the user is in the middle of.
+        Some(_) -> #(resolve(model), effect.none())
+        None -> settle(model, rendered)
+      }
+    }
+
+    // The textarea handed over its whole new value.
+    UserInput(value:, sel_start:, sel_end:) ->
+      case model.composing, model.committed {
+        // Provisional IME text, not an edit. The session owns the element until
+        // it commits, and every intermediate it produces is superseded by the
+        // next one.
+        Some(_), _ -> #(model, effect.none())
+
+        // The echo of a commit this component already applied — see `committed`.
+        // Diffing it would re-apply the composition against a channel that has
+        // moved on, undoing any remote edit made during the session.
+        None, Some(committed) if committed == value -> #(
+          Model(..model, committed: None),
+          effect.none(),
+        )
+
+        // Diff against the channel's current optimistic string and send exactly
+        // one minimal op.
+        None, _ -> {
+          let model = Model(..model, committed: None)
+          let current = watershed_js.text_value(model.channel)
+          let edit = grapheme_diff.diff(old: current, new: value)
+          let result = apply(model.channel, edit)
+
+          // Snapshot *after* applying: on success this is the text the user
+          // just typed, and on a rejected index it snaps the textarea back to
+          // the truth the runtime kept. Either way the local kernel event that
+          // follows re-snapshots to the same string, so that write is a no-op.
+          let model = record(snapshot(model), result, edit)
+
+          // Re-anchor against the string the *browser* holds, which is the one
+          // the reported offsets index into. It is the snapshot too, unless the
+          // op was rejected — the one case where the two disagree.
+          let model = anchor(model, value, sel_start, sel_end)
+
+          case model.value == value {
+            // Accepted: the browser already placed the caret and is rendering
+            // the same string the model is. Nothing to restore.
+            True -> #(model, effect.none())
+            // Rejected: the view is about to snap back to the runtime's text,
+            // so the caret needs placing in it.
+            False -> #(model, restore(model))
+          }
+        }
+      }
+
+    UserSelect(sel_start:, sel_end:) ->
+      case model.composing {
+        // Caret moves inside an active composition are the IME walking its own
+        // provisional text; those offsets index a string the document has never
+        // seen, so anchoring from them would put the caret nowhere real.
+        Some(_) -> #(model, effect.none())
+        None -> #(anchor(model, model.value, sel_start, sel_end), effect.none())
+      }
+
+    // An IME session opened. Freeze what the view renders at the value the
+    // element holds right now, so remote edits stop reaching the DOM, and pin
+    // the site so their effect can still be accounted for at commit time.
+    CompositionStarted(value:, sel_start:, ..) -> {
+      let origin =
+        int.clamp(
+          grapheme_offset.from_utf16(value, int.max(sel_start, 0)),
+          min: 0,
+          max: model.length,
+        )
+      // The same association convention as a collapsed caret: attached to the
+      // preceding grapheme, so a remote insert at the site leaves the composed
+      // text before it rather than after.
+      let site =
+        watershed_js.text_anchor_at(
+          model.channel,
+          origin,
+          watershed_js.bias_after,
+        )
+
+      #(
+        Model(
+          ..model,
+          composing: Some(Composition(
+            frozen: value,
+            origin:,
+            site: option.from_result(site),
+          )),
+          committed: None,
+        ),
+        effect.none(),
+      )
+    }
+
+    // The session committed. Everything the user composed is the difference
+    // between the frozen base and the element's final value.
+    CompositionEnded(value:, sel_start:, sel_end:) ->
+      case model.composing {
+        // No session to close — a stray event, or one whose `compositionstart`
+        // never decoded. Fall through to the ordinary input path so the text is
+        // not silently dropped.
+        None -> update(model, UserInput(value:, sel_start:, sel_end:))
+
+        Some(composition) -> {
+          // Measured once, before the op lands: applying the composition can
+          // move or delete the very grapheme the site is anchored to, so a
+          // second reading afterwards would answer a different question.
+          let shift = drift(model, composition)
+          let edit = grapheme_diff.diff(old: composition.frozen, new: value)
+          let result =
+            apply(model.channel, grapheme_diff.shift(edit, by: shift))
+
+          // Unfreeze: from here the view renders the channel again.
+          let model =
+            Model(..model, composing: None, committed: Some(value))
+            |> snapshot
+            |> record(result, edit)
+
+          // The reported offsets index `value`, which predates any remote edit
+          // that landed during the session — so they need the same correction
+          // the edit did. When the element reports nothing, fall back to
+          // resolving the anchors, which are already in the right coordinates.
+          let model = case sel_start < 0 || sel_end < 0 {
+            True -> resolve(model)
+            False ->
+              pin(
+                model,
+                grapheme_offset.from_utf16(value, sel_start) + shift,
+                grapheme_offset.from_utf16(value, sel_end) + shift,
+              )
+          }
+
+          // The rendered value just went from frozen to live, so the vdom is
+          // about to write the element and reset its caret to the end.
           #(model, restore(model))
         }
       }
-    }
+  }
+}
 
-    // The textarea handed over its whole new value. Diff it against the
-    // channel's current optimistic string and send exactly one minimal op.
-    UserInput(value:, sel_start:, sel_end:) -> {
-      let current = watershed_js.text_value(model.channel)
-      let edit = grapheme_diff.diff(old: current, new: value)
-      let result = apply(model.channel, edit)
-
-      // Snapshot *after* applying: on success this is the text the user just
-      // typed, and on a rejected index it snaps the textarea back to the truth
-      // the runtime kept. Either way the local kernel event that follows
-      // re-snapshots to the same string, so that write is a no-op.
-      let model = record(snapshot(model), result, edit)
-
-      // Re-anchor against the string the *browser* holds, which is the one the
-      // reported offsets index into. It is the snapshot too, unless the op was
-      // rejected — the one case where the two disagree.
-      let model = anchor(model, value, sel_start, sel_end)
-
-      case model.value == value {
-        // Accepted: the browser already placed the caret and is rendering the
-        // same string the model is. Nothing to restore.
-        True -> #(model, effect.none())
-        // Rejected: the view is about to snap back to the runtime's text, so
-        // the caret needs placing in it.
-        False -> #(model, restore(model))
+/// How far the composition site travelled while the session was open, in
+/// graphemes. Zero when the site could not be anchored or no longer resolves —
+/// the composed text then lands where it was typed, which is right whenever no
+/// peer edited before it, and the CRDT converges either way.
+fn drift(model: Model, composition: Composition) -> Int {
+  case composition.site {
+    None -> 0
+    Some(site) ->
+      case watershed_js.text_resolve_anchor(model.channel, site) {
+        Ok(now) -> now - composition.origin
+        Error(_) -> 0
       }
-    }
+  }
+}
 
-    UserSelect(sel_start:, sel_end:) -> #(
-      anchor(model, model.value, sel_start, sel_end),
-      effect.none(),
-    )
+/// Fold a fresh snapshot into the view: restore the caret only when the text
+/// actually moved under the element.
+fn settle(model: Model, rendered: String) -> #(Model, Effect(Msg)) {
+  case model.value == rendered {
+    // The ordinary case for a local keystroke: the channel is echoing text the
+    // model already rendered, so the vdom write is a no-op and the browser's
+    // own caret is exactly where the user put it. Touching the selection here
+    // would be fighting them for it.
+    True -> #(model, effect.none())
+    // The text moved under the element. The anchors moved with it, so resolve
+    // them and put the caret back before the browser paints.
+    False -> {
+      let model = resolve(model)
+      #(model, restore(model))
+    }
   }
 }
 
@@ -235,7 +434,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// always win. `class` and `style` merge rather than replace, so a caller class
 /// is additive.
 pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
-  html.textarea(
+  let bindings =
     list.append(attrs, [
       attribute.attribute(instance_attribute, model.instance),
       event.on("input", input_decoder()),
@@ -248,9 +447,38 @@ pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
       event.on("keyup", select_decoder()),
       event.on("mouseup", select_decoder()),
       event.on("focus", select_decoder()),
-    ]),
-    model.value,
-  )
+      // An IME session brackets its provisional text with these.
+      event.on("compositionstart", value_decoder(CompositionStarted)),
+      event.on("compositionend", value_decoder(CompositionEnded)),
+    ])
+
+  case model.composing {
+    None -> html.textarea(bindings, model.value)
+
+    // Mid-composition the element is rendered with **no value binding at all**.
+    //
+    // Holding the bound string still is not enough. Lustre classes a textarea
+    // that has dispatched events as *controlled*, and a controlled element has
+    // its `value` property re-applied on every diff whether or not the string
+    // changed — that is what stops a model and a DOM node drifting apart. It
+    // also means any re-render at all during a composition would write over the
+    // IME's provisional text and cancel the session, no matter what value the
+    // component chose to render.
+    //
+    // Dropping the property is what actually gets the vdom to keep its hands
+    // off: there is nothing left for it to re-apply. Removing it is safe —
+    // `value` is a property here, so the reconciler's removal path clears the
+    // *content attribute* of that name, which a textarea does not use, and
+    // leaves the live value alone. The child text node stays pinned at the
+    // frozen string so it too produces no patch, and it could not affect the
+    // display anyway: the element went dirty the first time Lustre assigned to
+    // `.value`.
+    //
+    // At `compositionend` the binding comes back, the vdom writes the channel's
+    // text in one go, and `restore` puts the caret where the anchors say.
+    Some(composition) ->
+      element.element("textarea", bindings, [element.text(composition.frozen)])
+  }
 }
 
 // ── Accessors ────────────────────────────────────────────────────────────────
@@ -294,11 +522,17 @@ pub fn channel(model: Model) -> SharedText {
 // ── Event decoding ───────────────────────────────────────────────────────────
 
 fn input_decoder() -> Decoder(Msg) {
+  value_decoder(UserInput)
+}
+
+/// The element's whole value plus the caret it left behind — what `input` and
+/// both composition events all report.
+fn value_decoder(to_msg: fn(String, Int, Int) -> Msg) -> Decoder(Msg) {
   use value <- decode.subfield(["target", "value"], decode.string)
   use sel_start <- decode.then(caret("selectionStart"))
   use sel_end <- decode.then(caret("selectionEnd"))
 
-  decode.success(UserInput(value:, sel_start:, sel_end:))
+  decode.success(to_msg(value, sel_start, sel_end))
 }
 
 fn select_decoder() -> Decoder(Msg) {

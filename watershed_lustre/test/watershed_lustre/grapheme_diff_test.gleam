@@ -107,3 +107,61 @@ pub fn a_zwj_sequence_is_one_grapheme_test() {
   assert grapheme_diff.diff(old: "a" <> family <> "b", new: "ab")
     == Delete(start: 1, end: 2)
 }
+
+// ── Shifting an edit onto a moved target ─────────────────────────────────────
+//
+// An IME session is diffed against the text as it stood when composition
+// opened, but commits against the text as it stands now. `shift` carries the
+// edit across that gap by however far a peer moved the site.
+
+pub fn shifting_by_zero_changes_nothing_test() {
+  assert grapheme_diff.shift(Insert(index: 3, value: "拼"), by: 0)
+    == Insert(index: 3, value: "拼")
+  assert grapheme_diff.shift(Delete(start: 1, end: 4), by: 0)
+    == Delete(start: 1, end: 4)
+}
+
+pub fn nothing_shifts_to_nothing_test() {
+  assert grapheme_diff.shift(NoChange, by: 7) == NoChange
+  assert grapheme_diff.shift(NoChange, by: -7) == NoChange
+}
+
+pub fn a_remote_insert_before_the_site_pushes_the_edit_later_test() {
+  assert grapheme_diff.shift(Insert(index: 3, value: "拼音"), by: 5)
+    == Insert(index: 8, value: "拼音")
+  assert grapheme_diff.shift(Delete(start: 3, end: 6), by: 5)
+    == Delete(start: 8, end: 11)
+  assert grapheme_diff.shift(Replace(start: 3, end: 6, value: "音"), by: 5)
+    == Replace(start: 8, end: 11, value: "音")
+}
+
+pub fn a_remote_delete_before_the_site_pulls_the_edit_earlier_test() {
+  assert grapheme_diff.shift(Insert(index: 9, value: "x"), by: -4)
+    == Insert(index: 5, value: "x")
+  assert grapheme_diff.shift(Replace(start: 9, end: 12, value: "x"), by: -4)
+    == Replace(start: 5, end: 8, value: "x")
+}
+
+pub fn the_inserted_text_is_never_touched_test() {
+  // Only addresses move. A shift that would reach past the end stays out of
+  // range on purpose: the runtime rejects it and the banner says so, which is
+  // more honest than silently landing the composition somewhere else.
+  assert grapheme_diff.shift(Insert(index: 2, value: "🌊é"), by: 900)
+    == Insert(index: 902, value: "🌊é")
+}
+
+pub fn a_shift_past_the_start_clamps_to_zero_test() {
+  // A peer deleted more before the site than the site was offset by. Index 0 is
+  // a position that exists; a negative one is not.
+  assert grapheme_diff.shift(Insert(index: 2, value: "x"), by: -9)
+    == Insert(index: 0, value: "x")
+}
+
+pub fn clamping_preserves_range_order_test() {
+  // Both ends move by the same amount, so `start <= end` survives the clamp
+  // even when only one end would have gone negative.
+  assert grapheme_diff.shift(Delete(start: 1, end: 3), by: -2)
+    == Delete(start: 0, end: 1)
+  assert grapheme_diff.shift(Replace(start: 1, end: 3, value: "y"), by: -5)
+    == Replace(start: 0, end: 0, value: "y")
+}

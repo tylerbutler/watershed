@@ -149,7 +149,7 @@ case model.editor {
 
 **TA3 — caret and selection preservation. ✅ done 2026-08-03.** Anchored selection tracking, `before_paint` restoration, UTF-16 conversion at the boundary, `UnknownAnchorTarget` fallback. Exit gate: two-tab manual script — type mid-document in tab A while tab B holds a caret before/at/after the edit point; B's caret must not jump. This is the rung that earns the word *component*.
 
-**TA4 — IME composition guard.** Freeze/diff/re-map per the design above. Exit gate: manual test with a CJK IME (macOS Pinyin or JS `compositionstart` simulation in `smoke.gleam`) plus a concurrent remote edit during composition.
+**TA4 — IME composition guard. ✅ done 2026-08-03.** Freeze/diff/re-map per the design above. Exit gate: manual test with a CJK IME (macOS Pinyin or JS `compositionstart` simulation in `smoke.gleam`) plus a concurrent remote edit during composition.
 
 **TA5 (deferred) — wrappers and cursors.** (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple, once a story exists for passing the handle (likely `Document`-by-unsafe-property + `text_handle_of` Json, or a registry keyed by string); valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
 
@@ -249,6 +249,76 @@ with "packages field missing or empty" — each example's `pnpm-workspace.yaml`
 lacks a `packages:` key, which the installed pnpm requires. `pnpm install
 --ignore-workspace` plus a direct `esbuild` call works around it. This breaks
 `just deps` and `just build`; fixing it is a repo-wide tooling call.
+
+## As-built notes (TA4)
+
+Deviations from the plan above, and why:
+
+- **Freezing the rendered value does not work, and the reason matters.** The
+  plan assumed an unchanging value means no vdom patch. It doesn't: Lustre
+  classes a `<textarea>` that has dispatched events as *controlled*
+  (`is_controlled` in `lustre/vdom/diff`), and `diff_attributes` then emits the
+  `value` property on **every** diff — `controlled || !property_value_equal(…)`
+  — which the reconciler applies as a bare `node[name] = value`. So any
+  re-render during a session overwrites the IME's provisional text whatever
+  string the component picks. Verified in the browser: the first remote edit
+  wiped a live composition even with the freeze in place.
+  What ships instead: mid-composition the component renders the textarea with
+  **no value binding at all** (`element.element("textarea", …)` rather than
+  `html.textarea`, which prepends the property). There is then nothing for the
+  vdom to re-apply. Removal is safe — `value` is a property, so the reconciler's
+  removal path calls `removeAttribute(node, "value")`, which a textarea does not
+  use, and `SYNCED_ATTRIBUTES.value` has no `removed` hook. The frozen string is
+  still kept, as the diff base at commit and as the child text node (constant,
+  so it produces no patch either).
+- **`grapheme_diff.shift` is public, not a private helper.** The re-mapping is
+  the one pure part of TA4, so it went where TDD could reach it — seven tests
+  covering both directions, the clamp at zero, and range-order preservation.
+  Upper-bound clamping was deliberately left out: an index past the end is a
+  rejection the runtime should report, not one to quietly relocate.
+- **Drift is measured once, before the op lands.** Applying the composition can
+  move or delete the grapheme the site anchors to, so resolving the anchor again
+  afterwards answers a different question. The first draft resolved it twice and
+  would have mis-placed the caret whenever the composed edit overwrote its own
+  site.
+- **A `committed` field, not in the plan.** Browsers disagree on whether `input`
+  fires before or after `compositionend`; the ones that fire it after report the
+  same value again, and diffing it would re-apply the composition against a
+  channel that has moved on — undoing any peer edit made during the session.
+  Recording the committed value and suppressing exactly one echo covers it. Safe
+  because any real keystroke produces a different value. This also makes the
+  ordering browser-agnostic without decoding `isComposing`: the state machine
+  (`composing` set by start, cleared by end) already distinguishes intermediates
+  from the commit, and a genuinely stale `compositionend` value self-heals,
+  because the following `input` diffs the remainder.
+- **`UserSelect` is ignored during a session**, which the plan didn't specify.
+  The IME fires `keyup` as it walks its own provisional text, and those offsets
+  index a string the document has never seen.
+- **`CompositionEnded` with no session in flight falls through to the ordinary
+  input path** rather than being dropped, so a composition whose
+  `compositionstart` never decoded still commits its text.
+
+Verified in two browser tabs against `docker compose up`, driving real
+`CompositionEvent`s (no CJK IME is available on this machine, which is the
+simulation route the plan allowed). Tab B composes `pin` → 拼 at the end of
+`ABCDEFGHIJ` while tab A inserts `🌊🌊` at the head: B's element keeps the
+provisional text untouched through the remote edit, and the commit lands at
+grapheme 12, not 10 — `🌊🌊ABCDEFGHIJ拼`, with B's caret at UTF-16 offset 15
+(4 + 10 + 1), so both the op shift and the caret shift are load-bearing. The
+Firefox-order trailing `input` was suppressed rather than undoing A's insert.
+Also covered: a plain composition with no peer activity; composing over a
+selection (the `Replace` path, 5 graphemes → 1); and a **negative** shift — a
+peer deleting 5 graphemes before the site while B composes at the end, which
+committed at the new end with the caret at offset 8. Both tabs converged every
+time and the error banner stayed empty. TA3's caret preservation still holds
+(caret 7 → 9 under a remote head insert, same neighbours). 33 unit tests, the
+864 root tests, and `smoke.gleam` against a live levee container all pass.
+
+Known gap, unchanged from the plan's v1 scope: if the *anchored* grapheme at the
+composition site is itself deleted remotely, the anchor stops resolving and
+drift falls back to zero, so the composed text lands where it was typed rather
+than where the site moved. The CRDT still converges. Fixing it would mean
+anchoring a span rather than a point.
 
 ## Testing strategy
 
