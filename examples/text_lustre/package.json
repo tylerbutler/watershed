@@ -6,6 +6,7 @@
   "description": "Phoenix JS client dependency for the watershed Lustre collaborative text example",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/text_lustre/text_lustre.mjs --bundle --format=esm --outfile=dist/text_lustre.mjs",
+    "build:element": "gleam build --target javascript && esbuild element_host.mjs --bundle --format=esm --outfile=dist/element_host.mjs",
     "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/text_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
     "smoke": "pnpm run build:smoke && node smoke/run.mjs",
     "serve": "python3 -m http.server 8080"

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · collaborative text (custom element)</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: 100%; max-width: 46rem; padding: 2rem; }
+      h1 { font-size: 1.25rem; font-weight: 600; }
+      .status { opacity: 0.7; margin-top: -0.5rem; }
+      /* The inner textarea is addressable from outside the shadow root. */
+      watershed-textarea { display: block; margin: 1.5rem 0 0.5rem; }
+      watershed-textarea::part(textarea) {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        line-height: 1.5;
+        resize: vertical;
+      }
+      .error {
+        color: #c0392b;
+        font-size: 0.85rem;
+        min-height: 1.2rem;
+        margin: 0.25rem 0;
+      }
+      .hint { font-size: 0.8rem; opacity: 0.6; margin-top: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>watershed · collaborative text — custom element host</h1>
+      <p class="status" id="status">connecting…</p>
+      <watershed-textarea
+        id="editor"
+        rows="10"
+        placeholder="Type here — this page runs no Lustre app."
+      ></watershed-textarea>
+      <p class="error" id="error"></p>
+      <p class="hint" id="length"></p>
+      <p class="hint">
+        This page is plain JavaScript hosting the
+        <code>&lt;watershed-textarea&gt;</code> element: the channel goes in as
+        a property, edits and cursors come out as events. Open it twice — or
+        alongside <a href="index.html">the Lustre app</a> — and both tabs
+        converge on the same document, shared cursors included.
+      </p>
+    </div>
+    <script type="module" src="./dist/element_host.mjs"></script>
+  </body>
+</html>

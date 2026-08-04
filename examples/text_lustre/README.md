@@ -240,6 +240,39 @@ rectangle per line for free.
 | **in A**, type before B's caret | B's drawn cursor stays on the same text             |
 | close tab B                    | B's cursor disappears within the presence TTL (~6.5s) |
 
+## The custom element host
+
+[`element.html`](element.html) is the same editor with **no Lustre app behind
+it**. It renders `<watershed-textarea>` — the component wrapped as a custom
+element by
+[`watershed_lustre/textarea_element`](../../watershed_lustre/src/watershed_lustre/textarea_element.gleam)
+— and [`element_host.mjs`](element_host.mjs) is plain JavaScript: register the
+element, connect with the `watershed_js` facade, and hand over the channel as
+one property assignment.
+
+```js
+register();                       // once, before any <watershed-textarea>
+editor.channel = text;            // the live SharedText handle
+```
+
+Everything the triple exposes as accessors comes back out as `CustomEvent`s —
+`change` (`{value, length}`), `error` (`{message | null}`), and `cursor` (this
+user's selection as anchors, ready to broadcast). Peer cursors go back in as
+plain data on the `peers` property; this host rides the same presence driver
+and wire shape as the Lustre app, so a tab of each interoperates — same
+document, shared cursors across host kinds. Styling reaches the inner textarea
+through `watershed-textarea::part(textarea)`.
+
+The channel property is the one untyped seam in the whole stack: a live handle
+cannot serialize, so it crosses as an opaque property value, shape-checked on
+the component side before the single contained coercion. A Lustre host never
+sees the seam — `textarea_element.element(channel:, attrs:)` is typed.
+
+```sh
+pnpm run build:element
+pnpm run serve      # then open http://localhost:8080/element.html twice
+```
+
 ## Bootstrapping — one channel, many tabs
 
 The root map is typed ([`src/doc_schema.gleam`](src/doc_schema.gleam)) with one

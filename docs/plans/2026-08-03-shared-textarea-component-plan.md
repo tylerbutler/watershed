@@ -151,7 +151,7 @@ case model.editor {
 
 **TA4 — IME composition guard. ✅ done 2026-08-03.** Freeze/diff/re-map per the design above. Exit gate: manual test with a CJK IME (macOS Pinyin or JS `compositionstart` simulation in `smoke.gleam`) plus a concurrent remote edit during composition.
 
-**TA5 — wrappers and cursors.** (b) shipped 2026-08-03; (a) still deferred. (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple, once a story exists for passing the handle (likely `Document`-by-unsafe-property + `text_handle_of` Json, or a registry keyed by string); valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
+**TA5 — wrappers and cursors. ✅ done 2026-08-04.** (b) shipped 2026-08-03; (a) shipped 2026-08-04. (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple — the handle-passing story that landed is live-handle-by-property (see the TA5a as-built notes below), not `text_handle_of` Json and not a registry; valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
 
 ## As-built notes (TA1–TA2)
 
@@ -443,6 +443,80 @@ time, the error banner stayed empty, and the console held nothing but a favicon
 container all pass.
 
 Still open from TA5(a): the custom-element wrapper, untouched by this.
+
+## As-built notes (TA5a — the custom-element wrapper)
+
+`watershed_lustre/textarea_element` defines `<watershed-textarea>` via
+`lustre.component` over the unchanged triple. The open question was the
+handle-passing story; what settled it, and what else the boundary forced:
+
+- **The handle crosses as a live property value, not as Json and not via a
+  registry.** The plan's candidates (`text_handle_of` Json, a string-keyed
+  registry) both assumed a property can only carry serialisable data. It
+  carries any JavaScript value: Lustre's component FFI defines a real setter
+  per registered property, so a plain host writes `el.channel = text` and the
+  decoder receives the living handle. The two identity coercions this needs —
+  `SharedText` posing as `Json` on the way out, `Dynamic` back to `SharedText`
+  on the way in — are the module's single unsafe seam, kept adjacent at the
+  bottom of the file, and the inbound side is shape-checked first (a string
+  `address`, a present `runtime`) so garbage assigned to the property is
+  ignored rather than crashing the component.
+- **Identity is what makes the property safe to re-render.** Lustre diffs
+  property values with a deep `isEqual` whose first check is `===`; a host
+  keeping the handle in its model passes the same object every render and the
+  comparison never recurses. Two *distinct* handles compare cheaply too —
+  their `runtime` fields are the same instance, so the walk stops one level
+  down. Re-assigning the same handle is explicitly a no-op in `update`;
+  a different handle rebinds (the old subscription cannot be cancelled, but a
+  stale `KernelEvent` only re-snapshots the current channel, so the leak is
+  idle rather than wrong).
+- **The outbound surface became three events** — `change` (`{value, length}`),
+  `error` (`{message | null}`), `cursor` (the `cursor_to_json` shape, or
+  `null`) — each emitted only on an actual transition, by comparing the
+  triple's accessors across `textarea.update`. The cursor event reuses the
+  announce-only-when-moved logic verbatim from the example: anchors compare by
+  value. `ChannelReceived` emits one initial `change`, which is how a joiner's
+  host learns the existing text.
+- **The inbound roster is plain data, not Gleam values.** `peers` takes
+  `[{id, label, colour, cursor}]` where `cursor` is exactly another element's
+  `cursor` event detail — so a JavaScript host forwards what its transport
+  delivered without touching compiled Gleam constructors. Lustre hosts build
+  the same payload through typed `peer`/`peers` helpers.
+- **Presentation crosses as attributes where it can and `::part` where it
+  can't.** `rows`/`cols`/`placeholder` forward to the inner textarea;
+  `disabled` only as the literal string `"true"`, because Lustre's attribute
+  callback receives `""` for both a bare attribute and a removed one — boolean
+  presence is unrecoverable at that boundary. Everything else styles via
+  `part="textarea"` (stamped through the triple's ordinary caller-attrs path)
+  or the document stylesheets Lustre adopts into the shadow root by default.
+- **The FFI needed no changes.** `restore_selection` and `measure_cursors`
+  already searched from whatever root `before_paint` hands over; inside the
+  component that is the shadow root, and both found their elements first try.
+- **No new unit tests.** The wrapper's own logic is glue over browser APIs
+  (property setters, CustomEvents, shadow DOM); the pure parts it leans on are
+  the triple's, already covered by the 47. Proof is the browser loop below
+  plus a new non-Lustre host page, `examples/text_lustre/element.html` +
+  `element_host.mjs` — plain JavaScript, no Lustre app, driving the element
+  through property/events and riding the *same* presence wire shape as the
+  Lustre app, so the two host kinds interoperate on one document.
+
+Verified against `docker compose up` with Playwright: two `element.html` tabs
+converge (29 keystrokes → 29 `change` events, 🌊 counted as one grapheme);
+tab B renders a joiner's text immediately and draws tab A's labelled cursor;
+caret preservation holds through the shadow root (caret 5 → 7 under a remote
+head insert, same neighbours, focus kept); a synthetic IME composition
+survives a concurrent remote head insert and commits shifted correctly
+(`>>XY…拼`), error banner empty; a third tab running the *Lustre* app
+(`index.html`) converges with both and cursors cross host kinds in both
+directions; a closed tab's cursor expires within the presence TTL; zero
+console errors. `gleam test` (47), the example build, and `smoke.gleam`
+against the live levee container all pass.
+
+Known gaps, deliberate for v1: boolean `disabled` requires the literal value
+`"true"` (above); a property assigned before `register()` upgrades the tag is
+shadowed by the browser's own-property rule and never seen — documented as
+"register before you create"; and there is no read-back surface on the element
+(no `el.value` getter) — state flows out through events only.
 
 ## Testing strategy
 
