@@ -19,8 +19,11 @@ import watershed_js.{type Document, type SharedCounter, type SharedMap}
 import watershed_lustre
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
+
 const tenant = "dev-tenant"
+
 const tenant_secret = "levee-dev-secret-change-in-production"
+
 const document_id = "bench-book"
 
 pub fn main() {
@@ -34,10 +37,12 @@ pub type SurveyPresence {
 }
 
 fn encode_presence(presence: SurveyPresence) -> Json {
-  json.object([#("station", case presence.station {
-    Some(station) -> json.string(station)
-    None -> json.null()
-  })])
+  json.object([
+    #("station", case presence.station {
+      Some(station) -> json.string(station)
+      None -> json.null()
+    }),
+  ])
 }
 
 fn presence_decoder() -> Decoder(SurveyPresence) {
@@ -131,12 +136,7 @@ fn bootstrap_effect(doc: Document) -> Effect(Msg) {
       doc_schema.readings(),
       EnsuredReadings,
     ),
-    watershed_lustre.ensure_counter(
-      doc,
-      root,
-      doc_schema.flags(),
-      EnsuredFlags,
-    ),
+    watershed_lustre.ensure_counter(doc, root, doc_schema.flags(), EnsuredFlags),
     watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
       SharedChanged
     }),
@@ -172,10 +172,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) ->
       case model.doc {
-        Some(doc) -> #(
-          Model(..model, status: Ready),
-          bootstrap_effect(doc),
-        )
+        Some(doc) -> #(Model(..model, status: Ready), bootstrap_effect(doc))
         None -> #(model, effect.none())
       }
 
@@ -209,8 +206,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     RecordReading(station, depth) -> {
       case model.readings_channel {
-        Some(readings) ->
-          watershed_js.set(readings, station, json.float(depth))
+        Some(readings) -> watershed_js.set(readings, station, json.float(depth))
         None -> Nil
       }
       #(model, effect.none())
@@ -234,26 +230,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, announce_effect(model))
     }
 
-    PeersChanged(peers) -> #(
-      Model(..model, peers: peers),
-      effect.none(),
-    )
+    PeersChanged(peers) -> #(Model(..model, peers: peers), effect.none())
   }
 }
 
 fn snapshot(model: Model) -> Model {
   let #(title, error) = case model.doc {
     Some(doc) ->
-      case watershed_js.get_field(
-        watershed_js.root_typed(doc),
-        doc_schema.title(),
-      ) {
+      case
+        watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.title())
+      {
         Ok(Some(title)) -> #(title, model.error)
         Ok(None) -> #(model.title, model.error)
-        Error(_) -> #(
-          model.title,
-          Some("The shared title is not a string."),
-        )
+        Error(_) -> #(model.title, Some("The shared title is not a string."))
       }
     None -> #(model.title, model.error)
   }
@@ -288,14 +277,12 @@ fn view(model: Model) -> Element(Msg) {
       ),
     ]),
     html.div([class("actions")], [
-      html.button(
-        [event.on_click(RecordReading("station-7", 3.2))],
-        [html.text("Record station-7: 3.2 m")],
-      ),
-      html.button(
-        [event.on_click(RecordReading("station-4", 2.4))],
-        [html.text("Record station-4: 2.4 m")],
-      ),
+      html.button([event.on_click(RecordReading("station-7", 3.2))], [
+        html.text("Record station-7: 3.2 m"),
+      ]),
+      html.button([event.on_click(RecordReading("station-4", 2.4))], [
+        html.text("Record station-4: 2.4 m"),
+      ]),
       html.button([event.on_click(AddFlag)], [
         html.text("Flag for re-check"),
       ]),
@@ -318,10 +305,9 @@ fn readings_view(readings: List(#(String, String))) -> Element(Msg) {
         list.map(readings, fn(reading) {
           html.div([class("station")], [
             html.span([], [html.text(reading.0 <> ": " <> reading.1 <> " m")]),
-            html.button(
-              [event.on_click(FocusStation(reading.0))],
-              [html.text("Inspect")],
-            ),
+            html.button([event.on_click(FocusStation(reading.0))], [
+              html.text("Inspect"),
+            ]),
           ])
         }),
       )
@@ -335,7 +321,8 @@ fn peers_text(peers: List(Peer(SurveyPresence))) -> String {
       peers
       |> list.map(fn(peer) {
         let SurveyPresence(station:) = peer.payload
-        peer.user <> case station {
+        peer.user
+        <> case station {
           Some(station) -> " is inspecting " <> station
           None -> " is connected"
         }
