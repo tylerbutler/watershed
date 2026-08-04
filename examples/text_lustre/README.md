@@ -167,9 +167,11 @@ hand, the same sequences can be driven with synthetic `CompositionEvent`s from
 the devtools console — dispatch `compositionstart`, assign `textarea.value`, then
 dispatch `compositionend`.
 
-Known gap: if a peer deletes the exact grapheme the site is anchored to, the
-anchor stops resolving and the composition lands where it was typed rather than
-where the site moved. The document still converges.
+Known gap: the site is anchored as a single point and corrected with one shift,
+which only accounts for content that moved *before* it. If you compose over a
+selection and a peer edits inside that selection, the commit replaces the wrong
+extent. The document still converges. (A remote *delete* at the site is fine —
+anchors on deleted items resolve to the gap the deleted text left behind.)
 
 ## Bootstrapping — one channel, many tabs
 

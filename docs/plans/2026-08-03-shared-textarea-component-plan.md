@@ -314,11 +314,21 @@ time and the error banner stayed empty. TA3's caret preservation still holds
 (caret 7 → 9 under a remote head insert, same neighbours). 33 unit tests, the
 864 root tests, and `smoke.gleam` against a live levee container all pass.
 
-Known gap, unchanged from the plan's v1 scope: if the *anchored* grapheme at the
-composition site is itself deleted remotely, the anchor stops resolving and
-drift falls back to zero, so the composed text lands where it was typed rather
-than where the site moved. The CRDT still converges. Fixing it would mean
-anchoring a span rather than a point.
+Known gap, unchanged from the plan's v1 scope: **a remote edit landing inside
+the region being composed over**. The session anchors its site as a single
+point and corrects the committed edit with one scalar shift, which can only
+account for content that moved *before* it. When the composition replaces a
+selection and a peer edits within that selection, the `Replace`'s end index is
+carried across unadjusted and the commit deletes the wrong extent. Fixing it
+means anchoring the composed-over region as a span and rebuilding the op from
+both resolved ends. Filed as a follow-up issue.
+
+Note that a plain remote *delete* at the site is **not** part of this gap:
+`lattice_sequence.try_resolve` documents that anchors on deleted items still
+resolve, with both biases collapsing to the gap the item left behind. The
+`drift` fallback to zero fires only on a genuinely `UnknownAnchorTarget` —
+an item this replica has not merged, or one compacted away whose forwarding
+entry has expired.
 
 ## Testing strategy
 
