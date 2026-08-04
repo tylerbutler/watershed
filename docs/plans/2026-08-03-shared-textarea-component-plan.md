@@ -314,14 +314,10 @@ time and the error banner stayed empty. TA3's caret preservation still holds
 (caret 7 → 9 under a remote head insert, same neighbours). 33 unit tests, the
 864 root tests, and `smoke.gleam` against a live levee container all pass.
 
-Known gap, unchanged from the plan's v1 scope: **a remote edit landing inside
-the region being composed over**. The session anchors its site as a single
-point and corrects the committed edit with one scalar shift, which can only
-account for content that moved *before* it. When the composition replaces a
-selection and a peer edits within that selection, the `Replace`'s end index is
-carried across unadjusted and the commit deletes the wrong extent. Fixing it
-means anchoring the composed-over region as a span and rebuilding the op from
-both resolved ends. Filed as a follow-up issue.
+Known gap at the time, since closed: **a remote edit landing inside the region
+being composed over**. The session anchored its site as a single point and
+corrected the committed edit with one scalar shift, which can only account for
+content that moved *before* it. Filed as issue #9 and fixed below.
 
 Note that a plain remote *delete* at the site is **not** part of this gap:
 `lattice_sequence.try_resolve` documents that anchors on deleted items still
@@ -389,6 +385,64 @@ re-measure (no message fires), and neither does a window resize — cursors
 correct themselves on the next edit or roster update. Scrolling is handled, but
 by subtracting scroll at measure time rather than by listening, so a cursor is
 stale between a scroll and the next measurement.
+
+## As-built notes (TA4 follow-up — the composed-over span, issue #9)
+
+The fix the TA4 notes described in one sentence: anchor the region rather than a
+point, and rebuild the op from both resolved ends. What that turned into:
+
+- **The commit stopped being a diff.** The point of the span is that the extent
+  comes from the anchors, so re-deriving one from the strings would just throw
+  it away again. `grapheme_diff.replacement(old:, new:, region:)` answers "what
+  is in that region now" instead of "what changed", and `splice` names the
+  result as an `Edit`. Two questions the old code conflated — *what did the user
+  type* and *where does it go* — now have one answer each, and only the second
+  involves the document. Both are pure, so both were TDD'd (14 new tests, 47
+  total).
+- **`shift` survives as the fallback, not the mechanism.** When the element
+  changed outside the region too — a browser reporting a stale value at
+  `compositionstart`, say — `replacement` returns `Error(Nil)` and the old
+  diff-and-shift path runs. That branch is also what makes the change safe: no
+  session gets *worse* than it was before, it just usually gets better.
+- **An abandoned session had to be caught explicitly.** Escape an IME and the
+  element is exactly as it was found, which the span model reads as "replace the
+  region with its own text" — a no-op locally and a deletion of anything a peer
+  put inside it meanwhile. `value == frozen → NoChange` comes first for that
+  reason. It is the one case where doing nothing is materially different from
+  doing something that produces the same string.
+- **Fallbacks keep the region's width; they do not collapse it.** The issue
+  proposed collapsing onto the surviving end when one anchor won't resolve, by
+  analogy with the selection's `resolve`. That is right for a *caret*, where
+  there is no honest range left, and wrong for a *commit*: an insert with no
+  deletion leaves the composed-over text in place, so the user watches their
+  selection not get replaced and the document gain a duplicate. Width is the
+  user's own choice; only its position is in question.
+- **The association convention moved into one function.** `anchors` now decides
+  bias for both the user's selection and the composed-over region — collapsed
+  hangs off the preceding grapheme, a range hugs its content. They want the same
+  rule for the same reason, and the module docs already claimed there was one
+  place it lived.
+- **Policy, now stated rather than implied:** composing over a selection
+  replaces that selection *as it now stands*, consuming a peer's concurrent
+  edit inside it. That is what typing over a selection already does; the issue
+  called it a question worth settling explicitly, and this is the answer.
+
+Verified in two browser tabs against `docker compose up`, driving synthetic
+`CompositionEvent`s. The issue's reproduction (B composes `X` over `CDEFG` of
+`ABCDEFGHIJ` while A inserts `--` inside it) now commits `ABXHIJ`, not
+`ABXFGHIJ`. A remote **delete** inside the region (A removes `DE`) likewise
+commits `ABXHIJ` rather than over-reaching to `ABXIJ`. Every TA4 scenario still
+holds unchanged: a plain composition; composing over a selection with no peer
+activity (`AB音HIJ拼`); a peer inserting entirely before the site
+(`🌊🌊ABCDEFGHIJ拼`, caret at UTF-16 15); a peer deleting entirely before it
+(`FGHIJ拼音`, caret 7); and the Firefox-order trailing `input` still suppressed.
+An abandoned session with a peer's insert inside the region sent nothing and
+left `FGH**IJ拼音` intact. Shared cursors still draw. Both tabs converged every
+time, the error banner stayed empty, and the console held nothing but a favicon
+404. 47 unit tests, the 864 root tests, and `smoke.gleam` against a live levee
+container all pass.
+
+Still open from TA5(a): the custom-element wrapper, untouched by this.
 
 ## Testing strategy
 

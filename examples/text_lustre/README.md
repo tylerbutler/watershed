@@ -141,11 +141,15 @@ provisional text. The component instead renders the textarea with **no value
 binding at all** for the duration, leaving the vdom nothing to re-apply, and
 remembers the string the element held when the session opened.
 
-Committing then means diffing the element's final value against that remembered
+Committing then means reading the element's final value against that remembered
 base — which is in the coordinates of a document that peers may have edited
-since. A second anchor, pinned at the caret when the session opened, measures
-how far the site drifted, and `grapheme_diff.shift` carries the edit that far so
-it lands in the right place as one op.
+since. Two questions come apart there. *What did the user type?* is answered by
+the base: whatever now sits in the region the session opened over. *Where does
+it go, and what does it replace?* is answered by anchors on **both ends** of
+that region, resolved at commit. A peer inserting inside the composed-over
+region moves its tail without moving its head, so a single offset cannot say
+where it went — and a commit that assumed otherwise would replace an extent
+nobody chose. The two answers meet as one op.
 
 ### Manual checklist
 
@@ -160,18 +164,24 @@ or `ibus`/`fcitx` on Linux):
 | …then commit it                        | —                             | composed text lands **after** A's insert, not at the old offset |
 | compose over a selection, commit       | nothing                       | the selection is replaced, not appended to            |
 | compose at the end, don't commit       | **delete** text before it     | commit still lands at the end                         |
+| compose over a selection, don't commit | **insert inside** it          | —                                                     |
+| …then commit it                        | —                             | the whole selection is replaced, A's insert with it   |
+| compose over a selection, don't commit | **delete inside** it          | —                                                     |
+| …then commit it                        | —                             | the replace stops where the selection now stops       |
+| compose over a selection, **escape** it | **insert inside** it         | nothing is sent; A's insert survives                  |
 
 The third and fourth rows are the ones worth the trouble: they are the whole
-reason the session is anchored rather than just frozen. If you have no IME to
-hand, the same sequences can be driven with synthetic `CompositionEvent`s from
-the devtools console — dispatch `compositionstart`, assign `textarea.value`, then
-dispatch `compositionend`.
+reason the session is anchored rather than just frozen. The rows after them are
+why it is anchored as a *span* — the region's two ends stop moving together the
+moment a peer edits between them. If you have no IME to hand, the same sequences
+can be driven with synthetic `CompositionEvent`s from the devtools console —
+dispatch `compositionstart`, assign `textarea.value`, then dispatch
+`compositionend`.
 
-Known gap: the site is anchored as a single point and corrected with one shift,
-which only accounts for content that moved *before* it. If you compose over a
-selection and a peer edits inside that selection, the commit replaces the wrong
-extent. The document still converges. (A remote *delete* at the site is fine —
-anchors on deleted items resolve to the gap the deleted text left behind.)
+Composing over a selection replaces that selection *as it now stands*, so a
+peer's concurrent edit inside it goes with the rest — the same thing typing over
+a selection does. Escaping the session sends nothing at all, which is what keeps
+that from becoming a delete-and-reinstate of text the peer had changed.
 
 ## Shared cursors
 

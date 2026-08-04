@@ -165,3 +165,126 @@ pub fn clamping_preserves_range_order_test() {
   assert grapheme_diff.shift(Replace(start: 1, end: 3, value: "y"), by: -5)
     == Replace(start: 0, end: 0, value: "y")
 }
+
+// ── Recovering what replaced a known region ──────────────────────────────────
+//
+// An IME session knows the region it opened over — the selection it is
+// composing across — so the commit does not have to *infer* the edit's extent
+// the way `diff` does. It only needs the text that ended up in that region;
+// where the region now lives is the anchors' job.
+
+pub fn text_typed_at_a_collapsed_region_is_the_replacement_test() {
+  assert grapheme_diff.replacement(
+      old: "ABCDEFGHIJ",
+      new: "ABCDEFGHIJ拼",
+      region: #(10, 10),
+    )
+    == Ok("拼")
+}
+
+pub fn text_composed_over_a_selection_is_the_replacement_test() {
+  assert grapheme_diff.replacement(old: "ABCDEFGHIJ", new: "ABXHIJ", region: #(
+      2,
+      7,
+    ))
+    == Ok("X")
+}
+
+pub fn a_region_at_the_head_test() {
+  assert grapheme_diff.replacement(old: "ABC", new: "xyBC", region: #(0, 1))
+    == Ok("xy")
+}
+
+pub fn an_abandoned_session_replaces_the_region_with_itself_test() {
+  // Escaping an IME leaves the element exactly as it was found. Recovering
+  // "CDEFG" is what lets the caller notice nothing happened and emit no op —
+  // as opposed to deleting the region and putting it straight back, which
+  // would destroy a peer's concurrent edit inside it.
+  assert grapheme_diff.replacement(
+      old: "ABCDEFGHIJ",
+      new: "ABCDEFGHIJ",
+      region: #(2, 7),
+    )
+    == Ok("CDEFG")
+}
+
+pub fn emptying_the_region_is_an_empty_replacement_test() {
+  assert grapheme_diff.replacement(old: "ABCDE", new: "AE", region: #(1, 4))
+    == Ok("")
+}
+
+// The region is counted in graphemes on both sides. Every case below comes out
+// at a different offset if the surrounding text is measured in code units.
+
+pub fn the_region_is_counted_in_graphemes_test() {
+  assert grapheme_diff.replacement(old: "🌊AB", new: "🌊XB", region: #(1, 2))
+    == Ok("X")
+  assert grapheme_diff.replacement(old: "AB🌊", new: "AX🌊", region: #(1, 2))
+    == Ok("X")
+}
+
+pub fn a_replacement_may_itself_be_multi_code_unit_test() {
+  assert grapheme_diff.replacement(old: "ab", new: "a👩\u{200D}👧b", region: #(
+      1,
+      1,
+    ))
+    == Ok("👩\u{200D}👧")
+}
+
+// ── When the region model doesn't describe what happened ─────────────────────
+//
+// `replacement` only speaks for text whose surroundings held still. Anything
+// else is a caller's cue to fall back on inferring the edit with `diff`.
+
+pub fn text_changing_outside_the_region_is_not_a_replacement_test() {
+  // The head moved: "A" became "Z" while the region was [2, 7).
+  assert grapheme_diff.replacement(old: "ABCDEFGHIJ", new: "ZBXHIJ", region: #(
+      2,
+      7,
+    ))
+    == Error(Nil)
+  // The tail moved.
+  assert grapheme_diff.replacement(old: "ABCDEFGHIJ", new: "ABXHIZ", region: #(
+      2,
+      7,
+    ))
+    == Error(Nil)
+}
+
+pub fn a_new_string_too_short_to_hold_its_surroundings_is_not_a_replacement_test() {
+  assert grapheme_diff.replacement(old: "ABCDE", new: "AB", region: #(4, 5))
+    == Error(Nil)
+}
+
+pub fn an_impossible_region_is_not_a_replacement_test() {
+  assert grapheme_diff.replacement(old: "ABC", new: "AXC", region: #(2, 1))
+    == Error(Nil)
+  assert grapheme_diff.replacement(old: "ABC", new: "AXC", region: #(-1, 1))
+    == Error(Nil)
+  assert grapheme_diff.replacement(old: "ABC", new: "AXC", region: #(1, 9))
+    == Error(Nil)
+}
+
+// ── Naming a replacement as an edit ──────────────────────────────────────────
+//
+// A region and its replacement describe an op directly, with no inference:
+// `splice` just picks the narrowest constructor that says the same thing.
+
+pub fn splicing_into_a_collapsed_region_is_an_insert_test() {
+  assert grapheme_diff.splice(start: 3, end: 3, value: "拼")
+    == Insert(index: 3, value: "拼")
+}
+
+pub fn splicing_nothing_over_a_region_is_a_delete_test() {
+  assert grapheme_diff.splice(start: 2, end: 9, value: "")
+    == Delete(start: 2, end: 9)
+}
+
+pub fn splicing_text_over_a_region_is_a_replace_test() {
+  assert grapheme_diff.splice(start: 2, end: 9, value: "X")
+    == Replace(start: 2, end: 9, value: "X")
+}
+
+pub fn splicing_nothing_into_a_collapsed_region_is_no_change_test() {
+  assert grapheme_diff.splice(start: 4, end: 4, value: "") == NoChange
+}

@@ -93,12 +93,15 @@ pub fn diff(old old: String, new new: String) -> Edit {
 /// Re-address an edit so it applies to text that has moved under it: every
 /// index shifts by `by`, and the inserted content is untouched.
 ///
-/// An IME composition is what needs this. The composed text can only be
-/// recovered by diffing the element's final value against the value it held
-/// when the session opened, which puts the resulting edit in the coordinates of
-/// a string that may be several remote keystrokes out of date. Tracking the
-/// composition site with a `TextAnchor` gives the distance it travelled; this
-/// carries the edit that far.
+/// An IME composition is what needs this. Its edit is recovered against the
+/// value the element held when the session opened, so it arrives in the
+/// coordinates of a string that may be several remote keystrokes out of date;
+/// a `TextAnchor` on the composition site gives the distance it travelled and
+/// this carries the edit that far. One distance describes the move only while
+/// the composed-over region stayed intact, which is why the component prefers
+/// [`replacement`](#replacement) and [`splice`](#splice) — a resolved span says
+/// where *both* ends went — and falls back here when the session cannot be read
+/// as one region changing.
 ///
 /// Indices clamp at zero — a peer can delete more before the site than the site
 /// was offset by, and index 0 is a position that exists where a negative one is
@@ -113,6 +116,74 @@ pub fn shift(edit: Edit, by amount: Int) -> Edit {
       Delete(start: nudge(start, amount), end: nudge(end, amount))
     Replace(start:, end:, value:) ->
       Replace(start: nudge(start, amount), end: nudge(end, amount), value:)
+  }
+}
+
+/// Recover the text that took the place of a known region of `old`.
+///
+/// [`diff`](#diff) *infers* an edit's extent from two strings, which is all a
+/// keystroke gives you. An IME session has more than that: it knows the region
+/// it opened over — the selection the user is composing across — so the extent
+/// is not in question and only its content is. That distinction matters,
+/// because inference cannot tell "the user replaced these five graphemes" from
+/// "the user replaced the three of them that changed", and only the first is
+/// a claim that can be re-addressed against a document a peer has edited
+/// meanwhile.
+///
+/// `region` is a half-open grapheme range into `old`. The answer is the
+/// graphemes of `new` that now sit between the same surroundings.
+///
+/// `Error(Nil)` when `new` is not `old` with that region swapped out — the
+/// region is out of bounds or inverted, `new` is too short to hold the
+/// surroundings, or the text outside the region moved. Nothing here can honour
+/// those cases; the caller should fall back to inferring the edit with `diff`.
+pub fn replacement(
+  old old: String,
+  new new: String,
+  region region: #(Int, Int),
+) -> Result(String, Nil) {
+  let #(start, end) = region
+  let old_graphemes = string.to_graphemes(old)
+  let new_graphemes = string.to_graphemes(new)
+  let old_length = list.length(old_graphemes)
+  let new_length = list.length(new_graphemes)
+  // How much of `old` follows the region — the part `new` has to still end with.
+  let tail = old_length - end
+
+  case start < 0 || end < start || tail < 0 || new_length - tail < start {
+    True -> Error(Nil)
+    False ->
+      case
+        list.take(old_graphemes, start) == list.take(new_graphemes, start),
+        list.drop(old_graphemes, end)
+        == list.drop(new_graphemes, { new_length - tail })
+      {
+        True, True ->
+          Ok(
+            new_graphemes
+            |> list.drop(start)
+            |> list.take(new_length - tail - start)
+            |> string.join(""),
+          )
+        _, _ -> Error(Nil)
+      }
+  }
+}
+
+/// The edit that puts `value` in place of the graphemes in `[start, end)`,
+/// named by the narrowest constructor that says the same thing.
+///
+/// The counterpart to [`replacement`](#replacement): once a caller knows the
+/// region and its new content, the op needs no inferring at all. Callers with
+/// only two strings want [`diff`](#diff) instead — this will happily emit a
+/// wider op than the change requires, which is right when the *user* chose that
+/// extent and wrong when a diff merely failed to narrow it.
+pub fn splice(start start: Int, end end: Int, value value: String) -> Edit {
+  case start >= end, value {
+    True, "" -> NoChange
+    True, _ -> Insert(index: start, value:)
+    False, "" -> Delete(start:, end:)
+    False, _ -> Replace(start:, end:, value:)
   }
 }
 

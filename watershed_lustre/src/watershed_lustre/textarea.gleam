@@ -90,20 +90,28 @@
 //// the IME. The channel goes on applying remote edits and the model goes on
 //// snapshotting them — only the element is held back.
 ////
-//// Committing at `compositionend` therefore means diffing the element's final
-//// value against that frozen base, which yields the composed edit in the
-//// coordinates of a document several remote keystrokes out of date. A second
-//// anchor, pinned at the caret when the session opened, measures how far the
-//// composition site drifted; [`grapheme_diff.shift`](./grapheme_diff.html#shift)
-//// carries the edit that far, and it lands as one op.
+//// Committing at `compositionend` therefore means reading the element's final
+//// value against that frozen base, which is in the coordinates of a document
+//// several remote keystrokes out of date. Two questions come apart there, and
+//// the component answers them separately. *What did the user type?* — the
+//// graphemes now sitting in the region the session opened over, recovered by
+//// [`grapheme_diff.replacement`](./grapheme_diff.html#replacement). *Where does
+//// it go, and what does it replace?* — wherever that region has got to, which
+//// is why **both of its ends are anchored**, not just the caret. A peer
+//// inserting inside the composed-over region moves its tail without moving its
+//// head; one offset cannot say so, and a commit that assumed otherwise would
+//// replace an extent nobody chose. The two answers meet in
+//// [`grapheme_diff.splice`](./grapheme_diff.html#splice) and land as one op.
 ////
-//// Two v1 limitations, documented rather than papered over. A remote edit
-//// landing *inside* the region being composed over can interleave oddly — the
-//// CRDT still converges, but the local visual during that window is
-//// best-effort. And a browser that reports a stale value at `compositionend`
-//// commits a partial composition; the next `input` event diffs the remainder,
-//// so the document still catches up. Mature collaborative editors ship the same
-//// trade.
+//// Composing over a selection therefore replaces that selection *as it now
+//// stands*, consuming a peer's concurrent edit inside it — the same thing
+//// typing over a selection does, and the reason it is the selection rather
+//// than its old text that is tracked.
+////
+//// One v1 limitation, documented rather than papered over: a browser that
+//// reports a stale value at `compositionend` commits a partial composition.
+//// The next `input` event diffs the remainder, so the document still catches
+//// up. Mature collaborative editors ship the same trade.
 ////
 //// ## Shared cursors
 ////
@@ -251,15 +259,19 @@ type Composition {
   Composition(
     /// The element's value when the session opened — what the view keeps
     /// rendering, so the vdom never writes to the element and cancels the
-    /// session, and what the final value is diffed against to recover the
-    /// composed edit.
+    /// session, and what the final value is read against to recover the
+    /// composed text.
     frozen: String,
-    /// Where the caret sat when the session opened, in graphemes into `frozen`.
-    origin: Int,
-    /// The same position, but tracking content, so a remote edit during the
-    /// session can be measured. `None` if the runtime would not name that
-    /// position: the session still runs, just without drift correction.
-    site: Option(TextAnchor),
+    /// The graphemes of `frozen` the session is composing over: whatever was
+    /// selected when it opened, which the IME replaces wholesale. An ordinary
+    /// caret is the collapsed case.
+    region: #(Int, Int),
+    /// The same region, but tracking content, so a remote edit made during the
+    /// session can be accounted for at commit — including one landing *inside*
+    /// the region, which moves its ends by different amounts. `None` if the
+    /// runtime would not name those positions: the session still runs, just
+    /// without correction.
+    span: Option(#(TextAnchor, TextAnchor)),
   )
 }
 
@@ -404,32 +416,28 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     // An IME session opened. Freeze what the view renders at the value the
-    // element holds right now, so remote edits stop reaching the DOM, and pin
-    // the site so their effect can still be accounted for at commit time.
-    CompositionStarted(value:, sel_start:, ..) -> {
-      let origin =
-        int.clamp(
-          grapheme_offset.from_utf16(value, int.max(sel_start, 0)),
-          min: 0,
-          max: model.length,
-        )
-      // The same association convention as a collapsed caret: attached to the
-      // preceding grapheme, so a remote insert at the site leaves the composed
-      // text before it rather than after.
-      let site =
-        watershed_js.text_anchor_at(
-          model.channel,
-          origin,
-          watershed_js.bias_after,
-        )
+    // element holds right now, so remote edits stop reaching the DOM, and
+    // anchor the region being composed over so their effect can still be
+    // accounted for at commit time.
+    CompositionStarted(value:, sel_start:, sel_end:) -> {
+      // What the IME replaces is the *selection*, not the caret — so that is
+      // what the commit has to address, and a caret is simply the collapsed
+      // case of it. Anchoring only one end would leave the far end of a
+      // composed-over range addressed in stale coordinates.
+      let head = reported(model, value, sel_start)
+      let tail = case sel_end < 0 {
+        True -> head
+        False -> reported(model, value, sel_end)
+      }
+      let region = #(int.min(head, tail), int.max(head, tail))
 
       #(
         Model(
           ..model,
           composing: Some(Composition(
             frozen: value,
-            origin:,
-            site: option.from_result(site),
+            region:,
+            span: anchors(model, region.0, region.1),
           )),
           committed: None,
         ),
@@ -437,8 +445,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     }
 
-    // The session committed. Everything the user composed is the difference
-    // between the frozen base and the element's final value.
+    // The session committed. What the user composed is whatever now sits in
+    // the region the session opened over; where that region has got to is the
+    // anchors' business.
     CompositionEnded(value:, sel_start:, sel_end:) ->
       case model.composing {
         // No session to close — a stray event, or one whose `compositionstart`
@@ -447,13 +456,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> update(model, UserInput(value:, sel_start:, sel_end:))
 
         Some(composition) -> {
-          // Measured once, before the op lands: applying the composition can
-          // move or delete the very grapheme the site is anchored to, so a
-          // second reading afterwards would answer a different question.
-          let shift = drift(model, composition)
-          let edit = grapheme_diff.diff(old: composition.frozen, new: value)
-          let result =
-            apply(model.channel, grapheme_diff.shift(edit, by: shift))
+          // Read once, before the op lands: applying the composition can move
+          // or delete the very graphemes the span is anchored to, so a second
+          // reading afterwards would answer a different question.
+          let #(start, end) = site(model, composition)
+          let shift = start - composition.region.0
+          let edit = commit(composition, value, start, end, shift)
+          let result = apply(model.channel, edit)
 
           // Unfreeze: from here the view renders the channel again.
           let model =
@@ -462,9 +471,11 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             |> record(result, edit)
 
           // The reported offsets index `value`, which predates any remote edit
-          // that landed during the session — so they need the same correction
-          // the edit did. When the element reports nothing, fall back to
-          // resolving the anchors, which are already in the right coordinates.
+          // that landed during the session, so they need carrying by however
+          // far the region's head moved — right for a caret sitting at or
+          // inside the composed text, which is where an IME leaves it. When
+          // the element reports nothing, fall back to resolving the anchors,
+          // which are already in the right coordinates.
           let model = case sel_start < 0 || sel_end < 0 {
             True -> resolve(model)
             False ->
@@ -484,17 +495,81 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// How far the composition site travelled while the session was open, in
-/// graphemes. Zero when the site could not be anchored or no longer resolves —
-/// the composed text then lands where it was typed, which is right whenever no
-/// peer edited before it, and the CRDT converges either way.
-fn drift(model: Model, composition: Composition) -> Int {
-  case composition.site {
-    None -> 0
-    Some(site) ->
-      case watershed_js.text_resolve_anchor(model.channel, site) {
-        Ok(now) -> now - composition.origin
-        Error(_) -> 0
+/// Where the composed-over region lives *now*, in graphemes.
+///
+/// The session opened over a region of a string that peers may have edited
+/// several times since, so both of its ends are re-read from the anchors rather
+/// than assumed to have moved together. That is the whole point of anchoring a
+/// span: an insert inside the region moves its tail without moving its head,
+/// and a single offset cannot say so.
+///
+/// Every fallback keeps the region's width, because the width is the user's own
+/// choice — the only question is where it landed. If neither end can be named,
+/// the region stays where it was typed, which is right whenever no peer edited
+/// before it and convergent either way.
+fn site(model: Model, composition: Composition) -> #(Int, Int) {
+  let #(origin_start, origin_end) = composition.region
+  let width = origin_end - origin_start
+
+  case composition.span {
+    None -> composition.region
+    Some(#(head, tail)) ->
+      case
+        watershed_js.text_resolve_anchor(model.channel, head),
+        watershed_js.text_resolve_anchor(model.channel, tail)
+      {
+        // An interior edit is exactly the case where these two disagree by
+        // something other than the same amount.
+        Ok(start), Ok(end) -> #(start, int.max(start, end))
+        // One end names content this replica cannot place — rare, since an
+        // anchor on *deleted* content still resolves to the gap it left. Hang
+        // the region off the end that survived.
+        Ok(start), Error(_) -> #(start, start + width)
+        Error(_), Ok(end) -> #(int.max(0, end - width), end)
+        Error(_), Error(_) -> composition.region
+      }
+  }
+}
+
+/// The one op that lands everything the user composed.
+///
+/// The session's two halves answer separate questions and are kept separate
+/// here: the element's final value says *what was typed*, the resolved span
+/// says *where it goes and what it replaces*. Recovering the typed text against
+/// a known region rather than diffing for it is what lets the region's extent
+/// come from the anchors — a diff would re-derive an extent in the frozen
+/// string's stale coordinates, which is only re-addressable when the whole
+/// region moved as a block.
+fn commit(
+  composition: Composition,
+  value: String,
+  start: Int,
+  end: Int,
+  shift: Int,
+) -> Edit {
+  case value == composition.frozen {
+    // An abandoned session — escaped, or committed to nothing. Replacing the
+    // region with its own text would be a no-op on this replica and a deletion
+    // of anything a peer put inside it meanwhile.
+    True -> grapheme_diff.NoChange
+    False ->
+      case
+        grapheme_diff.replacement(
+          old: composition.frozen,
+          new: value,
+          region: composition.region,
+        )
+      {
+        Ok(composed) -> grapheme_diff.splice(start:, end:, value: composed)
+        // The element changed outside the region too, so the session is not
+        // describable as "this region became that text" — a browser reporting
+        // a stale value at `compositionstart`, say. Fall back to inferring the
+        // edit and carrying it by however far the region's head moved, which
+        // is right for everything except the interior case this span exists to
+        // fix.
+        Error(Nil) ->
+          grapheme_diff.diff(old: composition.frozen, new: value)
+          |> grapheme_diff.shift(by: shift)
       }
   }
 }
@@ -942,24 +1017,12 @@ fn resolve(model: Model) -> Model {
 
 /// Pin fresh anchors at a grapheme range, clamped into the current text, and
 /// record the range in both coordinate systems.
-///
-/// The biases are the association convention documented at the top of this
-/// module: a collapsed caret hangs off the preceding grapheme at both ends; a
-/// range hugs its content.
 fn pin(model: Model, start: Int, end: Int) -> Model {
   let start = int.clamp(start, min: 0, max: model.length)
   let end = int.clamp(end, min: 0, max: model.length)
 
-  let head_bias = case start == end {
-    True -> watershed_js.bias_after
-    False -> watershed_js.bias_before
-  }
-
-  case
-    watershed_js.text_anchor_at(model.channel, start, head_bias),
-    watershed_js.text_anchor_at(model.channel, end, watershed_js.bias_after)
-  {
-    Ok(head), Ok(tail) ->
+  case anchors(model, start, end) {
+    Some(#(head, tail)) ->
       Model(
         ..model,
         selection: Some(
@@ -970,8 +1033,49 @@ fn pin(model: Model, start: Int, end: Int) -> Model {
         ),
       )
     // An index the CRDT will not name is one no caret should be placed at.
-    _, _ -> Model(..model, selection: None)
+    None -> Model(..model, selection: None)
   }
+}
+
+/// Bind a grapheme range to the content it covers.
+///
+/// The biases are the association convention documented at the top of this
+/// module, and this is the only place they are chosen: a collapsed position
+/// hangs off the preceding grapheme at both ends, so a remote insert there
+/// leaves it before the inserted text; a range hugs its content, so an insert
+/// at either edge falls outside it while an interior edit grows or shrinks it.
+/// The user's selection and the region an IME composes over want the same rule
+/// for the same reason.
+///
+/// `None` for a position the CRDT will not name.
+fn anchors(
+  model: Model,
+  start: Int,
+  end: Int,
+) -> Option(#(TextAnchor, TextAnchor)) {
+  let head_bias = case start == end {
+    True -> watershed_js.bias_after
+    False -> watershed_js.bias_before
+  }
+
+  case
+    watershed_js.text_anchor_at(model.channel, start, head_bias),
+    watershed_js.text_anchor_at(model.channel, end, watershed_js.bias_after)
+  {
+    Ok(head), Ok(tail) -> Some(#(head, tail))
+    _, _ -> None
+  }
+}
+
+/// A UTF-16 offset an element reported, as a grapheme index into the current
+/// document. `text` is the string those offsets index into, which is not always
+/// the one the model holds.
+fn reported(model: Model, text: String, offset: Int) -> Int {
+  int.clamp(
+    grapheme_offset.from_utf16(text, int.max(offset, 0)),
+    min: 0,
+    max: model.length,
+  )
 }
 
 // ── Peer cursor measurement ──────────────────────────────────────────────────
