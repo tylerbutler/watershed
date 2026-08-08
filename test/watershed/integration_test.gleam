@@ -87,6 +87,33 @@ pub fn two_clients_converge_test() {
 }
 
 @target(erlang)
+/// Quorum exit criterion: a `PactMap` set must stay pending until every
+/// connected client signs off — including a third client that neither proposed
+/// nor is the local replica.
+///
+/// Three clients, not two. With two, a quorum that ignores the roster and names
+/// only `[self, author]` is indistinguishable from a correct one, because self
+/// and author are the whole room; the bug this pins passed a two-client test.
+pub fn pact_map_quorum_spans_the_room_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_pact_map_quorum_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// The failure mode that decides whether this protocol is usable in
+/// production: a client in the signoff list vanishes without a clean leave. Its
+/// signoff can never arrive, so the pending entry must drain via the server's
+/// sequenced `"leave"` rather than wedging forever.
+pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_pact_map_disconnect_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
 /// M4 exit criterion: drop a client's channel mid-burst and assert both
 /// clients still converge with no lost or duplicated ops.
 pub fn reconnect_converges_test() {
@@ -861,6 +888,126 @@ fn run_reconnect_test() -> Nil {
   watershed.close(doc_a)
   watershed.close(doc_b)
   watershed.close(doc_c)
+}
+
+@target(erlang)
+fn run_pact_map_quorum_test() -> Nil {
+  let document = "watershed-it-quorum-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let doc_c = connect_or_panic(document, "user-c")
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+
+  let assert Ok(pact_b) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_b), "tempo") {
+        None -> Error("handle not replicated to B")
+        Some(handle) -> watershed.resolve_pact_map(doc_b, handle)
+      }
+    })
+  let assert Ok(pact_c) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_c), "tempo") {
+        None -> Error("handle not replicated to C")
+        Some(handle) -> watershed.resolve_pact_map(doc_c, handle)
+      }
+    })
+
+  // A proposes. Against a real three-client room this is where the fabricated
+  // `[self, author]` quorum did not merely accept early — it *panicked* the
+  // runtime actor with `AckMismatch("client was not expected to sign off")`,
+  // because C's accept arrived for a pact whose frozen signoff list never named
+  // it. So reaching the end of this test at all is the discriminating result;
+  // the exact signoff membership is pinned deterministically by
+  // `pact_map_pends_until_the_whole_room_signs_off_test` on the sluice, where
+  // a paused client makes the outstanding list exact rather than a race.
+  watershed.pact_map_set(pact_a, "bpm", json.int(120))
+
+  // Whatever the timing, it must settle at all three replicas and agree.
+  let accepted =
+    wait_until(50, fn() {
+      watershed.pact_map_get(pact_a, "bpm") == Some(json.int(120))
+      && watershed.pact_map_get(pact_b, "bpm") == Some(json.int(120))
+      && watershed.pact_map_get(pact_c, "bpm") == Some(json.int(120))
+    })
+  accepted |> expect.to_be_true()
+
+  watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
+  watershed.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
+  watershed.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+  watershed.close(doc_c)
+}
+
+@target(erlang)
+fn run_pact_map_disconnect_test() -> Nil {
+  let document = "watershed-it-drain-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let doc_c = connect_or_panic(document, "user-c")
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  let assert Ok(pact_b) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_b), "tempo") {
+        None -> Error("handle not replicated to B")
+        Some(handle) -> watershed.resolve_pact_map(doc_b, handle)
+      }
+    })
+  // C resolves too, so it is a full participant rather than a passive reader.
+  let assert Ok(_pact_c) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_c), "tempo") {
+        None -> Error("handle not replicated to C")
+        Some(handle) -> watershed.resolve_pact_map(doc_c, handle)
+      }
+    })
+
+  // Propose, then drop C without a clean close — the signoff it owes can never
+  // arrive. The pact must still settle, draining via the server's sequenced
+  // `"leave"`. Wedging here is the failure this test exists to catch, and it is
+  // the question that decides whether the protocol is usable in production.
+  watershed.pact_map_set(pact_a, "bpm", json.int(90))
+  watershed.force_reconnect(doc_c)
+  watershed.close(doc_c)
+
+  let settled =
+    wait_until(100, fn() {
+      watershed.pact_map_get(pact_a, "bpm") == Some(json.int(90))
+      && watershed.pact_map_get(pact_b, "bpm") == Some(json.int(90))
+    })
+  settled |> expect.to_be_true()
+
+  watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
+  watershed.pact_map_pending_signoffs(pact_a, "bpm") |> expect.to_equal(None)
+
+  // The room still works after the departure: a second proposal settles between
+  // the two survivors, proving the roster narrowed rather than went stale.
+  watershed.pact_map_set(pact_a, "bpm", json.int(140))
+  let resettled =
+    wait_until(100, fn() {
+      watershed.pact_map_get(pact_a, "bpm") == Some(json.int(140))
+      && watershed.pact_map_get(pact_b, "bpm") == Some(json.int(140))
+    })
+  resettled |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
 }
 
 @target(erlang)

@@ -107,15 +107,31 @@ pub fn register(sluice: Sluice) -> #(Sluice, String) {
   )
 }
 
-/// Drop a client: remove it from the sequencer's MSN calculation and from the
-/// paused set. Queued frames it never received are discarded on `take`.
+/// Drop a client: sequence a `"leave"` for the remaining clients, remove it
+/// from the sequencer's MSN calculation and from the paused set. Queued frames
+/// it never received are discarded on `take`.
+///
+/// The leave is what settles per-client kernel state on every surviving replica
+/// — re-released queue jobs, drained consensus signoffs — at one agreed
+/// sequence point. A client that never completed `connect_document` is not in
+/// the roster, so its disconnect sequences nothing.
 pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
-  Sluice(
-    ..sluice,
-    seq: sequencing.client_leave(sluice.seq, client_id),
-    clients: dict.delete(sluice.clients, client_id),
-    paused: set.delete(sluice.paused, client_id),
-  )
+  let known = dict.has_key(sluice.clients, client_id)
+  let sluice =
+    Sluice(
+      ..sluice,
+      seq: sequencing.client_leave(sluice.seq, client_id),
+      clients: dict.delete(sluice.clients, client_id),
+      paused: set.delete(sluice.paused, client_id),
+    )
+  case known {
+    False -> sluice
+    True -> {
+      let #(sluice, leave) =
+        sequence_system(sluice, "leave", frames.system_leave_data(client_id))
+      broadcast(sluice, "op", frames.encode_op_event([leave]))
+    }
+  }
 }
 
 /// Hold a client's inbound frames (they stay queued until `resume`). Lets a
@@ -166,25 +182,35 @@ fn on_connect_document(
       // Join the sequencer at the current SN — the catch-up below brings the
       // client level with the document before any live op is delivered.
       let seq = sequencing.client_join(sluice.seq, client_id, current)
+
+      // Sequence the join *before* the joiner is added to `clients`, so the
+      // broadcast reaches the existing room only: the joiner receives its own
+      // copy through `initial_messages` instead, which is how a real server
+      // orders it.
+      let #(sluice, join) =
+        Sluice(..sluice, seq: seq)
+        |> sequence_system("join", frames.system_join_data(client_id))
+      let sluice = broadcast(sluice, "op", frames.encode_op_event([join]))
+
       let clients =
         dict.insert(
           sluice.clients,
           client_id,
           ClientEntry(client: request.client, scopes: request.client.scopes),
         )
-      let catch_up = log_since(sluice.log, last_seen)
+      let sluice = Sluice(..sluice, clients: clients)
       let connected =
         frames.encode_connected(
           client_id: client_id,
           tenant_id: sluice.tenant_id,
           document_id: sluice.document_id,
           scopes: request.client.scopes,
-          checkpoint_sequence_number: current,
-          initial_messages: catch_up,
+          checkpoint_sequence_number: sequencing.current_sn(sluice.seq),
+          initial_clients: connected_ids(sluice),
+          initial_messages: log_since(sluice.log, last_seen),
           timestamp: sluice.now_ms,
         )
-      Sluice(..sluice, seq: seq, clients: clients)
-      |> enqueue(client_id, "connect_document_success", connected)
+      enqueue(sluice, client_id, "connect_document_success", connected)
     }
   }
 }
@@ -228,6 +254,7 @@ fn sequence_op(
           contents: op.contents,
           metadata: op.metadata,
           timestamp: sluice.now_ms,
+          data: None,
         )
       let event = frames.encode_op_event([sequenced])
       Sluice(..sluice, seq: seq, log: [sequenced, ..sluice.log])
@@ -347,6 +374,37 @@ fn enqueue(
 fn broadcast(sluice: Sluice, event: String, payload: Json) -> Sluice {
   connected_ids(sluice)
   |> list.fold(sluice, fn(sluice, id) { enqueue(sluice, id, event, payload) })
+}
+
+/// Stamp a system message (`"join"` / `"leave"`) with the next sequence number
+/// and append it to the log, returning it for the caller to route.
+///
+/// System messages consume a sequence number like any op, so every replica
+/// agrees on *where* in the stream membership changed — that ordering is the
+/// whole point, since a consensus kernel settles its pending state at exactly
+/// this sequence point. `client_id` is null and `contents` is null; the payload
+/// rides in `data`.
+fn sequence_system(
+  sluice: Sluice,
+  message_type: String,
+  data: String,
+) -> #(Sluice, Sequenced) {
+  let sn = sequencing.current_sn(sluice.seq) + 1
+  let seq = sequencing.SequenceState(..sluice.seq, sequence_number: sn)
+  let message =
+    Sequenced(
+      client_id: None,
+      sequence_number: sn,
+      minimum_sequence_number: sequencing.current_msn(seq),
+      client_sequence_number: -1,
+      reference_sequence_number: sn - 1,
+      op_type: message_type,
+      contents: json.null(),
+      metadata: None,
+      timestamp: sluice.now_ms,
+      data: Some(data),
+    )
+  #(Sluice(..sluice, seq: seq, log: [message, ..sluice.log]), message)
 }
 
 /// Ops with sequence number strictly greater than `after`, ascending.

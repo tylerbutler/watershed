@@ -17,10 +17,17 @@ default:
 build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text
 
 # Run tests
-test: _test-gleam _test-lustre
+test: _test-gleam _test-js _test-lustre
 
 _test-gleam:
     gleam test
+
+# The JS-target suite. `gleam.toml` pins `target = "erlang"`, so the
+# `@target(javascript)` tests — chiefly the sluice driver suite — only run when
+# the target is named explicitly. They are a separate suite, not a re-run:
+# neither target sees the other's tests.
+_test-js:
+    gleam test --target javascript
 
 # Unit tests for the Lustre bindings package. Its pure modules (grapheme diff,
 # UTF-16 offset conversion) have their own gleeunit suite — startest cannot be

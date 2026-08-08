@@ -78,6 +78,8 @@ import watershed/ids
 import watershed/json_ot
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+
+import watershed/pact_map_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy}
 @target(erlang)
@@ -336,6 +338,20 @@ pub type Msg {
   GetPactMapKeys(address: String, reply: Subject(List(String)))
   /// Whether `key` has a pending (proposed but not-yet-accepted) value.
   GetPactMapPending(address: String, key: String, reply: Subject(Bool))
+  /// The pending proposal for `key` — value plus the signoff list it is waiting
+  /// on — `None` when nothing is pending or the address is not a PactMap.
+  GetPactMapPendingDetails(
+    address: String,
+    key: String,
+    reply: Subject(Option(pact_map_kernel.Pending)),
+  )
+  /// The accepted entry (value + sequence number) for `key`, `None` when the
+  /// key has no accepted value.
+  GetPactMapAccepted(
+    address: String,
+    key: String,
+    reply: Subject(Option(pact_map_kernel.Accepted)),
+  )
   /// The number of queued (not-yet-acquired) items in the ordered collection at
   /// `address`, `None` when missing or not an ordered-collection channel.
   GetOrderedSize(address: String, reply: Subject(Option(Int)))
@@ -1168,6 +1184,24 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, False, runtime_core.pact_map_is_pending(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetPactMapPendingDetails(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.pact_map_pending(_, address, key)),
+      )
+      actor.continue(state)
+    }
+    GetPactMapAccepted(address, key, reply) -> {
+      process.send(
+        reply,
+        read(state, None, runtime_core.pact_map_get_with_details(
+          _,
+          address,
+          key,
+        )),
       )
       actor.continue(state)
     }

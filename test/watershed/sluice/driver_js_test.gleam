@@ -16,6 +16,8 @@ import gleam/string
 import startest/expect
 
 @target(javascript)
+import watershed/client_id
+@target(javascript)
 import watershed/rich_text
 @target(javascript)
 import watershed/runtime_js
@@ -112,7 +114,8 @@ pub fn diagnostics_track_pending_and_sequenced_ops_test() {
   sluice_js.settle(sluice)
   let ready = watershed_js.diagnostics(doc)
   ready.phase |> expect.to_equal("ready")
-  ready.last_seen_sequence_number |> expect.to_equal(Some(0))
+  // SN 1 is the client's own sequenced join.
+  ready.last_seen_sequence_number |> expect.to_equal(Some(1))
   ready.next_client_sequence_number |> expect.to_equal(Some(1))
   ready.in_flight_count |> expect.to_equal(0)
   ready.buffered_out_of_order_count |> expect.to_equal(0)
@@ -120,14 +123,14 @@ pub fn diagnostics_track_pending_and_sequenced_ops_test() {
 
   watershed_js.set(watershed_js.root(doc), "k", json.int(1))
   let pending = watershed_js.diagnostics(doc)
-  pending.last_seen_sequence_number |> expect.to_equal(Some(0))
+  pending.last_seen_sequence_number |> expect.to_equal(Some(1))
   pending.next_client_sequence_number |> expect.to_equal(Some(2))
   pending.in_flight_count |> expect.to_equal(1)
   pending.synced |> expect.to_be_false()
 
   sluice_js.settle(sluice)
   let sequenced = watershed_js.diagnostics(doc)
-  sequenced.last_seen_sequence_number |> expect.to_equal(Some(1))
+  sequenced.last_seen_sequence_number |> expect.to_equal(Some(2))
   sequenced.in_flight_count |> expect.to_equal(0)
   sequenced.synced |> expect.to_be_true()
 }
@@ -167,9 +170,10 @@ pub fn step_info_reports_op_sequence_and_author_test() {
 
   // Drain, collecting only the op deliveries' (sn, author).
   let ops = drain_op_meta(sluice, [])
-  // The one op is broadcast to both clients: two op frames, SN 1, author a.
+  // The two handshakes sequenced a join apiece (SN 1 and 2), already drained by
+  // `settle`. The one op is broadcast to both clients: two op frames, SN 3.
   ops |> list.length |> expect.to_equal(2)
-  list.all(ops, fn(meta) { meta.0 == 1 }) |> expect.to_be_true()
+  list.all(ops, fn(meta) { meta.0 == 3 }) |> expect.to_be_true()
 }
 
 @target(javascript)
@@ -618,4 +622,82 @@ pub fn ensure_text_adopts_stored_field_test() {
   sluice_js.settle(sluice)
   watershed_js.text_value(text_b)
   |> expect.to_equal(watershed_js.text_value(resolved))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Consensus quorum
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// A `PactMap` set stays pending until *every* connected client has signed off.
+///
+/// This needs three clients: with two, a quorum that ignores the roster
+/// entirely and names only `[self, author]` is indistinguishable from a correct
+/// one, because self and author *are* the whole room. The third client is the
+/// one a fabricated quorum forgets, and the assertion that matters is that C's
+/// agreement is required — not merely that the value eventually lands.
+pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "pact-quorum-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "tempo",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "tempo")
+  let assert Ok(pact_b) = watershed_js.resolve_pact_map(doc_b, handle)
+  let assert Ok(pact_c) = watershed_js.resolve_pact_map(doc_c, handle)
+
+  // A proposes. Hold C so it cannot sign off, then drain everything else: the
+  // pact must still be pending, because C is in the quorum and has not agreed.
+  sluice_js.pause(sluice, doc_c)
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(120))
+  sluice_js.settle(sluice)
+
+  watershed_js.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_true()
+  watershed_js.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_true()
+  watershed_js.pact_map_get(pact_a, "bpm") |> expect.to_equal(None)
+
+  // The signoff list is the *outstanding* one — A and B have already signed
+  // off, so what remains names exactly the client being waited on: C. That is
+  // the assertion a two-client test cannot make. It also pins the quorum's
+  // membership precisely, where a length check would not: under the old
+  // `[self, author]` quorum A signs off alone and nothing is ever pending here.
+  let assert Ok(id_c) = sluice_js.client_id(sluice, doc_c)
+  let outstanding = [client_id.to_int(id_c)]
+  watershed_js.pact_map_pending_signoffs(pact_a, "bpm")
+  |> expect.to_equal(Some(outstanding))
+  watershed_js.pact_map_pending_signoffs(pact_b, "bpm")
+  |> expect.to_equal(Some(outstanding))
+  // Nothing is accepted yet, so there are no accepted details to read.
+  watershed_js.pact_map_get_with_details(pact_a, "bpm")
+  |> expect.to_equal(None)
+
+  // Release C; its signoff drains the list and the value is accepted by all.
+  sluice_js.resume(sluice, doc_c)
+  sluice_js.settle(sluice)
+
+  watershed_js.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
+  watershed_js.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
+  watershed_js.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
+  watershed_js.pact_map_get(pact_a, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("120"))
+  watershed_js.pact_map_get(pact_c, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("120"))
+
+  // Once accepted there is nothing left to sign off, and the accepted entry
+  // carries the sequence number the pact settled at.
+  watershed_js.pact_map_pending_signoffs(pact_a, "bpm") |> expect.to_equal(None)
+  let assert Some(accepted) =
+    watershed_js.pact_map_get_with_details(pact_a, "bpm")
+  { accepted.sequence_number > 0 } |> expect.to_be_true()
 }

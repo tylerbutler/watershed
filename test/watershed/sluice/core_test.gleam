@@ -7,6 +7,7 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 
 import signet/types as token
@@ -14,6 +15,7 @@ import spillway/message
 import spillway/types
 
 import watershed/sluice/core.{type Outbound, type Sluice}
+import watershed/sluice/frames as frames_codec
 import watershed/wire
 import watershed/wire/socket
 
@@ -121,7 +123,82 @@ pub fn connect_replies_with_connected_frame_test() {
       socket.connected_message_decoder(),
     )
   connected.client_id |> expect.to_equal(client_id)
-  connected.checkpoint_sequence_number |> expect.to_equal(Some(0))
+  // The client's own join is sequenced as SN 1, so the handshake checkpoint is
+  // 1 rather than 0 — membership occupies the op stream like any other message.
+  connected.checkpoint_sequence_number |> expect.to_equal(Some(1))
+  // The roster seeds the client's quorum. It must name the joiner even though
+  // it is the only member, or its consensus kernels start from an empty room.
+  connected.initial_clients
+  |> list.map(fn(client) { client.client_id })
+  |> expect.to_equal([client_id])
+}
+
+/// A second client's arrival is broadcast to the room as a sequenced `"join"`,
+/// so an already-connected replica widens its roster rather than staying on the
+/// membership it was handed at connect time.
+pub fn join_is_broadcast_to_the_existing_room_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let #(sluice, c2) = connect(sluice, None)
+  let #(_hub, frames) = drain(sluice)
+
+  // c1 hears the join; c2 gets its own copy through the handshake instead.
+  let assert [broadcast] = of_event(frames, "op")
+  broadcast.client_id |> expect.to_equal(c1)
+  let join = op_of(broadcast)
+  join.message_type |> expect.to_equal("join")
+  join.client_id |> expect.to_equal(None)
+  join.data
+  |> expect.to_equal(Some(frames_codec.system_join_data(c2)))
+
+  let assert [handshake] = of_event(frames, "connect_document_success")
+  let assert Ok(connected) =
+    json.parse(
+      json.to_string(handshake.payload),
+      socket.connected_message_decoder(),
+    )
+  connected.initial_clients
+  |> list.map(fn(client) { client.client_id })
+  |> list.sort(string.compare)
+  |> expect.to_equal(list.sort([c1, c2], string.compare))
+}
+
+/// A departing client is announced to the room as a sequenced `"leave"`. This
+/// is what drains a consensus signoff and re-releases a held queue job on every
+/// surviving replica, at one agreed sequence point.
+pub fn disconnect_broadcasts_a_leave_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, c2) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = core.disconnect(sluice, c2)
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [broadcast] = of_event(frames, "op")
+  broadcast.client_id |> expect.to_equal(c1)
+  let leave = op_of(broadcast)
+  leave.message_type |> expect.to_equal("leave")
+  leave.data |> expect.to_equal(Some(frames_codec.system_leave_data(c2)))
+}
+
+/// A connection that never completed `connect_document` is not in the roster,
+/// so dropping it announces nothing — there is no membership change to report.
+pub fn disconnect_before_handshake_sequences_nothing_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+  let before = core.sequence_number(sluice)
+
+  let #(sluice, unconnected) = core.register(sluice)
+  let sluice = core.disconnect(sluice, unconnected)
+  let #(_hub, frames) = drain(sluice)
+
+  core.sequence_number(sluice) |> expect.to_equal(before)
+  of_event(frames, "op") |> expect.to_equal([])
+  core.connected_ids(sluice) |> expect.to_equal([c1])
 }
 
 pub fn sequencing_is_monotone_per_document_test() {
@@ -139,8 +216,10 @@ pub fn sequencing_is_monotone_per_document_test() {
   // Each op is broadcast to both clients: 2 ops × 2 clients = 4 frames.
   list.length(ops) |> expect.to_equal(4)
   let sns = list.map(ops, fn(frame) { op_of(frame).sequence_number })
-  // First op's echoes carry SN 1, the second op's carry SN 2, monotone.
-  sns |> expect.to_equal([1, 1, 2, 2])
+  // The two handshakes sequenced a join apiece (SN 1 and 2), so the first op's
+  // echoes carry SN 3 and the second's SN 4 — still monotone, which is the
+  // property under test.
+  sns |> expect.to_equal([3, 3, 4, 4])
 }
 
 pub fn author_echo_carries_client_sequence_number_test() {
@@ -157,7 +236,8 @@ pub fn author_echo_carries_client_sequence_number_test() {
   // The echo the author's kernel acks on carries the CSN it submitted.
   op.client_sequence_number |> expect.to_equal(7)
   op.client_id |> expect.to_equal(Some(c1))
-  op.sequence_number |> expect.to_equal(1)
+  // SN 1 went to c1's own join, so the first op is SN 2.
+  op.sequence_number |> expect.to_equal(2)
 }
 
 pub fn reconnect_catch_up_replays_exactly_the_gap_test() {
@@ -165,25 +245,31 @@ pub fn reconnect_catch_up_replays_exactly_the_gap_test() {
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
 
-  // Log three ops (SN 1, 2, 3).
+  // SN 1 is c1's join; the three ops are SN 2, 3, 4.
   let sluice = submit(sluice, c1, 1, 0)
   let sluice = submit(sluice, c1, 2, 1)
   let sluice = submit(sluice, c1, 3, 2)
   let #(sluice, _) = drain(sluice)
 
-  // A late joiner that has seen up to SN 1 catches up on 2 and 3 only.
-  let #(sluice, _c2) = connect(sluice, Some(1))
+  // A late joiner that has seen up to SN 2 catches up on 3 and 4, plus its own
+  // join at SN 5 — membership replays through the same gap as everything else,
+  // which is what lets a reconnecting client rebuild the roster from history.
+  let #(sluice, c2) = connect(sluice, Some(2))
   let #(_hub, frames) = drain(sluice)
 
-  let assert [frame] = frames
+  let assert [frame] = of_event(frames, "connect_document_success")
+  frame.client_id |> expect.to_equal(c2)
   let assert Ok(connected) =
     json.parse(
       json.to_string(frame.payload),
       socket.connected_message_decoder(),
     )
   let sns = list.map(connected.initial_messages, fn(op) { op.sequence_number })
-  sns |> expect.to_equal([2, 3])
-  connected.checkpoint_sequence_number |> expect.to_equal(Some(3))
+  sns |> expect.to_equal([3, 4, 5])
+  connected.initial_messages
+  |> list.map(fn(op) { op.message_type })
+  |> expect.to_equal(["op", "op", "join"])
+  connected.checkpoint_sequence_number |> expect.to_equal(Some(5))
 }
 
 pub fn signal_fan_out_excludes_author_and_strips_type_test() {

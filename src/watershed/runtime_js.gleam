@@ -52,6 +52,8 @@ import watershed/json_ot
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
+import watershed/pact_map_kernel
+@target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy}
 @target(javascript)
 import watershed/rich_text
@@ -392,6 +394,32 @@ pub fn pact_map_is_pending(
   key: String,
 ) -> Bool {
   read(runtime.cell, False, runtime_core.pact_map_is_pending(_, address, key))
+}
+
+@target(javascript)
+/// The pending proposal for `key` — value plus the signoff list it is waiting
+/// on — `None` when nothing is pending.
+pub fn pact_map_pending(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Pending) {
+  read(runtime.cell, None, runtime_core.pact_map_pending(_, address, key))
+}
+
+@target(javascript)
+/// The accepted entry (value + sequence number) for `key`, `None` when the key
+/// has no accepted value.
+pub fn pact_map_get_with_details(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Accepted) {
+  read(runtime.cell, None, runtime_core.pact_map_get_with_details(
+    _,
+    address,
+    key,
+  ))
 }
 
 @target(javascript)

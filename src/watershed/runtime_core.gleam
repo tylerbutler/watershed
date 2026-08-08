@@ -15,6 +15,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
+import gleam/set.{type Set}
 import gleam/string
 
 import spillway/message.{type ConnectedMessage}
@@ -60,6 +61,16 @@ pub type Core {
     last_seen_sn: Int,
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
+    /// The connected roster, as the integer ids the kernels tie-break on.
+    /// Seeded from the handshake's `initialClients` and maintained by the
+    /// sequenced `"join"` / `"leave"` system messages, so every replica derives
+    /// the same membership at the same sequence point.
+    ///
+    /// This is what a consensus kernel's quorum is drawn from: `pact_map`
+    /// freezes a signoff list from it at sequencing time and only accepts once
+    /// that list drains, so a roster that under-reports the room produces a
+    /// pact that accepts without the missing members ever agreeing.
+    members: Set(Int),
     /// Per-channel buffer of *owed* follow-up ops a kernel released while
     /// applying a sequenced op (e.g. a consensus `Accept` reacting to a peer's
     /// `Set`). Drained after each sequenced batch by `collect_released_ops`,
@@ -154,6 +165,7 @@ pub fn bootstrap(
       last_seen_sn: last_seen,
       in_flight: [],
       out_of_order: [],
+      members: roster_of(connected),
       owed: dict.new(),
     )
 
@@ -275,7 +287,48 @@ fn seed_channels(
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
-  Core(..core, client_id: connected.client_id)
+  // The roster is *replaced*, not merged: the fresh handshake is authoritative
+  // about who is in the room now, and any join/leave sequenced while we were
+  // disconnected is already folded into it. Merging would resurrect clients
+  // that left during the gap, and their signoffs would never drain.
+  Core(..core, client_id: connected.client_id, members: roster_of(connected))
+}
+
+/// The quorum a sequenced op is judged against: the roster, plus self and the
+/// op's author unioned in.
+///
+/// Those two are unioned in defensively rather than assumed present. A quorum
+/// that is missing a connected client accepts too early (the bug this replaced,
+/// which hardcoded `[self, author]` and never consulted the room); but a quorum
+/// naming a client that is *not* in the room can never drain, and wedges the
+/// pact forever. Self and the author are the two we know are live, because one
+/// of them is us and the other just had an op sequenced — so including them
+/// cannot wedge anything, and it covers a join message lost or reordered
+/// against the op that follows it.
+///
+/// A `None` author is a system message, not client `0`: the previous code
+/// unwrapped it to `0` and injected a phantom member that never signs off.
+fn quorum_of(core: Core, author: Option(String)) -> List(Int) {
+  core.members
+  |> set.insert(client_id_to_int(core.client_id))
+  |> fn(members) {
+    case author {
+      None -> members
+      Some(id) -> set.insert(members, client_id_to_int(id))
+    }
+  }
+  |> set.to_list
+}
+
+/// The connected roster carried by a handshake, as kernel-side integer ids.
+/// Self is unioned in because the server builds `initialClients` from the
+/// document's presence map, which need not yet contain the client being
+/// answered.
+fn roster_of(connected: ConnectedMessage) -> Set(Int) {
+  connected.initial_clients
+  |> list.map(fn(client) { client_id_to_int(client.client_id) })
+  |> set.from_list
+  |> set.insert(client_id_to_int(connected.client_id))
 }
 
 pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOp)) {
@@ -598,18 +651,52 @@ fn apply_one(
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_op(core, msg)
+    "join" -> handle_join(core, msg)
     "leave" -> handle_leave(core, msg)
     _ -> Ok(#(core, [], []))
   }
 }
 
+/// Apply a sequenced membership-join (`"join"` system message) by adding the
+/// arriving client to the roster. Unlike `"leave"`, no kernel needs telling: a
+/// join only widens the quorum for ops sequenced *after* it, and a pact already
+/// pending froze its signoff list when it was sequenced.
+///
+/// The join payload is an object (`{"clientId": …, "detail": {…}}`), where a
+/// leave's is a bare string — the two system messages do not share a shape.
+fn handle_join(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
+  case system_payload(msg.data, decode.at(["clientId"], decode.string)) {
+    Error(Nil) -> Ok(#(core, [], []))
+    Ok(joining_client_id) ->
+      Ok(
+        #(
+          Core(
+            ..core,
+            members: set.insert(
+              core.members,
+              client_id_to_int(joining_client_id),
+            ),
+          ),
+          [],
+          [],
+        ),
+      )
+  }
+}
+
 /// Apply a sequenced membership-leave (`"leave"` system message) by fanning the
-/// departing client out over every attached channel. levee stamps the leave
-/// with a sequence number and carries the leaving client's id string in
-/// `contents`, so every replica settles per-client kernel state (re-released
-/// queue jobs, drained consensus signoffs) deterministically at the same
-/// `leave_seq`. Channels without membership semantics are a no-op. A malformed
-/// `contents` is ignored rather than failing the whole batch.
+/// departing client out over every attached channel. The server stamps the
+/// leave with a sequence number and carries the leaving client's id in `data`,
+/// so every replica settles per-client kernel state (re-released queue jobs,
+/// drained consensus signoffs) deterministically at the same `leave_seq`.
+/// Channels without membership semantics are a no-op. A malformed payload is
+/// ignored rather than failing the whole batch.
 fn handle_leave(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -617,10 +704,11 @@ fn handle_leave(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
-  case decode.run(msg.contents, decode.string) {
-    Error(_) -> Ok(#(core, [], []))
+  case system_payload(msg.data, decode.string) {
+    Error(Nil) -> Ok(#(core, [], []))
     Ok(leaving_client_id) -> {
       let client_int = client_id_to_int(leaving_client_id)
+      let core = Core(..core, members: set.delete(core.members, client_int))
       let #(core, events) =
         list.fold(core.channel_order, #(core, []), fn(acc, address) {
           let #(core, events) = acc
@@ -638,6 +726,21 @@ fn handle_leave(
         })
       Ok(#(core, events, []))
     }
+  }
+}
+
+/// Decode a system message's payload. The server carries system-message
+/// payloads in `data` as JSON *text* (`contents` is null on these messages), so
+/// this parses the string rather than reading the dynamic — reading `contents`
+/// here is a decode failure against every real server, and a silent one,
+/// because a malformed payload is deliberately a no-op.
+fn system_payload(
+  data: Option(String),
+  decoder: decode.Decoder(a),
+) -> Result(a, Nil) {
+  case data {
+    None -> Error(Nil)
+    Some(text) -> json.parse(text, decoder) |> result.replace_error(Nil)
   }
 }
 
@@ -812,10 +915,7 @@ fn apply_remote_channel(
       author: option.map(message_client_id, client_id_to_int)
         |> option.unwrap(0),
       self: client_id_to_int(core.client_id),
-      quorum: [
-        client_id_to_int(core.client_id),
-        option.map(message_client_id, client_id_to_int) |> option.unwrap(0),
-      ],
+      quorum: quorum_of(core, message_client_id),
       reference_sequence_number: reference_sequence_number,
     )
   case channel.apply_remote(state, op, meta) {
@@ -959,7 +1059,7 @@ fn ack_own_op(
                   min_seq: minimum_sequence_number,
                   author: client_id_to_int(core.client_id),
                   self: client_id_to_int(core.client_id),
-                  quorum: [client_id_to_int(core.client_id)],
+                  quorum: quorum_of(core, Some(core.client_id)),
                   reference_sequence_number: core.last_seen_sn,
                 )
               case channel.applies_own_on_sequence(state) {
@@ -3367,6 +3467,22 @@ pub fn pact_map_get_with_details(
   case find_channel(core, address) {
     Some(channel.PactMapState(kernel)) ->
       pact_map_kernel.get_with_details(kernel, key)
+    _ -> None
+  }
+}
+
+/// The pending proposal for `key` — its value and the signoff list it is still
+/// waiting on — `None` when nothing is pending or the address is not a PactMap.
+///
+/// The signoff list is frozen from the connected roster when the `Set` is
+/// sequenced, so it names the room as it was at that moment, not as it is now.
+pub fn pact_map_pending(
+  core: Core,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Pending) {
+  case find_channel(core, address) {
+    Some(channel.PactMapState(kernel)) -> pact_map_kernel.pending(kernel, key)
     _ -> None
   }
 }

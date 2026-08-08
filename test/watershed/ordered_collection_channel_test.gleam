@@ -360,8 +360,10 @@ pub fn leave_for_unrelated_client_is_noop_test() {
   |> expect.to_equal([json.to_string(json.string("job1"))])
 }
 
-/// A sequenced `"leave"` system message: `clientId` is null and `contents`
-/// carries the departing client's id string, stamped with a sequence number.
+/// A sequenced `"leave"` system message in the shape the server actually
+/// sends: `clientId` is null, `contents` is null, and `data` carries the
+/// departing client's id as JSON *text* (floodgate builds it with
+/// `json.string(id) |> json.to_string`), stamped with a sequence number.
 fn leave_msg(leaving: String, sn: Int) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: None,
@@ -370,13 +372,13 @@ fn leave_msg(leaving: String, sn: Int) -> types.SequencedDocumentMessage {
     client_sequence_number: -1,
     reference_sequence_number: sn - 1,
     message_type: "leave",
-    contents: to_dynamic(json.string(leaving)),
+    contents: to_dynamic(json.null()),
     metadata: None,
     server_metadata: None,
     origin: None,
     traces: None,
     timestamp: 0,
-    data: None,
+    data: Some(json.to_string(json.string(leaving))),
   )
 }
 

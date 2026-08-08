@@ -79,6 +79,8 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/or_set_kernel
 @target(erlang)
+import watershed/pact_map_kernel
+@target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
 import watershed/rich_text
@@ -2799,6 +2801,47 @@ pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
 pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetPactMapPending(pact_map.address, key, reply)
+  })
+}
+
+@target(erlang)
+/// The clients whose agreement `key` is still waiting on, `None` when nothing
+/// is pending.
+///
+/// This is what turns a spinner into an explanation: `pact_map_is_pending`
+/// says *that* a value is unsettled, this says *who* it is unsettled on. The
+/// list is frozen from the connected roster when the proposal was sequenced,
+/// so it names the room at that moment — a client that has since left is
+/// removed as its `"leave"` is sequenced, not retroactively.
+pub fn pact_map_pending_signoffs(
+  pact_map: PactMap,
+  key: String,
+) -> Option(List(Int)) {
+  pact_map_pending(pact_map, key)
+  |> option.map(fn(pending) { pending.expected_signoffs })
+}
+
+@target(erlang)
+/// The full pending proposal for `key` — the value awaiting agreement and the
+/// signoff list it is waiting on — `None` when nothing is pending.
+pub fn pact_map_pending(
+  pact_map: PactMap,
+  key: String,
+) -> Option(pact_map_kernel.Pending) {
+  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPactMapPendingDetails(pact_map.address, key, reply)
+  })
+}
+
+@target(erlang)
+/// The accepted entry for `key`: the agreed value and the sequence number it
+/// settled at. `None` when the key is absent or still pending.
+pub fn pact_map_get_with_details(
+  pact_map: PactMap,
+  key: String,
+) -> Option(pact_map_kernel.Accepted) {
+  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetPactMapAccepted(pact_map.address, key, reply)
   })
 }
 

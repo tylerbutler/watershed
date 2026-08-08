@@ -45,6 +45,11 @@ pub type Sequenced {
     contents: Json,
     metadata: Option(Json),
     timestamp: Int,
+    /// System-message payload, as JSON *text*. Ops leave this `None` and carry
+    /// their payload in `contents`; `"join"` / `"leave"` are the other way
+    /// round — `contents` is null and the payload rides here. That split is the
+    /// server's, not ours (see `system_join_data` / `system_leave_data`).
+    data: Option(String),
   )
 }
 
@@ -206,14 +211,21 @@ fn signal_entry_decoder() -> Decoder(#(Json, Option(String))) {
 
 /// Build a `connect_document_success` payload the client's
 /// `socket.connected_message_decoder` accepts. Carries the assigned client id,
-/// the catch-up `initial_messages`, and the current sequence checkpoint. The
-/// sluice serves no summaries (plan decision 5), so `summaryContext` is omitted.
+/// the connected roster, the catch-up `initial_messages`, and the current
+/// sequence checkpoint. The sluice serves no summaries (plan decision 5), so
+/// `summaryContext` is omitted.
+///
+/// `initial_clients` is what seeds a client's membership roster, and therefore
+/// the quorum its consensus kernels freeze a signoff list from. An empty roster
+/// here does not fail loudly — it silently makes every pact a one-member pact
+/// that accepts immediately.
 pub fn encode_connected(
   client_id client_id: String,
   tenant_id tenant_id: String,
   document_id document_id: String,
   scopes scopes: List(String),
   checkpoint_sequence_number checkpoint_sequence_number: Int,
+  initial_clients initial_clients: List(String),
   initial_messages initial_messages: List(Sequenced),
   timestamp timestamp: Int,
 ) -> Json {
@@ -241,12 +253,21 @@ pub fn encode_connected(
         #("maxMessageSize", json.int(max_message_size)),
       ]),
     ),
-    #("initialClients", json.preprocessed_array([])),
+    #("initialClients", json.array(initial_clients, encode_roster_entry)),
     #("initialMessages", json.array(initial_messages, encode_sequenced)),
     #("initialSignals", json.preprocessed_array([])),
     #("supportedVersions", json.array(["1.0"], json.string)),
     #("version", json.string("1.0")),
     #("checkpointSequenceNumber", json.int(checkpoint_sequence_number)),
+  ])
+}
+
+/// One `initialClients` entry. Every field of the nested `client` record is
+/// optional to the client's decoder, so the roster only has to carry identity.
+fn encode_roster_entry(client_id: String) -> Json {
+  json.object([
+    #("clientId", json.string(client_id)),
+    #("client", json.object([#("mode", json.string("write"))])),
   ])
 }
 
@@ -279,8 +300,31 @@ pub fn encode_sequenced(op: Sequenced) -> Json {
         Some(metadata) -> [#("metadata", metadata)]
         None -> []
       },
+      case op.data {
+        Some(data) -> [#("data", json.string(data))]
+        None -> []
+      },
     ]),
   )
+}
+
+/// The payload of a sequenced `"join"`: an object naming the arriving client,
+/// serialized to JSON text. `detail` is the client record on a real server; the
+/// sluice has no audience to satisfy, so it stays empty.
+pub fn system_join_data(client_id: String) -> String {
+  json.object([
+    #("clientId", json.string(client_id)),
+    #("detail", json.object([])),
+  ])
+  |> json.to_string
+}
+
+/// The payload of a sequenced `"leave"`: the departing client's id as a bare
+/// JSON string, serialized to JSON text. Deliberately a different shape from
+/// `system_join_data` — that asymmetry is the server's and the client decodes
+/// each accordingly.
+pub fn system_leave_data(client_id: String) -> String {
+  json.string(client_id) |> json.to_string
 }
 
 /// Build a `signal` broadcast (inverse of `socket.ripple_message_decoder`).

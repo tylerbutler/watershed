@@ -92,6 +92,17 @@ pub fn get_pending(state: PactMapState, key: String) -> Option(Option(Json)) {
   }
 }
 
+/// The whole pending proposal for `key`, including the signoff list it is
+/// waiting on. `get_pending` answers *what* is pending; this answers *who* it
+/// is waiting for, which is the only thing that explains a stalled pact to a
+/// user staring at a spinner.
+pub fn pending(state: PactMapState, key: String) -> Option(Pending) {
+  case dict.get(state.values, key) {
+    Ok(Pact(_, Some(pending))) -> Some(pending)
+    _ -> None
+  }
+}
+
 pub fn keys(state: PactMapState) -> List(String) {
   dict.keys(state.values) |> list.sort(string.compare)
 }

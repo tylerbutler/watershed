@@ -7,6 +7,7 @@
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 
@@ -72,6 +73,28 @@ fn a_sequenced(sn: Int, csn: Int, client_id: String) -> frames.Sequenced {
     contents: json.object([#("address", json.string("root"))]),
     metadata: None,
     timestamp: 1234,
+    data: None,
+  )
+}
+
+/// A sequenced system message, in the server's shape: no author, null
+/// `contents`, payload as JSON text in `data`.
+fn a_system_message(
+  sn: Int,
+  message_type: String,
+  data: String,
+) -> frames.Sequenced {
+  frames.Sequenced(
+    client_id: None,
+    sequence_number: sn,
+    minimum_sequence_number: 0,
+    client_sequence_number: -1,
+    reference_sequence_number: sn - 1,
+    op_type: message_type,
+    contents: json.null(),
+    metadata: None,
+    timestamp: 1234,
+    data: Some(data),
   )
 }
 
@@ -155,6 +178,7 @@ pub fn encode_connected_is_decodable_test() {
       document_id: "dice",
       scopes: ["doc:read", "doc:write"],
       checkpoint_sequence_number: 2,
+      initial_clients: ["sluice-client-0", "sluice-client-1"],
       initial_messages: [
         a_sequenced(1, 1, "sluice-client-0"),
         a_sequenced(2, 1, "sluice-client-1"),
@@ -170,10 +194,57 @@ pub fn encode_connected_is_decodable_test() {
   connected.claims.document_id |> expect.to_equal("dice")
   connected.summary_context |> expect.to_equal(None)
 
+  connected.initial_clients
+  |> list.map(fn(client) { client.client_id })
+  |> expect.to_equal(["sluice-client-0", "sluice-client-1"])
+
   let assert [first, second] = connected.initial_messages
   first.sequence_number |> expect.to_equal(1)
   second.sequence_number |> expect.to_equal(2)
   second.client_id |> expect.to_equal(Some("sluice-client-1"))
+}
+
+/// The roster the sluice sends must survive the client's decoder — an
+/// `initialClients` the client silently drops is the same as an empty one, and
+/// an empty one makes every consensus pact a one-member pact.
+pub fn encode_connected_roster_round_trips_test() {
+  let payload =
+    frames.encode_connected(
+      client_id: "sluice-client-2",
+      tenant_id: "default",
+      document_id: "dice",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["sluice-client-0", "sluice-client-1", "sluice-client-2"],
+      initial_messages: [],
+      timestamp: 1000,
+    )
+  let assert Ok(connected) =
+    json.parse(json.to_string(payload), socket.connected_message_decoder())
+
+  connected.initial_clients |> list.length |> expect.to_equal(3)
+}
+
+/// System messages carry their payload in `data`, not `contents`. Both shapes
+/// must survive the client's decoder, because the runtime reads `data` and a
+/// dropped field is an invisible no-op rather than an error.
+pub fn encode_system_message_round_trips_data_test() {
+  let join = a_system_message(4, "join", frames.system_join_data("client-9"))
+  let leave = a_system_message(5, "leave", frames.system_leave_data("client-9"))
+
+  let assert Ok(op_message) =
+    json.parse(
+      json.to_string(frames.encode_op_event([join, leave])),
+      socket.op_message_decoder(),
+    )
+
+  let assert [decoded_join, decoded_leave] = op_message.ops
+  decoded_join.message_type |> expect.to_equal("join")
+  decoded_join.client_id |> expect.to_equal(None)
+  decoded_join.data
+  |> expect.to_equal(Some("{\"clientId\":\"client-9\",\"detail\":{}}"))
+  decoded_leave.message_type |> expect.to_equal("leave")
+  decoded_leave.data |> expect.to_equal(Some("\"client-9\""))
 }
 
 pub fn encode_op_event_is_decodable_test() {
