@@ -14,6 +14,10 @@ And the gaps those plans surfaced have their own plan:
 
 - `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6
 
+One plan is not a demo but a way of presenting them:
+
+- `docs/plans/2026-08-08-showcase-composition-plan.md` — SC1–SC8, existing examples composed as nested child maps in one document, one connection, one presence roster. Zero prerequisites; the work is refactoring examples into MVU components.
+
 ## Why this list exists: kind coverage
 
 Coverage across `examples/` and the website demos as of 2026-08-08.
