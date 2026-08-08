@@ -229,7 +229,7 @@ fn sequence_op(
           metadata: op.metadata,
           timestamp: sluice.now_ms,
         )
-      let event = frames.encode_op_event(sluice.document_id, [sequenced])
+      let event = frames.encode_op_event([sequenced])
       Sluice(..sluice, seq: seq, log: [sequenced, ..sluice.log])
       |> broadcast("op", event)
     }
@@ -247,13 +247,7 @@ fn on_request_ops(
       let ops = log_since(sluice.log, from - 1)
       case ops {
         [] -> sluice
-        _ ->
-          enqueue(
-            sluice,
-            client_id,
-            "op",
-            frames.encode_op_event(sluice.document_id, ops),
-          )
+        _ -> enqueue(sluice, client_id, "op", frames.encode_op_event(ops))
       }
     }
   }

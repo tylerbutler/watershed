@@ -177,12 +177,13 @@ pub fn encode_connected_is_decodable_test() {
 }
 
 pub fn encode_op_event_is_decodable_test() {
-  let payload =
-    frames.encode_op_event("dice", [a_sequenced(7, 2, "sluice-client-1")])
+  let payload = frames.encode_op_event([a_sequenced(7, 2, "sluice-client-1")])
   let assert Ok(op_message) =
     json.parse(json.to_string(payload), socket.op_message_decoder())
 
-  op_message.document_id |> expect.to_equal("dice")
+  // The bare array carries no document id, matching floodgate. The topic
+  // already established which document this is.
+  op_message.document_id |> expect.to_equal("")
   let assert [op] = op_message.ops
   op.sequence_number |> expect.to_equal(7)
   op.client_sequence_number |> expect.to_equal(2)

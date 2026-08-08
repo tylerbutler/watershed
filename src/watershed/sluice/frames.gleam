@@ -250,16 +250,15 @@ pub fn encode_connected(
   ])
 }
 
-/// Build an `op` event payload: `{documentId, op: [Sequenced...]}` (inverse of
+/// Build an `op` event payload: the bare `[Sequenced...]` array (inverse of
 /// `socket.op_message_decoder`).
-pub fn encode_op_event(
-  document_id document_id: String,
-  ops ops: List(Sequenced),
-) -> Json {
-  json.object([
-    #("documentId", json.string(document_id)),
-    #("op", json.array(ops, encode_sequenced)),
-  ])
+///
+/// This is the shape floodgate pushes on every op path. Levee wrapped the
+/// messages in `{documentId, op: [...]}`; the document id was redundant with
+/// the channel topic, and the sluice models the server watershed actually
+/// talks to.
+pub fn encode_op_event(ops ops: List(Sequenced)) -> Json {
+  json.array(ops, encode_sequenced)
 }
 
 /// Encode one sequenced op to match `socket.sequenced_document_message_decoder`.
