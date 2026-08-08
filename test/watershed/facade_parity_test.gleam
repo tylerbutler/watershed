@@ -347,17 +347,12 @@ const js_only = ["runtime_of", "diagnostics"]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,
 /// `subscribe_*`) and nothing else; edits and reads stay on `watershed_js`.
-/// These are the kinds it has not been given bindings for yet — the FP5
-/// worklist, kept here so it is a checked fact rather than a claim in a plan.
+/// Kinds it has not been given bindings for go here.
 ///
-/// The test below asserts this list is *exactly* what is missing, not merely a
-/// superset: adding a binding without deleting its entry fails, which is what
-/// stops the list from rotting into fiction.
-const lustre_gaps = [
-  "ensure_directory", "ensure_g_set", "ensure_json_ot", "ensure_rich_text",
-  "ensure_two_p_set", "subscribe_directory", "subscribe_g_set",
-  "subscribe_json_ot", "subscribe_rich_text", "subscribe_two_p_set",
-]
+/// Empty is the invariant, and the test below is two-sided about it: a new kind
+/// that reaches the facades without Lustre bindings fails, and so does closing a
+/// gap without deleting its entry. Neither direction can rot into prose.
+const lustre_gaps: List(String) = []
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests

@@ -58,21 +58,24 @@ only wraps the callback-shaped surface.
 | `connect_dev(url:, tenant:, secret:, document:, user_id:, got_document:, connected:)` | same, minting the HS256 dev token first |
 
 **Subscriptions** — each delivers its channel's own event type, never the
-14-variant union:
-`subscribe` (map) and `subscribe_counter` / `_or_map` / `_or_set` /
-`_register_collection` / `_claims` / `_task_manager` / `_sequence` / `_text`,
-plus `subscribe_ripples` for ephemeral document ripples.
+whole-runtime union:
+`subscribe` (map) and `subscribe_directory` / `_counter` / `_pn_counter` /
+`_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_register_collection` /
+`_claims` / `_task_manager` / `_pact_map` / `_ordered_collection` / `_sequence` /
+`_text` / `_rich_text` / `_json_ot`, plus `subscribe_ripples` for ephemeral
+document ripples.
 
 **Typed** (over a `watershed/schema` `TypedMap`):
 `subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
 
 **Declarative bootstrap** — each dispatches its resolved channel once it settles,
 so a document's nested structure is an `effect.batch` in `init`:
-`ensure_map` / `ensure_counter` / `ensure_or_map` / `ensure_or_set` /
+`ensure_map` / `ensure_directory` / `ensure_counter` / `ensure_or_map` /
+`ensure_or_set` / `ensure_g_set` / `ensure_two_p_set` /
 `ensure_register_collection` / `ensure_claims` / `ensure_task_manager` /
 `ensure_pn_counter` / `ensure_pact_map` / `ensure_ordered_collection` /
-`ensure_sequence` / `ensure_text` / `ensure_child`, and `ensure_field`
-(synchronous set-if-absent).
+`ensure_sequence` / `ensure_text` / `ensure_rich_text` / `ensure_json_ot` /
+`ensure_child`, and `ensure_field` (synchronous set-if-absent).
 
 **Presence** — the heartbeat driver as effects:
 `presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`

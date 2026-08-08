@@ -40,6 +40,9 @@ import watershed/presence_js.{type Handle}
 
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/directory_kernel
+import watershed/g_set_kernel
+import watershed/json_ot_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel.{type OrMapMode}
 import watershed/or_set_kernel
@@ -47,17 +50,20 @@ import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
+import watershed/rich_text_kernel
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
 }
 import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/two_p_set_kernel
 import watershed_js.{
-  type Claims, type Document, type OrMap, type OrSet, type OrderedCollection,
-  type PactMap, type PnCounter, type RegisterCollection, type Ripple,
-  type SharedCounter, type SharedMap, type SharedSequence, type SharedText,
-  type TaskManager, type TypedMap, type WatershedConfig, WatershedConfig,
+  type Claims, type Document, type GSet, type JsonOt, type OrMap, type OrSet,
+  type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
+  type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
+  type SharedRichText, type SharedSequence, type SharedText, type TaskManager,
+  type TwoPSet, type TypedMap, type WatershedConfig, WatershedConfig,
 }
 
 @external(javascript, "./watershed_lustre_ffi.mjs", "queue_microtask")
@@ -141,6 +147,19 @@ pub fn subscribe(
   })
 }
 
+/// Subscribe to a directory channel. Every event carries the `path` of the
+/// sub-directory it happened in, so one subscription covers the whole tree —
+/// value writes, clears, and sub-directory creation and deletion.
+pub fn subscribe_directory(
+  directory: SharedDirectory,
+  to_msg to_msg: fn(directory_kernel.DirectoryEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_directory(directory, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
 /// Subscribe to a counter channel.
 pub fn subscribe_counter(
   counter: SharedCounter,
@@ -170,6 +189,30 @@ pub fn subscribe_or_set(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.subscribe_or_set(or_set, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a grow-only set. `ElementAdded` is the only event it can
+/// produce — a G-set has no removal.
+pub fn subscribe_g_set(
+  g_set: GSet,
+  to_msg to_msg: fn(g_set_kernel.GSetEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_g_set(g_set, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a two-phase set (`ElementAdded` / `ElementRemoved`). A removal
+/// is final: an element removed once can never be re-added.
+pub fn subscribe_two_p_set(
+  two_p_set: TwoPSet,
+  to_msg to_msg: fn(two_p_set_kernel.TwoPSetEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_two_p_set(two_p_set, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -269,6 +312,31 @@ pub fn subscribe_text(
   })
 }
 
+/// Subscribe to a rich text channel. `to_msg` receives each local and remote
+/// `rich_text_kernel.RichTextChanged`, carrying the `Delta` that was applied —
+/// re-read the channel with `watershed_js.rich_text_view` to render.
+pub fn subscribe_rich_text(
+  rich_text: SharedRichText,
+  to_msg to_msg: fn(rich_text_kernel.RichTextEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_rich_text(rich_text, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a JSON-OT document. `DocChanged` carries the path that changed
+/// rather than the new value, so re-read the channel to render.
+pub fn subscribe_json_ot(
+  json_ot: JsonOt,
+  to_msg to_msg: fn(json_ot_kernel.JsonOtEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_json_ot(json_ot, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
 /// Subscribe to the document's inbound ephemeral ripples (presence-style
 /// transient messages — cursors, selection, typing indicators).
 pub fn subscribe_ripples(
@@ -329,6 +397,19 @@ pub fn ensure_map(
   })
 }
 
+/// Ensure a directory exists under `field`, seeding an empty root if absent.
+pub fn ensure_directory(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  to_msg to_msg: fn(Result(SharedDirectory, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_directory(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
 /// Ensure a counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_counter(
   document: Document,
@@ -365,6 +446,32 @@ pub fn ensure_or_set(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.ensure_or_set(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Ensure a grow-only set exists under `field`.
+pub fn ensure_g_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  to_msg to_msg: fn(Result(GSet, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_g_set(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Ensure a two-phase set exists under `field`.
+pub fn ensure_two_p_set(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  to_msg to_msg: fn(Result(TwoPSet, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_two_p_set(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -472,6 +579,33 @@ pub fn ensure_text(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.ensure_text(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Ensure a rich text channel exists under `field`, seeding an empty document
+/// if absent.
+pub fn ensure_rich_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  to_msg to_msg: fn(Result(SharedRichText, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_rich_text(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Ensure a JSON-OT document exists under `field`.
+pub fn ensure_json_ot(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  to_msg to_msg: fn(Result(JsonOt, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.ensure_json_ot(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
