@@ -681,7 +681,7 @@ pub fn has_claim(runtime: Subject(Msg), address: String, key: String) -> Bool {
 }
 
 @target(erlang)
-pub fn volunteer_task(
+pub fn task_manager_volunteer(
   runtime: Subject(Msg),
   address: String,
   task_id: String,
@@ -692,7 +692,7 @@ pub fn volunteer_task(
 }
 
 @target(erlang)
-pub fn abandon_task(
+pub fn task_manager_abandon(
   runtime: Subject(Msg),
   address: String,
   task_id: String,
@@ -701,7 +701,7 @@ pub fn abandon_task(
 }
 
 @target(erlang)
-pub fn complete_task(
+pub fn task_manager_complete(
   runtime: Subject(Msg),
   address: String,
   task_id: String,
@@ -712,7 +712,7 @@ pub fn complete_task(
 }
 
 @target(erlang)
-pub fn task_assigned(
+pub fn task_manager_assigned(
   runtime: Subject(Msg),
   address: String,
   task_id: String,
@@ -723,7 +723,7 @@ pub fn task_assigned(
 }
 
 @target(erlang)
-pub fn task_queued(
+pub fn task_manager_queued(
   runtime: Subject(Msg),
   address: String,
   task_id: String,
@@ -734,7 +734,7 @@ pub fn task_queued(
 }
 
 @target(erlang)
-pub fn task_queues(
+pub fn task_manager_queues(
   runtime: Subject(Msg),
   address: String,
 ) -> List(#(String, List(Int))) {

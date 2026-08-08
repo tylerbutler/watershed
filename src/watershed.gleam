@@ -2294,12 +2294,12 @@ pub fn volunteer_for_task(
   manager: TaskManager,
   task_id: String,
 ) -> task_manager_kernel.VolunteerOutcome {
-  runtime.volunteer_task(manager.runtime, manager.address, task_id)
+  runtime.task_manager_volunteer(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
 pub fn abandon_task(manager: TaskManager, task_id: String) -> Nil {
-  runtime.abandon_task(manager.runtime, manager.address, task_id)
+  runtime.task_manager_abandon(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
@@ -2307,22 +2307,22 @@ pub fn complete_task(
   manager: TaskManager,
   task_id: String,
 ) -> Result(Nil, String) {
-  runtime.complete_task(manager.runtime, manager.address, task_id)
+  runtime.task_manager_complete(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
 pub fn task_assigned(manager: TaskManager, task_id: String) -> Bool {
-  runtime.task_assigned(manager.runtime, manager.address, task_id)
+  runtime.task_manager_assigned(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
 pub fn task_queued(manager: TaskManager, task_id: String) -> Bool {
-  runtime.task_queued(manager.runtime, manager.address, task_id)
+  runtime.task_manager_queued(manager.runtime, manager.address, task_id)
 }
 
 @target(erlang)
 pub fn task_queues(manager: TaskManager) -> List(#(String, List(Int))) {
-  runtime.task_queues(manager.runtime, manager.address)
+  runtime.task_manager_queues(manager.runtime, manager.address)
 }
 
 @target(erlang)

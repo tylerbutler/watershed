@@ -1,7 +1,7 @@
 # Facade parity sweep plan — the gaps behind the demo backlog
 
-**Status (2026-08-08):** FP0–FP4 shipped. FP5 and FP6 remain; see "What is
-left" below.
+**Status (2026-08-08):** the sweep is closed. FP0–FP6 all shipped; see "What is
+left" below for the one thing deliberately not done.
 
 | Rung | State |
 |---|---|
@@ -10,8 +10,8 @@ left" below.
 | FP2 — rich text on the JS facade | ✅ nine functions + demo rewritten against them |
 | FP3 — the three subscribes | ✅ both facades + `watershed_lustre` |
 | FP4 — PactMap pending details | ✅ `pact_map_pending_signoffs` / `pending` / `get_with_details` |
-| FP5 — `watershed_lustre` fill-in | ⬜ worklist now enforced by `facade_parity_test` |
-| FP6 — naming decision | ⬜ decided, not applied (below) |
+| FP5 — `watershed_lustre` fill-in | ✅ ten bindings; `lustre_gaps` is now empty |
+| FP6 — naming decision | ✅ `runtime.gleam` adopted `task_manager_*` |
 
 **Three corrections to this document**, all found by checking it against the
 code rather than trusting it:
@@ -33,17 +33,33 @@ code rather than trusting it:
    fabricated the inverse shape. A roster that can be joined but not left is
    worse than no roster, so this had to land first.
 
+**How FP5 and FP6 landed**
+
+- **FP5** — the ten bindings for `directory`, `g_set`, `two_p_set`, `json_ot`,
+  and `rich_text` are in, and `lustre_gaps` in
+  `test/watershed/facade_parity_test.gleam` is now `[]`. The assertion around it
+  is two-sided, so empty is an enforced invariant rather than a claim: a future
+  kind that reaches the facades without Lustre bindings fails there.
+- **FP6** — `runtime.gleam` adopted `task_manager_*`. **Six functions, not the
+  four in the table below:** `task_queued` and `task_queues` were outliers too,
+  under a prefix (`task_`) close enough to the target to read as compliant. All
+  three layers — `runtime_core`, `runtime`, `runtime_js` — now spell the same
+  six names. The facade names (`volunteer_for_task`, `abandon_task`,
+  `complete_task`, `task_assigned`, `task_queued`, `task_queues`) did not move;
+  `facade_parity_test` asserts that exact ops list.
+
+  **The convention, for the next kind:** runtime functions are
+  `<kind>_<verb>` — `or_map_set`, `pact_map_get`, `ordered_add`,
+  `task_manager_volunteer`. Facade names are free to read better than that
+  (`volunteer_for_task`), but the two facades must agree with each other, which
+  `facades_agree_with_each_other_test` enforces.
+
+  Error-label strings naming `complete_task` (`runtime.gleam:1971`,
+  `runtime_js.gleam`'s panic text) were left alone on purpose: they name the
+  *facade* function the user called, which is still `complete_task`.
+
 **What is left**
 
-- **FP5** — `watershed_lustre` still lacks `ensure_*` / `subscribe_*` for
-  `directory`, `g_set`, `two_p_set`, `json_ot`, and `rich_text`. That list is
-  no longer prose: `test/watershed/facade_parity_test.gleam` asserts it is
-  *exactly* what is missing, so closing a gap without updating the list fails.
-- **FP6 — decided, deliberately not applied.** `task_manager_*` wins:
-  `runtime.gleam` moves to match `runtime_js.gleam`, because every other kind
-  in both runtimes uses `<kind>_<verb>` (`or_map_set`, `pact_map_get`,
-  `ordered_add`), which makes `volunteer_task` the outlier. Held back because
-  it is pure churn that would have conflicted with every rung above.
 - **`scrub_not_in_quorum` stays uncalled.** It has no production caller
   (`task_manager_kernel.gleam:282`; only the kernel test calls it). With FP0
   restoring `channel.on_leave`, the departure case is covered; wiring scrub as
@@ -149,6 +165,8 @@ Any UI that explains *why* a value is still pending needs the outstanding signof
 
 ## FP5 (P2) — `watershed_lustre` coverage holes
 
+*Shipped. The diagnosis below is kept as written; `lustre_gaps` is now empty.*
+
 `watershed_lustre` covers 14 of the kinds partially. Missing relative to `watershed_js`:
 
 - **`ensure_*`:** `directory`, `g_set`, `two_p_set`, `json_ot` (+ `rich_text` once FP2 lands)
@@ -159,6 +177,9 @@ Any Lustre app using those kinds must hand-roll the microtask deferral that this
 **This blocks the grocery triptych demo**, which needs `ensure_g_set` / `subscribe_g_set` / `ensure_two_p_set` / `subscribe_two_p_set`. That plan carries these as its first rung.
 
 ## FP6 (P3) — naming drift at the runtime layer
+
+*Shipped. The middle column below is now `task_manager_*`, and the table missed
+`task_queued` / `task_queues`, which were renamed too.*
 
 Three names for one operation:
 
@@ -181,8 +202,8 @@ Order matters: FP1 is a correctness fix and gates any honest `PactMap` work; FP2
 - **FP2 — rich text on the JS facade.** Nine functions, then rewrite `website/src/scripts/rich-text-demo.ts` against them. Gate: no `runtime_js` / `channel` / `handle` imports remain in the demo, and it still works in a browser.
 - **FP3 — the three subscribes.** Both facades + `watershed_lustre`. Gate: a test per kind per target observes an event from a peer's mutation.
 - **FP4 — PactMap pending details.** After FP1 and FP3. Gate: a test reads the outstanding signoff list mid-pend and it matches the actual connected roster.
-- **FP5 — `watershed_lustre` fill-in.** Four (then five) `ensure_*` and four (then eight) `subscribe_*`. Gate: package compiles; the grocery triptych's first rung is unblocked.
-- **FP6 — naming decision.** Pick a convention, apply to the odd module out, record it in the facade template. Do last; it is churn and will conflict with everything above.
+- **FP5 — `watershed_lustre` fill-in.** ✅ Five `ensure_*` and five `subscribe_*` (the three from FP3 had already landed there). Gate met: package compiles, `lustre_gaps` is empty, the grocery triptych's first rung is unblocked.
+- **FP6 — naming decision.** ✅ `task_manager_*`, applied to `runtime.gleam` — six functions, six call sites in `src/watershed.gleam`, nothing else in the tree. Done last, as planned.
 
 ## Testing strategy
 
