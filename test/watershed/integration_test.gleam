@@ -56,6 +56,10 @@ import watershed/map_kernel
 @target(erlang)
 import watershed/or_map_kernel.{Register, RegisterMode, Tally, TallyMode}
 @target(erlang)
+import watershed/pact_map_kernel
+@target(erlang)
+import watershed/pn_counter_kernel
+@target(erlang)
 import watershed/rich_text
 @target(erlang)
 import watershed/runtime
@@ -2746,6 +2750,125 @@ fn run_narrowed_counter_subscription_test() -> Nil {
   }
 
   watershed.close(doc_a)
+}
+
+@target(erlang)
+/// FP3 exit criterion: the three kinds that had no subscription at all now
+/// deliver a *peer's* mutation as a narrowed event on each facade. Before this
+/// they were write-and-poll — an app could mutate and read, but had no way to
+/// learn that anyone else had.
+pub fn narrowed_subscriptions_observe_peer_mutations_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_narrowed_subscriptions_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+fn run_narrowed_subscriptions_test() -> Nil {
+  let document = "watershed-sub3-" <> int.to_string(system_time(Second))
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+
+  let assert Ok(counter_a) = watershed.create_pn_counter(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "votes",
+    watershed.pn_counter_handle_of(counter_a),
+  )
+  let assert Ok(queue_a) = watershed.create_ordered_collection(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "jobs",
+    watershed.ordered_collection_handle_of(queue_a),
+  )
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+
+  // B resolves each kind, then subscribes *before* A mutates.
+  let assert Ok(counter_b) =
+    wait_until_ok(50, fn() { resolve_at(doc_b, "votes", resolve_pn_counter) })
+  let assert Ok(queue_b) =
+    wait_until_ok(50, fn() {
+      resolve_at(doc_b, "jobs", watershed.resolve_ordered_collection)
+    })
+  let assert Ok(pact_b) =
+    wait_until_ok(50, fn() { resolve_at(doc_b, "tempo", resolve_pact_map) })
+
+  let counter_events = watershed.subscribe_pn_counter(counter_b)
+  let queue_events = watershed.subscribe_ordered_collection(queue_b)
+  let pact_events = watershed.subscribe_pact_map(pact_b)
+
+  watershed.pn_counter_update(counter_a, -3)
+  watershed.ordered_add(queue_a, json.string("job1"))
+  watershed.pact_map_set(pact_a, "bpm", json.int(120))
+
+  // Each `case` is exhaustive over its own kernel's event type alone, which is
+  // what "narrowed" buys: a subscriber cannot be handed another kind's event.
+  case process.receive(from: counter_events, within: 5000) {
+    Ok(pn_counter_kernel.Updated(applied: applied, new_value: value)) -> {
+      applied |> expect.to_equal(-3)
+      value |> expect.to_equal(-3)
+    }
+    Error(_) -> panic as "timed out waiting for a pn-counter event"
+  }
+
+  case process.receive(from: queue_events, within: 5000) {
+    Ok(_event) -> Nil
+    Error(_) -> panic as "timed out waiting for an ordered-collection event"
+  }
+
+  // The PactMap transitions are the protocol: pending on sequencing, accepted
+  // once the signoff list drains.
+  case process.receive(from: pact_events, within: 5000) {
+    Ok(pact_map_kernel.WentPending("bpm")) -> Nil
+    Ok(other) ->
+      panic as { "unexpected pact-map event: " <> string.inspect(other) }
+    Error(_) -> panic as "timed out waiting for a pact-map pending event"
+  }
+  case process.receive(from: pact_events, within: 5000) {
+    Ok(pact_map_kernel.WentAccepted("bpm")) -> Nil
+    Ok(other) ->
+      panic as { "unexpected pact-map event: " <> string.inspect(other) }
+    Error(_) -> panic as "timed out waiting for a pact-map accepted event"
+  }
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+/// Resolve a channel stored under `key` on the root map, retrying while the
+/// handle is still replicating.
+fn resolve_at(
+  document: watershed.Document,
+  key: String,
+  resolver: fn(watershed.Document, Json) -> Result(a, String),
+) -> Result(a, String) {
+  case watershed.get(watershed.root(document), key) {
+    None -> Error("handle for " <> key <> " has not replicated yet")
+    Some(handle) -> resolver(document, handle)
+  }
+}
+
+@target(erlang)
+fn resolve_pn_counter(
+  document: watershed.Document,
+  value: Json,
+) -> Result(watershed.PnCounter, String) {
+  watershed.resolve_pn_counter(document, value)
+}
+
+@target(erlang)
+fn resolve_pact_map(
+  document: watershed.Document,
+  value: Json,
+) -> Result(watershed.PactMap, String) {
+  watershed.resolve_pact_map(document, value)
 }
 
 @target(erlang)

@@ -79,7 +79,11 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/or_set_kernel
 @target(erlang)
+import watershed/ordered_collection_kernel
+@target(erlang)
 import watershed/pact_map_kernel
+@target(erlang)
+import watershed/pn_counter_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
 @target(erlang)
@@ -2722,6 +2726,19 @@ pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
   })
 }
 
+@target(erlang)
+/// Subscribe the calling process to this PN-counter's local and remote change
+/// events.
+pub fn subscribe_pn_counter(
+  pn_counter: PnCounter,
+) -> Subject(pn_counter_kernel.PnCounterEvent) {
+  use event <- subscribe_narrowed(pn_counter.runtime, pn_counter.address)
+  case event {
+    channel.PnCounterEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PactMaps (consensus map: writes are proposals settled by sequencing)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2794,6 +2811,24 @@ pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetPactMapKeys(pact_map.address, reply)
   })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this PactMap's consensus transitions:
+/// `WentPending` when a proposal is sequenced and `WentAccepted` when its
+/// signoff list drains.
+///
+/// Those two transitions *are* the protocol. Without this a PactMap is
+/// write-and-poll: an app can propose and read but cannot learn that a peer's
+/// proposal landed, which is the one thing that distinguishes it from a map.
+pub fn subscribe_pact_map(
+  pact_map: PactMap,
+) -> Subject(pact_map_kernel.PactMapEvent) {
+  use event <- subscribe_narrowed(pact_map.runtime, pact_map.address)
+  case event {
+    channel.PactMapEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(erlang)
@@ -2938,6 +2973,19 @@ pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrderedSize(collection.address, reply)
   })
+}
+
+@target(erlang)
+/// Subscribe the calling process to this ordered collection's queue events —
+/// items added, acquired, completed, and released back on a client's departure.
+pub fn subscribe_ordered_collection(
+  collection: OrderedCollection,
+) -> Subject(ordered_collection_kernel.OrderedEvent) {
+  use event <- subscribe_narrowed(collection.runtime, collection.address)
+  case event {
+    channel.OrderedCollectionEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 // ── Ripples (ephemeral presence signals) ─────────────────────────────────────

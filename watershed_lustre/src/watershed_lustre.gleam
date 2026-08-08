@@ -43,6 +43,9 @@ import watershed/counter_kernel
 import watershed/map_kernel
 import watershed/or_map_kernel.{type OrMapMode}
 import watershed/or_set_kernel
+import watershed/ordered_collection_kernel
+import watershed/pact_map_kernel
+import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
@@ -167,6 +170,40 @@ pub fn subscribe_or_set(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed_js.subscribe_or_set(or_set, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a PN-counter channel.
+pub fn subscribe_pn_counter(
+  pn_counter: PnCounter,
+  to_msg to_msg: fn(pn_counter_kernel.PnCounterEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_pn_counter(pn_counter, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to a PactMap's consensus transitions (`WentPending` /
+/// `WentAccepted`).
+pub fn subscribe_pact_map(
+  pact_map: PactMap,
+  to_msg to_msg: fn(pact_map_kernel.PactMapEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_pact_map(pact_map, fn(event) {
+    queue_microtask(fn() { dispatch(to_msg(event)) })
+  })
+}
+
+/// Subscribe to an ordered collection's queue events.
+pub fn subscribe_ordered_collection(
+  collection: OrderedCollection,
+  to_msg to_msg: fn(ordered_collection_kernel.OrderedEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed_js.subscribe_ordered_collection(collection, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }

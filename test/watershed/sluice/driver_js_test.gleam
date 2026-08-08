@@ -18,6 +18,8 @@ import startest/expect
 @target(javascript)
 import watershed/client_id
 @target(javascript)
+import watershed/pact_map_kernel
+@target(javascript)
 import watershed/rich_text
 @target(javascript)
 import watershed/runtime_js
@@ -700,4 +702,115 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   let assert Some(accepted) =
     watershed_js.pact_map_get_with_details(pact_a, "bpm")
   { accepted.sequence_number > 0 } |> expect.to_be_true()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subscriptions on the kinds that had none (FP3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// A PN-counter subscriber learns about a *peer's* update. Before this existed
+/// the kind was write-and-poll: an app could increment and read but had no way
+/// to hear that anyone else had.
+pub fn subscribe_pn_counter_observes_a_peer_update_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "pn-subscribe-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(counter_a) = watershed_js.create_pn_counter(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "votes",
+    watershed_js.pn_counter_handle_of(counter_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "votes")
+  let assert Ok(counter_b) = watershed_js.resolve_pn_counter(doc_b, handle)
+
+  // B watches; A moves the counter.
+  let seen = transport_js.new_cell([])
+  watershed_js.subscribe_pn_counter(counter_b, fn(event) {
+    transport_js.set_cell(seen, [event, ..transport_js.get_cell(seen)])
+  })
+  watershed_js.pn_counter_update(counter_a, -3)
+  sluice_js.settle(sluice)
+
+  { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
+  watershed_js.pn_counter_value(counter_b) |> expect.to_equal(Some(-3))
+}
+
+@target(javascript)
+/// A PactMap subscriber sees both consensus transitions in order:
+/// `WentPending` when the proposal is sequenced, `WentAccepted` once the
+/// signoff list drains. Those two events *are* the protocol — without them the
+/// one interesting thing about the kind is unobservable.
+pub fn subscribe_pact_map_observes_both_transitions_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "pact-subscribe-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "tempo",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "tempo")
+  let assert Ok(pact_b) = watershed_js.resolve_pact_map(doc_b, handle)
+  let assert Ok(_pact_c) = watershed_js.resolve_pact_map(doc_c, handle)
+
+  let seen = transport_js.new_cell([])
+  watershed_js.subscribe_pact_map(pact_b, fn(event) {
+    transport_js.set_cell(seen, [event, ..transport_js.get_cell(seen)])
+  })
+
+  // Hold C so the pending window is a state, not a race.
+  sluice_js.pause(sluice, doc_c)
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(120))
+  sluice_js.settle(sluice)
+  transport_js.get_cell(seen)
+  |> expect.to_equal([pact_map_kernel.WentPending("bpm")])
+
+  sluice_js.resume(sluice, doc_c)
+  sluice_js.settle(sluice)
+  transport_js.get_cell(seen)
+  |> expect.to_equal([
+    pact_map_kernel.WentAccepted("bpm"),
+    pact_map_kernel.WentPending("bpm"),
+  ])
+}
+
+@target(javascript)
+/// An ordered-collection subscriber sees a peer's append land on the queue.
+pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "ordered-subscribe-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(queue_a) = watershed_js.create_ordered_collection(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "jobs",
+    watershed_js.ordered_collection_handle_of(queue_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "jobs")
+  let assert Ok(queue_b) =
+    watershed_js.resolve_ordered_collection(doc_b, handle)
+
+  let seen = transport_js.new_cell([])
+  watershed_js.subscribe_ordered_collection(queue_b, fn(event) {
+    transport_js.set_cell(seen, [event, ..transport_js.get_cell(seen)])
+  })
+  watershed_js.ordered_add(queue_a, json.string("job1"))
+  sluice_js.settle(sluice)
+
+  { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
+  watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(1))
 }

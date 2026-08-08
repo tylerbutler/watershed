@@ -120,19 +120,19 @@ pub type RegisterCollectionChannel
 
 pub type TaskManagerChannel
 
-/// BEAM-facade only until the kind gains a JS facade.
+/// A JSON document edited by json0 operational transform.
 pub type JsonOtChannel
 
-/// BEAM-facade only until the kind gains a JS facade.
+/// A rich-text document edited by Quill-style deltas.
 pub type RichTextChannel
 
-/// BEAM-facade only until the kind gains a JS facade.
+/// A grow-only set: adds converge, removes are not expressible.
 pub type GSetChannel
 
-/// BEAM-facade only until the kind gains a JS facade.
+/// A two-phase set: an element can be removed once, and never re-added.
 pub type TwoPSetChannel
 
-/// BEAM-facade only until the kind gains a JS facade.
+/// A hierarchical directory of nested maps and subdirectories.
 pub type DirectoryChannel
 
 /// A positive/negative counter (increment and decrement).

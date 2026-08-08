@@ -85,9 +85,17 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
 import watershed/or_set_kernel
 @target(javascript)
+import watershed/ordered_collection_kernel
+@target(javascript)
 import watershed/pact_map_kernel
 @target(javascript)
+import watershed/pn_counter_kernel
+@target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
+@target(javascript)
+import watershed/rich_text
+@target(javascript)
+import watershed/rich_text_kernel
 @target(javascript)
 import watershed/runtime_js
 @target(javascript)
@@ -219,6 +227,11 @@ pub const bias_after: Bias = After
 @target(javascript)
 pub opaque type JsonOt {
   JsonOt(runtime: runtime_js.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedRichText {
+  SharedRichText(runtime: runtime_js.Runtime, address: String)
 }
 
 @target(javascript)
@@ -839,6 +852,26 @@ pub fn resolve_json_ot_field(
 }
 
 @target(javascript)
+/// Store a handle to `rich_text` under a typed channel field.
+pub fn set_rich_text_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  rich_text: SharedRichText,
+) -> Nil {
+  put_channel_field(typed_map, field, rich_text_handle_of(rich_text))
+}
+
+@target(javascript)
+/// Resolve the rich-text channel referenced by a typed channel field.
+pub fn resolve_rich_text_field(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+) -> Result(Option(SharedRichText), String) {
+  get_channel_field(document, typed_map, field, resolve_rich_text)
+}
+
+@target(javascript)
 /// Store a handle to `set` under a typed channel field.
 pub fn set_g_set_field(
   typed_map: TypedMap(s),
@@ -1246,6 +1279,27 @@ pub fn ensure_json_ot(
       set_json_ot_field(typed_map, field, json_ot)
     },
     fn() { resolve_json_ot_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a rich-text channel exists under `field`, seeding one if absent.
+pub fn ensure_rich_text(
+  document: Document,
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  done: fn(Result(SharedRichText, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use rich_text <- result.map(create_rich_text(document))
+      set_rich_text_field(typed_map, field, rich_text)
+    },
+    fn() { resolve_rich_text_field(document, typed_map, field) },
     done,
   )
 }
@@ -2110,6 +2164,24 @@ pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
   runtime_js.pn_counter_value(pn_counter.runtime, pn_counter.address)
 }
 
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// PN-counter.
+pub fn subscribe_pn_counter(
+  pn_counter: PnCounter,
+  handler: fn(pn_counter_kernel.PnCounterEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(
+    pn_counter.runtime,
+    pn_counter.address,
+    handler,
+  )
+  case event {
+    channel.PnCounterEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
 // ── PactMaps ─────────────────────────────────────────────────────────────────
 
 @target(javascript)
@@ -2165,6 +2237,25 @@ pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
 /// All keys with an accepted or pending pact.
 pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
   runtime_js.pact_map_keys(pact_map.runtime, pact_map.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for this PactMap's consensus transitions:
+/// `WentPending` when a proposal is sequenced and `WentAccepted` when its
+/// signoff list drains.
+///
+/// Those two transitions *are* the protocol. Without this a PactMap is
+/// write-and-poll: an app can propose and read but cannot learn that a peer's
+/// proposal landed, which is the one thing that distinguishes it from a map.
+pub fn subscribe_pact_map(
+  pact_map: PactMap,
+  handler: fn(pact_map_kernel.PactMapEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
+  case event {
+    channel.PactMapEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
 @target(javascript)
@@ -2286,6 +2377,24 @@ pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   runtime_js.ordered_size(collection.runtime, collection.address)
 }
 
+@target(javascript)
+/// Register a callback invoked for this ordered collection's queue events —
+/// items added, acquired, completed, and released back on a client's departure.
+pub fn subscribe_ordered_collection(
+  collection: OrderedCollection,
+  handler: fn(ordered_collection_kernel.OrderedEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(
+    collection.runtime,
+    collection.address,
+    handler,
+  )
+  case event {
+    channel.OrderedCollectionEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
 // ── JSON-OT (json0) ──────────────────────────────────────────────────────────
 
 @target(javascript)
@@ -2346,6 +2455,73 @@ pub fn subscribe_json_ot(
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
   case event {
     channel.JsonOtEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Shared rich text ─────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new rich-text channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`rich_text_handle_of`) is stored into an
+/// attached container.
+pub fn create_rich_text(document: Document) -> Result(SharedRichText, String) {
+  runtime_js.create_rich_text(document.runtime)
+  |> result.map(fn(address) {
+    SharedRichText(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
+  handle.encode_handle(rich_text.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the SharedRichText it references. Existence is
+/// checked, not channel type. Errors are retryable, as with `resolve`.
+pub fn resolve_rich_text(
+  document: Document,
+  value: Json,
+) -> Result(SharedRichText, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime_js.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedRichText(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically submit a rich-text delta to the channel.
+pub fn submit_rich_text(
+  rich_text: SharedRichText,
+  delta: rich_text.Delta,
+) -> Nil {
+  runtime_js.submit_rich_text(rich_text.runtime, rich_text.address, delta)
+}
+
+@target(javascript)
+/// The channel's current optimistic rich-text document, `None` when the address
+/// is not a rich-text channel.
+pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
+  runtime_js.rich_text_view(rich_text.runtime, rich_text.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// rich-text channel.
+pub fn subscribe_rich_text(
+  rich_text: SharedRichText,
+  handler: fn(rich_text_kernel.RichTextEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
+  case event {
+    channel.RichTextEvent(inner) -> Some(inner)
     _ -> None
   }
 }

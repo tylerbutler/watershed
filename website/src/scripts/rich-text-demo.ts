@@ -4,17 +4,24 @@
 // ../json-ot-demo.ts. rich_text is the *other* single-op-in-flight OT kernel —
 // same client-transform protocol as json_ot, but its algebra is quill-delta's
 // retain/insert/delete + attribute patches + embeds, addressed by UTF-16 code
-// unit, not a JSON path. This file only bridges the real generated
-// `runtime_js`/`rich_text` modules to a real Quill instance through the
+// unit, not a JSON path. This file only bridges watershed's public JS facade
+// and the generated `rich_text` codec to a real Quill instance through the
 // approved ./demo/rich-text-adapter.js; it never reimplements OT or transform.
+//
+// Everything DDS-shaped goes through `watershed_js` — create/resolve, submit,
+// view, subscribe, and the handle round-trip. `rich_text` is imported for its
+// delta/selection codec only, which is public API in the same sense
+// `watershed/json_ot` is: the facade's own signatures are written in its types
+// (`submit_rich_text(delta: rich_text.Delta)`).
 //
 // Each editor:
 //   - submits only user-sourced Quill deltas, decoded through the generated
 //     `rich_text` codec (`delta_from_json_string`) and routed through
-//     `runtime_js.submit_rich_text` via the shared rig's `submit` (so pending
+//     `watershed.submit_rich_text` via the shared rig's `submit` (so pending
 //     markers, op log, and convergence status all come from the same place
 //     every other rig demo uses);
-//   - applies remote deltas incrementally via `runtime_js.subscribe` — no
+//   - applies remote deltas incrementally via `watershed.subscribe_rich_text`,
+//     which narrows the channel's event stream to rich-text changes — no
 //     polling of the full document after an edit, only on setup/reset;
 //   - keeps Quill's native History (undo/redo) scoped to user edits only
 //     (`history: { userOnly: true }`), so remote "api"-sourced updates never
@@ -32,10 +39,7 @@
 //     is called with `authorSelectionAlreadyApplied: true` so the adapter
 //     leaves that one cached entry alone instead of double-shifting it.
 import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime_js.mjs";
 import * as richText from "../../../build/dev/javascript/watershed/watershed/rich_text.mjs";
-import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
-import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import {
@@ -193,12 +197,11 @@ const IMAGE_DATA_URI =
       "</svg>",
   );
 
-interface Handle {
-  runtime: unknown;
-  address: string;
-}
-function h(client: RigClient): Handle {
-  return client.handle as Handle;
+/** The facade's opaque `SharedRichText`; only watershed_js reads inside it. */
+type SharedRichText = unknown;
+
+function h(client: RigClient): SharedRichText {
+  return client.handle;
 }
 function okValue<T>(result: unknown): T {
   return (result as { 0: T })[0];
@@ -212,8 +215,7 @@ interface ClientUI {
 }
 
 function optimisticDocument(client: RigClient): unknown | null {
-  const hd = h(client);
-  return some<unknown>(runtime.rich_text_view(hd.runtime, hd.address));
+  return some<unknown>(watershed.rich_text_view(h(client)));
 }
 
 // ── Peer-selection roster: an isolated in-page broadcaster ──────────────────
@@ -294,11 +296,11 @@ export function initRichTextDemo() {
         const ops = opsOf(delta);
         const gleamDelta = decodeDelta(ops, `${client.id}'s local edit`);
         if (gleamDelta == null) return;
-        const hd = h(client);
+        const rt = h(client);
         rig?.submit(
           client,
           "richtext",
-          () => runtime.submit_rich_text(hd.runtime, hd.address, gleamDelta),
+          () => watershed.submit_rich_text(rt, gleamDelta),
           describeOps(ops),
         );
       },
@@ -375,10 +377,10 @@ export function initRichTextDemo() {
     clientUi.cursors.clearCursors();
   }
 
-  function seedInto(rt: unknown, address: string) {
+  function seedInto(rt: SharedRichText) {
     const seed = decodeDelta(BASELINE_OPS, "the baseline seed");
     if (seed == null) return;
-    runtime.submit_rich_text(rt, address, seed);
+    watershed.submit_rich_text(rt, seed);
   }
 
   function render(client: RigClient) {
@@ -420,30 +422,33 @@ export function initRichTextDemo() {
       }
 
       const a = clients["a"];
-      const rtA = watershed.runtime_of(a.doc);
-      const address = okValue<string>(runtime.create_rich_text(rtA));
-      seedInto(rtA, address);
-      runtime.set(rtA, "root", DOC_KEY, handle.encode_handle(address));
-      a.handle = { runtime: rtA, address };
+      const rtA = okValue<SharedRichText>(watershed.create_rich_text(a.doc));
+      seedInto(rtA);
+      watershed.set(
+        watershed.root(a.doc),
+        DOC_KEY,
+        watershed.rich_text_handle_of(rtA),
+      );
+      a.handle = rtA;
       sluice.settle(server);
 
       for (const id of CLIENT_IDS) {
         const client = clients[id];
-        let rt: unknown;
-        let addr: string;
+        let rt: SharedRichText;
         if (id === "a") {
           rt = rtA;
-          addr = address;
         } else {
-          rt = watershed.runtime_of(client.doc);
-          const stored = some<unknown>(runtime.get(rt, "root", DOC_KEY));
-          addr = okValue<string>(handle.parse_handle(stored));
-          runtime.resolve_address(rt, addr);
-          client.handle = { runtime: rt, address: addr };
+          const stored = some<unknown>(
+            watershed.get(watershed.root(client.doc), DOC_KEY),
+          );
+          rt = okValue<SharedRichText>(
+            watershed.resolve_rich_text(client.doc, stored),
+          );
+          client.handle = rt;
         }
-        runtime.subscribe(rt, addr, (event: unknown) => {
-          if (!(event instanceof channel.RichTextEvent)) return;
-          const changed = (event as { 0: { delta: unknown; local: boolean } })[0];
+        // The facade narrows the channel's event stream for us, so there is no
+        // `instanceof` tag to test and no wrapper to unpack.
+        watershed.subscribe_rich_text(rt, (changed: { delta: unknown; local: boolean }) => {
           const ops = deltaToOps(changed.delta);
           ui(client).adapter.applyChange({
             delta: ops,
