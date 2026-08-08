@@ -1,5 +1,57 @@
 # Facade parity sweep plan — the gaps behind the demo backlog
 
+**Status (2026-08-08):** FP0–FP4 shipped. FP5 and FP6 remain; see "What is
+left" below.
+
+| Rung | State |
+|---|---|
+| FP0 — system-message payload field | ✅ found during FP1; not in the original plan |
+| FP1 — quorum roster | ✅ roster, real quorum, sluice membership, tests |
+| FP2 — rich text on the JS facade | ✅ nine functions + demo rewritten against them |
+| FP3 — the three subscribes | ✅ both facades + `watershed_lustre` |
+| FP4 — PactMap pending details | ✅ `pact_map_pending_signoffs` / `pending` / `get_with_details` |
+| FP5 — `watershed_lustre` fill-in | ⬜ worklist now enforced by `facade_parity_test` |
+| FP6 — naming decision | ⬜ decided, not applied (below) |
+
+**Three corrections to this document**, all found by checking it against the
+code rather than trusting it:
+
+1. **The bug is worse than "accepts too early".** With three clients the
+   fabricated quorum *panics* the runtime actor —
+   `AckMismatch("client was not expected to sign off")` — because a peer's
+   accept arrives for a pact whose frozen signoff list never named it.
+   `PactMap` was not an ack-delayed LWW map; it was a crash waiting for a third
+   participant. The own-op quorum was also `[self]` alone, not `[self, author]`.
+2. **FP1's stated risk did not materialise.** Floodgate *does* emit sequenced
+   `"join"` ops and *does* populate `initialClients`. No server change was
+   needed.
+3. **A prerequisite this document missed (FP0).** `handle_leave` decoded
+   `msg.contents`, but the server carries system-message payloads in `msg.data`
+   and leaves `contents` null. The leave path was dead against every real
+   server, so PactMap signoff drain, OrderedCollection release, and
+   TaskManager reclaim never fired. The tests passed only because a fixture
+   fabricated the inverse shape. A roster that can be joined but not left is
+   worse than no roster, so this had to land first.
+
+**What is left**
+
+- **FP5** — `watershed_lustre` still lacks `ensure_*` / `subscribe_*` for
+  `directory`, `g_set`, `two_p_set`, `json_ot`, and `rich_text`. That list is
+  no longer prose: `test/watershed/facade_parity_test.gleam` asserts it is
+  *exactly* what is missing, so closing a gap without updating the list fails.
+- **FP6 — decided, deliberately not applied.** `task_manager_*` wins:
+  `runtime.gleam` moves to match `runtime_js.gleam`, because every other kind
+  in both runtimes uses `<kind>_<verb>` (`or_map_set`, `pact_map_get`,
+  `ordered_add`), which makes `volunteer_task` the outlier. Held back because
+  it is pure churn that would have conflicted with every rung above.
+- **`scrub_not_in_quorum` stays uncalled.** It has no production caller
+  (`task_manager_kernel.gleam:282`; only the kernel test calls it). With FP0
+  restoring `channel.on_leave`, the departure case is covered; wiring scrub as
+  a roster reconciliation pass would be a TaskManager behaviour change beyond
+  this sweep.
+
+---
+
 **Date:** 2026-08-08
 **Builds on:** the 2026-07-07 parity work (commits `a06cb7e`, `142711c`) that closed *lifecycle* parity across all 14 kinds. This plan closes the axes that sweep did not cover.
 **Found by:** scoping `docs/demo-ideas.md`. Three of the demos there are blocked on gaps here, and one gap is a correctness bug rather than an ergonomics one.
