@@ -30,10 +30,10 @@ silence. The heartbeat/TTL/roster lifecycle lives in the library
 
 ## Run it
 
-Start a levee dev server in the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant" in dev mode, listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 Then, in this directory:
@@ -50,6 +50,6 @@ each other's live cursor and typing indicator in the roster. Hit **Force
 reconnect** and keep solving — pending edits are preserved and presence
 re-establishes on the next heartbeat.
 
-> The demo mints an HS256 dev JWT in the browser using levee's dev secret. This
+> The demo mints an HS256 dev JWT in the browser using the server's dev secret. This
 > is for local dev only; a real deployment issues tokens from a backend and
 > never ships the tenant secret to the client.

@@ -31,10 +31,10 @@ API surface demonstrated on top of what `dice_cli` covers:
 
 ## Prerequisites
 
-Start a levee dev server from the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant", listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 ## Run it
@@ -74,7 +74,7 @@ strategy — a production app would reserve such keys via a single initializer.
 
 Like `dice_cli`, this uses `host = "127.0.0.1"`, **not** `"localhost"`:
 Erlang's default `inet6fb4` resolver stalls ~8 s on the AAAA lookup, long
-enough for levee to drop the socket as idle.
+enough for the server to drop the socket as idle.
 
 ## Build check
 

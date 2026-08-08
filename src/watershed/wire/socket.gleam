@@ -325,14 +325,30 @@ pub fn connect_error_decoder() -> Decoder(ConnectError) {
   decode.success(ConnectError(code: code, message: error_message))
 }
 
-/// `op` event payload: `{documentId, op: [SequencedDocumentMessage]}`.
+/// `op` event payload, in either shape a server sends it.
+///
+/// Levee wraps the messages: `{documentId, op: [SequencedDocumentMessage]}`.
+/// Floodgate pushes the bare `[SequencedDocumentMessage]` on every op path —
+/// submit, join, leave, `requestOps` and summary — dropping the document id,
+/// which is redundant with the channel topic. Accept both, so one client works
+/// against either server; `document_id` is `""` for the bare shape and no
+/// caller reads it.
 pub fn op_message_decoder() -> Decoder(OpMessage) {
+  decode.one_of(wrapped_op_message_decoder(), [bare_op_message_decoder()])
+}
+
+fn wrapped_op_message_decoder() -> Decoder(OpMessage) {
   use document_id <- decode.field("documentId", decode.string)
   use ops <- decode.field(
     "op",
     decode.list(sequenced_document_message_decoder()),
   )
   decode.success(OpMessage(document_id: document_id, ops: ops))
+}
+
+fn bare_op_message_decoder() -> Decoder(OpMessage) {
+  use ops <- decode.then(decode.list(sequenced_document_message_decoder()))
+  decode.success(OpMessage(document_id: "", ops: ops))
 }
 
 /// One sequenced message as built by spillway's

@@ -18,10 +18,10 @@ differ per target:
 
 ## Run it
 
-Start a levee dev server in the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant" in dev mode, listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 Then, in this directory:
@@ -62,13 +62,13 @@ WebSocket frames alongside the console output. A useful failure report includes
 both tabs' diagnostic logs, the first sequence number where `sn` differs, and
 whether either tab has nonzero `in_flight` or `buffered`.
 
-> The demo mints an HS256 dev JWT in the browser using levee's dev secret. This
+> The demo mints an HS256 dev JWT in the browser using the server's dev secret. This
 > is for local dev only; a real deployment issues tokens from a backend and
 > never ships the tenant secret to the client.
 
 ## Headless smoke test
 
-`src/smoke.gleam` drives two clients from Node against a running `just server`,
+`src/smoke.gleam` drives two clients from Node against a running `just integration-up` server,
 asserting convergence and reconnect safety (concurrent edits, a same-key LWW
 race, a forced mid-session reconnect with edits applied during the drop):
 

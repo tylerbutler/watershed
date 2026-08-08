@@ -1,0 +1,18 @@
+# Local-checkout override: build floodgate from a levee clone on disk instead
+# of fetching the `floodgate` branch from GitHub. Use it to run the integration
+# suite against uncommitted server changes. Layer it on top of
+# docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --wait --build
+#
+# Or via the justfile: `just integration-up-local`.
+#
+# The context is the levee repo root, not server/floodgate/, because the
+# Dockerfile copies both server/floodgate/ and server/levee_admin/ (the admin
+# UI it serves). Adjust the path if your clone lives elsewhere.
+services:
+  floodgate:
+    image: floodgate:local
+    build:
+      context: ../levee
+      dockerfile: server/floodgate/Dockerfile

@@ -1,7 +1,7 @@
 # watershed dice CLI — Erlang-target dice roller
 
 An Erlang-target counterpart to [`dice_lustre`](../dice_lustre) that joins the
-*same* levee session, proving the pure watershed core drives both runtimes over
+*same* floodgate session, proving the pure watershed core drives both runtimes over
 one shared document.
 
 ## Architecture
@@ -15,10 +15,10 @@ one shared document.
 
 ## Prerequisites
 
-Start a levee dev server from the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant", listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 ## Run it
@@ -51,13 +51,13 @@ The CLI:
    display to the CLI's roll.
 
 Both clients share `tenant = "dev-tenant"` and `document = "dice"`, so all
-edits converge through the same levee document.
+edits converge through the same floodgate document.
 
 ## IPv4 literal
 
 This example uses `host = "127.0.0.1"`, **not** `"localhost"`. Erlang's default
 `inet6fb4` resolver stalls ~8 s on the AAAA lookup for `"localhost"` before
-falling back to IPv4 — long enough for levee to drop the socket as idle.
+falling back to IPv4 — long enough for the server to drop the socket as idle.
 
 ## Build check
 

@@ -294,10 +294,10 @@ existing text without waiting for an edit.
 
 ## Prerequisites
 
-Start a levee dev server from the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant", listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 ## Run it
@@ -320,7 +320,7 @@ reconnect and nothing is lost.
 ## Headless smoke test
 
 [`src/smoke.gleam`](src/smoke.gleam) drives two clients from Node against a
-running `just server`, racing an emoji insert at the head of one client against
+running `just integration-up` server, racing an emoji insert at the head of one client against
 a combining-mark insert at the tail of the other:
 
 ```sh

@@ -6,7 +6,7 @@ shared counter, and ephemeral presence.
 
 ## Run it
 
-Start a levee development server on port 4000, then run:
+Start a floodgate development server on port 4000 (`just integration-up`), then run:
 
 ```sh
 pnpm install

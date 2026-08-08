@@ -380,6 +380,32 @@ fn op_event_fixture() -> String {
   }"
 }
 
+/// The same two messages as `op_event_fixture`, in the shape floodgate pushes:
+/// the bare array, with no enclosing `{documentId, op}` object.
+fn bare_op_event_fixture() -> String {
+  "[
+      {\"clientId\": \"default_dice_1\",
+       \"sequenceNumber\": 7,
+       \"minimumSequenceNumber\": 3,
+       \"clientSequenceNumber\": 2,
+       \"referenceSequenceNumber\": 5,
+       \"type\": \"op\",
+       \"contents\": {\"address\": \"root\",
+                      \"contents\": {\"type\": \"delete\", \"key\": \"die\"}},
+       \"metadata\": null,
+       \"timestamp\": 1234},
+      {\"clientId\": null,
+       \"sequenceNumber\": 8,
+       \"minimumSequenceNumber\": 3,
+       \"clientSequenceNumber\": -1,
+       \"referenceSequenceNumber\": 7,
+       \"type\": \"join\",
+       \"contents\": {\"clientId\": \"default_dice_2\"},
+       \"metadata\": null,
+       \"timestamp\": 1235}
+    ]"
+}
+
 pub fn decode_op_message_test() {
   let op_message = parse(op_event_fixture(), socket.op_message_decoder())
 
@@ -392,6 +418,28 @@ pub fn decode_op_message_test() {
   op.message_type |> expect.to_equal("op")
 
   // System messages carry a null clientId and only advance last_seen_sn.
+  join.client_id |> expect.to_equal(None)
+  join.message_type |> expect.to_equal("join")
+}
+
+/// Floodgate pushes the `op` event as a bare array of sequenced messages on
+/// every path (submit, join, leave, requestOps, summary), where levee wrapped
+/// them in `{documentId, op: [...]}`. Both shapes have to decode: the sluice
+/// still emits the enclosing object, and so does a real levee server.
+pub fn decode_bare_op_message_test() {
+  let op_message = parse(bare_op_event_fixture(), socket.op_message_decoder())
+
+  // Nothing in the runtime reads `document_id` — the bare shape simply has no
+  // document id to carry, and the topic already established which document
+  // this is.
+  op_message.document_id |> expect.to_equal("")
+  let assert [op, join] = op_message.ops
+
+  op.client_id |> expect.to_equal(Some("default_dice_1"))
+  op.sequence_number |> expect.to_equal(7)
+  op.client_sequence_number |> expect.to_equal(2)
+  op.message_type |> expect.to_equal("op")
+
   join.client_id |> expect.to_equal(None)
   join.message_type |> expect.to_equal("join")
 }

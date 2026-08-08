@@ -1,13 +1,16 @@
-//// Live integration test against a levee dev server (M3 exit criterion:
+//// Live integration test against a floodgate dev server (M3 exit criterion:
 //// two Gleam clients converge on concurrent edits).
 ////
 //// Gated behind `WATERSHED_INTEGRATION=1` so the suite stays green without
-//// a server. Run the server with `just server` in the levee repo (registers
-//// tenant "dev-tenant" in dev mode), then:
+//// a server. Start the server from `docker-compose.yml`, which seeds the
+//// `tenant` / `tenant_secret` pair below:
 ////
 //// ```sh
+//// just integration-up
 //// WATERSHED_INTEGRATION=1 gleam test
 //// ```
+////
+//// Or `just integration` for the whole cycle, teardown included.
 
 @target(erlang)
 import envoy
@@ -68,7 +71,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 // Use the IPv4 loopback literal, not "localhost". Erlang's inet resolver
 // (httpc/gun default to the `inet6fb4` family) stalls ~8s resolving AAAA for
 // "localhost" before falling back to IPv4, which would block the runtime actor
-// long enough for levee to drop the socket as idle.
+// long enough for the server to drop the socket as idle.
 @target(erlang)
 const host = "127.0.0.1"
 
@@ -973,7 +976,7 @@ fn wait_until_ok(attempts: Int, check: fn() -> Result(a, b)) -> Result(a, b) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Dev JWT minting (HS256, matching levee's JOSE verification)
+// Dev JWT minting (HS256, matching the server's JWT verification)
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)

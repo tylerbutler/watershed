@@ -35,28 +35,31 @@ _test-lustre:
 fuzz:
     FUZZ_ITERATIONS=5000 gleam test
 
-# === INTEGRATION (live levee server) ===
+# === INTEGRATION (live floodgate server) ===
 
-# Start a levee dev server in Docker (published GHCR image, no clone needed)
+# Start a floodgate dev server in Docker, built from the levee repo's
+# `floodgate` branch on GitHub (no clone needed; first build takes a few
+# minutes)
 integration-up:
-    docker compose up -d --wait
+    docker compose up -d --wait --build
 
-# Start a levee dev server built from the levee `gleam` branch source
-integration-up-build:
-    docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --wait --build
+# Start a floodgate dev server built from a local ../levee checkout, to test
+# uncommitted server changes
+integration-up-local:
+    docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --wait --build
 
-# Stop and remove the levee dev server
+# Stop and remove the floodgate dev server
 integration-down:
     docker compose down
 
 # Run the test suite with the live integration tests enabled (assumes a
-# levee server is already up on 127.0.0.1:4000)
+# floodgate server is already up on 127.0.0.1:4000)
 integration-run:
     WATERSHED_INTEGRATION=1 gleam test
 
 # Full live integration cycle: start server, run suite, tear down
 integration:
-    docker compose up -d --wait
+    docker compose up -d --wait --build
     WATERSHED_INTEGRATION=1 gleam test; status=$?; docker compose down; exit $status
 
 # Format code

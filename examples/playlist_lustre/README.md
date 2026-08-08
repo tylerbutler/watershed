@@ -67,10 +67,10 @@ and deletes correctly, because those ops address by index.
 
 ## Prerequisites
 
-Start a levee dev server from the `levee` repo:
+Start a floodgate dev server from the repository root:
 
 ```sh
-just server   # registers tenant "dev-tenant", listens on :4000
+just integration-up   # seeds tenant "dev-tenant", listens on :4000
 ```
 
 ## Run it
@@ -91,7 +91,7 @@ reconnect and nothing is lost.
 
 ## Headless smoke test
 
-`src/smoke.gleam` drives two clients from Node against a running `just server`,
+`src/smoke.gleam` drives two clients from Node against a running `just integration-up` server,
 racing a move on one client against a replace on the other:
 
 ```sh

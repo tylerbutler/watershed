@@ -1,42 +1,67 @@
-# Levee dev server for watershed's live integration suite.
+# Floodgate dev server for watershed's live integration suite.
 #
-# This lets you run `test/watershed/integration_test.gleam` against a real
-# levee server WITHOUT a local clone of the levee repo: by default it pulls the
-# published multi-arch image from GHCR.
+# Floodgate is the Gleam/BEAM replacement for the levee Elixir server. It serves
+# the Phoenix Channels surface watershed's client speaks (/socket/websocket)
+# and the same REST/deltas routes, from a single process — see
+# `docs/adr/009-floodgate-standalone-repo.md` in the levee repo, which records
+# the drop-in parity work.
 #
-# Usage (published image — no levee checkout required):
-#   docker compose up -d --wait
+# Floodgate has no published image yet (levee had one on GHCR), so this builds
+# from source. The context is a remote git URL pinned to the levee repo's
+# `floodgate` branch, so no local clone is required — Docker fetches the branch
+# and builds `server/floodgate/Dockerfile`. The first build compiles the server
+# and its dependencies and takes a few minutes; after that it is cached.
+#
+# Usage:
+#   docker compose up -d --wait --build
 #   WATERSHED_INTEGRATION=1 gleam test
 #   docker compose down
 #
 # Or via the justfile: `just integration` (up + test + down).
 #
-# To build the server from levee source instead of pulling the image, layer the
-# build override on top (it clones the `gleam` branch — see the file header):
-#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --wait --build
+# To build from a LOCAL levee checkout instead (e.g. to test uncommitted server
+# changes), layer the local override on top — see the file header:
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --wait --build
 #
 # The server is reachable at:
 #   HTTP:      http://127.0.0.1:4000
 #   WebSocket: ws://127.0.0.1:4000/socket
 services:
-  levee:
-    image: ghcr.io/tylerbutler/levee:latest
+  floodgate:
+    image: floodgate:watershed
+    build:
+      context: "https://github.com/tylerbutler/levee.git#floodgate"
+      dockerfile: server/floodgate/Dockerfile
     ports:
-      - "4000:4000"
+      # Floodgate listens on 3000, where levee listened on 4000. Remap rather
+      # than move the port, so the integration suite and every example README
+      # keep pointing at 127.0.0.1:4000.
+      - "4000:3000"
     environment:
-      - PHX_SERVER=true
-      - PHX_HOST=localhost
-      - PORT=4000
-      - SECRET_KEY_BASE=dev-only-secret-key-base-at-least-64-characters-long-for-phoenix-framework
       # Tenant the integration suite mints its JWTs for. These MUST match the
       # `tenant` / `tenant_secret` constants in
-      # test/watershed/integration_test.gleam, because the prod release does not
-      # auto-register the built-in "dev-tenant" (that only happens under
-      # MIX_ENV=dev|test). Registration here goes through init_from_env/0.
-      - LEVEE_TENANT_ID=dev-tenant
-      - LEVEE_TENANT_KEY=levee-dev-secret-change-in-production
+      # test/watershed/integration_test.gleam: floodgate seeds exactly one
+      # tenant at startup from this pair, and verifies every REST and socket
+      # JWT against it.
+      - FLOODGATE_TENANT_ID=dev-tenant
+      - FLOODGATE_JWT_SECRET=levee-dev-secret-change-in-production
+      # Mist binds to localhost by default, which is unreachable from outside
+      # the container.
+      - FLOODGATE_BIND=0.0.0.0
+      # The externally reachable base URL, i.e. the published port — not the
+      # container's own. Session discovery hands it back as ordererUrl /
+      # historianUrl / deltaStreamUrl, and git objects carry it in their `url`,
+      # so a client that follows those would be sent to the wrong port.
+      - FLOODGATE_PUBLIC_URL=http://127.0.0.1:4000
+      # Ephemeral store: every `up` starts empty, so a run never inherits
+      # documents from the last one, and there is no volume to clean up.
+      - FLOODGATE_STORAGE_BACKEND=memory
+      # The browser examples are served from a separate static origin, and
+      # browsers — unlike the Erlang client — do send Origin. Floodgate's
+      # default policy is same-origin only.
+      - FLOODGATE_ALLOWED_ORIGINS=*
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
       interval: 5s
       timeout: 3s
       start_period: 15s
