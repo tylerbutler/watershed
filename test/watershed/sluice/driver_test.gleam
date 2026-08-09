@@ -24,6 +24,8 @@ import watershed
 @target(erlang)
 import watershed/claims_kernel
 @target(erlang)
+import watershed/client_id
+@target(erlang)
 import watershed/rich_text
 @target(erlang)
 import watershed/rich_text_kernel
@@ -642,4 +644,52 @@ pub fn ensure_text_adopts_stored_field_test() {
   sluice.settle(sluice)
   watershed.text_value(text_b)
   |> expect.to_equal(watershed.text_value(resolved))
+}
+
+@target(erlang)
+/// `client_id` exists so a client can find *itself* in a list some kernel
+/// reports about the room. That is the only claim worth testing, and it is a
+/// claim about agreement between two independent derivations: the id the
+/// facade hands out, and the integer a consensus kernel writes into a signoff
+/// list. This asserts they name the same client.
+///
+/// The BEAM mirror of `driver_js_test.client_id_matches_the_id_kernels_report`
+/// — the accessor is one of the few genuinely document-level functions on both
+/// facades, and a divergence here would not be caught by the per-kind parity
+/// test.
+pub fn client_id_matches_the_id_kernels_report_test() {
+  let sluice = start("client-id-beam")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let doc_c = connect(sluice, "user-c")
+
+  // Before the handshake there is no server-assigned id to report, and the
+  // honest answer is `None` rather than a placeholder that would quietly
+  // match nothing.
+  watershed.client_id(doc_a) |> expect.to_equal(None)
+
+  sluice.settle(sluice)
+  let assert Some(id_a) = watershed.client_id(doc_a)
+  let assert Some(id_c) = watershed.client_id(doc_c)
+  { id_a != id_c } |> expect.to_be_true()
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  sluice.settle(sluice)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(_pact_c) = watershed.resolve_pact_map(doc_c, handle)
+
+  // Hold C, propose, and the outstanding signoff list names exactly C — which
+  // C can now recognise as itself, going through the public derivation an app
+  // would use.
+  sluice.pause(sluice, doc_c)
+  watershed.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice.settle(sluice)
+
+  watershed.pact_map_pending_signoffs(pact_a, "bpm")
+  |> expect.to_equal(Some([client_id.to_int(id_c)]))
 }

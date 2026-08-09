@@ -459,6 +459,8 @@ pub type Msg {
   /// Whether every local edit has been acknowledged (in-flight queue empty),
   /// so the confirmed state is complete and stable.
   IsSynced(reply: Subject(Bool))
+  /// The server-assigned client id, `None` before the first handshake.
+  ClientId(reply: Subject(Option(String)))
   /// Broadcast an ephemeral, document-scoped ripple (`type` tag + arbitrary
   /// JSON content). Fire-and-forget: no ordering, ack, or catch-up. A no-op
   /// until the handshake assigns a client id.
@@ -634,6 +636,27 @@ pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
 /// the server, so the confirmed state is complete and stable.
 pub fn is_synced(runtime: Subject(Msg)) -> Bool {
   process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
+}
+
+@target(erlang)
+/// The server-assigned client id for this connection, `None` before the first
+/// handshake completes.
+///
+/// It survives a reconnect only in the sense that there is always *a* current
+/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
+/// assigns, which may differ from the previous one. Callers holding it across
+/// a disconnect must re-read rather than cache.
+pub fn client_id(runtime: Subject(Msg)) -> Option(String) {
+  process.call(runtime, waiting: connect_timeout_ms, sending: ClientId)
+}
+
+@target(erlang)
+fn client_id_of(state: State) -> Option(String) {
+  case state.phase {
+    Ready(core, _) -> Some(core.client_id)
+    Reconnecting(core) -> Some(core.client_id)
+    _ -> None
+  }
 }
 
 @target(erlang)
@@ -1451,6 +1474,11 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
 
+    ClientId(reply) -> {
+      process.send(reply, client_id_of(state))
+      actor.continue(state)
+    }
+
     Subscribe(address, subscriber) ->
       actor.continue(
         State(..state, subscribers: [
@@ -1462,12 +1490,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     SubmitRipple(ripple_type, content) -> {
       // Fire-and-forget: push straight to the channel, no kernel/in-flight
       // bookkeeping. No-op until a handshake has assigned a client id.
-      let client_id = case state.phase {
-        Ready(core, _) -> Some(core.client_id)
-        Reconnecting(core) -> Some(core.client_id)
-        _ -> None
-      }
-      case state.channel, client_id {
+      case state.channel, client_id_of(state) {
         Some(channel), Some(client_id) ->
           push(
             channel,

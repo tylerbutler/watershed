@@ -703,6 +703,68 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   { accepted.sequence_number > 0 } |> expect.to_be_true()
 }
 
+@target(javascript)
+/// `client_id` exists so a client can find *itself* in a list some kernel
+/// reports about the room. That is the only claim worth testing, and it is a
+/// claim about agreement between two independent derivations: the id the
+/// facade hands out, and the integer a consensus kernel writes into a signoff
+/// list. This asserts they name the same client.
+///
+/// The stale-cache failure is the reason it matters. An app that reads its id
+/// once and keeps it will silently stop matching after a reconnect assigns a
+/// new one, and the symptom — a pending list that never says "you" — looks
+/// like a rendering bug rather than an identity one.
+pub fn client_id_matches_the_id_kernels_report_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "client-id-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+
+  // Before the handshake there is no server-assigned id to report, and the
+  // honest answer is `None` rather than a placeholder that would quietly
+  // match nothing.
+  watershed_js.client_id(doc_a) |> expect.to_equal(None)
+
+  sluice_js.settle(sluice)
+  let assert Some(id_a) = watershed_js.client_id(doc_a)
+  let assert Some(id_c) = watershed_js.client_id(doc_c)
+  { id_a != id_c } |> expect.to_be_true()
+  // The facade agrees with the sluice about who this client is.
+  sluice_js.client_id(sluice, doc_a) |> expect.to_equal(Ok(id_a))
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "tempo",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "tempo")
+  let assert Ok(pact_c) = watershed_js.resolve_pact_map(doc_c, handle)
+
+  // Hold C, propose, and the outstanding signoff list names exactly C — which
+  // C can now recognise as itself, going through the public derivation an app
+  // would use.
+  sluice_js.pause(sluice, doc_c)
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice_js.settle(sluice)
+
+  watershed_js.pact_map_pending_signoffs(pact_a, "bpm")
+  |> expect.to_equal(Some([client_id.to_int(id_c)]))
+
+  // And from C's own side: "is the room waiting on me?" is answerable.
+  sluice_js.resume(sluice, doc_c)
+  sluice_js.settle(sluice)
+  let assert Some(id_c_now) = watershed_js.client_id(doc_c)
+  let waiting_on_me = case
+    watershed_js.pact_map_pending_signoffs(pact_c, "bpm")
+  {
+    Some(ids) -> list.contains(ids, client_id.to_int(id_c_now))
+    None -> False
+  }
+  waiting_on_me |> expect.to_be_false()
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Subscriptions on the kinds that had none (FP3)
 // ─────────────────────────────────────────────────────────────────────────────

@@ -33,6 +33,7 @@ import lustre/event
 
 import audio
 import doc_schema
+import watershed/client_id
 import watershed/pact_map_kernel
 import watershed_js.{type Document, type OrSet, type PactMap}
 import watershed_lustre
@@ -585,12 +586,26 @@ fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
 /// the server's client id strings — for floodgate ids that is a stable hash,
 /// so it is a long opaque number rather than anything a reader recognises.
 ///
-/// It is shown anyway, labelled, because "waiting on someone" and "waiting on
-/// *this* client, still" are different claims and the second is the true one.
-/// What is missing is a way to say **you**: no facade exposes a document's own
-/// client id, so this list cannot mark which entry is the reader's own tab.
-fn client_label(id: Int) -> String {
-  "client " <> int.to_string(id)
+/// The one entry a reader *can* place is their own, and it is the one that
+/// changes what they do: "the room is waiting on you" is actionable, "the room
+/// is waiting on client 274880073" is trivia. `watershed_js.client_id` plus
+/// `client_id.to_int` is the same derivation the runtime and the kernels use,
+/// so the comparison is exact rather than a guess.
+///
+/// Re-read per render rather than cached in the model: a reconnect can assign
+/// a different id, and a stale one would quietly stop matching — the roster
+/// would simply never say "you" again, which reads as a rendering bug.
+fn client_label(model: Model, id: Int) -> String {
+  case own_client_id(model) == Some(id) {
+    True -> "you"
+    False -> "client " <> int.to_string(id)
+  }
+}
+
+fn own_client_id(model: Model) -> Option(Int) {
+  model.doc
+  |> option.then(watershed_js.client_id)
+  |> option.map(client_id.to_int)
 }
 
 /// Whether the tempo control should refuse a new proposal: one is pending, or
@@ -870,7 +885,10 @@ fn proposal_view(model: Model) -> Element(Msg) {
               [] -> "settling"
               ids ->
                 "not yet acknowledged: "
-                <> string.join(list.map(ids, client_label), ", ")
+                <> string.join(
+                  list.map(ids, fn(id) { client_label(model, id) }),
+                  ", ",
+                )
             },
           ),
         ]),

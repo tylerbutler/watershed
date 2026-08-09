@@ -1424,6 +1424,27 @@ pub fn subscribe(
 }
 
 @target(javascript)
+/// The server-assigned client id for this connection, `None` before the first
+/// handshake completes.
+///
+/// It survives a reconnect only in the sense that there is always *a* current
+/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
+/// assigns, which may differ from the previous one. Callers holding it across
+/// a disconnect must re-read rather than cache.
+pub fn client_id(runtime: Runtime) -> Option(String) {
+  client_id_of(cell_get(runtime.cell))
+}
+
+@target(javascript)
+fn client_id_of(state: State) -> Option(String) {
+  case state.phase {
+    Ready(core, _) -> Some(core.client_id)
+    Reconnecting(core) -> Some(core.client_id)
+    _ -> None
+  }
+}
+
+@target(javascript)
 /// Broadcast an ephemeral, document-scoped ripple (`type` + arbitrary JSON
 /// `content`). Ripples are non-sequenced and non-persisted — fire-and-forget,
 /// with no ack, resubmit, or catch-up. A no-op until the client has a
@@ -1434,12 +1455,7 @@ pub fn send_ripple(
   content: Json,
 ) -> Nil {
   let state = cell_get(runtime.cell)
-  let client_id = case state.phase {
-    Ready(core, _) -> Some(core.client_id)
-    Reconnecting(core) -> Some(core.client_id)
-    _ -> None
-  }
-  case state.channel, client_id {
+  case state.channel, client_id_of(state) {
     Some(channel), Some(client_id) ->
       push_json(
         channel,

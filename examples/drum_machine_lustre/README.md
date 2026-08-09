@@ -63,9 +63,11 @@ second proposal made while one is pending is rejected outright by the kernel
 (`apply_set` treats a pact with `pending: Some(_)` as invalid), and a live
 slider would let a drag disappear with nothing on screen to explain it.
 
-The pending line names the clients it is waiting on by their integer ids. It
-cannot mark which one is **you** — no facade exposes a document's own client
-id — so the ids are opaque. With three tabs the count is the useful part.
+The pending line names the clients it is waiting on, and marks the one that is
+**you** — `watershed_js.client_id` gives the connection's own id, and
+`watershed/client_id.to_int` converts it with the same derivation the kernels
+use, so the match is exact. The other entries stay opaque numbers, which is
+honest: nothing in the document says who a peer is.
 
 ### Known bug: a tab that joins after a tempo was agreed cannot read it
 

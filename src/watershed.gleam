@@ -3056,6 +3056,30 @@ pub fn force_reconnect(document: Document) -> Nil {
 }
 
 @target(erlang)
+/// This client's server-assigned id, `None` until the first handshake lands.
+///
+/// The reason to want it is identity in *someone else's* list. Consensus
+/// kernels report membership as the integer ids they tie-break on — a
+/// `PactMap`'s `pact_map_pending_signoffs`, for instance — and without this
+/// there is no way to tell which entry is your own client. Convert with
+/// `watershed/client_id.to_int`, which is the same derivation the runtime and
+/// the kernels use, so the two are guaranteed to agree.
+///
+/// ```gleam
+/// let mine = watershed.client_id(doc) |> option.map(client_id.to_int)
+/// let waiting_on_me = case mine, pact_map_pending_signoffs(pact, "bpm") {
+///   Some(me), Some(ids) -> list.contains(ids, me)
+///   _, _ -> False
+/// }
+/// ```
+///
+/// Re-read it after a reconnect rather than caching: the fresh handshake may
+/// assign a different id, and a stale one silently stops matching.
+pub fn client_id(document: Document) -> Option(String) {
+  runtime.client_id(document.runtime)
+}
+
+@target(erlang)
 /// Summarize the document's current confirmed state to levee storage so future
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Returns the summary handle (git tree SHA). Requires the connection
