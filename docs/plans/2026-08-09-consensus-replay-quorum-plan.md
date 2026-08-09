@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-09
 **Found by:** building DM6/DM7 of `docs/plans/2026-08-08-drum-machine-demo-plan.md`. The demo works with three tabs open and breaks the moment a fourth opens — or the moment any tab reloads.
-**Severity:** correctness, and worse than FP1. FP1 made a quorum accept too early; this makes a document **unjoinable** once a `PactMap` key has been agreed.
-**Status:** diagnosed and reproduced, not fixed. The fix is a wire/protocol decision, not a local patch.
+**Severity:** correctness, and worse than FP1. FP1 made a quorum accept too early; this made a document **unjoinable** once a `PactMap` key had been agreed.
+**Status:** **client half fixed** (CR1–CR3 below). One server-side piece remains — the roster at a checkpoint — plus the reconnect gap that shares its missing input. See "What remains".
 
 ## The bug
 
@@ -29,9 +29,7 @@ The one-sentence version: **replaying the op log does not reproduce the state th
 
 ## Reproduction
 
-Pinned as a characterization test — `known_bug_a_late_joiner_cannot_read_an_agreed_tempo_test` in `examples/drum_machine_lustre/test/quorum_test.gleam`. It asserts the *wrong* behaviour on purpose so the suite stays green; when this plan lands, the assertions flip to `Some(json.int(128))` / `should.be_false` and the `known_bug_` prefix comes off.
-
-Three clients agree a tempo, a fourth joins:
+Three clients agree a tempo, a fourth joins. Before the fix:
 
 ```
 A accepted?  pending=no
@@ -40,36 +38,64 @@ D waiting on [903365845]     <- D's own client id
 D keys: ["bpm"]
 ```
 
-Reproduced against a live floodgate server too, where it presents as the `AckMismatch` above rather than as silence. Both symptoms, one cause.
+After: `D pending? no`, `D waiting on nothing`. Verified against a live floodgate server too, where the symptom was the `AckMismatch` above rather than silence — a reloaded tab now connects cleanly and reads the agreed tempo.
+
+Regression tests:
+
+- `a_settled_pact_replays_intact_for_a_late_joiner_test` (`test/watershed/sluice/driver_js_test.gleam`) — the library-level guard, including a signer that has since left, which a roster-only fix would still have broken.
+- `a_late_joiner_reads_the_agreed_tempo_test` (`examples/drum_machine_lustre/test/quorum_test.gleam`) — the demo's own.
+- `task_manager_replays_the_same_queue_for_a_late_joiner_test` — see the blast-radius note below.
+
+## The fix that landed
+
+**CR1 — membership is checkpoint state.** `Summary` grows a `members` field, and `bootstrap` seeds `Core.members` from it rather than from the handshake's `initialClients`. Replayed `join`/`leave` advance it, machinery that already existed and was already right — `handle_join`'s own docstring states the rule ("a join only widens the quorum for ops sequenced after it"); nothing consulted it.
+
+**CR2 — the live-path defences are live-path only.** `quorum_of` unioned self and the op's author into every quorum to cover a join lost or reordered against the op that follows it. That is a live hazard; replay reads a complete ordered log where nothing can be missing, and "we know self is live" is exactly the false premise for an op sequenced before we joined. A new `Core.replaying` gates them.
+
+**CR3 — `replaying` is scoped to the fold, not to the bootstrap.** It is set and cleared inside `replay` itself. The obvious alternative — set it at `bootstrap`, clear it at the hand-off — leaks: `settle_reconnect` reaches `Ready` without ever passing through `settle_bootstrap`, so a reconnect would have disarmed `quorum_of` for the rest of the session. A flag that turns off safety checks must not depend on someone remembering to turn it back on.
+
+`settle_bootstrap` adopts the handshake roster on `Complete` — once, however many pages the history took — which bounds the damage from the still-missing checkpoint roster to the replay window.
+
+## What remains
+
+**The checkpoint roster.** `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
+
+One thing that makes the remaining window narrow: `pact_map_kernel.summary_entries` returns the whole `Pact`, *including* `pending` with its `expected_signoffs` (`:63-65`), and `channel.gleam:461` snapshots it. A frozen signoff list already survives summarization. Only proposals sequenced after the checkpoint need the roster.
+
+**The reconnect gap.** `adopt_reconnect` still replaces the roster immediately, so ops sequenced during a disconnect are replayed against the post-reconnect room. Same time-shift, much shorter window, and it needs the same missing input — the roster at `last_seen_sn`. Deliberately left alone rather than half-fixed.
 
 ## Blast radius
 
-`meta.quorum` has exactly three consumers, all in `src/watershed/channel.gleam`:
+`meta.quorum` has three consumers in `src/watershed/channel.gleam`:
 
-| Line | Kernel | Exposure |
+| Line | Kernel | Verdict |
 |---|---|---|
-| `:704` | `pact_map_kernel.apply_set` | confirmed broken |
-| `:620` | `task_manager_kernel.apply_remote` | same shape — unverified, and the work-queue demo is its first real consumer |
-| `:1002` | `task_manager_kernel.ack_local` | local ack path, likely the same |
+| `:704` | `pact_map_kernel.apply_set` | was broken, fixed |
+| `:620` | `task_manager_kernel.apply_remote` | **was never broken — and not by design** |
+| `:1002` | `task_manager_kernel.ack_local` | same |
 
-`OrderedCollection` and `Claims` do not take a quorum and are unaffected. Every other kind is a lattice or an OT structure whose replay is roster-independent by construction.
+`TaskManager` reads the quorum only as a membership guard on the op's author (`task_manager_kernel.gleam:359`), and `quorum_of` unioned the author in unconditionally — so **the guard could never fail**. It was dead code holding a live invariant, and the defensive union that caused the `PactMap` bug is what hid it. CR2 makes it live during replay for the first time; `task_manager_replays_the_same_queue_for_a_late_joiner_test` pins that this changed nothing, which it should not, because a client's `join` always precedes any op it authors.
 
-**The `TaskManager` case should be checked before the work-queue demo is built**, not after — it is item 7 in `docs/demo-ideas.md` and would hit this on its first reload.
+Worth a follow-up decision: the guard is still vacuous on the live path. Either make it live there too, or drop the parameter.
 
-## Why there is no local fix
+`OrderedCollection` and `Claims` take no quorum. Every other kind is a lattice or an OT structure whose replay is roster-independent by construction.
 
-The tempting patch is to stop the joiner injecting itself: drop the `set.insert(self)` union while replaying pre-join history. It fixes the reproduction above and nothing else. Clients that left between the `Set` and the join still produce `UnexpectedAccept`; clients that joined in that window still wedge the pact pending. It converts a loud, obvious failure into a quiet, conditional one, which is the wrong direction for a consensus protocol.
+## Options considered, and why the roster went where it did
 
-The signoff list has to come from the log. Three ways to get it there, in increasing order of cost:
+The first sketch of this plan said the signoff list had to be stamped onto the sequenced `Set` by the server. That was overbuilt. The machinery to track membership over time already existed and was already correct — `handle_join` / `handle_leave` fold sequenced membership changes into `Core.members` during replay, and `handle_join`'s docstring states the right rule. Nothing read it, because `bootstrap` overwrote the seed with the room as it is now.
 
-1. **Server stamps the roster on the sequenced `Set`.** Floodgate knows the connected set at sequencing time — that is where `initialClients` comes from. Adding the frozen list to the sequenced envelope makes replay exact, for every replica, forever. Requires a floodgate change and a wire-format addition, and it is the only option that is actually correct.
-2. **Checkpoint pact state and never replay consensus ops.** `pact_map_kernel.from_summary` already exists; the gap is that the summary a joining client receives does not carry it (or is not being used). This is narrower than (1) and does not fix replay from a checkpoint that predates the `Set` — it moves the window rather than closing it.
-3. **Author stamps the roster on the `Set` op.** No server change, but a client's roster is its own belief about the room, and two clients can hold different ones. It replaces a time-skew bug with a consistency bug.
+So the rule the fix settles on is the one every kernel already follows:
 
-**(1) is the answer, and it needs a floodgate-side decision**, which is why this is a plan rather than a patch. (2) is worth doing regardless as a performance measure and would shrink the exposure window in the meantime.
+> **`members` is checkpoint state: seeded from the snapshot, advanced by the log. Never seeded from "now."**
 
-## What the drum machine does about it in the meantime
+Membership was the one piece of sequence-point state that had been special-cased into a live read. Three alternatives were rejected:
 
-DM1–DM5 are untouched: the pattern is four `OrSet`s and replays perfectly. DM6/DM7 ship with the tempo quorum working for a live room — proposal, stall, signoff drain, leave-drain, all verified with three clients — and the README states plainly that a client joining after a tempo has been agreed cannot read it, with a pointer here.
+- **Stamp the roster on every sequenced `Set`.** Correct, and a wire-format change per op to carry state that one snapshot per checkpoint conveys just as exactly.
+- **Have the author stamp its own roster on the op.** No server change, but a client's roster is its own belief about the room. Two clients can hold different ones; this trades a time-skew bug for a consistency bug.
+- **Just stop the joiner injecting itself** — drop the `set.insert(self)` union and change nothing else. Fixes the headline reproduction and leaves the rest: a client that left between the `Set` and the join still produces `UnexpectedAccept`, and one that joined in that window still wedges the pact pending. It converts a loud failure into a quiet, conditional one, which is the wrong direction for a consensus protocol.
 
-That is an honest position for a demo whose whole argument is "show, don't claim", but it is not one to leave standing. The demo exists to force exactly this class of bug into the open, and it did.
+## What the drum machine does about it
+
+Nothing special any more — DM6/DM7 work, including across reloads, and the README no longer carries a limitation section. DM1–DM5 were never affected: the pattern is four `OrSet`s and replays perfectly.
+
+The demo exists to force exactly this class of bug into the open, and it did.

@@ -875,3 +875,136 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
   { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
   watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(1))
 }
+
+@target(javascript)
+/// A late joiner must reconstruct the same lock queue everyone else holds —
+/// including for a client that volunteered and has since disconnected.
+///
+/// This passes today, but not for a good reason, and that is why it is pinned
+/// here. `task_manager_kernel.apply_volunteer_core` guards on
+/// `list.contains(quorum, author)`, and `runtime_core.quorum_of` unions the
+/// op's author into the quorum unconditionally — so the guard has never once
+/// been able to fail. It is dead code holding a live invariant.
+///
+/// Making the replay roster time-correct means that union can stop hiding the
+/// guard, and this is the test that says whether activating it broke anything.
+/// It should not: a client's `join` is always sequenced before any op it
+/// authors, so a correctly reconstructed roster contains the author at the
+/// point their `Volunteer` is replayed.
+pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "tm-replay-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(tm_a) = watershed_js.create_task_manager(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "roles",
+    watershed_js.task_manager_handle_of(tm_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "roles")
+  let assert Ok(tm_c) = watershed_js.resolve_task_manager(doc_c, handle)
+
+  // C takes the role, A queues behind it.
+  watershed_js.volunteer_for_task(tm_c, "leader")
+  sluice_js.settle(sluice)
+  watershed_js.volunteer_for_task(tm_a, "leader")
+  sluice_js.settle(sluice)
+  let assert Some(id_c) = watershed_js.client_id(doc_c)
+  let assert Some(id_a) = watershed_js.client_id(doc_a)
+  watershed_js.task_queues(tm_a)
+  |> expect.to_equal([
+    #("leader", [client_id.to_int(id_c), client_id.to_int(id_a)]),
+  ])
+
+  // C vanishes; the role passes to A.
+  sluice_js.disconnect(sluice, doc_c)
+  sluice_js.settle(sluice)
+  watershed_js.task_assigned(tm_a, "leader") |> expect.to_be_true()
+
+  // A client arriving now replays `volunteer(C)`, `volunteer(A)`, `leave(C)`
+  // — a history in which the first volunteer comes from a client that is no
+  // longer in the room — and must land on the same queue A holds.
+  let doc_d = sluice_js.connect(sluice, "user-late")
+  sluice_js.settle(sluice)
+  let assert Some(handle_d) =
+    watershed_js.get(watershed_js.root(doc_d), "roles")
+  let assert Ok(tm_d) = watershed_js.resolve_task_manager(doc_d, handle_d)
+
+  watershed_js.task_queues(tm_d)
+  |> expect.to_equal([#("leader", [client_id.to_int(id_a)])])
+  watershed_js.task_queues(tm_d)
+  |> expect.to_equal(watershed_js.task_queues(tm_a))
+}
+
+@target(javascript)
+/// Replaying a settled pact must reproduce its *outcome*, not re-run its
+/// protocol against today's room.
+///
+/// The joiner was not in the room when the proposal was sequenced, so it is
+/// not in that proposal's quorum, owes no `Accept`, and must simply observe
+/// the value the room already agreed. Getting this wrong made a document with
+/// an agreed `PactMap` key unjoinable: the joiner wrote itself into a quorum
+/// it was never part of, reconstructed the settled pact as pending on itself,
+/// and — against a real server — sent peers an `Accept` for a pact they had
+/// long since settled, which they rejected as `UnexpectedAccept`.
+///
+/// The second half covers the case a roster-only fix would still break: one of
+/// the clients that *did* sign off has since left, so the joiner replays an
+/// `Accept` from a client that is not in the room now and never will be.
+pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "pact-replay-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "tempo",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "tempo")
+
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice_js.settle(sluice)
+  watershed_js.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
+
+  // A fourth client joins and replays `Set` + three `Accept`s.
+  let doc_d = sluice_js.connect(sluice, "user-d")
+  sluice_js.settle(sluice)
+  let assert Ok(pact_d) = watershed_js.resolve_pact_map(doc_d, handle)
+  watershed_js.pact_map_get(pact_d, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("128"))
+  watershed_js.pact_map_is_pending(pact_d, "bpm") |> expect.to_be_false()
+  watershed_js.pact_map_pending_signoffs(pact_d, "bpm") |> expect.to_equal(None)
+
+  // C — one of the three that signed off — leaves. A fifth client then joins
+  // and replays an `Accept` authored by a client no longer in the room.
+  sluice_js.disconnect(sluice, doc_c)
+  sluice_js.settle(sluice)
+  let doc_e = sluice_js.connect(sluice, "user-e")
+  sluice_js.settle(sluice)
+  let assert Ok(pact_e) = watershed_js.resolve_pact_map(doc_e, handle)
+  watershed_js.pact_map_get(pact_e, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("128"))
+  watershed_js.pact_map_is_pending(pact_e, "bpm") |> expect.to_be_false()
+
+  // Both newcomers are full members now: a fresh proposal waits on them and
+  // reaches them.
+  watershed_js.pact_map_set(pact_d, "bpm", json.int(96))
+  sluice_js.settle(sluice)
+  watershed_js.pact_map_get(pact_e, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("96"))
+  watershed_js.pact_map_get(pact_a, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("96"))
+}

@@ -69,23 +69,20 @@ The pending line names the clients it is waiting on, and marks the one that is
 use, so the match is exact. The other entries stay opaque numbers, which is
 honest: nothing in the document says who a peer is.
 
-### Known bug: a tab that joins after a tempo was agreed cannot read it
+### The bug this demo found
 
-Open three tabs, agree a tempo, then open a fourth — or reload any of them. The
-new tab reads the default 120 BPM, and against a live server it fails to
-connect at all with `AckMismatch("client was not expected to sign off")`.
+Building the quorum tempo turned up a real watershed bug: a client joining
+after a tempo had been agreed rebuilt the pact's signoff list from *its own
+present-day roster* instead of the roster the proposal was sequenced against,
+writing itself into the quorum of a proposal that settled before it arrived. A
+new tab read the default 120 BPM, and against a live server it failed to
+connect at all with `AckMismatch("client was not expected to sign off")` — a
+document with an agreed tempo was effectively unjoinable.
 
-This is a watershed bug, not a demo bug, and this demo is what found it: a
-replaying client rebuilds a pact's signoff list from *its own present-day
-roster* instead of the roster the proposal was sequenced against, so it writes
-itself into the quorum of a proposal that settled before it arrived. Diagnosis,
-blast radius, and the three candidate fixes are in
-[`docs/plans/2026-08-09-consensus-replay-quorum-plan.md`](../../docs/plans/2026-08-09-consensus-replay-quorum-plan.md),
-and it is pinned by `known_bug_a_late_joiner_cannot_read_an_agreed_tempo_test`.
-
-**The pattern half is unaffected** — `OrSet` replay is roster-independent, so
-steps survive reloads, reconnects, and late joiners without trouble. Only the
-tempo is exposed.
+Fixed in
+[`docs/plans/2026-08-09-consensus-replay-quorum-plan.md`](../../docs/plans/2026-08-09-consensus-replay-quorum-plan.md);
+`a_late_joiner_reads_the_agreed_tempo_test` is the guard. One piece is still
+open — the roster at a summary checkpoint — and is written up there.
 
 ## What watershed does not do: phase
 

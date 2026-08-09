@@ -1809,6 +1809,11 @@ fn load_summary_then_bootstrap(
                   channels: list.map(blob.channels, fn(ch) {
                     #(ch.address, ch.snapshot)
                   }),
+                  // The summary blob carries no roster yet, so the membership
+                  // at the checkpoint is unknown and replay starts from an
+                  // empty room. See `Summary.members` and
+                  // `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+                  members: [],
                 )),
               )
           }

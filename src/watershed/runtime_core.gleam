@@ -71,6 +71,27 @@ pub type Core {
     /// that list drains, so a roster that under-reports the room produces a
     /// pact that accepts without the missing members ever agreeing.
     members: Set(Int),
+    /// The roster the current handshake reported, adopted into `members` the
+    /// moment replay completes.
+    ///
+    /// It is held aside rather than applied immediately because it describes
+    /// the room *now*, and replay is about the room *then*. It is still worth
+    /// adopting at the end: while a summary carries no roster, a summarized
+    /// bootstrap's reconstructed membership under-reports the room, and an
+    /// under-reported roster freezes consensus quorums that are too small —
+    /// the FP1 failure. Taking the handshake's roster at the hand-off bounds
+    /// that damage to the replay window.
+    live_members: Set(Int),
+    /// True while historical messages are being replayed into this core, false
+    /// once it is live.
+    ///
+    /// It gates the defences in `quorum_of`, which exist for a hazard that is
+    /// live-only: a `join` lost or reordered against the op that follows it.
+    /// Replay reads a complete, ordered log, so nothing can be missing — and
+    /// applying those defences there is actively wrong, because unioning
+    /// *self* into the quorum of an op sequenced before we joined puts this
+    /// client in a room it was not in.
+    replaying: Bool,
     /// Per-channel buffer of *owed* follow-up ops a kernel released while
     /// applying a sequenced op (e.g. a consensus `Accept` reacting to a peer's
     /// `Set`). Drained after each sequenced batch by `collect_released_ops`,
@@ -140,7 +161,27 @@ pub type Ingested {
 }
 
 pub type Summary {
-  Summary(sequence_number: Int, channels: List(#(String, Snapshot)))
+  Summary(
+    sequence_number: Int,
+    channels: List(#(String, Snapshot)),
+    /// The connected roster at `sequence_number`, as kernel-side integer ids.
+    ///
+    /// Membership is checkpoint state exactly like a kernel snapshot, because
+    /// consensus kernels read it: a `PactMap` freezes a signoff list from it,
+    /// and `TaskManager` judges a volunteer's authorship against it. Replaying
+    /// an op therefore needs the roster *as it stood at that op's sequence
+    /// point*, which is reconstructible only by starting from the checkpoint's
+    /// roster and advancing it with the replayed `join`/`leave` messages.
+    ///
+    /// `[]` is correct when replaying a document from the beginning: nobody
+    /// had joined at sequence number zero. It is **not** correct for a real
+    /// checkpoint, and the summary blob does not yet carry this — see
+    /// `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`. Until it does,
+    /// a summarized bootstrap under-reports the roster for ops replayed after
+    /// the checkpoint, which is a strictly smaller window than the bug it
+    /// replaces but not yet closed.
+    members: List(Int),
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -151,8 +192,15 @@ pub fn bootstrap(
   connected: ConnectedMessage,
   summary summary: Option(Summary),
 ) -> Result(Bootstrapped, CoreError) {
-  let Summary(sequence_number: last_seen, channels: seeded) =
-    option.unwrap(summary, Summary(sequence_number: 0, channels: []))
+  let Summary(
+    sequence_number: last_seen,
+    channels: seeded,
+    members: seed_members,
+  ) =
+    option.unwrap(
+      summary,
+      Summary(sequence_number: 0, channels: [], members: []),
+    )
   let #(channels, channel_order) = seed_channels(seeded, connected.client_id)
 
   let core =
@@ -165,7 +213,17 @@ pub fn bootstrap(
       last_seen_sn: last_seen,
       in_flight: [],
       out_of_order: [],
-      members: roster_of(connected),
+      // Seeded from the checkpoint, **not** from the handshake's roster, and
+      // advanced by the `join`/`leave` messages in the replay itself. Seeding
+      // from `initialClients` — the room as it is *now* — time-shifts every
+      // historical op's membership forward, so a client replaying a settled
+      // consensus proposal recomputes its quorum against a room that did not
+      // exist when the proposal was made, and writes itself into it.
+      members: set.from_list(seed_members),
+      live_members: roster_of(connected),
+      // Suppresses the live-path defences in `quorum_of` while history is
+      // being reconstructed. See `replaying` on `Core`.
+      replaying: True,
       owed: dict.new(),
     )
 
@@ -193,21 +251,51 @@ pub fn resume_bootstrap(
   }
 }
 
+/// Fold historical messages into the core, with `replaying` set for exactly
+/// the duration of the fold.
+///
+/// Scoped here rather than held across a bootstrap because the flag turns off
+/// safety defences, and the reconnect path reaches `Ready` by a route that
+/// never passes through `settle_bootstrap` — a flag that had to be cleared by
+/// a hand-off would leak on that route and disarm `quorum_of` for the rest of
+/// the session. Setting and clearing it around the fold makes that impossible
+/// to get wrong: nothing that does not replay can observe it.
 fn replay(
   core: Core,
   messages: List(SequencedDocumentMessage),
 ) -> Result(Core, CoreError) {
-  list.try_fold(messages, core, fn(core, msg) {
-    handle_sequenced(core, msg)
-    |> result.map(fn(outcome) { outcome.0 })
-  })
+  use core <- result.map(
+    list.try_fold(messages, Core(..core, replaying: True), fn(core, msg) {
+      handle_sequenced(core, msg)
+      |> result.map(fn(outcome) { outcome.0 })
+    }),
+  )
+  Core(..core, replaying: False)
 }
 
+/// The hand-off from replay to live.
+///
+/// `Complete` is the only outcome that ends a bootstrap — `MissingPrefix` asks
+/// for another page and comes back through `resume_bootstrap` — so this is the
+/// one place that can adopt the handshake's roster exactly once, however many
+/// pages the history took.
+///
+/// Adopting it at all is a concession to the missing checkpoint roster. The
+/// replayed `join`/`leave` messages reconstruct membership exactly when the
+/// log runs from sequence number zero, and then this is a no-op. When the log
+/// starts at a checkpoint, the reconstruction under-reports the room by
+/// everyone who was already there — and an under-reported roster freezes
+/// consensus quorums that are too small, which is the FP1 failure. Taking the
+/// handshake's roster at the hand-off bounds that to the replay window.
 fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   case core.out_of_order {
     [] ->
       Complete(
-        Core(..core, last_seen_sn: int.max(core.last_seen_sn, checkpoint)),
+        Core(
+          ..core,
+          last_seen_sn: int.max(core.last_seen_sn, checkpoint),
+          members: core.live_members,
+        ),
       )
     [head, ..] ->
       MissingPrefix(
@@ -286,16 +374,38 @@ fn seed_channels(
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Enter reconnect: keep the roster we already hold, and go back to replaying.
+///
+/// The roster is deliberately **not** replaced with the fresh handshake's yet.
+/// `resume_bootstrap` is about to replay the ops sequenced while we were away,
+/// and those must be judged against the room as it was *then* — the roster we
+/// last knew, advanced by the `join`/`leave` messages in the very gap being
+/// replayed. Adopting `initialClients` here would apply the post-reconnect room
+/// to pre-reconnect ops, which is the same time-shift that breaks a cold join,
+/// just over a shorter window. `go_live` adopts it once the gap is closed.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   // The roster is *replaced*, not merged: the fresh handshake is authoritative
   // about who is in the room now, and any join/leave sequenced while we were
   // disconnected is already folded into it. Merging would resurrect clients
   // that left during the gap, and their signoffs would never drain.
-  Core(..core, client_id: connected.client_id, members: roster_of(connected))
+  //
+  // Known gap: the ops sequenced *during* the gap are then replayed against
+  // the post-reconnect room rather than the room as it was at each of them —
+  // the same time-shift a cold join used to suffer, over a much shorter
+  // window. Closing it means reconstructing the gap's membership, which needs
+  // the roster at `last_seen_sn`; that is the same missing input as the
+  // checkpoint roster. See
+  // `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+  Core(
+    ..core,
+    client_id: connected.client_id,
+    members: roster_of(connected),
+    live_members: roster_of(connected),
+  )
 }
 
-/// The quorum a sequenced op is judged against: the roster, plus self and the
-/// op's author unioned in.
+/// The quorum a sequenced op is judged against: the roster at that op's
+/// sequence point, plus — for live ops only — self and the op's author.
 ///
 /// Those two are unioned in defensively rather than assumed present. A quorum
 /// that is missing a connected client accepts too early (the bug this replaced,
@@ -306,9 +416,23 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
 /// cannot wedge anything, and it covers a join message lost or reordered
 /// against the op that follows it.
 ///
+/// **That reasoning holds only while live.** Replay reads a complete, ordered
+/// log in which no join can be missing, and "we know self is live" is exactly
+/// the false premise: for an op sequenced before we joined, we were not in the
+/// room, and unioning self in puts this client into a quorum it was never part
+/// of — a settled consensus proposal then reconstructs as pending on us and
+/// never drains. So the defences are live-path only.
+///
 /// A `None` author is a system message, not client `0`: the previous code
 /// unwrapped it to `0` and injected a phantom member that never signs off.
 fn quorum_of(core: Core, author: Option(String)) -> List(Int) {
+  case core.replaying {
+    True -> core.members |> set.to_list
+    False -> quorum_with_live_defences(core, author)
+  }
+}
+
+fn quorum_with_live_defences(core: Core, author: Option(String)) -> List(Int) {
   core.members
   |> set.insert(client_id_to_int(core.client_id))
   |> fn(members) {

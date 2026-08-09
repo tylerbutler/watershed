@@ -215,25 +215,19 @@ pub fn a_second_proposal_while_one_is_pending_is_rejected_test() {
   ])
 }
 
-/// **This test pins a bug, not a behaviour.** See
-/// `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+/// A tab that opens after the room has agreed a tempo reads that tempo.
 ///
-/// A client that joins after a tempo has been agreed cannot read it. It
-/// replays the historical `Set`, and `runtime_core.quorum_of` builds the
-/// signoff list from *its own present-day roster* rather than from the roster
-/// the op was sequenced against — so the joiner writes itself into the quorum
-/// of a proposal that settled before it existed. The replayed `Accept`s drain
-/// the clients that really did sign off, and the joiner is left waiting on
-/// itself forever.
-///
-/// Against a live floodgate server the same cause is louder: the joiner's
-/// owed `Accept` reaches peers who settled that pact long ago, they answer
-/// `UnexpectedAccept`, and the connection dies with
-/// `bootstrap failed: AckMismatch("client was not expected to sign off")`.
-///
-/// When the fix lands, the assertions below flip to `Some(json.int(128))` /
-/// `should.be_false` and this comment and the name prefix come off.
-pub fn known_bug_a_late_joiner_cannot_read_an_agreed_tempo_test() {
+/// This is the regression test for the bug this demo found, fixed in
+/// `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`. The joiner replays
+/// a `Set` and three `Accept`s that settled before it existed, and it must
+/// reconstruct the *outcome* rather than re-run the protocol as if it had been
+/// in the room. Previously `runtime_core.quorum_of` rebuilt the signoff list
+/// from the joiner's own present-day roster and wrote the joiner into it, so
+/// the pact came back pending on a client that had never been asked — and
+/// against a live floodgate server the joiner's owed `Accept` reached peers
+/// who had settled that pact long ago and killed the connection with
+/// `AckMismatch("client was not expected to sign off")`.
+pub fn a_late_joiner_reads_the_agreed_tempo_test() {
   let room = room("drum-late-join", 3)
 
   propose(room, from: 0, bpm: 128)
@@ -248,14 +242,17 @@ pub fn known_bug_a_late_joiner_cannot_read_an_agreed_tempo_test() {
     watershed_js.get(watershed_js.root(doc_d), "settings")
   let assert Ok(settings_d) = watershed_js.resolve_pact_map(doc_d, value)
 
-  // The agreed tempo is unreadable...
-  watershed_js.pact_map_get(settings_d, bpm_key) |> should.equal(None)
-  // ...because the joiner reconstructed a settled pact as pending, waiting on
-  // exactly one client: itself.
-  watershed_js.pact_map_is_pending(settings_d, bpm_key) |> should.be_true
-  let assert Some(waiting) =
-    watershed_js.pact_map_pending_signoffs(settings_d, bpm_key)
-  list.length(waiting) |> should.equal(1)
+  watershed_js.pact_map_get(settings_d, bpm_key)
+  |> should.equal(Some(json.int(128)))
+  watershed_js.pact_map_is_pending(settings_d, bpm_key) |> should.be_false
+  watershed_js.pact_map_pending_signoffs(settings_d, bpm_key)
+  |> should.equal(None)
+
+  // And the joiner is now a full member: the next proposal waits on it too.
+  propose(room, from: 1, bpm: 96)
+  sluice_js.settle(room.sluice)
+  watershed_js.pact_map_get(settings_d, bpm_key)
+  |> should.equal(Some(json.int(96)))
 }
 
 pub fn tempo_is_agreed_while_the_pattern_is_not_test() {

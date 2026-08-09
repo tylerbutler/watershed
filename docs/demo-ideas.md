@@ -13,7 +13,7 @@ Candidate example apps for `examples/`, kept here so they survive between sessio
 And the gaps those plans surfaced have their own plan:
 
 - `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6, **shipped**
-- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **open, and it outranks every demo below.** A replaying client rebuilds a consensus quorum from its own present-day roster instead of the one the op was sequenced against, so a document with an agreed `PactMap` key is unjoinable. Found by building the drum machine's DM6/DM7. Touches `TaskManager` too, which the work queue would hit on its first reload.
+- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **client half fixed**; a replaying client no longer rebuilds a consensus quorum from its present-day roster. What remains is the roster at a summary checkpoint, which is a floodgate change. `TaskManager` turned out never to have been affected.
 
 One plan is not a demo but a way of presenting them:
 
@@ -40,17 +40,13 @@ Both of these were mis-assumed during the brainstorm that produced this list, an
 
 ## Known gaps
 
-Full detail and rungs in `docs/plans/2026-08-08-facade-parity-sweep-plan.md`. Summary, worst first:
+All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-sweep-plan.md`): the real quorum roster, rich text on the JS facade, the three missing subscribes, the pending-signoff accessors, and the `watershed_lustre` fill-in. Both facades also expose `client_id` now, so a client can find itself in a list a kernel reports about the room.
 
-- **`PactMap` quorum is a placeholder** (FP1) — a **correctness** bug, not an ergonomics one. `runtime_core.gleam:815–818` fabricates the signoff list as `[self, author]`; there is no membership roster, and the handshake's `initial_clients` (`wire/socket.gleam:238`) is decoded and never read anywhere. With three clients, the third is never asked to sign off, so `PactMap` behaves as an ack-delayed LWW map. Kernel is correct; wiring is stubbed.
-- **`SharedRichText` is absent from `watershed_js.gleam`** (FP2) — zero occurrences, while `watershed.gleam` has the full set and `runtime_js.gleam` has the runtime functions ready. The proof it hurts: `website/src/scripts/rich-text-demo.ts:34–39` imports `runtime_js.mjs`, `channel.mjs`, and `handle.mjs` directly, because the public API cannot express the demo.
-- **No `subscribe_pn_counter` / `subscribe_pact_map` / `subscribe_ordered_collection`** (FP3) on either facade or in `watershed_lustre`, though all three kinds' events already reach the runtime. Those kinds are write-and-poll only.
-- **`PactMap` pending details unreachable** (FP4) — no way to read `Pending.expected_signoffs`, so no UI can say what a pending value is waiting for.
-- **`watershed_lustre` holes** (FP5) — missing `ensure_*` / `subscribe_*` for `directory`, `g_set`, `two_p_set`, `json_ot`. Apps using those kinds must hand-roll the microtask deferral the package exists to own.
+One gap remains, and it is not a facade gap: **the roster at a summary checkpoint** — `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
 
-**Correction:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They are present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan.
+**Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 
-The "full typed-layer parity across 14 kinds" milestone covered channel *lifecycle* and is genuinely complete. Operations, subscriptions, and **runtime semantics** are three further axes nobody swept.
+The "full typed-layer parity across 14 kinds" milestone covered channel *lifecycle*. Operations, subscriptions, and **runtime semantics** were three further axes nobody had swept; the third is where both FP1 and the replay-quorum bug lived.
 
 ---
 
@@ -75,9 +71,8 @@ this demo was supposed to do.
 
 A 16×4 step grid, each track an `OrSet` of active step indices; everyone jams on the same loop. Convergence becomes *audible*.
 
-**Two corrections from scoping it:**
+**The correction worth keeping:**
 
-- **The quorum half is blocked on FP1.** `PactMap` does not currently implement room-wide quorum (see the gaps above), so a "the room must agree" demo would show the audience something that is not happening. The plan splits at DM5: steps and audio ship first, the quorum tempo waits for the fix.
 - **Acceptance is automatic, not a vote.** `channel.gleam:726` auto-submits the `OweAccept` op — no client ever chooses to agree. The UI must read "waiting on 1 of 3 clients", never "2 of 3 agreed". An earlier sketch of this idea proposed the latter, which would misrepresent the protocol.
 
 Also worth knowing: watershed converges state, not time, so clients are **not** phase-locked. The plan builds for per-client phase and says so in the UI rather than attempting clock sync.
@@ -161,13 +156,14 @@ Good filler work, but it makes an existing example more complicated rather than 
 
 Revised 2026-08-09, after FP1–FP6 and the drum machine landed. The same principle still applies: **correctness outranks demos, and demos are how the correctness bugs get found.**
 
-1. **Consensus replay quorum.** A document with an agreed `PactMap` key cannot be joined. Blocks nothing on this list *today*, but it silently blocks the work queue at item 4, and it makes the demo that found it partly untrue on reload.
-2. **Pixel canvas** — genuinely zero prerequisites, best story-per-hour, hardest visual proof.
-3. **Grocery triptych** — three kinds cleared, best teaching artifact.
-4. **Work queue** — after the replay fix, not before: `TaskManager` reads `meta.quorum` on the same path `PactMap` does, so the work queue would meet this bug on its first reload.
-5. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
-6. **Clap counter** — nearly free, and has a home on the existing `counter-bug` page.
-7. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
-8. Everything else, as appetite allows.
+1. **Pixel canvas** — genuinely zero prerequisites, best story-per-hour, hardest visual proof.
+2. **Grocery triptych** — three kinds cleared, best teaching artifact.
+3. **Work queue** — no longer blocked: `TaskManager` turned out never to have been affected by the replay bug. Retires the two largest untouched kernels; the only demo about failure recovery.
+4. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
+5. **Clap counter** — nearly free, and has a home on the existing `counter-bug` page.
+6. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
+7. Everything else, as appetite allows.
 
-**Done:** FP1–FP6 (facade parity sweep), drum machine DM1–DM7.
+Not a demo, but ahead of all of them if summaries are close: **the checkpoint roster** in `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`. It is the last piece of the consensus replay fix, and it only bites once documents bootstrap from summaries rather than from sequence number zero.
+
+**Done:** FP1–FP6 (facade parity sweep), drum machine DM1–DM7, consensus replay quorum (client half).

@@ -254,9 +254,13 @@ fn root_summary(
   sequence_number: Int,
   entries: List(#(String, Json)),
 ) -> runtime_core.Summary {
-  runtime_core.Summary(sequence_number: sequence_number, channels: [
-    #("root", channel.MapSnapshot(entries)),
-  ])
+  runtime_core.Summary(
+    sequence_number: sequence_number,
+    channels: [
+      #("root", channel.MapSnapshot(entries)),
+    ],
+    members: [],
+  )
 }
 
 fn root_get(core: Core, key: String) -> option.Option(Json) {
@@ -306,10 +310,14 @@ fn rich_text_op_message(
 
 fn attached_rich_text_core() -> Core {
   let summary =
-    runtime_core.Summary(sequence_number: 1, channels: [
-      #("root", channel.MapSnapshot([])),
-      #("rich", channel.RichTextSnapshot(rich_text.empty_document())),
-    ])
+    runtime_core.Summary(
+      sequence_number: 1,
+      channels: [
+        #("root", channel.MapSnapshot([])),
+        #("rich", channel.RichTextSnapshot(rich_text.empty_document())),
+      ],
+      members: [],
+    )
   case
     runtime_core.bootstrap(connected_message([], 1), summary: Some(summary))
   {
@@ -1797,10 +1805,14 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
 
 pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
   let summary =
-    runtime_core.Summary(sequence_number: 5, channels: [
-      #("root", channel.MapSnapshot([#("die", json.int(4))])),
-      #("child", channel.MapSnapshot([#("a", json.int(1))])),
-    ])
+    runtime_core.Summary(
+      sequence_number: 5,
+      channels: [
+        #("root", channel.MapSnapshot([#("die", json.int(4))])),
+        #("child", channel.MapSnapshot([#("a", json.int(1))])),
+      ],
+      members: [],
+    )
   let deltas = [
     attach_message(
       client_id: other_client_id,
@@ -2252,10 +2264,17 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
 
 pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
   let summary =
-    runtime_core.Summary(sequence_number: 5, channels: [
-      #("root", channel.MapSnapshot([])),
-      #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)])),
-    ])
+    runtime_core.Summary(
+      sequence_number: 5,
+      channels: [
+        #("root", channel.MapSnapshot([])),
+        #(
+          "locks",
+          channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)]),
+        ),
+      ],
+      members: [],
+    )
   let core = case
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
@@ -2614,13 +2633,17 @@ pub fn summary_captures_confirmed_counter_value_test() {
 
 pub fn bootstrap_from_summary_with_counter_channel_test() {
   let summary =
-    runtime_core.Summary(sequence_number: 5, channels: [
-      #(
-        "root",
-        channel.MapSnapshot([#("tally", handle.encode_handle("tally"))]),
-      ),
-      #("tally", channel.CounterSnapshot(9)),
-    ])
+    runtime_core.Summary(
+      sequence_number: 5,
+      channels: [
+        #(
+          "root",
+          channel.MapSnapshot([#("tally", handle.encode_handle("tally"))]),
+        ),
+        #("tally", channel.CounterSnapshot(9)),
+      ],
+      members: [],
+    )
   let core = case
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
@@ -2852,15 +2875,22 @@ pub fn register_collection_ack_with_wrong_shape_is_fatal_test() {
 pub fn bootstrap_from_summary_with_register_collection_test() {
   let version = register_version(json.string("Survey"), 5)
   let summary =
-    runtime_core.Summary(sequence_number: 5, channels: [
-      #("root", channel.MapSnapshot([])),
-      #(
-        "registers",
-        channel.RegisterCollectionSnapshot([
-          #("station", register_collection_kernel.Register(version, [version])),
-        ]),
-      ),
-    ])
+    runtime_core.Summary(
+      sequence_number: 5,
+      channels: [
+        #("root", channel.MapSnapshot([])),
+        #(
+          "registers",
+          channel.RegisterCollectionSnapshot([
+            #(
+              "station",
+              register_collection_kernel.Register(version, [version]),
+            ),
+          ]),
+        ),
+      ],
+      members: [],
+    )
   let core = case
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
@@ -3409,10 +3439,14 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
 pub fn text_summary_round_trip_reload_with_new_replica_test() {
   let seeded = seeded_text("hello")
   let summary =
-    runtime_core.Summary(sequence_number: 5, channels: [
-      #("root", channel.MapSnapshot([])),
-      #("doc", channel.TextSummary(seeded.sequenced)),
-    ])
+    runtime_core.Summary(
+      sequence_number: 5,
+      channels: [
+        #("root", channel.MapSnapshot([])),
+        #("doc", channel.TextSummary(seeded.sequenced)),
+      ],
+      members: [],
+    )
   let core = case
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
