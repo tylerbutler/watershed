@@ -781,3 +781,58 @@ pub fn reconnect_sequences_a_leave_for_the_old_identity_test() {
   }
   watershed.pact_map_get(pact_b, "bpm") |> expect.to_equal(Some(json.int(128)))
 }
+
+@target(erlang)
+/// Regression: an `Accept` a kernel releases while a reconnect is still
+/// settling must reach the wire exactly once.
+///
+/// The shape that matters is one frame doing two things. C comes back far
+/// enough behind that its catch-up arrives as a single batch, and that batch
+/// both carries the proposal it owes a signoff on *and* brings it level with
+/// the handshake checkpoint. So the released `Accept` is sent, and then the
+/// reconnect completes and restamps the whole in-flight queue — the same
+/// `Accept` among it. Sending it in both places put two copies on the wire; the
+/// server sequenced both, and the stale ack failed C's FIFO match with
+/// `AckMismatch("expected ack for csn N, got csn M")`, killing its runtime.
+pub fn a_released_accept_is_not_sent_twice_across_a_reconnect_test() {
+  let sluice = start("reconnect-released-accept")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let doc_c = connect(sluice, "user-c")
+  sluice.settle(sluice)
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "settings",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  sluice.settle(sluice)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
+  let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
+  let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
+
+  // Put C far enough behind that its catch-up comes back as one batch.
+  sluice.pause(sluice, doc_c)
+  watershed.set(watershed.root(doc_a), "filler", json.int(1))
+  watershed.pact_map_set(pact_a, "bpm", json.int(128))
+  watershed.set(watershed.root(doc_b), "more", json.int(2))
+  sluice.settle(sluice)
+
+  // C's held frames die with the socket; everything it missed arrives through
+  // the post-reconnect catch-up instead.
+  sluice.reconnect(sluice, doc_c)
+  sluice.settle(sluice)
+
+  // C survived, and the room agrees. Under the double-send C's runtime was
+  // already dead by here.
+  watershed.get(watershed.root(doc_c), "filler")
+  |> expect.to_equal(Some(json.int(1)))
+  watershed.get(watershed.root(doc_c), "more")
+  |> expect.to_equal(Some(json.int(2)))
+
+  watershed.pact_map_get(pact_a, "bpm") |> expect.to_equal(Some(json.int(128)))
+  watershed.pact_map_get(pact_b, "bpm") |> expect.to_equal(Some(json.int(128)))
+  watershed.pact_map_get(pact_c, "bpm") |> expect.to_equal(Some(json.int(128)))
+  watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
+}
