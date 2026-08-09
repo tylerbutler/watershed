@@ -30,7 +30,7 @@ import watershed_js.{
 }
 import watershed_lustre
 
-import watershed/presence.{type Peer}
+import watershed/presence
 import watershed/presence_js.{type Handle}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -134,7 +134,7 @@ type Model {
     /// The live presence session, once started, and its current roster. The
     /// driver owns heartbeat + TTL expiry; we just re-render on `on_change`.
     presence: Option(Handle(SudokuPresence)),
-    peers: List(Peer(SudokuPresence)),
+    peers: List(presence.PresenceEntry(SudokuPresence)),
     editing: Bool,
     error: Option(String),
   )
@@ -153,7 +153,7 @@ type Msg {
   NotesModeClicked
   ReconnectClicked
   PresenceStarted(Handle(SudokuPresence))
-  PresenceChanged(List(Peer(SudokuPresence)))
+  PresenceEvent(presence.Event(SudokuPresence))
   EditingStopped
 }
 
@@ -195,25 +195,41 @@ fn init(_args) -> #(Model, Effect(Msg)) {
 }
 
 /// Ephemeral presence rides on the library driver, independent of the DDS
-/// streams: it owns the heartbeat/TTL loop; we only re-render on the roster.
+/// streams: it negotiates server or ripple mode, joins, and rejoins after a
+/// reconnect; we only re-render on the roster it reports.
 fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
-    user_id: model.user_id,
-    config: presence.default_config,
-    encode: encode_presence,
-    decode: presence_decoder(),
+    config: presence.config(encode_presence, presence_decoder()),
+    initial: current_presence(model),
     started: PresenceStarted,
-    on_peers: PresenceChanged,
+    on_event: PresenceEvent,
   )
 }
 
-/// Announce this client's current presence through the driver (broadcasts now
-/// and keeps the heartbeat alive). A no-op until presence has started.
+/// Push this client's current presence through the driver. A no-op until
+/// presence has started — `start` already carried the initial value.
 fn announce_effect(model: Model) -> Effect(Msg) {
   case model.presence {
-    Some(handle) -> watershed_lustre.announce(handle, current_presence(model))
+    Some(handle) ->
+      watershed_lustre.update_presence(handle, current_presence(model))
     None -> effect.none()
+  }
+}
+
+/// Everyone but this tab. Presence state includes the local session by design,
+/// so the roster is filtered here rather than in the driver.
+fn remote_peers(
+  model: Model,
+  entries: List(presence.PresenceEntry(SudokuPresence)),
+) -> List(presence.PresenceEntry(SudokuPresence)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
   }
 }
 
@@ -410,13 +426,30 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
       }
 
-    PresenceStarted(handle) -> {
-      let model = Model(..model, presence: Some(handle))
-      // Announce once so we appear to peers and the heartbeat begins.
-      #(model, announce_effect(model))
-    }
+    PresenceStarted(handle) -> #(
+      Model(..model, presence: Some(handle)),
+      effect.none(),
+    )
 
-    PresenceChanged(peers) -> #(Model(..model, peers: peers), effect.none())
+    PresenceEvent(event) ->
+      case event {
+        presence.State(entries) | presence.Changed(_, entries) -> #(
+          Model(..model, peers: remote_peers(model, entries)),
+          effect.none(),
+        )
+        // A peer whose metadata we cannot read is dropped by the driver; a
+        // rejected join is worth showing, since presence silently not working
+        // is the failure mode this whole model exists to avoid.
+        presence.Failed(presence.DecodeFailed(_, _)) -> #(model, effect.none())
+        presence.Failed(presence.UnsupportedPresence) -> #(
+          Model(..model, error: Some("presence unavailable on this server")),
+          effect.none(),
+        )
+        presence.Failed(presence.Rejected(_, message)) -> #(
+          Model(..model, error: Some("presence rejected: " <> message)),
+          effect.none(),
+        )
+      }
 
     EditingStopped -> {
       let model = Model(..model, editing: False)
@@ -556,7 +589,7 @@ fn roster_view(model: Model) -> Element(Msg) {
   let peer_chips =
     model.peers
     |> list.map(fn(peer) {
-      chip(peer.payload.name, peer.payload.color, peer.payload.editing)
+      chip(peer.meta.name, peer.meta.color, peer.meta.editing)
     })
   html.div([class("roster"), aria_label("Players online")], [
     self_chip,
@@ -643,7 +676,7 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
   let selected = model.selected == Some(#(row, col))
   let locked = given != 0
   let peers_here =
-    list.filter(model.peers, fn(peer) { peer.payload.cell == Some(key) })
+    list.filter(model.peers, fn(peer) { peer.meta.cell == Some(key) })
   let value = case given, player {
     0, Some(digit) -> int.to_string(digit)
     0, None -> ""
@@ -652,7 +685,7 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
 
   let peer_attrs = case peers_here {
     [peer, ..] -> [
-      attribute.style("box-shadow", "inset 0 0 0 3px " <> peer.payload.color),
+      attribute.style("box-shadow", "inset 0 0 0 3px " <> peer.meta.color),
     ]
     [] -> []
   }
@@ -685,15 +718,17 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
 
 /// A small colored badge showing which peers have this cell selected, with a
 /// pencil glyph while they're typing.
-fn peer_cursor(peers: List(Peer(SudokuPresence))) -> Element(Msg) {
+fn peer_cursor(
+  peers: List(presence.PresenceEntry(SudokuPresence)),
+) -> Element(Msg) {
   case peers {
     [] -> html.text("")
     [peer, ..] ->
       html.span(
-        [class("cursor"), attribute.style("background", peer.payload.color)],
+        [class("cursor"), attribute.style("background", peer.meta.color)],
         [
-          html.text(peer.payload.name),
-          case peer.payload.editing {
+          html.text(peer.meta.name),
+          case peer.meta.editing {
             True -> html.text(" ✎")
             False -> html.text("")
           },

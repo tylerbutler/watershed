@@ -14,7 +14,7 @@ import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
 import gleam/list
 
-import watershed/presence.{type Peer}
+import watershed/presence
 import watershed/presence_js
 import watershed/transport_js
 import watershed_js.{type Document, WatershedConfig}
@@ -89,40 +89,48 @@ pub fn main() {
   Nil
 }
 
+fn ping_config() -> presence.Config(Ping) {
+  presence.config(encode_ping, ping_decoder())
+}
+
 fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
-  // B tracks its roster through the driver; A announces one presence payload.
+  // B tracks its roster through the driver; A joins with one payload and then
+  // updates it. Whether that rides the server lane or the ripple heartbeat is
+  // the driver's business — this harness asserts the same outcome either way.
   let roster = transport_js.new_cell([])
   let _b =
     presence_js.start(
       document: doc_b,
-      user_id: "user-b",
-      config: presence.default_config,
-      encode: encode_ping,
-      decode: ping_decoder(),
-      on_change: fn(peers) { transport_js.set_cell(roster, peers) },
+      config: ping_config(),
+      initial: Ping(cell: "", editing: False),
+      on_event: fn(event) {
+        case event {
+          presence.State(entries) | presence.Changed(_, entries) ->
+            transport_js.set_cell(roster, entries)
+          presence.Failed(_) -> Nil
+        }
+      },
     )
   let handle_a =
     presence_js.start(
       document: doc_a,
-      user_id: "user-a",
-      config: presence.default_config,
-      encode: encode_ping,
-      decode: ping_decoder(),
-      on_change: fn(_peers) { Nil },
+      config: ping_config(),
+      initial: Ping(cell: "", editing: False),
+      on_event: fn(_event) { Nil },
     )
 
-  // Give both handshakes time to assign client ids (announce is a no-op until
-  // then), then A announces and we check B's roster.
+  // Give both handshakes time to settle (the driver joins on the first one),
+  // then A moves and we check B's roster.
   delay(1500, fn() {
-    presence_js.announce(handle_a, Ping(cell: "r0c0", editing: True))
+    presence_js.update(handle_a, Ping(cell: "r0c0", editing: True))
     delay(600, fn() { assert_received(transport_js.get_cell(roster)) })
   })
 }
 
-fn assert_received(peers: List(Peer(Ping))) -> Nil {
-  case list.find(peers, fn(peer) { peer.user == "user-a" }) {
+fn assert_received(peers: List(presence.PresenceEntry(Ping))) -> Nil {
+  case list.find(peers, fn(peer) { peer.key == "user-a" }) {
     Ok(peer) ->
-      case peer.payload.cell == "r0c0" && peer.payload.editing {
+      case peer.meta.cell == "r0c0" && peer.meta.editing {
         True -> {
           log("RIPPLES SMOKE PASS: B received A's presence (cell r0c0, typing)")
           exit(0)

@@ -15,7 +15,7 @@
 import { register } from "./build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
 import * as watershed from "./build/dev/javascript/watershed/watershed_js.mjs";
 import * as presence_js from "./build/dev/javascript/watershed/watershed/presence_js.mjs";
-import { default_config } from "./build/dev/javascript/watershed/watershed/presence.mjs";
+import * as presence from "./build/dev/javascript/watershed/watershed/presence.mjs";
 import * as decode from "./build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import { Ok } from "./build/dev/javascript/prelude.mjs";
 import { body } from "./build/dev/javascript/text_lustre/doc_schema.mjs";
@@ -56,11 +56,11 @@ editor.addEventListener("error", (event) => {
 
 // The element announces its own selection as a pair of content-bound anchors,
 // already JSON — this host only decides what rides along and where it travels.
-let presence = null;
+let handle = null;
 let lastCursor = null;
 editor.addEventListener("cursor", (event) => {
   lastCursor = event.detail;
-  if (presence) presence_js.announce(presence, { cursor: lastCursor });
+  if (handle) presence_js.update(handle, { cursor: lastCursor });
 });
 
 // ── Connect, resolve the channel, hand it over ───────────────────────────────
@@ -90,26 +90,26 @@ const doc = watershed.connect(config, (ready) => {
     editor.channel = ensured[0];
 
     // Presence rides the same driver as the Lustre app (same wire shape:
-    // `{cursor: …|null}` keyed by user), so cursors cross host kinds. The
-    // decoder is a passthrough — this host reads the payload as plain data.
-    const passthrough = decode.new_primitive_decoder("Payload", (value) => new Ok(value));
-    presence = presence_js.start(
-      doc,
-      userId,
-      default_config,
-      (payload) => payload,
-      passthrough,
-      (peers) => {
-        editor.peers = [...peers]
-          .filter((peer) => peer.user !== userId && peer.payload?.cursor)
-          .map((peer) => ({
-            id: peer.user,
-            label: peer.user,
-            colour: colourFor(peer.user),
-            cursor: peer.payload.cursor,
-          }));
-      },
-    );
-    if (lastCursor !== null) presence_js.announce(presence, { cursor: lastCursor });
+    // `{cursor: …|null}`), so cursors cross host kinds. The decoder is a
+    // passthrough — this host reads the metadata as plain data.
+    const passthrough = decode.new_primitive_decoder("Meta", (value) => new Ok(value));
+    const config = presence.config((meta) => meta, passthrough);
+    handle = presence_js.start(doc, config, { cursor: lastCursor }, (event) => {
+      // `State` replaces the roster, `Changed` carries the delta *and* the
+      // resulting roster; both hand us a complete list, so one branch does.
+      const entries = event.entries;
+      if (entries === undefined) return;
+
+      // Keyed by session, not user: two tabs of one person are two carets.
+      const localSession = presence_js.local_session(handle)[0];
+      editor.peers = [...entries]
+        .filter((entry) => entry.session_id !== localSession && entry.meta?.cursor)
+        .map((entry) => ({
+          id: entry.session_id,
+          label: entry.key,
+          colour: colourFor(entry.key),
+          cursor: entry.meta.cursor,
+        }));
+    });
   });
 });

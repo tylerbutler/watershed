@@ -1,14 +1,24 @@
-//// Generic ephemeral presence — the app-agnostic state machine promoted out of
-//// `examples/sudoku_lustre/src/presence.gleam`.
+//// Presence — who is here, and what they are doing.
 ////
-//// Presence (who's here, whose cell is selected, who is typing) is transient
-//// collaboration state: it must not be sequenced, persisted, or replayed, so it
-//// rides on watershed *ripples* (fire-and-forget, non-sequenced), not a DDS.
-//// Liveness is derived from a heartbeat + TTL, so a peer that goes silent simply
-//// expires. This module owns the roster/observe/prune/TTL logic and the ripple
-//// envelope; only the payload `a` is the app's. It is target-agnostic and pure —
-//// the JS driver (`watershed/presence_js`) drives it, and an erlang driver can
-//// slot in later.
+//// One model, two implementations. **Server mode** mirrors Beryl's presence:
+//// the server tracks each connection, so a late joiner gets the whole roster in
+//// one snapshot and a dropped socket removes its entry with no browser
+//// involvement. **Ripple mode** is the fallback for servers without the
+//// presence lane: each client announces itself on a heartbeat and expires peers
+//// it stops hearing from. Both produce the same `PresenceEntry`, `Diff`, and
+//// `Event` values, so an application renders one thing either way.
+////
+//// Presence is transient collaboration state: it is never sequenced,
+//// persisted, or replayed. Ripple mode rides watershed *ripples*
+//// (fire-and-forget, non-sequenced); server mode rides a lane of its own that
+//// likewise never touches the op stream.
+////
+//// A session is one tab, device, or CLI process; a key groups the sessions of
+//// one authenticated user. Two tabs from one person are two entries sharing a
+//// key — which is why the roster is keyed by session and not by user.
+////
+//// This module is target-agnostic and pure. The JS driver
+//// (`watershed/presence_js`) drives it; an erlang driver can slot in later.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
@@ -28,89 +38,81 @@ import watershed/wire
 /// only for forward compat. Multiple ripple uses per document coexist by `kind`.
 pub const ripple_type = "presence"
 
-/// One live peer: their user id, last announced app payload, and the wall-clock
-/// time (ms) their last heartbeat arrived.
-pub type Peer(a) {
-  Peer(user: String, payload: a, last_seen: Int)
+/// Which implementation a presence handle uses.
+///
+/// `Auto` picks server presence when the server advertises `presence_v1` and
+/// the ripple heartbeat otherwise. `Server` refuses to fall back — a silent
+/// downgrade would make presence look intermittently broken with no signal.
+/// `Ripple` forces the heartbeat, for tests and for servers known to lack the
+/// lane.
+pub type Mode {
+  Auto
+  Server
+  Ripple
 }
 
-/// The roster of live peers, keyed by user id (one entry per user).
-pub opaque type Peers(a) {
-  Peers(entries: List(Peer(a)))
-}
-
-/// Heartbeat cadence and liveness window. Default: re-announce every 2s, expire
-/// after 6.5s (~3 missed beats).
-pub type Config {
-  Config(heartbeat_ms: Int, ttl_ms: Int)
-}
-
-/// The default cadence used by the sudoku prototype.
-pub const default_config = Config(heartbeat_ms: 2000, ttl_ms: 6500)
-
-/// An empty roster.
-pub fn new() -> Peers(a) {
-  Peers([])
-}
-
-/// Record a peer's heartbeat, replacing any prior entry for that user. The
-/// caller filters out its own user id.
-pub fn observe(
-  peers: Peers(a),
-  user: String,
-  payload: a,
-  now: Int,
-) -> Peers(a) {
-  let without = list.filter(peers.entries, fn(p) { p.user != user })
-  Peers([Peer(user: user, payload: payload, last_seen: now), ..without])
-}
-
-/// Drop peers whose last heartbeat is older than the TTL.
-pub fn prune(peers: Peers(a), config: Config, now: Int) -> Peers(a) {
-  Peers(
-    list.filter(peers.entries, fn(p) { now - p.last_seen <= config.ttl_ms }),
+/// How to encode and decode an application's presence metadata, which
+/// implementation to use, and (ripple mode only) the heartbeat cadence.
+///
+/// Metadata must encode to a JSON **object**: the Phoenix `metas` shape puts
+/// the server's `phx_ref` and `client_id` beside the application's own fields,
+/// and a scalar or an array leaves nowhere to put them.
+pub opaque type Config(a) {
+  Config(
+    encode: fn(a) -> Json,
+    decode: Decoder(a),
+    mode: Mode,
+    heartbeat_ms: Int,
+    ttl_ms: Int,
   )
 }
 
-/// The live peers, sorted by user id for a stable render order.
-pub fn roster(peers: Peers(a)) -> List(Peer(a)) {
-  list.sort(peers.entries, fn(a, b) { string.compare(a.user, b.user) })
+/// A presence configuration: a codec for the application's metadata, in `Auto`
+/// mode, with the default ripple cadence (re-announce every 2s, expire after
+/// 6.5s — about three missed beats).
+pub fn config(encode: fn(a) -> Json, decode: Decoder(a)) -> Config(a) {
+  Config(
+    encode: encode,
+    decode: decode,
+    mode: Auto,
+    heartbeat_ms: 2000,
+    ttl_ms: 6500,
+  )
 }
 
-/// Live peers whose payload matches `predicate` (subsumes sudoku's on_cell).
-pub fn find(peers: Peers(a), predicate: fn(a) -> Bool) -> List(Peer(a)) {
-  peers
-  |> roster
-  |> list.filter(fn(p) { predicate(p.payload) })
+pub fn with_mode(config: Config(a), mode: Mode) -> Config(a) {
+  Config(..config, mode: mode)
 }
 
-/// Enclose an app payload in the presence ripple envelope (decision 1).
-pub fn encode_envelope(
-  user: String,
-  encode: fn(a) -> Json,
-  payload: a,
-) -> Json {
-  json.object([
-    #("kind", json.string(ripple_type)),
-    #("user", json.string(user)),
-    #("payload", encode(payload)),
-  ])
+/// Override the ripple heartbeat and liveness window. Server mode ignores both:
+/// it has no browser heartbeat at all, because the connection *is* the liveness
+/// signal.
+pub fn with_ripple_timing(
+  config: Config(a),
+  heartbeat_ms heartbeat_ms: Int,
+  ttl_ms ttl_ms: Int,
+) -> Config(a) {
+  Config(..config, heartbeat_ms: heartbeat_ms, ttl_ms: ttl_ms)
 }
 
-/// Decoder for an inbound presence envelope, yielding `#(user, payload)`. Fails
-/// (Error) for a foreign `kind` or a malformed payload — ripples are unsequenced,
-/// garbage-tolerant input, so callers drop failures rather than crash.
-pub fn decode_envelope(decode payload: Decoder(a)) -> Decoder(#(String, a)) {
-  use kind <- decode.field("kind", decode.string)
-  use user <- decode.field("user", decode.string)
-  // Decode payload before the kind check so `decode.failure` has a real zero of
-  // type `a` for the foreign-kind case (a missing/mismatched payload already
-  // fails the run on its own).
-  use payload <- decode.field("payload", payload)
-  case kind == ripple_type {
-    True -> decode.success(#(user, payload))
-    False -> decode.failure(#(user, payload), "presence envelope")
-  }
+pub fn config_mode(config: Config(a)) -> Mode {
+  config.mode
+}
+
+pub fn config_encode(config: Config(a)) -> fn(a) -> Json {
+  config.encode
+}
+
+pub fn config_decoder(config: Config(a)) -> Decoder(a) {
+  config.decode
+}
+
+pub fn config_heartbeat_ms(config: Config(a)) -> Int {
+  config.heartbeat_ms
+}
+
+pub fn config_ttl_ms(config: Config(a)) -> Int {
+  config.ttl_ms
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -357,6 +359,12 @@ type Live(a) {
 /// An empty ripple roster.
 pub fn sessions() -> Sessions(a) {
   Sessions(dict.new())
+}
+
+/// A change that moves nothing. Lets a driver take the same code path whether
+/// or not there was anything to report.
+pub fn no_change() -> Diff(a) {
+  empty_diff()
 }
 
 /// Record a heartbeat from one session.

@@ -53,7 +53,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed/presence.{type Peer}
+import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/text_kernel
 import watershed_js.{type Document, type SharedText, type TextAnchor}
@@ -166,7 +166,7 @@ type Msg {
   ClearAnchorClicked
   ReconnectClicked
   PresenceStarted(Handle(Editing))
-  PeersChanged(List(Peer(Editing)))
+  PresenceEvent(presence.Event(Editing))
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
@@ -248,12 +248,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               ),
               watershed_lustre.presence(
                 document: doc,
-                user_id: model.user_id,
-                config: presence.default_config,
-                encode: encode_editing,
-                decode: editing_decoder(),
+                config: presence.config(encode_editing, editing_decoder()),
+                initial: Editing(cursor: None),
                 started: PresenceStarted,
-                on_peers: PeersChanged,
+                on_event: PresenceEvent,
               ),
             ]),
           )
@@ -351,29 +349,36 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The roster changed. Rebuild the component's peer list from it — the
     // component owns resolving each cursor and drawing it; this owns who the
     // peers are and what they look like.
-    PeersChanged(peers) ->
-      case model.editor {
-        None -> #(model, effect.none())
-        Some(editor) -> {
-          let cursors =
-            list.filter_map(peers, fn(peer) {
-              case peer.payload.cursor {
-                Some(cursor) ->
-                  Ok(textarea.peer(
-                    id: peer.user,
-                    label: peer.user,
-                    colour: colour_for(peer.user),
-                    cursor: cursor,
-                  ))
-                None -> Error(Nil)
-              }
-            })
-          let #(editor, editor_effect) = textarea.set_peers(editor, cursors)
-          #(
-            Model(..model, editor: Some(editor)),
-            effect.map(editor_effect, Editor),
-          )
-        }
+    PresenceEvent(event) ->
+      case event {
+        presence.Failed(_) -> #(model, effect.none())
+        presence.State(entries) | presence.Changed(_, entries) ->
+          case model.editor {
+            None -> #(model, effect.none())
+            Some(editor) -> {
+              // Sessions, not users: two tabs from one person are two carets,
+              // so the caret is keyed by session id.
+              let cursors =
+                remote_entries(model, entries)
+                |> list.filter_map(fn(peer) {
+                  case peer.meta.cursor {
+                    Some(cursor) ->
+                      Ok(textarea.peer(
+                        id: peer.session_id,
+                        label: peer.key,
+                        colour: colour_for(peer.key),
+                        cursor: cursor,
+                      ))
+                    None -> Error(Nil)
+                  }
+                })
+              let #(editor, editor_effect) = textarea.set_peers(editor, cursors)
+              #(
+                Model(..model, editor: Some(editor)),
+                effect.map(editor_effect, Editor),
+              )
+            }
+          }
       }
 
     DraftAppendChanged(text) -> #(
@@ -447,6 +452,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
+/// Everyone but this tab — a client must not draw a caret for itself.
+fn remote_entries(
+  model: Model,
+  entries: List(presence.PresenceEntry(Editing)),
+) -> List(presence.PresenceEntry(Editing)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
+  }
+}
+
 /// Broadcast this client's cursor, but only when it has actually moved.
 ///
 /// The anchors are value-comparable, and re-anchoring after a remote edit
@@ -463,7 +483,7 @@ fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
     None, _ -> #(Model(..model, announced: current), effect.none())
     Some(handle), False -> #(
       Model(..model, announced: current),
-      watershed_lustre.announce(handle, Editing(cursor: current)),
+      watershed_lustre.update_presence(handle, Editing(cursor: current)),
     )
   }
 }

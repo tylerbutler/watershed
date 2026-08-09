@@ -13,7 +13,7 @@ import lustre/element/html
 import lustre/event
 
 import doc_schema
-import watershed/presence.{type Peer}
+import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed_js.{type Document, type SharedCounter, type SharedMap}
 import watershed_lustre
@@ -72,7 +72,7 @@ type Model {
     flags: Int,
     focus: Option(String),
     presence: Option(Handle(SurveyPresence)),
-    peers: List(Peer(SurveyPresence)),
+    peers: List(presence.PresenceEntry(SurveyPresence)),
     error: Option(String),
   )
 }
@@ -87,7 +87,7 @@ type Msg {
   AddFlag
   FocusStation(String)
   PresenceStarted(Handle(SurveyPresence))
-  PeersChanged(List(Peer(SurveyPresence)))
+  PresenceEvent(presence.Event(SurveyPresence))
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
@@ -146,19 +146,20 @@ fn bootstrap_effect(doc: Document) -> Effect(Msg) {
 fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
-    user_id: model.user_id,
-    config: presence.default_config,
-    encode: encode_presence,
-    decode: presence_decoder(),
+    config: presence.config(encode_presence, presence_decoder()),
+    initial: SurveyPresence(station: model.focus),
     started: PresenceStarted,
-    on_peers: PeersChanged,
+    on_event: PresenceEvent,
   )
 }
 
 fn announce_effect(model: Model) -> Effect(Msg) {
   case model.presence {
     Some(handle) ->
-      watershed_lustre.announce(handle, SurveyPresence(station: model.focus))
+      watershed_lustre.update_presence(
+        handle,
+        SurveyPresence(station: model.focus),
+      )
     None -> effect.none()
   }
 }
@@ -225,12 +226,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, announce_effect(model))
     }
 
-    PresenceStarted(handle) -> {
-      let model = Model(..model, presence: Some(handle))
-      #(model, announce_effect(model))
-    }
+    PresenceStarted(handle) -> #(
+      Model(..model, presence: Some(handle)),
+      effect.none(),
+    )
 
-    PeersChanged(peers) -> #(Model(..model, peers: peers), effect.none())
+    PresenceEvent(event) ->
+      case event {
+        presence.Failed(_) -> #(model, effect.none())
+        presence.State(entries) | presence.Changed(_, entries) -> #(
+          Model(..model, peers: remote_entries(model, entries)),
+          effect.none(),
+        )
+      }
   }
 }
 
@@ -314,14 +322,30 @@ fn readings_view(readings: List(#(String, String))) -> Element(Msg) {
   }
 }
 
-fn peers_text(peers: List(Peer(SurveyPresence))) -> String {
+/// Everyone but this surveyor. Presence state includes the local session by
+/// design, so the roster is filtered here rather than in the driver.
+fn remote_entries(
+  model: Model,
+  entries: List(presence.PresenceEntry(SurveyPresence)),
+) -> List(presence.PresenceEntry(SurveyPresence)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
+  }
+}
+
+fn peers_text(peers: List(presence.PresenceEntry(SurveyPresence))) -> String {
   case peers {
     [] -> "No other surveyors connected."
     _ ->
       peers
       |> list.map(fn(peer) {
-        let SurveyPresence(station:) = peer.payload
-        peer.user
+        let SurveyPresence(station:) = peer.meta
+        peer.key
         <> case station {
           Some(station) -> " is inspecting " <> station
           None -> " is connected"

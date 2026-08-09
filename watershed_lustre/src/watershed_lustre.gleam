@@ -29,14 +29,13 @@
 //// Edits and reads stay on `watershed_js` (`set`, `get`, `entries`, …); this
 //// package only wraps the callback-shaped surface. JavaScript target only.
 
-import gleam/dynamic/decode.{type Decoder}
 import gleam/javascript/promise
 import gleam/json.{type Json}
 
 import lustre/effect.{type Effect}
 
-import watershed/presence.{type Config, type Peer}
-import watershed/presence_js.{type Handle}
+import watershed/presence
+import watershed/presence_js
 
 import watershed/claims_kernel
 import watershed/counter_kernel
@@ -669,43 +668,51 @@ pub fn force_reconnect(document: Document) -> Effect(msg) {
 
 // ── Presence ─────────────────────────────────────────────────────────────────
 //
-// The library's heartbeat presence driver as effects. The driver owns the
-// heartbeat/TTL lifecycle over ephemeral ripples; this package adds the same
-// microtask deferral every other binding has (the deferral PS2 deliberately
-// left out) and hands the `Handle` back so `announce` can be an effect too.
+// The library's presence driver as effects. The driver owns the whole
+// lifecycle — negotiating server or ripple mode, joining, rejoining after a
+// reconnect, and expiring silent peers in ripple mode. This package adds the
+// same microtask deferral every other binding has, so a presence callback can
+// never dispatch during `update`, and hands the `Handle` back so
+// `update_presence` and `stop_presence` can be effects too.
 
-/// Start tracking presence on `document`. `started` fires with the driver
-/// `Handle` (keep it in your model to `announce` later); `on_peers` fires with
-/// the sorted roster whenever the visible peer set changes — re-render
-/// unconditionally on it. The driver owns heartbeat + TTL expiry.
+/// Start tracking presence on `document` with `initial` as this client's
+/// metadata.
+///
+/// `started` fires with the driver `Handle` — keep it in your model to update
+/// later. `on_event` fires with each `presence.Event`: a `State` replacing the
+/// roster wholesale, a `Changed` carrying both a delta and the resulting
+/// roster, or a `Failed`. Render on whichever suits; the roster in `Changed` is
+/// always complete.
 pub fn presence(
   document document: Document,
-  user_id user_id: String,
-  config config: Config,
-  encode encode: fn(a) -> Json,
-  decode decode: Decoder(a),
-  started started: fn(Handle(a)) -> msg,
-  on_peers on_peers: fn(List(Peer(a))) -> msg,
+  config config: presence.Config(a),
+  initial initial: a,
+  started started: fn(presence_js.Handle(a)) -> msg,
+  on_event on_event: fn(presence.Event(a)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let handle =
     presence_js.start(
       document: document,
-      user_id: user_id,
       config: config,
-      encode: encode,
-      decode: decode,
-      on_change: fn(peers) {
-        queue_microtask(fn() { dispatch(on_peers(peers)) })
+      initial: initial,
+      on_event: fn(event) {
+        queue_microtask(fn() { dispatch(on_event(event)) })
       },
     )
   queue_microtask(fn() { dispatch(started(handle)) })
 }
 
-/// Announce this client's current payload through the driver: broadcasts now
-/// and keeps the heartbeat alive. Fire-and-forget — no message is dispatched
-/// back.
-pub fn announce(handle: Handle(a), payload: a) -> Effect(msg) {
+/// Replace this client's presence metadata. Fire-and-forget — no message is
+/// dispatched back.
+pub fn update_presence(handle: presence_js.Handle(a), meta: a) -> Effect(msg) {
   use _dispatch <- effect.from
-  presence_js.announce(handle, payload)
+  presence_js.update(handle, meta)
+}
+
+/// Stop tracking presence. In server mode peers see the departure at once; in
+/// ripple mode they see it when the TTL expires.
+pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
+  use _dispatch <- effect.from
+  presence_js.stop(handle)
 }
