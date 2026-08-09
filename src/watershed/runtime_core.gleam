@@ -76,12 +76,10 @@ pub type Core {
     /// moment replay completes.
     ///
     /// It is held aside rather than applied immediately because it describes
-    /// the room *now*, and replay is about the room *then*. It is still worth
-    /// adopting at the end: while a summary carries no roster, a summarized
-    /// bootstrap's reconstructed membership under-reports the room, and an
-    /// under-reported roster freezes consensus quorums that are too small —
-    /// the FP1 failure. Taking the handshake's roster at the hand-off bounds
-    /// that damage to the replay window.
+    /// the room *now*, and replay is about the room *then*. Adopting it at the
+    /// hand-off is still right: once the log is exhausted the client is live,
+    /// and the handshake is the better account of who is in the room than a
+    /// checkpoint plus however much history happened to be served.
     live_members: Set(Int),
     /// True while historical messages are being replayed into this core, false
     /// once it is live.
@@ -175,12 +173,9 @@ pub type Summary {
     /// roster and advancing it with the replayed `join`/`leave` messages.
     ///
     /// `[]` is correct when replaying a document from the beginning: nobody
-    /// had joined at sequence number zero. It is **not** correct for a real
-    /// checkpoint, and the summary blob does not yet carry this — see
-    /// `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`. Until it does,
-    /// a summarized bootstrap under-reports the roster for ops replayed after
-    /// the checkpoint, which is a strictly smaller window than the bug it
-    /// replaces but not yet closed.
+    /// had joined at sequence number zero. For a real checkpoint it comes from
+    /// the summary blob's `members` (v4), captured alongside the snapshots by
+    /// the client that summarized.
     members: List(Int),
   )
 }
@@ -209,7 +204,7 @@ pub fn summary_from_blob(blob: SummaryBlob) -> Summary {
   Summary(
     sequence_number: blob.sequence_number,
     channels: list.map(blob.channels, fn(ch) { #(ch.address, ch.snapshot) }),
-    members: [],
+    members: blob.members,
   )
 }
 
@@ -305,13 +300,12 @@ fn replay(
 /// one place that can adopt the handshake's roster exactly once, however many
 /// pages the history took.
 ///
-/// Adopting it at all is a concession to the missing checkpoint roster. The
-/// replayed `join`/`leave` messages reconstruct membership exactly when the
-/// log runs from sequence number zero, and then this is a no-op. When the log
-/// starts at a checkpoint, the reconstruction under-reports the room by
-/// everyone who was already there — and an under-reported roster freezes
-/// consensus quorums that are too small, which is the FP1 failure. Taking the
-/// handshake's roster at the hand-off bounds that to the replay window.
+/// The reconstruction that precedes it is exact either way — from sequence
+/// number zero the `join`/`leave` messages rebuild the roster from nothing,
+/// and from a checkpoint they advance the roster the blob recorded — so this
+/// is not a correction. It is the hand-off itself: replay reasons about the
+/// room at each historical sequence point, and from here on the only sequence
+/// point that matters is now.
 fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   case core.out_of_order {
     [] ->
@@ -330,6 +324,16 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
         to: head.sequence_number - 1,
       )
   }
+}
+
+/// The roster to record in a summary, as kernel-side integer ids.
+///
+/// `summarize` only runs on a synced client, so at that moment `core.members`
+/// *is* the roster at `core.last_seen_sn` — the same sequence number the blob
+/// records. That pairing is what makes the checkpoint roster meaningful, and
+/// it is why the two are captured together rather than separately.
+pub fn summary_members(core: Core) -> List(Int) {
+  core.members |> set.to_list |> list.sort(by: int.compare)
 }
 
 pub fn summary_channels(core: Core) -> List(#(String, Snapshot)) {

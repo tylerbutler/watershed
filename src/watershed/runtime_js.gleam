@@ -1602,6 +1602,7 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
                 tenant: state.connect_message.tenant_id,
                 token: token,
                 sequence_number: core.last_seen_sn,
+                members: runtime_core.summary_members(core),
                 channels: runtime_core.summary_channels(core),
               )
               |> promise.map(fn(result) {

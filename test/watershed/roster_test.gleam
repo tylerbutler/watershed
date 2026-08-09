@@ -28,8 +28,11 @@ import signet/types as token
 import spillway/message
 import spillway/types
 
+import watershed/channel
 import watershed/client_id
+import watershed/pact_map_kernel
 import watershed/runtime_core.{type Core}
+import watershed/wire/ops
 
 const our_client_id = "default_doc_2"
 
@@ -131,6 +134,87 @@ pub fn membership_payload_shapes_are_not_interchangeable_test() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Checkpoint roster
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The checkpoint roster governs *replay*, and the handshake's roster takes
+/// over at the hand-off to live. Pinning the hand-off matters because the
+/// checkpoint roster is stale by definition — everything that happened since
+/// is in the log, and once the log is exhausted the handshake is authoritative.
+pub fn go_live_adopts_the_handshake_roster_over_the_checkpoint_test() {
+  let core =
+    bootstrap_from_summary(
+      members: [peer_client_id, third_client_id],
+      channels: [],
+      at: 5,
+      initial_clients: [peer_client_id],
+      initial_messages: [],
+    )
+
+  members(core) |> expect.to_equal(ids([our_client_id, peer_client_id]))
+}
+
+/// The checkpoint roster is a starting point, not a fixed set: the sequenced
+/// membership messages replayed after it still move it, and a proposal
+/// sequenced later is judged against the moved roster.
+pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() {
+  let core =
+    bootstrap_from_summary(
+      members: [our_client_id, peer_client_id, third_client_id],
+      channels: [#("pact", channel.PactMapSnapshot([]))],
+      at: 5,
+      initial_clients: [],
+      initial_messages: [
+        leave_msg(third_client_id, 6),
+        pact_set_msg(
+          author: peer_client_id,
+          sn: 7,
+          key: "bpm",
+          value: json.int(128),
+        ),
+      ],
+    )
+
+  // The departed client is not owed a signoff the pact would wait on forever.
+  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  pending.expected_signoffs
+  |> list.sort(by: int.compare)
+  |> expect.to_equal(ids([our_client_id, peer_client_id]))
+}
+
+/// The assertion the consensus replay work could not make until the blob
+/// carried a roster.
+///
+/// A proposal sequenced *after* the checkpoint freezes its signoff list from
+/// the roster at that moment. A client that was present froze it from the
+/// three clients in the room. A client bootstrapping from the checkpoint must
+/// reconstruct the same list — with a rosterless checkpoint it saw an empty
+/// room, froze a signoff list of one, and treated a pact the room was still
+/// deciding as already settled.
+pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_test() {
+  let core =
+    bootstrap_from_summary(
+      members: [our_client_id, peer_client_id, third_client_id],
+      channels: [#("pact", channel.PactMapSnapshot([]))],
+      at: 5,
+      initial_clients: [],
+      initial_messages: [
+        pact_set_msg(
+          author: peer_client_id,
+          sn: 6,
+          key: "bpm",
+          value: json.int(128),
+        ),
+      ],
+    )
+
+  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  pending.expected_signoffs
+  |> list.sort(by: int.compare)
+  |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -191,6 +275,63 @@ fn bootstrap_with(initial_clients: List(String)) -> Core {
     Ok(runtime_core.MissingPrefix(..)) ->
       panic as "expected bootstrap to complete without catch-up"
     Error(_) -> panic as "expected bootstrap to succeed"
+  }
+}
+
+/// Bootstrap seeded from a summary checkpoint, then replaying
+/// `initial_messages` on top of it.
+fn bootstrap_from_summary(
+  members members: List(String),
+  channels channels: List(#(String, channel.Snapshot)),
+  at at: Int,
+  initial_clients initial_clients: List(String),
+  initial_messages initial_messages: List(types.SequencedDocumentMessage),
+) -> Core {
+  let connected =
+    message.ConnectedMessage(
+      ..connected_message(initial_clients),
+      initial_messages: initial_messages,
+      checkpoint_sequence_number: Some(at),
+    )
+  let summary =
+    runtime_core.Summary(
+      sequence_number: at,
+      channels: channels,
+      members: list.map(members, client_id.to_int),
+    )
+
+  case runtime_core.bootstrap(connected, summary: Some(summary)) {
+    Ok(runtime_core.Complete(core)) -> core
+    Ok(runtime_core.MissingPrefix(..)) ->
+      panic as "expected bootstrap to complete without catch-up"
+    Error(_) -> panic as "expected bootstrap to succeed"
+  }
+}
+
+/// A sequenced `PactMap` proposal, as a peer's `Set` arrives on the wire.
+fn pact_set_msg(
+  author author: String,
+  sn sn: Int,
+  key key: String,
+  value value: json.Json,
+) -> types.SequencedDocumentMessage {
+  let contents =
+    ops.encode_pact_map_envelope(
+      "pact",
+      pact_map_kernel.Set(key, Some(value), 0),
+    )
+  types.SequencedDocumentMessage(
+    ..system_msg("op", None, sn),
+    client_id: Some(author),
+    client_sequence_number: 1,
+    contents: to_dynamic(contents),
+  )
+}
+
+fn to_dynamic(value: json.Json) -> Dynamic {
+  case json.parse(json.to_string(value), decode.dynamic) {
+    Ok(parsed) -> parsed
+    Error(_) -> panic as "fixture JSON failed to re-parse"
   }
 }
 

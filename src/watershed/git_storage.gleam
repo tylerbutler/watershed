@@ -90,17 +90,23 @@ pub fn fetch_summary(
 /// Serialize the given channel state as a summary blob, upload it as a git
 /// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
 /// summarize op's `head` and `handle`).
+///
+/// `members` is the connected roster at `sequence_number`. It travels with the
+/// snapshots rather than beside them because it is checkpoint state of exactly
+/// the same kind — the consensus kernels read it when replaying anything
+/// sequenced after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
   sequence_number sequence_number: Int,
+  members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
 ) -> Result(String, String) {
   use blob_sha <- result.try(post_json(
     blobs_url(base_url, tenant),
     token,
-    blob_body(sequence_number, channels),
+    blob_body(sequence_number, members, channels),
     sha_decoder(),
   ))
   post_json(
@@ -178,17 +184,23 @@ pub fn fetch_summary(
 /// Serialize the given channel state as a summary blob, upload it as a git
 /// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
 /// summarize op's `head` and `handle`).
+///
+/// `members` is the connected roster at `sequence_number`. It travels with the
+/// snapshots rather than beside them because it is checkpoint state of exactly
+/// the same kind — the consensus kernels read it when replaying anything
+/// sequenced after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
   sequence_number sequence_number: Int,
+  members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
 ) -> Promise(Result(String, String)) {
   use blob_sha <- promise.try_await(post_json(
     blobs_url(base_url, tenant),
     token,
-    blob_body(sequence_number, channels),
+    blob_body(sequence_number, members, channels),
     sha_decoder(),
   ))
   post_json(
@@ -297,10 +309,11 @@ fn versions_url(
 
 fn blob_body(
   sequence_number: Int,
+  members: List(Int),
   channels: List(#(String, channel.Snapshot)),
 ) -> String {
   let blob_json =
-    summary_blob.encode_channels(sequence_number, channels)
+    summary_blob.encode_channels(sequence_number, members, channels)
     |> json.to_string
   let content = bit_array.base64_encode(<<blob_json:utf8>>, True)
   json.object([

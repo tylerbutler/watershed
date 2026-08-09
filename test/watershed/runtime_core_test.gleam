@@ -639,7 +639,7 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() {
   // upload, so at or past the capture point — and using it would claim the
   // seeded state is newer than it is.
   let blob =
-    summary_blob.SummaryBlob(sequence_number: 5, channels: [
+    summary_blob.SummaryBlob(sequence_number: 5, members: [1, 2], channels: [
       summary_blob.ChannelSnapshot(
         address: "root",
         snapshot: channel.MapSnapshot([#("die", json.int(4))]),
@@ -650,6 +650,8 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() {
   summary.sequence_number |> expect.to_equal(5)
   summary.channels
   |> expect.to_equal([#("root", channel.MapSnapshot([#("die", json.int(4))]))])
+  // The roster is checkpoint state like any snapshot, and rides along with it.
+  summary.members |> expect.to_equal([1, 2])
 }
 
 pub fn bootstrap_from_summary_replays_the_upload_window_test() {

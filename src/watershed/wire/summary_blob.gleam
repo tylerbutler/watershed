@@ -1,12 +1,22 @@
-//// The summary snapshot blob (v3): the format `summarize` uploads to levee's
+//// The summary snapshot blob (v4): the format `summarize` uploads to levee's
 //// git storage and fresh connections bootstrap from. A *storage* format, not
 //// a wire format — versioned independently so loaders reject snapshots they
 //// don't understand rather than misread them.
 ////
-//// v3 carries one `{address, type, data}` object per channel, `data` being
-//// the channel-type-dependent snapshot payload (see `channel.Snapshot`).
-//// There is no v2 loader: formats are cut clean while nothing external
-//// consumes them, and stored documents are reset rather than migrated.
+//// A blob carries one `{address, type, data}` object per channel, `data` being
+//// the channel-type-dependent snapshot payload (see `channel.Snapshot`), plus
+//// the connected roster at the captured sequence number.
+////
+//// v4 adds `members`. Membership is checkpoint state exactly like a kernel
+//// snapshot, because the consensus kernels read it: a `PactMap` freezes a
+//// signoff list from the roster and `TaskManager` judges a volunteer's
+//// authorship against it. Without it, a client bootstrapping from a checkpoint
+//// replays every later op against an empty room — which does not fail loudly,
+//// it silently settles pacts the room is still deciding.
+////
+//// There is no v3 loader, and there was no v2 one: formats are cut clean while
+//// nothing external consumes them, and stored documents are reset rather than
+//// migrated.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
@@ -16,10 +26,18 @@ import watershed/channel
 
 /// Current on-disk format version. Loaders reject anything they don't
 /// recognise rather than misread a foreign snapshot.
-pub const version = 3
+pub const version = 4
 
 pub type SummaryBlob {
-  SummaryBlob(sequence_number: Int, channels: List(ChannelSnapshot))
+  SummaryBlob(
+    sequence_number: Int,
+    /// The connected roster at `sequence_number`, as the kernel-side integer
+    /// ids consensus kernels tie-break on — the same derivation
+    /// `client_id.to_int` performs, so it matches what a replayed `join`
+    /// produces.
+    members: List(Int),
+    channels: List(ChannelSnapshot),
+  )
 }
 
 pub type ChannelSnapshot {
@@ -28,11 +46,13 @@ pub type ChannelSnapshot {
 
 pub fn encode_channels(
   sequence_number: Int,
+  members: List(Int),
   channels: List(#(String, channel.Snapshot)),
 ) -> Json {
   json.object([
     #("watershedSummaryVersion", json.int(version)),
     #("sequenceNumber", json.int(sequence_number)),
+    #("members", json.array(members, json.int)),
     #(
       "channels",
       json.array(channels, fn(entry) {
@@ -61,18 +81,20 @@ pub fn decoder() -> Decoder(SummaryBlob) {
   case blob_version == version {
     True -> {
       use sequence_number <- decode.field("sequenceNumber", decode.int)
+      use members <- decode.field("members", decode.list(decode.int))
       use channels <- decode.field(
         "channels",
         decode.list(channel_snapshot_decoder()),
       )
       decode.success(SummaryBlob(
         sequence_number: sequence_number,
+        members: members,
         channels: channels,
       ))
     }
     False ->
       decode.failure(
-        SummaryBlob(sequence_number: 0, channels: []),
+        SummaryBlob(sequence_number: 0, members: [], channels: []),
         "watershedSummaryVersion " <> int.to_string(version),
       )
   }

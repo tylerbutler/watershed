@@ -246,10 +246,13 @@ pub fn summary_blob_round_trips_test() {
     #("nested", json.object([#("a", json.array([1, 2], json.int))])),
   ]
   let encoded =
-    summary_blob.encode_channels(7, [#("root", channel.MapSnapshot(entries))])
+    summary_blob.encode_channels(7, [11, 12], [
+      #("root", channel.MapSnapshot(entries)),
+    ])
     |> json.to_string
   let assert Ok(blob) = summary_blob.decode(encoded)
   blob.sequence_number |> expect.to_equal(7)
+  blob.members |> expect.to_equal([11, 12])
   let assert [decoded_channel] = blob.channels
   decoded_channel.address |> expect.to_equal("root")
   let assert channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
@@ -1023,7 +1026,7 @@ pub fn decode_op_contents_rejects_bad_attach_test() {
   }
 }
 
-pub fn summary_blob_v3_round_trips_test() {
+pub fn summary_blob_v4_round_trips_test() {
   let entries = [#("a", json.int(1))]
   let channel_json =
     json.object([
@@ -1038,32 +1041,59 @@ pub fn summary_blob_v3_round_trips_test() {
     ])
   let raw =
     json.object([
-      #("watershedSummaryVersion", json.int(3)),
+      #("watershedSummaryVersion", json.int(4)),
       #("sequenceNumber", json.int(5)),
+      #("members", json.array([2, 7], json.int)),
       #("channels", json.array([channel_json], fn(c) { c })),
     ])
     |> json.to_string
   case summary_blob.decode(raw) {
     Ok(blob) -> {
       blob.sequence_number |> expect.to_equal(5)
+      blob.members |> expect.to_equal([2, 7])
       let assert [ch] = blob.channels
       ch.address |> expect.to_equal("root")
       ch.snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
-    Error(_) -> panic as "v3 decode failed"
+    Error(_) -> panic as "v4 decode failed"
   }
 }
 
-pub fn summary_blob_rejects_superseded_version_test() {
-  // The v2 shape (per-channel `entries`, version 2) has no loader: formats
-  // are cut clean while nothing external consumes them.
-  let raw =
+pub fn summary_blob_rejects_superseded_versions_test() {
+  // Neither the v2 shape (per-channel `entries`) nor v3 (channels but no
+  // roster) has a loader: formats are cut clean while nothing external
+  // consumes them, and stored documents are reset rather than migrated.
+  let v2 =
     "{\"watershedSummaryVersion\": 2, \"sequenceNumber\": 5,"
     <> " \"channels\": [{\"address\": \"root\", \"type\": \"map\","
     <> " \"entries\": [{\"key\": \"a\", \"value\": 1}]}]}"
-  case summary_blob.decode(raw) {
+  case summary_blob.decode(v2) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected the superseded v2 format to be rejected"
+  }
+
+  // v3 is well-formed apart from the missing roster, which is exactly why it
+  // must be refused rather than read as an empty room: an empty roster settles
+  // pacts the room is still deciding.
+  let v3 =
+    "{\"watershedSummaryVersion\": 3, \"sequenceNumber\": 5,"
+    <> " \"channels\": [{\"address\": \"root\", \"type\": \"map\","
+    <> " \"data\": [{\"key\": \"a\", \"value\": 1}]}]}"
+  case summary_blob.decode(v3) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected the superseded v3 format to be rejected"
+  }
+}
+
+/// A v4 blob missing `members` entirely is refused rather than defaulted to an
+/// empty roster — the same reason v3 is.
+pub fn summary_blob_v4_requires_members_test() {
+  let raw =
+    "{\"watershedSummaryVersion\": 4, \"sequenceNumber\": 5,"
+    <> " \"channels\": []}"
+  case summary_blob.decode(raw) {
+    Error(_) -> Nil
+    Ok(_) -> panic as "expected a v4 blob without members to be rejected"
   }
 }
 
@@ -1082,8 +1112,9 @@ pub fn summary_blob_unknown_channel_type_rejected_test() {
     ])
   let raw =
     json.object([
-      #("watershedSummaryVersion", json.int(3)),
+      #("watershedSummaryVersion", json.int(4)),
       #("sequenceNumber", json.int(5)),
+      #("members", json.array([], json.int)),
       #("channels", json.array([channel_json], fn(c) { c })),
     ])
     |> json.to_string
@@ -1288,7 +1319,7 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
   let assert Ok(#(or_map, _, _, _)) =
     or_map_kernel.increment(or_map, "score", 2)
   let encoded =
-    summary_blob.encode_channels(9, [
+    summary_blob.encode_channels(9, [3], [
       #("root", channel.MapSnapshot([#("k", json.int(1))])),
       #("tally", channel.CounterSnapshot(7)),
       #("scores", channel.OrMapSnapshot(or_map.mode, or_map.optimistic)),
