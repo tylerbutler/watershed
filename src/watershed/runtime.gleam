@@ -467,6 +467,13 @@ pub type Msg {
   SubmitRipple(ripple_type: String, content: Json)
   /// Register a subscriber invoked for every inbound ripple on the document.
   SubscribeRipple(subscriber: fn(SignalMessage) -> Nil)
+  /// Push a presence-lane command (`joinPresence`, `updatePresence`,
+  /// `leavePresence`). Unlike a ripple this needs no client id: the payload
+  /// carries no identity, because the server derives key and session from the
+  /// authenticated connection.
+  SubmitPresence(event: String, payload: Json)
+  /// Register a subscriber invoked for every presence-lane frame.
+  SubscribePresence(subscriber: fn(PresenceFrame) -> Nil)
   // Lifecycle
   Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
   AwaitReady(reply: Subject(Result(Nil, String)))
@@ -474,6 +481,27 @@ pub type Msg {
   /// runtime through its reconnect/reconcile path.
   DropChannel
   Shutdown
+}
+
+@target(erlang)
+/// One ordered inbox for the presence lane, carrying both data frames and the
+/// connection lifecycle a presence driver has to react to.
+///
+/// They share a channel deliberately: a driver that learned of a lost session
+/// from one source and of diffs from another could apply a diff belonging to a
+/// dead session. In one stream that reordering is not representable.
+pub type PresenceFrame {
+  /// A `presence_state` snapshot, left undecoded — the runtime has no
+  /// application metadata decoder, unlike the op lane.
+  PresenceState(payload: Dynamic)
+  PresenceDiff(payload: Dynamic)
+  PresenceError(payload: Dynamic)
+  /// A fresh document session settled: a new server-assigned client id and the
+  /// features this handshake negotiated. Fires on the initial handshake and on
+  /// every reconnect, which is what a driver rejoins on.
+  PresenceSession(client_id: String, presence_v1: Bool)
+  /// The session went away. Any presence the server held for it is gone.
+  PresenceSessionLost
 }
 
 @target(erlang)
@@ -503,6 +531,14 @@ type State {
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
+    /// Presence-lane subscribers. Like ripples, presence is unsequenced and
+    /// never touches the core.
+    presence_subscribers: List(fn(PresenceFrame) -> Nil),
+    /// What the *current* connection's handshake advertised. Deliberately on
+    /// `State` rather than the core: the core survives a reconnect intact, so a
+    /// capability parked there would outlive the connection that negotiated it
+    /// and could claim support on a server that has none.
+    supported_features: Dict(String, Dynamic),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
     self: Subject(Msg),
   )
@@ -555,6 +591,8 @@ pub fn start_with_transport(
         phase: Connecting([]),
         subscribers: [],
         ripple_subscribers: [],
+        presence_subscribers: [],
+        supported_features: dict.new(),
         claim_waiters: dict.new(),
         self: self,
       )
@@ -1514,6 +1552,22 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         ]),
       )
 
+    SubmitPresence(event, payload) -> {
+      case state.channel {
+        Some(channel) -> push(channel, event, payload)
+        None -> Nil
+      }
+      actor.continue(state)
+    }
+
+    SubscribePresence(subscriber) ->
+      actor.continue(
+        State(..state, presence_subscribers: [
+          subscriber,
+          ..state.presence_subscribers
+        ]),
+      )
+
     AwaitReady(reply) ->
       case state.phase {
         Ready(_, _) -> {
@@ -1622,6 +1676,11 @@ fn handle_inbound(
           decode.run(payload, socket.connected_message_decoder()),
           "connect_document_success payload",
         )
+      // Record what this connection negotiated before anything acts on it, and
+      // on both paths — a reconnect may land on a different node with a
+      // different answer.
+      let state =
+        State(..state, supported_features: connected.supported_features)
       case state.phase {
         Connecting(_) -> {
           let summary = case connected.summary_context {
@@ -1636,6 +1695,7 @@ fn handle_inbound(
             Ok(bootstrapped) -> {
               let core = complete_bootstrap(state, bootstrapped)
               notify_waiters(state.phase, Ok(Nil))
+              notify_presence_session(state, core)
               actor.continue(State(..state, phase: Ready(core, None)))
             }
             Error(core_error) ->
@@ -1649,6 +1709,10 @@ fn handle_inbound(
               connected.checkpoint_sequence_number,
               core.last_seen_sn,
             )
+          // Presence is unsequenced, so it does not wait for the op catch-up
+          // `settle_reconnect` may still be pending — rejoining now is both
+          // correct and the fastest way back to a roster.
+          notify_presence_session(state, core)
           settle_reconnect(state, core, checkpoint)
         }
         // A late duplicate success; nothing to do.
@@ -1719,6 +1783,21 @@ fn handle_inbound(
         Ok(ripple) ->
           list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
       }
+      actor.continue(state)
+    }
+
+    "presence_state" -> {
+      notify_presence(state, PresenceState(payload))
+      actor.continue(state)
+    }
+
+    "presence_diff" -> {
+      notify_presence(state, PresenceDiff(payload))
+      actor.continue(state)
+    }
+
+    "presence_error" -> {
+      notify_presence(state, PresenceError(payload))
       actor.continue(state)
     }
 
@@ -2250,6 +2329,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 /// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   connect_transport(state.transport, state.self)
+  notify_session_lost(state)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -2262,6 +2342,7 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
     Some(channel) -> channel.close()
     None -> Nil
   }
+  notify_session_lost(state)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -2520,7 +2601,40 @@ fn fan_out(
 fn fail(state: State, reason: String) -> State {
   let state = abort_claim_waiters(state)
   notify_waiters(state.phase, Error(reason))
+  notify_session_lost(state)
   State(..state, phase: Failed(reason))
+}
+
+@target(erlang)
+fn notify_presence(state: State, frame: PresenceFrame) -> Nil {
+  list.each(state.presence_subscribers, fn(handler) { handler(frame) })
+}
+
+@target(erlang)
+/// Announce a settled handshake, carrying the id and capability a driver needs
+/// to (re)join.
+fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
+  notify_presence(
+    state,
+    PresenceSession(
+      client_id: core.client_id,
+      presence_v1: socket.supports_feature(
+        state.supported_features,
+        socket.feature_presence_v1,
+      ),
+    ),
+  )
+}
+
+@target(erlang)
+/// Announce that a live session ended, but only when one was live: a socket
+/// that never reached `Ready`, or one already known to be down, has no presence
+/// to lose and must not report losing it twice.
+fn notify_session_lost(state: State) -> Nil {
+  case state.phase {
+    Ready(_, _) -> notify_presence(state, PresenceSessionLost)
+    _ -> Nil
+  }
 }
 
 @target(erlang)

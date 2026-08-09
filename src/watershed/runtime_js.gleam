@@ -127,6 +127,27 @@ pub type ClaimSubmitReply {
 }
 
 @target(javascript)
+/// One ordered inbox for the presence lane, carrying both data frames and the
+/// connection lifecycle a presence driver has to react to.
+///
+/// They share a channel deliberately: a driver that learned of a lost session
+/// from one source and of diffs from another could apply a diff belonging to a
+/// dead session. In one stream that reordering is not representable.
+pub type PresenceFrame {
+  /// A `presence_state` snapshot, left undecoded — the runtime has no
+  /// application metadata decoder, unlike the op lane.
+  PresenceState(payload: Dynamic)
+  PresenceDiff(payload: Dynamic)
+  PresenceError(payload: Dynamic)
+  /// A fresh document session settled: a new server-assigned client id and the
+  /// features this handshake negotiated. Fires on the initial handshake and on
+  /// every reconnect, which is what a driver rejoins on.
+  PresenceSession(client_id: String, presence_v1: Bool)
+  /// The session went away. Any presence the server held for it is gone.
+  PresenceSessionLost
+}
+
+@target(javascript)
 type Phase {
   Connecting
   /// Socket down and re-handshaking; holds the pre-reconnect core.
@@ -151,6 +172,14 @@ type State {
     /// Ephemeral-ripple subscribers. Ripples are document-scoped and
     /// non-sequenced, so they fan out independently of the op event stream.
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
+    /// Presence-lane subscribers. Like ripples, presence is unsequenced and
+    /// never touches the core.
+    presence_subscribers: List(fn(PresenceFrame) -> Nil),
+    /// What the *current* connection's handshake advertised. Deliberately on
+    /// `State` rather than the core: the core survives a reconnect intact, so a
+    /// capability parked there would outlive the connection that negotiated it
+    /// and could claim support on a server that has none.
+    supported_features: Dict(String, Dynamic),
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -221,6 +250,8 @@ pub fn start_with_transport(
       phase: Connecting,
       subscribers: [],
       ripple_subscribers: [],
+      presence_subscribers: [],
+      supported_features: dict.new(),
       claim_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
@@ -1485,12 +1516,59 @@ pub fn subscribe_ripples(
 }
 
 @target(javascript)
+/// Push a presence-lane command (`joinPresence`, `updatePresence`,
+/// `leavePresence`). A no-op before the channel exists.
+///
+/// Unlike `send_ripple` this does not wait for a client id: presence payloads
+/// carry no identity at all, because the server derives key and session from
+/// the authenticated connection.
+pub fn send_presence(runtime: Runtime, event: String, payload: Json) -> Nil {
+  case cell_get(runtime.cell).channel {
+    Some(channel) -> push_json(channel, event, payload)
+    None -> Nil
+  }
+}
+
+@target(javascript)
+/// Register a callback for every presence-lane frame, data and lifecycle alike.
+/// Payloads are left as `Dynamic` for the typed driver to decode.
+pub fn subscribe_presence(
+  runtime: Runtime,
+  handler: fn(PresenceFrame) -> Nil,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  cell_set(
+    runtime.cell,
+    State(..state, presence_subscribers: [handler, ..state.presence_subscribers]),
+  )
+}
+
+@target(javascript)
+/// Whether the *current* connection's handshake advertised `presence_v1`.
+/// False before the first handshake settles.
+pub fn supports_presence(runtime: Runtime) -> Bool {
+  socket.supports_feature(
+    cell_get(runtime.cell).supported_features,
+    socket.feature_presence_v1,
+  )
+}
+
+@target(javascript)
+/// The authenticated user id this runtime connected as. Server presence derives
+/// the presence key from the same value; ripple mode reads it here so the two
+/// implementations key their rosters identically.
+pub fn user_id(runtime: Runtime) -> String {
+  cell_get(runtime.cell).connect_message.client.user.id
+}
+
+@target(javascript)
 /// Fault-injection hook: drop the socket to force the reconnect/reconcile path.
 pub fn force_reconnect(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(runtime.cell, state.phase)
       channel.drop()
     }
     _, _ -> Nil
@@ -1501,6 +1579,7 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
 pub fn close(runtime: Runtime) -> Nil {
   let state = abort_claim_waiters(cell_get(runtime.cell))
   cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
+  notify_session_lost(runtime.cell, state.phase)
   case state.channel {
     Some(channel) -> channel.close()
     None -> Nil
@@ -1713,6 +1792,7 @@ fn on_join(cell: Cell(State)) -> Nil {
         Ready(core, _) -> {
           // Rejoin without an intervening close event; treat as reconnect.
           cell_set(cell, State(..state, phase: Reconnecting(core)))
+          notify_session_lost(cell, state.phase)
           push_connect(channel, state.connect_message, Some(core.last_seen_sn))
         }
         Failed(_) -> Nil
@@ -1725,8 +1805,10 @@ fn on_close(cell: Cell(State)) -> Nil {
   let state = cell_get(cell)
   case state.phase {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
-    Ready(core, _) | Reconnecting(core) ->
+    Ready(core, _) | Reconnecting(core) -> {
       cell_set(cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(cell, state.phase)
+    }
     // Not yet connected: Phoenix will retry the join, which re-fires on_join.
     _ -> Nil
   }
@@ -1740,6 +1822,9 @@ fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
     "op" -> on_op(cell, payload)
     "nack" -> on_nack(cell, payload)
     "signal" -> on_ripple(cell, payload)
+    "presence_state" -> notify_presence(cell, PresenceState(payload))
+    "presence_diff" -> notify_presence(cell, PresenceDiff(payload))
+    "presence_error" -> notify_presence(cell, PresenceError(payload))
     _ -> Nil
   }
 }
@@ -1749,6 +1834,16 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
   case decode.run(payload, socket.connected_message_decoder()) {
     Error(_) -> fail(cell, "malformed connect_document_success payload")
     Ok(connected) -> {
+      // Record what this connection negotiated before anything acts on it, and
+      // on both paths — a reconnect may land on a different node with a
+      // different answer.
+      cell_set(
+        cell,
+        State(
+          ..cell_get(cell),
+          supported_features: connected.supported_features,
+        ),
+      )
       let state = cell_get(cell)
       case state.phase {
         Connecting ->
@@ -1768,6 +1863,10 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
               core.last_seen_sn,
             )
           settle_reconnect(cell, core, checkpoint)
+          // Presence is unsequenced, so it does not wait for the op catch-up
+          // `settle_reconnect` may still be pending — rejoining now is both
+          // correct and the fastest way back to a roster.
+          notify_presence_session(cell, core)
         }
         _ -> Nil
       }
@@ -1842,6 +1941,9 @@ fn continue_bootstrap(
     runtime_core.Complete(core) -> {
       cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
       fire_ready(cell, Ok(Nil))
+      // The one completion point shared by the synchronous and
+      // summary-fetching bootstrap paths.
+      notify_presence_session(cell, core)
     }
     runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
       let state = cell_get(cell)
@@ -1946,6 +2048,7 @@ fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
           case state.phase, state.channel {
             Ready(core, _), Some(channel) -> {
               cell_set(cell, State(..state, phase: Reconnecting(core)))
+              notify_session_lost(cell, state.phase)
               channel.drop()
             }
             _, _ -> Nil
@@ -2348,10 +2451,45 @@ fn on_ripple(cell: Cell(State), payload: Dynamic) -> Nil {
 }
 
 @target(javascript)
+fn notify_presence(cell: Cell(State), frame: PresenceFrame) -> Nil {
+  let state = cell_get(cell)
+  list.each(state.presence_subscribers, fn(handler) { handler(frame) })
+}
+
+@target(javascript)
+/// Announce a settled handshake, carrying the id and capability a driver needs
+/// to (re)join.
+fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
+  let state = cell_get(cell)
+  notify_presence(
+    cell,
+    PresenceSession(
+      client_id: core.client_id,
+      presence_v1: socket.supports_feature(
+        state.supported_features,
+        socket.feature_presence_v1,
+      ),
+    ),
+  )
+}
+
+@target(javascript)
+/// Announce that a live session ended, but only when one was live: a socket
+/// that never reached `Ready`, or one already known to be down, has no presence
+/// to lose and must not report losing it twice.
+fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
+  case previous {
+    Ready(_, _) -> notify_presence(cell, PresenceSessionLost)
+    _ -> Nil
+  }
+}
+
+@target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
   let state = abort_claim_waiters(cell_get(cell))
   fire_ready(cell, Error(reason))
   cell_set(cell, State(..state, phase: Failed(reason)))
+  notify_session_lost(cell, state.phase)
 }
 
 @target(javascript)

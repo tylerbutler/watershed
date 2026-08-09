@@ -307,6 +307,26 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   ))
 }
 
+/// The `supportedFeatures` key a server sets to advertise the presence lane.
+pub const feature_presence_v1 = "presence_v1"
+
+/// Whether a server's `connect_document_success` `supportedFeatures` advertises
+/// `feature`. Takes the dict rather than the whole message so a runtime can
+/// answer the same question from the value it stashed at handshake time.
+///
+/// Strict on purpose: the feature must be present *and* decode as `True`. A
+/// server that has never heard of a feature omits the key, and treating an
+/// unparseable value as support would send it traffic it cannot answer.
+pub fn supports_feature(
+  features: dict.Dict(String, Dynamic),
+  feature: String,
+) -> Bool {
+  case dict.get(features, feature) {
+    Ok(value) -> decode.run(value, decode.bool) == Ok(True)
+    Error(Nil) -> False
+  }
+}
+
 /// `summaryContext` sub-object of `connect_document_success`:
 /// `{handle, sequenceNumber}`.
 pub fn summary_context_decoder() -> Decoder(SummaryContext) {

@@ -170,10 +170,29 @@ fn connected_fixture() -> String {
     ],
     \"initialSignals\": [],
     \"supportedVersions\": [\"^0.1.0\", \"^1.0.0\"],
-    \"supportedFeatures\": {},
+    \"supportedFeatures\": {\"presence_v1\": true, \"pancakes\": \"yes\"},
     \"version\": \"^0.1.0\",
     \"checkpointSequenceNumber\": 1
   }"
+}
+
+pub fn supported_features_advertises_presence_test() {
+  let connected = parse(connected_fixture(), socket.connected_message_decoder())
+
+  socket.supports_feature(
+    connected.supported_features,
+    socket.feature_presence_v1,
+  )
+  |> expect.to_be_true
+
+  // A feature the server never mentions is unsupported...
+  socket.supports_feature(connected.supported_features, "telepathy_v1")
+  |> expect.to_be_false
+
+  // ...and so is one whose value is not a boolean `true`. Guessing here would
+  // send a server traffic it has no handler for.
+  socket.supports_feature(connected.supported_features, "pancakes")
+  |> expect.to_be_false
 }
 
 pub fn decode_connected_message_test() {

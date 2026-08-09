@@ -26,6 +26,9 @@ const CHANNEL_EVENTS = [
   "op",
   "nack",
   "signal",
+  "presence_state",
+  "presence_diff",
+  "presence_error",
 ];
 
 // Open a socket, join the document topic, and wire the runtime callbacks.
