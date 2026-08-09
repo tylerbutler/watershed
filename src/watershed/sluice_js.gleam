@@ -139,13 +139,72 @@ pub fn disconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
 }
 
 @target(javascript)
+/// Drop a client's socket and let it come back — the reconnect a real client
+/// survives, rather than a departure it does not.
+///
+/// The distinction from `disconnect` is the whole point. `disconnect` removes a
+/// client from the room for good; this severs the connection underneath a
+/// runtime that keeps its core — kernel state, pending consensus, and the
+/// in-flight queue all survive — and then lets it re-handshake. The server
+/// assigns it a **fresh client id**, exactly as floodgate does, so the returning
+/// client is a different member of the room than the one that left.
+///
+/// That is the window a lot of protocol bugs live in: ops sequenced while the
+/// client was away replay against the room as it was *then*, edits made during
+/// the gap are restamped and resubmitted, and a consensus kernel may owe
+/// signoffs under an identity that no longer exists.
+///
+/// Unlike the erlang driver this never re-runs `Transport.connect`, because the
+/// JS runtime never does either — its real transport is a Phoenix socket that
+/// auto-rejoins and re-fires `on_join` on the same channel. So the rejoin is
+/// modelled where it actually happens: the connection stays, and the *server*
+/// hands it a new identity.
+///
+/// The handshake completes on the next `settle`, like `connect`.
+pub fn reconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  let runtime = watershed_js.runtime_of(document)
+  case token_of(state.bindings, runtime) {
+    Error(_) -> Nil
+    Ok(token) ->
+      case list.key_find(state.conns, token) {
+        Error(_) -> Nil
+        Ok(conn) -> {
+          // The leave the server sequences when a socket goes away, then a
+          // fresh identity for the connection that comes back.
+          let #(core, rejoined) =
+            core.register(core.disconnect(state.core, conn.current))
+          transport_js.set_cell(
+            sluice.cell,
+            State(
+              ..state,
+              core: core,
+              conns: list.key_set(
+                state.conns,
+                token,
+                Conn(..conn, current: rejoined),
+              ),
+            ),
+          )
+          // Tell the runtime its socket went, then that it is back. The order
+          // matters: `on_close` is what moves it into its reconnecting phase, so
+          // the `connect_document` that `on_join` triggers carries `last_seen`
+          // and asks for a catch-up rather than a fresh bootstrap.
+          conn.on_close()
+          conn.on_join()
+        }
+      }
+  }
+}
+
+@target(javascript)
 fn apply_to_client(
   sluice: Sluice,
   document: watershed_js.Document,
   change: fn(core.Sluice, String) -> core.Sluice,
 ) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
-  case client_id_of(state.bindings, watershed_js.runtime_of(document)) {
+  case client_id_of(state, watershed_js.runtime_of(document)) {
     Ok(client_id) ->
       transport_js.set_cell(
         sluice.cell,
@@ -225,7 +284,7 @@ pub fn client_id(
   document: watershed_js.Document,
 ) -> Result(String, Nil) {
   client_id_of(
-    transport_js.get_cell(sluice.cell).bindings,
+    transport_js.get_cell(sluice.cell),
     watershed_js.runtime_of(document),
   )
 }
@@ -310,9 +369,17 @@ fn op_meta(frame: core.Outbound) -> #(Int, String) {
 fn make_transport(cell: Cell(State)) -> runtime_js.Transport {
   runtime_js.Transport(
     connect: fn(callbacks: runtime_js.TransportCallbacks) -> runtime_js.TransportHandle {
-      let client_id = register(cell, callbacks.on_event, callbacks.on_join)
+      let token =
+        register(
+          cell,
+          callbacks.on_event,
+          callbacks.on_join,
+          callbacks.on_close,
+        )
+      // Closes over the *token*, not the server-assigned id, so the handle keeps
+      // working after a reconnect reassigns the latter.
       runtime_js.TransportHandle(
-        push: fn(event, payload) { push(cell, client_id, event, payload) },
+        push: fn(event, payload) { push(cell, token, event, payload) },
         close: fn() { Nil },
         drop: fn() { Nil },
       )
@@ -325,6 +392,7 @@ fn register(
   cell: Cell(State),
   on_event: fn(String, Dynamic) -> Nil,
   on_join: fn() -> Nil,
+  on_close: fn() -> Nil,
 ) -> String {
   let state = transport_js.get_cell(cell)
   let #(core, client_id) = core.register(state.core)
@@ -333,7 +401,12 @@ fn register(
     State(
       ..state,
       core: core,
-      conns: [#(client_id, Conn(on_event, on_join)), ..state.conns],
+      // The minted id is both the token this connection is keyed by and its
+      // first server-assigned identity; only the latter moves.
+      conns: [
+        #(client_id, Conn(on_event, on_join, on_close, client_id)),
+        ..state.conns
+      ],
       last_registered: Some(client_id),
     ),
   )
@@ -341,20 +414,24 @@ fn register(
 }
 
 @target(javascript)
-fn push(
-  cell: Cell(State),
-  client_id: String,
-  event: String,
-  payload: Json,
-) -> Nil {
+fn push(cell: Cell(State), token: String, event: String, payload: Json) -> Nil {
   let state = transport_js.get_cell(cell)
-  transport_js.set_cell(
-    cell,
-    State(
-      ..state,
-      core: core.handle(state.core, client_id, event, to_dynamic(payload)),
-    ),
-  )
+  case list.key_find(state.conns, token) {
+    Error(_) -> Nil
+    Ok(conn) ->
+      transport_js.set_cell(
+        cell,
+        State(
+          ..state,
+          core: core.handle(
+            state.core,
+            conn.current,
+            event,
+            to_dynamic(payload),
+          ),
+        ),
+      )
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -362,16 +439,29 @@ fn push(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
+/// One open connection.
+///
+/// `current` is the id the *server* has assigned it, which is not fixed: a
+/// rejoin gets a fresh one, exactly as floodgate hands one out per connection.
+/// Everything else keys off the connection's stable token instead, so a
+/// reconnect rotates the identity without the runtime's handle going stale.
 type Conn {
-  Conn(on_event: fn(String, Dynamic) -> Nil, on_join: fn() -> Nil)
+  Conn(
+    on_event: fn(String, Dynamic) -> Nil,
+    on_join: fn() -> Nil,
+    on_close: fn() -> Nil,
+    current: String,
+  )
 }
 
 @target(javascript)
 type State {
   State(
     core: core.Sluice,
+    /// Keyed by connection token — the id minted when the link opened, which
+    /// never changes even when the server reassigns `Conn.current`.
     conns: List(#(String, Conn)),
-    /// Runtime → client-id, so `pause`/`resume` can target a document by
+    /// Runtime → connection token, so `pause`/`resume` can target a document by
     /// identity (structural equality would deep-compare state cells).
     bindings: List(#(runtime_js.Runtime, String)),
     last_registered: Option(String),
@@ -379,7 +469,8 @@ type State {
 }
 
 @target(javascript)
-fn client_id_of(
+/// The connection token bound to a runtime.
+fn token_of(
   bindings: List(#(runtime_js.Runtime, String)),
   runtime: runtime_js.Runtime,
 ) -> Result(String, Nil) {
@@ -390,16 +481,35 @@ fn client_id_of(
 }
 
 @target(javascript)
+/// The server-assigned id a runtime is currently known by.
+fn client_id_of(
+  state: State,
+  runtime: runtime_js.Runtime,
+) -> Result(String, Nil) {
+  case token_of(state.bindings, runtime) {
+    Error(_) -> Error(Nil)
+    Ok(token) ->
+      case list.key_find(state.conns, token) {
+        Ok(conn) -> Ok(conn.current)
+        Error(_) -> Error(Nil)
+      }
+  }
+}
+
+@target(javascript)
 @external(javascript, "./sluice_ffi.mjs", "referenceEquals")
 fn reference_equals(a: runtime_js.Runtime, b: runtime_js.Runtime) -> Bool
 
 @target(javascript)
+/// The connection the server currently knows by `client_id`. Frames are
+/// addressed by server-assigned id, so this searches `current` rather than the
+/// token the list is keyed by.
 fn find_conn(
   conns: List(#(String, Conn)),
   client_id: String,
 ) -> Result(Conn, Nil) {
-  case list.key_find(conns, client_id) {
-    Ok(conn) -> Ok(conn)
+  case list.find(conns, fn(pair) { { pair.1 }.current == client_id }) {
+    Ok(pair) -> Ok(pair.1)
     Error(_) -> Error(Nil)
   }
 }

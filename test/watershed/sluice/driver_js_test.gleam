@@ -1008,3 +1008,104 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
   |> option.map(json.to_string)
   |> expect.to_equal(Some("96"))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconnect
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// The primitive itself: the socket goes, the client comes back under a new
+/// identity, and the document it was editing is still there.
+pub fn reconnect_rejoins_under_a_fresh_client_id_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "reconnect-id-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  watershed_js.set(watershed_js.root(doc_a), "before", json.int(1))
+  sluice_js.settle(sluice)
+  let assert Ok(was) = sluice_js.client_id(sluice, doc_a)
+
+  sluice_js.reconnect(sluice, doc_a)
+  sluice_js.settle(sluice)
+
+  let assert Ok(now) = sluice_js.client_id(sluice, doc_a)
+  { now != was } |> expect.to_be_true()
+
+  // The core survived the drop, and the link is live in both directions again.
+  watershed_js.get(watershed_js.root(doc_a), "before")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("1"))
+  watershed_js.set(watershed_js.root(doc_a), "after", json.int(2))
+  sluice_js.settle(sluice)
+  watershed_js.get(watershed_js.root(doc_b), "after")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("2"))
+}
+
+@target(javascript)
+/// A client that reconnects into a live proposal converges: it owes a signoff
+/// under the identity it came back with, discovers that while still catching
+/// up, and the room settles.
+///
+/// The companion in the erlang driver
+/// (`a_released_accept_is_not_sent_twice_across_a_reconnect_test`) is the one
+/// that *pins* the double-send this exercises the shape of — it fails with that
+/// fix reverted, and this does not. The JS runtime carries the same defect and
+/// the same fix, but reports core errors by failing the connection rather than
+/// crashing, and no scripting of this window has yet made the duplicate
+/// observable here. Treat the erlang test as the regression guard.
+pub fn a_reconnect_with_a_live_proposal_converges_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "reconnect-accept-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "settings",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) =
+    watershed_js.get(watershed_js.root(doc_b), "settings")
+  let assert Ok(pact_b) = watershed_js.resolve_pact_map(doc_b, handle)
+  let assert Ok(pact_c) = watershed_js.resolve_pact_map(doc_c, handle)
+
+  // Put C far enough behind that its catch-up comes back as one batch.
+  sluice_js.pause(sluice, doc_c)
+  watershed_js.set(watershed_js.root(doc_a), "filler", json.int(1))
+  sluice_js.settle(sluice)
+
+  // Rejoin C, then propose *before* delivering anything. The proposal is
+  // sequenced after C's new join, so the signoff list names the identity C now
+  // has and C genuinely owes an `Accept` — which it discovers while still
+  // catching up, in the same batch that completes its reconnect.
+  sluice_js.reconnect(sluice, doc_c)
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice_js.settle(sluice)
+
+  watershed_js.get(watershed_js.root(doc_c), "filler")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("1"))
+  watershed_js.pact_map_get(pact_a, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("128"))
+  watershed_js.pact_map_get(pact_c, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("128"))
+  watershed_js.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
+
+  // C is still a working client. This is the assertion that discriminates: the
+  // JS runtime reports a core error by failing the connection rather than
+  // crashing, so a duplicate ack leaves a quietly dead client whose state still
+  // reads correctly. Only writing through it notices.
+  watershed_js.set(watershed_js.root(doc_c), "after", json.int(3))
+  sluice_js.settle(sluice)
+  watershed_js.get(watershed_js.root(doc_a), "after")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("3"))
+}
