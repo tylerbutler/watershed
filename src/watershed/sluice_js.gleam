@@ -162,37 +162,83 @@ pub fn disconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
 ///
 /// The handshake completes on the next `settle`, like `connect`.
 pub fn reconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  drop(sluice, document)
+  rejoin(sluice, document)
+}
+
+@target(javascript)
+/// The first half of `reconnect`: take the socket away and leave it away.
+///
+/// Splitting the two matters because the interesting window is *between* them.
+/// A client is out of the room from its `leave` until its rejoin, and anything
+/// sequenced in that gap was sequenced for a room it was not in — which it then
+/// has to replay, under an identity that did not exist when those ops were
+/// made. Scripting that means being able to sequence ops while the client is
+/// away, which an atomic reconnect cannot express.
+///
+/// The runtime keeps its core and sits in its reconnecting phase until
+/// `rejoin`.
+pub fn drop(sluice: Sluice, document: watershed_js.Document) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
-  let runtime = watershed_js.runtime_of(document)
-  case token_of(state.bindings, runtime) {
+  case conn_for(state, watershed_js.runtime_of(document)) {
     Error(_) -> Nil
+    Ok(#(token, conn)) -> {
+      transport_js.set_cell(
+        sluice.cell,
+        State(
+          ..state,
+          // The leave the server sequences when a socket goes away.
+          core: core.disconnect(state.core, conn.current),
+          conns: list.key_set(state.conns, token, Conn(..conn, dropped: True)),
+        ),
+      )
+      conn.on_close()
+    }
+  }
+}
+
+@target(javascript)
+/// The second half of `reconnect`: let a dropped client come back, under a
+/// fresh server-assigned client id.
+///
+/// A no-op for a client that was not `drop`ped.
+pub fn rejoin(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  case conn_for(state, watershed_js.runtime_of(document)) {
+    Ok(#(token, conn)) if conn.dropped -> {
+      let #(core, rejoined) = core.register(state.core)
+      transport_js.set_cell(
+        sluice.cell,
+        State(
+          ..state,
+          core: core,
+          conns: list.key_set(
+            state.conns,
+            token,
+            Conn(..conn, current: rejoined, dropped: False),
+          ),
+        ),
+      )
+      // `on_close` already moved the runtime into its reconnecting phase, so
+      // the `connect_document` this triggers carries `last_seen` and asks for a
+      // catch-up rather than a fresh bootstrap.
+      conn.on_join()
+    }
+    _ -> Nil
+  }
+}
+
+@target(javascript)
+fn conn_for(
+  state: State,
+  runtime: runtime_js.Runtime,
+) -> Result(#(String, Conn), Nil) {
+  case token_of(state.bindings, runtime) {
+    Error(_) -> Error(Nil)
     Ok(token) ->
       case list.key_find(state.conns, token) {
-        Error(_) -> Nil
-        Ok(conn) -> {
-          // The leave the server sequences when a socket goes away, then a
-          // fresh identity for the connection that comes back.
-          let #(core, rejoined) =
-            core.register(core.disconnect(state.core, conn.current))
-          transport_js.set_cell(
-            sluice.cell,
-            State(
-              ..state,
-              core: core,
-              conns: list.key_set(
-                state.conns,
-                token,
-                Conn(..conn, current: rejoined),
-              ),
-            ),
-          )
-          // Tell the runtime its socket went, then that it is back. The order
-          // matters: `on_close` is what moves it into its reconnecting phase, so
-          // the `connect_document` that `on_join` triggers carries `last_seen`
-          // and asks for a catch-up rather than a fresh bootstrap.
-          conn.on_close()
-          conn.on_join()
-        }
+        Ok(conn) -> Ok(#(token, conn))
+        Error(_) -> Error(Nil)
       }
   }
 }
@@ -404,7 +450,7 @@ fn register(
       // The minted id is both the token this connection is keyed by and its
       // first server-assigned identity; only the latter moves.
       conns: [
-        #(client_id, Conn(on_event, on_join, on_close, client_id)),
+        #(client_id, Conn(on_event, on_join, on_close, client_id, False)),
         ..state.conns
       ],
       last_registered: Some(client_id),
@@ -451,6 +497,8 @@ type Conn {
     on_join: fn() -> Nil,
     on_close: fn() -> Nil,
     current: String,
+    /// Socket taken away by `drop`, awaiting `rejoin`.
+    dropped: Bool,
   )
 }
 

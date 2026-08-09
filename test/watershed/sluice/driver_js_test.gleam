@@ -1109,3 +1109,55 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
   |> option.map(json.to_string)
   |> expect.to_equal(Some("3"))
 }
+
+@target(javascript)
+/// A proposal sequenced while a client is away must not gain a signoff from
+/// the identity that client comes back under. The erlang driver's companion
+/// carries the full explanation; this is the parity check, since the fix lives
+/// in the shared `runtime_core`.
+pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "reconnect-window-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  let doc_c = sluice_js.connect(sluice, "user-c")
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_a) = watershed_js.create_pact_map(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "settings",
+    watershed_js.pact_map_handle_of(pact_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) =
+    watershed_js.get(watershed_js.root(doc_b), "settings")
+  let assert Ok(pact_b) = watershed_js.resolve_pact_map(doc_b, handle)
+  let assert Ok(_) = watershed_js.resolve_pact_map(doc_c, handle)
+
+  // Hold B so the proposal is still outstanding when C returns: a settled pact
+  // ignores a stray `Accept`, a pending one rejects it.
+  sluice_js.pause(sluice, doc_b)
+  sluice_js.drop(sluice, doc_c)
+  watershed_js.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice_js.settle(sluice)
+  watershed_js.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_true()
+
+  sluice_js.rejoin(sluice, doc_c)
+  sluice_js.settle(sluice)
+  sluice_js.resume(sluice, doc_b)
+  sluice_js.settle(sluice)
+
+  let assert Ok(pact_c) = watershed_js.resolve_pact_map(doc_c, handle)
+  watershed_js.pact_map_get(pact_c, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("128"))
+  watershed_js.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
+
+  // The room is still usable afterwards — C's connection survived.
+  watershed_js.pact_map_set(pact_b, "bpm", json.int(96))
+  sluice_js.settle(sluice)
+  watershed_js.pact_map_get(pact_c, "bpm")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("96"))
+}
