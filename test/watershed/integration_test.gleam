@@ -21,6 +21,8 @@ import gleam/crypto
 @target(erlang)
 import gleam/dynamic/decode
 @target(erlang)
+import gleam/erlang/charlist.{type Charlist}
+@target(erlang)
 import gleam/erlang/process
 @target(erlang)
 import gleam/int
@@ -43,6 +45,8 @@ import watershed
 import watershed/channel
 @target(erlang)
 import watershed/claims_kernel
+@target(erlang)
+import watershed/client_id
 @target(erlang)
 import watershed/counter_kernel
 @target(erlang)
@@ -114,6 +118,33 @@ pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_pact_map_disconnect_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// The client half of levee#85: every `join` in the durable op log must end up
+/// with a matching `leave`, or a client that reconstructs membership by
+/// replaying the log derives a roster containing clients that are not there and
+/// never will be — and a `PactMap` proposal frozen against that roster waits
+/// forever on signoffs that can never arrive.
+///
+/// The server's own tests cover the repair; they cannot cover what a
+/// *replaying client* derives from the repaired log, which is the half that
+/// lives here.
+///
+/// Gated separately from `WATERSHED_INTEGRATION` because it needs the durable
+/// storage backend: under the default in-memory backend a restart discards the
+/// document, so there is no log to replay and the test would pass without
+/// testing anything. See `docker-compose.persistent.yml`, or run
+/// `just integration-restart`.
+pub fn ghost_members_do_not_survive_a_server_restart_test() {
+  case envoy.get("WATERSHED_INTEGRATION_RESTART") {
+    Ok("1") -> run_restart_ghost_test()
+    _ ->
+      io.println(
+        "  (skipped: set WATERSHED_INTEGRATION_RESTART=1 and use the"
+        <> " persistent backend to run live)",
+      )
   }
 }
 
@@ -1057,6 +1088,191 @@ fn run_convergence_test() -> Nil {
   watershed.close(doc_b)
   watershed.close(doc_c)
 }
+
+@target(erlang)
+fn run_restart_ghost_test() -> Nil {
+  let document = "watershed-it-restart-" <> int.to_string(system_time(Second))
+
+  // Three write-mode clients, so three sequenced joins land in the durable log.
+  // A `PactMap` is created and agreed before the restart, which is what makes
+  // the post-restart replay non-trivial: the joiner has a settled pact to
+  // reconstruct as well as a roster.
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let doc_c = connect_or_panic(document, "user-c")
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  let assert Ok(pact_b) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_b), "tempo") {
+        None -> Error("handle not replicated to B")
+        Some(handle) -> watershed.resolve_pact_map(doc_b, handle)
+      }
+    })
+  let assert Ok(_) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_c), "tempo") {
+        None -> Error("handle not replicated to C")
+        Some(handle) -> watershed.resolve_pact_map(doc_c, handle)
+      }
+    })
+
+  watershed.pact_map_set(pact_a, "bpm", json.int(120))
+  wait_until(50, fn() {
+    watershed.pact_map_get(pact_b, "bpm") == Some(json.int(120))
+  })
+  |> expect.to_be_true()
+
+  // A `TaskManager` role, held by A with B and C queued behind it. None of the
+  // three ever releases: the restart is what takes them away, so their claims
+  // on the role are only ever answered by a sequenced `leave`.
+  let assert Ok(tasks_a) = watershed.create_task_manager(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tasks",
+    watershed.task_manager_handle_of(tasks_a),
+  )
+  let assert Ok(tasks_b) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_b), "tasks") {
+        None -> Error("task manager handle not replicated to B")
+        Some(handle) -> watershed.resolve_task_manager(doc_b, handle)
+      }
+    })
+  let assert Ok(tasks_c) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_c), "tasks") {
+        None -> Error("task manager handle not replicated to C")
+        Some(handle) -> watershed.resolve_task_manager(doc_c, handle)
+      }
+    })
+  watershed.volunteer_for_task(tasks_a, "summarizer")
+  wait_until(50, fn() { watershed.task_assigned(tasks_a, "summarizer") })
+  |> expect.to_be_true()
+  watershed.volunteer_for_task(tasks_b, "summarizer")
+  watershed.volunteer_for_task(tasks_c, "summarizer")
+  wait_until(50, fn() { watershed.task_queued(tasks_b, "summarizer") })
+  |> expect.to_be_true()
+
+  // The ids that must not survive in any replayed queue.
+  let pre_restart_ids =
+    [doc_a, doc_b, doc_c]
+    |> list.filter_map(fn(doc) {
+      watershed.client_id(doc) |> option.to_result(Nil)
+    })
+    |> list.map(client_id.to_int)
+  list.length(pre_restart_ids) |> expect.to_equal(3)
+
+  // Kill the server out from under all three. No `leave` is sent for any of
+  // them, so their joins are exactly the unmatched ones the issue describes.
+  restart_floodgate()
+
+  // Tear the three down without letting them re-establish. Their joins stay
+  // unanswered in the durable log, which is the whole point: the only thing
+  // that can close them is the server's repair on rehydrate. Leaving them to
+  // reconnect instead would both mask that — a reconnected client re-joins
+  // under a fresh id — and drag in an unrelated defect; see
+  // `docs/plans/2026-08-09-summary-bootstrap-plan.md`.
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+  watershed.close(doc_c)
+
+  // Two fresh clients, both of which reconstruct the room by replaying a log
+  // that contains three joins from before the restart.
+  let doc_d = connect_or_panic(document, "user-d")
+  let doc_e = connect_or_panic(document, "user-e")
+
+  // The settled pact replays intact — the state half of the bootstrap.
+  let assert Ok(pact_d) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_d), "tempo") {
+        None -> Error("handle not replicated to D")
+        Some(handle) -> watershed.resolve_pact_map(doc_d, handle)
+      }
+    })
+  watershed.pact_map_get(pact_d, "bpm") |> expect.to_equal(Some(json.int(120)))
+  watershed.pact_map_is_pending(pact_d, "bpm") |> expect.to_be_false()
+
+  // The discriminating assertion, and the one the issue names outright: "a
+  // ghost at the head of a `TaskManager` queue holds that role permanently."
+  //
+  // It has to be the queue rather than a fresh `PactMap` proposal. A proposal
+  // D makes *now* freezes its signoff list from D's live roster, which
+  // `settle_bootstrap` already replaced with the handshake's — so ghosts do not
+  // reach it and it would settle either way. The queue is different: it is
+  // reconstructed purely by replaying the log, so a `volunteer` with no
+  // matching `leave` sits in it forever and every later volunteer, D's
+  // included, queues behind a client that cannot release.
+  let assert Ok(tasks_d) =
+    wait_until_ok(50, fn() {
+      case watershed.get(watershed.root(doc_d), "tasks") {
+        None -> Error("task manager handle not replicated to D")
+        Some(handle) -> watershed.resolve_task_manager(doc_d, handle)
+      }
+    })
+
+  // No pre-restart client appears anywhere in the reconstructed queues.
+  let ghosts =
+    list.flat_map(watershed.task_queues(tasks_d), fn(entry) { entry.1 })
+    |> list.filter(list.contains(pre_restart_ids, _))
+  ghosts |> expect.to_equal([])
+
+  // And the role is actually acquirable, which is what "not wedged" means.
+  watershed.volunteer_for_task(tasks_d, "summarizer")
+  let assigned =
+    wait_until(50, fn() { watershed.task_assigned(tasks_d, "summarizer") })
+  assigned |> expect.to_be_true()
+
+  watershed.close(doc_d)
+  watershed.close(doc_e)
+}
+
+@target(erlang)
+/// Restart the floodgate container and wait for it to report healthy again.
+///
+/// Shelling out rather than asking the server to restart itself: the point is
+/// an abrupt process loss with no chance to sequence leaves, which is exactly
+/// what a crash looks like and what a graceful shutdown hook would hide.
+fn restart_floodgate() -> Nil {
+  let _ =
+    shell(
+      "docker compose -f docker-compose.yml -f docker-compose.persistent.yml"
+      <> " restart floodgate",
+    )
+  let healthy =
+    wait_until(100, fn() {
+      shell(
+        "curl -s -o /dev/null -w '%{http_code}' http://"
+        <> host
+        <> ":"
+        <> int.to_string(port)
+        <> "/health",
+      )
+      == "200"
+    })
+  case healthy {
+    True -> Nil
+    False -> panic as "floodgate did not come back healthy after restart"
+  }
+}
+
+@target(erlang)
+fn shell(command: String) -> String {
+  command
+  |> charlist.from_string
+  |> os_cmd
+  |> charlist.to_string
+  |> string.trim
+}
+
+@target(erlang)
+@external(erlang, "os", "cmd")
+fn os_cmd(command: Charlist) -> Charlist
 
 @target(erlang)
 fn connect_or_panic(document: String, user_id: String) -> watershed.Document {

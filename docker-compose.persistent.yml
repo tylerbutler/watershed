@@ -1,0 +1,35 @@
+# Persistent-storage override, for the tests that restart the server.
+#
+# The base compose file runs floodgate on `FLOODGATE_STORAGE_BACKEND=memory`,
+# which is the right default: every integration run starts from a clean server
+# and no state leaks between them. But a restart under that backend discards the
+# document entirely, which makes a restart test vacuous — nothing is replayed
+# because nothing survived.
+#
+# The restart scenario from levee#85 needs the opposite: the durable op log has
+# to outlive the process, so a rehydrating document can be observed repairing
+# the joins its pre-restart clients never closed. That is what `shelf` (DETS on
+# disk) gives, with a named volume so the data survives `docker compose restart`
+# and `stop`/`start` alike.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.persistent.yml up -d --wait --build
+#
+# Or via the justfile: `just integration-up-persistent`, and `just
+# integration-restart` for the full cycle.
+#
+# `ensure_startup_tenant` persists the dev tenant on this backend, so the JWTs
+# the suite mints keep verifying across the restart.
+#
+# The volume is dropped by `docker compose down -v`, which the justfile recipe
+# does — a stale log from a previous run would otherwise be indistinguishable
+# from the one the test just wrote.
+services:
+  floodgate:
+    environment:
+      - FLOODGATE_STORAGE_BACKEND=shelf
+      - FLOODGATE_DATA_DIR=/data/floodgate
+    volumes:
+      - floodgate-data:/data/floodgate
+
+volumes:
+  floodgate-data:

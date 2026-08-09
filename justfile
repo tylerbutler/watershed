@@ -69,6 +69,20 @@ integration:
     docker compose up -d --wait --build
     WATERSHED_INTEGRATION=1 gleam test; status=$?; docker compose down; exit $status
 
+# Start floodgate on the durable (DETS) backend, which the restart test needs —
+# the default in-memory backend loses the document on restart, leaving nothing
+# to replay
+integration-up-persistent:
+    docker compose -f docker-compose.yml -f docker-compose.persistent.yml up -d --wait --build
+
+# Full restart-scenario cycle: durable server, suite with the restart test
+# enabled, then tear down *including the volume* — a log left over from a
+# previous run is indistinguishable from the one the test just wrote
+integration-restart:
+    docker compose -f docker-compose.yml -f docker-compose.persistent.yml down -v
+    docker compose -f docker-compose.yml -f docker-compose.persistent.yml up -d --wait --build
+    WATERSHED_INTEGRATION=1 WATERSHED_INTEGRATION_RESTART=1 gleam test; status=$?; docker compose -f docker-compose.yml -f docker-compose.persistent.yml down -v; exit $status
+
 # Format code
 format:
     gleam format
