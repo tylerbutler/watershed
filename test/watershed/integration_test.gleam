@@ -2674,8 +2674,7 @@ fn run_typed_field_subscription_test() -> Nil {
   let change = receive_field_change(changes)
   case change.value {
     Error(schema.Invalid(_)) -> Nil
-    other ->
-      panic as { "expected Invalid value, got " <> string.inspect(other) }
+    other -> panic as { "expected Invalid value, got " <> string.inspect(other) }
   }
   change.previous |> expect.to_equal(Ok(Some(9)))
   change.local |> expect.to_be_true()

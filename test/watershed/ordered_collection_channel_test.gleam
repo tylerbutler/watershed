@@ -122,8 +122,7 @@ fn ingest(
 ) -> #(Core, runtime_core.Ingested) {
   case runtime_core.handle_sequenced(core, msg) {
     Ok(pair) -> pair
-    Error(err) ->
-      panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
   }
 }
 

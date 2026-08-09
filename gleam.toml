@@ -24,9 +24,16 @@ lattice_sets = ">= 1.1.0 and < 2.0.0"
 lattice_sequence = ">= 1.0.0 and < 2.0.0"
 lattice_text_core = ">= 1.0.0 and < 2.0.0"
 lattice_text = ">= 1.0.0 and < 2.0.0"
-signet = { git = "https://github.com/tylerbutler/signet", ref = "main" }
-spillway = { git = "https://github.com/tylerbutler/spillway", ref = "main" }
-aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "main" }
+# Pinned to commits, not `main`. A branch ref is not a pin: every package that
+# resolves fresh (each example carries its own manifest) picked up whatever
+# `main` was that day, which is how the examples drifted onto incompatible
+# revisions of these three and stopped building. `aquamarine` in particular
+# cannot move past this commit while `startest` is a dev-dependency — newer
+# aquamarine pulls `collie >= 3.0`, which needs `gleam_stdlib >= 1.0`, and
+# `startest` -> `bigben` caps stdlib below 1.0. Bump these deliberately.
+signet = { git = "https://github.com/tylerbutler/signet", ref = "51843ffe6f38a57c295e1a139fd926dc947eca6d" }
+spillway = { git = "https://github.com/tylerbutler/spillway", ref = "25f515cf67027e4b2db2344c3abb2141056e45fc" }
+aquamarine = { git = "https://github.com/tylerbutler/aquamarine", ref = "45451e8a5b8846258dd4a5e72094078423b82017" }
 
 [dev-dependencies]
 startest = ">= 0.8.0 and < 1.0.0"

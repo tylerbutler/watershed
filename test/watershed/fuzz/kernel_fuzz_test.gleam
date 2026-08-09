@@ -340,8 +340,7 @@ pub fn failing_run_script_dumps_a_replayable_json_fixture_test() {
       kernel_fuzz.run_script(sum_model_with_check(), 1, script)
     })
   {
-    Ok(_) ->
-      panic as "expected run_script to panic on a planted check violation"
+    Ok(_) -> panic as "expected run_script to panic on a planted check violation"
     Error(_) -> Nil
   }
 

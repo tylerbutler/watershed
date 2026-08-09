@@ -192,8 +192,7 @@ fn do_deliver_one(sim: Sim, id: Int) -> Sim {
               min,
             )
           {
-            Error(e) ->
-              panic as { "apply_remote failed: " <> string.inspect(e) }
+            Error(e) -> panic as { "apply_remote failed: " <> string.inspect(e) }
             Ok(#(state, _events)) ->
               put(
                 sim,

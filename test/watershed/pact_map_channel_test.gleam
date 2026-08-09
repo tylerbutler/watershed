@@ -117,8 +117,7 @@ fn expect_ok(
 ) -> #(Core, List(wire.OutboundOp)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
-    Error(err) ->
-      panic as { "pact_map command failed: " <> string.inspect(err) }
+    Error(err) -> panic as { "pact_map command failed: " <> string.inspect(err) }
   }
 }
 
@@ -128,8 +127,7 @@ fn ingest(
 ) -> #(Core, runtime_core.Ingested) {
   case runtime_core.handle_sequenced(core, msg) {
     Ok(pair) -> pair
-    Error(err) ->
-      panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
   }
 }
 

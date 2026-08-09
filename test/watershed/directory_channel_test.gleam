@@ -116,8 +116,7 @@ fn seq_msg(
 fn ingest(core: Core, msg: types.SequencedDocumentMessage) -> Core {
   case runtime_core.handle_sequenced(core, msg) {
     Ok(#(core, _)) -> core
-    Error(err) ->
-      panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
   }
 }
 

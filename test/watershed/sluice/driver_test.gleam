@@ -343,8 +343,7 @@ pub fn shared_sequence_converges_test() {
     )
   {
     Error(_) -> Nil
-    Ok(_) ->
-      panic as "expected map handle resolution to fail for SharedSequence"
+    Ok(_) -> panic as "expected map handle resolution to fail for SharedSequence"
   }
 
   let assert Ok(Nil) =
