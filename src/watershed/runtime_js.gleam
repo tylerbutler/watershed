@@ -1911,7 +1911,15 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
               }
               fan_out(state.subscribers, events)
               maybe_request_ops(state.channel, request_from)
-              send_outbound(state.channel, core.client_id, released)
+              case resubmit_at {
+                // Mid-reconnect these are already in the in-flight queue, and
+                // `settle_reconnect` restamps that whole queue with fresh
+                // client sequence numbers and sends it. Sending them here as
+                // well puts two copies of each on the wire; the server
+                // sequences both and the stale ack fails the FIFO match.
+                Some(_) -> Nil
+                None -> send_outbound(state.channel, core.client_id, released)
+              }
             }
             Error(core_error) ->
               fail(

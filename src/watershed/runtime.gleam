@@ -1673,10 +1673,22 @@ fn handle_inbound(
           let state = resolve_claim_waiters(state, resolutions)
           fan_out(state.subscribers, events)
           maybe_request_ops(state.channel, request_from)
-          send_outbound(state.channel, core.client_id, released)
           case resubmit_at {
+            // Mid-reconnect: the ops a kernel just released are already in the
+            // in-flight queue, and `settle_reconnect` is about to restamp that
+            // whole queue with fresh client sequence numbers and send it.
+            // Sending them here as well would put two copies of each on the
+            // wire — the server sequences both, the client only expects the
+            // restamped one, and the stale ack fails the FIFO match. Every
+            // other submit path already gates on `resubmit_at`; this one is
+            // the only route by which an op reaches the wire without the
+            // application asking, which is why only the consensus kernels
+            // (whose `Accept`s are released, not submitted) could trip it.
             Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
-            None -> actor.continue(State(..state, phase: Ready(core, None)))
+            None -> {
+              send_outbound(state.channel, core.client_id, released)
+              actor.continue(State(..state, phase: Ready(core, None)))
+            }
           }
         }
         // Ops before/without a connected session (or while reconnecting)
