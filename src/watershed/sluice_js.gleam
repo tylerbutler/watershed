@@ -116,17 +116,30 @@ pub fn connect(
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered, so a race can be scripted.
 pub fn pause(sluice: Sluice, document: watershed_js.Document) -> Nil {
-  update_paused(sluice, document, core.pause)
+  apply_to_client(sluice, document, core.pause)
 }
 
 @target(javascript)
 /// Release a paused client's held frames back into the deliverable queue.
 pub fn resume(sluice: Sluice, document: watershed_js.Document) -> Nil {
-  update_paused(sluice, document, core.resume)
+  apply_to_client(sluice, document, core.resume)
 }
 
 @target(javascript)
-fn update_paused(
+/// Drop a client from the room, sequencing a `"leave"` to the survivors.
+///
+/// This is the ungraceful-departure path, and it is the only way to test the
+/// kernel behaviour that hangs off membership: a `TaskManager` role released
+/// because its holder vanished, or a `PactMap` proposal whose signoff list
+/// drains because one of the clients it was waiting on is no longer in the
+/// room. `pause` cannot stand in for it — a paused client is still a member,
+/// so a pact still waits on it, which is exactly the stall being tested.
+pub fn disconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
+  apply_to_client(sluice, document, core.disconnect)
+}
+
+@target(javascript)
+fn apply_to_client(
   sluice: Sluice,
   document: watershed_js.Document,
   change: fn(core.Sluice, String) -> core.Sluice,

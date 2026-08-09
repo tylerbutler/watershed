@@ -14,10 +14,13 @@
 //// everything you can hear is uncoordinated and fast, and the one setting that
 //// would make the room lurch is slow and agreed.
 
+import gleam/dynamic/decode
 import gleam/int
 import gleam/javascript/array.{type Array}
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 
 import lustre
 import lustre/attribute.{
@@ -30,6 +33,7 @@ import lustre/event
 
 import audio
 import doc_schema
+import watershed/pact_map_kernel
 import watershed_js.{type Document, type OrSet, type PactMap}
 import watershed_lustre
 
@@ -53,6 +57,14 @@ const default_bpm = 120
 const min_bpm = 40
 
 const max_bpm = 240
+
+/// The single key in the quorum-gated settings pact.
+const bpm_key = "bpm"
+
+/// How often to re-read a pending proposal's signoff list. The kernel emits an
+/// event when a pact goes pending and when it is accepted, but nothing in
+/// between, so watching the list drain means asking.
+const signoff_poll_ms = 250
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -146,6 +158,22 @@ fn empty_pattern() -> Pattern {
   Pattern(kick: [], snare: [], hat: [], clap: [])
 }
 
+/// A tempo change the room has not finished agreeing to.
+///
+/// `PactMap` freezes a signoff list from the connected roster the moment a
+/// proposal is sequenced, and the value is not accepted until every client on
+/// that list has acknowledged it — or has left the room. `waiting` is what is
+/// left of that list; `quorum` is how long it was when the proposal landed, so
+/// the UI can say "1 of 3" instead of a bare count with no denominator.
+///
+/// Nothing here is a vote. `pact_map_kernel` emits `OweAccept` and the runtime
+/// auto-submits it: signing off means "this client has seen the proposal", not
+/// "this client agrees". The UI must never render an agree/reject affordance,
+/// because there is nothing behind it.
+type Proposal {
+  Proposal(bpm: Int, waiting: List(Int), quorum: Int)
+}
+
 type Model {
   Model(
     status: Status,
@@ -165,11 +193,21 @@ type Model {
     /// and says so; browsers refuse to start audio without a user gesture.
     audio_ready: Bool,
     playing: Bool,
-    /// The tempo the sequencer is running at.
+    /// The tempo the sequencer is running at: the *accepted* value of the
+    /// `"bpm"` pact, or `default_bpm` until the room has agreed one.
     bpm: Int,
-    /// Where the slider currently sits. Diverges from `bpm` only while the
-    /// user is dragging.
+    /// Where the slider currently sits. Diverges from `bpm` while the user is
+    /// dragging, and while a proposal is in flight.
     bpm_draft: Int,
+    /// The tempo proposal the room is currently signing off on, if any.
+    proposal: Option(Proposal),
+    /// True between calling `pact_map_set` and learning what the room made of
+    /// it. `pact_map_set` is consensus, not optimistic: nothing is pending
+    /// until the server sequences the proposal, and for that one round trip
+    /// the app knows a proposal is in flight and the kernel does not. Without
+    /// this the slider stays live in that window, and a second drag would be
+    /// dropped by `apply_set` with nothing on screen to explain why.
+    proposing: Bool,
     /// Local listener preferences, deliberately *not* in the document: muting
     /// a track is a choice about your own speakers, and putting it in the
     /// document would mean one person muting the room.
@@ -198,6 +236,8 @@ type Msg {
   BpmCommitted
   MuteToggled(Int)
   VolumeChanged(String)
+  SettingsChanged(pact_map_kernel.PactMapEvent)
+  PollSignoffs
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
@@ -218,6 +258,8 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       playing: False,
       bpm: default_bpm,
       bpm_draft: default_bpm,
+      proposal: None,
+      proposing: False,
       muted: [],
       volume: 80,
       error: None,
@@ -280,10 +322,11 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
       )
     -> {
       let shared = SharedState(kick:, snare:, hat:, clap:, settings:)
-      #(
-        snapshot(Model(..model, shared: Some(shared), error: None)),
-        subscribe_shared_effect(shared),
-      )
+      let model = Model(..model, shared: Some(shared), error: None)
+      // Adopt whatever tempo the room already agreed before we arrived, and
+      // pick up a proposal that was already in flight when we joined.
+      let #(model, poll) = read_tempo(model, shared)
+      #(snapshot(model), effect.batch([subscribe_shared_effect(shared), poll]))
     }
     _, _ -> #(model, effect.none())
   }
@@ -291,12 +334,17 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 
 /// The narrowed per-kind subscriptions as one batch. A 4×16 grid is cheap
 /// enough that every handler just re-reads the whole pattern.
+///
+/// The `PactMap` subscription is the one that is not optional: `WentPending`
+/// and `WentAccepted` *are* the consensus protocol, and without them a client
+/// can propose and read but never learn that a peer's proposal landed.
 fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
   effect.batch([
     watershed_lustre.subscribe_or_set(shared.kick, fn(_event) { SharedChanged }),
     watershed_lustre.subscribe_or_set(shared.snare, fn(_event) { SharedChanged }),
     watershed_lustre.subscribe_or_set(shared.hat, fn(_event) { SharedChanged }),
     watershed_lustre.subscribe_or_set(shared.clap, fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe_pact_map(shared.settings, SettingsChanged),
   ])
 }
 
@@ -418,10 +466,43 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    BpmCommitted -> {
-      audio.set_bpm(model.engine, model.bpm_draft)
-      #(Model(..model, bpm: model.bpm_draft), effect.none())
-    }
+    // Propose on release, never per pointer move. A `pact_map_set` per frame
+    // would flood the protocol with proposals that invalidate each other —
+    // `apply_set` rejects a proposal made while one is pending — so a dragged
+    // slider would land on whichever frame happened to arrive between pacts.
+    BpmCommitted ->
+      case model.shared, tempo_locked(model), model.bpm_draft == model.bpm {
+        Some(shared), False, False -> {
+          watershed_js.pact_map_set(
+            shared.settings,
+            bpm_key,
+            json.int(model.bpm_draft),
+          )
+          // Poll rather than wait for an event, because a proposal the kernel
+          // *rejects* — one made while a peer's is already pending — emits
+          // nothing at all. Without this tick the control would stay disabled
+          // forever on a rejection.
+          #(
+            Model(..model, proposing: True),
+            watershed_lustre.after(signoff_poll_ms, PollSignoffs),
+          )
+        }
+        _, _, _ -> #(model, effect.none())
+      }
+
+    // `WentPending` and `WentAccepted` are the only two transitions the kernel
+    // reports, and both mean the same thing here: re-read the pact.
+    SettingsChanged(_event) ->
+      case model.shared {
+        Some(shared) -> read_tempo(model, shared)
+        None -> #(model, effect.none())
+      }
+
+    PollSignoffs ->
+      case model.shared {
+        Some(shared) -> read_tempo(model, shared)
+        None -> #(model, effect.none())
+      }
 
     MuteToggled(track_index) -> {
       let muted = case list.contains(model.muted, track_index) {
@@ -438,6 +519,98 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       audio.set_volume(model.engine, volume)
       #(Model(..model, volume: volume), effect.none())
     }
+  }
+}
+
+/// Re-read the `"bpm"` pact: the accepted tempo, and the proposal still being
+/// signed off, if any.
+///
+/// Returns a poll timer alongside the model because the kernel reports only the
+/// two ends of the protocol. A signoff list draining from three names to two
+/// emits nothing — `apply_accept` only produces an event when the list empties
+/// — so a UI that says *who* it is waiting on has to look. The poll is armed
+/// only while something is pending and stops as soon as it is not.
+fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
+  let accepted =
+    watershed_js.pact_map_get(shared.settings, bpm_key)
+    |> option.then(decode_bpm)
+    |> option.unwrap(default_bpm)
+
+  let proposal =
+    watershed_js.pact_map_pending(shared.settings, bpm_key)
+    |> option.then(fn(pending: pact_map_kernel.Pending) {
+      case pending.value |> option.then(decode_bpm) {
+        Some(bpm) ->
+          Some(Proposal(
+            bpm: bpm,
+            waiting: pending.expected_signoffs,
+            // The quorum is the list at its longest. Once it starts draining
+            // the original size is unrecoverable, so hold on to the widest
+            // reading we have seen for this proposal.
+            quorum: quorum_of(model.proposal, bpm, pending.expected_signoffs),
+          ))
+        None -> None
+      }
+    })
+
+  case accepted != model.bpm {
+    True -> audio.set_bpm(model.engine, accepted)
+    False -> Nil
+  }
+
+  let model =
+    Model(
+      ..model,
+      bpm: accepted,
+      proposal: proposal,
+      // Whatever the pact says now is the answer to any proposal of ours that
+      // was in flight — including "the kernel rejected it", which arrives as
+      // silence and leaves nothing pending.
+      proposing: False,
+      bpm_draft: case proposal {
+        // While a proposal is in flight the slider shows it, so the ghost
+        // value and the handle agree; otherwise it tracks the live tempo.
+        Some(p) -> p.bpm
+        None -> accepted
+      },
+    )
+
+  #(model, case proposal {
+    Some(_) -> watershed_lustre.after(signoff_poll_ms, PollSignoffs)
+    None -> effect.none()
+  })
+}
+
+/// A signoff list holds the integer ids the kernels tie-break on, derived from
+/// the server's client id strings — for floodgate ids that is a stable hash,
+/// so it is a long opaque number rather than anything a reader recognises.
+///
+/// It is shown anyway, labelled, because "waiting on someone" and "waiting on
+/// *this* client, still" are different claims and the second is the true one.
+/// What is missing is a way to say **you**: no facade exposes a document's own
+/// client id, so this list cannot mark which entry is the reader's own tab.
+fn client_label(id: Int) -> String {
+  "client " <> int.to_string(id)
+}
+
+/// Whether the tempo control should refuse a new proposal: one is pending, or
+/// one of ours is in flight and we have not yet learned its fate.
+fn tempo_locked(model: Model) -> Bool {
+  model.proposing || option.is_some(model.proposal)
+}
+
+fn quorum_of(previous: Option(Proposal), bpm: Int, waiting: List(Int)) -> Int {
+  let seen = list.length(waiting)
+  case previous {
+    Some(p) if p.bpm == bpm -> int.max(p.quorum, seen)
+    _ -> seen
+  }
+}
+
+fn decode_bpm(value: Json) -> Option(Int) {
+  case json.parse(json.to_string(value), decode.int) {
+    Ok(bpm) -> Some(bpm)
+    Error(_) -> None
   }
 }
 
@@ -638,23 +811,82 @@ fn transport(model: Model) -> Element(Msg) {
   ])
 }
 
+/// The one control in this app that is *not* uncoordinated.
+///
+/// Everything you can hear — every step on every track — is a fast, add-wins
+/// edit that nobody has to agree to. Tempo is the exception, because it is the
+/// one setting where two people dragging in opposite directions makes the room
+/// lurch. So it lives on a `PactMap`: a change is proposed, the room signs off,
+/// and only then does the sequencer follow it. The contrast is the demo.
 fn tempo_view(model: Model) -> Element(Msg) {
-  html.label([class("tempo")], [
-    html.span([], [html.text("Tempo")]),
-    html.input([
-      type_("range"),
-      attribute.min(int.to_string(min_bpm)),
-      attribute.max(int.to_string(max_bpm)),
-      attribute.step("1"),
-      value(int.to_string(model.bpm_draft)),
-      aria_label("Tempo in beats per minute"),
-      event.on_input(BpmDrafted),
-      event.on_change(fn(_raw) { BpmCommitted }),
+  let pending = tempo_locked(model)
+  html.div([class("tempo-block")], [
+    html.label([class("tempo")], [
+      html.span([], [html.text("Tempo")]),
+      html.input([
+        type_("range"),
+        attribute.min(int.to_string(min_bpm)),
+        attribute.max(int.to_string(max_bpm)),
+        attribute.step("1"),
+        value(int.to_string(model.bpm_draft)),
+        // A second proposal while one is in flight is rejected by the kernel,
+        // so the control says so rather than silently dropping the drag.
+        attribute.disabled(pending),
+        aria_label("Tempo in beats per minute"),
+        event.on_input(BpmDrafted),
+        event.on_change(fn(_raw) { BpmCommitted }),
+      ]),
+      html.span([classes([#("bpm", True), #("ghost", pending)])], [
+        html.text(int.to_string(model.bpm_draft) <> " BPM"),
+      ]),
     ]),
-    html.span([class("bpm")], [
-      html.text(int.to_string(model.bpm_draft) <> " BPM"),
-    ]),
+    proposal_view(model),
   ])
+}
+
+fn proposal_view(model: Model) -> Element(Msg) {
+  case model.proposal {
+    None -> html.text("")
+    Some(proposal) -> {
+      let remaining = list.length(proposal.waiting)
+      html.p([class("proposal"), role("status")], [
+        html.text(
+          int.to_string(proposal.bpm)
+          <> " BPM pending — waiting on "
+          <> int.to_string(remaining)
+          <> " of "
+          <> int.to_string(proposal.quorum)
+          // The noun agrees with the room, not with what is left of it:
+          // "waiting on 1 of 3 clients", never "1 of 3 client".
+          <> case proposal.quorum {
+            1 -> " client"
+            _ -> " clients"
+          },
+        ),
+        html.span([class("signoffs")], [
+          html.text(
+            " · "
+            <> case proposal.waiting {
+              [] -> "settling"
+              ids ->
+                "not yet acknowledged: "
+                <> string.join(list.map(ids, client_label), ", ")
+            },
+          ),
+        ]),
+        // Said out loud because the obvious reading of a pending bar is a vote,
+        // and it is not one. Nobody is deciding; the runtime auto-submits each
+        // client's acknowledgement the moment it sees the proposal.
+        html.span([class("hint")], [
+          html.text(
+            " Signing off means a client has seen the change, not that it "
+            <> "agreed to it — there is nothing to agree to and no way to "
+            <> "refuse.",
+          ),
+        ]),
+      ])
+    }
+  }
 }
 
 /// Mute and volume are per-client and never leave the browser. They are
