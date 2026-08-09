@@ -292,7 +292,20 @@ pub type SequencedMeta {
     min_seq: Int,
     author: Int,
     self: Int,
+    /// The set a consensus proposal freezes its signoff list from: the roster,
+    /// plus — on the live path — self and the op's author, unioned in
+    /// defensively. Over-including is the safe direction here, because a
+    /// signoff list that is missing a connected client accepts too early.
     quorum: List(Int),
+    /// Who is in the room at this op's sequence point. The roster itself, with
+    /// no defensive additions.
+    ///
+    /// Separate from `quorum` because the safe direction is opposite: a
+    /// membership *test* that over-includes silently passes for a client that
+    /// is not there. `TaskManager` uses this to refuse a volunteer from a
+    /// non-member, which is what keeps a lock queue a subset of the room — and
+    /// therefore what makes leave-driven release complete.
+    roster: List(Int),
     /// The op author's reference sequence number — what they had seen when
     /// they submitted. The directory kernel's stale-instance filter (D12)
     /// consumes it; other kernels ignore it. `last_seen_sn` is the *local*
@@ -617,7 +630,7 @@ pub fn apply_remote(
     }
     TaskManagerState(kernel), TaskManagerOp(op) -> {
       let #(kernel, events) =
-        task_manager_kernel.apply_remote(kernel, op, meta.author, meta.quorum)
+        task_manager_kernel.apply_remote(kernel, op, meta.author, meta.roster)
       Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent), []))
     }
     PactMapState(kernel), PactMapOp(op) -> apply_pact_map(kernel, op, meta)
@@ -999,7 +1012,7 @@ pub fn ack_local(
               op,
               meta.self,
               message_id,
-              meta.quorum,
+              meta.roster,
             )
           {
             Ok(#(kernel, events)) ->

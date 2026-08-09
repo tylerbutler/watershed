@@ -304,13 +304,13 @@ pub fn placeholder_replacement_preserves_assignment_and_avoids_duplicates_test()
   |> expect.to_equal([#("a", [2]), #("b", [2])])
 }
 
-pub fn scrub_not_in_quorum_removes_missing_clients_test() {
+pub fn scrub_not_in_roster_removes_missing_clients_test() {
   let state =
     task_manager_kernel.from_summary([
       #("a", [1, 2]),
       #("b", [3]),
     ])
-  let #(state, events) = task_manager_kernel.scrub_not_in_quorum(state, [2])
+  let #(state, events) = task_manager_kernel.scrub_not_in_roster(state, [2])
 
   events
   |> expect.to_equal([
@@ -429,4 +429,31 @@ pub fn stashed_ops_are_ignored_test() {
 
   op |> expect.to_equal(None)
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
+}
+
+/// A volunteer from a client the roster does not name is dropped.
+///
+/// This guard existed from the beginning and could never fire: the runtime
+/// unioned each op's author into the membership list it passed here, so
+/// `list.contains` was trivially true for every authored op. It is live now
+/// that `channel` passes `meta.roster` — the room at the op's sequence point,
+/// with no defensive additions — instead of `meta.quorum`.
+///
+/// What it protects: `remove_client` on a sequenced `"leave"` is the only
+/// thing that frees a role whose holder walked away, so a client that reached
+/// a queue without ever being a member could hold one indefinitely.
+pub fn a_volunteer_from_a_non_member_is_dropped_test() {
+  let state = task_manager_kernel.new()
+
+  let #(state, events) =
+    task_manager_kernel.apply_remote(state, Volunteer("leader"), 9, [1, 2])
+  events |> expect.to_equal([])
+  task_manager_kernel.summary_queues(state) |> expect.to_equal([])
+
+  // A member volunteering for the same role is unaffected, and takes the head
+  // of the queue the non-member never entered.
+  let #(state, _events) =
+    task_manager_kernel.apply_remote(state, Volunteer("leader"), 2, [1, 2])
+  task_manager_kernel.summary_queues(state)
+  |> expect.to_equal([#("leader", [2])])
 }

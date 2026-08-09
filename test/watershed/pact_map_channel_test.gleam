@@ -309,6 +309,7 @@ fn apply(
       author: author,
       self: self_id,
       quorum: quorum,
+      roster: quorum,
       reference_sequence_number: 0,
     )
   case channel.apply_remote(state, op, meta) {

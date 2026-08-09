@@ -3,7 +3,7 @@
 **Date:** 2026-08-09
 **Found by:** building DM6/DM7 of `docs/plans/2026-08-08-drum-machine-demo-plan.md`. The demo works with three tabs open and breaks the moment a fourth opens — or the moment any tab reloads.
 **Severity:** correctness, and worse than FP1. FP1 made a quorum accept too early; this made a document **unjoinable** once a `PactMap` key had been agreed.
-**Status:** **client half fixed** (CR1–CR3 below). One server-side piece remains — the roster at a checkpoint — plus the reconnect gap that shares its missing input. See "What remains".
+**Status:** **client half fixed** (CR1–CR4 below). One server-side piece remains — the roster at a checkpoint — plus the reconnect gap that shares its missing input. See "What remains".
 
 ## The bug
 
@@ -58,7 +58,7 @@ Regression tests:
 
 ## What remains
 
-**The checkpoint roster.** `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
+**The checkpoint roster — now a prerequisite for enabling summaries at all**, see CR4 below. `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
 
 One thing that makes the remaining window narrow: `pact_map_kernel.summary_entries` returns the whole `Pact`, *including* `pending` with its `expected_signoffs` (`:63-65`), and `channel.gleam:461` snapshots it. A frozen signoff list already survives summarization. Only proposals sequenced after the checkpoint need the roster.
 
@@ -74,9 +74,21 @@ One thing that makes the remaining window narrow: `pact_map_kernel.summary_entri
 | `:620` | `task_manager_kernel.apply_remote` | **was never broken — and not by design** |
 | `:1002` | `task_manager_kernel.ack_local` | same |
 
-`TaskManager` reads the quorum only as a membership guard on the op's author (`task_manager_kernel.gleam:359`), and `quorum_of` unioned the author in unconditionally — so **the guard could never fail**. It was dead code holding a live invariant, and the defensive union that caused the `PactMap` bug is what hid it. CR2 makes it live during replay for the first time; `task_manager_replays_the_same_queue_for_a_late_joiner_test` pins that this changed nothing, which it should not, because a client's `join` always precedes any op it authors.
+`TaskManager` reads membership only as a guard on the op's author (`task_manager_kernel.gleam:359`), and `quorum_of` unioned the author in unconditionally — so **the guard could never fail**. It was dead code holding a live invariant, and the defensive union that caused the `PactMap` bug is what hid it.
 
-Worth a follow-up decision: the guard is still vacuous on the live path. Either make it live there too, or drop the parameter.
+**CR4 makes it live everywhere.** `SequencedMeta` now carries `roster` — the room at the op's sequence point, with no defensive additions — alongside `quorum`, and `TaskManager` takes the former. The two want opposite safety directions, which is why they cannot be the same list: a signoff list that over-includes is safe (it waits for someone who is already gone, and a `leave` drains them), while a membership *test* that over-includes silently passes for a client that is not there. `a_volunteer_from_a_non_member_is_dropped_test` is the first test in the codebase that can observe this guard rejecting anything.
+
+What it protects: `remove_client` on a sequenced `"leave"` is the only thing that frees a role whose holder walked away, so a client that reached a queue without ever being a member could hold one indefinitely.
+
+### CR4 raises the stakes on the checkpoint roster
+
+This is the consequence to keep in view. A live guard is only consistent if every replica agrees on the roster, and today they do — rosters are built from sequenced `join`/`leave`, which every replica processes in the same order.
+
+**Except in the summarized-bootstrap window.** A client seeding `members` from a checkpoint that carries no roster under-reports the room, and would then *drop* replayed volunteers from clients who joined before the checkpoint — while every other replica kept them. That is queue divergence, where before CR4 the same gap only produced too-small `PactMap` quorums.
+
+`task_manager_kernel.from_summary` means volunteers from before the checkpoint arrive as snapshot state rather than replayed ops, so the window is only volunteers sequenced *after* the checkpoint by clients who joined *before* it. Narrow, and real.
+
+So: **the checkpoint roster is no longer optional once summaries are enabled.** It was already the right thing for `PactMap`; it is now a hard prerequisite for turning summaries on at all. Land them together.
 
 `OrderedCollection` and `Claims` take no quorum. Every other kind is a lattice or an OT structure whose replay is roster-independent by construction.
 

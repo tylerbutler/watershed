@@ -1040,6 +1040,7 @@ fn apply_remote_channel(
         |> option.unwrap(0),
       self: client_id_to_int(core.client_id),
       quorum: quorum_of(core, message_client_id),
+      roster: set.to_list(core.members),
       reference_sequence_number: reference_sequence_number,
     )
   case channel.apply_remote(state, op, meta) {
@@ -1184,6 +1185,7 @@ fn ack_own_op(
                   author: client_id_to_int(core.client_id),
                   self: client_id_to_int(core.client_id),
                   quorum: quorum_of(core, Some(core.client_id)),
+                  roster: set.to_list(core.members),
                   reference_sequence_number: core.last_seen_sn,
                 )
               case channel.applies_own_on_sequence(state) {

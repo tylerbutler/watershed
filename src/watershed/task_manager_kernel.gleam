@@ -210,11 +210,11 @@ pub fn apply_remote(
   state: TaskManagerState,
   op: TaskManagerOp,
   author: Int,
-  quorum: List(Int),
+  roster: List(Int),
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
   case op {
     Volunteer(task_id) ->
-      apply_volunteer_core(state, task_id, author, quorum, False)
+      apply_volunteer_core(state, task_id, author, roster, False)
     Abandon(task_id) -> apply_abandon_core(state, task_id, author, False)
     Complete(task_id) -> apply_complete_core(state, task_id)
   }
@@ -225,7 +225,7 @@ pub fn ack_local(
   op: TaskManagerOp,
   author: Int,
   message_id: Int,
-  quorum: List(Int),
+  roster: List(Int),
 ) -> Result(#(TaskManagerState, List(TaskManagerEvent)), TaskManagerError) {
   let task_id = op_task_id(op)
   let expected = op_pending_kind(op)
@@ -234,7 +234,7 @@ pub fn ack_local(
     Ok(state) -> {
       let #(state, events) = case op {
         Volunteer(_) ->
-          apply_volunteer_core(state, task_id, author, quorum, True)
+          apply_volunteer_core(state, task_id, author, roster, True)
         Abandon(_) -> apply_abandon_core(state, task_id, author, True)
         Complete(_) -> apply_complete_core(state, task_id)
       }
@@ -279,9 +279,9 @@ pub fn replace_placeholder(
   TaskManagerState(..state, queues: queues)
 }
 
-pub fn scrub_not_in_quorum(
+pub fn scrub_not_in_roster(
   state: TaskManagerState,
-  quorum: List(Int),
+  roster: List(Int),
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
   let #(queues, events) =
     sorted_queues(state)
@@ -291,7 +291,7 @@ pub fn scrub_not_in_quorum(
       let old = head(queue)
       let scrubbed =
         queue
-        |> list.filter(fn(client_id) { list.contains(quorum, client_id) })
+        |> list.filter(fn(client_id) { list.contains(roster, client_id) })
       let new = head(scrubbed)
       let queues = set_queue(queues, task_id, scrubbed)
       let events = append_queue_changed(events, task_id, old, new)
@@ -349,14 +349,27 @@ pub fn apply_stashed_op(
   #(state, None)
 }
 
+/// A volunteer from a client that is not in the room at this sequence point is
+/// dropped.
+///
+/// The invariant it holds is that a queue only ever names clients the roster
+/// names, which is what makes leave-driven release complete: `remove_client`
+/// on a sequenced `"leave"` is the only thing that frees a lock its holder
+/// walked away from, so a client that got into a queue without ever being a
+/// member could hold a role that nothing will ever release.
+///
+/// Every replica must reach the same verdict here or the queues diverge, which
+/// is why it takes `meta.roster` — reconstructed at the op's own sequence point
+/// — rather than `meta.quorum`, whose defensive additions differ between a
+/// replica applying the op live and one replaying it.
 fn apply_volunteer_core(
   state: TaskManagerState,
   task_id: String,
   author: Int,
-  quorum: List(Int),
+  roster: List(Int),
   local: Bool,
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
-  case list.contains(quorum, author) {
+  case list.contains(roster, author) {
     False -> #(state, [])
     True -> {
       let queue = queue_for(state, task_id)

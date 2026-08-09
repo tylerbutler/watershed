@@ -66,6 +66,7 @@ fn no_op_meta() -> channel.SequencedMeta {
     author: 1,
     self: 1,
     quorum: [1],
+    roster: [1],
     reference_sequence_number: 0,
   )
 }

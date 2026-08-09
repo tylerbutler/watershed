@@ -49,6 +49,7 @@ fn meta(
     author: author,
     self: self_id,
     quorum: [author, self_id],
+    roster: [author, self_id],
     reference_sequence_number: 0,
   )
 }
