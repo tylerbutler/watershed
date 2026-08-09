@@ -78,6 +78,26 @@ pub fn set_timer(action: fn() -> Nil, ms: Int) -> TimerId
 pub fn clear_timer(id: TimerId) -> Nil
 
 @target(javascript)
+/// A clock and timer source, so anything with a TTL or a heartbeat can be
+/// driven by a test's logical clock instead of by real elapsed time.
+///
+/// `schedule` returns a *canceller* rather than a `TimerId` so a substitute
+/// scheduler needs no FFI type of its own — see `sluice_js.scheduler`, which
+/// hangs one off the sluice's `advance`.
+pub type Scheduler {
+  Scheduler(now_ms: fn() -> Int, schedule: fn(fn() -> Nil, Int) -> fn() -> Nil)
+}
+
+@target(javascript)
+/// The real clock and `setTimeout`.
+pub fn real_scheduler() -> Scheduler {
+  Scheduler(now_ms: now_ms, schedule: fn(action, ms) {
+    let id = set_timer(action, ms)
+    fn() { clear_timer(id) }
+  })
+}
+
+@target(javascript)
 /// Mint an HS256 dev JWT matching levee's dev-mode verification. Signs with
 /// Web Crypto, so the token resolves asynchronously.
 @external(javascript, "./transport_ffi.mjs", "mintDevToken")

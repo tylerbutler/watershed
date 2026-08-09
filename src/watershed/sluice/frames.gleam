@@ -14,15 +14,18 @@
 //// through as `Json` (never `Dynamic`), so the encode path works identically
 //// on BEAM and JavaScript.
 
+import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 
 import spillway/types.{type Client}
 
+import watershed/presence
 import watershed/wire
 import watershed/wire/socket
 
@@ -228,6 +231,7 @@ pub fn encode_connected(
   initial_clients initial_clients: List(String),
   initial_messages initial_messages: List(Sequenced),
   timestamp timestamp: Int,
+  presence_v1 presence_v1: Bool,
 ) -> Json {
   json.object([
     #(
@@ -257,6 +261,10 @@ pub fn encode_connected(
     #("initialMessages", json.array(initial_messages, encode_sequenced)),
     #("initialSignals", json.preprocessed_array([])),
     #("supportedVersions", json.array(["1.0"], json.string)),
+    #(
+      "supportedFeatures",
+      json.object([#(socket.feature_presence_v1, json.bool(presence_v1))]),
+    ),
     #("version", json.string("1.0")),
     #("checkpointSequenceNumber", json.int(checkpoint_sequence_number)),
   ])
@@ -338,6 +346,127 @@ pub fn encode_signal(
     #("clientId", json.string(from_client)),
     #("content", content),
   ])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Presence (Phoenix-compatible)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One tracked presence as the sluice stores it. Metadata is kept *decomposed*
+/// into fields rather than as one `Json`, because `phx_ref` and `client_id` have
+/// to be merged in beside the application's own fields on the way out, and a
+/// `Json` value cannot be merged.
+pub type PresenceMeta {
+  PresenceMeta(key: String, phx_ref: String, fields: List(#(String, Json)))
+}
+
+/// Read the `meta` object out of a `joinPresence` / `updatePresence` push.
+///
+/// Metadata must be a JSON *object*: the Phoenix `metas` shape puts `phx_ref`
+/// and `client_id` alongside the application's fields, and a scalar or array
+/// leaves nowhere to put them. Server-owned keys are dropped rather than
+/// trusted — a client cannot name its own ref, session, or presence key.
+pub fn decode_presence_meta(
+  payload: Dynamic,
+) -> Result(List(#(String, Json)), String) {
+  use fields <- result.try(run(
+    payload,
+    presence_meta_decoder(),
+    "presence command",
+  ))
+  Ok(list.filter(fields, fn(field) { !is_reserved_meta_field(field.0) }))
+}
+
+fn presence_meta_decoder() -> Decoder(List(#(String, Json))) {
+  use fields <- decode.field(
+    "meta",
+    decode.dict(decode.string, wire.json_value_decoder()),
+  )
+  decode.success(dict.to_list(fields))
+}
+
+/// Whether a client-supplied key at the top level of a presence command is one
+/// the server owns. Used to reject a spoofing attempt outright rather than
+/// silently ignoring it.
+pub fn names_reserved_field(payload: Dynamic) -> Bool {
+  case decode.run(payload, decode.dict(decode.string, decode.dynamic)) {
+    Error(_) -> False
+    Ok(fields) ->
+      list.any(dict.keys(fields), fn(name) {
+        is_reserved_meta_field(name) || name == "key"
+      })
+  }
+}
+
+fn is_reserved_meta_field(name: String) -> Bool {
+  list.contains(presence.reserved_meta_fields, name)
+  || name == "key"
+  || name == "session_id"
+  || name == "clientId"
+}
+
+/// A `presence_state` snapshot: `{key: {metas: [...]}}`, keys sorted so a test
+/// can compare frames without normalizing them first.
+pub fn encode_presence_state(entries: List(#(String, PresenceMeta))) -> Json {
+  encode_metas_by_key(entries)
+}
+
+/// A `presence_diff`: `{joins: {...}, leaves: {...}}`.
+pub fn encode_presence_diff(
+  joins joins: List(#(String, PresenceMeta)),
+  leaves leaves: List(#(String, PresenceMeta)),
+) -> Json {
+  json.object([
+    #("joins", encode_metas_by_key(joins)),
+    #("leaves", encode_metas_by_key(leaves)),
+  ])
+}
+
+/// A `presence_error`, the presence lane's only failure channel — presence
+/// commands are pushes with no reply, so a rejection has to come back as a
+/// frame of its own.
+pub fn encode_presence_error(
+  code code: String,
+  message message: String,
+) -> Json {
+  json.object([
+    #("code", json.string(code)),
+    #("message", json.string(message)),
+  ])
+}
+
+/// Group tracked presences into `{key: {metas: [...]}}`, stamping each meta with
+/// the server-owned `phx_ref` and `client_id`. Entries arrive keyed by session
+/// id; several sessions can share one presence key, which is exactly how two
+/// tabs from one user appear.
+fn encode_metas_by_key(entries: List(#(String, PresenceMeta))) -> Json {
+  entries
+  |> list.fold(dict.new(), fn(grouped, entry) {
+    let #(session_id, meta) = entry
+    let stamped =
+      json.object([
+        #("phx_ref", json.string(meta.phx_ref)),
+        #("client_id", json.string(session_id)),
+        ..meta.fields
+      ])
+    dict.upsert(grouped, meta.key, fn(existing) {
+      case existing {
+        Some(metas) -> [stamped, ..metas]
+        None -> [stamped]
+      }
+    })
+  })
+  |> dict.to_list
+  |> list.sort(fn(left, right) { string.compare(left.0, right.0) })
+  |> list.map(fn(group) {
+    #(
+      group.0,
+      json.object([
+        #("metas", json.preprocessed_array(list.reverse(group.1))),
+      ]),
+    )
+  })
+  |> json.object
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

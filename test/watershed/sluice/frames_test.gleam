@@ -9,12 +9,14 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 
 import signet/types as token
 import spillway/message
 import spillway/types
 
+import watershed/presence
 import watershed/sluice/frames
 import watershed/wire
 import watershed/wire/socket
@@ -184,6 +186,7 @@ pub fn encode_connected_is_decodable_test() {
         a_sequenced(2, 1, "sluice-client-1"),
       ],
       timestamp: 1000,
+      presence_v1: True,
     )
   let assert Ok(connected) =
     json.parse(json.to_string(payload), socket.connected_message_decoder())
@@ -218,6 +221,7 @@ pub fn encode_connected_roster_round_trips_test() {
       initial_clients: ["sluice-client-0", "sluice-client-1", "sluice-client-2"],
       initial_messages: [],
       timestamp: 1000,
+      presence_v1: True,
     )
   let assert Ok(connected) =
     json.parse(json.to_string(payload), socket.connected_message_decoder())
@@ -278,4 +282,96 @@ pub fn encode_signal_strips_type_test() {
   signal.content
   |> decode.run(decode.at(["kind"], decode.string))
   |> expect.to_equal(Ok("presence"))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Presence frames
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Panel {
+  Panel(name: String)
+}
+
+fn panel_decoder() -> decode.Decoder(Panel) {
+  use name <- decode.field("panel", decode.string)
+  decode.success(Panel(name))
+}
+
+fn a_meta(key: String, phx_ref: String, panel: String) -> frames.PresenceMeta {
+  frames.PresenceMeta(key: key, phx_ref: phx_ref, fields: [
+    #("panel", json.string(panel)),
+  ])
+}
+
+/// The Phoenix grouping is `{key: {metas: [...]}}`, so two sessions under one
+/// key must land as *one* key holding two metas — not two keys. That grouping
+/// is what makes "two tabs, one user" representable on the wire at all.
+pub fn presence_state_groups_sessions_under_one_key_test() {
+  let payload =
+    frames.encode_presence_state([
+      #("client-1", a_meta("user:alice", "ref-1", "sudoku")),
+      #("client-2", a_meta("user:alice", "ref-2", "text")),
+      #("client-3", a_meta("user:bob", "ref-3", "board")),
+    ])
+
+  // The raw shape: two keys, and alice holds two metas.
+  let assert Ok(groups) =
+    json.parse(
+      json.to_string(payload),
+      decode.dict(
+        decode.string,
+        decode.at(["metas"], decode.list(decode.dynamic)),
+      ),
+    )
+  dict.keys(groups)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["user:alice", "user:bob"])
+  let assert Ok(alice) = dict.get(groups, "user:alice")
+  list.length(alice) |> expect.to_equal(2)
+
+  // And the client's own decoder reads it back as three sessions.
+  let assert Ok(snapshot) =
+    json.parse(
+      json.to_string(payload),
+      presence.presence_state_decoder(decode: panel_decoder()),
+    )
+  let #(tracker, _) = presence.apply_state(presence.tracker(), snapshot)
+  presence.tracker_entries(tracker)
+  |> list.map(fn(entry) { #(entry.key, entry.session_id, entry.meta) })
+  |> expect.to_equal([
+    #("user:alice", "client-1", Panel("sudoku")),
+    #("user:alice", "client-2", Panel("text")),
+    #("user:bob", "client-3", Panel("board")),
+  ])
+}
+
+pub fn presence_diff_round_trips_through_the_client_decoder_test() {
+  let payload =
+    frames.encode_presence_diff(
+      joins: [#("client-1", a_meta("user:alice", "ref-2", "text"))],
+      leaves: [#("client-1", a_meta("user:alice", "ref-1", "sudoku"))],
+    )
+
+  let assert Ok(diff) =
+    json.parse(
+      json.to_string(payload),
+      presence.presence_diff_decoder(decode: panel_decoder()),
+    )
+
+  presence.diff_joins(diff)
+  |> list.map(fn(entry) { entry.meta })
+  |> expect.to_equal([Panel("text")])
+  presence.diff_leaves(diff)
+  |> list.map(fn(entry) { entry.meta })
+  |> expect.to_equal([Panel("sudoku")])
+}
+
+pub fn presence_error_round_trips_test() {
+  let payload =
+    frames.encode_presence_error(code: "not_joined", message: "nothing here")
+
+  json.parse(json.to_string(payload), presence.presence_error_decoder())
+  |> expect.to_equal(
+    Ok(presence.Rejected(code: "not_joined", message: "nothing here")),
+  )
 }

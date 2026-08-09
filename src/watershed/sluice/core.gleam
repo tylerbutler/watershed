@@ -19,6 +19,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/set.{type Set}
 import gleam/string
 
@@ -50,6 +51,19 @@ pub opaque type Sluice {
     /// reconnects replay from here (plan decision 5: no summary store in v1).
     log: List(Sequenced),
     clients: Dict(String, ClientEntry),
+    /// Presence tracked per *connection*, keyed by client id. Version one
+    /// supports one registration per document connection, so an app puts panel,
+    /// cursor, and activity into one metadata value.
+    presence: Dict(String, frames.PresenceMeta),
+    /// Deterministic `phx_ref` source. Phoenix mints random refs; the sluice
+    /// mints `ref-1`, `ref-2`, … for the same reason it mints
+    /// `sluice-client-N` — a test asserts on frames, so frames must be
+    /// reproducible.
+    next_presence_ref: Int,
+    /// Whether the handshake advertises `presence_v1`. Tests turn it off to
+    /// drive the capability-absent paths: `Auto` falling back to ripples, and a
+    /// forced `Server` failing loudly.
+    presence_supported: Bool,
     /// Clients whose inbound frames are held (the `pause`/`resume` control).
     paused: Set(String),
     next_client_number: Int,
@@ -71,11 +85,20 @@ pub fn new(
     seq: sequencing.new(),
     log: [],
     clients: dict.new(),
+    presence: dict.new(),
+    next_presence_ref: 1,
+    presence_supported: True,
     paused: set.new(),
     next_client_number: 1,
     now_ms: 0,
     outbox: [],
   )
+}
+
+/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
+/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+pub fn set_presence_supported(sluice: Sluice, supported: Bool) -> Sluice {
+  Sluice(..sluice, presence_supported: supported)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +147,12 @@ pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
       clients: dict.delete(sluice.clients, client_id),
       paused: set.delete(sluice.paused, client_id),
     )
+  // Drop the socket's presence with the socket. This is the property server
+  // presence exists for: a browser that closed its tab or lost its network
+  // stops being present without having to say so, and without anyone waiting
+  // out a heartbeat TTL. Both the forced-reconnect drop and a real disconnect
+  // route through here, so both clean up.
+  let sluice = on_leave_presence(sluice, client_id)
   case known {
     False -> sluice
     True -> {
@@ -165,6 +194,9 @@ pub fn handle(
     "requestOps" -> on_request_ops(sluice, client_id, payload)
     "noop" -> on_noop(sluice, payload)
     "submitSignal" -> on_signal(sluice, payload)
+    "joinPresence" -> on_join_presence(sluice, client_id, payload)
+    "updatePresence" -> on_update_presence(sluice, client_id, payload)
+    "leavePresence" -> on_leave_presence(sluice, client_id)
     _ -> sluice
   }
 }
@@ -209,6 +241,7 @@ fn on_connect_document(
           initial_clients: connected_ids(sluice),
           initial_messages: log_since(sluice.log, last_seen),
           timestamp: sluice.now_ms,
+          presence_v1: sluice.presence_supported,
         )
       let sluice =
         enqueue(sluice, client_id, "connect_document_success", connected)
@@ -319,6 +352,167 @@ fn on_signal(sluice: Sluice, payload: Dynamic) -> Sluice {
         enqueue(sluice, id, "signal", frame)
       })
     }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Presence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Register this connection's presence.
+///
+/// The ordering here is Phoenix's state-plus-diff synchronization, and it is
+/// what lets a joiner converge without locking the topic: snapshot the roster,
+/// send it to the joiner alone, *then* track and broadcast the join. The joiner
+/// therefore learns of its own session from the diff, not the snapshot, and a
+/// remote change racing the snapshot is simply a diff the client queues.
+fn on_join_presence(
+  sluice: Sluice,
+  client_id: String,
+  payload: Dynamic,
+) -> Sluice {
+  case authenticated_key(sluice, client_id) {
+    Error(frame) -> enqueue(sluice, client_id, "presence_error", frame)
+    Ok(key) ->
+      case read_meta(payload) {
+        Error(frame) -> enqueue(sluice, client_id, "presence_error", frame)
+        Ok(fields) -> {
+          // Snapshot *before* inserting, so the joiner's own session arrives
+          // through the diff below.
+          let snapshot =
+            enqueue(
+              sluice,
+              client_id,
+              "presence_state",
+              frames.encode_presence_state(dict.to_list(sluice.presence)),
+            )
+          let #(snapshot, meta) = track(snapshot, key, fields)
+          Sluice(
+            ..snapshot,
+            presence: dict.insert(snapshot.presence, client_id, meta),
+          )
+          |> broadcast_presence(joins: [#(client_id, meta)], leaves: [])
+        }
+      }
+  }
+}
+
+/// Replace this connection's metadata.
+///
+/// Emitted as one diff carrying a leave of the old `phx_ref` and a join of the
+/// new one — both what Phoenix emits and what an untrack-then-track on the
+/// server produces, so a Phoenix client already understands the sequence.
+fn on_update_presence(
+  sluice: Sluice,
+  client_id: String,
+  payload: Dynamic,
+) -> Sluice {
+  case dict.get(sluice.presence, client_id) {
+    Error(Nil) ->
+      enqueue(
+        sluice,
+        client_id,
+        "presence_error",
+        frames.encode_presence_error(
+          code: "not_joined",
+          message: "this connection has no presence to update",
+        ),
+      )
+    Ok(previous) ->
+      case read_meta(payload) {
+        Error(frame) -> enqueue(sluice, client_id, "presence_error", frame)
+        Ok(fields) -> {
+          let #(sluice, meta) = track(sluice, previous.key, fields)
+          Sluice(
+            ..sluice,
+            presence: dict.insert(sluice.presence, client_id, meta),
+          )
+          |> broadcast_presence(joins: [#(client_id, meta)], leaves: [
+            #(client_id, previous),
+          ])
+        }
+      }
+  }
+}
+
+/// Drop this connection's presence. A connection with none is a silent no-op:
+/// a duplicate leave, or one racing the socket's own cleanup, must not error.
+fn on_leave_presence(sluice: Sluice, client_id: String) -> Sluice {
+  case dict.get(sluice.presence, client_id) {
+    Error(Nil) -> sluice
+    Ok(previous) ->
+      Sluice(..sluice, presence: dict.delete(sluice.presence, client_id))
+      |> broadcast_presence(joins: [], leaves: [#(client_id, previous)])
+  }
+}
+
+/// Mint a `phx_ref` and pair it with the metadata it stamps.
+fn track(
+  sluice: Sluice,
+  key: String,
+  fields: List(#(String, Json)),
+) -> #(Sluice, frames.PresenceMeta) {
+  let phx_ref = "ref-" <> int.to_string(sluice.next_presence_ref)
+  #(
+    Sluice(..sluice, next_presence_ref: sluice.next_presence_ref + 1),
+    frames.PresenceMeta(key: key, phx_ref: phx_ref, fields: fields),
+  )
+}
+
+/// Broadcast a presence change to **every** connected client, the joiner
+/// included. That is deliberately unlike `on_signal`, which excludes the
+/// author: Phoenix presence is topic-wide, and a joiner that never heard its
+/// own join would hold a roster missing itself.
+fn broadcast_presence(
+  sluice: Sluice,
+  joins joins: List(#(String, frames.PresenceMeta)),
+  leaves leaves: List(#(String, frames.PresenceMeta)),
+) -> Sluice {
+  broadcast(
+    sluice,
+    "presence_diff",
+    frames.encode_presence_diff(joins: joins, leaves: leaves),
+  )
+}
+
+/// The presence key for a connection: its authenticated user id.
+///
+/// A connection that has not completed `connect_document` is not in `clients`
+/// and has no authenticated identity to derive a key from, so it is rejected —
+/// presence must never be attributable to an unauthenticated socket.
+fn authenticated_key(
+  sluice: Sluice,
+  client_id: String,
+) -> Result(String, Json) {
+  case dict.get(sluice.clients, client_id) {
+    Ok(entry) -> Ok(entry.client.user.id)
+    Error(Nil) ->
+      Error(frames.encode_presence_error(
+        code: "unauthenticated",
+        message: "presence requires a completed document connection",
+      ))
+  }
+}
+
+/// Read a presence command's metadata, rejecting an attempt to claim a
+/// server-owned field. Reserved keys nested *inside* `meta` are stripped rather
+/// than rejected (see `frames.decode_presence_meta`); naming one at the top
+/// level is an identity claim, and worth an explicit error.
+fn read_meta(payload: Dynamic) -> Result(List(#(String, Json)), Json) {
+  case frames.names_reserved_field(payload) {
+    True ->
+      Error(frames.encode_presence_error(
+        code: "invalid_meta",
+        message: "the server owns key, session, and ref; a client cannot set them",
+      ))
+    False ->
+      frames.decode_presence_meta(payload)
+      |> result.map_error(fn(_) {
+        frames.encode_presence_error(
+          code: "invalid_meta",
+          message: "presence metadata must be a JSON object",
+        )
+      })
   }
 }
 

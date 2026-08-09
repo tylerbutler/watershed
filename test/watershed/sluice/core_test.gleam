@@ -14,6 +14,7 @@ import signet/types as token
 import spillway/message
 import spillway/types
 
+import watershed/presence
 import watershed/sluice/core.{type Outbound, type Sluice}
 import watershed/sluice/frames as frames_codec
 import watershed/wire
@@ -369,4 +370,293 @@ pub fn pause_holds_a_clients_frames_until_resume_test() {
   let #(_hub, after_resume) = drain(sluice)
   let recipients2 = list.map(after_resume, fn(frame) { frame.client_id })
   recipients2 |> expect.to_equal([c2])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Presence
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Panel {
+  Panel(name: String)
+}
+
+fn panel_decoder() -> decode.Decoder(Panel) {
+  use name <- decode.field("panel", decode.string)
+  decode.success(Panel(name))
+}
+
+fn panel(name: String) -> json.Json {
+  json.object([#("meta", json.object([#("panel", json.string(name))]))])
+}
+
+fn presence_push(
+  sluice: Sluice,
+  client_id: String,
+  event: String,
+  payload: json.Json,
+) -> Sluice {
+  core.handle(sluice, client_id, event, to_dynamic(payload))
+}
+
+fn state_of(frame: Outbound) -> List(presence.PresenceEntry(Panel)) {
+  let assert Ok(snapshot) =
+    json.parse(
+      json.to_string(frame.payload),
+      presence.presence_state_decoder(decode: panel_decoder()),
+    )
+  let #(tracker, _) = presence.apply_state(presence.tracker(), snapshot)
+  presence.tracker_entries(tracker)
+}
+
+fn diff_of(frame: Outbound) -> presence.Diff(Panel) {
+  let assert Ok(diff) =
+    json.parse(
+      json.to_string(frame.payload),
+      presence.presence_diff_decoder(decode: panel_decoder()),
+    )
+  diff
+}
+
+fn error_of(frame: Outbound) -> presence.PresenceError {
+  let assert Ok(error) =
+    json.parse(json.to_string(frame.payload), presence.presence_error_decoder())
+  error
+}
+
+fn sessions_of(entries: List(presence.PresenceEntry(Panel))) -> List(String) {
+  list.map(entries, fn(entry) { entry.session_id })
+}
+
+pub fn handshake_advertises_presence_v1_test() {
+  let #(sluice, _) = connect(core.new("default", "dice"), None)
+  let #(_hub, frames) = drain(sluice)
+  let assert [handshake, ..] = frames
+  let assert Ok(connected) =
+    json.parse(
+      json.to_string(handshake.payload),
+      socket.connected_message_decoder(),
+    )
+
+  socket.supports_feature(
+    connected.supported_features,
+    socket.feature_presence_v1,
+  )
+  |> expect.to_be_true
+}
+
+pub fn presence_capability_can_be_withheld_test() {
+  let sluice = core.set_presence_supported(core.new("default", "dice"), False)
+  let #(sluice, _) = connect(sluice, None)
+  let #(_hub, frames) = drain(sluice)
+  let assert [handshake, ..] = frames
+  let assert Ok(connected) =
+    json.parse(
+      json.to_string(handshake.payload),
+      socket.connected_message_decoder(),
+    )
+
+  socket.supports_feature(
+    connected.supported_features,
+    socket.feature_presence_v1,
+  )
+  |> expect.to_be_false
+}
+
+/// Phoenix's join ordering: the snapshot is taken *before* the joiner is
+/// tracked, so it learns of its own session from the diff that follows. A
+/// snapshot that already contained the joiner would make the diff a duplicate.
+pub fn joining_presence_sends_state_then_broadcasts_a_diff_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [state, diff] = frames
+
+  state.event |> expect.to_equal("presence_state")
+  state.client_id |> expect.to_equal(c1)
+  state_of(state) |> expect.to_equal([])
+
+  diff.event |> expect.to_equal("presence_diff")
+  presence.diff_joins(diff_of(diff))
+  |> expect.to_equal([
+    presence.PresenceEntry(session_id: c1, key: "user", meta: Panel("sudoku")),
+  ])
+}
+
+/// The second joiner's snapshot carries the first — this is the whole point of
+/// server presence: a late client gets the roster at once, with no heartbeat to
+/// wait out.
+pub fn a_late_joiner_receives_the_existing_roster_in_its_snapshot_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, c2) = connect(sluice, None)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = presence_push(sluice, c2, "joinPresence", panel("text"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [state, ..] = of_event(frames, "presence_state")
+  state.client_id |> expect.to_equal(c2)
+  state_of(state) |> sessions_of |> expect.to_equal([c1])
+}
+
+/// Two connections authenticated as the same user are two sessions under one
+/// key, not one entry overwriting the other.
+pub fn two_connections_share_a_key_as_separate_sessions_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, c2) = connect(sluice, None)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let sluice = presence_push(sluice, c2, "joinPresence", panel("text"))
+  let #(sluice, _) = drain(sluice)
+
+  // A third connection's snapshot is the roster as the server sees it.
+  let #(sluice, c3) = connect(sluice, None)
+  let sluice = presence_push(sluice, c3, "joinPresence", panel("board"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [state, ..] = of_event(frames, "presence_state")
+  let entries = state_of(state)
+
+  sessions_of(entries) |> expect.to_equal([c1, c2])
+  presence.by_key(entries, "user") |> list.length |> expect.to_equal(2)
+}
+
+pub fn updating_presence_is_one_leave_and_join_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = presence_push(sluice, c1, "updatePresence", panel("text"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = of_event(frames, "presence_diff")
+  let diff = diff_of(frame)
+
+  presence.diff_leaves(diff)
+  |> list.map(fn(entry) { entry.meta })
+  |> expect.to_equal([Panel("sudoku")])
+  presence.diff_joins(diff)
+  |> list.map(fn(entry) { entry.meta })
+  |> expect.to_equal([Panel("text")])
+}
+
+pub fn leaving_presence_broadcasts_only_leaves_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = presence_push(sluice, c1, "leavePresence", json.object([]))
+  let #(sluice, frames) = drain(sluice)
+
+  let assert [frame] = of_event(frames, "presence_diff")
+  presence.diff_joins(diff_of(frame)) |> expect.to_equal([])
+  presence.diff_leaves(diff_of(frame))
+  |> sessions_of
+  |> expect.to_equal([c1])
+
+  // A duplicate leave is a no-op, not an error: it races the socket's own
+  // cleanup often enough that erroring would be noise.
+  let sluice = presence_push(sluice, c1, "leavePresence", json.object([]))
+  let #(_hub, again) = drain(sluice)
+  again |> expect.to_equal([])
+}
+
+/// Socket loss removes presence with no browser involvement — the property the
+/// heartbeat fallback can only approximate with a TTL.
+pub fn disconnect_removes_presence_for_the_survivors_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, c2) = connect(sluice, None)
+  let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = core.disconnect(sluice, c1)
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = of_event(frames, "presence_diff")
+  frame.client_id |> expect.to_equal(c2)
+  presence.diff_leaves(diff_of(frame)) |> sessions_of |> expect.to_equal([c1])
+}
+
+/// Presence must never be attributable to a socket that has not authenticated —
+/// there is no user to derive a key from.
+pub fn joining_presence_before_the_handshake_is_rejected_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, client_id) = core.register(sluice)
+  let sluice = presence_push(sluice, client_id, "joinPresence", panel("sudoku"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = frames
+  frame.event |> expect.to_equal("presence_error")
+  error_of(frame)
+  |> expect.to_equal(presence.Rejected(
+    code: "unauthenticated",
+    message: "presence requires a completed document connection",
+  ))
+}
+
+pub fn claiming_a_server_owned_field_is_rejected_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let spoofed =
+    json.object([
+      #("key", json.string("user:root")),
+      #("meta", json.object([#("panel", json.string("sudoku"))])),
+    ])
+  let sluice = presence_push(sluice, c1, "joinPresence", spoofed)
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = frames
+  frame.event |> expect.to_equal("presence_error")
+  let assert presence.Rejected(code: code, message: _) = error_of(frame)
+  code |> expect.to_equal("invalid_meta")
+}
+
+/// A reserved field *inside* `meta` is stripped rather than rejected, and the
+/// server's own value is what reaches the wire.
+pub fn reserved_fields_inside_meta_are_replaced_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let smuggled =
+    json.object([
+      #(
+        "meta",
+        json.object([
+          #("panel", json.string("sudoku")),
+          #("client_id", json.string("client-impostor")),
+          #("phx_ref", json.string("ref-impostor")),
+        ]),
+      ),
+    ])
+  let sluice = presence_push(sluice, c1, "joinPresence", smuggled)
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = of_event(frames, "presence_diff")
+  presence.diff_joins(diff_of(frame))
+  |> expect.to_equal([
+    presence.PresenceEntry(session_id: c1, key: "user", meta: Panel("sudoku")),
+  ])
+}
+
+pub fn updating_presence_without_joining_is_rejected_test() {
+  let sluice = core.new("default", "dice")
+  let #(sluice, c1) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+
+  let sluice = presence_push(sluice, c1, "updatePresence", panel("text"))
+  let #(_hub, frames) = drain(sluice)
+
+  let assert [frame] = frames
+  let assert presence.Rejected(code: code, message: _) = error_of(frame)
+  code |> expect.to_equal("not_joined")
 }

@@ -26,6 +26,8 @@ import watershed/claims_kernel
 @target(erlang)
 import watershed/client_id
 @target(erlang)
+import watershed/presence
+@target(erlang)
 import watershed/rich_text
 @target(erlang)
 import watershed/rich_text_kernel
@@ -892,4 +894,75 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
   sluice.settle(sluice)
   watershed.pact_map_get(pact_a, "bpm") |> expect.to_equal(Some(json.int(96)))
   watershed.pact_map_get(pact_c, "bpm") |> expect.to_equal(Some(json.int(96)))
+}
+
+@target(erlang)
+/// The erlang runtime's presence lane, end to end over a real document: the
+/// handshake reports the negotiated capability, and a `joinPresence` pushed by
+/// hand comes back as a snapshot and a diff.
+///
+/// There is no erlang presence *driver* yet (every consumer is a browser), so
+/// this is what keeps the erlang half of the lane from rotting: the JS runtime
+/// and this one are maintained as parallel implementations, and an untested
+/// lane on one side drifts.
+pub fn presence_lane_delivers_session_state_and_diffs_test() {
+  let sluice = start("presence-lane")
+  let document = connect(sluice, "user-a")
+  let runtime = watershed.runtime_subject(document)
+
+  // Collect frames into a mailbox rather than a mutable cell: the subscriber
+  // runs on the runtime's process, not this one.
+  let inbox = process.new_subject()
+  process.send(
+    runtime,
+    runtime.SubscribePresence(fn(frame) { process.send(inbox, frame) }),
+  )
+  sluice.settle(sluice)
+
+  let assert Ok(runtime.PresenceSession(client_id, presence_v1)) =
+    process.receive(inbox, 1000)
+  presence_v1 |> expect.to_be_true
+  client_id |> expect.to_not_equal("")
+
+  process.send(
+    runtime,
+    runtime.SubmitPresence(
+      "joinPresence",
+      json.object([
+        #("meta", json.object([#("panel", json.string("dice"))])),
+      ]),
+    ),
+  )
+  sluice.settle(sluice)
+
+  let assert Ok(runtime.PresenceState(state)) = process.receive(inbox, 1000)
+  let assert Ok(snapshot) =
+    decode.run(state, presence.presence_state_decoder(decode: panel_decoder()))
+  let #(tracker, _) = presence.apply_state(presence.tracker(), snapshot)
+  // The snapshot precedes this client's own tracking, so it is empty and the
+  // join arrives as the diff below.
+  presence.tracker_entries(tracker) |> expect.to_equal([])
+
+  let assert Ok(runtime.PresenceDiff(payload)) = process.receive(inbox, 1000)
+  let assert Ok(diff) =
+    decode.run(payload, presence.presence_diff_decoder(decode: panel_decoder()))
+  presence.diff_joins(diff)
+  |> expect.to_equal([
+    presence.PresenceEntry(
+      session_id: client_id,
+      key: "user-a",
+      meta: PresencePanel("dice"),
+    ),
+  ])
+}
+
+@target(erlang)
+type PresencePanel {
+  PresencePanel(name: String)
+}
+
+@target(erlang)
+fn panel_decoder() -> decode.Decoder(PresencePanel) {
+  use name <- decode.field("panel", decode.string)
+  decode.success(PresencePanel(name))
 }

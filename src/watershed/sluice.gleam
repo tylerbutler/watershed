@@ -239,6 +239,15 @@ pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   })
 }
 
+@target(erlang)
+/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
+/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+pub fn disable_presence(sluice: Sluice) -> Nil {
+  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
+    SetPresenceSupported(False, reply)
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Delivery orchestration (runs in the caller's process)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -332,6 +341,7 @@ type Message {
   Pause(subject: Subject(runtime.Msg), reply: Subject(Nil))
   Resume(subject: Subject(runtime.Msg), reply: Subject(Nil))
   Advance(ms: Int, reply: Subject(Nil))
+  SetPresenceSupported(supported: Bool, reply: Subject(Nil))
   /// The connected runtime subjects, for the caller's barrier sweep.
   Subjects(reply: Subject(List(Subject(runtime.Msg))))
 }
@@ -484,6 +494,13 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
     Advance(ms, reply) -> {
       process.send(reply, Nil)
       actor.continue(State(..state, core: core.advance(state.core, ms)))
+    }
+
+    SetPresenceSupported(supported, reply) -> {
+      process.send(reply, Nil)
+      actor.continue(
+        State(..state, core: core.set_presence_supported(state.core, supported)),
+      )
     }
 
     Subjects(reply) -> {

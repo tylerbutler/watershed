@@ -16,6 +16,8 @@ import gleam/dynamic.{type Dynamic}
 @target(javascript)
 import gleam/dynamic/decode
 @target(javascript)
+import gleam/int
+@target(javascript)
 import gleam/json.{type Json}
 @target(javascript)
 import gleam/list
@@ -61,6 +63,8 @@ pub fn start(tenant tenant: String, document document: String) -> Sluice {
       conns: [],
       bindings: [],
       last_registered: None,
+      timers: [],
+      next_timer_id: 1,
     )),
     tenant: tenant,
     document: document,
@@ -343,14 +347,86 @@ pub fn sequence_number(sluice: Sluice) -> Int {
 }
 
 @target(javascript)
-/// Advance the sluice's logical clock, so TTL-based logic (presence prune) is
-/// testable without real time passing.
+/// Advance the sluice's logical clock and fire every timer that came due, so
+/// TTL- and heartbeat-based logic is testable without real time passing.
+///
+/// Timers fire one at a time, re-reading the cell between each: a heartbeat
+/// re-schedules itself from inside its own callback, and the replacement must
+/// not be fired by this same `advance`.
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   transport_js.set_cell(
     sluice.cell,
     State(..state, core: core.advance(state.core, ms)),
   )
+  fire_due(sluice)
+}
+
+@target(javascript)
+/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
+/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+pub fn disable_presence(sluice: Sluice) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  transport_js.set_cell(
+    sluice.cell,
+    State(..state, core: core.set_presence_supported(state.core, False)),
+  )
+}
+
+@target(javascript)
+/// A scheduler bound to this sluice's logical clock, for driving a presence
+/// handle (or anything else with a heartbeat) from `advance` instead of real
+/// elapsed time.
+pub fn scheduler(sluice: Sluice) -> transport_js.Scheduler {
+  transport_js.Scheduler(
+    now_ms: fn() { core.now(transport_js.get_cell(sluice.cell).core) },
+    schedule: fn(action, ms) { schedule_timer(sluice, action, ms) },
+  )
+}
+
+@target(javascript)
+fn schedule_timer(sluice: Sluice, action: fn() -> Nil, ms: Int) -> fn() -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  let id = state.next_timer_id
+  transport_js.set_cell(
+    sluice.cell,
+    State(
+      ..state,
+      timers: [#(core.now(state.core) + ms, id, action), ..state.timers],
+      next_timer_id: id + 1,
+    ),
+  )
+  fn() { cancel_timer(sluice, id) }
+}
+
+@target(javascript)
+fn cancel_timer(sluice: Sluice, id: Int) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  transport_js.set_cell(
+    sluice.cell,
+    State(
+      ..state,
+      timers: list.filter(state.timers, fn(timer) { timer.1 != id }),
+    ),
+  )
+}
+
+@target(javascript)
+/// Fire the earliest due timer, then look again. Recursing rather than folding
+/// is deliberate: each callback may schedule, cancel, or fire further timers,
+/// so the list has to be re-read every round.
+fn fire_due(sluice: Sluice) -> Nil {
+  let state = transport_js.get_cell(sluice.cell)
+  let now = core.now(state.core)
+  let due = list.filter(state.timers, fn(timer) { timer.0 <= now })
+  case list.sort(due, fn(a, b) { int.compare(a.0, b.0) }) {
+    [] -> Nil
+    [#(_, id, action), ..] -> {
+      cancel_timer(sluice, id)
+      action()
+      fire_due(sluice)
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -513,6 +589,11 @@ type State {
     /// identity (structural equality would deep-compare state cells).
     bindings: List(#(runtime_js.Runtime, String)),
     last_registered: Option(String),
+    /// Timers scheduled against the logical clock: `#(due_at_ms, id, action)`.
+    /// `advance` is what fires them, which is how a heartbeat or a TTL becomes
+    /// a scriptable step rather than a wait.
+    timers: List(#(Int, Int, fn() -> Nil)),
+    next_timer_id: Int,
   )
 }
 
