@@ -344,8 +344,12 @@ pub fn two_clients_converge_test() {
 ```
 
 Controls: `settle`, `step`, `pause`/`resume` (erlang — hold a client's frames to
-script delivery order), and `advance(ms)` (move the sluice's logical clock so
-presence TTL logic is testable without sleeping). The live-server integration
+script delivery order), and `advance(ms)` (move the sluice's logical clock and
+fire the timers that fall due with it, so heartbeat- and TTL-driven logic —
+presence's ripple fallback above all — is stepped rather than waited out; pass
+`sluice_js.scheduler` to `presence_js.start_with_scheduler`). The sluice also
+speaks `presence_v1`, so the server-backed presence path is testable in-repo
+without a live server. The live-server integration
 suite stays authoritative and untouched; the sluice models levee, it is not
 levee. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
 test, and `docs/plans/2026-07-06-in-memory-hub-plan.md` for the design.

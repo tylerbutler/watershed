@@ -102,18 +102,26 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
   </div>
 
   <div class="g-block">
-    <h2>Presence is ripples with a heartbeat</h2>
+    <h2>Presence answers "who is here"</h2>
     <p>
       Raw ripples are stateless, so a peer who goes quiet leaves their last
-      marker stuck on screen. <strong>Presence</strong> layers the missing
-      lifecycle on top: each client heartbeats its payload on a ripple, and a
-      peer whose heartbeat lapses past a TTL is dropped from the roster. You
-      rarely hand-roll that — the next step wires the built-in presence driver
-      to your UI as a single effect.
+      marker stuck on screen. <strong>Presence</strong> supplies the missing
+      lifecycle. Where the server offers connection-backed presence it tracks
+      each socket directly, so a late joiner gets the whole roster at once and a
+      dropped connection removes its entry immediately; where it does not,
+      presence falls back to heartbeating over ripples and expiring peers on a
+      TTL. One API covers both, and it tells you which one it picked. You rarely
+      hand-roll any of it — the next step wires the built-in driver to your UI as
+      a single effect.
     </p>
     <p>
-      For how this tier behaves at runtime — the heartbeat cadence, the TTL, and
-      why a ripple never survives a reconnect — see the runtime note on
+      Keep sending high-frequency cursor motion as raw ripples; presence is for
+      membership and the slower status that goes with it.
+    </p>
+    <p>
+      For how this tier behaves at runtime — the two implementations, the
+      heartbeat cadence and TTL of the fallback, and why a ripple never survives
+      a reconnect — see the runtime note on
       <a href="/runtime/presence">presence &amp; ripples</a>.
     </p>
   </div>

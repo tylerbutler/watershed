@@ -44,8 +44,8 @@ export const runtimeDocs: RuntimeDoc[] = [
     slug: "presence",
     title: "Presence & ripples",
     gloss:
-      "The ephemeral tier beside your state: throwaway broadcasts, and the heartbeat-and-TTL that turns them into a live roster.",
-    concept: "submit_ripple · heartbeat · ttl",
+      "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them — connection-backed where the server offers it, heartbeat-and-TTL where it does not.",
+    concept: "submit_ripple · sessions · server or heartbeat",
   },
 ];
 

@@ -8,8 +8,13 @@
 //// it.
 ////
 //// This is what lets app authors — whose apps are JS/Lustre — write gleeunit
-//// convergence tests on `--target javascript`, and lets presence's TTL logic be
-//// tested by `advance`-ing the logical clock past expiry with no real waiting.
+//// convergence tests on `--target javascript`.
+////
+//// `advance` moves a *logical* clock and fires the timers that came due with
+//// it, so anything on a heartbeat or a TTL — presence's ripple fallback, above
+//// all — is driven by stepping the clock rather than by waiting. Hand
+//// `scheduler` to `presence_js.start_with_scheduler` to put a presence handle
+//// on that clock.
 
 @target(javascript)
 import gleam/dynamic.{type Dynamic}

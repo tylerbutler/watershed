@@ -19,14 +19,15 @@ The board is bootstrapped from handles stored on the document's root
 | Shared mistakes tally | `SharedCounter` | `increment` on a wrong entry |
 
 **Ephemeral presence** — who's online, each player's selected cell, and a
-"typing" indicator — rides on watershed **ripples** (ephemeral, non-sequenced
-broadcasts; `"signal"` on the Fluid wire), *not* a DDS. Ripples are
-non-sequenced and non-persisted (fire-and-forget), so presence is never
-replayed or stored; a peer that goes silent simply expires via a heartbeat +
-TTL. Each client re-announces itself every 2s and is dropped after ~6.5s of
-silence. The heartbeat/TTL/roster lifecycle lives in the library
-(`watershed/presence` + `watershed/presence_js`); this app keeps only its
-`SudokuPresence` payload type and the rendering.
+"typing" indicator — rides watershed's presence tier, *not* a DDS: it is never
+sequenced, persisted, or replayed. Where the server offers connection-backed
+presence, it tracks each socket, so a player joining late sees the whole room at
+once and a closed tab vanishes immediately. Where it does not, presence falls
+back to broadcasting over **ripples** (`"signal"` on the Fluid wire) every 2s and
+expiring a peer after ~6.5s of silence. Either way the lifecycle lives in the
+library (`watershed/presence` + `watershed/presence_js`); this app keeps only its
+`SudokuPresence` metadata type and the rendering. Two tabs opened by the same
+player are two sessions under one key, so they appear separately.
 
 ## Run it
 
@@ -47,8 +48,8 @@ pnpm run serve        # serves index.html on http://localhost:8080
 Open **two** browser tabs on <http://localhost:8080>. Select a cell, type 1–9,
 toggle notes mode for pencil marks, and watch both tabs converge — including
 each other's live cursor and typing indicator in the roster. Hit **Force
-reconnect** and keep solving — pending edits are preserved and presence
-re-establishes on the next heartbeat.
+reconnect** and keep solving — pending edits are preserved and presence rejoins
+with the new session, carrying whatever you selected while it was down.
 
 > The demo mints an HS256 dev JWT in the browser using the server's dev secret. This
 > is for local dev only; a real deployment issues tokens from a backend and

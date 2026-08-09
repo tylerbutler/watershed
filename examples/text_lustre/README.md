@@ -86,8 +86,8 @@ runtime's own error message in a banner instead of asserting; it never uses
 merges. The **Pin anchor at end** button anchors the current tail; as remote
 edits insert or delete text *before* it, `text_resolve_anchor` reports its
 shifted grapheme index, which the panel shows live. This is the primitive that
-makes shared cursors possible — broadcasting them (presence) is deliberately
-out of scope here.
+makes shared cursors possible; broadcasting them is what the presence wiring
+below does.
 
 ## Caret preservation
 
@@ -203,8 +203,10 @@ type Editing {
 }
 
 // the roster arrives -> hand it to the component, with names and colours
-PeersChanged(peers) -> {
-  let cursors = list.filter_map(peers, ...textarea.peer(id:, label:, colour:, cursor:))
+PresenceEvent(event) -> {
+  // `State` and `Changed` both carry the whole roster; the caret is keyed by
+  // session id, so two tabs of one person draw two carets.
+  let cursors = list.filter_map(entries, ...textarea.peer(id:, label:, colour:, cursor:))
   let #(editor, fx) = textarea.set_peers(editor, cursors)
   ...
 }
@@ -238,7 +240,7 @@ rectangle per line for free.
 | put the caret on the first line | the name tag flips below it rather than being clipped |
 | type before A's cursor          | A's own caret keeps its neighbours (see above)      |
 | **in A**, type before B's caret | B's drawn cursor stays on the same text             |
-| close tab B                    | B's cursor disappears within the presence TTL (~6.5s) |
+| close tab B                    | B's cursor disappears at once against a server with presence, or within the ripple TTL (~6.5s) without one |
 
 ## The custom element host
 
