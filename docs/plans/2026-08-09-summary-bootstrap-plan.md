@@ -134,15 +134,28 @@ There is no small fix, because there is nothing to list:
 
 Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate grows a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
 
-## Found on the way: reconnect after a server restart
+## Found on the way: reconnect after a server restart — both fixed
 
-Neither symptom is caused by anything in this plan — both reproduce with the SB7 change reverted. The repro is a floodgate restart under clients holding a `PactMap`, with the survivors auto-reconnecting while a fresh client connects. Give the reconnects a few seconds to settle first and neither appears; it is a concurrency window, not a restart consequence. A plain map write over the same restart is clean, so both are specific to the consensus path — which follows, since only the consensus kernels put ops on the wire without the application asking.
+Neither symptom was caused by anything in this plan — both reproduced with the SB7 change reverted. The repro is a floodgate restart under clients holding a `PactMap`, with the survivors auto-reconnecting while a fresh client connects. Give the reconnects a few seconds to settle first and neither appears; it is a concurrency window, not a restart consequence. A plain map write over the same restart is clean, so both are specific to the consensus path — which follows, since only the consensus kernels put ops on the wire without the application asking.
 
 **Symptom 1 — fixed.** `AckMismatch("expected ack for csn 3, got csn 2")`. Ops a kernel *released* (a `PactMap` `Accept` owed in response to a peer's `Set`) were sent unconditionally on the sequenced-op path, including while `resubmit_at` was still `Some`. `settle_reconnect` then restamped the whole in-flight queue with fresh client sequence numbers and sent it again, so the server sequenced two copies and the FIFO ack match failed on the stale one. Every other submit path already gated on `resubmit_at`. Both runtimes had it; on JS it was unconditional rather than racy, because `settle_reconnect` runs first there.
 
-**Symptom 2 — open.** `AckMismatch("client was not expected to sign off")`: two replicas froze different signoff lists for the same proposal. Ruled out so far — it is not the SB7 change, and it is not `settle_bootstrap`'s adoption of `live_members` (removing that changes nothing, with or without the symptom-1 fix). The remaining suspicion is that the handshake's `initialClients` is a snapshot of the server's presence map rather than a function of the log, so two clients connecting concurrently can disagree about the room at the same sequence point — but that is unconfirmed, and the evidence is that the panicking client is one that *owed* a signoff, not the proposer. **Worth settling before SB6 flips the default.**
+**Symptom 2 — fixed.** `AckMismatch("client was not expected to sign off")`. The reconnect gap was applied through the *live* path: gap ops arrive as ordinary `op` frames and go straight to `handle_sequenced`, never through `replay`, so `replaying` was false and `quorum_of` armed the live-only defences that union `self` and the author. A client returning under a fresh id therefore claimed a signoff on a proposal sequenced before that id existed, while no other replica agreed; it sent an `Accept` the room never expected, and any replica still waiting on that pact rejected it — fatally for the connection that sent it.
 
-**The prerequisite is now built.** Both sluice drivers have a `reconnect(sluice, document)` that severs a bound runtime's socket, sequences the leave a real server would, and lets it re-handshake under a fresh server-assigned client id. Symptom 1 is pinned deterministically by `a_released_accept_is_not_sent_twice_across_a_reconnect_test` in the erlang driver suite, which fails with the fix reverted and produces the same `AckMismatch` the live restart did. Symptom 2 has no deterministic repro yet, but the primitive is what makes hunting it tractable.
+The defences exist for a hazard that cannot occur here (a `join` lost or reordered against the op after it), and the gap is a complete ordered log exactly like a bootstrap replay. `adopt_reconnect` now sets `replaying`, and `go_live` clears it where the gap closes — one place on this path, mirroring `settle_bootstrap` on the other, so the flag cannot leak past the catch-up.
+
+Two earlier suspicions were wrong and are recorded so they are not re-run: it is not `settle_bootstrap`'s adoption of `live_members` (removing that changes nothing either way), and it is not the SB7 change.
+
+**The prerequisite is built, and both symptoms are closed.** Both sluice drivers now have `reconnect(sluice, document)` — and `drop`/`rejoin`, its two halves, because the interesting window is *between* them: a client is out of the room from its leave until its rejoin, and what gets sequenced in that gap is precisely what it then has to replay under an identity that did not exist at the time. An atomic reconnect cannot express that, and symptom 2 was not reproducible without it.
+
+Both are pinned deterministically, in-memory, on both targets:
+
+- `a_released_accept_is_not_sent_twice_across_a_reconnect_test` (erlang) — symptom 1.
+- `a_proposal_made_while_away_does_not_gain_the_returning_client_test` (both) — symptom 2.
+
+Each fails with its fix reverted. The live floodgate restart race, which previously killed two or three runtimes on every run, now completes clean across repeated trials with the post-restart proposal settling correctly.
+
+One detail worth keeping: a pact that has already *settled* ignores a stray `Accept`, so symptom 2 is only observable while a proposal is still outstanding. Both tests hold one client back with `pause` for that reason — without it the scenario passes while still being wrong.
 
 Two things the primitive exposed on the way in, both worth knowing:
 
