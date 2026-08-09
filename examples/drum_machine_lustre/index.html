@@ -61,6 +61,46 @@
       .step.downbeat { background: color-mix(in srgb, currentColor 12%, transparent); }
       .step.on { background: currentColor; }
       .step.focused { outline: 2px solid Highlight; outline-offset: 1px; }
+
+      /* The playhead is a sibling row above the grid, sharing the row's exact
+         column template so its cells sit over the step columns. Its children
+         are built and animated by `audio_ffi.mjs`, never by Lustre. */
+      .playhead {
+        display: grid;
+        grid-template-columns: 4.5rem repeat(16, 1fr);
+        gap: 0.25rem;
+        margin-top: 1rem;
+      }
+      .playhead .beat {
+        height: 0.25rem;
+        border-radius: 0.125rem;
+        background: transparent;
+      }
+      .playhead .beat.lit { background: currentColor; }
+
+      .gate {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        margin: 1rem 0;
+      }
+      .transport, .mixer {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+        margin: 0.75rem 0;
+      }
+      .tempo, .volume { display: flex; gap: 0.5rem; align-items: center; }
+      .tempo span, .volume span, .caveat, .gate .hint { font-size: 0.8rem; }
+      .tempo span, .volume span { opacity: 0.7; }
+      /* The one number worth reading at a glance, and it must not reflow as it
+         changes — a proportional font makes the slider look jittery. */
+      .bpm { font-variant-numeric: tabular-nums; opacity: 1 !important; }
+      .mute { padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+      .mute.muted { opacity: 0.4; text-decoration: line-through; }
+      .caveat { opacity: 0.7; max-width: 42rem; }
       .error { color: crimson; }
       @media (prefers-reduced-motion: reduce) {
         *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }

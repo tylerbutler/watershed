@@ -15,18 +15,20 @@
 //// would make the room lurch is slow and agreed.
 
 import gleam/int
+import gleam/javascript/array.{type Array}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lustre
 import lustre/attribute.{
-  aria_label, aria_pressed, class, classes, role, tabindex,
+  aria_label, aria_pressed, class, classes, id, role, tabindex, type_, value,
 }
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import audio
 import doc_schema
 import watershed_js.{type Document, type OrSet, type PactMap}
 import watershed_lustre
@@ -43,6 +45,14 @@ const document_id = "drum-machine"
 
 /// Steps per bar. Sixteen 16th notes, the TR-808 grid everyone already knows.
 const step_count = 16
+
+/// The tempo before anyone has agreed one. Also the floor and ceiling of the
+/// slider — 40–240 is the range the engine clamps to.
+const default_bpm = 120
+
+const min_bpm = 40
+
+const max_bpm = 240
 
 pub fn main() {
   let app = lustre.application(init, update, view)
@@ -147,6 +157,24 @@ type Model {
     /// Keyboard cursor over the grid, as `#(track index, step index)`. The grid
     /// is a single tab stop; the arrow keys move within it.
     cursor: #(Int, Int),
+    /// The Web Audio scheduler. Constructed once at `init` and mutated in
+    /// place from then on — an `AudioContext` is not created until the user
+    /// gesture that resumes it, so holding this costs nothing before then.
+    engine: audio.Engine,
+    /// Whether the `AudioContext` is running. Until it is, the app is silent
+    /// and says so; browsers refuse to start audio without a user gesture.
+    audio_ready: Bool,
+    playing: Bool,
+    /// The tempo the sequencer is running at.
+    bpm: Int,
+    /// Where the slider currently sits. Diverges from `bpm` only while the
+    /// user is dragging.
+    bpm_draft: Int,
+    /// Local listener preferences, deliberately *not* in the document: muting
+    /// a track is a choice about your own speakers, and putting it in the
+    /// document would mean one person muting the room.
+    muted: List(Int),
+    volume: Int,
     error: Option(String),
   )
 }
@@ -163,11 +191,19 @@ type Msg {
   StepClicked(Int, Int)
   KeyPressed(String)
   ReconnectClicked
+  EnableAudioClicked
+  AudioResumed(Bool)
+  TransportToggled
+  BpmDrafted(String)
+  BpmCommitted
+  MuteToggled(Int)
+  VolumeChanged(String)
 }
 
 fn init(_args) -> #(Model, Effect(Msg)) {
   // A distinct user per tab so the two clients are separate connections.
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
+  let engine = audio.create()
   let model =
     Model(
       status: Connecting,
@@ -177,19 +213,31 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       user_id: user_id,
       pattern: empty_pattern(),
       cursor: #(0, 0),
+      engine: engine,
+      audio_ready: False,
+      playing: False,
+      bpm: default_bpm,
+      bpm_draft: default_bpm,
+      muted: [],
+      volume: 80,
       error: None,
     )
   #(
     model,
-    watershed_lustre.connect_dev(
-      url: socket_url,
-      tenant: tenant,
-      secret: tenant_secret,
-      document: document_id,
-      user_id: user_id,
-      got_document: GotHandle,
-      connected: Connected,
-    ),
+    effect.batch([
+      watershed_lustre.connect_dev(
+        url: socket_url,
+        tenant: tenant,
+        secret: tenant_secret,
+        document: document_id,
+        user_id: user_id,
+        got_document: GotHandle,
+        connected: Connected,
+      ),
+      // Safe to start before `#playhead` is in the DOM: the loop looks the
+      // element up every frame and no-ops until it appears.
+      audio.start_playhead(engine),
+    ]),
   )
 }
 
@@ -334,7 +382,81 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
         None -> #(model, effect.none())
       }
+
+    EnableAudioClicked -> #(model, audio.resume(model.engine, AudioResumed))
+
+    AudioResumed(True) -> {
+      // Push the current tempo, volume, mutes, and pattern into an engine that
+      // only now has an `AudioContext` to apply them to.
+      audio.set_bpm(model.engine, model.bpm)
+      audio.set_volume(model.engine, model.volume)
+      push_mutes(model)
+      push_pattern(model.engine, model.pattern)
+      #(Model(..model, audio_ready: True), effect.none())
+    }
+
+    AudioResumed(False) -> #(
+      Model(
+        ..model,
+        audio_ready: False,
+        error: Some("This browser would not start an AudioContext."),
+      ),
+      effect.none(),
+    )
+
+    TransportToggled -> {
+      let playing = !model.playing
+      case playing {
+        True -> audio.start(model.engine)
+        False -> audio.stop(model.engine)
+      }
+      #(Model(..model, playing: playing), effect.none())
+    }
+
+    BpmDrafted(raw) -> #(
+      Model(..model, bpm_draft: parse_bpm(raw, model.bpm_draft)),
+      effect.none(),
+    )
+
+    BpmCommitted -> {
+      audio.set_bpm(model.engine, model.bpm_draft)
+      #(Model(..model, bpm: model.bpm_draft), effect.none())
+    }
+
+    MuteToggled(track_index) -> {
+      let muted = case list.contains(model.muted, track_index) {
+        True -> list.filter(model.muted, fn(i) { i != track_index })
+        False -> [track_index, ..model.muted]
+      }
+      let model = Model(..model, muted: muted)
+      push_mutes(model)
+      #(model, effect.none())
+    }
+
+    VolumeChanged(raw) -> {
+      let volume = parse_bpm(raw, model.volume)
+      audio.set_volume(model.engine, volume)
+      #(Model(..model, volume: volume), effect.none())
+    }
   }
+}
+
+/// A slider's `value` arrives as a string. A malformed one keeps the previous
+/// setting rather than snapping the tempo to zero.
+fn parse_bpm(raw: String, fallback: Int) -> Int {
+  case int.parse(raw) {
+    Ok(value) -> value
+    Error(_) -> fallback
+  }
+}
+
+fn push_mutes(model: Model) -> Nil {
+  let _ =
+    tracks()
+    |> list.index_map(fn(_track, index) {
+      audio.set_mute(model.engine, index, list.contains(model.muted, index))
+    })
+  Nil
 }
 
 fn ensure_failed(model: Model, reason: String) -> Model {
@@ -404,21 +526,46 @@ fn track_at(index: Int) -> Option(Track) {
   }
 }
 
-/// Re-read optimistic shared state into the model for rendering.
+/// Re-read optimistic shared state into the model for rendering, and refresh
+/// the snapshot the audio scheduler reads.
+///
+/// This is the only place the two halves of the app meet. The scheduler never
+/// reaches back into watershed; it reads a plain array that this function
+/// overwrites whenever a channel event lands, so document latency can never
+/// show up as an audio glitch.
 fn snapshot(model: Model) -> Model {
   case model.shared {
-    Some(shared) ->
-      Model(
-        ..model,
-        pattern: Pattern(
+    Some(shared) -> {
+      let pattern =
+        Pattern(
           kick: watershed_js.or_set_values(shared.kick),
           snare: watershed_js.or_set_values(shared.snare),
           hat: watershed_js.or_set_values(shared.hat),
           clap: watershed_js.or_set_values(shared.clap),
-        ),
-      )
+        )
+      push_pattern(model.engine, pattern)
+      Model(..model, pattern: pattern)
+    }
     None -> model
   }
+}
+
+fn push_pattern(engine: audio.Engine, pattern: Pattern) -> Nil {
+  let _ =
+    tracks()
+    |> list.index_map(fn(track, index) {
+      audio.set_track(engine, index, steps_array(track_steps(pattern, track)))
+    })
+  Nil
+}
+
+/// OR-set elements are step indices as decimal strings. Anything that is not
+/// one is dropped rather than guessed at — a peer running a future version of
+/// this demo could legitimately be storing something else.
+fn steps_array(steps: List(String)) -> Array(Int) {
+  steps
+  |> list.filter_map(int.parse)
+  |> array.from_list
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
@@ -427,9 +574,135 @@ fn view(model: Model) -> Element(Msg) {
   html.div([class("machine")], [
     html.h1([], [html.text("Collaborative drum machine")]),
     status_view(model),
+    audio_gate(model),
+    playhead(),
     grid(model),
+    transport(model),
+    mixer(model),
+    phase_caveat(),
     toolbar(model),
     error_view(model.error),
+  ])
+}
+
+/// Browsers will not start an `AudioContext` without a user gesture, so the
+/// app is silent until this is clicked. A silent demo with no explanation
+/// reads as broken, which is the failure this banner exists to prevent.
+///
+/// It is a banner rather than a modal scrim on purpose: the grid is fully
+/// usable — and worth using in two tabs — before anyone turns the sound on,
+/// and a scrim would take the keyboard grid away to prevent nothing.
+fn audio_gate(model: Model) -> Element(Msg) {
+  case model.audio_ready {
+    True -> html.text("")
+    False ->
+      html.div([class("gate")], [
+        html.button([event.on_click(EnableAudioClicked)], [
+          html.text("Enable audio"),
+        ]),
+        html.span([class("hint")], [
+          html.text(
+            "Your browser blocks sound until you interact with the page. "
+            <> "The grid works without it.",
+          ),
+        ]),
+      ])
+  }
+}
+
+/// Rendered empty, and it must stay empty: `audio_ffi.mjs` builds and owns the
+/// cells inside it, and drives them from `requestAnimationFrame`. Lustre has
+/// no children here to diff, so it never patches the subtree out from under
+/// the animation. A playhead dispatched as a message per step would be ~9 full
+/// grid diffs a second at 140 BPM for a highlight that moves two elements.
+fn playhead() -> Element(Msg) {
+  html.div([class("playhead"), id("playhead")], [])
+}
+
+fn transport(model: Model) -> Element(Msg) {
+  html.div([class("transport")], [
+    html.button(
+      [
+        event.on_click(TransportToggled),
+        attribute.disabled(!model.audio_ready),
+        aria_pressed(bool_string(model.playing)),
+      ],
+      [
+        html.text(case model.playing {
+          True -> "Stop"
+          False -> "Play"
+        }),
+      ],
+    ),
+    tempo_view(model),
+  ])
+}
+
+fn tempo_view(model: Model) -> Element(Msg) {
+  html.label([class("tempo")], [
+    html.span([], [html.text("Tempo")]),
+    html.input([
+      type_("range"),
+      attribute.min(int.to_string(min_bpm)),
+      attribute.max(int.to_string(max_bpm)),
+      attribute.step("1"),
+      value(int.to_string(model.bpm_draft)),
+      aria_label("Tempo in beats per minute"),
+      event.on_input(BpmDrafted),
+      event.on_change(fn(_raw) { BpmCommitted }),
+    ]),
+    html.span([class("bpm")], [
+      html.text(int.to_string(model.bpm_draft) <> " BPM"),
+    ]),
+  ])
+}
+
+/// Mute and volume are per-client and never leave the browser. They are
+/// listener preferences, not shared composition state.
+fn mixer(model: Model) -> Element(Msg) {
+  html.div([class("mixer")], [
+    html.span([class("hint")], [html.text("Local mix")]),
+    ..list.append(
+      tracks()
+        |> list.index_map(fn(track, index) {
+          let muted = list.contains(model.muted, index)
+          html.button(
+            [
+              classes([#("mute", True), #("muted", muted)]),
+              aria_pressed(bool_string(muted)),
+              aria_label("Mute " <> track_name(track)),
+              event.on_click(MuteToggled(index)),
+            ],
+            [html.text(track_name(track))],
+          )
+        }),
+      [
+        html.label([class("volume")], [
+          html.span([], [html.text("Volume")]),
+          html.input([
+            type_("range"),
+            attribute.min("0"),
+            attribute.max("100"),
+            value(int.to_string(model.volume)),
+            aria_label("Output volume"),
+            event.on_input(VolumeChanged),
+          ]),
+        ]),
+      ],
+    )
+  ])
+}
+
+/// The limitation that has to be stated rather than hidden: watershed
+/// converges *state*, not *time*. Two browsers holding the same pattern at the
+/// same tempo still run their loops out of phase, because their audio clocks
+/// started at different moments, and nothing in a CRDT fixes that.
+fn phase_caveat() -> Element(Msg) {
+  html.p([class("caveat")], [
+    html.text(
+      "Each client runs its own clock: the pattern and the tempo converge, "
+      <> "the phase does not. Two tabs play the same loop, not the same beat.",
+    ),
   ])
 }
 
