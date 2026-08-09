@@ -411,24 +411,23 @@ fn seed_channels(
 /// last knew, advanced by the `join`/`leave` messages in the very gap being
 /// replayed. Adopting `initialClients` here would apply the post-reconnect room
 /// to pre-reconnect ops, which is the same time-shift that breaks a cold join,
-/// just over a shorter window. `go_live` adopts it once the gap is closed.
+/// just over a shorter window. `settle_bootstrap` adopts it once the gap closes.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
-  // The roster is *replaced*, not merged: the fresh handshake is authoritative
-  // about who is in the room now, and any join/leave sequenced while we were
-  // disconnected is already folded into it. Merging would resurrect clients
-  // that left during the gap, and their signoffs would never drain.
+  // `members` is left exactly as it was: it is the roster at `last_seen_sn`,
+  // which is precisely where the replay about to happen starts. The gap's own
+  // `join`/`leave` messages then advance it — including the `leave` for the id
+  // we held before dropping and the `join` for the one we were just assigned —
+  // so the roster arrives at the post-reconnect room by walking the log rather
+  // than by being told the answer up front.
   //
-  // Known gap: the ops sequenced *during* the gap are then replayed against
-  // the post-reconnect room rather than the room as it was at each of them —
-  // the same time-shift a cold join used to suffer, over a much shorter
-  // window. Closing it means reconstructing the gap's membership, which needs
-  // the roster at `last_seen_sn`; that is the same missing input as the
-  // checkpoint roster. See
-  // `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+  // The handshake's roster is not discarded, just deferred: `settle_bootstrap`
+  // adopts `live_members` when the gap closes. That ordering is what keeps the
+  // merge hazard away — nothing is unioned, so a client that left during the
+  // gap cannot be resurrected, and its signoffs still drain at the sequence
+  // point its `leave` actually occupies.
   Core(
     ..core,
     client_id: connected.client_id,
-    members: roster_of(connected),
     live_members: roster_of(connected),
   )
 }

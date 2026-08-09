@@ -4,8 +4,9 @@
 //// The roster is not observable through any facade, so these drive
 //// `runtime_core` directly and read `Core.members`. The property that matters
 //// is that every replica derives the *same* membership at the same sequence
-//// point: seeded from the handshake, widened by a sequenced `"join"`, narrowed
-//// by a sequenced `"leave"`, and replaced wholesale on reconnect.
+//// point: seeded from the handshake or from a summary checkpoint, widened by a
+//// sequenced `"join"`, narrowed by a sequenced `"leave"`, and held across a
+//// reconnect until the gap it left behind has been replayed.
 ////
 //// Both system messages are built here in the shape the server actually sends
 //// — `clientId` null, `contents` null, payload as JSON text in `data` — which
@@ -218,10 +219,10 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// On reconnect the fresh handshake is authoritative: the roster is replaced,
-/// not merged. Merging would resurrect a client that left during the gap, and
-/// its signoffs would never drain.
-pub fn reconnect_replaces_the_roster_test() {
+/// Entering reconnect holds the roster we already had. The ops sequenced while
+/// we were away are about to be replayed, and they belong to the room as it was
+/// then — the handshake's roster is held aside for the hand-off.
+pub fn reconnect_holds_the_roster_for_the_gap_test() {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
   let core =
@@ -234,7 +235,62 @@ pub fn reconnect_replaces_the_roster_test() {
     )
 
   members(core)
-  |> expect.to_equal(ids([reconnect_client_id, peer_client_id]))
+  |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
+  core.client_id |> expect.to_equal(reconnect_client_id)
+}
+
+/// The gap is replayed against the room as it was, not the room we came back
+/// to. This is the same time-shift that broke a cold join, over a shorter
+/// window: a proposal sequenced while we were away froze its signoff list from
+/// the clients present *then*, and every replica must reconstruct that list.
+pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() {
+  let core =
+    bootstrap_from_summary(
+      members: [our_client_id, peer_client_id, third_client_id],
+      channels: [#("pact", channel.PactMapSnapshot([]))],
+      at: 5,
+      initial_clients: [peer_client_id, third_client_id],
+      initial_messages: [],
+    )
+
+  // We drop and come back with a fresh id, into a room that has since shrunk.
+  let core =
+    runtime_core.adopt_reconnect(
+      core,
+      message.ConnectedMessage(
+        ..connected_message([peer_client_id]),
+        client_id: reconnect_client_id,
+      ),
+    )
+
+  // The gap: a proposal sequenced while all three were still present.
+  let gap = [
+    pact_set_msg(
+      author: peer_client_id,
+      sn: 6,
+      key: "bpm",
+      value: json.int(128),
+    ),
+  ]
+
+  let core = case
+    runtime_core.resume_bootstrap(core, checkpoint: 6, deltas: gap)
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected the gap replay to complete the reconnect"
+  }
+
+  // Frozen from the room at SN 6 — the third client had not left yet, and the
+  // reconnected id did not exist. Judged against the post-reconnect room this
+  // would instead read `[peer, reconnect]`: a signoff owed by a client that was
+  // not there, and none owed by one that was.
+  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  pending.expected_signoffs
+  |> list.sort(by: int.compare)
+  |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
+
+  // And the hand-off still lands on the room we actually came back to.
+  members(core) |> expect.to_equal(ids([reconnect_client_id, peer_client_id]))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
