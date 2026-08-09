@@ -210,7 +210,22 @@ fn on_connect_document(
           initial_messages: log_since(sluice.log, last_seen),
           timestamp: sluice.now_ms,
         )
-      enqueue(sluice, client_id, "connect_document_success", connected)
+      let sluice =
+        enqueue(sluice, client_id, "connect_document_success", connected)
+
+      // The joiner's own join, pushed to it as an ordinary op *after* the
+      // handshake, which is how the real server orders it — the copy in
+      // `initial_messages` is not the only one it sees, and the runtime dedupes
+      // the two by sequence number.
+      //
+      // This is load-bearing on the reconnect path rather than cosmetic. A
+      // reconnecting runtime ignores `initial_messages` (its core already holds
+      // that history) and stays in its post-reconnect holding state until a
+      // sequenced op carries it up to the handshake's checkpoint. Without this
+      // push, a client that reconnects into a quiet document waits for an op
+      // that never comes, and every edit it makes meanwhile sits unsent in its
+      // in-flight queue.
+      enqueue(sluice, client_id, "op", frames.encode_op_event([join]))
     }
   }
 }

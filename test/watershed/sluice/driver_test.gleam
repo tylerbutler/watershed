@@ -693,3 +693,91 @@ pub fn client_id_matches_the_id_kernels_report_test() {
   watershed.pact_map_pending_signoffs(pact_a, "bpm")
   |> expect.to_equal(Some([client_id.to_int(id_c)]))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reconnect
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// The primitive itself: the socket goes, the client comes back under a new
+/// identity, and the document it was editing is still there.
+pub fn reconnect_rejoins_under_a_fresh_client_id_test() {
+  let sluice = start("reconnect-identity")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  watershed.set(watershed.root(doc_a), "before", json.int(1))
+  sluice.settle(sluice)
+  let assert Some(was) = watershed.client_id(doc_a)
+
+  sluice.reconnect(sluice, doc_a)
+  sluice.settle(sluice)
+
+  let assert Some(now) = watershed.client_id(doc_a)
+  { now != was } |> expect.to_be_true()
+
+  // The core survived the drop, and the link is live in both directions again.
+  watershed.get(watershed.root(doc_a), "before")
+  |> expect.to_equal(Some(json.int(1)))
+  watershed.set(watershed.root(doc_a), "after", json.int(2))
+  sluice.settle(sluice)
+  watershed.get(watershed.root(doc_b), "after")
+  |> expect.to_equal(Some(json.int(2)))
+}
+
+@target(erlang)
+/// The reconnecting client replays the ops it missed rather than losing them,
+/// which is what makes the gap a gap and not a reset.
+pub fn reconnect_replays_the_ops_missed_while_away_test() {
+  let sluice = start("reconnect-gap")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  sluice.reconnect(sluice, doc_a)
+  // B edits while A is between connections. A must not see it yet.
+  watershed.set(watershed.root(doc_b), "during", json.int(7))
+  sluice.settle(sluice)
+
+  watershed.get(watershed.root(doc_a), "during")
+  |> expect.to_equal(Some(json.int(7)))
+}
+
+@target(erlang)
+/// A departing client's `leave` is sequenced, so the room the survivors see
+/// never contains the identity that went away. Without it a `PactMap` would
+/// wait forever on a client that cannot answer.
+pub fn reconnect_sequences_a_leave_for_the_old_identity_test() {
+  let sluice = start("reconnect-roster")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let doc_c = connect(sluice, "user-c")
+  sluice.settle(sluice)
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "tempo",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  sluice.settle(sluice)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
+  let assert Ok(_) = watershed.resolve_pact_map(doc_c, handle)
+
+  let assert Some(gone) = watershed.client_id(doc_c)
+  sluice.reconnect(sluice, doc_c)
+  sluice.settle(sluice)
+
+  // A proposal now must not be waiting on the identity that dropped.
+  watershed.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice.settle(sluice)
+  case watershed.pact_map_pending_signoffs(pact_a, "bpm") {
+    None -> Nil
+    Some(outstanding) ->
+      list.contains(outstanding, client_id.to_int(gone))
+      |> expect.to_be_false()
+  }
+  watershed.pact_map_get(pact_b, "bpm") |> expect.to_equal(Some(json.int(128)))
+}

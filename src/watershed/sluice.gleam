@@ -110,6 +110,53 @@ pub fn connect(
 }
 
 @target(erlang)
+/// Drop a client's socket and let it come back — the reconnect a real client
+/// survives, rather than a departure it does not.
+///
+/// The distinction from `disconnect` is the whole point. `disconnect` removes a
+/// client from the room for good; this severs the connection underneath a
+/// runtime that keeps its core — kernel state, pending consensus, and the
+/// in-flight queue all survive — and then lets it re-handshake. The server
+/// assigns it a **fresh client id**, exactly as floodgate does, so the returning
+/// client is a different member of the room than the one that left.
+///
+/// That is the window a lot of protocol bugs live in: ops sequenced while the
+/// client was away replay against the room as it was *then*, edits made during
+/// the gap are restamped and resubmitted, and a consensus kernel may owe
+/// signoffs under an identity that no longer exists. None of it is reachable
+/// without being able to script this.
+///
+/// The handshake completes on the next `settle`, like `connect`.
+///
+/// The dance below is dictated by the driver's lock order (see the module
+/// docs): the sluice never calls into a runtime, so `DropConn` hands the
+/// `on_close` back and *this* process fires it. The barrier that follows lets
+/// the runtime run its whole reconnect — `ChannelClosed` → re-`connect` →
+/// `ChannelReady` → `connect_document` carrying `last_seen` — before `Bind`
+/// re-points the binding at the connection it just opened.
+pub fn reconnect(sluice: Sluice, document: watershed.Document) -> Nil {
+  let subject = watershed.runtime_subject(document)
+  case
+    process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
+      DropConn(subject, reply)
+    })
+  {
+    Error(_) -> Nil
+    Ok(on_close) -> {
+      on_close("sluice reconnect")
+      // Flush the runtime: it must reach `connect_document` before `Bind` can
+      // find the new connection as `last_registered`.
+      let _ = runtime.is_synced(subject)
+      let _ =
+        process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
+          Bind(subject, reply)
+        })
+      Nil
+    }
+  }
+}
+
+@target(erlang)
 /// Deliver queued frames until the system is quiescent: every pending op has
 /// reached every client and no client has produced new ops in response.
 pub fn settle(sluice: Sluice) -> Nil {
@@ -204,7 +251,7 @@ fn sluice_transport(actor: Subject(Message)) -> runtime.Transport {
   runtime.Transport(connect: fn(callbacks: runtime.TransportCallbacks) -> Nil {
     let client_id =
       process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
-        Register(callbacks.on_event, reply)
+        Register(callbacks.on_event, callbacks.on_close, reply)
       })
     let handle =
       runtime.TransportHandle(
@@ -226,8 +273,20 @@ fn sluice_transport(actor: Subject(Message)) -> runtime.Transport {
 
 @target(erlang)
 type Message {
-  /// A new connection: store its delivery callback, mint a client id.
-  Register(on_event: fn(String, Dynamic) -> Nil, reply: Subject(String))
+  /// A new connection: store its delivery callbacks, mint a client id.
+  Register(
+    on_event: fn(String, Dynamic) -> Nil,
+    on_close: fn(String) -> Nil,
+    reply: Subject(String),
+  )
+  /// Sever a bound runtime's connection the way a dropped socket would:
+  /// sequence its `leave`, forget the connection, and hand its `on_close` back
+  /// so the *caller* can fire it (calling into a runtime from inside this actor
+  /// would invert the lock order this driver is built on).
+  DropConn(
+    subject: Subject(runtime.Msg),
+    reply: Subject(Result(fn(String) -> Nil, Nil)),
+  )
   /// Associate a runtime subject with the just-registered connection.
   Bind(subject: Subject(runtime.Msg), reply: Subject(String))
   /// A client→server push (synchronous; the reply is the flush barrier).
@@ -245,27 +304,68 @@ type Message {
 type State {
   State(
     core: core.Sluice,
-    conns: List(#(String, fn(String, Dynamic) -> Nil)),
+    conns: List(#(String, Conn)),
     subjects: List(#(Subject(runtime.Msg), String)),
     last_registered: Option(String),
   )
 }
 
 @target(erlang)
+/// One open connection's callbacks into the runtime that owns it.
+///
+/// `on_close` is held rather than dropped because it is the only way to tell a
+/// runtime its socket went away — which `reconnect` needs, and which nothing
+/// else in the driver can synthesise.
+type Conn {
+  Conn(on_event: fn(String, Dynamic) -> Nil, on_close: fn(String) -> Nil)
+}
+
+@target(erlang)
 fn handle(state: State, message: Message) -> actor.Next(State, Message) {
   case message {
-    Register(on_event, reply) -> {
+    Register(on_event, on_close, reply) -> {
       let #(core, client_id) = core.register(state.core)
       process.send(reply, client_id)
       actor.continue(
         State(
           ..state,
           core: core,
-          conns: [#(client_id, on_event), ..state.conns],
+          conns: [
+            #(client_id, Conn(on_event: on_event, on_close: on_close)),
+            ..state.conns
+          ],
           last_registered: Some(client_id),
         ),
       )
     }
+
+    DropConn(subject, reply) ->
+      case client_id_of(state.subjects, subject) {
+        Error(_) -> {
+          process.send(reply, Error(Nil))
+          actor.continue(state)
+        }
+        Ok(client_id) -> {
+          let on_close = case list.key_find(state.conns, client_id) {
+            Ok(conn) -> Ok(conn.on_close)
+            Error(_) -> Error(Nil)
+          }
+          process.send(reply, on_close)
+          actor.continue(
+            State(
+              ..state,
+              // The leave the server sequences when a socket goes away. Without
+              // it the room keeps a member that is never coming back under that
+              // id, which is the ghost the durable-log repair exists to prevent.
+              core: core.disconnect(state.core, client_id),
+              conns: list.filter(state.conns, fn(pair) { pair.0 != client_id }),
+              subjects: list.filter(state.subjects, fn(pair) {
+                pair.0 != subject
+              }),
+            ),
+          )
+        }
+      }
 
     Bind(subject, reply) ->
       case state.last_registered {
@@ -299,7 +399,7 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
         }
         #(core, Some(frame)) -> {
           case list.key_find(state.conns, frame.client_id) {
-            Ok(on_event) -> on_event(frame.event, to_dynamic(frame.payload))
+            Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
             Error(_) -> Nil
           }
           process.send(reply, True)

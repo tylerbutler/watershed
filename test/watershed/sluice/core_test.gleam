@@ -113,9 +113,21 @@ pub fn connect_replies_with_connected_frame_test() {
   let #(sluice, client_id) = connect(core.new("default", "dice"), None)
   let #(_hub, frames) = drain(sluice)
 
-  let assert [frame] = frames
+  // Two frames, in this order: the handshake, then the client's own join
+  // pushed as an ordinary op. The second is what carries a *reconnecting*
+  // client up to the handshake's checkpoint, so the order matters as much as
+  // the presence.
+  let assert [frame, own_join] = frames
   frame.client_id |> expect.to_equal(client_id)
   frame.event |> expect.to_equal("connect_document_success")
+
+  own_join.client_id |> expect.to_equal(client_id)
+  own_join.event |> expect.to_equal("op")
+  let echoed = op_of(own_join)
+  echoed.message_type |> expect.to_equal("join")
+  echoed.sequence_number |> expect.to_equal(1)
+  echoed.data
+  |> expect.to_equal(Some(frames_codec.system_join_data(client_id)))
 
   let assert Ok(connected) =
     json.parse(
@@ -144,14 +156,18 @@ pub fn join_is_broadcast_to_the_existing_room_test() {
   let #(sluice, c2) = connect(sluice, None)
   let #(_hub, frames) = drain(sluice)
 
-  // c1 hears the join; c2 gets its own copy through the handshake instead.
-  let assert [broadcast] = of_event(frames, "op")
+  // Both clients hear the join: c1 as a broadcast to the room it was already
+  // in, c2 as the echo of its own arrival that follows its handshake.
+  let assert [broadcast, own] = of_event(frames, "op")
   broadcast.client_id |> expect.to_equal(c1)
   let join = op_of(broadcast)
   join.message_type |> expect.to_equal("join")
   join.client_id |> expect.to_equal(None)
   join.data
   |> expect.to_equal(Some(frames_codec.system_join_data(c2)))
+
+  own.client_id |> expect.to_equal(c2)
+  op_of(own).sequence_number |> expect.to_equal(join.sequence_number)
 
   let assert [handshake] = of_event(frames, "connect_document_success")
   let assert Ok(connected) =
