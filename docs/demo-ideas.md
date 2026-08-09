@@ -8,11 +8,12 @@ Candidate example apps for `examples/`, kept here so they survive between sessio
 - `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, zero prerequisites
 - `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, one `watershed_lustre` rung first
 - `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, one subscribe rung first
-- `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **half of it blocked on a correctness fix**
+- `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
 
 And the gaps those plans surfaced have their own plan:
 
-- `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6
+- `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6, **shipped**
+- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **open, and it outranks every demo below.** A replaying client rebuilds a consensus quorum from its own present-day roster instead of the one the op was sequenced against, so a document with an agreed `PactMap` key is unjoinable. Found by building the drum machine's DM6/DM7. Touches `TaskManager` too, which the work queue would hit on its first reload.
 
 One plan is not a demo but a way of presenting them:
 
@@ -26,9 +27,9 @@ Coverage across `examples/` and the website demos as of 2026-08-08.
 |---|---|
 | Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples |
 | One site only | `OrSet`, `Claims` (sudoku), `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
-| **No demo** | `OrMap`, `PnCounter`, `PactMap`, `OrderedCollection`, `RegisterCollection`, `TaskManager`, `GSet`, `TwoPSet` |
+| **No demo** | `OrMap`, `PnCounter`, `OrderedCollection`, `RegisterCollection`, `TaskManager`, `GSet`, `TwoPSet` |
 
-The three promoted plans take `OrMap`, `OrderedCollection`, and `TaskManager` off the bottom row.
+`PactMap` came off the bottom row with the drum machine. The remaining promoted plans take `OrMap`, `OrderedCollection`, and `TaskManager` off it.
 
 ## Two corrections worth not re-learning
 
@@ -63,9 +64,14 @@ Three panels, identical UI, same interactions, wired to three different set kind
 
 **Prerequisite corrected:** this was listed as zero-prerequisite. It is not — `watershed_lustre` lacks `ensure_g_set` / `subscribe_g_set` / `ensure_two_p_set` / `subscribe_two_p_set` (FP5). They exist on `watershed_js`, so it is one thin rung, carried as GT1.
 
-### ✅ Promoted — Drum machine / step sequencer — `OrSet` + `PactMap`
+### ✅ Shipped — Drum machine / step sequencer — `OrSet` + `PactMap`
 
-→ `docs/plans/2026-08-08-drum-machine-demo-plan.md`
+→ `docs/plans/2026-08-08-drum-machine-demo-plan.md`, `examples/drum_machine_lustre/`
+
+DM1–DM7 are all in. The quorum tempo works for a live room and is covered by
+three-client tests; building it turned up
+`docs/plans/2026-08-09-consensus-replay-quorum-plan.md`, which is exactly what
+this demo was supposed to do.
 
 A 16×4 step grid, each track an `OrSet` of active step indices; everyone jams on the same loop. Convergence becomes *audible*.
 
@@ -153,15 +159,15 @@ Good filler work, but it makes an existing example more complicated rather than 
 
 ## Rough ordering
 
-Revised after the parity audit. **FP1 and FP2 arguably outrank every demo here** — one is a correctness bug in a shipped kind, the other is why the flagship website demo imports private modules. Demos are how they were found; they should not be how they get postponed.
+Revised 2026-08-09, after FP1–FP6 and the drum machine landed. The same principle still applies: **correctness outranks demos, and demos are how the correctness bugs get found.**
 
-1. **FP2 — rich text on the JS facade.** Self-contained, and its acceptance test (rewriting the website demo against the public API) removes an embarrassment from the public site.
-2. **Pixel canvas** — genuinely zero prerequisites, best story-per-hour, hardest visual proof. Ship something while the fixes land.
-3. **FP1 — the quorum roster.** Correctness. Investigate floodgate's join-message surface first; if joins are not emitted this becomes a server plan, and knowing that early matters for the drum machine.
-4. **Grocery triptych** — one thin `watershed_lustre` rung, three kinds cleared, best teaching artifact.
-5. **FP3 + FP5** — the missing subscribes and the Lustre fill-in. Unblocks the work queue, the clap counter, and half the backlog.
-6. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
-7. **Work queue** — after FP3. Retires the two largest untouched kernels; the only demo about failure recovery.
-8. **Clap counter** — after FP3, nearly free, and has a home on the existing `counter-bug` page.
-9. **Drum machine** — DM1–DM5 any time after FP5; DM6–DM7 only after FP1 and FP4.
-10. Everything else, as appetite allows.
+1. **Consensus replay quorum.** A document with an agreed `PactMap` key cannot be joined. Blocks nothing on this list *today*, but it silently blocks the work queue at item 4, and it makes the demo that found it partly untrue on reload.
+2. **Pixel canvas** — genuinely zero prerequisites, best story-per-hour, hardest visual proof.
+3. **Grocery triptych** — three kinds cleared, best teaching artifact.
+4. **Work queue** — after the replay fix, not before: `TaskManager` reads `meta.quorum` on the same path `PactMap` does, so the work queue would meet this bug on its first reload.
+5. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
+6. **Clap counter** — nearly free, and has a home on the existing `counter-bug` page.
+7. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
+8. Everything else, as appetite allows.
+
+**Done:** FP1–FP6 (facade parity sweep), drum machine DM1–DM7.
