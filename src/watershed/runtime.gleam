@@ -2449,21 +2449,10 @@ fn fetch_summary(
         token: token,
         handle: ctx.handle,
       )
-      |> result.map(fn(blob) {
-        // The summary blob records the SN it was captured at, but the
-        // authoritative load point is the server's summaryContext.
-        let channels =
-          list.map(blob.channels, fn(ch) { #(ch.address, ch.snapshot) })
-        runtime_core.Summary(
-          sequence_number: ctx.sequence_number,
-          channels: channels,
-          // The summary blob carries no roster yet, so the membership at the
-          // checkpoint is unknown and replay starts from an empty room. See
-          // `Summary.members` and
-          // `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
-          members: [],
-        )
-      })
+      // `ctx` locates the blob; the blob says what it holds and when it was
+      // captured. See `runtime_core.summary_from_blob` for why the context's
+      // sequence number is deliberately not the load point.
+      |> result.map(runtime_core.summary_from_blob)
   }
 }
 

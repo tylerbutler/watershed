@@ -48,6 +48,7 @@ import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/ops
+import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "root"
 
@@ -187,6 +188,30 @@ pub type Summary {
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// The bootstrap seed described by a fetched summary blob.
+///
+/// The load point is taken from the blob and *only* from the blob, which is
+/// why this takes no `SummaryContext`. The server's context reports the
+/// summarize op's own sequence number, assigned when that op was sequenced —
+/// after the blob had already been captured and uploaded. Any op a peer got
+/// sequenced in that window falls between the two numbers, so seeding from the
+/// context claims the seeded state is newer than it is and the ops in between
+/// are never replayed: the served history starts after the context's number,
+/// looks perfectly contiguous, and nothing reports a gap.
+///
+/// Seeding from the blob's own number cannot lose them. When the two numbers
+/// agree this is identical; when they differ the window shows up as a missing
+/// prefix and `resume_bootstrap` fills it from storage. The context is still
+/// what locates the blob — `handle` is the tree SHA — it just does not get to
+/// say what the blob contains.
+pub fn summary_from_blob(blob: SummaryBlob) -> Summary {
+  Summary(
+    sequence_number: blob.sequence_number,
+    channels: list.map(blob.channels, fn(ch) { #(ch.address, ch.snapshot) }),
+    members: [],
+  )
+}
 
 pub fn bootstrap(
   connected: ConnectedMessage,

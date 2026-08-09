@@ -1799,22 +1799,14 @@ fn load_summary_then_bootstrap(
           case result {
             Error(reason) -> fail(cell, "summary load failed: " <> reason)
             Ok(blob) ->
+              // `ctx` locates the blob; the blob says what it holds and when
+              // it was captured. See `runtime_core.summary_from_blob` for why
+              // the context's sequence number is deliberately not the load
+              // point.
               finish_bootstrap(
                 cell,
                 connected,
-                // The blob records the SN it was captured at, but the
-                // authoritative load point is the server's summaryContext.
-                Some(runtime_core.Summary(
-                  sequence_number: ctx.sequence_number,
-                  channels: list.map(blob.channels, fn(ch) {
-                    #(ch.address, ch.snapshot)
-                  }),
-                  // The summary blob carries no roster yet, so the membership
-                  // at the checkpoint is unknown and replay starts from an
-                  // empty room. See `Summary.members` and
-                  // `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
-                  members: [],
-                )),
+                Some(runtime_core.summary_from_blob(blob)),
               )
           }
         })

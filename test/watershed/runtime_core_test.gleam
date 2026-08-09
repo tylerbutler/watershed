@@ -34,6 +34,7 @@ import watershed/runtime_core.{type Core}
 import watershed/text_kernel
 import watershed/wire
 import watershed/wire/ops
+import watershed/wire/summary_blob
 
 const our_client_id = "default_dice_2"
 
@@ -629,6 +630,89 @@ pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
     }
     _ -> panic as "expected summary bootstrap to request the missing prefix"
   }
+}
+
+pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() {
+  // The load point is the SN the blob's *contents* were captured at, which is
+  // the only number that describes the state being seeded. The server's
+  // `summaryContext` reports the summarize op's own SN — assigned after the
+  // upload, so at or past the capture point — and using it would claim the
+  // seeded state is newer than it is.
+  let blob =
+    summary_blob.SummaryBlob(sequence_number: 5, channels: [
+      summary_blob.ChannelSnapshot(
+        address: "root",
+        snapshot: channel.MapSnapshot([#("die", json.int(4))]),
+      ),
+    ])
+
+  let summary = runtime_core.summary_from_blob(blob)
+  summary.sequence_number |> expect.to_equal(5)
+  summary.channels
+  |> expect.to_equal([#("root", channel.MapSnapshot([#("die", json.int(4))]))])
+}
+
+pub fn bootstrap_from_summary_replays_the_upload_window_test() {
+  // The hazard this pins: a summary blob captured at SN 5 whose pointer the
+  // server recorded at SN 8, because peers kept writing while the blob
+  // uploaded. Seeding from the pointer would set `last_seen_sn` to 8 with the
+  // served history starting at 9 — contiguous, no gap detected, and ops 6-8
+  // silently lost. Seeding from the blob's own SN makes the same window a
+  // visible prefix that the catch-up path fills.
+  let summary = root_summary(5, [#("die", json.int(4))])
+  let tail = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 9,
+      csn: 4,
+      op: Set("tail", json.int(1)),
+    ),
+  ]
+
+  let #(core, checkpoint) = case
+    runtime_core.bootstrap(connected_message(tail, 9), summary: Some(summary))
+  {
+    Ok(runtime_core.MissingPrefix(core, checkpoint, from, to)) -> {
+      // Exactly the upload window, and nothing wider.
+      from |> expect.to_equal(5)
+      to |> expect.to_equal(8)
+      #(core, checkpoint)
+    }
+    _ -> panic as "expected the upload window to surface as a missing prefix"
+  }
+
+  // The ops sequenced during the upload, as the catch-up fetch would serve
+  // them. One of them deletes a key the summary captured, so a client that
+  // skipped the window would be visibly, not just subtly, wrong.
+  let window = [
+    map_op_message(
+      client_id: other_client_id,
+      sn: 6,
+      csn: 1,
+      op: Set("during", json.int(1)),
+    ),
+    map_op_message(client_id: other_client_id, sn: 7, csn: 2, op: Delete("die")),
+    map_op_message(
+      client_id: other_client_id,
+      sn: 8,
+      csn: 3,
+      op: Set("also", json.int(2)),
+    ),
+  ]
+
+  let core = case
+    runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: window)
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected the catch-up round to complete the bootstrap"
+  }
+
+  root_has(core, "die") |> expect.to_be_false()
+  root_get(core, "during") |> expect.to_equal(Some(json.int(1)))
+  root_get(core, "also") |> expect.to_equal(Some(json.int(2)))
+  // The tail buffered during the gap drains once the prefix lands.
+  root_get(core, "tail") |> expect.to_equal(Some(json.int(1)))
+  core.last_seen_sn |> expect.to_equal(9)
 }
 
 pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
