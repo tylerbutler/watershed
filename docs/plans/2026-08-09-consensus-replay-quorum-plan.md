@@ -58,11 +58,11 @@ Regression tests:
 
 ## What remains
 
-**The checkpoint roster — now a prerequisite for enabling summaries at all**, see CR4 below. `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
+**The checkpoint roster — now a prerequisite for enabling summaries at all**, see CR4 below. Carried forward as SB2 of `2026-08-09-summary-bootstrap-plan.md`, which is where the goal all of this serves is written down. `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
 
 One thing that makes the remaining window narrow: `pact_map_kernel.summary_entries` returns the whole `Pact`, *including* `pending` with its `expected_signoffs` (`:63-65`), and `channel.gleam:461` snapshots it. A frozen signoff list already survives summarization. Only proposals sequenced after the checkpoint need the roster.
 
-**The reconnect gap.** `adopt_reconnect` still replaces the roster immediately, so ops sequenced during a disconnect are replayed against the post-reconnect room. Same time-shift, much shorter window, and it needs the same missing input — the roster at `last_seen_sn`. Deliberately left alone rather than half-fixed.
+**The reconnect gap.** `adopt_reconnect` still replaces the roster immediately, so ops sequenced during a disconnect are replayed against the post-reconnect room. Same time-shift, much shorter window, and it needs the same missing input — the roster at `last_seen_sn`. Deliberately left alone rather than half-fixed; carried as SB7 of the summary bootstrap plan, which is where that input arrives.
 
 ## Blast radius
 

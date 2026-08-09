@@ -164,6 +164,6 @@ Revised 2026-08-09, after FP1–FP6 and the drum machine landed. The same princi
 6. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
 7. Everything else, as appetite allows.
 
-Not a demo, but ahead of all of them if summaries are close: **the checkpoint roster** in `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`. It is the last piece of the consensus replay fix, and it only bites once documents bootstrap from summaries rather than from sequence number zero.
+Not a demo, and ahead of all of them if summaries are close: **`docs/plans/2026-08-09-summary-bootstrap-plan.md`** (SB1–SB8). It carries the goal every recent consensus fix was in service of — joining a document should cost recent history, not all of it — and it absorbs the two pieces the replay-quorum plan left open. SB1 is cheap and worth doing regardless: it either confirms or clears a suspected checkpoint-boundary bug in shipped behaviour.
 
 **Done:** FP1–FP6 (facade parity sweep), drum machine DM1–DM7, consensus replay quorum (client half).
