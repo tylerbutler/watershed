@@ -3,6 +3,7 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
+**Status:** the correctness foundation is done — SB1, SB2, SB7 shipped, and SB6's server blocker is closed and its client half pinned. What is left is the policy that decides *when* to summarize (SB3, SB4, SB6's default flip, SB8), plus SB5, which turned out to be an unimplemented feature rather than a broken test. Rungs below carry their outcomes.
 
 ## Why
 
@@ -23,9 +24,11 @@ The surprising part, and the reason this plan exists rather than a one-line tick
 | Server records the pointer | ✅ floodgate `SubmitSummary` → `store.put_summary` (`session.gleam:1133-1147`) |
 | Handshake offers it | ✅ `summaryContext` → `load_summary_then_bootstrap` (`runtime_js.gleam:1782`, `runtime.gleam:2439`) |
 | Replay membership from the log | ✅ commit `0d94d7a` |
-| **Anything that calls `summarize`** | ❌ **nothing, anywhere** |
-| Checkpoint roster in the blob | ❌ `Summary.members` plumbed, both runtimes pass `[]` |
-| Durable log with matched join/leave | ❌ floodgate — levee#85 |
+| **Anything that calls `summarize`** | ❌ **nothing, anywhere** — still true; this is SB3 |
+| Checkpoint roster in the blob | ✅ blob v4, SB2 |
+| Load point matches the blob | ✅ SB1 |
+| Durable log with matched join/leave | ✅ floodgate `0b24bbd`, levee#85 closed |
+| `get_versions` / `load_version` | ❌ no server implements `/versions` — see SB5 |
 
 `summarize` has no caller in `src/`, `examples/`, `website/`, or any test outside the env-gated `summary_versions_test`. Floodgate never asks for one either: there is no summarizer election and no nack prompting a client to summarize — it accepts summarize ops and stores what it is given.
 
@@ -54,7 +57,9 @@ And the server's number is the **summarize op's own** sequence number (`put_summ
 
 Uploading is asynchronous and `summarize`'s own docstring says the op's SN is drawn at push time rather than at upload start. If a peer sequences an op during the upload window, the blob captures state at `X` while the pointer records `X + k`. A loading client then seeds channel state from `X`, sets `last_seen_sn` to `X + k`, and **never replays the ops in between**.
 
-If that is right it is silent state loss, it predates everything in this plan, and it applies to the roster identically — a roster captured at `X` presented as the roster at `X + k` is stale by whatever joined or left in the window. The area is under-exercised: `summary_versions_test` is the only live coverage and it currently fails against both servers (known, not a regression).
+If that is right it is silent state loss, it predates everything in this plan, and it applies to the roster identically — a roster captured at `X` presented as the roster at `X + k` is stale by whatever joined or left in the window.
+
+*(Correction, on execution: the area is better covered than this said. Roughly a dozen gated tests in `integration_test.gleam` exercise summarize→bootstrap, not just `summary_versions_test`; all of them pass. See "How SB1 was actually settled".)*
 
 Three candidate fixes, if confirmed:
 
@@ -99,23 +104,50 @@ json.object([
 
 ## Rungs
 
-- **SB1 — confirm or refute the load-point hazard.** A test that summarizes while a peer op is in flight, then bootstraps a fresh client and asserts it sees the peer's op. Use `sluice` for determinism. Gate: either the hazard is disproved and this rung closes with a comment explaining why, or it is fixed by one of the three options above. **Do not build on top of an unverified checkpoint boundary.**
-- **SB2 — blob v4 with `members`.** Bump the version, write `core.members` on summarize, seed from it on load, drop the `[]` placeholders in both runtimes. Gate: a client that bootstraps from a summary and then replays a `PactMap` proposal sequenced after the checkpoint reconstructs the same signoff list as a client that was present — the assertion the replay plan could not make.
+- **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
+- **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
 - **SB3 — the summarization policy.** Threshold + jitter per decision (a), off by default behind explicit configuration. Gate: two clients on a busy document produce at most a small constant number of redundant summaries, and a document past the threshold reliably acquires one.
 - **SB4 — exercise it.** Turn the policy on in the integration suite and in one example (the drum machine is the natural choice — it has three-client tests and a `PactMap`). Gate: a document summarized mid-session is joinable by a fresh client that never sees the pre-checkpoint ops.
-- **SB5 — fix `summary_versions_test`.** It is the only live coverage of this path and it currently fails against both servers. Whatever SB1 turns up probably explains it. Gate: green under `just integration`.
-- **SB6 — enable by default. Blocked on levee#85.** A log containing a `join` with no matching `leave` gives every replaying client a ghost member, which wedges `PactMap` quorums and `TaskManager` queues permanently. SB2's roster does not help — the ghost is *in* the reconstructed roster, correctly, because the log says so. Gate: the three-client restart scenario from levee#85 converges.
-- **SB7 — close the reconnect gap.** `adopt_reconnect` still replaces the roster immediately, so gap ops replay against the post-reconnect room. It needs the roster at `last_seen_sn`, which after SB2 a client already holds. Gate: an op sequenced during a disconnect is judged against the room as it was then.
+- **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
+- **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is pinned by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
+- **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
 - **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
 
-SB1–SB5 and SB7 are unblocked today. Only SB6 waits on levee.
+**Remaining: SB3, SB4, SB5, SB6's default flip, SB8.** Nothing is blocked on levee any more.
+
+## How SB1 was actually settled
+
+The plan called for proving the race in `sluice`. That is not possible as written, and the reason is worth recording: **the sluice deliberately serves no summaries** (`sluice/frames.gleam:215`, `sluice/core.gleam:50`), and `git_storage` is a direct module dependency of both runtimes with no seam to stub. Building a deterministic harness would have meant introducing a storage abstraction first — its own project, and a much larger change than the fix.
+
+The hazard is real, and wider on the JS target than this plan first assumed. On Erlang the actor blocks for the whole upload, so only server-side sequencing contributes. On JS `finish_summarize` deliberately re-reads the cell after the async upload (to keep the client sequence number monotonic), so the core can advance client-side too, before floodgate stamps anything.
+
+Rather than reproduce it, the fix removes the possibility: the blob is self-describing, so the load point comes from the blob. The decision was extracted into a pure function precisely so it could be tested without a server.
+
+## What SB5 turned out to be
+
+`summary_versions_test` does not fail because of the checkpoint boundary. It fails because **`GET /versions/:tenant/:document` does not exist on any server** — it 404s on floodgate, while `/repos/:tenant/commits` and `/deltas/...` 401 (present, auth required). That is why it failed against levee too.
+
+There is no small fix, because there is nothing to list:
+
+- Floodgate stores exactly **one** summary pointer per document (`doc_state.Doc.summary: #(String, Int)`, a single overwritten key). No history is retained.
+- The endpoint that *does* exist, `GET /repos/:tenant/commits?sha=&count=`, walks a git commit chain. Watershed's `upload_summary` posts a blob and a tree and never a commit, and `outbound_summarize_op` always sends `parents: []`. So there is no chain to walk.
+
+Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate grows a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
+
+## Found on the way: reconnect after a server restart
+
+Not caused by anything here — it reproduces with the SB7 change reverted — and worth its own investigation before SB6 flips the default.
+
+When floodgate restarts under clients that have a `PactMap` in play, the clients that auto-reconnect can panic the runtime actor, with either `AckMismatch("expected ack for csn 3, got csn 2")` or `AckMismatch("client was not expected to sign off")`. The first looks like ops that were durably sequenced before the crash being resubmitted from `in_flight` and acked twice; the second is replicas disagreeing on a frozen signoff list. A plain map write over the same restart is clean, so it is specific to the consensus path.
+
+`ghost_members_do_not_survive_a_server_restart_test` sidesteps it by tearing the pre-restart clients down instead of letting them re-establish — which is also the sharper test, since their joins then stay unmatched and only the server's repair can close them.
 
 ## Testing strategy
 
-- **Determinism over a live server.** `sluice` delivers explicitly, so a summarize/bootstrap race is scriptable rather than timing-dependent. The live integration suite is for the storage round trip, which the sluice does not model.
+- **Determinism over a live server.** ~~`sluice` delivers explicitly, so a summarize/bootstrap race is scriptable.~~ The sluice serves no summaries and there is no seam to stub `git_storage`, so summary-path determinism lives at the `runtime_core` level instead — which is where it belongs, since that is the layer the decisions are in. The live suite covers the storage round trip.
 - **The assertion that matters** is not "a summary was written" but "a client bootstrapping from a summary reaches the same state as one replaying from zero." Write it as an equivalence: run both, compare `entries` across every channel plus each consensus kernel's pending state.
 - **Membership specifically**, since it is the piece with no coverage today: bootstrap from a checkpoint, replay a proposal sequenced after it, and assert the signoff list names the same clients a present client froze.
-- **A ghost-member test**, red until levee#85 lands, pinned the way the replay bug was: sequence a `join` with no `leave`, then assert what a joiner reconstructs. It should be the thing that goes green when the server is fixed.
+- **A ghost-member test** — done, and it asserts on the `TaskManager` queue rather than a fresh `PactMap` proposal. That distinction was not obvious: a proposal made after bootstrap freezes its signoff list from the *live* roster, which `settle_bootstrap` has already replaced with the handshake's, so ghosts never reach it and such a test passes either way. The queue is rebuilt purely by replaying the log, so an unmatched volunteer stays in it. Confirmed discriminating against floodgate at `63a1996`.
 - **No test asserts a summary is small or fast.** Those are the motivation, not the contract, and a size assertion would break on every kernel change.
 
 ## Risks
@@ -123,7 +155,7 @@ SB1–SB5 and SB7 are unblocked today. Only SB6 waits on levee.
 - **SB1 may be a real bug in shipped behaviour.** If the checkpoint boundary is wrong, every summary ever written is subtly wrong, and the fix may be a wire change. That is why it is first and why nothing else should start until it is settled.
 - **Turning summaries on changes what "the log" means.** Today a document's full history is always replayable; after this, joining clients see only the tail. Anything that quietly depended on full replay — and the consensus kernels did, until `0d94d7a` — will surface here. Expect at least one more bug of that family.
 - **The threshold is a tuning knob with a bad failure mode in one direction.** Too high and the goal is not met; too low and every document churns blobs. Start conservative and measure before tightening.
-- **`summary:write` scope.** `summarize` requires it; a policy that runs automatically means ordinary clients now need a scope they may not have been issued. Check the token minting path before SB3 rather than discovering it in SB4.
+- ~~**`summary:write` scope.**~~ Checked: both facades already mint it by default (`watershed.gleam:289`, `watershed_js.gleam:276`, `transport_ffi.mjs:120`), so an automatic policy needs no new scope.
 
 ## What this does not do
 

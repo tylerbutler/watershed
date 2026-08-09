@@ -6,9 +6,10 @@
 //// under a consistent quorum.
 ////
 //// Convergence is asserted at the *channel* level (`apply_remote` with an
-//// explicit, client-independent quorum) because the runtime approximates the
-//// quorum as `[self, author]`, which differs per client until membership
-//// wiring lands (tracked in the wire-pact-map plan, "Out of scope").
+//// explicit, client-independent quorum) to keep these tests about the channel
+//// rather than about how a quorum is derived. The runtime draws the real one
+//// from the membership roster — see `roster_test` for that, and the sluice
+//// driver suite for it end to end.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
