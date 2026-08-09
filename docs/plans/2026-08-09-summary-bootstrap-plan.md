@@ -136,11 +136,15 @@ Closing this means choosing a direction and implementing it end to end — eithe
 
 ## Found on the way: reconnect after a server restart
 
-Not caused by anything here — it reproduces with the SB7 change reverted — and worth its own investigation before SB6 flips the default.
+Neither symptom is caused by anything in this plan — both reproduce with the SB7 change reverted. The repro is a floodgate restart under clients holding a `PactMap`, with the survivors auto-reconnecting while a fresh client connects. Give the reconnects a few seconds to settle first and neither appears; it is a concurrency window, not a restart consequence. A plain map write over the same restart is clean, so both are specific to the consensus path — which follows, since only the consensus kernels put ops on the wire without the application asking.
 
-When floodgate restarts under clients that have a `PactMap` in play, the clients that auto-reconnect can panic the runtime actor, with either `AckMismatch("expected ack for csn 3, got csn 2")` or `AckMismatch("client was not expected to sign off")`. The first looks like ops that were durably sequenced before the crash being resubmitted from `in_flight` and acked twice; the second is replicas disagreeing on a frozen signoff list. A plain map write over the same restart is clean, so it is specific to the consensus path.
+**Symptom 1 — fixed.** `AckMismatch("expected ack for csn 3, got csn 2")`. Ops a kernel *released* (a `PactMap` `Accept` owed in response to a peer's `Set`) were sent unconditionally on the sequenced-op path, including while `resubmit_at` was still `Some`. `settle_reconnect` then restamped the whole in-flight queue with fresh client sequence numbers and sent it again, so the server sequenced two copies and the FIFO ack match failed on the stale one. Every other submit path already gated on `resubmit_at`. Both runtimes had it; on JS it was unconditional rather than racy, because `settle_reconnect` runs first there.
 
-`ghost_members_do_not_survive_a_server_restart_test` sidesteps it by tearing the pre-restart clients down instead of letting them re-establish — which is also the sharper test, since their joins then stay unmatched and only the server's repair can close them.
+**Symptom 2 — open.** `AckMismatch("client was not expected to sign off")`: two replicas froze different signoff lists for the same proposal. Ruled out so far — it is not the SB7 change, and it is not `settle_bootstrap`'s adoption of `live_members` (removing that changes nothing, with or without the symptom-1 fix). The remaining suspicion is that the handshake's `initialClients` is a snapshot of the server's presence map rather than a function of the log, so two clients connecting concurrently can disagree about the room at the same sequence point — but that is unconfirmed, and the evidence is that the panicking client is one that *owed* a signoff, not the proposer. **Worth settling before SB6 flips the default.**
+
+Neither has a deterministic regression test. Reproducing them needs a socket drop with a same-client reconnect, which the sluice models at the hub-core level (`core.connect` with a prior sequence number) but the driver cannot yet express for an existing `Document`. That primitive is the prerequisite for testing this family properly, and it is the same shape of gap as the missing summary store.
+
+`ghost_members_do_not_survive_a_server_restart_test` sidesteps both by tearing the pre-restart clients down instead of letting them re-establish — which is also the sharper test, since their joins then stay unmatched and only the server's repair can close them.
 
 ## Testing strategy
 
