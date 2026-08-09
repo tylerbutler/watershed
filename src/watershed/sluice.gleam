@@ -69,6 +69,7 @@ pub fn start(
     core: core.new(tenant, document),
     conns: [],
     subjects: [],
+    dropped: [],
     last_registered: None,
   ))
   |> actor.on_message(handle)
@@ -135,10 +136,41 @@ pub fn connect(
 /// `ChannelReady` → `connect_document` carrying `last_seen` — before `Bind`
 /// re-points the binding at the connection it just opened.
 pub fn reconnect(sluice: Sluice, document: watershed.Document) -> Nil {
+  drop(sluice, document)
+  rejoin(sluice, document)
+}
+
+@target(erlang)
+/// The first half of `reconnect`: take the socket away and leave it away.
+///
+/// Splitting the two matters because the interesting window is *between* them.
+/// A client is out of the room from its `leave` until its rejoin, and anything
+/// sequenced in that gap was sequenced for a room it was not in — which it then
+/// has to replay, under an identity that did not exist when those ops were
+/// made. Scripting that means being able to sequence ops while the client is
+/// away, which an atomic reconnect cannot express.
+///
+/// The runtime keeps its core and sits in its reconnecting phase until
+/// `rejoin`.
+pub fn drop(sluice: Sluice, document: watershed.Document) -> Nil {
+  let subject = watershed.runtime_subject(document)
+  let _ =
+    process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
+      DropConn(subject, reply)
+    })
+  Nil
+}
+
+@target(erlang)
+/// The second half of `reconnect`: let a dropped client come back, under a
+/// fresh server-assigned client id.
+///
+/// A no-op for a client that was not `drop`ped.
+pub fn rejoin(sluice: Sluice, document: watershed.Document) -> Nil {
   let subject = watershed.runtime_subject(document)
   case
     process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-      DropConn(subject, reply)
+      TakeDropped(subject, reply)
     })
   {
     Error(_) -> Nil
@@ -283,7 +315,11 @@ type Message {
   /// sequence its `leave`, forget the connection, and hand its `on_close` back
   /// so the *caller* can fire it (calling into a runtime from inside this actor
   /// would invert the lock order this driver is built on).
-  DropConn(
+  DropConn(subject: Subject(runtime.Msg), reply: Subject(Result(Nil, Nil)))
+  /// Hand back a dropped runtime's `on_close` so the caller can fire it, which
+  /// is what starts the rejoin. Kept out of `DropConn` so a test can sequence
+  /// ops while the client is away.
+  TakeDropped(
     subject: Subject(runtime.Msg),
     reply: Subject(Result(fn(String) -> Nil, Nil)),
   )
@@ -306,6 +342,9 @@ type State {
     core: core.Sluice,
     conns: List(#(String, Conn)),
     subjects: List(#(Subject(runtime.Msg), String)),
+    /// Runtimes whose socket has been taken away but which have not been let
+    /// back yet, holding the `on_close` that starts their rejoin.
+    dropped: List(#(Subject(runtime.Msg), fn(String) -> Nil)),
     last_registered: Option(String),
   )
 }
@@ -339,6 +378,22 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       )
     }
 
+    TakeDropped(subject, reply) -> {
+      let taken = case
+        list.find(state.dropped, fn(pair) { pair.0 == subject })
+      {
+        Ok(pair) -> Ok(pair.1)
+        Error(_) -> Error(Nil)
+      }
+      process.send(reply, taken)
+      actor.continue(
+        State(
+          ..state,
+          dropped: list.filter(state.dropped, fn(pair) { pair.0 != subject }),
+        ),
+      )
+    }
+
     DropConn(subject, reply) ->
       case client_id_of(state.subjects, subject) {
         Error(_) -> {
@@ -346,14 +401,15 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
           actor.continue(state)
         }
         Ok(client_id) -> {
-          let on_close = case list.key_find(state.conns, client_id) {
-            Ok(conn) -> Ok(conn.on_close)
-            Error(_) -> Error(Nil)
+          let dropped = case list.key_find(state.conns, client_id) {
+            Ok(conn) -> [#(subject, conn.on_close), ..state.dropped]
+            Error(_) -> state.dropped
           }
-          process.send(reply, on_close)
+          process.send(reply, Ok(Nil))
           actor.continue(
             State(
               ..state,
+              dropped: dropped,
               // The leave the server sequences when a socket goes away. Without
               // it the room keeps a member that is never coming back under that
               // id, which is the ghost the durable-log repair exists to prevent.

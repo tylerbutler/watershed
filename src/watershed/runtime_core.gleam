@@ -429,7 +429,25 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
     ..core,
     client_id: connected.client_id,
     live_members: roster_of(connected),
+    // The gap about to be replayed is history, not live traffic, so the
+    // defences in `quorum_of` must be off for it. They exist for a hazard that
+    // cannot occur here — a `join` lost or reordered against the op after it —
+    // and applying them is actively wrong on this path: unioning *self* into
+    // the quorum of an op sequenced before we reconnected claims a signoff for
+    // an id that did not exist when that op was made, and no other replica
+    // agrees. `go_live` clears this when the gap closes.
+    replaying: True,
   )
+}
+
+/// The hand-off from a reconnect's catch-up to live traffic.
+///
+/// The mirror of `settle_bootstrap` for the route that never passes through it.
+/// It exists so `replaying` is cleared in exactly one place on this path, which
+/// is what keeps the flag from leaking past the gap and disarming `quorum_of`
+/// for the rest of the session.
+pub fn go_live(core: Core) -> Core {
+  Core(..core, replaying: False)
 }
 
 /// The quorum a sequenced op is judged against: the roster at that op's

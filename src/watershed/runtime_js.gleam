@@ -1968,7 +1968,7 @@ fn settle_reconnect(
   let state = cell_get(cell)
   case core.last_seen_sn >= checkpoint {
     True -> {
-      let #(core, outbound) = runtime_core.resubmit(core)
+      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
       send_outbound(state.channel, core.client_id, outbound)
       cell_set(cell, State(..state, phase: Ready(core, None)))
     }

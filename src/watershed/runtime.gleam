@@ -1737,7 +1737,7 @@ fn settle_reconnect(
 ) -> actor.Next(State, Msg) {
   case core.last_seen_sn >= checkpoint {
     True -> {
-      let #(core, outbound) = runtime_core.resubmit(core)
+      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
       send_outbound(state.channel, core.client_id, outbound)
       actor.continue(State(..state, phase: Ready(core, None)))
     }

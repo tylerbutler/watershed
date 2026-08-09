@@ -836,3 +836,60 @@ pub fn a_released_accept_is_not_sent_twice_across_a_reconnect_test() {
   watershed.pact_map_get(pact_c, "bpm") |> expect.to_equal(Some(json.int(128)))
   watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
 }
+
+@target(erlang)
+/// A proposal sequenced while a client is away must not gain a signoff from
+/// the identity that client comes back under.
+///
+/// C is out of the room from its `leave` until its rejoin, so the proposal in
+/// between froze a signoff list naming only A and B. When C returns it replays
+/// that proposal — and it is *not* in that list, under either identity: the one
+/// it had is gone, and the one it has now did not exist yet. Deciding otherwise
+/// makes C send an `Accept` for a pact that never expected it, which the room
+/// rejects as `AckMismatch("client was not expected to sign off")`.
+pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
+  let sluice = start("reconnect-window-proposal")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  let doc_c = connect(sluice, "user-c")
+  sluice.settle(sluice)
+
+  let assert Ok(pact_a) = watershed.create_pact_map(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "settings",
+    watershed.pact_map_handle_of(pact_a),
+  )
+  sluice.settle(sluice)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
+  let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
+  let assert Ok(_) = watershed.resolve_pact_map(doc_c, handle)
+
+  // Hold B, so the proposal is still outstanding when C comes back. A settled
+  // pact ignores a stray `Accept`; a pending one rejects it, and rejecting it
+  // is fatal to the connection that sent it.
+  sluice.pause(sluice, doc_b)
+
+  // C's socket goes, and the proposal is sequenced in the window before it is
+  // let back. A froze a signoff list of A and B — C had already left.
+  sluice.drop(sluice, doc_c)
+  watershed.pact_map_set(pact_a, "bpm", json.int(128))
+  sluice.settle(sluice)
+  watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_true()
+
+  // C returns and replays it.
+  sluice.rejoin(sluice, doc_c)
+  sluice.settle(sluice)
+  sluice.resume(sluice, doc_b)
+  sluice.settle(sluice)
+
+  let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
+  watershed.pact_map_get(pact_c, "bpm") |> expect.to_equal(Some(json.int(128)))
+  watershed.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
+
+  // And the room is still usable afterwards.
+  watershed.pact_map_set(pact_b, "bpm", json.int(96))
+  sluice.settle(sluice)
+  watershed.pact_map_get(pact_a, "bpm") |> expect.to_equal(Some(json.int(96)))
+  watershed.pact_map_get(pact_c, "bpm") |> expect.to_equal(Some(json.int(96)))
+}
