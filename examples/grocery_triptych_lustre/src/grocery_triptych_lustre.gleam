@@ -17,7 +17,9 @@ import watershed_js.{type Document, type GSet, type OrSet, type TwoPSet}
 import watershed_lustre
 
 import doc_schema
-import grocery_triptych_lustre/bootstrap_guard
+import grocery_triptych_lustre/bootstrap_guard.{
+  type Feedback, type FeedbackKind, Info, Warning,
+}
 import pantry_snapshot.{type Row, type Snapshots}
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -72,15 +74,6 @@ type PendingPantry {
   )
 }
 
-type FeedbackKind {
-  Info
-  Warning
-}
-
-type Feedback {
-  Feedback(kind: FeedbackKind, message: String)
-}
-
 type ScenarioState {
   NoScenario
   PendingScenario(String)
@@ -112,7 +105,9 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       draft: "",
       snapshots: pantry_snapshot.empty(),
       rows: [],
-      feedback: Some(info("waiting for document handle and ready callback")),
+      feedback: Some(bootstrap_guard.info(
+        "waiting for document handle and ready callback",
+      )),
       scenario: NoScenario,
       error: None,
     )
@@ -176,7 +171,9 @@ fn maybe_bootstrap(model: Model) -> #(Model, Effect(Msg)) {
                   ..model,
                   readiness: Bootstrapping,
                   bootstrap_requested: True,
-                  feedback: Some(info("bootstrapping pantry channels")),
+                  feedback: Some(bootstrap_guard.info(
+                    "bootstrapping pantry channels",
+                  )),
                 )
               #(model, bootstrap_effect(doc))
             }
@@ -213,7 +210,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
               ..model,
               shared: Some(shared),
               readiness: Ready,
-              feedback: Some(info("pantry handles assembled")),
+              feedback: Some(bootstrap_guard.info("pantry handles assembled")),
             )
             |> refresh_snapshots
           #(model, subscribe_shared_effect(shared))
@@ -248,7 +245,7 @@ fn fail(model: Model, reason: String) -> Model {
   Model(
     ..model,
     readiness: Failed,
-    feedback: Some(warning(reason)),
+    feedback: Some(bootstrap_guard.warning(reason)),
     error: Some(reason),
   )
 }
@@ -260,7 +257,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           doc: Some(doc),
-          feedback: Some(info("document handle acquired")),
+          feedback: Some(bootstrap_guard.info("document handle acquired")),
         )
       maybe_bootstrap(model)
     }
@@ -270,7 +267,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           ready_callback_seen: True,
-          feedback: Some(info("ready callback completed")),
+          feedback: Some(bootstrap_guard.info("ready callback completed")),
         )
       maybe_bootstrap(model)
     }
@@ -285,7 +282,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           pending: PendingPantry(..model.pending, grow_only: Some(set)),
-          feedback: Some(info("grow_only handle ensured")),
+          feedback: bootstrap_guard.success_feedback(
+            model.error,
+            model.feedback,
+            "grow_only handle ensured",
+          ),
         ),
       )
     EnsuredGrowOnly(Error(reason)) -> #(
@@ -298,7 +299,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           pending: PendingPantry(..model.pending, two_phase: Some(set)),
-          feedback: Some(info("two_phase handle ensured")),
+          feedback: bootstrap_guard.success_feedback(
+            model.error,
+            model.feedback,
+            "two_phase handle ensured",
+          ),
         ),
       )
     EnsuredTwoPhase(Error(reason)) -> #(
@@ -311,7 +316,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           pending: PendingPantry(..model.pending, observed: Some(set)),
-          feedback: Some(info("observed handle ensured")),
+          feedback: bootstrap_guard.success_feedback(
+            model.error,
+            model.feedback,
+            "observed handle ensured",
+          ),
         ),
       )
     EnsuredObserved(Error(reason)) -> #(
@@ -323,21 +332,30 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     GrowOnlyChanged(event) -> #(
       refresh_snapshots(
-        Model(..model, feedback: Some(info(g_set_event_line(event)))),
+        Model(
+          ..model,
+          feedback: Some(bootstrap_guard.info(g_set_event_line(event))),
+        ),
       ),
       effect.none(),
     )
 
     TwoPhaseChanged(event) -> #(
       refresh_snapshots(
-        Model(..model, feedback: Some(info(two_p_set_event_line(event)))),
+        Model(
+          ..model,
+          feedback: Some(bootstrap_guard.info(two_p_set_event_line(event))),
+        ),
       ),
       effect.none(),
     )
 
     ObservedChanged(event) -> #(
       refresh_snapshots(
-        Model(..model, feedback: Some(info(or_set_event_line(event)))),
+        Model(
+          ..model,
+          feedback: Some(bootstrap_guard.info(or_set_event_line(event))),
+        ),
       ),
       effect.none(),
     )
@@ -488,14 +506,6 @@ fn feedback_class(kind: FeedbackKind) -> String {
     Info -> "status"
     Warning -> "status error"
   }
-}
-
-fn info(message: String) -> Feedback {
-  Feedback(kind: Info, message: message)
-}
-
-fn warning(message: String) -> Feedback {
-  Feedback(kind: Warning, message: message)
 }
 
 fn readiness_text(readiness: Readiness) -> String {
