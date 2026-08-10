@@ -51,10 +51,23 @@ pub fn tombstone_preflight_refuses_live_rooms_that_are_already_tombstoned_test()
   |> should.equal([
     scenario_state.TombstonePreflightRetryable,
     scenario_state.TombstonePreflightComplete(
-      "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
+      scenario_state.tombstone_complete_status(),
     ),
     scenario_state.TombstonePreflightComplete(
-      "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
+      scenario_state.tombstone_complete_status(),
+    ),
+  ])
+}
+
+pub fn tombstone_add_step_continues_only_when_two_phase_recovers_live_presence_test() {
+  [
+    scenario_state.tombstone_add_step_outcome(True),
+    scenario_state.tombstone_add_step_outcome(False),
+  ]
+  |> should.equal([
+    scenario_state.TombstoneAddStepContinue,
+    scenario_state.TombstoneAddStepComplete(
+      scenario_state.tombstone_add_step_locked_status(),
     ),
   ])
 }

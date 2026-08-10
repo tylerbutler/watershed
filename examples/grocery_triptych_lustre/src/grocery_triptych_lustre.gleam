@@ -654,6 +654,18 @@ fn set_concurrent_durable_state(
   }
 }
 
+fn set_tombstone_state(
+  model: Model,
+  tombstone: TombstoneState,
+  feedback: Feedback,
+) -> Model {
+  Model(
+    ..model,
+    scenario: ScenarioState(..model.scenario, tombstone: tombstone),
+  )
+  |> with_feedback(feedback)
+}
+
 fn refresh_live_shared(model: Model) -> Result(Model, String) {
   use shared <- result.try(resolve_live_shared(model))
   Ok(apply_shared_snapshots(model, shared, snapshots_of_shared(shared)))
@@ -870,28 +882,69 @@ fn advance_tombstone(
   step: TombstoneStep,
 ) -> #(Model, Effect(Msg)) {
   case model.scenario.tombstone, step {
-    TombstoneRunning(TombstoneAddStep), TombstoneAddStep -> {
-      let #(model, _) = shared_add(model, scenario_state.tombstone_item)
-      let model =
-        Model(
-          ..model,
-          scenario: ScenarioState(
-            ..model.scenario,
-            tombstone: TombstoneRunning(TombstoneRemoveStep),
-          ),
-        )
-        |> with_feedback(bootstrap_guard.info(
-          "Tombstone 1/3: added \"milk\" to all three sets. Removing it next.",
-        ))
+    TombstoneRunning(TombstoneAddStep), TombstoneAddStep ->
+      case refresh_live_shared(model) {
+        Ok(model) ->
+          case scenario_state.tombstone_preflight_outcome(model.snapshots) {
+            scenario_state.TombstonePreflightComplete(status) -> #(
+              set_tombstone_state(
+                model,
+                TombstoneComplete,
+                bootstrap_guard.info(status),
+              ),
+              effect.none(),
+            )
 
-      #(
-        model,
-        watershed_lustre.after(
-          tombstone_step_ms,
-          TombstoneStepDue(TombstoneRemoveStep),
-        ),
-      )
-    }
+            scenario_state.TombstonePreflightRetryable -> {
+              let #(model, #(_two_phase_was_present, two_phase_is_present)) =
+                shared_add(model, scenario_state.tombstone_item)
+
+              case
+                scenario_state.tombstone_add_step_outcome(two_phase_is_present)
+              {
+                scenario_state.TombstoneAddStepComplete(status) -> #(
+                  set_tombstone_state(
+                    model,
+                    TombstoneComplete,
+                    bootstrap_guard.warning(status),
+                  ),
+                  effect.none(),
+                )
+
+                scenario_state.TombstoneAddStepContinue -> {
+                  let model =
+                    set_tombstone_state(
+                      model,
+                      TombstoneRunning(TombstoneRemoveStep),
+                      bootstrap_guard.info(
+                        "Tombstone 1/3: added \"milk\" to all three sets. Removing it next.",
+                      ),
+                    )
+
+                  #(
+                    model,
+                    watershed_lustre.after(
+                      tombstone_step_ms,
+                      TombstoneStepDue(TombstoneRemoveStep),
+                    ),
+                  )
+                }
+              }
+            }
+          }
+
+        Error(reason) -> #(
+          set_tombstone_state(
+            model,
+            TombstoneAvailable,
+            bootstrap_guard.warning(
+              "Tombstone: could not re-read the live pantry state before the add step, so this tab stopped without mutating. "
+              <> reason,
+            ),
+          ),
+          effect.none(),
+        )
+      }
 
     TombstoneRunning(TombstoneRemoveStep), TombstoneRemoveStep -> {
       let #(model, _) = shared_remove(model, scenario_state.tombstone_item)
@@ -931,14 +984,11 @@ fn advance_tombstone(
         <> " "
         <> scenario_state.tombstone_locked_message()
       let model =
-        Model(
-          ..model,
-          scenario: ScenarioState(
-            ..model.scenario,
-            tombstone: TombstoneComplete,
-          ),
+        set_tombstone_state(
+          model,
+          TombstoneComplete,
+          feedback_of_kind(base.kind, message),
         )
-        |> with_feedback(feedback_of_kind(base.kind, message))
 
       #(model, effect.none())
     }

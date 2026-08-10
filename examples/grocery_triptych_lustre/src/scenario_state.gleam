@@ -36,6 +36,11 @@ pub type TombstonePreflightOutcome {
   TombstonePreflightComplete(status: String)
 }
 
+pub type TombstoneAddStepOutcome {
+  TombstoneAddStepContinue
+  TombstoneAddStepComplete(status: String)
+}
+
 pub type ConcurrentPeerGoTimeoutOutcome {
   PeerGoRetryable(status: String)
   PeerGoComplete(status: String, disabled_reason: String)
@@ -50,6 +55,14 @@ pub type PeerStatusUpdate {
 
 pub fn tombstone_locked_message() -> String {
   "Tombstone already ran in this room. Use a fresh room URL to rerun because TwoPSet cannot reset."
+}
+
+pub fn tombstone_complete_status() -> String {
+  "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset."
+}
+
+pub fn tombstone_add_step_locked_status() -> String {
+  "Tombstone stopped before scheduling the remove step because live TwoPSet evidence for \"milk\" stayed absent after the add step. Another tab won the race or this room was already tombstoned, so use a fresh room URL to rerun because TwoPSet cannot reset."
 }
 
 pub fn invitation_timeout_message() -> String {
@@ -96,11 +109,17 @@ pub fn tombstone_preflight_outcome(
   snapshots: Snapshots,
 ) -> TombstonePreflightOutcome {
   case tombstone_matches_expected(snapshots) {
-    True ->
-      TombstonePreflightComplete(
-        "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
-      )
+    True -> TombstonePreflightComplete(tombstone_complete_status())
     False -> TombstonePreflightRetryable
+  }
+}
+
+pub fn tombstone_add_step_outcome(
+  two_phase_is_present: Bool,
+) -> TombstoneAddStepOutcome {
+  case two_phase_is_present {
+    True -> TombstoneAddStepContinue
+    False -> TombstoneAddStepComplete(tombstone_add_step_locked_status())
   }
 }
 
