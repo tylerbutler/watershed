@@ -38,6 +38,23 @@ pub fn concurrent_summary_reports_the_current_triptych_state_test() {
   |> should.equal("GSet present, TwoPSet present, OrSet absent")
 }
 
+pub fn run_history_remembers_seen_run_ids_without_duplicates_test() {
+  let seen =
+    []
+    |> scenario_state.remember_run_id("run-1")
+    |> scenario_state.remember_run_id("run-2")
+    |> scenario_state.remember_run_id("run-1")
+
+  seen
+  |> should.equal(["run-2", "run-1"])
+
+  scenario_state.has_seen_run_id(seen, "run-1")
+  |> should.equal(True)
+
+  scenario_state.has_seen_run_id(seen, "run-3")
+  |> should.equal(False)
+}
+
 fn expected_snapshots() -> pantry_snapshot.Snapshots {
   pantry_snapshot.Snapshots(
     grow_only: [scenario_state.concurrent_item],

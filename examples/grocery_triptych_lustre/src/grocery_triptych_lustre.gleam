@@ -103,7 +103,11 @@ type PendingPantry {
 }
 
 type ScenarioState {
-  ScenarioState(tombstone: TombstoneState, concurrent: ConcurrentState)
+  ScenarioState(
+    tombstone: TombstoneState,
+    concurrent: ConcurrentState,
+    handled_run_ids: List(String),
+  )
 }
 
 type TombstoneState {
@@ -205,6 +209,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       scenario: ScenarioState(
         tombstone: TombstoneAvailable,
         concurrent: ConcurrentIdle(None),
+        handled_run_ids: [],
       ),
       error: None,
     )
@@ -438,6 +443,27 @@ fn feedback_of_kind(kind: FeedbackKind, message: String) -> Feedback {
 fn own_client_id(model: Model) -> Option(String) {
   model.doc
   |> option.then(watershed_js.client_id)
+}
+
+fn seen_run_ids(model: Model) -> List(String) {
+  model.scenario.handled_run_ids
+}
+
+fn has_seen_run_id(model: Model, run_id: String) -> Bool {
+  scenario_state.has_seen_run_id(seen_run_ids(model), run_id)
+}
+
+fn remember_run_id(model: Model, run_id: String) -> Model {
+  Model(
+    ..model,
+    scenario: ScenarioState(
+      ..model.scenario,
+      handled_run_ids: scenario_state.remember_run_id(
+        seen_run_ids(model),
+        run_id,
+      ),
+    ),
+  )
 }
 
 fn next_run_id(model: Model) -> String {
@@ -767,6 +793,7 @@ fn start_concurrent(model: Model) -> #(Model, Effect(Msg)) {
         False ->
           "Concurrent add/remove: seeded \"eggs\" into GSet and OrSet, but TwoPSet already has it tombstoned in this room. Waiting briefly before inviting a peer anyway."
       }
+      let model = remember_run_id(model, run_id)
       let model =
         Model(
           ..model,
@@ -872,17 +899,21 @@ fn handle_invitation(
 ) -> #(Model, Effect(Msg)) {
   case own_client_id(model) {
     Some(self_id) ->
-      case
-        scenario_protocol.should_acknowledge(
-          self_id,
-          controls_ready(model),
-          scenario_busy(model),
-          inbound,
-        )
-      {
-        True ->
-          case inbound.message {
-            scenario_protocol.Invitation(run_id) -> {
+      case inbound.message {
+        scenario_protocol.Invitation(run_id) -> {
+          let already_seen = has_seen_run_id(model, run_id)
+          let remembered = remember_run_id(model, run_id)
+
+          case
+            scenario_protocol.should_acknowledge(
+              self_id,
+              controls_ready(remembered),
+              scenario_busy(remembered),
+              already_seen,
+              inbound,
+            )
+          {
+            True -> {
               let message =
                 "Concurrent add/remove: acknowledged run "
                 <> run_id
@@ -891,9 +922,9 @@ fn handle_invitation(
                 <> " and is waiting to see whether this tab is selected."
               let model =
                 Model(
-                  ..model,
+                  ..remembered,
                   scenario: ScenarioState(
-                    ..model.scenario,
+                    ..remembered.scenario,
                     concurrent: ConcurrentPeer(
                       run_id: run_id,
                       initiator: inbound.from_peer,
@@ -920,10 +951,11 @@ fn handle_invitation(
               )
             }
 
-            _ -> #(model, effect.none())
+            False -> #(remembered, effect.none())
           }
+        }
 
-        False -> #(model, effect.none())
+        _ -> #(model, effect.none())
       }
 
     None -> #(model, effect.none())
@@ -1007,7 +1039,13 @@ fn handle_go(
       }
 
       case
-        scenario_protocol.classify_go(self_id, run_id, already_started, inbound)
+        scenario_protocol.classify_go(
+          self_id,
+          run_id,
+          initiator,
+          already_started,
+          inbound,
+        )
       {
         scenario_protocol.ApplyGo -> {
           let #(model, _) = shared_add(model, scenario_state.concurrent_item)
@@ -1051,24 +1089,6 @@ fn handle_go(
           )
         }
 
-        scenario_protocol.StandDown -> {
-          let message =
-            "Concurrent add/remove: another peer was selected for run "
-            <> run_id
-            <> ", so this tab ignored the go payload and returned to idle."
-          let model =
-            Model(
-              ..model,
-              scenario: ScenarioState(
-                ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
-              ),
-            )
-            |> with_feedback(bootstrap_guard.info(message))
-
-          #(model, effect.none())
-        }
-
         scenario_protocol.Ignore -> #(model, effect.none())
       }
     }
@@ -1090,8 +1110,14 @@ fn handle_status(
         _peer_applied,
         attempts_remaining,
       )
-    ->
-      case scenario_protocol.should_accept_status(self_id, run_id, inbound) {
+    -> {
+      let accepted_status = case selected_peer {
+        Some(peer) ->
+          scenario_protocol.should_accept_status(self_id, run_id, peer, inbound)
+        None -> None
+      }
+
+      case accepted_status {
         Some(scenario_protocol.PeerAppliedAdd) -> {
           let model =
             Model(
@@ -1119,11 +1145,19 @@ fn handle_status(
         Some(_) -> #(model, effect.none())
         None -> #(model, effect.none())
       }
+    }
 
     Some(self_id),
       ConcurrentPeer(run_id, initiator, phase, attempts_remaining, _note)
     ->
-      case scenario_protocol.should_accept_status(self_id, run_id, inbound) {
+      case
+        scenario_protocol.should_accept_status(
+          self_id,
+          run_id,
+          initiator,
+          inbound,
+        )
+      {
         Some(status) -> {
           let message = case status {
             scenario_protocol.VerifiedExpectedOutcome ->

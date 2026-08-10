@@ -24,7 +24,6 @@ pub type Inbound {
 
 pub type GoDecision {
   ApplyGo
-  StandDown
   Ignore
 }
 
@@ -96,10 +95,12 @@ pub fn should_acknowledge(
   self_id: String,
   ready: Bool,
   busy: Bool,
+  already_seen: Bool,
   inbound: Inbound,
 ) -> Bool {
   case inbound.message {
-    Invitation(_) -> ready && !busy && !from_self(self_id, inbound)
+    Invitation(_) ->
+      ready && !busy && !already_seen && !from_self(self_id, inbound)
     _ -> False
   }
 }
@@ -124,18 +125,22 @@ pub fn select_first_ack(
 pub fn classify_go(
   self_id: String,
   run_id: String,
+  expected_sender: String,
   already_started: Bool,
   inbound: Inbound,
 ) -> GoDecision {
   case inbound.message {
     Go(inbound_run, target_peer) ->
-      case inbound_run == run_id && !from_self(self_id, inbound) {
+      case
+        inbound_run == run_id
+        && target_peer == self_id
+        && inbound.from_peer == expected_sender
+        && !from_self(self_id, inbound)
+      {
         True ->
-          case target_peer == self_id, already_started {
-            True, False -> ApplyGo
-            True, True -> Ignore
-            False, False -> StandDown
-            False, True -> Ignore
+          case already_started {
+            False -> ApplyGo
+            True -> Ignore
           }
 
         False -> Ignore
@@ -148,6 +153,7 @@ pub fn classify_go(
 pub fn should_accept_status(
   self_id: String,
   run_id: String,
+  expected_sender: String,
   inbound: Inbound,
 ) -> Option(Status) {
   case inbound.message {
@@ -155,6 +161,7 @@ pub fn should_accept_status(
       case
         inbound_run == run_id
         && target_peer == self_id
+        && inbound.from_peer == expected_sender
         && !from_self(self_id, inbound)
       {
         True -> Some(status)

@@ -77,6 +77,20 @@ pub fn advance_verification(
   }
 }
 
+pub fn has_seen_run_id(seen_run_ids: List(String), run_id: String) -> Bool {
+  list.contains(seen_run_ids, run_id)
+}
+
+pub fn remember_run_id(
+  seen_run_ids: List(String),
+  run_id: String,
+) -> List(String) {
+  case has_seen_run_id(seen_run_ids, run_id) {
+    True -> seen_run_ids
+    False -> [run_id, ..seen_run_ids]
+  }
+}
+
 fn presence(present: Bool) -> String {
   case present {
     True -> "present"

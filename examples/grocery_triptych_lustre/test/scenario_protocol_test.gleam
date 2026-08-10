@@ -76,16 +76,19 @@ pub fn foreign_and_malformed_messages_are_dropped_test() {
 pub fn should_acknowledge_requires_ready_idle_foreign_invitation_test() {
   let invite = inbound("peer-1", scenario_protocol.Invitation("run-1"))
 
-  scenario_protocol.should_acknowledge("self", True, False, invite)
+  scenario_protocol.should_acknowledge("self", True, False, False, invite)
   |> should.equal(True)
 
-  scenario_protocol.should_acknowledge("self", False, False, invite)
+  scenario_protocol.should_acknowledge("self", False, False, False, invite)
   |> should.equal(False)
 
-  scenario_protocol.should_acknowledge("self", True, True, invite)
+  scenario_protocol.should_acknowledge("self", True, True, False, invite)
   |> should.equal(False)
 
-  scenario_protocol.should_acknowledge("peer-1", True, False, invite)
+  scenario_protocol.should_acknowledge("peer-1", True, False, False, invite)
+  |> should.equal(False)
+
+  scenario_protocol.should_acknowledge("self", True, False, True, invite)
   |> should.equal(False)
 }
 
@@ -111,24 +114,35 @@ pub fn run_id_filtering_and_first_ack_selection_test() {
   |> should.equal(None)
 }
 
-pub fn duplicate_and_targeted_go_behavior_test() {
+pub fn go_requires_the_selected_target_and_initiator_test() {
   let go_self = inbound("initiator", scenario_protocol.Go("run-1", "peer-a"))
   let go_other = inbound("initiator", scenario_protocol.Go("run-1", "peer-b"))
+  let go_wrong_sender =
+    inbound("intruder", scenario_protocol.Go("run-1", "peer-a"))
 
-  scenario_protocol.classify_go("peer-a", "run-1", False, go_self)
+  scenario_protocol.classify_go("peer-a", "run-1", "initiator", False, go_self)
   |> should.equal(scenario_protocol.ApplyGo)
 
-  scenario_protocol.classify_go("peer-a", "run-1", True, go_self)
+  scenario_protocol.classify_go("peer-a", "run-1", "initiator", True, go_self)
   |> should.equal(scenario_protocol.Ignore)
 
-  scenario_protocol.classify_go("peer-a", "run-1", False, go_other)
-  |> should.equal(scenario_protocol.StandDown)
+  scenario_protocol.classify_go("peer-a", "run-1", "initiator", False, go_other)
+  |> should.equal(scenario_protocol.Ignore)
+
+  scenario_protocol.classify_go(
+    "peer-a",
+    "run-1",
+    "initiator",
+    False,
+    go_wrong_sender,
+  )
+  |> should.equal(scenario_protocol.Ignore)
 }
 
-pub fn targeted_status_only_reaches_the_named_peer_test() {
+pub fn targeted_status_requires_the_expected_sender_test() {
   let status =
     inbound(
-      "initiator",
+      "selected-peer",
       scenario_protocol.Status(
         run_id: "run-1",
         target_peer: "peer-a",
@@ -136,10 +150,23 @@ pub fn targeted_status_only_reaches_the_named_peer_test() {
       ),
     )
 
-  scenario_protocol.should_accept_status("peer-a", "run-1", status)
+  scenario_protocol.should_accept_status(
+    "peer-a",
+    "run-1",
+    "selected-peer",
+    status,
+  )
   |> should.equal(Some(scenario_protocol.VerificationTimedOut))
 
-  scenario_protocol.should_accept_status("peer-b", "run-1", status)
+  scenario_protocol.should_accept_status(
+    "peer-b",
+    "run-1",
+    "selected-peer",
+    status,
+  )
+  |> should.equal(None)
+
+  scenario_protocol.should_accept_status("peer-a", "run-1", "intruder", status)
   |> should.equal(None)
 }
 
