@@ -73,10 +73,11 @@ fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
 
 // ── Connect ────────────────────────────────────────────────────────────────
 
-/// Connect to a document. `got_document` fires with the handle immediately (so
-/// the app can start issuing edits against the optimistic state); `connected`
-/// fires once the handshake and history replay complete (`Ok(Nil)`) or the
-/// connection is rejected (`Error(reason)`). Owns the deferral of both.
+/// Connect to a document. `got_document` fires with the handle immediately.
+/// Root subscriptions and optimistic edits can start then, but creating nested
+/// channels must wait for `connected`, which fires once the handshake and
+/// history replay complete (`Ok(Nil)`) or the connection is rejected
+/// (`Error(reason)`). Owns the deferral of both.
 pub fn connect(
   config: WatershedConfig,
   got_document got_document: fn(Document) -> msg,

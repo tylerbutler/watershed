@@ -133,41 +133,44 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    // The handle is ready: seed the title and bootstrap the tracks sequence.
-    // `ensure_sequence` creates and attaches one only if the slot is empty, so
-    // every tab can run this unconditionally without racing to a duplicate.
+    // The handle arrives before the handshake completes, so it can be retained
+    // for diagnostics but cannot create the tracks sequence yet.
     GotHandle(doc) -> {
       let diagnostics = watershed_js.diagnostics(doc)
-      let root = watershed_js.root_typed(doc)
       let model =
         Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
         |> add_diagnostic(
           "document handle acquired · " <> diagnostic_line(diagnostics),
         )
-      #(
-        model,
-        effect.batch([
-          watershed_lustre.ensure_field(
-            root,
-            doc_schema.title(),
-            "watershed shared playlist",
-          ),
-          watershed_lustre.ensure_sequence(
-            doc,
-            root,
-            doc_schema.tracks(),
-            EnsuredTracks,
-          ),
-          watershed_lustre.after(250, DiagnosticsTick),
-        ]),
-      )
+      #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
     Connected(Ok(_)) -> {
       let model =
         snapshot(Model(..model, status: Ready))
         |> add_diagnostic("initial handshake complete")
-      #(model, effect.none())
+      case model.doc {
+        None -> #(model, effect.none())
+        Some(doc) -> {
+          let root = watershed_js.root_typed(doc)
+          #(
+            model,
+            effect.batch([
+              watershed_lustre.ensure_field(
+                root,
+                doc_schema.title(),
+                "watershed shared playlist",
+              ),
+              watershed_lustre.ensure_sequence(
+                doc,
+                root,
+                doc_schema.tracks(),
+                EnsuredTracks,
+              ),
+            ]),
+          )
+        }
+      }
     }
     Connected(Error(reason)) -> {
       let model =
