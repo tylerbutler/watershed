@@ -35,19 +35,77 @@ pub fn add_feedback(
   }
 }
 
-pub fn remove_feedback(item: String, removed: Bool) -> Feedback {
-  case removed {
-    True ->
+pub fn remove_action_available(
+  two_phase_present: Bool,
+  observed_present: Bool,
+) -> Bool {
+  two_phase_present || observed_present
+}
+
+pub fn remove_action_label(
+  item: String,
+  two_phase_present: Bool,
+  observed_present: Bool,
+) -> String {
+  case two_phase_present, observed_present {
+    True, True ->
+      "Remove " <> item <> " from TwoPSet and OrSet. GSet retains it."
+    True, False ->
+      "Remove "
+      <> item
+      <> " from TwoPSet. OrSet is already absent; GSet retains it."
+    False, True ->
+      "Remove "
+      <> item
+      <> " from OrSet. TwoPSet is already absent; GSet retains it."
+    False, False ->
+      "Remove unavailable for "
+      <> item
+      <> " — already absent from TwoPSet and OrSet. GSet still retains it."
+  }
+}
+
+pub fn remove_action_text(
+  two_phase_present: Bool,
+  observed_present: Bool,
+) -> String {
+  case two_phase_present, observed_present {
+    True, True -> "Remove from TwoPSet + OrSet"
+    True, False -> "Remove from TwoPSet"
+    False, True -> "Remove from OrSet"
+    False, False -> "Remove unavailable"
+  }
+}
+
+pub fn remove_feedback(
+  item: String,
+  two_phase_present: Bool,
+  observed_present: Bool,
+) -> Feedback {
+  case two_phase_present, observed_present {
+    True, True ->
       info(
         "Removed \""
         <> item
         <> "\" from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
       )
-    False ->
+    True, False ->
+      info(
+        "Removed \""
+        <> item
+        <> "\" from TwoPSet while OrSet was already absent. GSet retained it because removal is not expressible.",
+      )
+    False, True ->
+      info(
+        "Removed \""
+        <> item
+        <> "\" from OrSet while TwoPSet was already absent. GSet retained it because removal is not expressible.",
+      )
+    False, False ->
       warning(
         "Nothing removed for \""
         <> item
-        <> "\" because it is already absent from TwoPSet and OrSet.",
+        <> "\" because it is already absent from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
       )
   }
 }

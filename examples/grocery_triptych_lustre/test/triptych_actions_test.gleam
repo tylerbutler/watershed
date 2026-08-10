@@ -35,16 +35,43 @@ pub fn normal_add_reports_success_test() {
   |> should.equal(bootstrap_guard.info("Added \"milk\" to all three sets."))
 }
 
+pub fn remove_action_available_tracks_either_removable_set_test() {
+  triptych_actions.remove_action_available(False, True)
+  |> should.equal(True)
+
+  triptych_actions.remove_action_available(False, False)
+  |> should.equal(False)
+}
+
+pub fn remove_action_text_names_the_remaining_set_test() {
+  triptych_actions.remove_action_text(False, True)
+  |> should.equal("Remove from OrSet")
+}
+
+pub fn remove_action_label_calls_out_single_set_removal_test() {
+  triptych_actions.remove_action_label("milk", True, False)
+  |> should.equal(
+    "Remove milk from TwoPSet. OrSet is already absent; GSet retains it.",
+  )
+}
+
 pub fn remove_absent_item_reports_warning_test() {
-  triptych_actions.remove_feedback("milk", False)
+  triptych_actions.remove_feedback("milk", False, False)
   |> should.equal(bootstrap_guard.warning(
-    "Nothing removed for \"milk\" because it is already absent from TwoPSet and OrSet.",
+    "Nothing removed for \"milk\" because it is already absent from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
   ))
 }
 
 pub fn remove_present_item_reports_success_test() {
-  triptych_actions.remove_feedback("milk", True)
+  triptych_actions.remove_feedback("milk", True, True)
   |> should.equal(bootstrap_guard.info(
     "Removed \"milk\" from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
+  ))
+}
+
+pub fn remove_single_set_reports_the_other_as_already_absent_test() {
+  triptych_actions.remove_feedback("milk", False, True)
+  |> should.equal(bootstrap_guard.info(
+    "Removed \"milk\" from OrSet while TwoPSet was already absent. GSet retained it because removal is not expressible.",
   ))
 }

@@ -21,6 +21,7 @@ import grocery_triptych_lustre/bootstrap_guard.{
   type Feedback, type FeedbackKind, Info, Warning,
 }
 import pantry_snapshot.{type DiffCounts, type Row, type Snapshots}
+import refresh_guard
 import triptych_actions
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -49,6 +50,7 @@ type Model {
     snapshots: Snapshots,
     rows: List(Row),
     diffs: DiffCounts,
+    refresh_scheduled: Bool,
     feedback: Option(Feedback),
     scenario: ScenarioState,
     error: Option(String),
@@ -100,6 +102,7 @@ type Msg {
   GrowOnlyChanged(g_set_kernel.GSetEvent)
   TwoPhaseChanged(two_p_set_kernel.TwoPSetEvent)
   ObservedChanged(or_set_kernel.OrSetEvent)
+  FlushSharedRefresh
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -117,6 +120,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       snapshots: pantry_snapshot.empty(),
       rows: [],
       diffs: pantry_snapshot.empty_diff_counts(),
+      refresh_scheduled: False,
       feedback: Some(bootstrap_guard.info(
         "waiting for document handle and ready callback",
       )),
@@ -256,6 +260,37 @@ fn refresh_snapshots(model: Model) -> Model {
   }
 }
 
+fn schedule_shared_refresh(model: Model) -> #(Model, Effect(Msg)) {
+  case model.shared, bootstrap_guard.failure_latched(model.error) {
+    Some(_), False -> {
+      let #(refresh_scheduled, plan) =
+        refresh_guard.request(model.refresh_scheduled)
+
+      case plan {
+        refresh_guard.ScheduleFlush -> #(
+          Model(..model, refresh_scheduled: refresh_scheduled),
+          watershed_lustre.after(0, FlushSharedRefresh),
+        )
+        refresh_guard.NoSchedule -> #(model, effect.none())
+      }
+    }
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn flush_shared_refresh(model: Model) -> Model {
+  let model =
+    Model(
+      ..model,
+      refresh_scheduled: refresh_guard.flush(model.refresh_scheduled),
+    )
+
+  case model.shared, bootstrap_guard.failure_latched(model.error) {
+    Some(_), False -> refresh_snapshots(model)
+    _, _ -> model
+  }
+}
+
 fn fail(model: Model, reason: String) -> Model {
   Model(
     ..model,
@@ -316,22 +351,45 @@ fn apply_shared_remove(model: Model, item: String) -> Model {
       with_feedback(model, triptych_actions.not_ready_feedback("removing"))
 
     Some(shared) -> {
-      let removable =
+      let two_phase_present =
         watershed_js.two_p_set_contains(shared.two_phase, item)
-        || watershed_js.or_set_contains(shared.observed, item)
+      let observed_present = watershed_js.or_set_contains(shared.observed, item)
+      let removable =
+        triptych_actions.remove_action_available(
+          two_phase_present,
+          observed_present,
+        )
 
       case removable {
-        False -> model
+        False ->
+          with_feedback(
+            model,
+            triptych_actions.remove_feedback(
+              item,
+              two_phase_present,
+              observed_present,
+            ),
+          )
 
         True -> {
           let model = Model(..model, scenario: NoScenario)
 
-          watershed_js.two_p_set_remove(shared.two_phase, item)
-          watershed_js.or_set_remove(shared.observed, item)
+          case two_phase_present {
+            True -> watershed_js.two_p_set_remove(shared.two_phase, item)
+            False -> Nil
+          }
+          case observed_present {
+            True -> watershed_js.or_set_remove(shared.observed, item)
+            False -> Nil
+          }
 
           model
           |> refresh_snapshots
-          |> with_feedback(triptych_actions.remove_feedback(item, True))
+          |> with_feedback(triptych_actions.remove_feedback(
+            item,
+            two_phase_present,
+            observed_present,
+          ))
         }
       }
     }
@@ -431,11 +489,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    GrowOnlyChanged(_) -> #(refresh_snapshots(model), effect.none())
+    GrowOnlyChanged(_) -> schedule_shared_refresh(model)
 
-    TwoPhaseChanged(_) -> #(refresh_snapshots(model), effect.none())
+    TwoPhaseChanged(_) -> schedule_shared_refresh(model)
 
-    ObservedChanged(_) -> #(refresh_snapshots(model), effect.none())
+    ObservedChanged(_) -> schedule_shared_refresh(model)
+
+    FlushSharedRefresh -> #(flush_shared_refresh(model), effect.none())
   }
 }
 
@@ -584,9 +644,9 @@ fn shared_remove_view(model: Model) -> Element(Msg) {
     html.p([attribute.class("hint")], [
       html.text(
         "Each remove stays enabled only while TwoPSet or OrSet still contains "
-        <> "the item. When either copy remains, the shared action issues paired "
-        <> "removals; GSet keeps the item because grow-only removal is not "
-        <> "expressible.",
+        <> "the item. When both copies remain, the shared action removes both; "
+        <> "when only one remains, the label names that panel honestly. GSet "
+        <> "keeps the item because grow-only removal is not expressible.",
       ),
     ]),
     case model.rows {
@@ -619,15 +679,26 @@ fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
           attribute.type_("button"),
           attribute.disabled(!ready || !removable),
           event.on_click(RemoveRequested(row.item)),
-          attribute.aria_label(remove_action_label(row.item, removable)),
+          attribute.aria_label(triptych_actions.remove_action_label(
+            row.item,
+            row.two_phase,
+            row.observed,
+          )),
         ],
-        [html.text(remove_action_text(removable))],
+        [
+          html.text(triptych_actions.remove_action_text(
+            row.two_phase,
+            row.observed,
+          )),
+        ],
       ),
       case removable {
         True -> html.text("")
         False ->
           html.span([attribute.class("hint")], [
-            html.text("Already absent from TwoPSet and OrSet."),
+            html.text(
+              "Already absent from TwoPSet and OrSet. GSet still retains it.",
+            ),
           ])
       },
     ]),
@@ -835,23 +906,6 @@ fn feedback_live(kind: FeedbackKind) -> String {
   case kind {
     Info -> "polite"
     Warning -> "polite"
-  }
-}
-
-fn remove_action_label(item: String, removable: Bool) -> String {
-  case removable {
-    True -> "Remove " <> item <> " from TwoPSet and OrSet"
-    False ->
-      "Remove unavailable for "
-      <> item
-      <> " — already absent from TwoPSet and OrSet"
-  }
-}
-
-fn remove_action_text(removable: Bool) -> String {
-  case removable {
-    True -> "Remove from TwoPSet + OrSet"
-    False -> "Remove unavailable"
   }
 }
 
