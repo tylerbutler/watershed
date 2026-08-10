@@ -14,6 +14,10 @@ const tenant = "dev-tenant"
 
 const secret = "levee-dev-secret-change-in-production"
 
+const readiness_attempts = 100
+
+const readiness_poll_ms = 100
+
 const wait_attempts = 30
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
@@ -25,6 +29,21 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
+@external(javascript, "./smoke_ffi.mjs", "reset_readiness")
+fn reset_readiness() -> Nil
+
+@external(javascript, "./smoke_ffi.mjs", "mark_ready")
+fn mark_ready(user: String) -> Nil
+
+@external(javascript, "./smoke_ffi.mjs", "mark_ready_error")
+fn mark_ready_error(user: String, reason: String) -> Nil
+
+@external(javascript, "./smoke_ffi.mjs", "readiness_status")
+fn readiness_status(user: String) -> String
+
+@external(javascript, "./smoke_ffi.mjs", "readiness_reason")
+fn readiness_reason(user: String) -> String
+
 type Client {
   Client(grow_only: GSet, two_phase: TwoPSet, observed: OrSet)
 }
@@ -35,6 +54,12 @@ type Snapshot {
     two_phase: List(String),
     observed: List(String),
   )
+}
+
+type Readiness {
+  Ready
+  Pending
+  Failed(String)
 }
 
 fn connect_client(document: String, user: String) -> Promise(Document) {
@@ -54,28 +79,94 @@ fn connect_client(document: String, user: String) -> Promise(Document) {
     ),
     on_ready: fn(result) {
       case result {
-        Ok(_) -> log("  " <> user <> " ready")
-        Error(reason) -> log("  " <> user <> " FAILED: " <> reason)
+        Ok(_) -> {
+          log("  " <> user <> " ready")
+          mark_ready(user)
+        }
+        Error(reason) -> {
+          log("  " <> user <> " FAILED: " <> reason)
+          mark_ready_error(user, reason)
+        }
       }
     },
   )
 }
 
 pub fn main() {
+  reset_readiness()
+
   let document =
     "grocery-smoke-" <> int.to_string(100_000 + int.random(900_000))
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    bootstrap(doc_a, doc_b)
+    let user_a = "user-a"
+    let user_b = "user-b"
+
+    use doc_a <- promise.await(connect_client(document, user_a))
+    use doc_b <- promise.map(connect_client(document, user_b))
+    await_readiness(user_a, user_b, readiness_attempts, fn() {
+      bootstrap(doc_a, doc_b)
+    })
   }
   Nil
 }
 
+fn await_readiness(
+  user_a: String,
+  user_b: String,
+  attempts: Int,
+  then: fn() -> Nil,
+) -> Nil {
+  let readiness_a = readiness_state(user_a)
+  let readiness_b = readiness_state(user_b)
+
+  case readiness_a {
+    Ready ->
+      case readiness_b {
+        Ready -> then()
+        Pending -> readiness_retry(user_a, user_b, attempts, then)
+        Failed(reason) -> fail_ready(user_b, reason)
+      }
+    Pending ->
+      case readiness_b {
+        Ready -> readiness_retry(user_a, user_b, attempts, then)
+        Pending -> readiness_retry(user_a, user_b, attempts, then)
+        Failed(reason) -> fail_ready(user_b, reason)
+      }
+    Failed(reason) -> fail_ready(user_a, reason)
+  }
+}
+
+fn readiness_retry(
+  user_a: String,
+  user_b: String,
+  attempts: Int,
+  then: fn() -> Nil,
+) -> Nil {
+  case attempts <= 0 {
+    True ->
+      fail("readiness timeout waiting for " <> user_a <> " and " <> user_b)
+    False -> {
+      use <- delay(readiness_poll_ms)
+      await_readiness(user_a, user_b, attempts - 1, then)
+    }
+  }
+}
+
+fn readiness_state(user: String) -> Readiness {
+  case readiness_status(user) {
+    "ok" -> Ready
+    "error" -> Failed(readiness_reason(user))
+    _ -> Pending
+  }
+}
+
+fn fail_ready(user: String, reason: String) -> Nil {
+  fail("on_ready error for " <> user <> ": " <> reason)
+}
+
 fn bootstrap(doc_a: Document, doc_b: Document) -> Nil {
-  use <- delay(2000)
   log("smoke: ensuring pantry channels on A")
   use grow_only_a <- ensure_grow_only(doc_a, "A")
   use two_phase_a <- ensure_two_phase(doc_a, "A")
