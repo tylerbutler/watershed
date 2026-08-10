@@ -46,9 +46,14 @@ const tombstone_step_ms = 650
 
 const concurrent_prepare_ms = 350
 
+/// The peer must stay Go-eligible for the initiator's full acknowledgement
+/// window plus a delivery margin, or a late ack can be selected after the
+/// peer has already returned Idle.
 const concurrent_invite_timeout_ms = 1600
 
-const concurrent_peer_go_timeout_ms = 1200
+const concurrent_ack_delivery_margin_ms = 600
+
+const concurrent_peer_go_timeout_ms = 2200
 
 const concurrent_verify_retry_ms = 125
 
@@ -607,6 +612,11 @@ fn submit_scenario_ripple(
 
 fn schedule_concurrent_verification(run_id: String) -> Effect(Msg) {
   watershed_lustre.after(concurrent_verify_retry_ms, VerifyConcurrent(run_id))
+}
+
+pub fn concurrent_peer_go_timeout_covers_ack_window() -> Bool {
+  concurrent_peer_go_timeout_ms
+  >= concurrent_invite_timeout_ms + concurrent_ack_delivery_margin_ms
 }
 
 fn set_concurrent_timeout_state(

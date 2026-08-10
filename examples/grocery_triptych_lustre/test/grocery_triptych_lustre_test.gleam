@@ -1,6 +1,7 @@
 import gleeunit
 import gleeunit/should
 
+import grocery_triptych_lustre
 import pantry_snapshot
 
 pub fn main() -> Nil {
@@ -92,4 +93,9 @@ pub fn remove_action_requires_a_removable_copy_test() {
 
   pantry_snapshot.row_has_removable_copy(milk)
   |> should.equal(False)
+}
+
+pub fn concurrent_peer_go_timeout_covers_ack_window_test() {
+  grocery_triptych_lustre.concurrent_peer_go_timeout_covers_ack_window()
+  |> should.equal(True)
 }
