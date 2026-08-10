@@ -263,6 +263,10 @@ pub type Snapshot {
 
 pub type Resolution {
   ClaimResolved(key: String, outcome: claims_kernel.ClaimOutcome)
+  AcquireResolved(
+    acquire_id: String,
+    outcome: ordered_collection_kernel.AcquireOutcome,
+  )
 }
 
 /// Per-kernel *local* metadata an in-flight op carries alongside the wire
@@ -1058,14 +1062,20 @@ pub fn ack_local(
       }
     OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
       // The queue kernel is non-optimistic: the own op takes effect here, on
-      // ack. An `Acquire` yields the acquired item, but it is surfaced through
-      // the `Acquired` event (the caller subscribes), so the outcome is dropped.
-      let #(kernel, events, _outcome) =
+      // ack. An `Acquire` yields its outcome — won the head, or found the
+      // queue empty — surfaced as an `AcquireResolved` resolution so the
+      // submitting caller learns which, since a losing acquire emits no event.
+      let #(kernel, events, outcome) =
         ordered_collection_kernel.ack_local(kernel, op, meta.self)
+      let resolution = case op, outcome {
+        ordered_collection_kernel.Acquire(acquire_id), Some(outcome) ->
+          Some(AcquireResolved(acquire_id, outcome))
+        _, _ -> None
+      }
       Ok(#(
         OrderedCollectionState(kernel),
         list.map(events, OrderedCollectionEvent),
-        None,
+        resolution,
       ))
     }
     SequenceState(kernel), SequenceOp(op) ->

@@ -40,7 +40,9 @@ import spillway/nack.{type Nack}
 import spillway/types.{type SequencedDocumentMessage}
 
 @target(javascript)
-import watershed/channel.{type ChannelEvent, type Resolution, ClaimResolved}
+import watershed/channel.{
+  type ChannelEvent, type Resolution, AcquireResolved, ClaimResolved,
+}
 @target(javascript)
 import watershed/claims_kernel
 @target(javascript)
@@ -51,6 +53,8 @@ import watershed/ids
 import watershed/json_ot
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(javascript)
+import watershed/ordered_collection_kernel
 @target(javascript)
 import watershed/pact_map_kernel
 @target(javascript)
@@ -192,6 +196,12 @@ type State {
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
     ),
+    /// Pending ordered-collection acquires awaiting their sequenced outcome,
+    /// keyed by `#(address, acquire_id)`.
+    acquire_waiters: Dict(
+      #(String, String),
+      fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+    ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
   )
@@ -261,6 +271,7 @@ pub fn start_with_transport(
       presence_subscribers: [],
       supported_features: dict.new(),
       claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
     ))
@@ -483,6 +494,71 @@ pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
 }
 
 @target(javascript)
+/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
+/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
+/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
+/// (a losing acquire emits no event, so this is the loser's only signal), or
+/// `Aborted` when the document closes with the acquire still in flight. A
+/// detached channel resolves immediately.
+pub fn ordered_acquire_with_outcome(
+  runtime: Runtime,
+  address: String,
+  on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+) -> String {
+  let acquire_id = ids.uuid_v4()
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
+        Error(core_error) ->
+          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound, immediate_outcome)) -> {
+          let state =
+            register_acquire_waiter(
+              state,
+              address,
+              acquire_id,
+              on_outcome,
+              immediate_outcome,
+            )
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
+          }
+          fan_out(state.subscribers, events)
+          acquire_id
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
+        Error(core_error) ->
+          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound, immediate_outcome)) -> {
+          let state =
+            register_acquire_waiter(
+              state,
+              address,
+              acquire_id,
+              on_outcome,
+              immediate_outcome,
+            )
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          acquire_id
+        }
+      }
+    _ -> {
+      on_outcome(ordered_collection_kernel.Aborted)
+      acquire_id
+    }
+  }
+}
+
+@target(javascript)
 /// Complete the held job `acquire_id` in the ordered collection at `address`.
 pub fn ordered_complete(
   runtime: Runtime,
@@ -511,6 +587,21 @@ pub fn ordered_release(
 /// missing or not an ordered-collection channel.
 pub fn ordered_size(runtime: Runtime, address: String) -> Option(Int) {
   read(runtime.cell, None, runtime_core.ordered_size(_, address))
+}
+
+@target(javascript)
+/// The queued (not-yet-acquired) values at `address`, front first.
+pub fn ordered_queue(runtime: Runtime, address: String) -> List(Json) {
+  read(runtime.cell, [], runtime_core.ordered_queue(_, address))
+}
+
+@target(javascript)
+/// The currently-held jobs at `address`, keyed by acquire id (sorted).
+pub fn ordered_jobs(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, ordered_collection_kernel.JobEntry)) {
+  read(runtime.cell, [], runtime_core.ordered_jobs(_, address))
 }
 
 @target(javascript)
@@ -1624,7 +1715,7 @@ pub fn go_online(runtime: Runtime) -> Nil {
 
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
-  let state = abort_claim_waiters(cell_get(runtime.cell))
+  let state = abort_outcome_waiters(cell_get(runtime.cell))
   cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
   notify_session_lost(runtime.cell, state.phase)
   case state.channel {
@@ -2057,6 +2148,7 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
           case apply_ops(core, message.ops) {
             Ok(#(core, events, resolutions, request_from, released)) -> {
               let state = resolve_claim_waiters(state, resolutions)
+              let state = resolve_acquire_waiters(state, resolutions)
               // Commit the new core before fan-out (see fan_out's contract).
               case resubmit_at {
                 Some(checkpoint) -> {
@@ -2236,16 +2328,69 @@ fn resolve_claim_waiters(
             }
             Error(_) -> acc
           }
+        _ -> acc
       }
     })
   State(..state, claim_waiters: claim_waiters)
 }
 
 @target(javascript)
-fn abort_claim_waiters(state: State) -> State {
+fn abort_outcome_waiters(state: State) -> State {
   dict.values(state.claim_waiters)
   |> list.each(fn(resolve_outcome) { resolve_outcome(claims_kernel.Aborted) })
-  State(..state, claim_waiters: dict.new())
+  dict.values(state.acquire_waiters)
+  |> list.each(fn(resolve_outcome) {
+    resolve_outcome(ordered_collection_kernel.Aborted)
+  })
+  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
+}
+
+@target(javascript)
+fn register_acquire_waiter(
+  state: State,
+  address: String,
+  acquire_id: String,
+  resolve_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+  immediate_outcome: Option(ordered_collection_kernel.AcquireOutcome),
+) -> State {
+  case immediate_outcome {
+    Some(outcome) -> {
+      resolve_outcome(outcome)
+      state
+    }
+    None ->
+      State(
+        ..state,
+        acquire_waiters: dict.insert(
+          state.acquire_waiters,
+          #(address, acquire_id),
+          resolve_outcome,
+        ),
+      )
+  }
+}
+
+@target(javascript)
+fn resolve_acquire_waiters(
+  state: State,
+  resolutions: List(#(String, Resolution)),
+) -> State {
+  let acquire_waiters =
+    list.fold(resolutions, state.acquire_waiters, fn(acc, item) {
+      let #(address, resolution) = item
+      case resolution {
+        AcquireResolved(acquire_id, outcome) ->
+          case dict.get(acc, #(address, acquire_id)) {
+            Ok(resolve_outcome) -> {
+              resolve_outcome(outcome)
+              dict.delete(acc, #(address, acquire_id))
+            }
+            Error(_) -> acc
+          }
+        _ -> acc
+      }
+    })
+  State(..state, acquire_waiters: acquire_waiters)
 }
 
 @target(javascript)
@@ -2540,7 +2685,7 @@ fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
 
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
-  let state = abort_claim_waiters(cell_get(cell))
+  let state = abort_outcome_waiters(cell_get(cell))
   fire_ready(cell, Error(reason))
   cell_set(cell, State(..state, phase: Failed(reason)))
   notify_session_lost(cell, state.phase)

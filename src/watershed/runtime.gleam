@@ -62,11 +62,11 @@ import spillway/types.{type SequencedDocumentMessage}
 
 @target(erlang)
 import watershed/channel.{
-  type ChannelEvent, type ChannelInit, type Resolution, ClaimResolved,
-  InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt, InitMap,
-  InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap, InitPnCounter,
-  InitRegisterCollection, InitRichText, InitSequence, InitTaskManager, InitText,
-  InitTwoPSet, SequenceChannel, TextChannel,
+  type ChannelEvent, type ChannelInit, type Resolution, AcquireResolved,
+  ClaimResolved, InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt,
+  InitMap, InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap,
+  InitPnCounter, InitRegisterCollection, InitRichText, InitSequence,
+  InitTaskManager, InitText, InitTwoPSet, SequenceChannel, TextChannel,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -78,6 +78,8 @@ import watershed/ids
 import watershed/json_ot
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
+@target(erlang)
+import watershed/ordered_collection_kernel
 
 import watershed/pact_map_kernel
 @target(erlang)
@@ -186,6 +188,13 @@ pub type Msg {
   DeletePactMap(address: String, key: String)
   AddOrderedItem(address: String, value: Json)
   AcquireOrderedItem(address: String, reply: Subject(String))
+  /// Like `AcquireOrderedItem`, but `outcome` also receives the acquire's
+  /// consensus result once the op sequences (or immediately when detached).
+  AcquireOrderedItemWithOutcome(
+    address: String,
+    outcome: Subject(ordered_collection_kernel.AcquireOutcome),
+    reply: Subject(String),
+  )
   CompleteOrderedItem(address: String, acquire_id: String)
   ReleaseOrderedItem(address: String, acquire_id: String)
   InsertSequenceItem(
@@ -355,6 +364,13 @@ pub type Msg {
   /// The number of queued (not-yet-acquired) items in the ordered collection at
   /// `address`, `None` when missing or not an ordered-collection channel.
   GetOrderedSize(address: String, reply: Subject(Option(Int)))
+  /// The queued (not-yet-acquired) values at `address`, front first.
+  GetOrderedQueue(address: String, reply: Subject(List(Json)))
+  /// The currently-held jobs at `address`, keyed by acquire id (sorted).
+  GetOrderedJobs(
+    address: String,
+    reply: Subject(List(#(String, ordered_collection_kernel.JobEntry))),
+  )
   /// The json0 channel's optimistic document, `None` when the address is missing
   /// or not a json0 channel.
   GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
@@ -540,6 +556,12 @@ type State {
     /// and could claim support on a server that has none.
     supported_features: Dict(String, Dynamic),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
+    /// Pending ordered-collection acquires awaiting their sequenced outcome,
+    /// keyed by `#(address, acquire_id)`.
+    acquire_waiters: Dict(
+      #(String, String),
+      Subject(ordered_collection_kernel.AcquireOutcome),
+    ),
     self: Subject(Msg),
   )
 }
@@ -594,6 +616,7 @@ pub fn start_with_transport(
         presence_subscribers: [],
         supported_features: dict.new(),
         claim_waiters: dict.new(),
+        acquire_waiters: dict.new(),
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
@@ -992,6 +1015,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) { runtime_core.ordered_add(core, address, value) })
     AcquireOrderedItem(address, reply) ->
       handle_ordered_acquire(state, address, reply)
+    AcquireOrderedItemWithOutcome(address, outcome, reply) ->
+      handle_ordered_acquire_with_outcome(state, address, outcome, reply)
     CompleteOrderedItem(address, acquire_id) ->
       edit(state, fn(core) {
         runtime_core.ordered_complete(core, address, acquire_id)
@@ -1270,6 +1295,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, None, runtime_core.ordered_size(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetOrderedQueue(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.ordered_queue(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetOrderedJobs(address, reply) -> {
+      process.send(
+        reply,
+        read(state, [], runtime_core.ordered_jobs(_, address)),
       )
       actor.continue(state)
     }
@@ -1597,7 +1636,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       }
 
     Shutdown -> {
-      let state = abort_claim_waiters(state)
+      let state = abort_outcome_waiters(state)
       case state.channel {
         Some(channel) -> channel.close()
         None -> Nil
@@ -1742,6 +1781,7 @@ fn handle_inbound(
           let #(core, events, resolutions, request_from, released) =
             apply_ops(core, op_message(payload))
           let state = resolve_claim_waiters(state, resolutions)
+          let state = resolve_acquire_waiters(state, resolutions)
           fan_out(state.subscribers, events)
           maybe_request_ops(state.channel, request_from)
           case resubmit_at {
@@ -2013,16 +2053,21 @@ fn resolve_claim_waiters(
             }
             Error(_) -> acc
           }
+        _ -> acc
       }
     })
   State(..state, claim_waiters: claim_waiters)
 }
 
 @target(erlang)
-fn abort_claim_waiters(state: State) -> State {
+fn abort_outcome_waiters(state: State) -> State {
   dict.values(state.claim_waiters)
   |> list.each(fn(waiter) { process.send(waiter, claims_kernel.Aborted) })
-  State(..state, claim_waiters: dict.new())
+  dict.values(state.acquire_waiters)
+  |> list.each(fn(waiter) {
+    process.send(waiter, ordered_collection_kernel.Aborted)
+  })
+  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
 }
 
 @target(erlang)
@@ -2039,6 +2084,114 @@ fn handle_ordered_acquire(
   edit(state, fn(core) {
     runtime_core.ordered_acquire(core, address, acquire_id)
   })
+}
+
+@target(erlang)
+/// Like `handle_ordered_acquire`, but registers `outcome` to receive the
+/// acquire's consensus result: immediately for a detached channel, on the
+/// `AcquireResolved` resolution when the op sequences, or `Aborted` when the
+/// document closes with the acquire still in flight.
+fn handle_ordered_acquire_with_outcome(
+  state: State,
+  address: String,
+  outcome: Subject(ordered_collection_kernel.AcquireOutcome),
+  reply: Subject(String),
+) -> actor.Next(State, Msg) {
+  let acquire_id = ids.uuid_v4()
+  process.send(reply, acquire_id)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
+        Error(core_error) ->
+          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound, immediate_outcome)) -> {
+          let state =
+            register_acquire_waiter(
+              state,
+              address,
+              acquire_id,
+              outcome,
+              immediate_outcome,
+            )
+          case resubmit_at, state.channel {
+            None, Some(channel) ->
+              send_outbound(Some(channel), core.client_id, outbound)
+            _, _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
+        Error(core_error) ->
+          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound, immediate_outcome)) -> {
+          let state =
+            register_acquire_waiter(
+              state,
+              address,
+              acquire_id,
+              outcome,
+              immediate_outcome,
+            )
+          fan_out(state.subscribers, events)
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+      }
+    _ -> {
+      process.send(outcome, ordered_collection_kernel.Aborted)
+      actor.continue(state)
+    }
+  }
+}
+
+@target(erlang)
+fn register_acquire_waiter(
+  state: State,
+  address: String,
+  acquire_id: String,
+  waiter: Subject(ordered_collection_kernel.AcquireOutcome),
+  immediate_outcome: Option(ordered_collection_kernel.AcquireOutcome),
+) -> State {
+  case immediate_outcome {
+    Some(outcome) -> {
+      process.send(waiter, outcome)
+      state
+    }
+    None ->
+      State(
+        ..state,
+        acquire_waiters: dict.insert(
+          state.acquire_waiters,
+          #(address, acquire_id),
+          waiter,
+        ),
+      )
+  }
+}
+
+@target(erlang)
+fn resolve_acquire_waiters(
+  state: State,
+  resolutions: List(#(String, Resolution)),
+) -> State {
+  let acquire_waiters =
+    list.fold(resolutions, state.acquire_waiters, fn(acc, item) {
+      let #(address, resolution) = item
+      case resolution {
+        AcquireResolved(acquire_id, outcome) ->
+          case dict.get(acc, #(address, acquire_id)) {
+            Ok(waiter) -> {
+              process.send(waiter, outcome)
+              dict.delete(acc, #(address, acquire_id))
+            }
+            Error(_) -> acc
+          }
+        _ -> acc
+      }
+    })
+  State(..state, acquire_waiters: acquire_waiters)
 }
 
 @target(erlang)
@@ -2606,7 +2759,7 @@ fn fan_out(
 
 @target(erlang)
 fn fail(state: State, reason: String) -> State {
-  let state = abort_claim_waiters(state)
+  let state = abort_outcome_waiters(state)
   notify_waiters(state.phase, Error(reason))
   notify_session_lost(state)
   State(..state, phase: Failed(reason))

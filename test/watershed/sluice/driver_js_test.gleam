@@ -18,6 +18,8 @@ import startest/expect
 @target(javascript)
 import watershed/client_id
 @target(javascript)
+import watershed/ordered_collection_kernel
+@target(javascript)
 import watershed/pact_map_kernel
 @target(javascript)
 import watershed/rich_text
@@ -874,6 +876,109 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
 
   { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
   watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(1))
+}
+
+@target(javascript)
+/// The full job lifecycle — add, acquire, release, re-acquire, complete — is
+/// observable end to end from both sides: the author's subscriber sees each op
+/// land on ack with `local: True`, a peer's with `local: False`, and a release
+/// surfaces as `Added(newly_added: False)` rather than a distinct event, which
+/// is the shape the work-queue demo renders "job returned to queue" from.
+pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "ordered-lifecycle-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let assert Ok(queue_a) = watershed_js.create_ordered_collection(doc_a)
+  watershed_js.set(
+    watershed_js.root(doc_a),
+    "jobs",
+    watershed_js.ordered_collection_handle_of(queue_a),
+  )
+  sluice_js.settle(sluice)
+  let assert Some(handle) = watershed_js.get(watershed_js.root(doc_b), "jobs")
+  let assert Ok(queue_b) =
+    watershed_js.resolve_ordered_collection(doc_b, handle)
+
+  let seen_a = transport_js.new_cell([])
+  watershed_js.subscribe_ordered_collection(queue_a, fn(event) {
+    transport_js.set_cell(seen_a, [event, ..transport_js.get_cell(seen_a)])
+  })
+  let seen_b = transport_js.new_cell([])
+  watershed_js.subscribe_ordered_collection(queue_b, fn(event) {
+    transport_js.set_cell(seen_b, [event, ..transport_js.get_cell(seen_b)])
+  })
+
+  let job = json.string("job1")
+  let assert Some(id_a) = watershed_js.client_id(doc_a)
+  let owner = Some(client_id.to_int(id_a))
+
+  watershed_js.ordered_add(queue_a, job)
+  sluice_js.settle(sluice)
+  watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed_js.ordered_queue(queue_b) |> expect.to_equal([job])
+  watershed_js.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  let outcomes = transport_js.new_cell([])
+  let on_outcome = fn(outcome) {
+    transport_js.set_cell(outcomes, [outcome, ..transport_js.get_cell(outcomes)])
+  }
+
+  let first_acquire =
+    watershed_js.ordered_acquire_with_outcome(queue_a, on_outcome)
+  sluice_js.settle(sluice)
+  watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed_js.ordered_queue(queue_b) |> expect.to_equal([])
+  watershed_js.ordered_jobs(queue_b)
+  |> expect.to_equal([
+    #(first_acquire, ordered_collection_kernel.JobEntry(job, owner)),
+  ])
+  transport_js.get_cell(outcomes)
+  |> expect.to_equal([
+    ordered_collection_kernel.AcquiredItem(first_acquire, job),
+  ])
+
+  watershed_js.ordered_release(queue_a, first_acquire)
+  sluice_js.settle(sluice)
+  watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed_js.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  let second_acquire = watershed_js.ordered_acquire(queue_a)
+  sluice_js.settle(sluice)
+  watershed_js.ordered_complete(queue_a, second_acquire)
+  sluice_js.settle(sluice)
+  watershed_js.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed_js.ordered_queue(queue_b) |> expect.to_equal([])
+  watershed_js.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  // An acquire that sequences against a drained queue resolves `QueueEmpty` —
+  // and emits no event, which is why the outcome channel exists at all.
+  let _losing_acquire =
+    watershed_js.ordered_acquire_with_outcome(queue_a, on_outcome)
+  sluice_js.settle(sluice)
+  transport_js.get_cell(outcomes)
+  |> expect.to_equal([
+    ordered_collection_kernel.QueueEmpty,
+    ordered_collection_kernel.AcquiredItem(first_acquire, job),
+  ])
+
+  let lifecycle = fn(local) {
+    [
+      ordered_collection_kernel.Added(job, True, local),
+      ordered_collection_kernel.Acquired(job, owner, local),
+      ordered_collection_kernel.Added(job, False, local),
+      ordered_collection_kernel.Acquired(job, owner, local),
+      ordered_collection_kernel.Completed(job, local),
+    ]
+  }
+  transport_js.get_cell(seen_a)
+  |> list.reverse
+  |> expect.to_equal(lifecycle(True))
+  transport_js.get_cell(seen_b)
+  |> list.reverse
+  |> expect.to_equal(lifecycle(False))
 }
 
 @target(javascript)

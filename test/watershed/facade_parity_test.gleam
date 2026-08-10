@@ -296,9 +296,12 @@ fn kinds() -> List(Kind) {
       [
         "ordered_add",
         "ordered_acquire",
+        "ordered_acquire_with_outcome",
         "ordered_complete",
         "ordered_release",
         "ordered_size",
+        "ordered_queue",
+        "ordered_jobs",
       ],
       ["subscribe_ordered_collection"],
     ),

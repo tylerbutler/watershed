@@ -45,6 +45,9 @@ pub type OrderedEvent {
 pub type AcquireOutcome {
   AcquiredItem(acquire_id: String, value: Json)
   QueueEmpty
+  /// Never produced by the kernel: the runtime resolves a still-pending acquire
+  /// with `Aborted` when the document closes before the op sequences.
+  Aborted
 }
 
 pub fn new() -> OrderedState {

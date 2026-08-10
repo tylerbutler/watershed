@@ -1662,33 +1662,55 @@ pub fn ordered_acquire(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
+  ordered_acquire_submit(core, address, acquire_id)
+  |> result.map(fn(submitted) { #(submitted.0, submitted.1, submitted.2) })
+}
+
+/// Like `ordered_acquire`, but also reports the immediate outcome: `Some` for a
+/// detached channel (the acquire took effect right here), `None` for an
+/// attached one — there the outcome arrives as an `AcquireResolved` resolution
+/// when the op sequences, keyed by `acquire_id`.
+pub fn ordered_acquire_submit(
+  core: Core,
+  address: String,
+  acquire_id: String,
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(wire.OutboundOp),
+    Option(ordered_collection_kernel.AcquireOutcome),
+  ),
+  CoreError,
+) {
   case locate_ordered(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _outcome) =
+      let #(kernel, events, outcome) =
         ordered_collection_kernel.acquire_detached(kernel, acquire_id)
-      Ok(
-        #(
-          put_detached_channel(
-            core,
-            address,
-            channel.OrderedCollectionState(kernel),
-          ),
-          tag_ordered_events(address, events),
-          [],
+      Ok(#(
+        put_detached_channel(
+          core,
+          address,
+          channel.OrderedCollectionState(kernel),
         ),
-      )
+        tag_ordered_events(address, events),
+        [],
+        Some(outcome),
+      ))
     }
     Ok(Attached(kernel)) -> {
       let op = ordered_collection_kernel.acquire(acquire_id)
-      Ok(stamp_attached(
-        core,
-        address,
-        channel.OrderedCollectionState(kernel),
-        [],
-        channel.OrderedCollectionOp(op),
-        channel.NoMeta,
-      ))
+      let #(core, events, outbound) =
+        stamp_attached(
+          core,
+          address,
+          channel.OrderedCollectionState(kernel),
+          [],
+          channel.OrderedCollectionOp(op),
+          channel.NoMeta,
+        )
+      Ok(#(core, events, outbound, None))
     }
   }
 }

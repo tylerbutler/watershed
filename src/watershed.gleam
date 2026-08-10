@@ -2943,6 +2943,31 @@ pub fn ordered_acquire(collection: OrderedCollection) -> String {
 }
 
 @target(erlang)
+/// Like `ordered_acquire`, but also reports the acquire's consensus outcome on
+/// the returned `Subject`, exactly once: `AcquiredItem` when this client won
+/// the head, `QueueEmpty` when the queue had drained by the time the op
+/// sequenced (a losing acquire emits no event, so this is the loser's only
+/// signal), or `Aborted` when the document closes with the acquire in flight.
+pub fn ordered_acquire_with_outcome(
+  collection: OrderedCollection,
+) -> #(String, Subject(ordered_collection_kernel.AcquireOutcome)) {
+  let outcome = process.new_subject()
+  let acquire_id =
+    process.call(
+      collection.runtime,
+      waiting: call_timeout_ms,
+      sending: fn(reply) {
+        runtime.AcquireOrderedItemWithOutcome(
+          collection.address,
+          outcome,
+          reply,
+        )
+      },
+    )
+  #(acquire_id, outcome)
+}
+
+@target(erlang)
 /// Complete an acquired item, removing it permanently.
 pub fn ordered_complete(
   collection: OrderedCollection,
@@ -2972,6 +2997,24 @@ pub fn ordered_release(
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime.GetOrderedSize(collection.address, reply)
+  })
+}
+
+@target(erlang)
+/// The queued (not-yet-acquired) values, front first.
+pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrderedQueue(collection.address, reply)
+  })
+}
+
+@target(erlang)
+/// The currently-held jobs, keyed by acquire id (sorted).
+pub fn ordered_jobs(
+  collection: OrderedCollection,
+) -> List(#(String, ordered_collection_kernel.JobEntry)) {
+  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
+    runtime.GetOrderedJobs(collection.address, reply)
   })
 }
 

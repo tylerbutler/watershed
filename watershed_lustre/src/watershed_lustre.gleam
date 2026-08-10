@@ -251,6 +251,25 @@ pub fn subscribe_ordered_collection(
   })
 }
 
+/// Acquire the head of an ordered collection, delivering the consensus outcome
+/// as a message: `AcquiredItem` (carrying the acquire id for the later
+/// complete/release) when this client won the head, `QueueEmpty` when the
+/// queue had drained by the time the op sequenced — a losing acquire emits no
+/// event, so this is the loser's only signal — or `Aborted` when the document
+/// closes with the acquire still in flight. The queue is non-optimistic:
+/// nothing changes until the op sequences, so render the interval as pending.
+pub fn ordered_acquire(
+  collection: OrderedCollection,
+  to_msg to_msg: fn(ordered_collection_kernel.AcquireOutcome) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let _acquire_id =
+    watershed_js.ordered_acquire_with_outcome(collection, fn(outcome) {
+      queue_microtask(fn() { dispatch(to_msg(outcome)) })
+    })
+  Nil
+}
+
 /// Subscribe to a register collection channel.
 pub fn subscribe_register_collection(
   collection: RegisterCollection,

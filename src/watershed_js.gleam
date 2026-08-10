@@ -2349,6 +2349,23 @@ pub fn ordered_acquire(collection: OrderedCollection) -> String {
 }
 
 @target(javascript)
+/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
+/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
+/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
+/// (a losing acquire emits no event, so this is the loser's only signal), or
+/// `Aborted` when the document closes with the acquire still in flight.
+pub fn ordered_acquire_with_outcome(
+  collection: OrderedCollection,
+  on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+) -> String {
+  runtime_js.ordered_acquire_with_outcome(
+    collection.runtime,
+    collection.address,
+    on_outcome,
+  )
+}
+
+@target(javascript)
 /// Complete an acquired item, removing it permanently.
 pub fn ordered_complete(
   collection: OrderedCollection,
@@ -2375,6 +2392,20 @@ pub fn ordered_release(
 /// not an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   runtime_js.ordered_size(collection.runtime, collection.address)
+}
+
+@target(javascript)
+/// The queued (not-yet-acquired) values, front first.
+pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
+  runtime_js.ordered_queue(collection.runtime, collection.address)
+}
+
+@target(javascript)
+/// The currently-held jobs, keyed by acquire id (sorted).
+pub fn ordered_jobs(
+  collection: OrderedCollection,
+) -> List(#(String, ordered_collection_kernel.JobEntry)) {
+  runtime_js.ordered_jobs(collection.runtime, collection.address)
 }
 
 @target(javascript)

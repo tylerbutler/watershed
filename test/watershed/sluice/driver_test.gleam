@@ -26,6 +26,8 @@ import watershed/claims_kernel
 @target(erlang)
 import watershed/client_id
 @target(erlang)
+import watershed/ordered_collection_kernel
+@target(erlang)
 import watershed/presence
 @target(erlang)
 import watershed/rich_text
@@ -965,4 +967,100 @@ type PresencePanel {
 fn panel_decoder() -> decode.Decoder(PresencePanel) {
   use name <- decode.field("panel", decode.string)
   decode.success(PresencePanel(name))
+}
+
+@target(erlang)
+/// The full job lifecycle — add, acquire, release, re-acquire, complete — is
+/// observable end to end from both sides: the author's subscriber sees each op
+/// land on ack with `local: True`, a peer's with `local: False`, and a release
+/// surfaces as `Added(newly_added: False)` rather than a distinct event, which
+/// is the shape the work-queue demo renders "job returned to queue" from.
+pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
+  let sluice = start("ordered-lifecycle")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  let assert Ok(queue_a) = watershed.create_ordered_collection(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
+    "jobs",
+    watershed.ordered_collection_handle_of(queue_a),
+  )
+  sluice.settle(sluice)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "jobs")
+  let assert Ok(queue_b) = watershed.resolve_ordered_collection(doc_b, handle)
+
+  let events_a = watershed.subscribe_ordered_collection(queue_a)
+  let events_b = watershed.subscribe_ordered_collection(queue_b)
+
+  let job = json.string("job1")
+  let assert Some(id_a) = watershed.client_id(doc_a)
+  let owner = Some(client_id.to_int(id_a))
+
+  watershed.ordered_add(queue_a, job)
+  sluice.settle(sluice)
+  watershed.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed.ordered_queue(queue_b) |> expect.to_equal([job])
+  watershed.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  let #(first_acquire, first_outcome) =
+    watershed.ordered_acquire_with_outcome(queue_a)
+  sluice.settle(sluice)
+  watershed.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed.ordered_queue(queue_b) |> expect.to_equal([])
+  watershed.ordered_jobs(queue_b)
+  |> expect.to_equal([
+    #(first_acquire, ordered_collection_kernel.JobEntry(job, owner)),
+  ])
+  process.receive(from: first_outcome, within: 1000)
+  |> expect.to_equal(
+    Ok(ordered_collection_kernel.AcquiredItem(first_acquire, job)),
+  )
+
+  watershed.ordered_release(queue_a, first_acquire)
+  sluice.settle(sluice)
+  watershed.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  let second_acquire = watershed.ordered_acquire(queue_a)
+  sluice.settle(sluice)
+  watershed.ordered_complete(queue_a, second_acquire)
+  sluice.settle(sluice)
+  watershed.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed.ordered_queue(queue_b) |> expect.to_equal([])
+  watershed.ordered_jobs(queue_b) |> expect.to_equal([])
+
+  // An acquire that sequences against a drained queue resolves `QueueEmpty` —
+  // and emits no event, which is why the outcome channel exists at all.
+  let #(_losing_acquire, losing_outcome) =
+    watershed.ordered_acquire_with_outcome(queue_a)
+  sluice.settle(sluice)
+  process.receive(from: losing_outcome, within: 1000)
+  |> expect.to_equal(Ok(ordered_collection_kernel.QueueEmpty))
+
+  let lifecycle = fn(local) {
+    [
+      ordered_collection_kernel.Added(job, True, local),
+      ordered_collection_kernel.Acquired(job, owner, local),
+      ordered_collection_kernel.Added(job, False, local),
+      ordered_collection_kernel.Acquired(job, owner, local),
+      ordered_collection_kernel.Completed(job, local),
+    ]
+  }
+  drain_ordered_events(events_a, [])
+  |> expect.to_equal(lifecycle(True))
+  drain_ordered_events(events_b, [])
+  |> expect.to_equal(lifecycle(False))
+}
+
+@target(erlang)
+fn drain_ordered_events(
+  events: process.Subject(ordered_collection_kernel.OrderedEvent),
+  acc: List(ordered_collection_kernel.OrderedEvent),
+) -> List(ordered_collection_kernel.OrderedEvent) {
+  case process.receive(from: events, within: 100) {
+    Ok(event) -> drain_ordered_events(events, [event, ..acc])
+    Error(_) -> list.reverse(acc)
+  }
 }
