@@ -35,12 +35,21 @@ pub fn add_feedback(
   }
 }
 
-pub fn remove_feedback(item: String) -> Feedback {
-  info(
-    "Removed \""
-    <> item
-    <> "\" from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
-  )
+pub fn remove_feedback(item: String, removed: Bool) -> Feedback {
+  case removed {
+    True ->
+      info(
+        "Removed \""
+        <> item
+        <> "\" from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
+      )
+    False ->
+      warning(
+        "Nothing removed for \""
+        <> item
+        <> "\" because it is already absent from TwoPSet and OrSet.",
+      )
+  }
 }
 
 pub fn not_ready_feedback(action: String) -> Feedback {

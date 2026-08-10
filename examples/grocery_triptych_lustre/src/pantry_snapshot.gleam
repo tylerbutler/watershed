@@ -70,25 +70,32 @@ pub fn rows(snapshots: Snapshots) -> List(Row) {
   })
 }
 
+/// Count every row that shows a divergence marker in each panel header.
 pub fn diff_counts(rows: List(Row)) -> DiffCounts {
   list.fold(rows, empty_diff_counts(), fn(counts, row) {
     DiffCounts(
-      grow_only: maybe_increment(counts.grow_only, grow_only_differs(row)),
-      two_phase: maybe_increment(counts.two_phase, two_phase_differs(row)),
-      observed: maybe_increment(counts.observed, observed_differs(row)),
+      grow_only: maybe_increment(counts.grow_only, row.diverges),
+      two_phase: maybe_increment(counts.two_phase, row.diverges),
+      observed: maybe_increment(counts.observed, row.diverges),
     )
   })
 }
 
-pub fn grow_only_differs(row: Row) -> Bool {
+/// The shared remove action is available only when one of the removable sets
+/// still contains the item.
+pub fn row_has_removable_copy(row: Row) -> Bool {
+  row.two_phase || row.observed
+}
+
+pub fn grow_only_is_outlier(row: Row) -> Bool {
   row.grow_only != row.two_phase && row.grow_only != row.observed
 }
 
-pub fn two_phase_differs(row: Row) -> Bool {
+pub fn two_phase_is_outlier(row: Row) -> Bool {
   row.two_phase != row.grow_only && row.two_phase != row.observed
 }
 
-pub fn observed_differs(row: Row) -> Bool {
+pub fn observed_is_outlier(row: Row) -> Bool {
   row.observed != row.grow_only && row.observed != row.two_phase
 }
 

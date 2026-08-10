@@ -311,19 +311,29 @@ fn apply_shared_add(model: Model, raw_item: String) -> Model {
 }
 
 fn apply_shared_remove(model: Model, item: String) -> Model {
-  let model = Model(..model, scenario: NoScenario)
-
   case model.shared {
     None ->
       with_feedback(model, triptych_actions.not_ready_feedback("removing"))
 
     Some(shared) -> {
-      watershed_js.two_p_set_remove(shared.two_phase, item)
-      watershed_js.or_set_remove(shared.observed, item)
+      let removable =
+        watershed_js.two_p_set_contains(shared.two_phase, item)
+        || watershed_js.or_set_contains(shared.observed, item)
 
-      model
-      |> refresh_snapshots
-      |> with_feedback(triptych_actions.remove_feedback(item))
+      case removable {
+        False -> model
+
+        True -> {
+          let model = Model(..model, scenario: NoScenario)
+
+          watershed_js.two_p_set_remove(shared.two_phase, item)
+          watershed_js.or_set_remove(shared.observed, item)
+
+          model
+          |> refresh_snapshots
+          |> with_feedback(triptych_actions.remove_feedback(item, True))
+        }
+      }
     }
   }
 }
@@ -573,8 +583,10 @@ fn shared_remove_view(model: Model) -> Element(Msg) {
     html.h2([], [html.text("Shared remove actions")]),
     html.p([attribute.class("hint")], [
       html.text(
-        "Each remove issues paired TwoPSet and OrSet removals. GSet keeps the "
-        <> "item because grow-only removal is not expressible.",
+        "Each remove stays enabled only while TwoPSet or OrSet still contains "
+        <> "the item. When either copy remains, the shared action issues paired "
+        <> "removals; GSet keeps the item because grow-only removal is not "
+        <> "expressible.",
       ),
     ]),
     case model.rows {
@@ -593,21 +605,32 @@ fn shared_remove_view(model: Model) -> Element(Msg) {
 }
 
 fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
+  let removable = pantry_snapshot.row_has_removable_copy(row)
+
   html.li([attribute.class("shared-row")], [
     html.div([attribute.class("row-main")], [
       html.span([attribute.class("item")], [html.text(row.item)]),
       divergence_marker(row.diverges),
     ]),
-    html.button(
-      [
-        attribute.class("danger"),
-        attribute.type_("button"),
-        attribute.disabled(!ready),
-        event.on_click(RemoveRequested(row.item)),
-        attribute.aria_label("Remove " <> row.item <> " from TwoPSet and OrSet"),
-      ],
-      [html.text("Remove from TwoPSet + OrSet")],
-    ),
+    html.div([attribute.class("remove-action")], [
+      html.button(
+        [
+          attribute.class("danger"),
+          attribute.type_("button"),
+          attribute.disabled(!ready || !removable),
+          event.on_click(RemoveRequested(row.item)),
+          attribute.aria_label(remove_action_label(row.item, removable)),
+        ],
+        [html.text(remove_action_text(removable))],
+      ),
+      case removable {
+        True -> html.text("")
+        False ->
+          html.span([attribute.class("hint")], [
+            html.text("Already absent from TwoPSet and OrSet."),
+          ])
+      },
+    ]),
   ])
 }
 
@@ -616,8 +639,9 @@ fn comparison_view(model: Model) -> Element(Msg) {
     html.h2([], [html.text("Triptych comparison")]),
     html.p([attribute.class("hint")], [
       html.text(
-        "Every panel renders the same union rows in the same order; only the "
-        <> "removal rule changes what stays present.",
+        "Every panel renders the same union rows in the same order; the "
+        <> "warning marker and the panel diff count both track the same "
+        <> "divergent rows.",
       ),
     ]),
     html.div([attribute.class("pantry")], [
@@ -637,7 +661,7 @@ fn panel_view(panel: Panel, model: Model) -> Element(Msg) {
         html.text(
           panel_count_text(panel_present_count(panel, model.snapshots))
           <> " · "
-          <> diff_count_text(panel_diff_count(panel, model.diffs)),
+          <> divergence_count_text(panel_diff_count(panel, model.diffs)),
         ),
       ]),
       panel_note(panel),
@@ -751,9 +775,9 @@ fn panel_row_class(panel: Panel, row: Row) -> String {
 
 fn panel_is_outlier(panel: Panel, row: Row) -> Bool {
   case panel {
-    GrowOnlyPanel -> pantry_snapshot.grow_only_differs(row)
-    TwoPhasePanel -> pantry_snapshot.two_phase_differs(row)
-    ObservedPanel -> pantry_snapshot.observed_differs(row)
+    GrowOnlyPanel -> pantry_snapshot.grow_only_is_outlier(row)
+    TwoPhasePanel -> pantry_snapshot.two_phase_is_outlier(row)
+    ObservedPanel -> pantry_snapshot.observed_is_outlier(row)
   }
 }
 
@@ -765,11 +789,11 @@ fn panel_count_text(count: Int) -> String {
   }
 }
 
-fn diff_count_text(count: Int) -> String {
+fn divergence_count_text(count: Int) -> String {
   int.to_string(count)
   <> case count == 1 {
-    True -> " diff"
-    False -> " diffs"
+    True -> " divergent row"
+    False -> " divergent rows"
   }
 }
 
@@ -803,14 +827,31 @@ fn feedback_class(kind: FeedbackKind) -> String {
 fn feedback_role(kind: FeedbackKind) -> String {
   case kind {
     Info -> "status"
-    Warning -> "alert"
+    Warning -> "status"
   }
 }
 
 fn feedback_live(kind: FeedbackKind) -> String {
   case kind {
     Info -> "polite"
-    Warning -> "assertive"
+    Warning -> "polite"
+  }
+}
+
+fn remove_action_label(item: String, removable: Bool) -> String {
+  case removable {
+    True -> "Remove " <> item <> " from TwoPSet and OrSet"
+    False ->
+      "Remove unavailable for "
+      <> item
+      <> " — already absent from TwoPSet and OrSet"
+  }
+}
+
+fn remove_action_text(removable: Bool) -> String {
+  case removable {
+    True -> "Remove from TwoPSet + OrSet"
+    False -> "Remove unavailable"
   }
 }
 

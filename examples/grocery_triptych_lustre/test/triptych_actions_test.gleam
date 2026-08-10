@@ -34,3 +34,17 @@ pub fn normal_add_reports_success_test() {
   triptych_actions.add_feedback("milk", False, True)
   |> should.equal(bootstrap_guard.info("Added \"milk\" to all three sets."))
 }
+
+pub fn remove_absent_item_reports_warning_test() {
+  triptych_actions.remove_feedback("milk", False)
+  |> should.equal(bootstrap_guard.warning(
+    "Nothing removed for \"milk\" because it is already absent from TwoPSet and OrSet.",
+  ))
+}
+
+pub fn remove_present_item_reports_success_test() {
+  triptych_actions.remove_feedback("milk", True)
+  |> should.equal(bootstrap_guard.info(
+    "Removed \"milk\" from TwoPSet and OrSet. GSet retained it because removal is not expressible.",
+  ))
+}
