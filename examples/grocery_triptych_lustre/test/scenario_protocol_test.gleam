@@ -11,13 +11,11 @@ pub fn main() -> Nil {
   gleeunit.main()
 }
 
-pub fn invitation_round_trip_test() {
+pub fn invitation_round_trip_accepts_stripped_outer_type_test() {
   let inbound =
     scenario_protocol.decode(
-      Some(scenario_protocol.ripple_type),
-      to_dynamic(
-        scenario_protocol.encode(scenario_protocol.Invitation("run-1")),
-      ),
+      None,
+      to_dynamic(invitation_payload()),
       Some("peer-1"),
     )
 
@@ -30,17 +28,11 @@ pub fn invitation_round_trip_test() {
   )
 }
 
-pub fn status_round_trip_test() {
+pub fn status_round_trip_accepts_matching_outer_type_test() {
   let inbound =
     scenario_protocol.decode(
       Some(scenario_protocol.ripple_type),
-      to_dynamic(
-        scenario_protocol.encode(scenario_protocol.Status(
-          run_id: "run-2",
-          target_peer: "peer-2",
-          status: scenario_protocol.VerifiedExpectedOutcome,
-        )),
-      ),
+      to_dynamic(status_payload()),
       Some("peer-1"),
     )
 
@@ -57,20 +49,62 @@ pub fn status_round_trip_test() {
   )
 }
 
-pub fn foreign_and_malformed_messages_are_dropped_test() {
+pub fn mismatching_outer_type_is_dropped_test() {
   scenario_protocol.decode(
     Some("presence"),
-    to_dynamic(json.object([#("phase", json.string("invitation"))])),
+    to_dynamic(invitation_payload()),
     Some("peer-1"),
   )
   |> should.equal(None)
+}
 
-  scenario_protocol.decode(
-    Some(scenario_protocol.ripple_type),
-    to_dynamic(json.object([#("phase", json.string("go"))])),
-    Some("peer-1"),
-  )
-  |> should.equal(None)
+pub fn missing_or_foreign_content_kind_is_dropped_test() {
+  [
+    scenario_protocol.decode(
+      Some(scenario_protocol.ripple_type),
+      to_dynamic(invitation_payload_without_kind()),
+      Some("peer-1"),
+    ),
+    scenario_protocol.decode(
+      None,
+      to_dynamic(invitation_payload_without_kind()),
+      Some("peer-1"),
+    ),
+    scenario_protocol.decode(
+      Some(scenario_protocol.ripple_type),
+      to_dynamic(invitation_payload_with_kind("presence")),
+      Some("peer-1"),
+    ),
+    scenario_protocol.decode(
+      None,
+      to_dynamic(invitation_payload_with_kind("presence")),
+      Some("peer-1"),
+    ),
+  ]
+  |> should.equal([None, None, None, None])
+}
+
+pub fn sender_client_id_and_phase_fields_are_required_test() {
+  [
+    scenario_protocol.decode(None, to_dynamic(invitation_payload()), None),
+    scenario_protocol.decode(
+      None,
+      to_dynamic(invitation_payload_with_run_id("")),
+      Some("peer-1"),
+    ),
+    scenario_protocol.decode(
+      None,
+      to_dynamic(go_payload_without_target_peer()),
+      Some("peer-1"),
+    ),
+    scenario_protocol.decode(None, to_dynamic(go_payload("")), Some("peer-1")),
+    scenario_protocol.decode(
+      None,
+      to_dynamic(status_payload_with_status("bogus")),
+      Some("peer-1"),
+    ),
+  ]
+  |> should.equal([None, None, None, None, None])
 }
 
 pub fn should_acknowledge_requires_ready_idle_foreign_invitation_test() {
@@ -180,4 +214,66 @@ fn inbound(
 fn to_dynamic(payload: json.Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   dynamic
+}
+
+fn invitation_payload() -> json.Json {
+  scenario_protocol.encode(scenario_protocol.Invitation("run-1"))
+}
+
+fn invitation_payload_with_run_id(run_id: String) -> json.Json {
+  json.object([
+    #("kind", json.string(scenario_protocol.ripple_type)),
+    #("phase", json.string("invitation")),
+    #("run_id", json.string(run_id)),
+  ])
+}
+
+fn invitation_payload_without_kind() -> json.Json {
+  json.object([
+    #("phase", json.string("invitation")),
+    #("run_id", json.string("run-1")),
+  ])
+}
+
+fn invitation_payload_with_kind(kind: String) -> json.Json {
+  json.object([
+    #("kind", json.string(kind)),
+    #("phase", json.string("invitation")),
+    #("run_id", json.string("run-1")),
+  ])
+}
+
+fn go_payload(target_peer: String) -> json.Json {
+  json.object([
+    #("kind", json.string(scenario_protocol.ripple_type)),
+    #("phase", json.string("go")),
+    #("run_id", json.string("run-1")),
+    #("target_peer", json.string(target_peer)),
+  ])
+}
+
+fn go_payload_without_target_peer() -> json.Json {
+  json.object([
+    #("kind", json.string(scenario_protocol.ripple_type)),
+    #("phase", json.string("go")),
+    #("run_id", json.string("run-1")),
+  ])
+}
+
+fn status_payload() -> json.Json {
+  scenario_protocol.encode(scenario_protocol.Status(
+    run_id: "run-2",
+    target_peer: "peer-2",
+    status: scenario_protocol.VerifiedExpectedOutcome,
+  ))
+}
+
+fn status_payload_with_status(status: String) -> json.Json {
+  json.object([
+    #("kind", json.string(scenario_protocol.ripple_type)),
+    #("phase", json.string("status")),
+    #("run_id", json.string("run-1")),
+    #("target_peer", json.string("peer-2")),
+    #("status", json.string(status)),
+  ])
 }

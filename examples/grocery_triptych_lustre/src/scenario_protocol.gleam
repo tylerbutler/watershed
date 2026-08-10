@@ -30,26 +30,26 @@ pub type GoDecision {
 pub fn encode(message: Message) -> Json {
   case message {
     Invitation(run_id) ->
-      json.object([
+      encode_envelope([
         #("phase", json.string("invitation")),
         #("run_id", json.string(run_id)),
       ])
 
     Acknowledgement(run_id) ->
-      json.object([
+      encode_envelope([
         #("phase", json.string("acknowledgement")),
         #("run_id", json.string(run_id)),
       ])
 
     Go(run_id, target_peer) ->
-      json.object([
+      encode_envelope([
         #("phase", json.string("go")),
         #("run_id", json.string(run_id)),
         #("target_peer", json.string(target_peer)),
       ])
 
     Status(run_id, target_peer, status) ->
-      json.object([
+      encode_envelope([
         #("phase", json.string("status")),
         #("run_id", json.string(run_id)),
         #("target_peer", json.string(target_peer)),
@@ -63,14 +63,19 @@ pub fn decode(
   content: Dynamic,
   sender: Option(String),
 ) -> Option(Inbound) {
-  case signal_type, sender {
-    Some(kind), Some(from_peer) if kind == ripple_type ->
-      case dyn_decode.run(content, message_decoder()) {
-        Ok(message) -> Some(Inbound(from_peer:, message:))
-        Error(_) -> None
+  case sender {
+    Some(from_peer) ->
+      case advisory_signal_type_ok(signal_type) {
+        True ->
+          case dyn_decode.run(content, envelope_decoder()) {
+            Ok(message) -> Some(Inbound(from_peer:, message:))
+            Error(_) -> None
+          }
+
+        False -> None
       }
 
-    _, _ -> None
+    None -> None
   }
 }
 
@@ -177,6 +182,26 @@ pub fn status_text(status: Status) -> String {
     PeerAppliedAdd -> "peer-applied-add"
     VerifiedExpectedOutcome -> "verified-expected-outcome"
     VerificationTimedOut -> "verification-timed-out"
+  }
+}
+
+fn encode_envelope(fields: List(#(String, Json))) -> Json {
+  json.object([#("kind", json.string(ripple_type)), ..fields])
+}
+
+fn advisory_signal_type_ok(signal_type: Option(String)) -> Bool {
+  case signal_type {
+    Some(kind) -> kind == ripple_type
+    None -> True
+  }
+}
+
+fn envelope_decoder() -> dyn_decode.Decoder(Message) {
+  use kind <- dyn_decode.field("kind", non_empty_string("kind"))
+  use message <- dyn_decode.then(message_decoder())
+  case kind == ripple_type {
+    True -> dyn_decode.success(message)
+    False -> dyn_decode.failure(message, "ScenarioEnvelope")
   }
 }
 
