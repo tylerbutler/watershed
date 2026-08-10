@@ -1709,6 +1709,13 @@ fn handle_inbound(
               connected.checkpoint_sequence_number,
               core.last_seen_sn,
             )
+          // Ask for the gap. Nothing else will: no server pushes it unprompted,
+          // and the reactive `requestOps` in the `"op"` handler below needs an
+          // op to react to. See `runtime_core.catch_up_from`.
+          maybe_request_ops(
+            state.channel,
+            runtime_core.catch_up_from(core, checkpoint),
+          )
           // Presence is unsequenced, so it does not wait for the op catch-up
           // `settle_reconnect` may still be pending — rejoining now is both
           // correct and the fastest way back to a roster.

@@ -440,6 +440,33 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   )
 }
 
+/// The sequence number to `requestOps` from on a reconnect, or `None` when the
+/// handshake left nothing to catch up on.
+///
+/// A reconnect must ask for its own gap. `adopt_reconnect` deliberately does not
+/// replay `initial_messages`, so the only thing that can carry `last_seen_sn` up
+/// to the handshake's checkpoint is inbound sequenced ops — and no server sends
+/// any unprompted. Floodgate ignores `lastSeenSequenceNumber` outright, and it
+/// excludes the joiner from the broadcast of the joiner's *own* join op, so a
+/// client that rejoins a room nobody else is writing to receives nothing at all.
+/// Waiting for a peer's next edit is not a catch-up strategy; it is a bet, and a
+/// quiet room loses it forever.
+///
+/// The result is `last_seen_sn`, not `last_seen_sn + 1`: `requestOps` is
+/// exclusive of `from` on both servers, and this matches what `handle_sequenced`
+/// already asks for when a live op reveals a gap.
+///
+/// Note the checkpoint is essentially always ahead on a write reconnect —
+/// floodgate sequences the rejoining client's own `join` and reports *that* as
+/// the checkpoint — so this returns `Some` even for a reconnect that missed no
+/// application traffic whatsoever.
+pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
+  case checkpoint > core.last_seen_sn {
+    True -> Some(core.last_seen_sn)
+    False -> None
+  }
+}
+
 /// The hand-off from a reconnect's catch-up to live traffic.
 ///
 /// The mirror of `settle_bootstrap` for the route that never passes through it.

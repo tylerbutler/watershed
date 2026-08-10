@@ -210,7 +210,6 @@ fn on_connect_document(
     Error(_) -> sluice
     Ok(request) -> {
       let current = sequencing.current_sn(sluice.seq)
-      let last_seen = option.unwrap(request.last_seen_sequence_number, 0)
       // Join the sequencer at the current SN — the catch-up below brings the
       // client level with the document before any live op is delivered.
       let seq = sequencing.client_join(sluice.seq, client_id, current)
@@ -239,26 +238,28 @@ fn on_connect_document(
           scopes: request.client.scopes,
           checkpoint_sequence_number: sequencing.current_sn(sluice.seq),
           initial_clients: connected_ids(sluice),
-          initial_messages: log_since(sluice.log, last_seen),
+          // The whole retained log, *not* the slice after the request's
+          // `lastSeenSequenceNumber`. Floodgate ignores that field entirely and
+          // answers every connect — first or thousandth — with the same recent
+          // history, so filtering here would model a server that does not
+          // exist. It costs a reconnecting client nothing either way: its
+          // `adopt_reconnect` never replays `initial_messages`.
+          initial_messages: log_since(sluice.log, 0),
           timestamp: sluice.now_ms,
           presence_v1: sluice.presence_supported,
         )
-      let sluice =
-        enqueue(sluice, client_id, "connect_document_success", connected)
-
-      // The joiner's own join, pushed to it as an ordinary op *after* the
-      // handshake, which is how the real server orders it — the copy in
-      // `initial_messages` is not the only one it sees, and the runtime dedupes
-      // the two by sequence number.
+      // The joiner's own join is *not* pushed back to it as a live op. Floodgate
+      // broadcasts it with `broadcast_from(channels, cid, ...)`, which excludes
+      // the joiner — its only copy is the one in `initial_messages`.
       //
-      // This is load-bearing on the reconnect path rather than cosmetic. A
-      // reconnecting runtime ignores `initial_messages` (its core already holds
-      // that history) and stays in its post-reconnect holding state until a
-      // sequenced op carries it up to the handshake's checkpoint. Without this
-      // push, a client that reconnects into a quiet document waits for an op
-      // that never comes, and every edit it makes meanwhile sits unsent in its
-      // in-flight queue.
-      enqueue(sluice, client_id, "op", frames.encode_op_event([join]))
+      // The sluice used to send it anyway, and that single extra frame was
+      // load-bearing: a reconnecting runtime ignores `initial_messages`, so the
+      // push was the one thing carrying it up to the handshake's checkpoint and
+      // out of its holding state. Against a real server nothing supplies it,
+      // which is why every sluice reconnect test passed while the live path
+      // stalled forever. The runtime now asks for the gap itself, with
+      // `requestOps` on the handshake, so the crutch can go.
+      enqueue(sluice, client_id, "connect_document_success", connected)
     }
   }
 }
@@ -319,7 +320,12 @@ fn on_request_ops(
   case frames.decode_request_ops(payload) {
     Error(_) -> sluice
     Ok(from) -> {
-      let ops = log_since(sluice.log, from - 1)
+      // Exclusive of `from`, matching floodgate's `session.since` (`o.0 > sn`)
+      // and what the runtime means when it asks: `from` is the last SN it has,
+      // not the first it wants. This used to be `from - 1`, one op generous —
+      // harmless in itself, since the runtime drops the duplicate, but it meant
+      // the sluice could never catch an off-by-one on the client side.
+      let ops = log_since(sluice.log, from)
       case ops {
         [] -> sluice
         _ -> enqueue(sluice, client_id, "op", frames.encode_op_event(ops))
