@@ -188,14 +188,17 @@ pub fn participating_peers_keep_verifying_after_status_ripples_test() {
   ))
 }
 
-pub fn participating_peers_lock_after_timeout_status_ripples_test() {
+pub fn participating_peers_keep_verifying_after_timeout_status_ripples_test() {
   scenario_state.observe_peer_status(
     participating: True,
     status: scenario_protocol.VerificationTimedOut,
   )
-  |> should.equal(scenario_state.LockRoom(
-    "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This room is now locked against retry, though later settled snapshots may still show the expected outcome.",
+  |> should.equal(scenario_state.KeepVerifying(
+    "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This status is advisory only; this tab keeps validating its own snapshots until its local bound decides complete or locked.",
   ))
+
+  scenario_state.advance_verification(expected_snapshots(), 2)
+  |> should.equal(scenario_state.Verified)
 }
 
 pub fn run_history_remembers_seen_run_ids_without_duplicates_test() {

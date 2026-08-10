@@ -151,13 +151,7 @@ pub fn observe_peer_status(
 ) -> PeerStatusUpdate {
   case participating {
     False -> IgnoreWhileAwaitingGo
-    True ->
-      case status {
-        scenario_protocol.VerificationTimedOut ->
-          LockRoom(peer_status_note(status))
-
-        _ -> KeepVerifying(peer_status_note(status))
-      }
+    True -> KeepVerifying(peer_status_note(status))
   }
 }
 
@@ -213,7 +207,7 @@ fn peer_status_note(status: scenario_protocol.Status) -> String {
     scenario_protocol.VerifiedExpectedOutcome ->
       "Concurrent add/remove: the initiator reported the expected eventual outcome while this tab keeps validating its own snapshots."
     scenario_protocol.VerificationTimedOut ->
-      "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This room is now locked against retry, though later settled snapshots may still show the expected outcome."
+      "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This status is advisory only; this tab keeps validating its own snapshots until its local bound decides complete or locked."
     scenario_protocol.PeerAppliedAdd ->
       "Concurrent add/remove: ignored an unexpected peer-applied status on the peer side."
   }
