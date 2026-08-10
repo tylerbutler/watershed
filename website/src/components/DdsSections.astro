@@ -49,7 +49,7 @@ const structures = [
     module: "map_kernel",
     rule: "for each key, the most recent write wins, decided by server order",
     pending: "your writes show instantly, then lock in once the server confirms them",
-    summary: "entries reload with the exact keys a Fluid app expects",
+    summary: "confirmed entries reload with their keys and insertion order intact",
   },
   {
     name: "OR-Map",
@@ -190,8 +190,8 @@ const flow = [
     <p>
       Every structure above rides the same ordered stream of changes — the very
       one the live SharedMap demo runs on. Open any family to switch which
-      structure is on screen; they all stay hosted together, just like structures
-      sharing a single Fluid document.
+      structure is on screen; they all stay hosted together as channels sharing
+      one sequenced document.
     </p>
 
     <ol class="flow-steps">

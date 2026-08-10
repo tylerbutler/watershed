@@ -189,14 +189,14 @@ const maps: Structure[] = [
     rule: "for each key, the most recent write wins, decided by server order",
     optimistic:
       "your writes show instantly, then lock in once the server confirms them",
-    summary: "entries reload with the exact keys a Fluid app expects",
+    summary: "confirmed entries reload with their keys and insertion order intact",
     how: [
-      "watershed’s flagship DDS models Fluid Framework’s SharedMap operation encoding and merge semantics. Keys map to JSON values. Each set is sequenced, and for a given key the write with the highest sequence number wins.",
-      "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence, but they do not establish interchangeability for every Fluid container and summary version.",
+      "watershed’s flagship DDS follows Fluid Framework’s SharedMap kernel design. Keys map to JSON values. Each set is sequenced, and for a given key the write with the highest sequence number wins. Its inner set, delete, and clear payloads match the @fluidframework/map operation encoding.",
+      "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence. Attach and summary formats remain watershed’s own, so this does not imply drop-in Fluid container interoperability.",
     ],
     useCases: [
       "Shared application state and settings objects edited by many clients",
-      "Fluid Framework interop where wire-format compatibility matters",
+      "Learning and testing server-ordered last-write-wins collaboration",
       "Key-value collaboration where a clear last-writer-wins rule is acceptable",
     ],
   },
@@ -232,12 +232,12 @@ const maps: Structure[] = [
     optimistic: "folder and key edits show immediately until the server confirms them",
     summary: "the whole folder tree reloads intact",
     how: [
-      "SharedDirectory is SharedMap made recursive, with operation shapes and semantics modeled on Fluid Framework’s SharedDirectory. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Each set is sequenced, and the highest sequence number wins per key.",
+      "SharedDirectory is SharedMap made recursive, modeled after Fluid Framework’s SharedDirectory design. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
       "The hard part isn’t the storage — it’s hierarchical identity. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op’s reference sequence number, so a stale op targeting an old instance of a path is ignored while concurrent same-name creates merge into a single folder. That is what a flat map cannot express.",
     ],
     useCases: [
       "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
-      "Fluid Framework interop where SharedDirectory wire-format compatibility matters",
+      "Studying hierarchical identity and server-ordered folder collaboration",
       "Anywhere a flat map’s keys want structure — folders of readings, grouped settings",
     ],
   },
@@ -260,7 +260,7 @@ const sequences: Structure[] = [
     how: [
       "A shared sequence holds an ordered list of JSON values. You address an edit by index — insert at 2, move 4 to 1 — but the index only records intent. Underneath, every item carries a stable identity, and the CRDT delta that ships is expressed against identities, not positions. That is what lets two replicas edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
       "The lattice merge is duplicate- and order-tolerant: a delta delivered twice, or after its neighbors, is absorbed without disturbing the list. Local edits apply optimistically and ride the sequenced stream as deltas; if the server rejects one, it rolls back and the remaining pending edits replay over the sequenced base.",
-      "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation — one pending entry, one wire op, one event. Unlike SharedMap or SharedDirectory, this is not a Fluid Framework port; the wire format is watershed’s own.",
+      "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation — one pending entry, one wire op, one event. The identity-CRDT design and wire format are watershed’s own.",
     ],
     useCases: [
       "Shared itineraries, checklists, and ordered plans edited by many hands",
@@ -285,7 +285,7 @@ const sequences: Structure[] = [
       "A shared text holds an ordered run of graphemes — user-perceived characters. You address an edit by grapheme index — insert at 6, delete 3..7, replace 0..5 — but the index only records intent against your current view. Underneath, every grapheme carries a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. That is what lets two typists edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order rather than clobbering one another.",
       "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity — so a cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
       "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation — delete the span and insert the replacement at the same place — so it is a single pending entry, one wire op, one event, even across a range.",
-      "Anchors are stable positions that survive concurrent edits: pin one to a grapheme’s identity, keep editing around it, and resolve it back to a live index later — the basis for shared cursors and selections that don’t drift when a neighbor inserts. Like SharedSequence, and unlike SharedMap or SharedDirectory, SharedText is not a Fluid Framework port: it does not use Fluid’s SharedString / interval merge-tree wire format. The delta format is watershed’s own, built on the same identity lattice as SharedSequence.",
+      "Anchors are stable positions that survive concurrent edits: pin one to a grapheme’s identity, keep editing around it, and resolve it back to a live index later — the basis for shared cursors and selections that don’t drift when a neighbor inserts. The delta format is watershed’s own, built on the same identity lattice as SharedSequence rather than Fluid’s SharedString merge tree.",
     ],
     useCases: [
       "Collaborative notes, captions, and comment fields edited by many hands at once",
@@ -309,12 +309,12 @@ const transforms: Structure[] = [
     summary: "the document reloads to the same value everywhere, list positions and all",
     how: [
       "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra — the operational-transform model behind ShareDB. Instead of merging keys by rule, it edits one shared JSON document with a small algebra of operations addressed by a path into the tree: set a key, insert or delete a list item, splice a string.",
-      "It runs the single-op-in-flight client protocol: a client applies an edit optimistically and sends it, keeping at most one op in flight. A Fluid-compatible server sequences every op, and concurrent ops are transformed past one another — a concurrent list insert has its index shifted — so all replicas reach byte-identical state, indices and all. This is the other convergence family: not merge, but transform.",
+      "It runs the single-op-in-flight client protocol: a client applies an edit optimistically and sends it, keeping at most one op in flight. A central server sequences every op, and concurrent ops are transformed past one another — a concurrent list insert has its index shifted — so all replicas reach identical state, indices and all. This is the other convergence family: not merge, but transform.",
     ],
     useCases: [
       "Collaboratively edited structured documents — JSON trees, outlines, form models changed by many clients at once",
       "Cases where last-write-wins would clobber a concurrent edit but you want one shared document rather than per-key CRDTs",
-      "Interop with ottypes / ShareDB json0 clients",
+      "Studying the json0 algebra used by ottypes and ShareDB",
     ],
   },
   {
@@ -435,7 +435,7 @@ const coordination: Structure[] = [
     summary: "accepted values and pending sign-offs save and restore together",
     how: [
       "A pact map is the strongest coordination structure here — it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
-      "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. This is Fluid’s quorum-consensus primitive.",
+      "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. The design is modeled after Fluid’s quorum-consensus primitive.",
     ],
     useCases: [
       "Agreement before action: schema upgrades, feature-flag flips everyone must honor",
@@ -472,7 +472,7 @@ export const categories: Category[] = [
     tagline: "Keyed state, resolved two different ways.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed’s maps span that choice.",
-      "SharedMap resolves each key by server order and follows Fluid Framework’s map operation shape. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
   },
@@ -501,8 +501,8 @@ export const categories: Category[] = [
     name: "Transforms",
     tagline: "One shared document, kept in agreement as everyone edits.",
     lede: [
-      "Some structures above converge by a CRDT merge; others interpret one server order. This family uses operational transform, rewriting concurrent operations to account for one another.",
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a Fluid-compatible server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
+      "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a central server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
     ],
     structures: transforms,
   },

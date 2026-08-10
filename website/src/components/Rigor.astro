@@ -3,7 +3,7 @@ const ledger = [
   {
     id: "B1",
     name: "SharedMap basin",
-    detail: "Map kernel, Fluid-compatible ops, summaries, nested handles, BEAM and browser facades",
+    detail: "Map kernel, Fluid-derived op semantics, watershed summaries, nested handles, BEAM and browser facades",
     status: "implemented",
   },
   {
@@ -27,7 +27,7 @@ const ledger = [
   {
     id: "B5",
     name: "SharedDirectory",
-    detail: "Recursive SharedMap hierarchy wired as a runtime channel, modeled on Fluid SharedDirectory operations",
+    detail: "Recursive SharedMap hierarchy wired as a runtime channel and modeled after Fluid's SharedDirectory design",
     status: "implemented",
   },
 ];
@@ -55,13 +55,13 @@ const ledger = [
           </dd>
         </div>
         <div data-reveal="rise">
-          <dt>Byte-identical wire format</dt>
+          <dt>Reference-checked map ops</dt>
           <dd>
-            SharedMap operation encoding follows
-            <code>@fluidframework/map</code>’s
-            <code>{"{"}type, key, value{"}"}</code> shape. A corpus generated
-            from the TypeScript implementation checks map state, event, and
-            convergence semantics against the reference behavior.
+            SharedMap’s inner <code>set</code>, <code>delete</code>, and
+            <code>clear</code> payloads are checked against a corpus generated
+            from <code>@fluidframework/map</code>, including state, events, and
+            convergence. Container, attach, and summary formats remain
+            watershed’s own.
           </dd>
         </div>
         <div data-reveal="rise">
