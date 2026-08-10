@@ -2837,9 +2837,9 @@ pub fn force_reconnect(document: Document) -> Nil {
 /// }
 /// ```
 ///
-/// While offline `diagnostics(doc).phase` reads `"reconnecting"`. Note that
-/// `in_flight_count` reads zero — nothing has been *submitted* — so a UI that
-/// wants to show how much work is waiting has to count the edits itself.
+/// While offline `diagnostics(doc).phase` reads `"reconnecting"`, and
+/// `in_flight_count` is the number of edits waiting to reach the server — which
+/// is what a "3 changes not yet saved" indicator wants.
 pub fn go_offline(document: Document) -> Nil {
   runtime_js.go_offline(document.runtime)
 }

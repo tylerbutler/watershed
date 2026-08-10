@@ -91,7 +91,11 @@ convergent reorder no other DDS here offers, and
 [`examples/text_lustre`](examples/text_lustre) for a collaborative plain-text
 editor on `SharedText`, diffing each `<textarea>` keystroke into one
 grapheme-indexed op (mirrored by the [live `/text`
-demo](https://watershed.tylerbutler.com/text)).
+demo](https://watershed.tylerbutler.com/text)), and
+[`examples/pixel_canvas_lustre`](examples/pixel_canvas_lustre) for a shared
+64×64 bitmap on an `OrMap` of register leaves — the one example that proves
+convergence by eye rather than by assertion, and the one that emits ops by the
+thousand.
 
 For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
 Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and

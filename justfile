@@ -14,10 +14,10 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text _build-drum
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text _build-drum _build-pixel
 
 # Run tests
-test: _test-gleam _test-js _test-lustre
+test: _test-gleam _test-js _test-lustre _test-examples
 
 _test-gleam:
     gleam test
@@ -34,6 +34,15 @@ _test-js:
 # shared here, it pins gleam_stdlib < 1.0 while lustre is on 1.x.
 _test-lustre:
     cd watershed_lustre && gleam test
+
+# The app-level suites that live in the example packages. These are gleeunit on
+# the JS target, driven by the in-memory sluice, so they need no server and no
+# browser — they are the closest thing here to testing watershed the way an app
+# author would. Only the examples that have a `test/` directory are listed.
+_test-examples:
+    cd examples/sudoku_lustre && gleam test
+    cd examples/drum_machine_lustre && gleam test
+    cd examples/pixel_canvas_lustre && gleam test
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
@@ -103,7 +112,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-dice _deps-sudoku _deps-playlist _deps-text _deps-drum
+deps: _deps-gleam _deps-dice _deps-sudoku _deps-playlist _deps-text _deps-drum _deps-pixel
 
 _deps-gleam:
     gleam deps download
@@ -122,6 +131,9 @@ _deps-text:
 
 _deps-drum:
     pnpm --dir examples/drum_machine_lustre install
+
+_deps-pixel:
+    pnpm --dir examples/pixel_canvas_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -148,3 +160,6 @@ _build-text:
 
 _build-drum:
     pnpm --dir examples/drum_machine_lustre run build
+
+_build-pixel:
+    pnpm --dir examples/pixel_canvas_lustre run build

@@ -1255,7 +1255,8 @@ pub fn a_key_contested_across_an_offline_window_converges_test() {
   sluice_js.settle(sluice)
 
   let seen_by_a = watershed_js.get(watershed_js.root(doc_a), "cell")
-  seen_by_a |> expect.to_equal(watershed_js.get(watershed_js.root(doc_b), "cell"))
+  seen_by_a
+  |> expect.to_equal(watershed_js.get(watershed_js.root(doc_b), "cell"))
   seen_by_a |> option.is_some |> expect.to_be_true()
 }
 
