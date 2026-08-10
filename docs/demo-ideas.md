@@ -6,8 +6,8 @@ Candidate example apps for `examples/`, kept here so they survive between sessio
 
 - `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, zero prerequisites
 - `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, zero prerequisites
-- `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, one `watershed_lustre` rung first
-- `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, one subscribe rung first
+- `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, **shipped, GT1–GT6**, `examples/grocery_triptych_lustre/`
+- `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, **shipped, WQ1–WQ7**, `examples/work_queue_lustre/`
 - `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
 
 And the gaps those plans surfaced have their own plan:
@@ -25,11 +25,11 @@ Coverage across `examples/` and the website demos as of 2026-08-08.
 
 | State | Kinds |
 |---|---|
-| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples |
-| One site only | `OrSet`, `Claims` (sudoku), `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
-| **No demo** | `OrMap`, `PnCounter`, `OrderedCollection`, `RegisterCollection`, `TaskManager`, `GSet`, `TwoPSet` |
+| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap` |
+| One site only | `Claims` (sudoku), `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
+| **No demo** | `OrMap`, `PnCounter`, `RegisterCollection` |
 
-`PactMap` came off the bottom row with the drum machine. The remaining promoted plans take `OrMap`, `OrderedCollection`, and `TaskManager` off it.
+`PactMap` came off the bottom row with the drum machine. The remaining promoted plans chiefly take `OrMap` off it; grocery and work-queue coverage have already shipped.
 
 ## Two corrections worth not re-learning
 
@@ -52,13 +52,13 @@ The "full typed-layer parity across 14 kinds" milestone covered channel *lifecyc
 
 ## Ideas
 
-### ✅ Promoted — Grocery list triptych — `GSet` | `TwoPSet` | `OrSet`
+### ✅ Shipped — Grocery list triptych — `GSet` | `TwoPSet` | `OrSet`
 
-→ `docs/plans/2026-08-08-grocery-triptych-demo-plan.md`
+→ `docs/plans/2026-08-08-grocery-triptych-demo-plan.md`, `examples/grocery_triptych_lustre/`
 
 Three panels, identical UI, same interactions, wired to three different set kinds, diverging live. Remove "milk", then re-add it: the `TwoPSet` panel refuses (tombstone), the `OrSet` panel accepts, the `GSet` panel never removed it in the first place.
 
-**Prerequisite corrected:** this was listed as zero-prerequisite. It is not — `watershed_lustre` lacks `ensure_g_set` / `subscribe_g_set` / `ensure_two_p_set` / `subscribe_two_p_set` (FP5). They exist on `watershed_js`, so it is one thin rung, carried as GT1.
+GT1–GT6 are complete. The earlier FP5 prerequisite shipped before the example implementation, so there is no remaining blocker note to carry here.
 
 ### ✅ Shipped — Drum machine / step sequencer — `OrSet` + `PactMap`
 
@@ -157,13 +157,11 @@ Good filler work, but it makes an existing example more complicated rather than 
 Revised 2026-08-09, after FP1–FP6 and the drum machine landed. The same principle still applies: **correctness outranks demos, and demos are how the correctness bugs get found.**
 
 1. **Pixel canvas** — genuinely zero prerequisites, best story-per-hour, hardest visual proof.
-2. **Grocery triptych** — three kinds cleared, best teaching artifact.
-3. **Work queue** — no longer blocked: `TaskManager` turned out never to have been affected by the replay bug. Retires the two largest untouched kernels; the only demo about failure recovery.
-4. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
-5. **Clap counter** — nearly free, and has a home on the existing `counter-bug` page.
-6. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
-7. Everything else, as appetite allows.
+2. **Retro board** — zero prerequisites, most realistic app, two conflict scenarios worth showing.
+3. **Clap counter** — nearly free, and has a home on the existing `counter-bug` page.
+4. **Showcase composition** — SC1–SC8, once there are enough panels to be worth composing.
+5. Everything else, as appetite allows.
 
 Not a demo, and ahead of all of them if summaries are close: **`docs/plans/2026-08-09-summary-bootstrap-plan.md`** (SB1–SB8). It carries the goal every recent consensus fix was in service of — joining a document should cost recent history, not all of it — and it absorbs the two pieces the replay-quorum plan left open. SB1 is cheap and worth doing regardless: it either confirms or clears a suspected checkpoint-boundary bug in shipped behaviour.
 
-**Done:** FP1–FP6 (facade parity sweep), drum machine DM1–DM7, consensus replay quorum (client half).
+**Done:** FP1–FP6 (facade parity sweep), grocery triptych GT1–GT6, drum machine DM1–DM7, work queue WQ1–WQ7, consensus replay quorum (client half).

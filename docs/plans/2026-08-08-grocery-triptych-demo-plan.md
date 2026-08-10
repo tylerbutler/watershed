@@ -1,10 +1,22 @@
 # Grocery triptych demo plan — three set kinds, one interaction, three outcomes
 
+**Status:** shipped on main in `examples/grocery_triptych_lustre/` — GT1–GT6 complete.
 **Date:** 2026-08-08
-**Builds on:** `2026-07-06-lustre-integration-plan.md` (LU1–LU3), `docs/plans/2026-08-08-facade-parity-sweep-plan.md` (FP5 — the `watershed_lustre` fill-in this demo needs).
+**Builds on:** `2026-07-06-lustre-integration-plan.md` (LU1–LU3), `docs/plans/2026-08-08-facade-parity-sweep-plan.md` (FP5, which shipped before this example landed).
 **Benchmark:** none, deliberately. Every other demo in `examples/` imitates a product. This one imitates a **textbook figure** — the side-by-side comparison that CRDT papers draw and that no CRDT library ever ships as running code.
 
-**Prerequisite:** `watershed_lustre` lacks `ensure_g_set` / `subscribe_g_set` / `ensure_two_p_set` / `subscribe_two_p_set` (facade-parity plan, FP5). They exist on `watershed_js`, so the gap is one thin rung, carried here as GT1. An earlier note claimed this demo had zero prerequisites; that was wrong.
+**Prerequisite status:** none remaining. The earlier prerequisite was the `watershed_lustre` FP5 fill-in (`ensure_g_set` / `subscribe_g_set` / `ensure_two_p_set` / `subscribe_two_p_set`), but that shipped before the example implementation, so GT1 closed on main rather than remaining a blocker.
+
+## As built (status + corrections)
+
+- The shipped app kept the **single typed document / three channels** model on one root typed map.
+- The shipped removal affordance is a **shared remove control**, not per-panel remove buttons. Each row truthfully names which removable panels still contain the item, while GSet explicitly retains it.
+- The headline tombstone flow uses **`"milk"`**; the concurrent scenario uses **`"eggs"`** so the room can preserve both stories at once.
+- The two-tab scenario coordinates via ripple **invitation → acknowledgement → targeted `go`**. Ripples only coordinate timing and peer selection; the durable behavior comes from the set ops themselves.
+- Scenario lock/complete state is derived from the room's **durable snapshots**, so both automated scenarios are one-shot per room and require a fresh `?document=` URL to rerun honestly.
+- The UI smooths independently delivered channel frames with a **75ms generation debounce**. That is presentation glue, not cross-channel atomicity.
+- Tests shipped as **deterministic add-only convergence plus fixed remove/re-add/concurrent cases**; no property-test dependency was added.
+- The live smoke shipped as a **callback/root-observation** check: wait for both `on_ready` callbacks, ensure the channels on one client, observe root-field adoption on the other, then assert the `milk` and `eggs` outcomes end to end.
 
 ## Decisions already made (flagged — confirm before GT1)
 
@@ -21,7 +33,7 @@ The three set kinds differ in exactly one dimension — what removal means — a
 Set side by side, the difference is a five-second demo:
 
 > Add "milk" to all three. Remove it from all three. Add it back.
-> **G-Set:** never removed it — it is still there, and the remove button was disabled with "grow-only sets have no remove".
+> **G-Set:** never removed it — it is still there, and the shared remove feedback says GSet retained it because grow-only removal is not expressible.
 > **2P-Set:** removed it, and *refuses to re-add it* — tombstoned forever.
 > **OR-Set:** removed it, re-added it, present. Behaves the way you assumed all three would.
 
@@ -48,10 +60,10 @@ Secondarily: it clears three no-demo kinds in one small app, and it is the only 
 └──────────────────┘└──────────────────┘└────────────────────┘
 ```
 
-The `⚠` marks an item whose presence differs from the other panels — the visual payload of decision 3. Remove buttons are per-panel and per-item, but the primary flow uses the shared control so all three receive the same op.
+The `⚠` marks an item whose presence differs from the other panels — the visual payload of decision 3. As built, item removal lives in a shared **Shared remove actions** section so the UI can say exactly which removable panels still hold the item while keeping the interaction controlled.
 
-**Per-panel action feedback.** Attempting a blocked action reports the kind's rule inline and transiently:
-- G-Set: the remove control is rendered disabled with "grow-only — remove is not expressible", not hidden. An absent button teaches nothing; a disabled one with a reason teaches the constraint.
+**Action feedback.** Attempting a blocked or partial action reports the kind's rule inline and transiently:
+- G-Set: the shared remove feedback explicitly says GSet retained the item because grow-only removal is not expressible. The constraint is still part of the lesson even though the shipped remove control is shared.
 - 2P-Set: re-adding a tombstoned element is accepted by the API and has no effect. The panel must detect this — compare `two_p_set_contains` after the add — and surface "re-add ignored: `milk` is tombstoned". **This is the single most important message in the demo**, because it is the only failure that is otherwise completely silent.
 - OR-Set: no blocked actions. Its panel header notes it is the one you probably want.
 
@@ -83,17 +95,26 @@ Event shapes differ correspondingly — `g_set_kernel.GSetEvent` has only `Eleme
 
 ```gleam
 type Msg {
-  GotDocument(watershed_js.Document)
+  GotHandle(watershed_js.Document)
   Connected(Result(Nil, String))
-  EnsuredSets(Result(#(GSet, TwoPSet, OrSet), String))
-  ItemDrafted(String)
-  AddedToAll(String)
-  RemovedFromAll(String)
-  RemovedFrom(panel: Panel, item: String)
-  RanScenario(Scenario)
-  GSetChanged(g_set_kernel.GSetEvent)
-  TwoPSetChanged(two_p_set_kernel.TwoPSetEvent)
-  OrSetChanged(or_set_kernel.OrSetEvent)
+  EnsuredGrowOnly(Result(GSet, String))
+  EnsuredTwoPhase(Result(TwoPSet, String))
+  EnsuredObserved(Result(OrSet, String))
+  DraftChanged(String)
+  AddSubmitted
+  RemoveRequested(String)
+  ScenarioRequested(ScenarioName)
+  ScenarioRippleReceived(Ripple)
+  TombstoneStepDue(TombstoneStep)
+  ConcurrentInvitePeers(String)
+  ConcurrentInviteTimedOut(String)
+  ConcurrentPeerGoTimedOut(String)
+  ConcurrentInitiatorRemove(String, String)
+  VerifyConcurrent(String)
+  GrowOnlyChanged(g_set_kernel.GSetEvent)
+  TwoPhaseChanged(two_p_set_kernel.TwoPSetEvent)
+  ObservedChanged(or_set_kernel.OrSetEvent)
+  FlushSharedRefresh(Int)
 }
 ```
 
@@ -106,23 +127,23 @@ The union of all three panels' items forms the row set, so an item present in on
 The demo must not depend on a reader improvising the right sequence, and two of the interesting behaviours need *timing* a human cannot produce solo.
 
 - **Tombstone** — add "milk" to all three, remove from all three, re-add. Single-client, three steps, ~2s with visible pacing. This is the headline.
-- **Concurrent add/remove** — the two-client scenario: client A removes "milk" while client B adds it, in the same tick. Requires a second participant, so the panel prints "open a second tab and press this there" and coordinates over a ripple. The outcomes are the deep content: `OrSet` is add-wins for *concurrent* add/remove (B's add was not observed by A's remove, so the element survives), while `TwoPSet` tombstones unconditionally and the element is gone. **Do not assert these outcomes in the plan text as final** — run the convergence test in GT5 first and write the README from what it actually does.
+- **Concurrent add/remove** — the shipped two-client scenario seeds `"eggs"`, then has client A remove while client B re-adds in the same coordinated window. It requires a second participant, coordinates over a ripple invitation/ack/targeted-go handshake, and records the observed converged result from tests: `GSet` present, `TwoPSet` absent, `OrSet` present.
 
 ## Rungs
 
-- **GT1 — `watershed_lustre` fill-in (FP5 slice).** `ensure_g_set`, `subscribe_g_set`, `ensure_two_p_set`, `subscribe_two_p_set`, on the `ensure_or_set` / `subscribe_or_set` template. Land this in `watershed_lustre` proper, not the example — it is the parity plan's rung and other apps need it. Gate: package compiles; a scratch app receives a `GSetEvent`.
-- **GT2 — scaffold + connect.** `examples/grocery_triptych_lustre/` on the `playlist_lustre` template; `justfile` stanzas; all three channels ensured and subscribed; three empty panels. Gate: two tabs connect and render.
-- **GT3 — add to all three.** Shared input, union row rendering, per-panel counts. Gate: adding in one tab appears in all three panels in both tabs.
-- **GT4 — remove, and the three rules.** Per-panel remove, the disabled G-Set control with its reason, and the 2P-Set silent-re-add detection. Gate: the tombstone sequence performed by hand produces three visibly different panels.
-- **GT5 — divergence marking + scenarios.** The `⚠` badge, per-panel diff counts, and both preset scenarios. Gate: the concurrent scenario runs across two tabs and its outcome is recorded — **the README is written from the observed result, not from this document's prediction.**
-- **GT6 — README + smoke test.** Lead with the tombstone sequence. State plainly which kind to reach for by default (`OrSet`) and what the other two are actually for (`GSet` for genuinely monotonic facts; `TwoPSet` when permanent removal is a *requirement* rather than an accident).
+- **GT1 — `watershed_lustre` fill-in (FP5 slice).** ✅ shipped before the example landed: `ensure_g_set`, `subscribe_g_set`, `ensure_two_p_set`, `subscribe_two_p_set`.
+- **GT2 — scaffold + connect.** ✅ shipped in `examples/grocery_triptych_lustre/`: three channels ensured/subscribed, shared document routing, two tabs connect and render.
+- **GT3 — add to all three.** ✅ shipped: shared input, union row rendering, per-panel counts, deterministic convergence checks.
+- **GT4 — remove, and the three rules.** ✅ shipped with a shared remove control, explicit GSet retention messaging, and TwoPSet silent-re-add detection.
+- **GT5 — divergence marking + scenarios.** ✅ shipped: `⚠` marker, diff counts, tombstone automation, and the two-tab concurrent scenario with recorded observed outcome.
+- **GT6 — README + smoke test.** ✅ shipped: README leads with the tombstone sequence and the smoke path validates ready callbacks, adoption, and both semantic outcomes.
 
 ## Testing strategy
 
 - **Convergence tests** (`test/convergence_test.gleam`, two in-process clients over `sluice`) — one per kind for the concurrent add/remove race, asserting the outcome each kind's semantics require. These tests are the demo's actual claims and are what GT5's README is written from.
 - **Tombstone test:** single client, `two_p_set_add` → `remove` → `add`, assert `contains` is `False` after the re-add. This is the behaviour the UI must detect and is worth pinning independently of the UI.
-- **The triptych invariant:** after any sequence of adds with no removes, all three panels hold identical sets. A property test over random add-only sequences — if this ever fails, the comparison is not controlled and the entire demo is invalid.
-- **Smoke test** on the `sudoku_lustre` pattern.
+- **The triptych invariant:** after add-only sequences, all three panels hold identical sets. Shipped as a deterministic multi-client add-only test with duplicates and interleaving from both sides — enough to prove the controlled-comparison claim without adding a new property-test dependency.
+- **Smoke test** on the `sudoku_lustre` pattern, but hardened to wait for both `on_ready` callbacks and root-field adoption before asserting the `milk` and `eggs` outcomes.
 
 ## A note on scope creep
 
