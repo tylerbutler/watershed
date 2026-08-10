@@ -343,7 +343,14 @@ fn kinds() -> List(Kind) {
 /// nothing for the other facade to mirror.
 const beam_only = ["runtime_subject"]
 
-const js_only = ["runtime_of", "diagnostics"]
+/// `go_offline`/`go_online` are here for a reason that is about the transport,
+/// not about taste. Holding a connection down needs a transport that can tell
+/// "close" from "drop"; the BEAM's aquamarine channel cannot — `close` and
+/// `drop` are the same teardown, and the receiver rejoins on `ChannelClosed`
+/// by itself. Mirroring the pair there means suppressing that automatic rejoin,
+/// which is a change to reconnect scheduling rather than a binding. Worth doing
+/// if a BEAM client ever wants an offline mode; not worth doing speculatively.
+const js_only = ["runtime_of", "diagnostics", "go_offline", "go_online"]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,
 /// `subscribe_*`) and nothing else; edits and reads stay on `watershed_js`.

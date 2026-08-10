@@ -667,6 +667,32 @@ pub fn force_reconnect(document: Document) -> Effect(msg) {
   watershed_js.force_reconnect(document)
 }
 
+/// Go offline and stay there. Reads and edits keep working; the edits queue and
+/// flush when `go_online` reconnects. A no-op unless the document is connected.
+///
+/// The pair is meant to be bound straight to a toggle:
+///
+/// ```gleam
+/// ToggledOffline(offline) -> #(
+///   Model(..model, offline:),
+///   case offline {
+///     True -> watershed_lustre.go_offline(doc)
+///     False -> watershed_lustre.go_online(doc)
+///   },
+/// )
+/// ```
+pub fn go_offline(document: Document) -> Effect(msg) {
+  use _dispatch <- effect.from
+  watershed_js.go_offline(document)
+}
+
+/// Come back from `go_offline`, replaying the gap and flushing what was edited
+/// during it. A no-op unless the document is currently held offline.
+pub fn go_online(document: Document) -> Effect(msg) {
+  use _dispatch <- effect.from
+  watershed_js.go_online(document)
+}
+
 // ── Presence ─────────────────────────────────────────────────────────────────
 //
 // The library's presence driver as effects. The driver owns the whole

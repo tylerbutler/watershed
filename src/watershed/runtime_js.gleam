@@ -90,11 +90,19 @@ const max_ops_per_submission = 100
 /// A live connection's outbound operations. `push` carries the wire event and
 /// its JSON payload; `close` tears the connection down; `drop` forces the
 /// reconnect path (for phoenix, a socket drop that auto-rejoins).
+///
+/// `hold` and `resume` are `drop` split in two. `drop` is away-and-back in one
+/// step, which is the right shape for fault injection and the wrong one for an
+/// offline mode: there is no window in the middle to edit in. A held connection
+/// stays held until `resume`, and because the runtime keeps its core either way,
+/// edits made in that window are still there to flush on the rejoin.
 pub type TransportHandle {
   TransportHandle(
     push: fn(String, Json) -> Nil,
     close: fn() -> Nil,
     drop: fn() -> Nil,
+    hold: fn() -> Nil,
+    resume: fn() -> Nil,
   )
 }
 
@@ -295,6 +303,8 @@ fn phoenix_transport(
       },
       close: fn() { transport_js.close(channel) },
       drop: fn() { transport_js.drop_socket(channel) },
+      hold: fn() { transport_js.hold_socket(channel) },
+      resume: fn() { transport_js.resume_socket(channel) },
     )
   })
 }
@@ -1571,6 +1581,43 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
       notify_session_lost(runtime.cell, state.phase)
       channel.drop()
     }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Go offline and stay there: hold the connection down while the document keeps
+/// accepting edits locally. `go_online` brings it back.
+///
+/// The phase parks at `Reconnecting`, which is a state the runtime already
+/// serves fully — reads and edits both work, edits accumulate as pending, and
+/// the rejoin handshake carries `last_seen` and flushes them. Nothing here is a
+/// new state machine; the only new thing is that the socket does not come back
+/// on its own.
+///
+/// This is what an offline toggle needs and neither neighbouring hook provides.
+/// `force_reconnect` is away-and-back with no window in between, and `close` is
+/// terminal — reconnecting after it means a fresh runtime, whose empty core has
+/// none of the edits made in the meantime.
+pub fn go_offline(runtime: Runtime) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.channel {
+    Ready(core, _), Some(channel) -> {
+      cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(runtime.cell, state.phase)
+      channel.hold()
+    }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Come back from `go_offline`. A no-op unless the connection is held, so a UI
+/// can bind this to a toggle without tracking the phase itself.
+pub fn go_online(runtime: Runtime) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.channel {
+    Reconnecting(_), Some(channel) -> channel.resume()
     _, _ -> Nil
   }
 }

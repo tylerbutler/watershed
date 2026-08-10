@@ -1161,3 +1161,124 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
   |> option.map(json.to_string)
   |> expect.to_equal(Some("96"))
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The offline toggle
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// A client goes offline, keeps editing, and its edits land when it returns.
+///
+/// Neither existing hook expresses this. `force_reconnect` reconnects on the
+/// next statement, so there is no window to edit in; `close` parks the runtime
+/// in `Failed` with no way out, so coming back means a fresh `connect` — a new
+/// core, and the pending queue this asserts the survival of is gone with it.
+pub fn go_offline_holds_edits_until_go_online_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "offline-toggle-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  watershed_js.go_offline(doc_a)
+  sluice_js.settle(sluice)
+  watershed_js.diagnostics(doc_a).phase |> expect.to_equal("reconnecting")
+
+  // A keeps painting with the socket away: the edit is optimistically visible
+  // to A and to nobody else.
+  watershed_js.set(watershed_js.root(doc_a), "offline", json.int(7))
+  sluice_js.settle(sluice)
+  watershed_js.get(watershed_js.root(doc_a), "offline")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("7"))
+  watershed_js.get(watershed_js.root(doc_b), "offline") |> expect.to_equal(None)
+
+  watershed_js.go_online(doc_a)
+  sluice_js.settle(sluice)
+
+  watershed_js.diagnostics(doc_a).phase |> expect.to_equal("ready")
+  watershed_js.get(watershed_js.root(doc_b), "offline")
+  |> option.map(json.to_string)
+  |> expect.to_equal(Some("7"))
+}
+
+@target(javascript)
+/// Both halves of the room edit while one of them is away, and the reunion is
+/// the union of the two. This is the claim the pixel canvas makes out loud.
+pub fn edits_made_on_both_sides_of_an_offline_window_merge_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "offline-merge-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  watershed_js.go_offline(doc_a)
+  sluice_js.settle(sluice)
+
+  // Disjoint regions, painted concurrently by a client that cannot hear and a
+  // client that cannot be heard.
+  watershed_js.set(watershed_js.root(doc_a), "from-a", json.int(1))
+  watershed_js.set(watershed_js.root(doc_b), "from-b", json.int(2))
+  sluice_js.settle(sluice)
+
+  watershed_js.go_online(doc_a)
+  sluice_js.settle(sluice)
+
+  list.each([doc_a, doc_b], fn(doc) {
+    let root = watershed_js.root(doc)
+    watershed_js.get(root, "from-a")
+    |> option.map(json.to_string)
+    |> expect.to_equal(Some("1"))
+    watershed_js.get(root, "from-b")
+    |> option.map(json.to_string)
+    |> expect.to_equal(Some("2"))
+  })
+}
+
+@target(javascript)
+/// The same key written on both sides of the window settles the same way for
+/// everyone. Which writer wins is the kernel's business and deliberately not
+/// asserted — only that the room agrees on one answer.
+pub fn a_key_contested_across_an_offline_window_converges_test() {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "offline-contested-js")
+  let doc_a = sluice_js.connect(sluice, "user-a")
+  let doc_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  watershed_js.go_offline(doc_a)
+  sluice_js.settle(sluice)
+
+  watershed_js.set(watershed_js.root(doc_a), "cell", json.string("a"))
+  watershed_js.set(watershed_js.root(doc_b), "cell", json.string("b"))
+  sluice_js.settle(sluice)
+
+  watershed_js.go_online(doc_a)
+  sluice_js.settle(sluice)
+
+  let seen_by_a = watershed_js.get(watershed_js.root(doc_a), "cell")
+  seen_by_a |> expect.to_equal(watershed_js.get(watershed_js.root(doc_b), "cell"))
+  seen_by_a |> option.is_some |> expect.to_be_true()
+}
+
+@target(javascript)
+/// `go_offline` is only meaningful from a live connection, and `go_online` only
+/// from a held one. Both are no-ops otherwise rather than errors, so a UI can
+/// bind them to a toggle without tracking the phase itself.
+pub fn the_offline_toggle_is_inert_outside_its_phase_test() {
+  let sluice = sluice_js.start(tenant: "default", document: "offline-inert-js")
+  let doc = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  // Already online.
+  watershed_js.go_online(doc)
+  watershed_js.diagnostics(doc).phase |> expect.to_equal("ready")
+
+  // Already offline.
+  watershed_js.go_offline(doc)
+  watershed_js.go_offline(doc)
+  sluice_js.settle(sluice)
+  watershed_js.diagnostics(doc).phase |> expect.to_equal("reconnecting")
+
+  watershed_js.go_online(doc)
+  sluice_js.settle(sluice)
+  watershed_js.diagnostics(doc).phase |> expect.to_equal("ready")
+}

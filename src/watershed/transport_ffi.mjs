@@ -80,6 +80,23 @@ export function dropSocket(channel) {
   return undefined;
 }
 
+// Take the socket down and leave it down. The difference from `dropSocket` is
+// the missing `connect()`: Phoenix records a clean close and its reconnect
+// timer stays parked, so the client stays offline for as long as the caller
+// wants instead of for one round trip.
+export function holdSocket(channel) {
+  channel.socket.disconnect(() => {}, 1000, "watershed offline");
+  return undefined;
+}
+
+// Bring a held socket back. Phoenix rejoins the channel and re-fires `onJoin`,
+// which is the runtime's re-handshake hook — so the catch-up and the pending
+// flush are the same ones any reconnect goes through.
+export function resumeSocket(channel) {
+  channel.socket.connect();
+  return undefined;
+}
+
 export function close(channel) {
   channel.socket.disconnect();
   return undefined;

@@ -2819,6 +2819,39 @@ pub fn force_reconnect(document: Document) -> Nil {
 }
 
 @target(javascript)
+/// Go offline and stay offline. The document keeps serving reads and accepting
+/// edits; they queue as pending and flush when `go_online` reconnects.
+///
+/// This is `force_reconnect` with a pause button. `force_reconnect` is away and
+/// back in one step, which leaves no window to edit in, and `close` cannot
+/// stand in for it either — that ends the runtime, so coming back means a fresh
+/// `connect` whose empty core has none of the edits made while away.
+///
+/// A no-op unless the document is connected, so a UI can bind this straight to
+/// a toggle:
+///
+/// ```gleam
+/// case offline {
+///   True -> watershed_js.go_offline(doc)
+///   False -> watershed_js.go_online(doc)
+/// }
+/// ```
+///
+/// While offline `diagnostics(doc).phase` reads `"reconnecting"`. Note that
+/// `in_flight_count` reads zero — nothing has been *submitted* — so a UI that
+/// wants to show how much work is waiting has to count the edits itself.
+pub fn go_offline(document: Document) -> Nil {
+  runtime_js.go_offline(document.runtime)
+}
+
+@target(javascript)
+/// Come back from `go_offline`, replaying the gap and flushing what was edited
+/// during it. A no-op unless the document is currently held offline.
+pub fn go_online(document: Document) -> Nil {
+  runtime_js.go_online(document.runtime)
+}
+
+@target(javascript)
 /// This client's server-assigned id, `None` until the first handshake lands.
 ///
 /// The reason to want it is identity in *someone else's* list. Consensus

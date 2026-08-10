@@ -44,6 +44,17 @@ pub fn push(channel: Channel, event: String, payload: String) -> Nil
 pub fn drop_socket(channel: Channel) -> Nil
 
 @target(javascript)
+/// Take the socket down and leave it down, so the client can keep editing
+/// offline. `resume_socket` brings it back.
+@external(javascript, "./transport_ffi.mjs", "holdSocket")
+pub fn hold_socket(channel: Channel) -> Nil
+
+@target(javascript)
+/// Bring a held socket back; phoenix rejoins and re-fires the join callback.
+@external(javascript, "./transport_ffi.mjs", "resumeSocket")
+pub fn resume_socket(channel: Channel) -> Nil
+
+@target(javascript)
 @external(javascript, "./transport_ffi.mjs", "close")
 pub fn close(channel: Channel) -> Nil
 

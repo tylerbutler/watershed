@@ -191,9 +191,24 @@ pub fn drop(sluice: Sluice, document: watershed_js.Document) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   case conn_for(state, watershed_js.runtime_of(document)) {
     Error(_) -> Nil
-    Ok(#(token, conn)) -> {
+    Ok(#(token, _)) -> drop_token(sluice.cell, token)
+  }
+}
+
+@target(javascript)
+/// `drop` keyed by transport token rather than by document.
+///
+/// The transport handle closes over its token and has no `Sluice` or
+/// `Document` to hand, so this is the form its `hold` needs — which is what
+/// makes `watershed_js.go_offline` work against the sluice and not just against
+/// a real socket.
+fn drop_token(cell: Cell(State), token: String) -> Nil {
+  let state = transport_js.get_cell(cell)
+  case list.key_find(state.conns, token) {
+    Error(_) -> Nil
+    Ok(conn) -> {
       transport_js.set_cell(
-        sluice.cell,
+        cell,
         State(
           ..state,
           // The leave the server sequences when a socket goes away.
@@ -214,10 +229,21 @@ pub fn drop(sluice: Sluice, document: watershed_js.Document) -> Nil {
 pub fn rejoin(sluice: Sluice, document: watershed_js.Document) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   case conn_for(state, watershed_js.runtime_of(document)) {
-    Ok(#(token, conn)) if conn.dropped -> {
+    Ok(#(token, _)) -> rejoin_token(sluice.cell, token)
+    Error(_) -> Nil
+  }
+}
+
+@target(javascript)
+/// `rejoin` keyed by transport token — the form the handle's `resume` needs.
+/// See `drop_token`.
+fn rejoin_token(cell: Cell(State), token: String) -> Nil {
+  let state = transport_js.get_cell(cell)
+  case list.key_find(state.conns, token) {
+    Ok(conn) if conn.dropped -> {
       let #(core, rejoined) = core.register(state.core)
       transport_js.set_cell(
-        sluice.cell,
+        cell,
         State(
           ..state,
           core: core,
@@ -505,10 +531,18 @@ fn make_transport(cell: Cell(State)) -> runtime_js.Transport {
         )
       // Closes over the *token*, not the server-assigned id, so the handle keeps
       // working after a reconnect reassigns the latter.
+      // `close` and `drop` stay inert: the sluice drives those from the outside,
+      // through `sluice_js.disconnect` / `drop`, because a test scripting a
+      // race needs to sequence ops *between* the two halves of a reconnect.
+      // `hold`/`resume` have no such external caller — they exist so
+      // `watershed_js.go_offline` behaves the same here as over a real socket,
+      // which is what lets an app test its own offline path.
       runtime_js.TransportHandle(
         push: fn(event, payload) { push(cell, token, event, payload) },
         close: fn() { Nil },
         drop: fn() { Nil },
+        hold: fn() { drop_token(cell, token) },
+        resume: fn() { rejoin_token(cell, token) },
       )
     },
   )
