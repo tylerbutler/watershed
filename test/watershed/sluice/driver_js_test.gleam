@@ -32,6 +32,8 @@ import watershed/sequence_kernel
 @target(javascript)
 import watershed/sluice_js
 @target(javascript)
+import watershed/summary_policy
+@target(javascript)
 import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
@@ -1387,4 +1389,63 @@ pub fn the_offline_toggle_is_inert_outside_its_phase_test() {
   watershed_js.go_online(doc)
   sluice_js.settle(sluice)
   watershed_js.diagnostics(doc).phase |> expect.to_equal("ready")
+}
+
+@target(javascript)
+pub fn ops_since_summary_counts_the_unsummarized_log_test() {
+  // Nothing has summarized this document, so every sequenced message is drift
+  // a joining client would have to replay. That number is what the automatic
+  // policy thresholds on, and diagnostics carries it for a debug UI.
+  let sluice = sluice_js.start(tenant: "default", document: "summary-drift-js")
+  let doc = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let before = watershed_js.ops_since_summary(doc)
+  { before > 0 } |> expect.to_be_true()
+
+  watershed_js.set(watershed_js.root(doc), "a", json.int(1))
+  watershed_js.set(watershed_js.root(doc), "b", json.int(2))
+  sluice_js.settle(sluice)
+
+  watershed_js.ops_since_summary(doc) |> expect.to_equal(before + 2)
+  watershed_js.diagnostics(doc).ops_since_summary
+  |> expect.to_equal(before + 2)
+}
+
+@target(javascript)
+pub fn an_armed_summary_waits_out_its_jitter_window_test() {
+  // The wake-up is scheduled, not immediate: on the sluice's logical clock
+  // nothing happens until `advance` reaches the delay. This is the only place
+  // the JS timer path runs deterministically — a live attempt needs storage.
+  let sluice = sluice_js.start(tenant: "default", document: "summary-timer-js")
+  let doc = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  // No jitter, so the wake-up is due immediately — but "due" is on the
+  // sluice's clock, and only `advance` fires it.
+  let policy =
+    summary_policy.policy()
+    |> summary_policy.with_threshold(1)
+    |> summary_policy.with_jitter_ms(0)
+  watershed_js.auto_summarize(doc, policy)
+
+  watershed_js.set(watershed_js.root(doc), "a", json.int(1))
+  sluice_js.settle(sluice)
+  // Armed by the sequenced op, and still waiting: delivering frames does not
+  // move the clock.
+  watershed_js.diagnostics(doc).summary_pending |> expect.to_be_true()
+
+  // The wake-up runs, and the attempt fails at the token gate — the sluice has
+  // no storage and its documents carry no token. What matters is that the
+  // document keeps working either way.
+  sluice_js.advance(sluice, 0)
+  watershed_js.diagnostics(doc).summary_pending |> expect.to_be_false()
+  sluice_js.settle(sluice)
+
+  watershed_js.set(watershed_js.root(doc), "b", json.int(2))
+  sluice_js.settle(sluice)
+  watershed_js.get(watershed_js.root(doc), "b")
+  |> expect.to_equal(Some(json.int(2)))
+  // The attempt failed, so nothing moved the checkpoint.
+  { watershed_js.ops_since_summary(doc) > 0 } |> expect.to_be_true()
 }

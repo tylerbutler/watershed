@@ -81,6 +81,11 @@ so a document's nested structure is an `effect.batch` in `init`:
 `presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`
 starts it and hands the `Handle` back; `announce(handle, payload)` broadcasts.
 
+**Summaries** — `auto_summarize(document:, policy:)` lets the client write its
+own checkpoints once the document drifts past the policy's threshold, so a
+later join replays recent history instead of all of it; `stop_auto_summarize`
+turns it off. Off unless installed.
+
 **Timers & misc**: `after(ms, msg)`, `submit_ripple`, `force_reconnect`.
 
 ## Components

@@ -36,6 +36,7 @@ import doc_schema
 import watershed/browser
 import watershed/client_id
 import watershed/pact_map_kernel
+import watershed/summary_policy
 import watershed_js.{type Document, type OrSet, type PactMap}
 import watershed_lustre
 
@@ -291,6 +292,14 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 fn bootstrap_effect(doc: Document) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
+    // A jam session writes a lot of small ops — a step toggle apiece — so this
+    // is the example where an unsummarized log grows fastest and a later joiner
+    // pays for it. The threshold is well below floodgate's 1000-op in-band
+    // window, so a joiner's catch-up stays in band.
+    watershed_lustre.auto_summarize(
+      document: doc,
+      policy: summary_policy.policy() |> summary_policy.with_threshold(200),
+    ),
     watershed_lustre.ensure_field(root, doc_schema.title(), "Drum machine"),
     watershed_lustre.ensure_or_set(doc, root, doc_schema.kick(), EnsuredKick),
     watershed_lustre.ensure_or_set(doc, root, doc_schema.snare(), EnsuredSnare),

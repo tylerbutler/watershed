@@ -20,6 +20,7 @@ import gleam/list
 import gleam/string
 
 import doc_schema
+import watershed/summary_policy
 import watershed_js.{type Document, type OrSet, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -76,6 +77,18 @@ pub fn main() {
 fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
+
+  // The app installs the same policy, at the shipped threshold. Here it is low
+  // enough that the handful of ops below crosses it, so the run exercises the
+  // whole path — upload, summarize op, checkpoint — rather than just the
+  // arming. Nothing below calls `summarize`.
+  let policy =
+    summary_policy.policy()
+    |> summary_policy.with_threshold(6)
+    |> summary_policy.with_jitter_ms(0)
+  watershed_js.auto_summarize(doc_a, policy)
+  watershed_js.auto_summarize(doc_b, policy)
+
   log("smoke: ensuring the kick track on A")
 
   watershed_js.ensure_or_set(
@@ -151,9 +164,25 @@ fn toggle_scenario(doc_a: Document, kick_a: OrSet, kick_b: OrSet) -> Nil {
   use <- delay(2500)
   let survived_reconnect = steps(kick_a) == before && steps(kick_b) == before
 
-  case seeded && converged && add_won && on && off && survived_reconnect {
+  // By now the room is well past the threshold, so a checkpoint should have
+  // been written without anything here asking for one. The observable is the
+  // client's own drift falling back below the ops it has authored.
+  use <- delay(1500)
+  let summarized = watershed_js.ops_since_summary(doc_a) < 6
+
+  case
+    seeded
+    && converged
+    && add_won
+    && on
+    && off
+    && survived_reconnect
+    && summarized
+  {
     True -> {
-      log("SMOKE PASS: the pattern converged and the enable won")
+      log(
+        "SMOKE PASS: the pattern converged, the enable won, and the room summarized itself",
+      )
       exit(0)
     }
     False -> {
@@ -170,6 +199,8 @@ fn toggle_scenario(doc_a: Document, kick_a: OrSet, kick_b: OrSet) -> Nil {
         <> bool_str(off)
         <> " survived_reconnect="
         <> bool_str(survived_reconnect)
+        <> " summarized="
+        <> bool_str(summarized)
         <> " (A="
         <> string.join(steps(kick_a), ",")
         <> " B="

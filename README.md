@@ -65,6 +65,14 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
   reconnect/reconcile with client-id remap, nack policy, noop heartbeat.
 - **M5 — polish + example: in progress.** Public API (`watershed`), and a
   **Gleam-end-to-end Lustre** dice roller (see below).
+- **Automatic summaries: opt-in.** `summarize` writes a checkpoint a later
+  client bootstraps from instead of replaying the whole log; on its own it has
+  to be called by hand. `auto_summarize(document, summary_policy.policy())`
+  hands that decision to the runtime, which writes one once the document has
+  drifted past the policy's threshold and this client is settled. Safe on every
+  client in a room: attempts are spread over a jitter window, and the first
+  summary sequenced stands the rest down. Off unless installed;
+  `ops_since_summary` reports the current drift.
 
 ## Targets
 

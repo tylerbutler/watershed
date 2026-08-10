@@ -43,6 +43,7 @@ import watershed/register_collection_kernel
 import watershed/rich_text
 import watershed/rich_text_kernel
 import watershed/sequence_kernel
+import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/two_p_set_kernel
@@ -91,6 +92,23 @@ pub type Core {
     /// *self* into the quorum of an op sequenced before we joined puts this
     /// client in a room it was not in.
     replaying: Bool,
+    /// The sequence number of the newest checkpoint this client knows about:
+    /// the blob it bootstrapped from, a summarize op it has since observed, or
+    /// one it wrote itself. Zero on a document nothing has ever summarized.
+    ///
+    /// It is an upper bound rather than an exact capture point. An observed
+    /// summarize op reports the sequence number the *op* was assigned, which
+    /// is at or past the point the blob's contents were captured — the two
+    /// differ by however much the room wrote during the upload. That gap makes
+    /// the policy slightly lazier and never makes it summarize twice, which is
+    /// the direction to be wrong in. `summary_from_blob` is the exception: a
+    /// loading client takes the blob's own number, because there it is the
+    /// state being seeded that matters, not the pointer.
+    ///
+    /// Nothing in the document's correctness depends on this. It exists so
+    /// `wants_summary` can answer "how much has drifted since the last
+    /// checkpoint" without asking the server.
+    last_summary_sn: Int,
     /// Per-channel buffer of *owed* follow-up ops a kernel released while
     /// applying a sequenced op (e.g. a consensus `Accept` reacting to a peer's
     /// `Set`). Drained after each sequenced batch by `collect_released_ops`,
@@ -231,6 +249,9 @@ pub fn bootstrap(
       detached: dict.new(),
       next_csn: 1,
       last_seen_sn: last_seen,
+      // The blob we loaded *is* the newest checkpoint we know of; a document
+      // with no summary has none, and every op in its log is outstanding.
+      last_summary_sn: last_seen,
       in_flight: [],
       out_of_order: [],
       // Seeded from the checkpoint, **not** from the handshake's roster, and
@@ -349,6 +370,56 @@ pub fn is_synced(core: Core) -> Bool {
   core.in_flight == []
 }
 
+/// How far the document has drifted past the newest checkpoint this client
+/// knows about — the number the automatic policy thresholds on, and the one
+/// worth showing in diagnostics. On a document nothing has summarized it is
+/// the full log length, which is the cost every joining client is paying.
+pub fn ops_since_summary(core: Core) -> Int {
+  int.max(0, core.last_seen_sn - core.last_summary_sn)
+}
+
+/// Whether this client should summarize now, per `policy`.
+///
+/// Deliberately stricter than `is_synced`, which is only "no un-acked local
+/// edits". A summary is a claim about confirmed state at a sequence point, so
+/// every way of *not* being at that point disqualifies:
+///
+///   - `replaying`: the core is a historical position, and the roster it would
+///     record is the room as of the checkpoint rather than now.
+///   - `in_flight`: a local edit the blob would silently omit. `summarize`
+///     refuses in this state anyway; the policy should not ask.
+///   - `out_of_order`: a `requestOps` round is outstanding, so the confirmed
+///     state is a prefix of what the server has already sequenced.
+pub fn wants_summary(core: Core, policy: Policy) -> Bool {
+  !core.replaying
+  && core.in_flight == []
+  && core.out_of_order == []
+  && ops_since_summary(core) >= summary_policy.policy_threshold(policy)
+}
+
+/// How long this client waits before acting on `wants_summary`.
+///
+/// Derived from the client id rather than drawn at random: every client in the
+/// room crosses the threshold on the same op, and a derived delay spreads them
+/// deterministically — reproducible in a test, and needing no RNG on either
+/// target. The first summary to be sequenced advances everyone else's
+/// `last_summary_sn`, so the rest of the room re-checks and stands down.
+///
+/// The multiply is doing real work. A server hands out client ids in sequence,
+/// so `id % window` puts a whole room within a few milliseconds of each other
+/// — deterministic, and no spread at all. Scrambling first turns adjacent ids
+/// into distant delays, which is the entire point of the window. The `% 100_003`
+/// keeps the product inside the range JavaScript integers represent exactly.
+pub fn summary_jitter_ms(core: Core, policy: Policy) -> Int {
+  case summary_policy.policy_jitter_ms(policy) {
+    window if window <= 0 -> 0
+    window -> {
+      let id = int.absolute_value(client_id_to_int(core.client_id)) % 100_003
+      id * 2_654_435_761 % window
+    }
+  }
+}
+
 pub fn build_summarize(
   core: Core,
   handle handle: String,
@@ -365,7 +436,13 @@ pub fn build_summarize(
       parents: [],
       head: head,
     )
-  #(Core(..core, next_csn: csn + 1), outbound)
+  // Our own checkpoint moves here rather than when the op is echoed back: a
+  // summarize op carries no ack and no in-flight entry, so waiting for the
+  // echo would leave the policy re-arming on every op in between.
+  #(
+    Core(..core, next_csn: csn + 1, last_summary_sn: core.last_seen_sn),
+    outbound,
+  )
 }
 
 fn seed_channels(
@@ -850,6 +927,23 @@ fn apply_one(
     "op" -> handle_op(core, msg)
     "join" -> handle_join(core, msg)
     "leave" -> handle_leave(core, msg)
+    // Someone summarized. The contents are a storage handle this client has no
+    // use for — it is already caught up — but the sequence number tells the
+    // automatic policy that the document has a fresher checkpoint than it
+    // thought, which is how a room avoids every client summarizing the same
+    // state. `int.max` because a summarize op replayed out of an old log must
+    // not un-summarize a document loaded from a newer blob.
+    "summarize" ->
+      Ok(
+        #(
+          Core(
+            ..core,
+            last_summary_sn: int.max(core.last_summary_sn, msg.sequence_number),
+          ),
+          [],
+          [],
+        ),
+      )
     _ -> Ok(#(core, [], []))
   }
 }

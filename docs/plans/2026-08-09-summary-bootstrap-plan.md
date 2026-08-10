@@ -3,7 +3,7 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
-**Status:** the correctness foundation is done — SB1, SB2, SB7 shipped, and SB6's server blocker is closed and its client half pinned. What is left is the policy that decides *when* to summarize (SB3, SB4, SB6's default flip, SB8), plus SB5, which turned out to be an unimplemented feature rather than a broken test. Rungs below carry their outcomes.
+**Status:** SB1, SB2, SB3, SB4, SB7 shipped. Documents now summarize themselves when asked to — the policy exists, both runtimes drive it, and it is on in the drum machine. What is left is turning it on by default (SB6) and the docs (SB8). SB5 is an unimplemented server feature, not a broken test. Rungs below carry their outcomes.
 
 ## Why
 
@@ -24,15 +24,13 @@ The surprising part, and the reason this plan exists rather than a one-line tick
 | Server records the pointer | ✅ floodgate `SubmitSummary` → `store.put_summary` (`session.gleam:1133-1147`) |
 | Handshake offers it | ✅ `summaryContext` → `load_summary_then_bootstrap` (`runtime_js.gleam:1782`, `runtime.gleam:2439`) |
 | Replay membership from the log | ✅ commit `0d94d7a` |
-| **Anything that calls `summarize`** | ❌ **nothing, anywhere** — still true; this is SB3 |
+| **Anything that calls `summarize`** | ✅ SB3 — `auto_summarize` installs a policy; the runtime decides |
 | Checkpoint roster in the blob | ✅ blob v4, SB2 |
 | Load point matches the blob | ✅ SB1 |
 | Durable log with matched join/leave | ✅ floodgate `0b24bbd`, levee#85 closed |
 | `get_versions` / `load_version` | ❌ no server implements `/versions` — see SB5 |
 
-`summarize` has no caller in `src/`, `examples/`, `website/`, or any test outside the env-gated `summary_versions_test`. Floodgate never asks for one either: there is no summarizer election and no nack prompting a client to summarize — it accepts summarize ops and stores what it is given.
-
-So today every document replays from sequence number zero. Floodgate caps `initialMessages` at 1000 ops (`doc_state.max_history_size`) and watershed pages the rest through `fetch_deltas`, which works and is exactly the unbounded growth the goal exists to stop.
+*(Written when `summarize` had no caller in `src/`, `examples/`, `website/`, or any test outside the gated ones — so every document replayed from sequence number zero, paging through `fetch_deltas` past floodgate's 1000-op `initialMessages` cap. That is what SB3 closed. Floodgate still never asks for a summary: there is no summarizer election and no nack prompting one — it accepts summarize ops, stores what it is given, and broadcasts the op to the room.)*
 
 ## Decisions already made (flagged — confirm before SB1)
 
@@ -106,14 +104,74 @@ json.object([
 
 - **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
 - **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
-- **SB3 — the summarization policy.** Threshold + jitter per decision (a), off by default behind explicit configuration. Gate: two clients on a busy document produce at most a small constant number of redundant summaries, and a document past the threshold reliably acquires one.
-- **SB4 — exercise it.** Turn the policy on in the integration suite and in one example (the drum machine is the natural choice — it has three-client tests and a `PactMap`). Gate: a document summarized mid-session is joinable by a fresh client that never sees the pre-checkpoint ops.
+- **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Off unless `auto_summarize` installs a policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
+- **SB4 — ✅ done, with one leg failing on the server it was run against.** The policy is on in the live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, a fourth `live_js` scenario) and in the drum machine, app and smoke. Verified live: a document summarizes itself with nothing calling `summarize`, on both targets. **Not** verified: a fresh client joining that document applies the post-checkpoint delta — see "The joiner leg" below, which is a pre-existing failure, not this work's.
 - **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
 - **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is pinned by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
 - **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
 
-**Remaining: SB3, SB4, SB5, SB6's default flip, SB8.** Nothing is blocked on levee any more.
+**Remaining: SB6's default flip, SB8.** SB5 stays unimplemented (server-side). Before SB6, settle "The joiner leg" below against floodgate — turning summaries on by default while a post-checkpoint delta can be dropped would make that defect everyone's.
+
+## What SB3 changed about its own design
+
+**A peer's summary is visible, and that is what makes the jitter window work.**
+The plan budgeted for redundant uploads because it assumed each client would
+find out about a summary only at its next handshake. It does better than that:
+floodgate broadcasts the sequenced summarize op, and `apply_one` now records its
+sequence number. So the window is not just a stagger — it is a *cancel*. The
+first client to summarize advances everyone else's `last_summary_sn`, and their
+wake-ups find nothing to do. Confirmed live by
+`a_peers_summary_resets_the_local_threshold_test`, which is the test that would
+have told us we were in the other world.
+
+This is why the arm/fire split matters: the decision is re-taken on wake against
+the core as it is *then*, never carried in the timer.
+
+**The jitter has to be scrambled, not modular.** `id % window` was the obvious
+formula and it is nearly useless: a server hands out client ids in sequence, so
+a whole room lands within a few milliseconds of itself and every client
+summarizes anyway. `summary_jitter_ms` multiplies by a large odd constant first;
+`consecutive_client_ids_spread_across_the_window_test` pins the property.
+
+**The knob is a post-connect call, not a connect option.** There was nowhere to
+put it: the BEAM `connect` takes six required labelled arguments, and JS
+`WatershedConfig` is a public non-opaque record built positionally at every call
+site including raw JS (`examples/text_lustre/element_host.mjs`). A sixth field
+would be a source break everywhere. `auto_summarize(document, policy)` follows
+`presence_js.start` instead, and `summary_policy.Policy` copies
+`presence.Config`'s opaque-record + `with_*` + accessor shape. SB6's default flip
+becomes a one-line change to the runtime's initial `auto_summary`.
+
+**The BEAM upload still blocks the actor**, deliberately (the plan's decision,
+confirmed on execution). One bounded stall per summary, no new concurrency, and
+the same path manual `summarize` has always taken.
+
+## The joiner leg: a post-checkpoint delta is lost on bootstrap
+
+Found while running SB4's gate, and **not caused by it** — `git stash` and the
+same suite reproduces it.
+
+A client that bootstraps from a summary lands on the summary's state and misses
+the ops sequenced after it. In `auto_summary_writes_without_an_explicit_call_test`
+the joiner has 12 of the author's 13 keys, and the missing one is exactly the
+post-checkpoint write. Its drift matches the author's, so it is not replaying
+from zero — it seeded from the blob, then advanced `last_seen` past the delta
+without applying it.
+
+Two pre-existing tests fail the same way and for the same reason:
+`summary_bootstrap_test` (whose `get(map_b, "post")` assertion is this defect,
+stated) and `summary_nested_bootstrap_test`. `summary_versions_test` fails
+separately with the 404 SB5 already documents.
+
+**Caveat on the environment, which may be the whole explanation.** These runs
+went against `ghcr.io/tylerbutler/levee:latest` on port 4000, not the floodgate
+build `just integration-up` produces — the port was already occupied. Floodgate
+and levee differ in exactly the area implicated (what `put_summary` records and
+where `initial_messages` starts). Re-run against floodgate before treating this
+as a client bug: if it reproduces there, it is the server half of the SB1 family
+and belongs in its own plan; if it does not, the note to keep is that the summary
+suite is silently server-specific.
 
 ## How SB1 was actually settled
 

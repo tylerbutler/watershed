@@ -39,6 +39,8 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 @target(javascript)
+import watershed/summary_policy
+@target(javascript)
 import watershed_js.{type Document, type SharedMap, WatershedConfig}
 
 @target(javascript)
@@ -83,10 +85,12 @@ fn run() -> Nil {
     use quiet <- promise.await(reconnect_into_a_quiet_room())
     use empty <- promise.await(reconnect_with_nothing_missed())
     use offline <- promise.await(offline_edits_flush_on_go_online())
+    use summary <- promise.await(a_policy_summarizes_without_being_asked())
     report([
       #("reconnect_into_a_quiet_room", quiet),
       #("reconnect_with_nothing_missed", empty),
       #("offline_edits_flush_on_go_online", offline),
+      #("a_policy_summarizes_without_being_asked", summary),
     ])
     promise.resolve(Nil)
   }
@@ -213,6 +217,75 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
   ])
 }
 
+@target(javascript)
+/// The summary path on the JS runtime, which nothing has ever exercised
+/// live — `sluice_js` serves no `summaryContext` and its documents carry no
+/// token, so every in-memory test stops at the first gate.
+///
+/// Nothing here calls `summarize`. A is given a policy, writes past its
+/// threshold, and the checkpoint moves on its own; then a fresh client joins
+/// and has to bootstrap from a blob nobody asked for.
+fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
+  use #(document, doc_a, doc_b, map_a, map_b) <- promise.await(room_named("sm"))
+  use settled <- promise.await(settle(map_a, map_b))
+
+  watershed_js.auto_summarize(
+    doc_a,
+    summary_policy.policy()
+      |> summary_policy.with_threshold(8)
+      |> summary_policy.with_jitter_ms(0),
+  )
+
+  let before = watershed_js.ops_since_summary(doc_a)
+  write_keys(map_a, 12)
+
+  // The checkpoint moving is the observable: a client only knows about a
+  // summary it wrote or saw sequenced.
+  use summarized <- promise.await(
+    wait_until(fn() { watershed_js.ops_since_summary(doc_a) < before }),
+  )
+
+  // A post-checkpoint edit, so the joiner applies a delta on top of the blob
+  // rather than landing on it exactly.
+  watershed_js.set(map_a, "post", json.string("after-summary"))
+  use delivered <- promise.await(
+    wait_until(fn() {
+      watershed_js.get(map_b, "post") == Some(json.string("after-summary"))
+    }),
+  )
+
+  use doc_c <- promise.await(connect_client(document, "user-c"))
+  let map_c = watershed_js.root(doc_c)
+  use joined <- promise.await(
+    wait_until(fn() {
+      watershed_js.get(map_c, "post") == Some(json.string("after-summary"))
+      && watershed_js.get(map_c, "k12") == Some(json.int(12))
+    }),
+  )
+  // It seeded from the checkpoint rather than replaying from zero.
+  let from_checkpoint = watershed_js.ops_since_summary(doc_c) < 12
+
+  watershed_js.close(doc_c)
+  finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
+    #("settled", settled),
+    #("summarized", summarized),
+    #("delivered", delivered),
+    #("joined", joined),
+    #("from_checkpoint", from_checkpoint),
+  ])
+}
+
+@target(javascript)
+fn write_keys(map: SharedMap, count: Int) -> Nil {
+  case count <= 0 {
+    True -> Nil
+    False -> {
+      write_keys(map, count - 1)
+      watershed_js.set(map, "k" <> int.to_string(count), json.int(count))
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Harness
 // ─────────────────────────────────────────────────────────────────────────────
@@ -223,6 +296,16 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
 fn room(
   prefix: String,
 ) -> Promise(#(Document, Document, SharedMap, SharedMap)) {
+  use #(_document, doc_a, doc_b, map_a, map_b) <- promise.map(room_named(prefix))
+  #(doc_a, doc_b, map_a, map_b)
+}
+
+@target(javascript)
+/// `room`, plus the generated document id — for a scenario that has to connect
+/// a third client to the same document later on.
+fn room_named(
+  prefix: String,
+) -> Promise(#(String, Document, Document, SharedMap, SharedMap)) {
   let document =
     "watershed-js-"
     <> prefix
@@ -233,6 +316,7 @@ fn room(
   use doc_a <- promise.await(connect_client(document, "user-a"))
   use doc_b <- promise.await(connect_client(document, "user-b"))
   promise.resolve(#(
+    document,
     doc_a,
     doc_b,
     watershed_js.root(doc_a),

@@ -92,6 +92,10 @@ pub fn connect(
       transport: transport,
       on_ready: fn(_result) { Nil },
     )
+  // Delayed work goes on the sluice's logical clock, so anything the runtime
+  // schedules for itself — today, the automatic summarization policy's jitter
+  // window — is driven by `advance` rather than by real elapsed time.
+  runtime_js.set_scheduler(watershed_js.runtime_of(document), scheduler(sluice))
   // The runtime has now stored its transport handle, so it is safe to fire the
   // `on_join` that makes it push `connect_document`. (Firing during
   // `transport.connect` would run before the handle is stored.) We also bind the

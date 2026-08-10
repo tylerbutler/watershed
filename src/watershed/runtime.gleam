@@ -89,6 +89,8 @@ import watershed/rich_text
 @target(erlang)
 import watershed/runtime_core
 @target(erlang)
+import watershed/summary_policy
+@target(erlang)
 import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
@@ -173,6 +175,14 @@ pub type ClaimSubmitReply {
 @target(erlang)
 pub type Msg {
   Heartbeat
+  /// A jittered wake-up from the automatic summarization policy. Carries no
+  /// state: the decision is re-taken against the core as it is on arrival, so
+  /// a peer's summary landing in the window makes this a no-op.
+  MaybeSummarize
+  /// Install or clear the automatic summarization policy. `None` turns it off.
+  SetAutoSummary(policy: Option(summary_policy.Policy))
+  /// Ops sequenced past the newest checkpoint this client knows of.
+  OpsSinceSummary(reply: Subject(Int))
   // Receiver-process lifecycle
   ChannelReady(TransportHandle)
   ChannelFailed(String)
@@ -562,6 +572,13 @@ type State {
       #(String, String),
       Subject(ordered_collection_kernel.AcquireOutcome),
     ),
+    /// The automatic summarization policy, `None` unless an application asked
+    /// for one. On `State` rather than the core because it is a property of
+    /// this client's configuration, not of the document.
+    auto_summary: Option(summary_policy.Policy),
+    /// Whether a `MaybeSummarize` wake-up is already scheduled. Without it a
+    /// busy document arms a fresh timer on every sequenced op.
+    summary_armed: Bool,
     self: Subject(Msg),
   )
 }
@@ -617,6 +634,8 @@ pub fn start_with_transport(
         supported_features: dict.new(),
         claim_waiters: dict.new(),
         acquire_waiters: dict.new(),
+        auto_summary: None,
+        summary_armed: False,
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
@@ -690,6 +709,22 @@ pub fn text_anchor_from_json(
 /// and the token to carry the `summary:write` scope.
 pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: Summarize)
+}
+
+@target(erlang)
+/// Install (or with `None`, clear) the automatic summarization policy.
+pub fn auto_summarize(
+  runtime: Subject(Msg),
+  policy: Option(summary_policy.Policy),
+) -> Nil {
+  process.send(runtime, SetAutoSummary(policy))
+}
+
+@target(erlang)
+/// How far the document has drifted past the newest checkpoint this client
+/// knows of. Zero before the first handshake.
+pub fn ops_since_summary(runtime: Subject(Msg)) -> Int {
+  process.call(runtime, waiting: connect_timeout_ms, sending: OpsSinceSummary)
 }
 
 @target(erlang)
@@ -966,6 +1001,40 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         _, _ -> Nil
       }
       actor.continue(state)
+    }
+
+    OpsSinceSummary(reply) -> {
+      process.send(reply, read(state, 0, runtime_core.ops_since_summary))
+      actor.continue(state)
+    }
+
+    SetAutoSummary(policy) ->
+      // Arming waits for the next sequenced op rather than happening here: a
+      // document that is already past the threshold when the policy is
+      // installed is the common case on a busy document, and the op path is
+      // the one place that knows the phase has settled.
+      actor.continue(State(..state, auto_summary: policy))
+
+    MaybeSummarize -> {
+      let state = State(..state, summary_armed: False)
+      case state.phase, state.channel, state.auto_summary {
+        Ready(core, None), Some(channel), Some(policy) ->
+          case runtime_core.wants_summary(core, policy) {
+            // A peer summarized while we waited, or a local edit went out.
+            // Either way the reason to summarize is gone.
+            False -> actor.continue(state)
+            True ->
+              case do_summarize(state, core, channel) {
+                Ok(#(core, _handle)) ->
+                  actor.continue(State(..state, phase: Ready(core, None)))
+                // A summarize op carries no ack, so there is nothing to
+                // reconcile on failure: the checkpoint simply did not move,
+                // and the next sequenced op arms another attempt.
+                Error(_reason) -> actor.continue(state)
+              }
+          }
+        _, _, _ -> actor.continue(state)
+      }
     }
 
     ChannelReady(channel) -> {
@@ -1798,7 +1867,10 @@ fn handle_inbound(
             Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
             None -> {
               send_outbound(state.channel, core.client_id, released)
-              actor.continue(State(..state, phase: Ready(core, None)))
+              actor.continue(arm_summary(
+                State(..state, phase: Ready(core, None)),
+                core,
+              ))
             }
           }
         }
@@ -2530,6 +2602,34 @@ fn maybe_request_ops(
 // ─────────────────────────────────────────────────────────────────────────────
 // Summaries
 // ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Schedule a summarization attempt if the policy wants one and none is
+/// already pending.
+///
+/// The delay is what keeps a room cheap. Every client crosses the threshold on
+/// the same op; each waits a different, id-derived interval; the first summary
+/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
+/// room re-checks in `MaybeSummarize` and stands down. A lost race costs one
+/// redundant upload and nothing else.
+fn arm_summary(state: State, core: runtime_core.Core) -> State {
+  case state.auto_summary, state.summary_armed {
+    Some(policy), False ->
+      case runtime_core.wants_summary(core, policy) {
+        False -> state
+        True -> {
+          let _ =
+            process.send_after(
+              state.self,
+              runtime_core.summary_jitter_ms(core, policy),
+              MaybeSummarize,
+            )
+          State(..state, summary_armed: True)
+        }
+      }
+    _, _ -> state
+  }
+}
 
 @target(erlang)
 fn handle_summarize(

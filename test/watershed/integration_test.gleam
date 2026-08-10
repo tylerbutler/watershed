@@ -69,6 +69,8 @@ import watershed/rich_text
 import watershed/runtime
 @target(erlang)
 import watershed/schema
+@target(erlang)
+import watershed/summary_policy
 
 @target(erlang)
 const tenant = "dev-tenant"
@@ -209,6 +211,32 @@ pub fn reconnect_with_nothing_missed_settles_test() {
 pub fn summary_bootstrap_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// SB4 exit criterion: with a policy installed, a checkpoint is written with
+/// nothing in the application calling `summarize`, and a fresh client
+/// bootstraps from it.
+pub fn auto_summary_writes_without_an_explicit_call_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_auto_summary_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// Whether a peer's summary is visible to the rest of the room.
+///
+/// The policy is built to spread a room's attempts over a jitter window so the
+/// first summary sequenced stands the others down — which only works if the
+/// summarize op is broadcast, not just recorded. This is the test that says
+/// which world we are in. If it fails, the policy still works; it just costs
+/// one summary per client per crossing instead of one per room.
+pub fn a_peers_summary_resets_the_local_threshold_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_peer_summary_visibility_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -978,6 +1006,87 @@ fn run_summary_test() -> Nil {
   watershed.get(map_b, "count") |> expect.to_equal(None)
   watershed.get(map_b, "post")
   |> expect.to_equal(Some(json.string("after-summary")))
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_auto_summary_test() -> Nil {
+  let document = "watershed-auto-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let map_a = watershed.root(doc_a)
+
+  // A low threshold and no jitter, so a handful of edits is enough and the
+  // attempt does not wait. Nothing below calls `summarize`.
+  watershed.auto_summarize(
+    doc_a,
+    summary_policy.policy()
+      |> summary_policy.with_threshold(8)
+      |> summary_policy.with_jitter_ms(0),
+  )
+
+  let before = watershed.ops_since_summary(doc_a)
+  write_keys(map_a, 1, 12)
+
+  // The checkpoint moving is the observable: the client only knows about a
+  // summary it wrote or saw sequenced.
+  wait_until(50, fn() { watershed.ops_since_summary(doc_a) < before })
+  |> expect.to_be_true()
+
+  // A post-checkpoint edit, so the fresh client has to apply a delta on top of
+  // the summary rather than landing on it exactly.
+  watershed.set(map_a, "post", json.string("after-summary"))
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+
+  // The fresh client bootstraps from a summary nobody asked for.
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_b = watershed.root(doc_b)
+  wait_until(50, fn() {
+    same_entries(watershed.entries(map_b), watershed.entries(map_a))
+  })
+  |> expect.to_be_true()
+  watershed.get(map_b, "post")
+  |> expect.to_equal(Some(json.string("after-summary")))
+
+  // It seeded from the checkpoint rather than replaying from zero: its drift
+  // is measured from the summary, so it is smaller than the whole log.
+  {
+    watershed.ops_since_summary(doc_b) < watershed.ops_since_summary(doc_a) + 1
+  }
+  |> expect.to_be_true()
+  { watershed.ops_since_summary(doc_b) < 12 } |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_peer_summary_visibility_test() -> Nil {
+  let document = "watershed-peersum-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+
+  write_keys(map_a, 1, 5)
+  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
+  // B has seen A's ops, so its drift is non-zero and nothing has summarized.
+  wait_until(50, fn() { watershed.ops_since_summary(doc_b) > 0 })
+  |> expect.to_be_true()
+
+  // Only A summarizes, by hand — this is about what B observes, not about the
+  // policy's own trigger.
+  case wait_until_ok(50, fn() { watershed.summarize(doc_a) }) {
+    Ok(_) -> Nil
+    Error(reason) -> panic as { "summarize failed: " <> reason }
+  }
+  watershed.ops_since_summary(doc_a) |> expect.to_equal(0)
+
+  // B's checkpoint can only move if the server broadcasts the summarize op.
+  wait_until(50, fn() { watershed.ops_since_summary(doc_b) == 0 })
+  |> expect.to_be_true()
 
   watershed.close(doc_a)
   watershed.close(doc_b)

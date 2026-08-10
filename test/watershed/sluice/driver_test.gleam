@@ -42,6 +42,8 @@ import watershed/sequence_kernel
 @target(erlang)
 import watershed/sluice
 @target(erlang)
+import watershed/summary_policy
+@target(erlang)
 import watershed/text_kernel
 
 @target(erlang)
@@ -1063,4 +1065,64 @@ fn drain_ordered_events(
     Ok(event) -> drain_ordered_events(events, [event, ..acc])
     Error(_) -> list.reverse(acc)
   }
+}
+
+@target(erlang)
+pub fn ops_since_summary_counts_the_unsummarized_log_test() {
+  // Nothing has summarized this document, so every sequenced message is drift
+  // a joining client would have to replay. That number is what the automatic
+  // policy thresholds on, and it is the one thing about summaries visible
+  // from the facade without a storage server.
+  let sluice = start("summary-drift")
+  let doc_a = connect(sluice, "user-a")
+  sluice.settle(sluice)
+
+  let before = watershed.ops_since_summary(doc_a)
+  { before > 0 } |> expect.to_be_true()
+
+  watershed.set(watershed.root(doc_a), "a", json.int(1))
+  watershed.set(watershed.root(doc_a), "b", json.int(2))
+  sluice.settle(sluice)
+
+  watershed.ops_since_summary(doc_a) |> expect.to_equal(before + 2)
+}
+
+@target(erlang)
+pub fn a_failing_automatic_summary_leaves_the_document_working_test() {
+  // The sluice serves no summary storage and its documents carry no token, so
+  // every attempt this policy makes fails at the first gate. That is the point:
+  // a summarize op has no ack and no rollback, so a failed attempt must be
+  // inert — the document keeps converging and the client keeps writing.
+  let sluice = start("summary-attempt")
+  let doc_a = connect(sluice, "user-a")
+  let doc_b = connect(sluice, "user-b")
+  sluice.settle(sluice)
+
+  // Threshold 1 with no jitter: an attempt is armed by the next sequenced op.
+  let policy =
+    summary_policy.policy()
+    |> summary_policy.with_threshold(1)
+    |> summary_policy.with_jitter_ms(0)
+  watershed.auto_summarize(doc_a, policy)
+
+  watershed.set(watershed.root(doc_a), "die", json.int(4))
+  watershed.set(watershed.root(doc_b), "color", json.string("blue"))
+  sluice.settle(sluice)
+  // The wake-up is a timer message rather than a delivered frame, so it lands
+  // outside the sluice's own barrier.
+  process.sleep(50)
+  sluice.settle(sluice)
+
+  watershed.set(watershed.root(doc_a), "after", json.int(1))
+  sluice.settle(sluice)
+
+  same_entries(
+    watershed.entries(watershed.root(doc_a)),
+    watershed.entries(watershed.root(doc_b)),
+  )
+  |> expect.to_be_true()
+  watershed.get(watershed.root(doc_b), "after")
+  |> expect.to_equal(Some(json.int(1)))
+  // The attempt failed, so nothing moved the checkpoint.
+  { watershed.ops_since_summary(doc_a) > 0 } |> expect.to_be_true()
 }

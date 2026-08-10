@@ -64,6 +64,8 @@ import watershed/rich_text
 @target(javascript)
 import watershed/runtime_core
 @target(javascript)
+import watershed/summary_policy
+@target(javascript)
 import watershed/task_manager_kernel
 @target(javascript)
 import watershed/text_kernel
@@ -204,6 +206,17 @@ type State {
     ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
+    /// The automatic summarization policy, `None` unless an application asked
+    /// for one. On `State` rather than the core because it is a property of
+    /// this client's configuration, not of the document.
+    auto_summary: Option(summary_policy.Policy),
+    /// Whether a summarization wake-up is already scheduled. Without it a busy
+    /// document arms a fresh timer on every sequenced op.
+    summary_armed: Bool,
+    /// How delayed work is scheduled. Real `setTimeout` in production; the
+    /// in-memory hub swaps in its logical clock so the policy's jitter window
+    /// can be driven by `sluice_js.advance` instead of elapsed time.
+    scheduler: transport_js.Scheduler,
   )
 }
 
@@ -225,6 +238,13 @@ pub type Diagnostics {
     buffered_out_of_order_count: Int,
     resubmit_checkpoint: Option(Int),
     synced: Bool,
+    /// Ops sequenced past the newest checkpoint this client knows of — the
+    /// drift an automatic summarization policy thresholds on, and what a
+    /// joining client would replay on top of that checkpoint.
+    ops_since_summary: Int,
+    /// Whether an automatic summarization attempt is scheduled and waiting out
+    /// its jitter window. Always `False` without a policy installed.
+    summary_pending: Bool,
   )
 }
 
@@ -274,6 +294,9 @@ pub fn start_with_transport(
       acquire_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
+      auto_summary: None,
+      summary_armed: False,
+      scheduler: transport_js.real_scheduler(),
     ))
 
   let handle =
@@ -1738,7 +1761,8 @@ pub fn is_synced(runtime: Runtime) -> Bool {
 /// Snapshot connection and sequencing state for diagnostics. This does not
 /// mutate the runtime and is safe to poll from a debug UI.
 pub fn diagnostics(runtime: Runtime) -> Diagnostics {
-  case cell_get(runtime.cell).phase {
+  let state = cell_get(runtime.cell)
+  case state.phase {
     Connecting ->
       Diagnostics(
         phase: "connecting",
@@ -1749,13 +1773,21 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
         buffered_out_of_order_count: 0,
         resubmit_checkpoint: None,
         synced: False,
+        ops_since_summary: 0,
+        summary_pending: False,
       )
     Reconnecting(core) ->
-      diagnostics_from_core(core, "reconnecting", None, False)
+      diagnostics_from_core(core, "reconnecting", None, False, state)
     Ready(core, Some(checkpoint)) ->
-      diagnostics_from_core(core, "catching-up", Some(checkpoint), False)
+      diagnostics_from_core(core, "catching-up", Some(checkpoint), False, state)
     Ready(core, None) ->
-      diagnostics_from_core(core, "ready", None, runtime_core.is_synced(core))
+      diagnostics_from_core(
+        core,
+        "ready",
+        None,
+        runtime_core.is_synced(core),
+        state,
+      )
     Failed(reason) ->
       Diagnostics(
         phase: "failed: " <> reason,
@@ -1766,6 +1798,8 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
         buffered_out_of_order_count: 0,
         resubmit_checkpoint: None,
         synced: False,
+        ops_since_summary: 0,
+        summary_pending: False,
       )
   }
 }
@@ -1776,6 +1810,7 @@ fn diagnostics_from_core(
   phase: String,
   checkpoint: Option(Int),
   synced: Bool,
+  state: State,
 ) -> Diagnostics {
   Diagnostics(
     phase: phase,
@@ -1786,7 +1821,95 @@ fn diagnostics_from_core(
     buffered_out_of_order_count: list.length(core.out_of_order),
     resubmit_checkpoint: checkpoint,
     synced: synced,
+    ops_since_summary: runtime_core.ops_since_summary(core),
+    summary_pending: state.summary_armed,
   )
+}
+
+@target(javascript)
+/// Replace the runtime's scheduler. A test seam for the in-memory hub, which
+/// binds delayed work to its logical clock; production runtimes keep the real
+/// `setTimeout` they start with. Safe to call any time before the first
+/// sequenced op, which is the earliest anything can be scheduled.
+pub fn set_scheduler(
+  runtime: Runtime,
+  scheduler: transport_js.Scheduler,
+) -> Nil {
+  cell_set(runtime.cell, State(..cell_get(runtime.cell), scheduler: scheduler))
+}
+
+@target(javascript)
+/// Install (or with `None`, clear) the automatic summarization policy.
+pub fn auto_summarize(
+  runtime: Runtime,
+  policy: Option(summary_policy.Policy),
+) -> Nil {
+  // Arming waits for the next sequenced op rather than happening here: the op
+  // path is the one place that knows the phase has settled, and a document
+  // already past the threshold is the common case on a busy room.
+  cell_set(runtime.cell, State(..cell_get(runtime.cell), auto_summary: policy))
+}
+
+@target(javascript)
+/// How far the document has drifted past the newest checkpoint this client
+/// knows of. Zero before the first handshake.
+pub fn ops_since_summary(runtime: Runtime) -> Int {
+  case cell_get(runtime.cell).phase {
+    Ready(core, _) | Reconnecting(core) -> runtime_core.ops_since_summary(core)
+    _ -> 0
+  }
+}
+
+@target(javascript)
+/// Schedule a summarization attempt if the policy wants one and none is
+/// already pending.
+///
+/// The delay is what keeps a room cheap. Every client crosses the threshold on
+/// the same op; each waits a different, id-derived interval; the first summary
+/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
+/// room re-checks on wake and stands down. A lost race costs one redundant
+/// upload and nothing else.
+fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
+  let state = cell_get(cell)
+  case state.auto_summary, state.summary_armed {
+    Some(policy), False ->
+      case runtime_core.wants_summary(core, policy) {
+        False -> Nil
+        True -> {
+          cell_set(cell, State(..state, summary_armed: True))
+          let _ =
+            state.scheduler.schedule(
+              fn() { attempt_summary(cell) },
+              runtime_core.summary_jitter_ms(core, policy),
+            )
+          Nil
+        }
+      }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// The policy's wake-up: re-take the decision against the core as it is now,
+/// because a peer's summary landing in the jitter window is exactly what this
+/// is waiting to find out about.
+fn attempt_summary(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  cell_set(cell, State(..state, summary_armed: False))
+  case state.phase, state.auto_summary {
+    Ready(core, None), Some(policy) ->
+      case runtime_core.wants_summary(core, policy) {
+        False -> Nil
+        True -> {
+          // A summarize op carries no ack, so there is nothing to reconcile on
+          // failure: the checkpoint did not move, and the next sequenced op
+          // arms another attempt.
+          let _ = summarize(Runtime(cell: cell))
+          Nil
+        }
+      }
+    _, _ -> Nil
+  }
 }
 
 @target(javascript)
@@ -2167,6 +2290,10 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
                 // sequences both and the stale ack fails the FIFO match.
                 Some(_) -> Nil
                 None -> send_outbound(state.channel, core.client_id, released)
+              }
+              case resubmit_at {
+                Some(_) -> Nil
+                None -> arm_summary(cell, core)
               }
             }
             Error(core_error) ->

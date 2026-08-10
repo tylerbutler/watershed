@@ -31,6 +31,7 @@ import watershed/register_collection_kernel
 import watershed/rich_text
 import watershed/rich_text_kernel
 import watershed/runtime_core.{type Core}
+import watershed/summary_policy
 import watershed/text_kernel
 import watershed/wire
 import watershed/wire/ops
@@ -3656,4 +3657,257 @@ pub fn text_anchor_from_json_rejects_malformed_json_test() {
     }
     Ok(_) -> panic as "expected malformed anchor JSON to fail"
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Automatic summarization policy (SB3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn summarize_message(
+  sn sn: Int,
+  by by: String,
+) -> types.SequencedDocumentMessage {
+  sequenced_message(
+    client_id: Some(by),
+    sn: sn,
+    csn: -1,
+    message_type: "summarize",
+    contents: to_dynamic(
+      json.object([
+        #("handle", json.string("deadbeef")),
+        #("message", json.string("watershed summary")),
+        #("parents", json.array([], json.string)),
+        #("head", json.string("deadbeef")),
+      ]),
+    ),
+  )
+}
+
+pub fn bootstrap_from_a_summary_seeds_the_local_checkpoint_test() {
+  // A client that bootstrapped from a blob captured at SN 5 has, by
+  // definition, zero ops to summarize: the checkpoint *is* where it started.
+  let summary = root_summary(5, [#("die", json.int(4))])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to succeed"
+  }
+
+  runtime_core.ops_since_summary(core) |> expect.to_equal(0)
+
+  let #(core, _) =
+    apply(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 6,
+        csn: 1,
+        op: Set("post", json.int(1)),
+      ),
+    )
+  runtime_core.ops_since_summary(core) |> expect.to_equal(1)
+}
+
+pub fn bootstrap_without_a_summary_counts_from_zero_test() {
+  // No checkpoint has ever been written, so every op in the log is
+  // outstanding — which is exactly the condition the policy exists to end.
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  runtime_core.ops_since_summary(core) |> expect.to_equal(3)
+}
+
+pub fn an_observed_summarize_advances_the_local_checkpoint_test() {
+  // A peer's summarize op is sequenced like any other message. The core has
+  // no use for its contents, but its sequence number is what stops every
+  // other client in the room from summarizing the same state again.
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  runtime_core.ops_since_summary(core) |> expect.to_equal(3)
+
+  let #(core, events) =
+    apply(core, summarize_message(sn: 4, by: other_client_id))
+  events |> expect.to_equal([])
+  runtime_core.ops_since_summary(core) |> expect.to_equal(0)
+
+  let #(core, _) =
+    apply(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 5,
+        csn: 1,
+        op: Set("after", json.int(1)),
+      ),
+    )
+  runtime_core.ops_since_summary(core) |> expect.to_equal(1)
+}
+
+pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() {
+  // Replaying an old log after loading a newer summary must not un-summarize
+  // the document.
+  let summary = root_summary(10, [])
+  let core = case
+    runtime_core.bootstrap(connected_message([], 10), summary: Some(summary))
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected summary bootstrap to succeed"
+  }
+
+  let #(core, _) = apply(core, summarize_message(sn: 4, by: other_client_id))
+  runtime_core.ops_since_summary(core) |> expect.to_equal(0)
+}
+
+pub fn building_a_summarize_op_advances_the_local_checkpoint_test() {
+  // Our own summarize op is fire-and-forget — no ack, no in-flight entry — so
+  // the checkpoint moves when the op is built rather than when it lands.
+  // Without this a client re-arms on every op until its own echo returns.
+  let core = bootstrap(initial_messages: [], checkpoint: 12)
+  let #(core, _outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: "deadbeef",
+      message: "watershed summary",
+      head: "deadbeef",
+    )
+  runtime_core.ops_since_summary(core) |> expect.to_equal(0)
+}
+
+pub fn wants_summary_crosses_at_the_threshold_test() {
+  let policy = summary_policy.policy() |> summary_policy.with_threshold(4)
+
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  runtime_core.wants_summary(core, policy) |> expect.to_be_false()
+
+  let #(core, _) =
+    apply(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 4,
+        csn: 1,
+        op: Set("a", json.int(1)),
+      ),
+    )
+  runtime_core.wants_summary(core, policy) |> expect.to_be_true()
+}
+
+pub fn wants_summary_is_false_with_unacknowledged_edits_test() {
+  // Summarizing captures confirmed state, so an un-acked local edit would be
+  // silently absent from the blob. `summarize` itself refuses in this state;
+  // the policy must not even ask.
+  let policy = summary_policy.policy() |> summary_policy.with_threshold(1)
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  let #(core, _, _) = root_set(core, "pending", json.int(1))
+
+  runtime_core.wants_summary(core, policy) |> expect.to_be_false()
+}
+
+pub fn wants_summary_is_false_with_a_gap_in_flight_test() {
+  // A buffered future op means a `requestOps` round is outstanding: the
+  // confirmed state is a prefix of what the server has already sequenced.
+  // `is_synced` does not cover this, which is why the policy has its own
+  // predicate.
+  let policy = summary_policy.policy() |> summary_policy.with_threshold(1)
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  let #(core, _, request) =
+    ingest(
+      core,
+      map_op_message(
+        client_id: other_client_id,
+        sn: 9,
+        csn: 1,
+        op: Set("far", json.int(1)),
+      ),
+    )
+  request |> expect.to_equal(Some(3))
+
+  runtime_core.wants_summary(core, policy) |> expect.to_be_false()
+}
+
+pub fn wants_summary_is_false_while_replaying_test() {
+  // A client catching up after a reconnect has nothing in flight and nothing
+  // buffered — `replaying` is the only thing disqualifying it, which is what
+  // makes this the discriminating case. Summarizing here would record the
+  // room as of the pre-reconnect checkpoint and call it now.
+  let policy = summary_policy.policy() |> summary_policy.with_threshold(1)
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
+  runtime_core.wants_summary(core, policy) |> expect.to_be_true()
+
+  let core =
+    runtime_core.adopt_reconnect(
+      core,
+      reconnect_connected(client_id: reconnect_client_id, checkpoint: 12),
+    )
+  runtime_core.wants_summary(core, policy) |> expect.to_be_false()
+
+  runtime_core.go_live(core)
+  |> runtime_core.wants_summary(policy)
+  |> expect.to_be_true()
+}
+
+pub fn summary_jitter_is_per_client_and_inside_the_window_test() {
+  // Every client in a room crosses the threshold on the same op. A delay
+  // derived from the client id spreads the attempts without an RNG, so the
+  // first summary to land cancels the rest.
+  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(1000)
+  let ours = bootstrap(initial_messages: [], checkpoint: 1)
+  let theirs = case
+    runtime_core.bootstrap(
+      reconnect_connected(client_id: other_client_id, checkpoint: 1),
+      summary: None,
+    )
+  {
+    Ok(runtime_core.Complete(core)) -> core
+    _ -> panic as "expected bootstrap to succeed"
+  }
+
+  let ours_jitter = runtime_core.summary_jitter_ms(ours, policy)
+  let theirs_jitter = runtime_core.summary_jitter_ms(theirs, policy)
+
+  { ours_jitter >= 0 } |> expect.to_be_true()
+  { ours_jitter < 1000 } |> expect.to_be_true()
+  { theirs_jitter >= 0 } |> expect.to_be_true()
+  { theirs_jitter < 1000 } |> expect.to_be_true()
+  { ours_jitter != theirs_jitter } |> expect.to_be_true()
+}
+
+pub fn consecutive_client_ids_spread_across_the_window_test() {
+  // The property the window exists for. A server hands out ids in sequence, so
+  // a plain `id % window` would put a whole room within milliseconds of each
+  // other and every one of them would summarize. Ten adjacent ids must land in
+  // distinct thirds-of-a-second buckets across a 3 second window.
+  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(3000)
+  let buckets =
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    |> list.map(fn(n) {
+      let core = case
+        runtime_core.bootstrap(
+          reconnect_connected(
+            client_id: "default_doc_" <> int.to_string(n),
+            checkpoint: 1,
+          ),
+          summary: None,
+        )
+      {
+        Ok(runtime_core.Complete(core)) -> core
+        _ -> panic as "expected bootstrap to succeed"
+      }
+      runtime_core.summary_jitter_ms(core, policy) / 300
+    })
+    |> list.unique
+
+  { list.length(buckets) >= 8 } |> expect.to_be_true()
+}
+
+pub fn a_zero_jitter_window_fires_immediately_test() {
+  // Turning jitter off must not divide by zero.
+  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(0)
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  runtime_core.summary_jitter_ms(core, policy) |> expect.to_equal(0)
+}
+
+pub fn policy_defaults_are_stated_once_test() {
+  // The defaults are the shipped policy; a change here is a behaviour change.
+  let policy = summary_policy.policy()
+  summary_policy.policy_threshold(policy) |> expect.to_equal(500)
+  summary_policy.policy_jitter_ms(policy) |> expect.to_equal(3000)
 }

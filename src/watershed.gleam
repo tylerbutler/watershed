@@ -100,6 +100,8 @@ import watershed/schema.{
 @target(erlang)
 import watershed/sequence_kernel
 @target(erlang)
+import watershed/summary_policy
+@target(erlang)
 import watershed/task_manager_kernel
 @target(erlang)
 import watershed/text_kernel
@@ -3129,6 +3131,45 @@ pub fn client_id(document: Document) -> Option(String) {
 /// to be fully synced and the token to carry the `summary:write` scope.
 pub fn summarize(document: Document) -> Result(String, String) {
   runtime.summarize(document.runtime)
+}
+
+@target(erlang)
+/// Let this client summarize the document on its own, per `policy`.
+///
+/// Without this nothing ever summarizes and every joining client replays the
+/// whole log — `summarize` has to be called by hand. With it, the runtime
+/// writes a checkpoint once the document has drifted past the policy's
+/// threshold and this client is settled, so a later join costs recent history
+/// rather than all of it.
+///
+/// Safe to install on every client in a room: the attempts are spread over a
+/// jitter window and the first summary to be sequenced stands the others down.
+/// A lost race costs one redundant upload.
+///
+/// Requires the token to carry `summary:write`, which `connect` mints by
+/// default. Applies from the next sequenced op onward.
+pub fn auto_summarize(
+  document: Document,
+  policy: summary_policy.Policy,
+) -> Nil {
+  runtime.auto_summarize(document.runtime, Some(policy))
+}
+
+@target(erlang)
+/// Stop summarizing automatically. Any attempt already scheduled still
+/// re-checks before acting, and finds no policy.
+pub fn stop_auto_summarize(document: Document) -> Nil {
+  runtime.auto_summarize(document.runtime, None)
+}
+
+@target(erlang)
+/// How many ops have been sequenced past the newest summary this client knows
+/// about — the drift an automatic policy thresholds on, and what a joining
+/// client would have to replay on top of the checkpoint.
+///
+/// On a document nothing has ever summarized this is the whole log.
+pub fn ops_since_summary(document: Document) -> Int {
+  runtime.ops_since_summary(document.runtime)
 }
 
 @target(erlang)

@@ -36,6 +36,7 @@ import lustre/effect.{type Effect}
 
 import watershed/presence
 import watershed/presence_js
+import watershed/summary_policy
 
 import watershed/claims_kernel
 import watershed/counter_kernel
@@ -761,4 +762,28 @@ pub fn update_presence(handle: presence_js.Handle(a), meta: a) -> Effect(msg) {
 pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
   use _dispatch <- effect.from
   presence_js.stop(handle)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Summaries
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Let this client summarize the document on its own, per `policy`.
+///
+/// Without it nothing ever summarizes and every joining client replays the
+/// whole log. Fire-and-forget: no message comes back, and the policy takes
+/// effect from the next sequenced op. Batch it beside `connect_dev` in the
+/// effect that receives the `Document`.
+pub fn auto_summarize(
+  document document: Document,
+  policy policy: summary_policy.Policy,
+) -> Effect(msg) {
+  use _dispatch <- effect.from
+  watershed_js.auto_summarize(document, policy)
+}
+
+/// Stop summarizing automatically.
+pub fn stop_auto_summarize(document document: Document) -> Effect(msg) {
+  use _dispatch <- effect.from
+  watershed_js.stop_auto_summarize(document)
 }
