@@ -4,9 +4,9 @@
 //// - `ConnectMessage.document_id` maps to wire key `id`, not `documentId`.
 //// - Sequenced ops carry exactly the 9 keys spillway's
 ////   `session_logic.build_sequenced_op` emits; everything else is optional.
-//// - `lastSeenSequenceNumber` is a levee extension to `connect_document`
-////   (triggers automatic delta catch-up), so it is a separate argument
-////   rather than a `ConnectMessage` field.
+//// - `lastSeenSequenceNumber` is a levee extension to `connect_document`, so it
+////   is a separate argument rather than a `ConnectMessage` field. It is
+////   advisory only — see `encode_connect_document`.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
@@ -37,8 +37,15 @@ import watershed/wire.{type OutboundOp}
 
 /// `connect_document` payload. The server requires `tenantId`, `id`,
 /// `client`, `mode`, and `token`; `versions` drives protocol negotiation.
-/// Pass `last_seen_sequence_number` on reconnect to get automatic delta
-/// catch-up pushed as a normal `op` event.
+///
+/// `last_seen_sequence_number` is **advisory** and no server acts on it. This
+/// used to promise "automatic delta catch-up pushed as a normal `op` event",
+/// which floodgate does not do — it does not read the field at all, and answers
+/// a reconnect with the same full bootstrap it gives a cold join. Believing the
+/// promise is what left reconnecting clients waiting forever for a delta nobody
+/// was sending. The catch-up is the client's own `requestOps`; see
+/// `runtime_core.catch_up_from`. The field is still sent, because it costs
+/// nothing and a server that did honour it would need it.
 pub fn encode_connect_document(
   msg: ConnectMessage,
   last_seen_sequence_number: Option(Int),

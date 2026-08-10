@@ -73,10 +73,21 @@ integration-down:
 integration-run:
     WATERSHED_INTEGRATION=1 gleam test
 
-# Full live integration cycle: start server, run suite, tear down
+# Run the live suite for the *JavaScript* runtime (assumes a floodgate server is
+# already up on 127.0.0.1:4000, and `pnpm install` has been run at the root).
+#
+# Not part of `integration-run`: that is `gleam test`, whose runner has nowhere
+# to return a promise, so an async live suite cannot be a test case in it. See
+# the header of `test/live_js.gleam`. The `gleam test` here is the build step
+# for the test modules — the live scenarios run from `smoke/run.mjs` after it.
+integration-run-js:
+    WATERSHED_INTEGRATION=1 gleam test --target javascript
+    WATERSHED_INTEGRATION=1 node smoke/run.mjs
+
+# Full live integration cycle: start server, run both suites, tear down
 integration:
     docker compose up -d --wait --build
-    WATERSHED_INTEGRATION=1 gleam test; status=$?; docker compose down; exit $status
+    WATERSHED_INTEGRATION=1 gleam test && WATERSHED_INTEGRATION=1 gleam test --target javascript && WATERSHED_INTEGRATION=1 node smoke/run.mjs; status=$?; docker compose down; exit $status
 
 # Start floodgate on the durable (DETS) backend, which the restart test needs —
 # the default in-memory backend loses the document on restart, leaving nothing
@@ -112,10 +123,14 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-dice _deps-sudoku _deps-playlist _deps-text _deps-drum _deps-pixel
+deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-text _deps-drum _deps-pixel
 
 _deps-gleam:
     gleam deps download
+
+# phoenix + ws, for the live JS integration suite only
+_deps-live-js:
+    pnpm install
 
 _deps-dice:
     pnpm --dir examples/dice_lustre install

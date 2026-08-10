@@ -11,7 +11,9 @@
 //// socket, so it can prove the *kernel* joins correctly across a gap but not
 //// that `go_offline` actually holds a phoenix socket down and that the rejoin
 //// flushes what was painted meanwhile. That path only exists against a real
-//// server, and this is the only place it runs.
+//// server, and this is where it runs for the canvas specifically — the runtime
+//// behaviour underneath it is covered on its own by watershed's
+//// `test/live_js.gleam` (`just integration-run-js`).
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
 
@@ -145,33 +147,42 @@ fn paint_scenario(doc_a: Document, a: OrMap, b: OrMap) -> Nil {
   use <- delay(1500)
   let erased = color_at(b, 1, 5) == Some("0")
 
-  // The offline toggle, against a real socket — the half of it that works.
+  // The offline toggle, against a real socket — both legs.
   //
-  // Going offline is checked here and coming back is not, deliberately. The JS
-  // runtime does not currently finish catching up after *any* reconnect that
-  // spans sequenced ops: it settles into `catching-up` and stays there, never
-  // receiving the gap. That is not a fault of the toggle — the shipped
-  // `force_reconnect` reproduces it on a fresh document with nothing in flight
-  // — and it is written up in
-  // `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`.
-  //
-  // Asserting the return leg here would leave a permanently red gate that says
-  // nothing new. When the defect is fixed, restore it: paint an offline stroke,
-  // `go_online`, and assert B sees every cell of it and A sees what it missed.
+  // This is the part the sluice cannot cover, and for a while it was only half
+  // asserted: the JS runtime never finished catching up after a reconnect that
+  // spanned sequenced ops, so the return leg was left out with a pointer to
+  // `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`. The runtime now
+  // requests its own gap on the handshake, so coming back is checked here too.
   log("smoke: A goes offline and keeps painting")
   watershed_js.go_offline(doc_a)
   use <- delay(500)
   let held = watershed_js.diagnostics(doc_a).phase == "reconnecting"
 
-  list.each([20, 21, 22, 23], fn(x) { paint(a, x, 30, 6) })
+  let stroke = [20, 21, 22, 23]
+  list.each(stroke, fn(x) { paint(a, x, 30, 6) })
+  // B paints too, so the return leg has to merge in both directions rather
+  // than just flush A's backlog.
+  paint(b, 40, 40, 11)
   use <- delay(1000)
-  // Held means held: none of it has reached B.
-  let isolated = color_at(b, 21, 30) == option.None
+  // Held means held: none of it has crossed, either way.
+  let isolated =
+    color_at(b, 21, 30) == option.None && color_at(a, 40, 40) == option.None
   log("  A while offline: " <> diag(doc_a))
 
-  case seeded && disjoint && erased && held && isolated {
+  log("smoke: A comes back")
+  watershed_js.go_online(doc_a)
+  use <- delay(3000)
+  // Every cell of the offline stroke arrives, not just the last one — a flush
+  // that dropped all but the newest write per key would still look like a
+  // convergence if only one cell were checked.
+  let flushed = list.all(stroke, fn(x) { color_at(b, x, 30) == Some("6") })
+  let caught_up = color_at(a, 40, 40) == Some("11")
+  log("  A after rejoin: " <> diag(doc_a))
+
+  case seeded && disjoint && erased && held && isolated && flushed && caught_up {
     True -> {
-      log("SMOKE PASS: the canvas converged, and offline holds")
+      log("SMOKE PASS: the canvas converged, and the offline toggle round-trips")
       exit(0)
     }
     False -> {
@@ -186,6 +197,10 @@ fn paint_scenario(doc_a: Document, a: OrMap, b: OrMap) -> Nil {
         <> bool_str(held)
         <> " isolated="
         <> bool_str(isolated)
+        <> " flushed="
+        <> bool_str(flushed)
+        <> " caught_up="
+        <> bool_str(caught_up)
         <> " (A="
         <> summarise(a)
         <> " B="

@@ -159,6 +159,51 @@ pub fn reconnect_converges_test() {
 }
 
 @target(erlang)
+/// Reconnect into a room where nobody writes afterwards.
+///
+/// The distinction from `reconnect_converges_test` is the *absence* of traffic
+/// after the drop: that test has B editing and C joining once A is back, either
+/// of which supplies the out-of-order op that drives the reactive catch-up.
+///
+/// **This does not gate the catch-up fix, and it is worth knowing why.** Both
+/// this and `reconnect_with_nothing_missed_settles_test` pass against floodgate
+/// with the handshake's `requestOps` removed — verified, not assumed. The BEAM
+/// transport rebuilds its socket immediately, so A is back before the server
+/// has finished tearing the old one down, and the `leave` floodgate then
+/// sequences for A's *previous* identity is broadcast to the whole topic — A's
+/// new socket included. That is the only sequenced op in flight here, so it is
+/// necessarily what advances `last_seen` to the checkpoint. The JS transport
+/// rejoins on Phoenix's backoff instead, which opens a gap wide enough that the
+/// `leave` is sequenced and gone before the client is listening again, which is
+/// why `test/live_js.gleam` fails without the fix and this does not.
+///
+/// It is kept for the shape, not the gate: a laptop lid closed and reopened on
+/// a quiet document is what a real app hits constantly, and nothing else here
+/// covers it. The gate for this defect is `test/live_js.gleam` live, and the
+/// sluice reconnect tests offline.
+pub fn reconnect_into_a_quiet_room_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_reconnect_quiet_room_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// The same shape with an empty gap: reconnect, and let *nothing at all* happen.
+///
+/// Floodgate sequences the rejoining client's own `join` and reports that SN as
+/// the handshake checkpoint, so a reconnect is behind its checkpoint even when
+/// it missed no application traffic — an empty gap that still has to be closed.
+/// On JS this wedges without the fix; see the note on
+/// `reconnect_into_a_quiet_room_test` for why BEAM recovers here regardless.
+pub fn reconnect_with_nothing_missed_settles_test() {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_reconnect_nothing_missed_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
 /// Summaries exit criterion: a client summarizes the map, then a fresh client
 /// bootstraps from the summary (its history starts above SN 1) and converges.
 pub fn summary_bootstrap_test() {
@@ -519,6 +564,82 @@ fn run_recursive_attach_test() -> Nil {
   // Edits through the cycle converge.
   watershed.set(m2_b, "from-b", json.int(2))
   wait_until(50, fn() { watershed.get(m2_a, "from-b") == Some(json.int(2)) })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_reconnect_quiet_room_test() -> Nil {
+  let document = "watershed-rq-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  // Establish the session and confirm both sides are live.
+  watershed.set(map_a, "k1", json.int(1))
+  wait_until(50, fn() { watershed.get(map_b, "k1") == Some(json.int(1)) })
+  |> expect.to_be_true()
+
+  // Drop A with nothing in flight, and let the socket actually go down before
+  // B writes. The sleep is load-bearing: `force_reconnect` is a cast, so
+  // without it B's edit races the teardown and may be delivered live, which
+  // would leave A nothing to catch up on and quietly void the test.
+  watershed.force_reconnect(doc_a)
+  process.sleep(500)
+
+  // The only write in the whole scenario, and it lands squarely in A's gap.
+  watershed.set(map_b, "from-b", json.bool(True))
+
+  // Nothing else happens — no edit from A, no third client, no further traffic
+  // from B. A has to ask for what it missed or it never sees this at all.
+  wait_until(100, fn() {
+    watershed.get(map_a, "from-b") == Some(json.bool(True))
+  })
+  |> expect.to_be_true()
+
+  // And A is genuinely live again, not merely caught up: an edit made now must
+  // reach the wire, which it cannot do from the catching-up holding state.
+  watershed.set(map_a, "after", json.string("live"))
+  wait_until(100, fn() {
+    watershed.get(map_b, "after") == Some(json.string("live"))
+  })
+  |> expect.to_be_true()
+
+  watershed.close(doc_a)
+  watershed.close(doc_b)
+}
+
+@target(erlang)
+fn run_reconnect_nothing_missed_test() -> Nil {
+  let document = "watershed-rn-" <> int.to_string(system_time(Second))
+
+  let doc_a = connect_or_panic(document, "user-a")
+  let doc_b = connect_or_panic(document, "user-b")
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
+
+  watershed.set(map_a, "k1", json.int(1))
+  wait_until(50, fn() { watershed.get(map_b, "k1") == Some(json.int(1)) })
+  |> expect.to_be_true()
+
+  // Reconnect into total silence. Nobody writes during the gap, so the only op
+  // sequenced across it is A's own rejoin — which floodgate reports as the
+  // handshake checkpoint and pointedly does not send to A.
+  watershed.force_reconnect(doc_a)
+  process.sleep(500)
+
+  // A's first edit after coming back is the whole assertion: while catching up
+  // every edit is withheld from the wire, so if the empty gap never closed this
+  // never arrives. Note A cannot rescue itself here — a withheld edit generates
+  // no traffic, so there is no op to discover the gap with.
+  watershed.set(map_a, "after", json.string("live"))
+  wait_until(100, fn() {
+    watershed.get(map_b, "after") == Some(json.string("live"))
+  })
   |> expect.to_be_true()
 
   watershed.close(doc_a)

@@ -1,0 +1,14 @@
+{
+  "name": "watershed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node dependencies for watershed's live JavaScript integration suite (test/live_js.gleam). The library itself has no npm dependencies; `phoenix` is an optional peer dep of the real transport, and `ws` supplies the WebSocket global Node lacks.",
+  "scripts": {
+    "live-js": "gleam test --target javascript && node smoke/run.mjs"
+  },
+  "dependencies": {
+    "phoenix": "^1.8.8",
+    "ws": "^8.21.0"
+  }
+}

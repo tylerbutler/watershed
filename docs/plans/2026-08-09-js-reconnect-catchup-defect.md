@@ -1,98 +1,134 @@
-# The JS runtime never finishes catching up after a reconnect
+# A reconnecting client never finished catching up
 
 **Date:** 2026-08-09
-**Found by:** building `examples/pixel_canvas_lustre` (`2026-08-08-pixel-canvas-demo-plan.md`), whose offline toggle is the first thing in the repo to reconnect a JS client across a gap with real traffic in it.
-**Status:** reproduced, not fixed. Independent of the offline toggle — the shipped `force_reconnect` reproduces it.
+**Found by:** building `examples/pixel_canvas_lustre`
+(`2026-08-08-pixel-canvas-demo-plan.md`), whose offline toggle is the first
+thing in the repo to reconnect a JS client across a gap with real traffic in it.
+**Status:** fixed. The fix, its tests, and the corrections to this document are
+all in the same commit range as this line.
 
 ## The defect
 
-A JavaScript client that reconnects while anyone else has been editing settles
-into the `catching-up` phase and stays there. It never receives the ops it
-missed, and nothing it does afterwards reaches the server. The document is dead
-until the page is reloaded.
+A client that reconnected while anyone else had been editing settled into the
+`catching-up` phase and stayed there. It never received the ops it missed, and
+nothing it did afterwards reached the server. The document was dead until the
+page was reloaded.
 
-The rejoin handshake itself succeeds — the client learns the room's current
-sequence number and sets a resubmit checkpoint from it — so this is not a
-connection failure. It is the catch-up that never arrives.
+The rejoin handshake itself succeeded — the client learned the room's current
+sequence number and set a resubmit checkpoint from it — so this was never a
+connection failure. It was a catch-up that nobody had asked for.
 
-## Reproduction
+## Root cause
 
-Against `just integration-up`, on a **fresh** document, using only shipped API:
+The catch-up was reactive, and nothing was there to react to.
 
-```gleam
-// A and B are connected and settled; the room is at sequence 4.
-watershed_js.force_reconnect(doc_a)
-paint(b, 3, 3, 8)          // B writes into the window A's reconnect opens
-// ...wait 6s...
-color_at(a, 3, 3)          // MISSING
-watershed_js.diagnostics(doc_a)
-// phase=catching-up last_seen=4 in_flight=0 resubmit=7
-```
+1. **The reconnect path does not replay history.** `runtime_core.bootstrap`
+   replays `connected.initial_messages`; `runtime_core.adopt_reconnect`
+   deliberately does not, because the core already holds that history.
+2. **So only an inbound op can close the gap.** `settle_reconnect` promotes out
+   of the holding state once `last_seen_sn >= checkpoint`, and the only thing
+   that advances `last_seen_sn` is `handle_sequenced`. The only catch-up trigger
+   was that same function noticing a *non-contiguous* op and returning
+   `request_ops_from` — which needs an op to arrive first.
+3. **No server sends one.** Floodgate ignores `lastSeenSequenceNumber` outright
+   (the field is not read anywhere in its source, despite the wire codec's
+   comment promising "automatic delta catch-up"), and it excludes the joiner
+   from the broadcast of the joiner's *own* join op — `broadcast_from(channels,
+   cid, ...)`, whose comment explains the exclusion is to avoid an early
+   duplicate. A client rejoining a room nobody else is writing to receives
+   nothing at all.
 
-`in_flight=0` (nothing of A's to resubmit) and `buffered_out_of_order_count=0`
-(nothing arrived and got held back). `last_seen` never moves off 4 while the
-checkpoint sits at 7, so ops 5–7 are simply never delivered to the client.
+Recovery therefore depended on incidental traffic arriving after the rejoin. A
+quiet room waits forever.
 
-Waiting longer does not help — the state is identical at 3s, 6s and 12s. It is a
-stall, not a slow path.
+That dependency is also why the two runtimes behaved so differently in practice
+despite sharing the code. The BEAM transport rebuilds its socket immediately, so
+a client is usually back before the server finishes tearing the old one down —
+and the `leave` floodgate then sequences for the client's *previous* identity is
+broadcast to the whole topic, its own new socket included. That stray op closed
+the gap by accident. The JS transport rejoins on Phoenix's backoff, which opens
+a window wide enough that the `leave` is sequenced and gone before the client is
+listening again. Same defect, one runtime quietly rescued by a race.
 
-Freshness matters when reproducing: once a client is stuck it stays stuck, so a
-probe that runs several scenarios against one client will show every scenario
-after the first as failing regardless of cause. Use a new document and new
-clients per case.
+It was also worse than first reported. Floodgate sequences the rejoining
+client's own `join` and reports **that** SN as the handshake checkpoint, so a
+reconnect is behind its checkpoint even when it missed no application traffic
+whatsoever. Reconnecting into total silence wedged with an empty gap.
 
-The same stall appears through `go_offline`/`go_online`, with or without local
-edits made during the gap — which is what rules out resubmit as the cause. The
-minimal failing case is "be away while someone else writes".
+### The fix
+
+`runtime_core.catch_up_from(core, checkpoint)`, called from the `Reconnecting`
+branch of `connect_document_success` in both runtimes: when the handshake lands
+ahead of `last_seen_sn`, push `requestOps {from: last_seen_sn}` once. Both
+floodgate and the sluice already answered that message; the client simply never
+sent it on this path.
+
+Deliberately not inside `settle_reconnect`, which is also called from the `op`
+handler for every op received while catching up — putting it there would
+re-request the whole gap per op.
 
 ## Why it survived this long
 
-The two runtimes have very different coverage:
+Not "the JS runtime had no live coverage", though that was true and is now
+fixed. **The BEAM runtime had the identical defect.** The two runtimes share
+`runtime_core` and their reconnect handlers are line-for-line the same; only the
+transport differs.
 
-- **BEAM is tested live and works.** `test/watershed/integration_test.gleam`
-  drives the `watershed` (erlang) facade against floodgate under
-  `WATERSHED_INTEGRATION=1`. All 18 reconnect tests pass, including
-  `reconnect_applies_missed_delta_from_others_test` and
-  `reconnect_catch_up_replays_exactly_the_gap_test` — precisely this scenario.
-  (The suite's one failure, `summary_versions_test`, is the known floodgate gap
-  and unrelated.)
-- **The JS runtime has no live coverage at all.** It is only ever exercised
-  against the in-memory `sluice_js`, which models the rejoin differently and by
-  its own admission: it never re-runs `Transport.connect`, and it hands the
-  client a fresh server-assigned id synchronously (`sluice_js.gleam:166-171`).
-  Every sluice-level reconnect test passes, including the ones added for the
-  pixel canvas.
+What differed was the *shape of the tests*:
 
-So the gap is not "nobody tested reconnect" — it is that reconnect is tested on
-the runtime that works, through a driver that does not model the failing path.
+- `test/watershed/integration_test.gleam`'s `reconnect_converges_test` has B
+  editing and a third client joining after A comes back. Either supplies the
+  out-of-order op that triggers the reactive `requestOps`. The scenario was
+  never quiet, so the stall never appeared.
+- Every sluice-level reconnect test passed because **the sluice pushed a frame
+  no real server sends**: the joiner's own join op, echoed back to the joiner
+  after the handshake. Its comment called that push "load-bearing on the
+  reconnect path", and it was — it was standing in for a catch-up that never
+  happened. It also claimed to be "how the real server orders it", which was the
+  part that was wrong.
 
-## Where to look
+An earlier draft of this document credited
+`reconnect_applies_missed_delta_from_others_test` and
+`reconnect_catch_up_replays_exactly_the_gap_test` to the live BEAM suite as
+proof the BEAM path worked. They are not in it. The first is a pure
+`runtime_core` unit test that hand-feeds the gap ops in, so it asserts the core
+*would* apply a delta if one were delivered — the stall was in delivery. The
+second was a sluice test asserting the sluice honoured `lastSeenSequenceNumber`,
+which floodgate does not.
 
-- `src/watershed/runtime_js.gleam` — the rejoin path. `on_join` fires (the phase
-  does move to `Ready(core, Some(checkpoint))`, which is what `catching-up`
-  renders), so the question is what `connect_document` carries on a *re*-join
-  versus a first join, and whether floodgate's reply is being routed anywhere.
-- Compare against `src/watershed/runtime.gleam`'s reconnect handling, which
-  passes the same scenario live.
-- Worth ruling out early: whether floodgate treats a rejoined phoenix socket as
-  a new client and answers with a bootstrap the JS client then ignores.
+## What changed
 
-## What this blocks
+- `runtime_core.catch_up_from`, wired into `runtime.gleam` and
+  `runtime_js.gleam`.
+- `sluice/core.gleam` now models floodgate: no self-join push, `initialMessages`
+  unfiltered by `lastSeenSequenceNumber`, and `requestOps` exclusive of `from`
+  (it was one op generous, which meant it could never catch an off-by-one in the
+  client). Five reconnect and offline-window tests fail without the runtime fix
+  now; before the sluice was corrected, none could.
+- `test/live_js.gleam` — the JS runtime's first live suite, run by
+  `just integration-run-js`. It is a `main` rather than `gleam test` cases
+  because startest's `TestBody` is `fn() -> Nil`, which would score every
+  assertion in an async suite before it ran. All three scenarios were confirmed
+  to fail with the fix reverted and pass with it restored; that is the live gate
+  for this defect.
+- `reconnect_into_a_quiet_room_test` and
+  `reconnect_with_nothing_missed_settles_test` in the BEAM live suite — the
+  cases whose defining feature is the *absence* of post-reconnect traffic. These
+  are coverage, **not** a gate: both pass with the fix reverted, for the
+  race-rescue reason above, and their doc comments say so.
+- `examples/pixel_canvas_lustre/src/smoke.gleam` asserts the return leg again.
 
-`examples/pixel_canvas_lustre`'s offline toggle. Going offline works correctly
-against a real server — the socket is held, the client keeps painting, and the
-edits are isolated from the room — and all of that is asserted in the example's
-smoke test. Coming back is disabled there, with a pointer to this document.
+One thing worth noting about reproducing this, because it cost time: with
+`force_reconnect` the client is usually back within a second, so a peer's write
+lands *after* the rejoin — where it is an ordinary out-of-order op that triggers
+the reactive catch-up, and the scenario passes whether or not the handshake asks
+for anything. Only holding the socket down with `go_offline` puts the write
+reliably inside the gap.
 
-When it is fixed, restore the return leg in
-`examples/pixel_canvas_lustre/src/smoke.gleam`: paint an offline stroke,
-`go_online`, and assert B sees every cell of it and A sees what it missed while
-away. The example's sluice-level convergence tests already assert exactly that
-shape and pass, so they are the specification to match.
+## The lesson worth keeping
 
-## Suggested first step
-
-Give the JS runtime the live coverage it has never had. A JS counterpart to the
-BEAM integration suite — even just `reconnect_applies_missed_delta_from_others`
-ported to `watershed_js` and run under `WATERSHED_INTEGRATION=1` — turns this
-from an anecdote into a regression test, and would have caught it.
+A test double that compensates for a behaviour the real system lacks does not
+just fail to catch the bug — it actively certifies the broken code. The sluice's
+extra frame was added in good faith, documented carefully, and described as
+matching the real server. Nobody checked that claim against floodgate, and it
+bought a green suite for a client that could not reconnect.

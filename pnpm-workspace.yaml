@@ -1,0 +1,5 @@
+# Marks the repo root as its own pnpm workspace root, so `pnpm install` here
+# installs the live JS suite's dependencies and stops — it must not reach down
+# into `examples/`, each of which carries its own `pnpm-workspace.yaml` and its
+# own lockfile for exactly this reason.
+packages: []

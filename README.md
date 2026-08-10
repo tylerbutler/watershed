@@ -357,3 +357,11 @@ without a live server. The live-server integration
 suite stays authoritative and untouched; the sluice models levee, it is not
 levee. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
 test, and `docs/plans/2026-07-06-in-memory-hub-plan.md` for the design.
+
+Take "models, is not" literally when adding to it. The sluice once pushed the
+joiner's own join op back to the joiner, which no real server does; every
+reconnect test passed on a client that could not reconnect, because that one
+extra frame stood in for a catch-up the client never requested. A double that
+compensates for a behaviour the real server lacks does not merely miss the bug,
+it certifies it. Write down what the server actually does, and check.
+`docs/plans/2026-08-09-js-reconnect-catchup-defect.md` is the full account.
