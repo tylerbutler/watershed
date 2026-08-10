@@ -30,6 +30,11 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
+/// UI debounce window for grouping independently delivered pantry-channel op
+/// frames into one snapshot refresh. This smooths transport timing without
+/// implying atomic multi-channel delivery.
+const shared_refresh_debounce_ms = 75
+
 pub fn main() {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("grocery-triptych")
@@ -50,7 +55,7 @@ type Model {
     snapshots: Snapshots,
     rows: List(Row),
     diffs: DiffCounts,
-    refresh_scheduled: Bool,
+    shared_refresh: refresh_guard.State,
     feedback: Option(Feedback),
     scenario: ScenarioState,
     error: Option(String),
@@ -102,7 +107,7 @@ type Msg {
   GrowOnlyChanged(g_set_kernel.GSetEvent)
   TwoPhaseChanged(two_p_set_kernel.TwoPSetEvent)
   ObservedChanged(or_set_kernel.OrSetEvent)
-  FlushSharedRefresh
+  FlushSharedRefresh(Int)
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -120,7 +125,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       snapshots: pantry_snapshot.empty(),
       rows: [],
       diffs: pantry_snapshot.empty_diff_counts(),
-      refresh_scheduled: False,
+      shared_refresh: refresh_guard.idle(),
       feedback: Some(bootstrap_guard.info(
         "waiting for document handle and ready callback",
       )),
@@ -263,31 +268,29 @@ fn refresh_snapshots(model: Model) -> Model {
 fn schedule_shared_refresh(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, bootstrap_guard.failure_latched(model.error) {
     Some(_), False -> {
-      let #(refresh_scheduled, plan) =
-        refresh_guard.request(model.refresh_scheduled)
+      let #(shared_refresh, generation) =
+        refresh_guard.request(model.shared_refresh)
 
-      case plan {
-        refresh_guard.ScheduleFlush -> #(
-          Model(..model, refresh_scheduled: refresh_scheduled),
-          watershed_lustre.after(0, FlushSharedRefresh),
-        )
-        refresh_guard.NoSchedule -> #(model, effect.none())
-      }
+      #(
+        Model(..model, shared_refresh: shared_refresh),
+        watershed_lustre.after(
+          shared_refresh_debounce_ms,
+          FlushSharedRefresh(generation),
+        ),
+      )
     }
     _, _ -> #(model, effect.none())
   }
 }
 
-fn flush_shared_refresh(model: Model) -> Model {
-  let model =
-    Model(
-      ..model,
-      refresh_scheduled: refresh_guard.flush(model.refresh_scheduled),
-    )
+fn flush_shared_refresh(model: Model, generation: Int) -> Model {
+  let #(shared_refresh, accepted) =
+    refresh_guard.flush(model.shared_refresh, generation)
+  let model = Model(..model, shared_refresh: shared_refresh)
 
-  case model.shared, bootstrap_guard.failure_latched(model.error) {
-    Some(_), False -> refresh_snapshots(model)
-    _, _ -> model
+  case accepted, model.shared, bootstrap_guard.failure_latched(model.error) {
+    True, Some(_), False -> refresh_snapshots(model)
+    _, _, _ -> model
   }
 }
 
@@ -495,7 +498,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ObservedChanged(_) -> schedule_shared_refresh(model)
 
-    FlushSharedRefresh -> #(flush_shared_refresh(model), effect.none())
+    FlushSharedRefresh(generation) -> #(
+      flush_shared_refresh(model, generation),
+      effect.none(),
+    )
   }
 }
 

@@ -1,15 +1,23 @@
-pub type Plan {
-  ScheduleFlush
-  NoSchedule
+pub type State {
+  State(current_generation: Int, pending: Bool)
 }
 
-pub fn request(refresh_scheduled: Bool) -> #(Bool, Plan) {
-  case refresh_scheduled {
-    True -> #(True, NoSchedule)
-    False -> #(True, ScheduleFlush)
+pub fn idle() -> State {
+  State(current_generation: 0, pending: False)
+}
+
+pub fn request(state: State) -> #(State, Int) {
+  let generation = state.current_generation + 1
+
+  #(State(current_generation: generation, pending: True), generation)
+}
+
+pub fn flush(state: State, generation: Int) -> #(State, Bool) {
+  case state.pending && state.current_generation == generation {
+    True -> #(
+      State(current_generation: state.current_generation, pending: False),
+      True,
+    )
+    False -> #(state, False)
   }
-}
-
-pub fn flush(_refresh_scheduled: Bool) -> Bool {
-  False
 }
