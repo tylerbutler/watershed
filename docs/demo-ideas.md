@@ -52,13 +52,13 @@ The "full typed-layer parity across 14 kinds" milestone covered channel *lifecyc
 
 ## Ideas
 
-### ✅ Shipped — Grocery list triptych — `GSet` | `TwoPSet` | `OrSet`
+### ✅ Shipped: Grocery list triptych, `GSet` | `TwoPSet` | `OrSet`
 
 → `docs/plans/2026-08-08-grocery-triptych-demo-plan.md`, `examples/grocery_triptych_lustre/`
 
-Three panels, identical UI, same interactions, wired to three different set kinds, diverging live. Remove "milk", then re-add it: the `TwoPSet` panel refuses (tombstone), the `OrSet` panel accepts, the `GSet` panel never removed it in the first place.
+Three panels, one interaction, three set kinds. Remove `"milk"` and add it back: `TwoPSet` tombstones it, `OrSet` accepts it, `GSet` keeps it.
 
-GT1–GT6 are complete. The earlier FP5 prerequisite shipped before the example implementation, so there is no remaining blocker note to carry here.
+GT1–GT6 are complete. The FP5 prerequisite shipped before the example implementation, so there is no blocker note to carry here.
 
 ### ✅ Shipped — Drum machine / step sequencer — `OrSet` + `PactMap`
 
