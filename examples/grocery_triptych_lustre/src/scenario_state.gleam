@@ -19,9 +19,16 @@ pub type ConcurrentTimeoutState {
   LockedTimeout(status: String, disabled_reason: String)
 }
 
+pub type ConcurrentDurableState {
+  DurableRetryable
+  DurableComplete(status: String, disabled_reason: String)
+  DurableLocked(status: String, disabled_reason: String)
+}
+
 pub type PeerStatusUpdate {
   IgnoreWhileAwaitingGo
   KeepVerifying(note: String)
+  LockRoom(status: String)
 }
 
 pub fn tombstone_locked_message() -> String {
@@ -33,7 +40,7 @@ pub fn invitation_timeout_message() -> String {
 }
 
 pub fn concurrent_locked_message() -> String {
-  "Concurrent add/remove is disabled for this room. Use a fresh room URL before retrying because a timed-out run may still apply delayed \"eggs\" operations."
+  "Concurrent add/remove is disabled for this room. Use a fresh room URL before rerunning because once \"eggs\" is present in GSet while absent from TwoPSet, this document has irreversibly crossed the remove phase."
 }
 
 pub fn expected_concurrent_summary() -> String {
@@ -69,9 +76,36 @@ pub fn tombstone_matches_expected(snapshots: Snapshots) -> Bool {
 }
 
 pub fn concurrent_matches_expected(snapshots: Snapshots) -> Bool {
-  list.contains(snapshots.grow_only, concurrent_item)
-  && !list.contains(snapshots.two_phase, concurrent_item)
+  concurrent_remove_phase_crossed(snapshots)
   && list.contains(snapshots.observed, concurrent_item)
+}
+
+pub fn concurrent_durable_state(
+  snapshots: Snapshots,
+) -> ConcurrentDurableState {
+  case concurrent_remove_phase_crossed(snapshots) {
+    False -> DurableRetryable
+    True ->
+      case list.contains(snapshots.observed, concurrent_item) {
+        True ->
+          DurableComplete(
+            "Concurrent add/remove is complete for this room; settled snapshots show "
+              <> expected_concurrent_summary()
+              <> ".",
+            concurrent_locked_message(),
+          )
+
+        False ->
+          DurableLocked(
+            "Concurrent add/remove already consumed this room; settled snapshots show "
+              <> concurrent_summary(snapshots)
+              <> " instead of "
+              <> expected_concurrent_summary()
+              <> ".",
+            concurrent_locked_message(),
+          )
+      }
+  }
 }
 
 pub fn observe_peer_status(
@@ -80,7 +114,13 @@ pub fn observe_peer_status(
 ) -> PeerStatusUpdate {
   case participating {
     False -> IgnoreWhileAwaitingGo
-    True -> KeepVerifying(peer_status_note(status))
+    True ->
+      case status {
+        scenario_protocol.VerificationTimedOut ->
+          LockRoom(peer_status_note(status))
+
+        _ -> KeepVerifying(peer_status_note(status))
+      }
   }
 }
 
@@ -136,10 +176,15 @@ fn peer_status_note(status: scenario_protocol.Status) -> String {
     scenario_protocol.VerifiedExpectedOutcome ->
       "Concurrent add/remove: the initiator reported the expected eventual outcome while this tab keeps validating its own snapshots."
     scenario_protocol.VerificationTimedOut ->
-      "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome; this tab will report its own verified state honestly too."
+      "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This room is now locked against retry, though later settled snapshots may still show the expected outcome."
     scenario_protocol.PeerAppliedAdd ->
       "Concurrent add/remove: ignored an unexpected peer-applied status on the peer side."
   }
+}
+
+fn concurrent_remove_phase_crossed(snapshots: Snapshots) -> Bool {
+  list.contains(snapshots.grow_only, concurrent_item)
+  && !list.contains(snapshots.two_phase, concurrent_item)
 }
 
 fn presence(present: Bool) -> String {

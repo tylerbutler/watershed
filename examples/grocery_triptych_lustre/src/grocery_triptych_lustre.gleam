@@ -125,6 +125,7 @@ type TombstoneStep {
 type ConcurrentState {
   ConcurrentIdle(last_status: Option(String))
   ConcurrentLocked(last_status: String, disabled_reason: String)
+  ConcurrentComplete(last_status: String, disabled_reason: String)
   ConcurrentInitiator(
     run_id: String,
     phase: InitiatorPhase,
@@ -348,6 +349,8 @@ fn refresh_snapshots(model: Model) -> Model {
       let rows = pantry_snapshot.rows(snapshots)
       let tombstone =
         derive_tombstone_state(model.scenario.tombstone, snapshots)
+      let concurrent =
+        derive_concurrent_state(model.scenario.concurrent, snapshots)
 
       Model(
         ..model,
@@ -355,7 +358,11 @@ fn refresh_snapshots(model: Model) -> Model {
         snapshots: snapshots,
         rows: rows,
         diffs: pantry_snapshot.diff_counts(rows),
-        scenario: ScenarioState(..model.scenario, tombstone: tombstone),
+        scenario: ScenarioState(
+          ..model.scenario,
+          tombstone: tombstone,
+          concurrent: concurrent,
+        ),
       )
     }
     None -> model
@@ -372,6 +379,25 @@ fn derive_tombstone_state(
       case scenario_state.tombstone_matches_expected(snapshots) {
         True -> TombstoneComplete
         False -> TombstoneAvailable
+      }
+  }
+}
+
+fn derive_concurrent_state(
+  current: ConcurrentState,
+  snapshots: Snapshots,
+) -> ConcurrentState {
+  case current {
+    ConcurrentInitiator(_, _, _, _, _) | ConcurrentPeer(_, _, _, _, _) ->
+      current
+
+    _ ->
+      case scenario_state.concurrent_durable_state(snapshots) {
+        scenario_state.DurableRetryable -> current
+        scenario_state.DurableComplete(status, disabled_reason) ->
+          ConcurrentComplete(status, disabled_reason)
+        scenario_state.DurableLocked(status, disabled_reason) ->
+          ConcurrentLocked(status, disabled_reason)
       }
   }
 }
@@ -439,7 +465,8 @@ fn tombstone_completed(state: TombstoneState) -> Bool {
 
 fn concurrent_active(state: ConcurrentState) -> Bool {
   case state {
-    ConcurrentIdle(_) | ConcurrentLocked(_, _) -> False
+    ConcurrentIdle(_) | ConcurrentLocked(_, _) | ConcurrentComplete(_, _) ->
+      False
     _ -> True
   }
 }
@@ -533,7 +560,8 @@ fn concurrent_button_reason(model: Model) -> Option(String) {
 
     True ->
       case model.scenario.concurrent {
-        ConcurrentLocked(_, disabled_reason) -> Some(disabled_reason)
+        ConcurrentLocked(_, disabled_reason)
+        | ConcurrentComplete(_, disabled_reason) -> Some(disabled_reason)
         _ ->
           case model.scenario.tombstone {
             TombstoneRunning(_) ->
@@ -952,7 +980,7 @@ fn handle_invitation(
               self_id,
               controls_ready(remembered)
                 && case remembered.scenario.concurrent {
-                ConcurrentLocked(_, _) -> False
+                ConcurrentLocked(_, _) | ConcurrentComplete(_, _) -> False
                 _ -> True
               },
               scenario_busy(remembered),
@@ -1240,6 +1268,24 @@ fn handle_status(
 
               #(model, effect.none())
             }
+
+            scenario_state.LockRoom(message) -> {
+              let feedback = case note {
+                Some(extra) -> bootstrap_guard.warning(extra <> " " <> message)
+                None -> bootstrap_guard.warning(message)
+              }
+              let model =
+                set_concurrent_timeout_state(
+                  model,
+                  scenario_state.concurrent_timeout_state(
+                    mutation_began: True,
+                    status: message,
+                  ),
+                  feedback,
+                )
+
+              #(model, effect.none())
+            }
           }
 
         None -> #(model, effect.none())
@@ -1318,7 +1364,10 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
               ..model,
               scenario: ScenarioState(
                 ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+                concurrent: ConcurrentComplete(
+                  message,
+                  scenario_state.concurrent_locked_message(),
+                ),
               ),
             )
             |> with_feedback(bootstrap_guard.info(message))
@@ -1419,7 +1468,10 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
               ..model,
               scenario: ScenarioState(
                 ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+                concurrent: ConcurrentComplete(
+                  message,
+                  scenario_state.concurrent_locked_message(),
+                ),
               ),
             )
             |> with_feedback(bootstrap_guard.info(feedback))
@@ -1934,6 +1986,7 @@ fn concurrent_status_text(state: ConcurrentState) -> String {
     ConcurrentIdle(None) ->
       "idle; it seeds \"eggs\" first, then coordinates a two-tab race over ripples."
     ConcurrentLocked(status, _) -> status
+    ConcurrentComplete(status, _) -> status
 
     ConcurrentInitiator(run_id, ConcurrentPreparing, _, _, _) ->
       "run "

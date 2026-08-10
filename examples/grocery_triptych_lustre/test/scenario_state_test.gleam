@@ -38,6 +38,39 @@ pub fn tombstone_completion_waits_for_two_phase_removal_evidence_test() {
   |> should.equal(False)
 }
 
+pub fn concurrent_room_starts_retryable_when_eggs_have_never_crossed_the_remove_phase_test() {
+  scenario_state.concurrent_durable_state(initial_snapshots())
+  |> should.equal(scenario_state.DurableRetryable)
+}
+
+pub fn concurrent_room_stays_retryable_while_eggs_are_still_present_in_all_sets_test() {
+  scenario_state.concurrent_durable_state(prepared_snapshots())
+  |> should.equal(scenario_state.DurableRetryable)
+}
+
+pub fn concurrent_room_derives_complete_after_the_remove_phase_when_or_set_keeps_eggs_test() {
+  scenario_state.concurrent_durable_state(expected_snapshots())
+  |> should.equal(durable_complete_state())
+}
+
+pub fn concurrent_room_derives_locked_after_the_remove_phase_when_or_set_loses_eggs_test() {
+  scenario_state.concurrent_durable_state(consumed_incomplete_snapshots())
+  |> should.equal(durable_locked_state())
+}
+
+pub fn or_set_churn_never_makes_a_consumed_room_retryable_again_test() {
+  [
+    scenario_state.concurrent_durable_state(expected_snapshots()),
+    scenario_state.concurrent_durable_state(consumed_incomplete_snapshots()),
+    scenario_state.concurrent_durable_state(expected_snapshots()),
+  ]
+  |> should.equal([
+    durable_complete_state(),
+    durable_locked_state(),
+    durable_complete_state(),
+  ])
+}
+
 pub fn verification_succeeds_on_expected_snapshots_test() {
   scenario_state.advance_verification(expected_snapshots(), 2)
   |> should.equal(scenario_state.Verified)
@@ -97,6 +130,16 @@ pub fn participating_peers_keep_verifying_after_status_ripples_test() {
   ))
 }
 
+pub fn participating_peers_lock_after_timeout_status_ripples_test() {
+  scenario_state.observe_peer_status(
+    participating: True,
+    status: scenario_protocol.VerificationTimedOut,
+  )
+  |> should.equal(scenario_state.LockRoom(
+    "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome. This room is now locked against retry, though later settled snapshots may still show the expected outcome.",
+  ))
+}
+
 pub fn run_history_remembers_seen_run_ids_without_duplicates_test() {
   let seen =
     []
@@ -114,11 +157,31 @@ pub fn run_history_remembers_seen_run_ids_without_duplicates_test() {
   |> should.equal(False)
 }
 
+fn initial_snapshots() -> pantry_snapshot.Snapshots {
+  pantry_snapshot.Snapshots(grow_only: [], two_phase: [], observed: [])
+}
+
+fn prepared_snapshots() -> pantry_snapshot.Snapshots {
+  pantry_snapshot.Snapshots(
+    grow_only: [scenario_state.concurrent_item],
+    two_phase: [scenario_state.concurrent_item],
+    observed: [scenario_state.concurrent_item],
+  )
+}
+
 fn expected_snapshots() -> pantry_snapshot.Snapshots {
   pantry_snapshot.Snapshots(
     grow_only: [scenario_state.concurrent_item],
     two_phase: [],
     observed: [scenario_state.concurrent_item],
+  )
+}
+
+fn consumed_incomplete_snapshots() -> pantry_snapshot.Snapshots {
+  pantry_snapshot.Snapshots(
+    grow_only: [scenario_state.concurrent_item],
+    two_phase: [],
+    observed: [],
   )
 }
 
@@ -151,5 +214,19 @@ fn unexpected_snapshots() -> pantry_snapshot.Snapshots {
     grow_only: [scenario_state.concurrent_item],
     two_phase: [scenario_state.concurrent_item],
     observed: [],
+  )
+}
+
+fn durable_complete_state() -> scenario_state.ConcurrentDurableState {
+  scenario_state.DurableComplete(
+    "Concurrent add/remove is complete for this room; settled snapshots show expected GSet present, TwoPSet absent, OrSet present.",
+    scenario_state.concurrent_locked_message(),
+  )
+}
+
+fn durable_locked_state() -> scenario_state.ConcurrentDurableState {
+  scenario_state.DurableLocked(
+    "Concurrent add/remove already consumed this room; settled snapshots show GSet present, TwoPSet absent, OrSet absent instead of expected GSet present, TwoPSet absent, OrSet present.",
+    scenario_state.concurrent_locked_message(),
   )
 }
