@@ -19,13 +19,22 @@ pub fn completed_tombstone_blocks_the_button_test() {
   |> should.equal(Some(scenario_state.tombstone_locked_message()))
 }
 
-pub fn tombstone_completion_is_detected_from_durable_snapshots_test() {
+pub fn tombstone_completion_is_detected_when_or_set_still_contains_milk_test() {
   scenario_state.tombstone_matches_expected(completed_tombstone_snapshots())
   |> should.equal(True)
 }
 
-pub fn incomplete_tombstone_snapshots_do_not_lock_the_room_test() {
-  scenario_state.tombstone_matches_expected(incomplete_tombstone_snapshots())
+pub fn tombstone_completion_is_detected_when_or_set_no_longer_contains_milk_test() {
+  scenario_state.tombstone_matches_expected(
+    completed_without_or_set_snapshots(),
+  )
+  |> should.equal(True)
+}
+
+pub fn tombstone_completion_waits_for_two_phase_removal_evidence_test() {
+  scenario_state.tombstone_matches_expected(
+    before_two_phase_removal_snapshots(),
+  )
   |> should.equal(False)
 }
 
@@ -100,11 +109,19 @@ fn completed_tombstone_snapshots() -> pantry_snapshot.Snapshots {
   )
 }
 
-fn incomplete_tombstone_snapshots() -> pantry_snapshot.Snapshots {
+fn completed_without_or_set_snapshots() -> pantry_snapshot.Snapshots {
   pantry_snapshot.Snapshots(
     grow_only: [scenario_state.tombstone_item],
     two_phase: [],
     observed: [],
+  )
+}
+
+fn before_two_phase_removal_snapshots() -> pantry_snapshot.Snapshots {
+  pantry_snapshot.Snapshots(
+    grow_only: [scenario_state.tombstone_item],
+    two_phase: [scenario_state.tombstone_item],
+    observed: [scenario_state.tombstone_item],
   )
 }
 

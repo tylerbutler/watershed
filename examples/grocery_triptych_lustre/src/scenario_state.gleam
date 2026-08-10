@@ -57,7 +57,6 @@ pub fn tombstone_button_reason(
 pub fn tombstone_matches_expected(snapshots: Snapshots) -> Bool {
   list.contains(snapshots.grow_only, tombstone_item)
   && !list.contains(snapshots.two_phase, tombstone_item)
-  && list.contains(snapshots.observed, tombstone_item)
 }
 
 pub fn concurrent_matches_expected(snapshots: Snapshots) -> Bool {
