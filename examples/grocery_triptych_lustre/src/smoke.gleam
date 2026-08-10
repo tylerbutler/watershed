@@ -18,6 +18,10 @@ const readiness_attempts = 100
 
 const readiness_poll_ms = 100
 
+const root_channel_adoption_attempts = 50
+
+const root_channel_adoption_poll_ms = 100
+
 const wait_attempts = 30
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
@@ -172,7 +176,19 @@ fn bootstrap(doc_a: Document, doc_b: Document) -> Nil {
   use two_phase_a <- ensure_two_phase(doc_a, "A")
   use observed_a <- ensure_observed(doc_a, "A")
 
-  use <- delay(1500)
+  use adoption_ok <- wait_until_polling(
+    root_channel_adoption_attempts,
+    root_channel_adoption_poll_ms,
+    fn() { root_channel_fields_present(doc_b) },
+  )
+  case adoption_ok {
+    False ->
+      fail(
+        "root-channel adoption timeout waiting for grow_only, two_phase, observed on B",
+      )
+    True -> Nil
+  }
+
   log("smoke: adopting pantry channels on B")
   use grow_only_b <- ensure_grow_only(doc_b, "B")
   use two_phase_b <- ensure_two_phase(doc_b, "B")
@@ -348,6 +364,14 @@ fn add_everywhere(client: Client, item: String) -> Nil {
   watershed_js.or_set_add(client.observed, item)
 }
 
+fn root_channel_fields_present(doc: Document) -> Bool {
+  let root = watershed_js.untyped(watershed_js.root_typed(doc))
+
+  watershed_js.has(root, "grow_only")
+  && watershed_js.has(root, "two_phase")
+  && watershed_js.has(root, "observed")
+}
+
 fn remove_shared(client: Client, item: String) -> Nil {
   watershed_js.two_p_set_remove(client.two_phase, item)
   watershed_js.or_set_remove(client.observed, item)
@@ -398,14 +422,23 @@ fn wait_until(
   check: fn() -> Bool,
   then: fn(Bool) -> Nil,
 ) -> Nil {
+  wait_until_polling(attempts, 250, check, then)
+}
+
+fn wait_until_polling(
+  attempts: Int,
+  poll_ms: Int,
+  check: fn() -> Bool,
+  then: fn(Bool) -> Nil,
+) -> Nil {
   case check() {
     True -> then(True)
     False ->
       case attempts <= 0 {
         True -> then(False)
         False -> {
-          use <- delay(250)
-          wait_until(attempts - 1, check, then)
+          use <- delay(poll_ms)
+          wait_until_polling(attempts - 1, poll_ms, check, then)
         }
       }
   }
