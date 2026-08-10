@@ -1,6 +1,7 @@
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 import lustre
 import lustre/attribute
@@ -339,34 +340,42 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 
 fn refresh_snapshots(model: Model) -> Model {
   case model.shared {
-    Some(shared) -> {
-      let snapshots =
-        pantry_snapshot.from_values(
-          grow_only: watershed_js.g_set_values(shared.grow_only),
-          two_phase: watershed_js.two_p_set_values(shared.two_phase),
-          observed: watershed_js.or_set_values(shared.observed),
-        )
-      let rows = pantry_snapshot.rows(snapshots)
-      let tombstone =
-        derive_tombstone_state(model.scenario.tombstone, snapshots)
-      let concurrent =
-        derive_concurrent_state(model.scenario.concurrent, snapshots)
-
-      Model(
-        ..model,
-        readiness: Ready,
-        snapshots: snapshots,
-        rows: rows,
-        diffs: pantry_snapshot.diff_counts(rows),
-        scenario: ScenarioState(
-          ..model.scenario,
-          tombstone: tombstone,
-          concurrent: concurrent,
-        ),
-      )
-    }
+    Some(shared) ->
+      apply_shared_snapshots(model, shared, snapshots_of_shared(shared))
     None -> model
   }
+}
+
+fn snapshots_of_shared(shared: SharedPantry) -> Snapshots {
+  pantry_snapshot.from_values(
+    grow_only: watershed_js.g_set_values(shared.grow_only),
+    two_phase: watershed_js.two_p_set_values(shared.two_phase),
+    observed: watershed_js.or_set_values(shared.observed),
+  )
+}
+
+fn apply_shared_snapshots(
+  model: Model,
+  shared: SharedPantry,
+  snapshots: Snapshots,
+) -> Model {
+  let rows = pantry_snapshot.rows(snapshots)
+  let tombstone = derive_tombstone_state(model.scenario.tombstone, snapshots)
+  let concurrent = derive_concurrent_state(model.scenario.concurrent, snapshots)
+
+  Model(
+    ..model,
+    shared: Some(shared),
+    readiness: Ready,
+    snapshots: snapshots,
+    rows: rows,
+    diffs: pantry_snapshot.diff_counts(rows),
+    scenario: ScenarioState(
+      ..model.scenario,
+      tombstone: tombstone,
+      concurrent: concurrent,
+    ),
+  )
 }
 
 fn derive_tombstone_state(
@@ -618,6 +627,72 @@ fn set_concurrent_timeout_state(
   |> with_feedback(feedback)
 }
 
+fn set_concurrent_durable_state(
+  model: Model,
+  durable_state: scenario_state.ConcurrentDurableState,
+) -> Model {
+  case durable_state {
+    scenario_state.DurableRetryable -> model
+    scenario_state.DurableComplete(status, disabled_reason) ->
+      Model(
+        ..model,
+        scenario: ScenarioState(
+          ..model.scenario,
+          concurrent: ConcurrentComplete(status, disabled_reason),
+        ),
+      )
+      |> with_feedback(bootstrap_guard.info(status))
+    scenario_state.DurableLocked(status, disabled_reason) ->
+      Model(
+        ..model,
+        scenario: ScenarioState(
+          ..model.scenario,
+          concurrent: ConcurrentLocked(status, disabled_reason),
+        ),
+      )
+      |> with_feedback(bootstrap_guard.warning(status))
+  }
+}
+
+fn refresh_live_shared(model: Model) -> Result(Model, String) {
+  use shared <- result.try(resolve_live_shared(model))
+  Ok(apply_shared_snapshots(model, shared, snapshots_of_shared(shared)))
+}
+
+fn resolve_live_shared(model: Model) -> Result(SharedPantry, String) {
+  case model.doc {
+    Some(doc) -> {
+      let root = watershed_js.root_typed(doc)
+      use grow_only <- result.try(require_live_channel(
+        "grow_only",
+        watershed_js.resolve_g_set_field(doc, root, doc_schema.grow_only()),
+      ))
+      use two_phase <- result.try(require_live_channel(
+        "two_phase",
+        watershed_js.resolve_two_p_set_field(doc, root, doc_schema.two_phase()),
+      ))
+      use observed <- result.try(require_live_channel(
+        "observed",
+        watershed_js.resolve_or_set_field(doc, root, doc_schema.observed()),
+      ))
+      Ok(SharedPantry(grow_only:, two_phase:, observed:))
+    }
+
+    None -> Error("document handle is unavailable")
+  }
+}
+
+fn require_live_channel(
+  label: String,
+  channel_result: Result(Option(a), String),
+) -> Result(a, String) {
+  case channel_result {
+    Ok(Some(channel)) -> Ok(channel)
+    Ok(None) -> Error(label <> " handle is missing from the live pantry root")
+    Error(reason) -> Error(label <> " handle refresh failed: " <> reason)
+  }
+}
+
 fn shared_add(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
   case model.shared {
     Some(shared) -> {
@@ -854,16 +929,82 @@ fn start_concurrent(model: Model) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    None -> {
-      let run_id = next_run_id(model)
-      let #(model, #(_two_phase_was_present, two_phase_is_present)) =
-        shared_add(model, scenario_state.concurrent_item)
-      let message = case two_phase_is_present {
-        True ->
-          "Concurrent add/remove: seeded \"eggs\" into all three sets and is waiting briefly before inviting a peer."
-        False ->
-          "Concurrent add/remove: seeded \"eggs\" into GSet and OrSet, but TwoPSet already has it tombstoned in this room. Waiting briefly before inviting a peer anyway."
+    None ->
+      case refresh_live_shared(model) {
+        Ok(model) ->
+          case scenario_state.concurrent_preflight_outcome(model.snapshots) {
+            scenario_state.PreflightRetryable -> prepare_concurrent_start(model)
+
+            scenario_state.PreflightComplete(status, disabled_reason) -> #(
+              set_concurrent_durable_state(
+                model,
+                scenario_state.DurableComplete(status, disabled_reason),
+              ),
+              effect.none(),
+            )
+
+            scenario_state.PreflightLocked(status, disabled_reason) -> #(
+              set_concurrent_durable_state(
+                model,
+                scenario_state.DurableLocked(status, disabled_reason),
+              ),
+              effect.none(),
+            )
+          }
+
+        Error(reason) -> #(
+          with_feedback(
+            model,
+            bootstrap_guard.warning(
+              "Concurrent add/remove: could not re-read the live pantry state before starting. "
+              <> reason,
+            ),
+          ),
+          effect.none(),
+        )
       }
+  }
+}
+
+fn prepare_concurrent_start(model: Model) -> #(Model, Effect(Msg)) {
+  let run_id = next_run_id(model)
+  let #(model, #(_two_phase_was_present, two_phase_is_present)) =
+    shared_add(model, scenario_state.concurrent_item)
+
+  case two_phase_is_present {
+    False ->
+      case refresh_live_shared(model) {
+        Ok(model) ->
+          case scenario_state.concurrent_durable_state(model.snapshots) {
+            scenario_state.DurableRetryable -> #(
+              with_feedback(
+                model,
+                bootstrap_guard.warning(
+                  "Concurrent add/remove: TwoPSet stayed absent after seeding \"eggs\", so this tab refused to invite peers even though the live room still looked retryable.",
+                ),
+              ),
+              effect.none(),
+            )
+
+            durable_state -> #(
+              set_concurrent_durable_state(model, durable_state),
+              effect.none(),
+            )
+          }
+
+        Error(reason) -> #(
+          with_feedback(
+            model,
+            bootstrap_guard.warning(
+              "Concurrent add/remove: TwoPSet stayed absent after seeding \"eggs\", but this tab could not re-read the live pantry state. "
+              <> reason,
+            ),
+          ),
+          effect.none(),
+        )
+      }
+
+    True -> {
       let model = remember_run_id(model, run_id)
       let model =
         Model(
@@ -879,7 +1020,9 @@ fn start_concurrent(model: Model) -> #(Model, Effect(Msg)) {
             ),
           ),
         )
-        |> with_feedback(bootstrap_guard.info(message))
+        |> with_feedback(bootstrap_guard.info(
+          "Concurrent add/remove: seeded \"eggs\" into all three sets and is waiting briefly before inviting a peer.",
+        ))
 
       #(
         model,
@@ -905,36 +1048,78 @@ fn invite_concurrent_peers(
       attempts_remaining,
     )
       if current_run == run_id
-    -> {
-      let model =
-        Model(
-          ..model,
-          scenario: ScenarioState(
-            ..model.scenario,
-            concurrent: ConcurrentInitiator(
-              run_id: run_id,
-              phase: ConcurrentAwaitingAck,
-              selected_peer: selected_peer,
-              peer_applied: peer_applied,
-              attempts_remaining: attempts_remaining,
-            ),
-          ),
-        )
-        |> with_feedback(bootstrap_guard.info(
-          "Concurrent add/remove: invited other ready tabs to acknowledge the \"eggs\" race.",
-        ))
+    ->
+      case refresh_live_shared(model) {
+        Ok(model) ->
+          case scenario_state.concurrent_preflight_outcome(model.snapshots) {
+            scenario_state.PreflightRetryable -> {
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentInitiator(
+                      run_id: run_id,
+                      phase: ConcurrentAwaitingAck,
+                      selected_peer: selected_peer,
+                      peer_applied: peer_applied,
+                      attempts_remaining: attempts_remaining,
+                    ),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.info(
+                  "Concurrent add/remove: invited other ready tabs to acknowledge the \"eggs\" race.",
+                ))
 
-      #(
-        model,
-        effect.batch([
-          submit_scenario_ripple(model, scenario_protocol.Invitation(run_id)),
-          watershed_lustre.after(
-            concurrent_invite_timeout_ms,
-            ConcurrentInviteTimedOut(run_id),
-          ),
-        ]),
-      )
-    }
+              #(
+                model,
+                effect.batch([
+                  submit_scenario_ripple(
+                    model,
+                    scenario_protocol.Invitation(run_id),
+                  ),
+                  watershed_lustre.after(
+                    concurrent_invite_timeout_ms,
+                    ConcurrentInviteTimedOut(run_id),
+                  ),
+                ]),
+              )
+            }
+
+            scenario_state.PreflightComplete(status, disabled_reason) -> #(
+              set_concurrent_durable_state(
+                model,
+                scenario_state.DurableComplete(status, disabled_reason),
+              ),
+              effect.none(),
+            )
+
+            scenario_state.PreflightLocked(status, disabled_reason) -> #(
+              set_concurrent_durable_state(
+                model,
+                scenario_state.DurableLocked(status, disabled_reason),
+              ),
+              effect.none(),
+            )
+          }
+
+        Error(reason) -> {
+          let message =
+            "Concurrent add/remove: could not re-read the live pantry state before inviting peers, so this tab stopped without sending invitations. "
+            <> reason
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.warning(message))
+
+          #(model, effect.none())
+        }
+      }
 
     _ -> #(model, effect.none())
   }
@@ -989,41 +1174,81 @@ fn handle_invitation(
             )
           {
             True -> {
-              let message =
-                "Concurrent add/remove: acknowledged run "
-                <> run_id
-                <> " from tab "
-                <> inbound.from_peer
-                <> " and is waiting to see whether this tab is selected."
-              let model =
-                Model(
-                  ..remembered,
-                  scenario: ScenarioState(
-                    ..remembered.scenario,
-                    concurrent: ConcurrentPeer(
-                      run_id: run_id,
-                      initiator: inbound.from_peer,
-                      phase: PeerAwaitingGo,
-                      attempts_remaining: concurrent_verify_attempts,
-                      note: Some(message),
+              case refresh_live_shared(remembered) {
+                Ok(remembered) ->
+                  case
+                    scenario_state.concurrent_preflight_outcome(
+                      remembered.snapshots,
+                    )
+                  {
+                    scenario_state.PreflightRetryable -> {
+                      let message =
+                        "Concurrent add/remove: acknowledged run "
+                        <> run_id
+                        <> " from tab "
+                        <> inbound.from_peer
+                        <> " and is waiting to see whether this tab is selected."
+                      let model =
+                        Model(
+                          ..remembered,
+                          scenario: ScenarioState(
+                            ..remembered.scenario,
+                            concurrent: ConcurrentPeer(
+                              run_id: run_id,
+                              initiator: inbound.from_peer,
+                              phase: PeerAwaitingGo,
+                              attempts_remaining: concurrent_verify_attempts,
+                              note: Some(message),
+                            ),
+                          ),
+                        )
+                        |> with_feedback(bootstrap_guard.info(message))
+
+                      #(
+                        model,
+                        effect.batch([
+                          submit_scenario_ripple(
+                            model,
+                            scenario_protocol.Acknowledgement(run_id),
+                          ),
+                          watershed_lustre.after(
+                            concurrent_peer_go_timeout_ms,
+                            ConcurrentPeerGoTimedOut(run_id),
+                          ),
+                        ]),
+                      )
+                    }
+
+                    scenario_state.PreflightComplete(status, disabled_reason) -> #(
+                      set_concurrent_durable_state(
+                        remembered,
+                        scenario_state.DurableComplete(status, disabled_reason),
+                      ),
+                      effect.none(),
+                    )
+
+                    scenario_state.PreflightLocked(status, disabled_reason) -> #(
+                      set_concurrent_durable_state(
+                        remembered,
+                        scenario_state.DurableLocked(status, disabled_reason),
+                      ),
+                      effect.none(),
+                    )
+                  }
+
+                Error(reason) -> #(
+                  with_feedback(
+                    remembered,
+                    bootstrap_guard.warning(
+                      "Concurrent add/remove: could not re-read the live pantry state before acknowledging run "
+                      <> run_id
+                      <> ". "
+                      <> reason,
                     ),
                   ),
+                  effect.none(),
                 )
-                |> with_feedback(bootstrap_guard.info(message))
-
-              #(
-                model,
-                effect.batch([
-                  submit_scenario_ripple(
-                    model,
-                    scenario_protocol.Acknowledgement(run_id),
-                  ),
-                  watershed_lustre.after(
-                    concurrent_peer_go_timeout_ms,
-                    ConcurrentPeerGoTimedOut(run_id),
-                  ),
-                ]),
-              )
+              }
             }
 
             False -> #(remembered, effect.none())
@@ -1646,20 +1871,50 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.scenario.concurrent {
         ConcurrentInitiator(current_run, ConcurrentAwaitingAck, None, _, _)
           if current_run == run_id
-        -> {
-          let message = scenario_state.invitation_timeout_message()
-          let model =
-            set_concurrent_timeout_state(
-              model,
-              scenario_state.concurrent_timeout_state(
-                mutation_began: False,
-                status: message,
-              ),
-              bootstrap_guard.warning(message),
-            )
+        ->
+          case refresh_live_shared(model) {
+            Ok(model) ->
+              case scenario_state.concurrent_durable_state(model.snapshots) {
+                scenario_state.DurableRetryable -> {
+                  let message = scenario_state.invitation_timeout_message()
+                  let model =
+                    set_concurrent_timeout_state(
+                      model,
+                      scenario_state.concurrent_timeout_state(
+                        mutation_began: False,
+                        status: message,
+                      ),
+                      bootstrap_guard.warning(message),
+                    )
 
-          #(model, effect.none())
-        }
+                  #(model, effect.none())
+                }
+
+                durable_state -> #(
+                  set_concurrent_durable_state(model, durable_state),
+                  effect.none(),
+                )
+              }
+
+            Error(reason) -> {
+              let message =
+                "Concurrent add/remove: could not re-read the live pantry state when run "
+                <> run_id
+                <> " timed out waiting for acknowledgements, so this tab stopped without claiming the room is retryable. "
+                <> reason
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentIdle(Some(message)),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.warning(message))
+
+              #(model, effect.none())
+            }
+          }
 
         _ -> #(model, effect.none())
       }
@@ -1668,23 +1923,65 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.scenario.concurrent {
         ConcurrentPeer(current_run, _initiator, PeerAwaitingGo, _, _)
           if current_run == run_id
-        -> {
-          let message =
-            "Concurrent add/remove: no go arrived for run "
-            <> run_id
-            <> ", so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry."
-          let model =
-            set_concurrent_timeout_state(
-              model,
-              scenario_state.concurrent_timeout_state(
-                mutation_began: False,
-                status: message,
-              ),
-              bootstrap_guard.warning(message),
-            )
+        ->
+          case refresh_live_shared(model) {
+            Ok(model) ->
+              case
+                scenario_state.concurrent_peer_go_timeout_outcome(
+                  run_id,
+                  model.snapshots,
+                )
+              {
+                scenario_state.PeerGoRetryable(status) -> {
+                  let model =
+                    set_concurrent_timeout_state(
+                      model,
+                      scenario_state.concurrent_timeout_state(
+                        mutation_began: False,
+                        status: status,
+                      ),
+                      bootstrap_guard.warning(status),
+                    )
 
-          #(model, effect.none())
-        }
+                  #(model, effect.none())
+                }
+
+                scenario_state.PeerGoComplete(status, disabled_reason) -> #(
+                  set_concurrent_durable_state(
+                    model,
+                    scenario_state.DurableComplete(status, disabled_reason),
+                  ),
+                  effect.none(),
+                )
+
+                scenario_state.PeerGoLocked(status, disabled_reason) -> #(
+                  set_concurrent_durable_state(
+                    model,
+                    scenario_state.DurableLocked(status, disabled_reason),
+                  ),
+                  effect.none(),
+                )
+              }
+
+            Error(reason) -> {
+              let message =
+                "Concurrent add/remove: could not re-read the live pantry state after go timed out for run "
+                <> run_id
+                <> ", so this tab left the waiting state without claiming the room is retryable. "
+                <> reason
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentIdle(Some(message)),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.warning(message))
+
+              #(model, effect.none())
+            }
+          }
 
         _ -> #(model, effect.none())
       }

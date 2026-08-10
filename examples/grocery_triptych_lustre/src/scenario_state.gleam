@@ -25,6 +25,18 @@ pub type ConcurrentDurableState {
   DurableLocked(status: String, disabled_reason: String)
 }
 
+pub type ConcurrentPreflightOutcome {
+  PreflightRetryable
+  PreflightComplete(status: String, disabled_reason: String)
+  PreflightLocked(status: String, disabled_reason: String)
+}
+
+pub type ConcurrentPeerGoTimeoutOutcome {
+  PeerGoRetryable(status: String)
+  PeerGoComplete(status: String, disabled_reason: String)
+  PeerGoLocked(status: String, disabled_reason: String)
+}
+
 pub type PeerStatusUpdate {
   IgnoreWhileAwaitingGo
   KeepVerifying(note: String)
@@ -108,6 +120,31 @@ pub fn concurrent_durable_state(
   }
 }
 
+pub fn concurrent_preflight_outcome(
+  snapshots: Snapshots,
+) -> ConcurrentPreflightOutcome {
+  case concurrent_durable_state(snapshots) {
+    DurableRetryable -> PreflightRetryable
+    DurableComplete(status, disabled_reason) ->
+      PreflightComplete(status, disabled_reason)
+    DurableLocked(status, disabled_reason) ->
+      PreflightLocked(status, disabled_reason)
+  }
+}
+
+pub fn concurrent_peer_go_timeout_outcome(
+  run_id: String,
+  snapshots: Snapshots,
+) -> ConcurrentPeerGoTimeoutOutcome {
+  case concurrent_durable_state(snapshots) {
+    DurableRetryable -> PeerGoRetryable(peer_go_timeout_message(run_id))
+    DurableComplete(status, disabled_reason) ->
+      PeerGoComplete(status, disabled_reason)
+    DurableLocked(status, disabled_reason) ->
+      PeerGoLocked(status, disabled_reason)
+  }
+}
+
 pub fn observe_peer_status(
   participating participating: Bool,
   status status: scenario_protocol.Status,
@@ -180,6 +217,12 @@ fn peer_status_note(status: scenario_protocol.Status) -> String {
     scenario_protocol.PeerAppliedAdd ->
       "Concurrent add/remove: ignored an unexpected peer-applied status on the peer side."
   }
+}
+
+fn peer_go_timeout_message(run_id: String) -> String {
+  "Concurrent add/remove: no go arrived for run "
+  <> run_id
+  <> ", so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry."
 }
 
 fn concurrent_remove_phase_crossed(snapshots: Snapshots) -> Bool {

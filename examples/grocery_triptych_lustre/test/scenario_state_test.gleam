@@ -71,6 +71,64 @@ pub fn or_set_churn_never_makes_a_consumed_room_retryable_again_test() {
   ])
 }
 
+pub fn concurrent_preflight_allows_retry_only_while_live_room_is_unconsumed_test() {
+  [
+    scenario_state.concurrent_preflight_outcome(initial_snapshots()),
+    scenario_state.concurrent_preflight_outcome(prepared_snapshots()),
+    scenario_state.concurrent_preflight_outcome(expected_snapshots()),
+    scenario_state.concurrent_preflight_outcome(consumed_incomplete_snapshots()),
+  ]
+  |> should.equal([
+    scenario_state.PreflightRetryable,
+    scenario_state.PreflightRetryable,
+    scenario_state.PreflightComplete(
+      "Concurrent add/remove is complete for this room; settled snapshots show expected GSet present, TwoPSet absent, OrSet present.",
+      scenario_state.concurrent_locked_message(),
+    ),
+    scenario_state.PreflightLocked(
+      "Concurrent add/remove already consumed this room; settled snapshots show GSet present, TwoPSet absent, OrSet absent instead of expected GSet present, TwoPSet absent, OrSet present.",
+      scenario_state.concurrent_locked_message(),
+    ),
+  ])
+}
+
+pub fn peer_go_timeout_applies_live_durable_evidence_before_returning_idle_test() {
+  [
+    scenario_state.concurrent_peer_go_timeout_outcome(
+      "run-7",
+      initial_snapshots(),
+    ),
+    scenario_state.concurrent_peer_go_timeout_outcome(
+      "run-7",
+      prepared_snapshots(),
+    ),
+    scenario_state.concurrent_peer_go_timeout_outcome(
+      "run-7",
+      expected_snapshots(),
+    ),
+    scenario_state.concurrent_peer_go_timeout_outcome(
+      "run-7",
+      consumed_incomplete_snapshots(),
+    ),
+  ]
+  |> should.equal([
+    scenario_state.PeerGoRetryable(
+      "Concurrent add/remove: no go arrived for run run-7, so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry.",
+    ),
+    scenario_state.PeerGoRetryable(
+      "Concurrent add/remove: no go arrived for run run-7, so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry.",
+    ),
+    scenario_state.PeerGoComplete(
+      "Concurrent add/remove is complete for this room; settled snapshots show expected GSet present, TwoPSet absent, OrSet present.",
+      scenario_state.concurrent_locked_message(),
+    ),
+    scenario_state.PeerGoLocked(
+      "Concurrent add/remove already consumed this room; settled snapshots show GSet present, TwoPSet absent, OrSet absent instead of expected GSet present, TwoPSet absent, OrSet present.",
+      scenario_state.concurrent_locked_message(),
+    ),
+  ])
+}
+
 pub fn verification_succeeds_on_expected_snapshots_test() {
   scenario_state.advance_verification(expected_snapshots(), 2)
   |> should.equal(scenario_state.Verified)
