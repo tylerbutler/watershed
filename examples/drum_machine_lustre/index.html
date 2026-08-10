@@ -60,6 +60,10 @@
          so an enabled downbeat still reads as enabled. */
       .step.downbeat { background: color-mix(in srgb, currentColor 12%, transparent); }
       .step.on { background: currentColor; }
+      .step.on.triggered {
+        box-shadow: 0 0 0 0.2rem color-mix(in srgb, currentColor 35%, transparent);
+        transform: scale(0.82);
+      }
       .step.focused { outline: 2px solid Highlight; outline-offset: 1px; }
 
       /* The playhead is a sibling row above the grid, sharing the row's exact

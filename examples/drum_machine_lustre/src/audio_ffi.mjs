@@ -56,6 +56,8 @@ export function createEngine() {
     // rAF handle for the playhead loop, and the last step it painted.
     frame: null,
     paintedStep: -2,
+    displayRevision: 0,
+    paintedRevision: -1,
   };
 }
 
@@ -123,6 +125,7 @@ export function setTrack(engine, track, steps) {
   for (const step of steps) {
     if (step >= 0 && step < STEP_COUNT) row[step] = true;
   }
+  engine.displayRevision += 1;
   return undefined;
 }
 
@@ -135,6 +138,7 @@ export function setBpm(engine, bpm) {
 
 export function setMute(engine, track, muted) {
   engine.mute[track] = muted;
+  engine.displayRevision += 1;
   return undefined;
 }
 
@@ -330,10 +334,27 @@ function paint(engine) {
     }
   }
   const step = engine.playing ? engine.audibleStep : -1;
-  if (step === engine.paintedStep) return;
+  if (
+    step === engine.paintedStep &&
+    engine.displayRevision === engine.paintedRevision
+  ) {
+    return;
+  }
   engine.paintedStep = step;
+  engine.paintedRevision = engine.displayRevision;
   for (let i = 0; i < STEP_COUNT; i++) {
     el.children[i + 1].classList.toggle("lit", i === step);
+  }
+  for (const cell of globalThis.document.querySelectorAll(".step.triggered")) {
+    cell.classList.remove("triggered");
+  }
+  if (step < 0) return;
+  for (let track = 0; track < TRACK_COUNT; track++) {
+    if (engine.mute[track] || !engine.pattern[track][step]) continue;
+    const cell = globalThis.document.querySelector(
+      `.step[data-track="${track}"][data-step="${step}"]`,
+    );
+    cell?.classList.add("triggered");
   }
 }
 

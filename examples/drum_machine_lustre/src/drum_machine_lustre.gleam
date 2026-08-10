@@ -1025,6 +1025,8 @@ fn step_view(
         #("focused", focused),
         #("downbeat", downbeat),
       ]),
+      attribute.attribute("data-track", int.to_string(track_index)),
+      attribute.attribute("data-step", int.to_string(step)),
       role("gridcell"),
       aria_pressed(bool_string(on)),
       aria_label(
