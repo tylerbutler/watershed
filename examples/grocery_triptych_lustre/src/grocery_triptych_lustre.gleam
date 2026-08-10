@@ -3,7 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lustre
-import lustre/attribute.{class, placeholder, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -20,7 +20,8 @@ import doc_schema
 import grocery_triptych_lustre/bootstrap_guard.{
   type Feedback, type FeedbackKind, Info, Warning,
 }
-import pantry_snapshot.{type Row, type Snapshots}
+import pantry_snapshot.{type DiffCounts, type Row, type Snapshots}
+import triptych_actions
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -47,6 +48,7 @@ type Model {
     draft: String,
     snapshots: Snapshots,
     rows: List(Row),
+    diffs: DiffCounts,
     feedback: Option(Feedback),
     scenario: ScenarioState,
     error: Option(String),
@@ -79,6 +81,12 @@ type ScenarioState {
   PendingScenario(String)
 }
 
+type Panel {
+  GrowOnlyPanel
+  TwoPhasePanel
+  ObservedPanel
+}
+
 type Msg {
   GotHandle(Document)
   Connected(Result(Nil, String))
@@ -86,6 +94,9 @@ type Msg {
   EnsuredTwoPhase(Result(TwoPSet, String))
   EnsuredObserved(Result(OrSet, String))
   DraftChanged(String)
+  AddSubmitted
+  RemoveRequested(String)
+  ScenarioRequested(String)
   GrowOnlyChanged(g_set_kernel.GSetEvent)
   TwoPhaseChanged(two_p_set_kernel.TwoPSetEvent)
   ObservedChanged(or_set_kernel.OrSetEvent)
@@ -105,6 +116,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       draft: "",
       snapshots: pantry_snapshot.empty(),
       rows: [],
+      diffs: pantry_snapshot.empty_diff_counts(),
       feedback: Some(bootstrap_guard.info(
         "waiting for document handle and ready callback",
       )),
@@ -230,11 +242,14 @@ fn refresh_snapshots(model: Model) -> Model {
           two_phase: watershed_js.two_p_set_values(shared.two_phase),
           observed: watershed_js.or_set_values(shared.observed),
         )
+      let rows = pantry_snapshot.rows(snapshots)
+
       Model(
         ..model,
         readiness: Ready,
         snapshots: snapshots,
-        rows: pantry_snapshot.rows(snapshots),
+        rows: rows,
+        diffs: pantry_snapshot.diff_counts(rows),
       )
     }
     None -> model
@@ -248,6 +263,69 @@ fn fail(model: Model, reason: String) -> Model {
     feedback: Some(bootstrap_guard.warning(reason)),
     error: Some(reason),
   )
+}
+
+fn controls_ready(model: Model) -> Bool {
+  option.is_some(model.shared) && !bootstrap_guard.failure_latched(model.error)
+}
+
+fn with_feedback(model: Model, feedback: Feedback) -> Model {
+  case bootstrap_guard.failure_latched(model.error) {
+    True -> model
+    False -> Model(..model, feedback: Some(feedback))
+  }
+}
+
+fn apply_shared_add(model: Model, raw_item: String) -> Model {
+  let model = Model(..model, scenario: NoScenario)
+
+  case triptych_actions.normalize_item_input(raw_item) {
+    Error(message) -> with_feedback(model, bootstrap_guard.warning(message))
+
+    Ok(item) ->
+      case model.shared {
+        None ->
+          with_feedback(model, triptych_actions.not_ready_feedback("adding"))
+
+        Some(shared) -> {
+          let two_phase_was_present =
+            watershed_js.two_p_set_contains(shared.two_phase, item)
+
+          watershed_js.g_set_add(shared.grow_only, item)
+          watershed_js.two_p_set_add(shared.two_phase, item)
+          watershed_js.or_set_add(shared.observed, item)
+
+          let two_phase_is_present =
+            watershed_js.two_p_set_contains(shared.two_phase, item)
+
+          Model(..model, draft: "")
+          |> refresh_snapshots
+          |> with_feedback(triptych_actions.add_feedback(
+            item,
+            two_phase_was_present,
+            two_phase_is_present,
+          ))
+        }
+      }
+  }
+}
+
+fn apply_shared_remove(model: Model, item: String) -> Model {
+  let model = Model(..model, scenario: NoScenario)
+
+  case model.shared {
+    None ->
+      with_feedback(model, triptych_actions.not_ready_feedback("removing"))
+
+    Some(shared) -> {
+      watershed_js.two_p_set_remove(shared.two_phase, item)
+      watershed_js.or_set_remove(shared.observed, item)
+
+      model
+      |> refresh_snapshots
+      |> with_feedback(triptych_actions.remove_feedback(item))
+    }
+  }
 }
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -328,44 +406,33 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    DraftChanged(text) -> #(Model(..model, draft: text), effect.none())
-
-    GrowOnlyChanged(event) -> #(
-      refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(bootstrap_guard.info(g_set_event_line(event))),
-        ),
-      ),
+    DraftChanged(text) -> #(
+      Model(..model, draft: text, scenario: NoScenario),
       effect.none(),
     )
 
-    TwoPhaseChanged(event) -> #(
-      refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(bootstrap_guard.info(two_p_set_event_line(event))),
-        ),
-      ),
+    AddSubmitted -> #(apply_shared_add(model, model.draft), effect.none())
+
+    RemoveRequested(item) -> #(apply_shared_remove(model, item), effect.none())
+
+    ScenarioRequested(name) -> #(
+      Model(..model, scenario: PendingScenario(name))
+        |> with_feedback(triptych_actions.scenario_placeholder_feedback(name)),
       effect.none(),
     )
 
-    ObservedChanged(event) -> #(
-      refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(bootstrap_guard.info(or_set_event_line(event))),
-        ),
-      ),
-      effect.none(),
-    )
+    GrowOnlyChanged(_) -> #(refresh_snapshots(model), effect.none())
+
+    TwoPhaseChanged(_) -> #(refresh_snapshots(model), effect.none())
+
+    ObservedChanged(_) -> #(refresh_snapshots(model), effect.none())
   }
 }
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · grocery triptych")]),
-    html.p([class("status")], [
+    html.p([attribute.class("status")], [
       html.text(
         "document "
         <> model.document_name
@@ -374,130 +441,346 @@ fn view(model: Model) -> Element(Msg) {
       ),
     ]),
     flash_view(model.feedback),
-    html.section([class("panel")], [
-      html.h2([], [html.text("Bootstrap")]),
-      fact("handle", yes_no(option.is_some(model.doc))),
-      fact("ready callback", yes_no(model.ready_callback_seen)),
-      fact("handles requested", yes_no(model.bootstrap_requested)),
-      fact("shared handles", yes_no(option.is_some(model.shared))),
-      fact("pending grow_only", pending_status(model.pending.grow_only)),
-      fact("pending two_phase", pending_status(model.pending.two_phase)),
-      fact("pending observed", pending_status(model.pending.observed)),
-      fact("scenario", scenario_text(model.scenario)),
+    connection_view(model),
+    controls_view(model),
+    shared_remove_view(model),
+    comparison_view(model),
+  ])
+}
+
+fn connection_view(model: Model) -> Element(Msg) {
+  html.section([attribute.class("panel")], [
+    html.h2([], [html.text("Connection and bootstrap")]),
+    html.p([attribute.class("hint")], [
+      html.text(
+        "Shared actions stay gated until the document handle, ready callback, "
+        <> "and all three pantry channels are available.",
+      ),
     ]),
-    html.section([class("panel")], [
-      html.h2([], [html.text("Shared draft")]),
-      html.p([class("hint")], [
-        html.text(
-          "Task 2 wires the draft and synchronized snapshots only; add/remove "
-          <> "controls land next.",
+    fact("document handle", yes_no(option.is_some(model.doc))),
+    fact("ready callback", yes_no(model.ready_callback_seen)),
+    fact("handles requested", yes_no(model.bootstrap_requested)),
+    fact("shared handles", yes_no(option.is_some(model.shared))),
+    fact("scenario status", scenario_text(model.scenario)),
+    case model.error {
+      Some(reason) ->
+        html.p(
+          [
+            attribute.class("error"),
+            attribute.attribute("role", "alert"),
+            attribute.attribute("aria-live", "assertive"),
+          ],
+          [html.text(reason)],
+        )
+
+      None -> html.text("")
+    },
+  ])
+}
+
+fn controls_view(model: Model) -> Element(Msg) {
+  let ready = controls_ready(model)
+  let can_submit = ready && triptych_actions.has_submittable_item(model.draft)
+
+  html.section([attribute.class("panel")], [
+    html.h2([], [html.text("Shared controls")]),
+    html.p([attribute.class("hint")], [
+      html.text(
+        "One form drives all three sets so any divergence comes from the set "
+        <> "rules rather than from different controls.",
+      ),
+    ]),
+    html.form(
+      [attribute.class("compose"), event.on_submit(fn(_) { AddSubmitted })],
+      [
+        html.label([attribute.class("field")], [
+          html.span([attribute.class("field-label")], [html.text("Item")]),
+          html.input([
+            attribute.name("item"),
+            attribute.placeholder("milk"),
+            attribute.value(model.draft),
+            attribute.aria_label("Grocery item name"),
+            event.on_input(DraftChanged),
+          ]),
+        ]),
+        html.button(
+          [
+            attribute.class("primary"),
+            attribute.type_("submit"),
+            attribute.disabled(!can_submit),
+            attribute.aria_label("Add grocery item to all three sets"),
+          ],
+          [html.text("Add to all three")],
         ),
+      ],
+    ),
+    case ready {
+      True -> html.text("")
+      False ->
+        html.p([attribute.class("hint")], [
+          html.text(
+            "Adds unlock after the connection and pantry bootstrap finish.",
+          ),
+        ])
+    },
+    html.div([attribute.class("scenario-row")], [
+      html.span([attribute.class("field-label")], [
+        html.text("Preset scenarios"),
       ]),
-      html.input([
-        placeholder("milk"),
-        value(model.draft),
-        event.on_input(DraftChanged),
+      html.div([attribute.class("scenario-buttons")], [
+        html.button(
+          [
+            attribute.type_("button"),
+            event.on_click(ScenarioRequested("Tombstone")),
+            attribute.aria_label("Explain the upcoming tombstone preset"),
+          ],
+          [html.text("Tombstone")],
+        ),
+        html.button(
+          [
+            attribute.type_("button"),
+            event.on_click(ScenarioRequested("Concurrent add/remove")),
+            attribute.aria_label(
+              "Explain the upcoming concurrent add remove preset",
+            ),
+          ],
+          [html.text("Concurrent add/remove")],
+        ),
       ]),
     ]),
-    html.section([class("panel")], [
-      html.h2([], [html.text("Pantry channels")]),
-      html.div([class("pantry")], [
-        card("grow_only", "GSet · add-only", model.snapshots.grow_only),
-        card(
-          "two_phase",
-          "TwoPSet · tombstones removals",
-          model.snapshots.two_phase,
-        ),
-        card(
-          "observed",
-          "OrSet · re-addable observed remove",
-          model.snapshots.observed,
-        ),
-      ]),
-    ]),
-    html.section([class("panel")], [
-      html.h2([], [html.text("Union rows")]),
-      html.p([class("hint")], [
-        html.text(
-          "Rows come from the union of all three snapshots so absence stays "
-          <> "renderable.",
-        ),
-      ]),
-      rows_view(model.rows),
+    html.p([attribute.class("hint")], [
+      html.text(
+        "Scenario buttons are placeholders in this task; they explain the "
+        <> "next flow but do not automate it yet.",
+      ),
     ]),
   ])
 }
 
-fn card(name: String, rule: String, items: List(String)) -> Element(msg) {
-  html.article([class("card")], [
-    html.h2([], [html.text(name)]),
-    html.p([], [
+fn shared_remove_view(model: Model) -> Element(Msg) {
+  let ready = controls_ready(model)
+
+  html.section([attribute.class("panel")], [
+    html.h2([], [html.text("Shared remove actions")]),
+    html.p([attribute.class("hint")], [
       html.text(
-        "tagged by Pantry · "
-        <> rule
-        <> " · "
-        <> int.to_string(list.length(items))
-        <> " item(s)",
+        "Each remove issues paired TwoPSet and OrSet removals. GSet keeps the "
+        <> "item because grow-only removal is not expressible.",
       ),
     ]),
-    case items {
-      [] -> html.p([class("hint")], [html.text("empty")])
-      _ ->
+    case model.rows {
+      [] ->
+        html.p([attribute.class("hint")], [
+          html.text("Add an item to start the comparison."),
+        ])
+
+      rows ->
         html.ul(
-          [class("values")],
-          list.map(items, fn(item) { html.li([], [html.text(item)]) }),
+          [attribute.class("shared-actions")],
+          list.map(rows, shared_row_view(_, ready)),
         )
     },
   ])
 }
 
-fn rows_view(rows: List(Row)) -> Element(Msg) {
-  case rows {
-    [] ->
-      html.p([class("hint")], [
-        html.text("No rows yet — snapshots will populate once the sets change."),
-      ])
-    _ -> html.ul([class("rows")], list.map(rows, row_view))
-  }
-}
-
-fn row_view(row: Row) -> Element(Msg) {
-  html.li([class("row")], [
-    html.span([class("item")], [html.text(row.item)]),
-    presence_badge("grow_only", row.grow_only),
-    presence_badge("two_phase", row.two_phase),
-    presence_badge("observed", row.observed),
-  ])
-}
-
-fn presence_badge(label: String, present: Bool) -> Element(msg) {
-  let marker = case present {
-    True -> "present"
-    False -> "absent"
-  }
-  html.span([class("pill " <> marker)], [
-    html.text(
-      label
-      <> ": "
-      <> case present {
-        True -> "yes"
-        False -> "no"
-      },
+fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
+  html.li([attribute.class("shared-row")], [
+    html.div([attribute.class("row-main")], [
+      html.span([attribute.class("item")], [html.text(row.item)]),
+      divergence_marker(row.diverges),
+    ]),
+    html.button(
+      [
+        attribute.class("danger"),
+        attribute.type_("button"),
+        attribute.disabled(!ready),
+        event.on_click(RemoveRequested(row.item)),
+        attribute.aria_label("Remove " <> row.item <> " from TwoPSet and OrSet"),
+      ],
+      [html.text("Remove from TwoPSet + OrSet")],
     ),
   ])
 }
 
+fn comparison_view(model: Model) -> Element(Msg) {
+  html.section([attribute.class("panel")], [
+    html.h2([], [html.text("Triptych comparison")]),
+    html.p([attribute.class("hint")], [
+      html.text(
+        "Every panel renders the same union rows in the same order; only the "
+        <> "removal rule changes what stays present.",
+      ),
+    ]),
+    html.div([attribute.class("pantry")], [
+      panel_view(GrowOnlyPanel, model),
+      panel_view(TwoPhasePanel, model),
+      panel_view(ObservedPanel, model),
+    ]),
+  ])
+}
+
+fn panel_view(panel: Panel, model: Model) -> Element(Msg) {
+  html.article([attribute.class("card")], [
+    html.div([attribute.class("card-header")], [
+      html.h2([], [html.text(panel_title(panel))]),
+      html.p([], [html.text(panel_rule(panel))]),
+      html.p([attribute.class("hint")], [
+        html.text(
+          panel_count_text(panel_present_count(panel, model.snapshots))
+          <> " · "
+          <> diff_count_text(panel_diff_count(panel, model.diffs)),
+        ),
+      ]),
+      panel_note(panel),
+    ]),
+    panel_rows_view(panel, model.rows),
+  ])
+}
+
+fn panel_rows_view(panel: Panel, rows: List(Row)) -> Element(Msg) {
+  case rows {
+    [] -> html.p([attribute.class("hint")], [html.text("No rows yet.")])
+    _ ->
+      html.ul(
+        [attribute.class("panel-rows")],
+        list.map(rows, panel_row_view(panel, _)),
+      )
+  }
+}
+
+fn panel_row_view(panel: Panel, row: Row) -> Element(Msg) {
+  html.li([attribute.class(panel_row_class(panel, row))], [
+    html.div([attribute.class("row-main")], [
+      html.span([attribute.class("item")], [html.text(row.item)]),
+      divergence_marker(row.diverges),
+    ]),
+    presence_badge(panel_present(panel, row)),
+  ])
+}
+
+fn panel_note(panel: Panel) -> Element(Msg) {
+  case panel {
+    GrowOnlyPanel ->
+      html.div([attribute.class("disabled-note")], [
+        html.button([attribute.type_("button"), attribute.disabled(True)], [
+          html.text("Remove unavailable"),
+        ]),
+        html.span([attribute.class("hint")], [
+          html.text("Grow-only set: removal is not expressible."),
+        ]),
+      ])
+
+    _ -> html.text("")
+  }
+}
+
+fn divergence_marker(diverges: Bool) -> Element(msg) {
+  case diverges {
+    True -> html.span([attribute.class("marker")], [html.text("⚠ diverges")])
+    False -> html.text("")
+  }
+}
+
+fn presence_badge(present: Bool) -> Element(msg) {
+  let marker = case present {
+    True -> "present"
+    False -> "absent"
+  }
+
+  html.span([attribute.class("pill " <> marker)], [html.text(marker)])
+}
+
+fn panel_title(panel: Panel) -> String {
+  case panel {
+    GrowOnlyPanel -> "GSet"
+    TwoPhasePanel -> "TwoPSet"
+    ObservedPanel -> "OrSet"
+  }
+}
+
+fn panel_rule(panel: Panel) -> String {
+  case panel {
+    GrowOnlyPanel -> "Grow-only: add-only; removal is not expressible."
+    TwoPhasePanel ->
+      "Two-phase: removes tombstone forever, so a re-add can be ignored."
+    ObservedPanel ->
+      "Observed-remove: remove what you saw; re-adding the item works."
+  }
+}
+
+fn panel_present_count(panel: Panel, snapshots: Snapshots) -> Int {
+  case panel {
+    GrowOnlyPanel -> list.length(snapshots.grow_only)
+    TwoPhasePanel -> list.length(snapshots.two_phase)
+    ObservedPanel -> list.length(snapshots.observed)
+  }
+}
+
+fn panel_diff_count(panel: Panel, diffs: DiffCounts) -> Int {
+  case panel {
+    GrowOnlyPanel -> diffs.grow_only
+    TwoPhasePanel -> diffs.two_phase
+    ObservedPanel -> diffs.observed
+  }
+}
+
+fn panel_present(panel: Panel, row: Row) -> Bool {
+  case panel {
+    GrowOnlyPanel -> row.grow_only
+    TwoPhasePanel -> row.two_phase
+    ObservedPanel -> row.observed
+  }
+}
+
+fn panel_row_class(panel: Panel, row: Row) -> String {
+  case row.diverges, panel_is_outlier(panel, row) {
+    True, True -> "panel-row diverges outlier"
+    True, False -> "panel-row diverges"
+    False, _ -> "panel-row"
+  }
+}
+
+fn panel_is_outlier(panel: Panel, row: Row) -> Bool {
+  case panel {
+    GrowOnlyPanel -> pantry_snapshot.grow_only_differs(row)
+    TwoPhasePanel -> pantry_snapshot.two_phase_differs(row)
+    ObservedPanel -> pantry_snapshot.observed_differs(row)
+  }
+}
+
+fn panel_count_text(count: Int) -> String {
+  int.to_string(count)
+  <> case count == 1 {
+    True -> " item present"
+    False -> " items present"
+  }
+}
+
+fn diff_count_text(count: Int) -> String {
+  int.to_string(count)
+  <> case count == 1 {
+    True -> " diff"
+    False -> " diffs"
+  }
+}
+
 fn fact(label: String, detail: String) -> Element(msg) {
-  html.p([class("hint")], [html.text(label <> ": " <> detail)])
+  html.p([attribute.class("hint")], [html.text(label <> ": " <> detail)])
 }
 
 fn flash_view(feedback: Option(Feedback)) -> Element(msg) {
   case feedback {
-    None -> html.div([], [])
+    None -> html.text("")
+
     Some(feedback) ->
-      html.p([class(feedback_class(feedback.kind))], [
-        html.text(feedback.message),
-      ])
+      html.p(
+        [
+          attribute.class("flash " <> feedback_class(feedback.kind)),
+          attribute.attribute("role", feedback_role(feedback.kind)),
+          attribute.attribute("aria-live", feedback_live(feedback.kind)),
+        ],
+        [html.text(feedback.message)],
+      )
   }
 }
 
@@ -505,6 +788,20 @@ fn feedback_class(kind: FeedbackKind) -> String {
   case kind {
     Info -> "status"
     Warning -> "status error"
+  }
+}
+
+fn feedback_role(kind: FeedbackKind) -> String {
+  case kind {
+    Info -> "status"
+    Warning -> "alert"
+  }
+}
+
+fn feedback_live(kind: FeedbackKind) -> String {
+  case kind {
+    Info -> "polite"
+    Warning -> "assertive"
   }
 }
 
@@ -526,38 +823,9 @@ fn yes_no(value: Bool) -> String {
   }
 }
 
-fn pending_status(handle: Option(a)) -> String {
-  case handle {
-    Some(_) -> "resolved"
-    None -> "waiting"
-  }
-}
-
 fn scenario_text(scenario: ScenarioState) -> String {
   case scenario {
-    NoScenario -> "presets land in a later task"
-    PendingScenario(name) -> "running " <> name
-  }
-}
-
-/// A G-set can only tell us that something was added; removal is not
-/// expressible, which is part of what the demo exists to show.
-fn g_set_event_line(event: g_set_kernel.GSetEvent) -> String {
-  case event {
-    g_set_kernel.ElementAdded(element) -> "grow_only added " <> element
-  }
-}
-
-fn two_p_set_event_line(event: two_p_set_kernel.TwoPSetEvent) -> String {
-  case event {
-    two_p_set_kernel.ElementAdded(element) -> "two_phase added " <> element
-    two_p_set_kernel.ElementRemoved(element) -> "two_phase removed " <> element
-  }
-}
-
-fn or_set_event_line(event: or_set_kernel.OrSetEvent) -> String {
-  case event {
-    or_set_kernel.ElementAdded(element) -> "observed added " <> element
-    or_set_kernel.ElementRemoved(element) -> "observed removed " <> element
+    NoScenario -> "placeholder controls only"
+    PendingScenario(name) -> name <> " placeholder selected"
   }
 }

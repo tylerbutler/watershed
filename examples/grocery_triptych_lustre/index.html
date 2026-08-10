@@ -5,62 +5,141 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>watershed · grocery triptych</title>
     <style>
-      :root { color-scheme: light dark; }
+      :root {
+        color-scheme: light dark;
+      }
       body {
         font-family: system-ui, sans-serif;
         display: grid;
         place-items: start center;
         min-height: 100vh;
         margin: 0;
+        background: Canvas;
+        color: CanvasText;
       }
-      .wrap { width: min(96vw, 72rem); padding: 2rem; }
-      h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
-      .status, .hint { font-size: 0.85rem; }
-      .status, .hint { opacity: 0.7; }
+      .wrap {
+        width: min(96vw, 76rem);
+        padding: 2rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.25rem;
+      }
+      .status,
+      .hint {
+        font-size: 0.85rem;
+        opacity: 0.75;
+      }
+      .flash {
+        margin-top: 1rem;
+      }
       .panel {
         margin-top: 1.5rem;
         padding: 1rem;
         border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
         border-radius: 0.75rem;
+        background: color-mix(in srgb, currentColor 2%, transparent);
       }
       .pantry {
         display: grid;
         gap: 0.75rem;
         margin-top: 1rem;
-        grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
       }
       .card {
-        padding: 0.75rem 1rem;
+        display: grid;
+        gap: 0.75rem;
+        padding: 0.9rem 1rem;
         border-radius: 0.5rem;
         border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
         background: color-mix(in srgb, currentColor 4%, transparent);
       }
-      .card h2 { font-size: 1rem; margin: 0 0 0.25rem; }
-      .card p { margin: 0; }
-      .values {
-        margin: 0.75rem 0 0;
-        padding-left: 1.25rem;
+      .card h2,
+      .panel h2 {
+        font-size: 1rem;
+        margin: 0 0 0.25rem;
       }
-      .rows {
+      .card p,
+      .panel p {
+        margin: 0;
+      }
+      .card-header {
         display: grid;
+        gap: 0.35rem;
+      }
+      .compose {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: end;
+        margin-top: 1rem;
+      }
+      .field {
+        display: grid;
+        gap: 0.35rem;
+        flex: 1 1 18rem;
+      }
+      .field-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+      .scenario-row,
+      .shared-row,
+      .disabled-note {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+      .scenario-row {
+        margin-top: 1rem;
+        justify-content: space-between;
+      }
+      .scenario-buttons {
+        display: flex;
+        flex-wrap: wrap;
         gap: 0.5rem;
+      }
+      .shared-actions,
+      .panel-rows {
+        display: grid;
+        gap: 0.65rem;
         list-style: none;
         padding: 0;
         margin: 1rem 0 0;
       }
-      .row {
+      .shared-row,
+      .panel-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem;
+        justify-content: space-between;
+        gap: 0.75rem;
+        align-items: center;
+        padding: 0.65rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+        background: color-mix(in srgb, currentColor 2%, transparent);
+      }
+      .panel-row.diverges {
+        border-color: color-mix(in srgb, #d9480f 26%, currentColor 16%);
+      }
+      .panel-row.outlier {
+        background: color-mix(in srgb, #d9480f 10%, transparent);
+      }
+      .row-main {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
         align-items: center;
       }
       .item {
         font-weight: 600;
-        min-width: 8rem;
+        word-break: break-word;
       }
       .pill {
         font-size: 0.8rem;
-        padding: 0.15rem 0.45rem;
+        padding: 0.15rem 0.5rem;
         border-radius: 999px;
         border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
       }
@@ -70,14 +149,35 @@
       .absent {
         background: color-mix(in srgb, #e03131 12%, transparent);
       }
-      input {
-        width: min(100%, 22rem);
+      .marker {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #d9480f;
+      }
+      input,
+      button {
         padding: 0.55rem 0.7rem;
         border-radius: 0.45rem;
         border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
         background: color-mix(in srgb, currentColor 4%, transparent);
         color: inherit;
         font: inherit;
+      }
+      input {
+        width: 100%;
+      }
+      button {
+        cursor: pointer;
+      }
+      button.primary {
+        background: color-mix(in srgb, #228be6 22%, transparent);
+      }
+      button.danger {
+        background: color-mix(in srgb, #e03131 12%, transparent);
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
       }
       .error {
         color: #c92a2a;
@@ -87,6 +187,19 @@
         padding: 0.1rem 0.3rem;
         border-radius: 0.25rem;
         background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      @media (max-width: 42rem) {
+        .wrap {
+          padding: 1rem;
+        }
+        .compose,
+        .scenario-row,
+        .shared-row,
+        .panel-row,
+        .disabled-note {
+          flex-direction: column;
+          align-items: stretch;
+        }
       }
     </style>
   </head>

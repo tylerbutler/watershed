@@ -35,24 +35,45 @@ pub fn rows_cover_the_union_without_dropping_absent_panels_test() {
       grow_only: True,
       two_phase: False,
       observed: True,
+      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "bread",
       grow_only: False,
       two_phase: True,
       observed: False,
+      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "cereal",
       grow_only: False,
       two_phase: False,
       observed: True,
+      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "eggs",
       grow_only: True,
       two_phase: True,
       observed: True,
+      diverges: False,
     ),
   ])
+}
+
+pub fn diff_counts_track_the_odd_panel_out_test() {
+  let rows =
+    pantry_snapshot.from_values(
+      grow_only: ["milk", "rice"],
+      two_phase: ["rice"],
+      observed: ["milk"],
+    )
+    |> pantry_snapshot.rows
+
+  pantry_snapshot.diff_counts(rows)
+  |> should.equal(pantry_snapshot.DiffCounts(
+    grow_only: 0,
+    two_phase: 1,
+    observed: 1,
+  ))
 }
