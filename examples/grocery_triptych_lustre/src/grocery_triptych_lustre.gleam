@@ -816,28 +816,53 @@ fn start_tombstone(model: Model) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    None -> {
-      let model =
-        Model(
-          ..model,
-          scenario: ScenarioState(
-            ..model.scenario,
-            tombstone: TombstoneRunning(TombstoneAddStep),
-          ),
-        )
-        |> with_feedback(bootstrap_guard.info(
-          "Tombstone started: it will add \"milk\", remove it, then re-add it once.",
-        ))
+    None ->
+      case refresh_live_shared(model) {
+        Ok(model) ->
+          case scenario_state.tombstone_preflight_outcome(model.snapshots) {
+            scenario_state.TombstonePreflightRetryable ->
+              schedule_tombstone_start(model)
 
-      #(
-        model,
-        watershed_lustre.after(
-          tombstone_start_delay_ms,
-          TombstoneStepDue(TombstoneAddStep),
-        ),
-      )
-    }
+            scenario_state.TombstonePreflightComplete(status) -> #(
+              with_feedback(model, bootstrap_guard.info(status)),
+              effect.none(),
+            )
+          }
+
+        Error(reason) -> #(
+          with_feedback(
+            model,
+            bootstrap_guard.warning(
+              "Tombstone: could not re-read the live pantry state before starting. "
+              <> reason,
+            ),
+          ),
+          effect.none(),
+        )
+      }
   }
+}
+
+fn schedule_tombstone_start(model: Model) -> #(Model, Effect(Msg)) {
+  let model =
+    Model(
+      ..model,
+      scenario: ScenarioState(
+        ..model.scenario,
+        tombstone: TombstoneRunning(TombstoneAddStep),
+      ),
+    )
+    |> with_feedback(bootstrap_guard.info(
+      "Tombstone started: it will add \"milk\", remove it, then re-add it once.",
+    ))
+
+  #(
+    model,
+    watershed_lustre.after(
+      tombstone_start_delay_ms,
+      TombstoneStepDue(TombstoneAddStep),
+    ),
+  )
 }
 
 fn advance_tombstone(
@@ -1503,7 +1528,7 @@ fn handle_status(
                 set_concurrent_timeout_state(
                   model,
                   scenario_state.concurrent_timeout_state(
-                    mutation_began: True,
+                    remove_phase_began: True,
                     status: message,
                   ),
                   feedback,
@@ -1643,7 +1668,7 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             set_concurrent_timeout_state(
               model,
               scenario_state.concurrent_timeout_state(
-                mutation_began: True,
+                remove_phase_began: True,
                 status: message,
               ),
               bootstrap_guard.warning(message),
@@ -1749,7 +1774,7 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             set_concurrent_timeout_state(
               model,
               scenario_state.concurrent_timeout_state(
-                mutation_began: True,
+                remove_phase_began: True,
                 status: message,
               ),
               bootstrap_guard.warning(feedback),
@@ -1881,7 +1906,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                     set_concurrent_timeout_state(
                       model,
                       scenario_state.concurrent_timeout_state(
-                        mutation_began: False,
+                        remove_phase_began: False,
                         status: message,
                       ),
                       bootstrap_guard.warning(message),
@@ -1937,7 +1962,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                     set_concurrent_timeout_state(
                       model,
                       scenario_state.concurrent_timeout_state(
-                        mutation_began: False,
+                        remove_phase_began: False,
                         status: status,
                       ),
                       bootstrap_guard.warning(status),

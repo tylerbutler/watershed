@@ -31,6 +31,11 @@ pub type ConcurrentPreflightOutcome {
   PreflightLocked(status: String, disabled_reason: String)
 }
 
+pub type TombstonePreflightOutcome {
+  TombstonePreflightRetryable
+  TombstonePreflightComplete(status: String)
+}
+
 pub type ConcurrentPeerGoTimeoutOutcome {
   PeerGoRetryable(status: String)
   PeerGoComplete(status: String, disabled_reason: String)
@@ -48,7 +53,7 @@ pub fn tombstone_locked_message() -> String {
 }
 
 pub fn invitation_timeout_message() -> String {
-  "Concurrent add/remove timed out waiting for a second ready tab. No mutation began, so retry is available."
+  "Concurrent add/remove timed out waiting for a second ready tab. No remove phase began, and the seeded \"eggs\" can be reused for retry."
 }
 
 pub fn concurrent_locked_message() -> String {
@@ -85,6 +90,18 @@ pub fn tombstone_button_reason(
 pub fn tombstone_matches_expected(snapshots: Snapshots) -> Bool {
   list.contains(snapshots.grow_only, tombstone_item)
   && !list.contains(snapshots.two_phase, tombstone_item)
+}
+
+pub fn tombstone_preflight_outcome(
+  snapshots: Snapshots,
+) -> TombstonePreflightOutcome {
+  case tombstone_matches_expected(snapshots) {
+    True ->
+      TombstonePreflightComplete(
+        "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
+      )
+    False -> TombstonePreflightRetryable
+  }
 }
 
 pub fn concurrent_matches_expected(snapshots: Snapshots) -> Bool {
@@ -179,10 +196,10 @@ pub fn advance_verification(
 }
 
 pub fn concurrent_timeout_state(
-  mutation_began mutation_began: Bool,
+  remove_phase_began remove_phase_began: Bool,
   status status: String,
 ) -> ConcurrentTimeoutState {
-  case mutation_began {
+  case remove_phase_began {
     False -> RetryableTimeout(status)
     True -> LockedTimeout(status, concurrent_locked_message())
   }

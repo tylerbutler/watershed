@@ -38,6 +38,27 @@ pub fn tombstone_completion_waits_for_two_phase_removal_evidence_test() {
   |> should.equal(False)
 }
 
+pub fn tombstone_preflight_refuses_live_rooms_that_are_already_tombstoned_test() {
+  [
+    scenario_state.tombstone_preflight_outcome(
+      before_two_phase_removal_snapshots(),
+    ),
+    scenario_state.tombstone_preflight_outcome(completed_tombstone_snapshots()),
+    scenario_state.tombstone_preflight_outcome(
+      completed_without_or_set_snapshots(),
+    ),
+  ]
+  |> should.equal([
+    scenario_state.TombstonePreflightRetryable,
+    scenario_state.TombstonePreflightComplete(
+      "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
+    ),
+    scenario_state.TombstonePreflightComplete(
+      "Tombstone already ran in this room; live snapshots show \"milk\" present in GSet while absent from TwoPSet. Use a fresh room URL to rerun because TwoPSet cannot reset.",
+    ),
+  ])
+}
+
 pub fn concurrent_room_starts_retryable_when_eggs_have_never_crossed_the_remove_phase_test() {
   scenario_state.concurrent_durable_state(initial_snapshots())
   |> should.equal(scenario_state.DurableRetryable)
@@ -144,9 +165,16 @@ pub fn verification_times_out_honestly_when_retries_are_exhausted_test() {
   |> should.equal(scenario_state.TimedOut)
 }
 
-pub fn pre_mutation_timeouts_stay_retryable_test() {
+pub fn invitation_timeout_copy_stays_truthful_about_seeded_eggs_test() {
+  scenario_state.invitation_timeout_message()
+  |> should.equal(
+    "Concurrent add/remove timed out waiting for a second ready tab. No remove phase began, and the seeded \"eggs\" can be reused for retry.",
+  )
+}
+
+pub fn pre_remove_phase_timeouts_stay_retryable_test() {
   scenario_state.concurrent_timeout_state(
-    mutation_began: False,
+    remove_phase_began: False,
     status: scenario_state.invitation_timeout_message(),
   )
   |> should.equal(
@@ -154,9 +182,9 @@ pub fn pre_mutation_timeouts_stay_retryable_test() {
   )
 }
 
-pub fn post_mutation_timeouts_lock_the_room_test() {
+pub fn post_remove_phase_timeouts_lock_the_room_test() {
   scenario_state.concurrent_timeout_state(
-    mutation_began: True,
+    remove_phase_began: True,
     status: "verification timed out",
   )
   |> should.equal(scenario_state.LockedTimeout(
