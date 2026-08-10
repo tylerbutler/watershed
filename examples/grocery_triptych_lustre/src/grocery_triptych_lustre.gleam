@@ -345,6 +345,8 @@ fn refresh_snapshots(model: Model) -> Model {
           observed: watershed_js.or_set_values(shared.observed),
         )
       let rows = pantry_snapshot.rows(snapshots)
+      let tombstone =
+        derive_tombstone_state(model.scenario.tombstone, snapshots)
 
       Model(
         ..model,
@@ -352,9 +354,24 @@ fn refresh_snapshots(model: Model) -> Model {
         snapshots: snapshots,
         rows: rows,
         diffs: pantry_snapshot.diff_counts(rows),
+        scenario: ScenarioState(..model.scenario, tombstone: tombstone),
       )
     }
     None -> model
+  }
+}
+
+fn derive_tombstone_state(
+  current: TombstoneState,
+  snapshots: Snapshots,
+) -> TombstoneState {
+  case current {
+    TombstoneRunning(_) -> current
+    _ ->
+      case scenario_state.tombstone_matches_expected(snapshots) {
+        True -> TombstoneComplete
+        False -> TombstoneAvailable
+      }
   }
 }
 
@@ -1148,7 +1165,7 @@ fn handle_status(
     }
 
     Some(self_id),
-      ConcurrentPeer(run_id, initiator, phase, attempts_remaining, _note)
+      ConcurrentPeer(run_id, initiator, phase, attempts_remaining, note)
     ->
       case
         scenario_protocol.should_accept_status(
@@ -1158,32 +1175,23 @@ fn handle_status(
           inbound,
         )
       {
-        Some(status) -> {
-          let message = case status {
-            scenario_protocol.VerifiedExpectedOutcome ->
-              "Concurrent add/remove: the initiator reported the expected eventual outcome while this tab keeps validating its own snapshots."
-            scenario_protocol.VerificationTimedOut ->
-              "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome; this tab will report its own verified state honestly too."
-            scenario_protocol.PeerAppliedAdd ->
-              "Concurrent add/remove: ignored an unexpected peer-applied status on the peer side."
-          }
+        Some(status) ->
+          case
+            scenario_state.observe_peer_status(
+              participating: case phase {
+                PeerVerifying -> True
+                PeerAwaitingGo -> False
+              },
+              status: status,
+            )
+          {
+            scenario_state.IgnoreWhileAwaitingGo -> #(model, effect.none())
 
-          case phase {
-            PeerAwaitingGo -> {
-              let model =
-                Model(
-                  ..model,
-                  scenario: ScenarioState(
-                    ..model.scenario,
-                    concurrent: ConcurrentIdle(Some(message)),
-                  ),
-                )
-                |> with_feedback(bootstrap_guard.info(message))
-
-              #(model, effect.none())
-            }
-
-            PeerVerifying -> {
+            scenario_state.KeepVerifying(message) -> {
+              let note = case note {
+                Some(extra) -> Some(extra <> " " <> message)
+                None -> Some(message)
+              }
               let model =
                 Model(
                   ..model,
@@ -1194,7 +1202,7 @@ fn handle_status(
                       initiator: initiator,
                       phase: PeerVerifying,
                       attempts_remaining: attempts_remaining,
-                      note: Some(message),
+                      note: note,
                     ),
                   ),
                 )
@@ -1203,7 +1211,6 @@ fn handle_status(
               #(model, effect.none())
             }
           }
-        }
 
         None -> #(model, effect.none())
       }
@@ -1386,7 +1393,17 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             )
             |> with_feedback(bootstrap_guard.info(feedback))
 
-          #(model, effect.none())
+          #(
+            model,
+            submit_scenario_ripple(
+              model,
+              scenario_protocol.Status(
+                run_id: run_id,
+                target_peer: initiator,
+                status: scenario_protocol.VerifiedExpectedOutcome,
+              ),
+            ),
+          )
         }
 
         scenario_state.Retry(remaining) -> {
@@ -1429,7 +1446,17 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             )
             |> with_feedback(bootstrap_guard.warning(feedback))
 
-          #(model, effect.none())
+          #(
+            model,
+            submit_scenario_ripple(
+              model,
+              scenario_protocol.Status(
+                run_id: run_id,
+                target_peer: initiator,
+                status: scenario_protocol.VerificationTimedOut,
+              ),
+            ),
+          )
         }
       }
 
@@ -1561,7 +1588,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let message =
             "Concurrent add/remove: no go arrived for run "
             <> run_id
-            <> ", so this tab returned to idle without mutating anything."
+            <> ", so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry."
           let model =
             Model(
               ..model,
@@ -1570,7 +1597,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 concurrent: ConcurrentIdle(Some(message)),
               ),
             )
-            |> with_feedback(bootstrap_guard.info(message))
+            |> with_feedback(bootstrap_guard.warning(message))
 
           #(model, effect.none())
         }
