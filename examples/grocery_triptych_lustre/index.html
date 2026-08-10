@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · grocery triptych</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: min(96vw, 40rem); padding: 2rem; }
+      h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+      .status, .hint { font-size: 0.85rem; }
+      .status, .hint { opacity: 0.7; }
+      .panel {
+        margin-top: 1.5rem;
+        padding: 1rem;
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.75rem;
+      }
+      .pantry {
+        display: grid;
+        gap: 0.75rem;
+        margin-top: 1rem;
+      }
+      .card {
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
+      .card h2 { font-size: 1rem; margin: 0 0 0.25rem; }
+      .card p { margin: 0; }
+      code {
+        font: inherit;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.25rem;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/grocery_triptych_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

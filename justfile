@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-text _build-drum _build-pixel
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel
 
 # Run tests
 test: _test-gleam _test-js _test-lustre _test-examples
@@ -123,7 +123,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-text _deps-drum _deps-pixel
+deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel
 
 _deps-gleam:
     gleam deps download
@@ -140,6 +140,9 @@ _deps-sudoku:
 
 _deps-playlist:
     pnpm --dir examples/playlist_lustre install
+
+_deps-grocery:
+    pnpm --dir examples/grocery_triptych_lustre install
 
 _deps-text:
     pnpm --dir examples/text_lustre install
@@ -169,6 +172,9 @@ _build-sudoku:
 
 _build-playlist:
     pnpm --dir examples/playlist_lustre run build
+
+_build-grocery:
+    pnpm --dir examples/grocery_triptych_lustre run build
 
 _build-text:
     pnpm --dir examples/text_lustre run build
