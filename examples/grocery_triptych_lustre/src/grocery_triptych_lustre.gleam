@@ -17,6 +17,7 @@ import watershed_js.{type Document, type GSet, type OrSet, type TwoPSet}
 import watershed_lustre
 
 import doc_schema
+import grocery_triptych_lustre/bootstrap_guard
 import pantry_snapshot.{type Row, type Snapshots}
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -201,22 +202,25 @@ fn maybe_bootstrap(model: Model) -> #(Model, Effect(Msg)) {
 }
 
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
-  case model.shared, model.pending {
-    None, PendingPantry(Some(grow_only), Some(two_phase), Some(observed)) -> {
-      let shared = SharedPantry(grow_only:, two_phase:, observed:)
-      let model =
-        Model(
-          ..model,
-          shared: Some(shared),
-          readiness: Ready,
-          feedback: Some(info("pantry handles assembled")),
-          error: None,
-        )
-        |> refresh_snapshots
-      #(model, subscribe_shared_effect(shared))
-    }
-    Some(_), _ -> #(Model(..model, readiness: Ready), effect.none())
-    None, _ -> #(Model(..model, readiness: Bootstrapping), effect.none())
+  case bootstrap_guard.failure_latched(model.error) {
+    True -> #(Model(..model, readiness: Failed), effect.none())
+    False ->
+      case model.shared, model.pending {
+        None, PendingPantry(Some(grow_only), Some(two_phase), Some(observed)) -> {
+          let shared = SharedPantry(grow_only:, two_phase:, observed:)
+          let model =
+            Model(
+              ..model,
+              shared: Some(shared),
+              readiness: Ready,
+              feedback: Some(info("pantry handles assembled")),
+            )
+            |> refresh_snapshots
+          #(model, subscribe_shared_effect(shared))
+        }
+        Some(_), _ -> #(Model(..model, readiness: Ready), effect.none())
+        None, _ -> #(Model(..model, readiness: Bootstrapping), effect.none())
+      }
   }
 }
 
@@ -257,7 +261,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           doc: Some(doc),
           feedback: Some(info("document handle acquired")),
-          error: None,
         )
       maybe_bootstrap(model)
     }
@@ -268,7 +271,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           ready_callback_seen: True,
           feedback: Some(info("ready callback completed")),
-          error: None,
         )
       maybe_bootstrap(model)
     }
@@ -284,7 +286,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           pending: PendingPantry(..model.pending, grow_only: Some(set)),
           feedback: Some(info("grow_only handle ensured")),
-          error: None,
         ),
       )
     EnsuredGrowOnly(Error(reason)) -> #(
@@ -298,7 +299,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           pending: PendingPantry(..model.pending, two_phase: Some(set)),
           feedback: Some(info("two_phase handle ensured")),
-          error: None,
         ),
       )
     EnsuredTwoPhase(Error(reason)) -> #(
@@ -312,7 +312,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           ..model,
           pending: PendingPantry(..model.pending, observed: Some(set)),
           feedback: Some(info("observed handle ensured")),
-          error: None,
         ),
       )
     EnsuredObserved(Error(reason)) -> #(
@@ -324,33 +323,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     GrowOnlyChanged(event) -> #(
       refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(info(g_set_event_line(event))),
-          error: None,
-        ),
+        Model(..model, feedback: Some(info(g_set_event_line(event)))),
       ),
       effect.none(),
     )
 
     TwoPhaseChanged(event) -> #(
       refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(info(two_p_set_event_line(event))),
-          error: None,
-        ),
+        Model(..model, feedback: Some(info(two_p_set_event_line(event)))),
       ),
       effect.none(),
     )
 
     ObservedChanged(event) -> #(
       refresh_snapshots(
-        Model(
-          ..model,
-          feedback: Some(info(or_set_event_line(event))),
-          error: None,
-        ),
+        Model(..model, feedback: Some(info(or_set_event_line(event)))),
       ),
       effect.none(),
     )
