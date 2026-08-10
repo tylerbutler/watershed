@@ -13,7 +13,9 @@ import watershed/browser
 import watershed/g_set_kernel
 import watershed/or_set_kernel
 import watershed/two_p_set_kernel
-import watershed_js.{type Document, type GSet, type OrSet, type TwoPSet}
+import watershed_js.{
+  type Document, type GSet, type OrSet, type Ripple, type TwoPSet,
+}
 import watershed_lustre
 
 import doc_schema
@@ -22,6 +24,8 @@ import grocery_triptych_lustre/bootstrap_guard.{
 }
 import pantry_snapshot.{type DiffCounts, type Row, type Snapshots}
 import refresh_guard
+import scenario_protocol
+import scenario_state
 import triptych_actions
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -35,6 +39,20 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 /// implying atomic multi-channel delivery.
 const shared_refresh_debounce_ms = 75
 
+const tombstone_start_delay_ms = 250
+
+const tombstone_step_ms = 650
+
+const concurrent_prepare_ms = 350
+
+const concurrent_invite_timeout_ms = 1600
+
+const concurrent_peer_go_timeout_ms = 1200
+
+const concurrent_verify_retry_ms = 125
+
+const concurrent_verify_attempts = 12
+
 pub fn main() {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("grocery-triptych")
@@ -45,6 +63,7 @@ pub fn main() {
 type Model {
   Model(
     document_name: String,
+    user_id: String,
     readiness: Readiness,
     doc: Option(Document),
     ready_callback_seen: Bool,
@@ -84,8 +103,54 @@ type PendingPantry {
 }
 
 type ScenarioState {
-  NoScenario
-  PendingScenario(String)
+  ScenarioState(tombstone: TombstoneState, concurrent: ConcurrentState)
+}
+
+type TombstoneState {
+  TombstoneAvailable
+  TombstoneRunning(TombstoneStep)
+  TombstoneComplete
+}
+
+type TombstoneStep {
+  TombstoneAddStep
+  TombstoneRemoveStep
+  TombstoneReAddStep
+}
+
+type ConcurrentState {
+  ConcurrentIdle(last_status: Option(String))
+  ConcurrentInitiator(
+    run_id: String,
+    phase: InitiatorPhase,
+    selected_peer: Option(String),
+    peer_applied: Bool,
+    attempts_remaining: Int,
+  )
+  ConcurrentPeer(
+    run_id: String,
+    initiator: String,
+    phase: PeerPhase,
+    attempts_remaining: Int,
+    note: Option(String),
+  )
+}
+
+type InitiatorPhase {
+  ConcurrentPreparing
+  ConcurrentAwaitingAck
+  ConcurrentRemoving
+  ConcurrentVerifying
+}
+
+type PeerPhase {
+  PeerAwaitingGo
+  PeerVerifying
+}
+
+type ScenarioName {
+  TombstoneScenario
+  ConcurrentAddRemoveScenario
 }
 
 type Panel {
@@ -103,7 +168,14 @@ type Msg {
   DraftChanged(String)
   AddSubmitted
   RemoveRequested(String)
-  ScenarioRequested(String)
+  ScenarioRequested(ScenarioName)
+  ScenarioRippleReceived(Ripple)
+  TombstoneStepDue(TombstoneStep)
+  ConcurrentInvitePeers(String)
+  ConcurrentInviteTimedOut(String)
+  ConcurrentPeerGoTimedOut(String)
+  ConcurrentInitiatorRemove(String, String)
+  VerifyConcurrent(String)
   GrowOnlyChanged(g_set_kernel.GSetEvent)
   TwoPhaseChanged(two_p_set_kernel.TwoPSetEvent)
   ObservedChanged(or_set_kernel.OrSetEvent)
@@ -115,6 +187,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       document_name: document,
+      user_id: user_id,
       readiness: WaitingForHandleAndReady,
       doc: None,
       ready_callback_seen: False,
@@ -129,7 +202,10 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       feedback: Some(bootstrap_guard.info(
         "waiting for document handle and ready callback",
       )),
-      scenario: NoScenario,
+      scenario: ScenarioState(
+        tombstone: TombstoneAvailable,
+        concurrent: ConcurrentIdle(None),
+      ),
       error: None,
     )
   #(
@@ -176,6 +252,18 @@ fn subscribe_shared_effect(shared: SharedPantry) -> Effect(Msg) {
     watershed_lustre.subscribe_two_p_set(shared.two_phase, TwoPhaseChanged),
     watershed_lustre.subscribe_or_set(shared.observed, ObservedChanged),
   ])
+}
+
+fn ready_effect(model: Model, shared: SharedPantry) -> Effect(Msg) {
+  case model.doc {
+    Some(doc) ->
+      effect.batch([
+        subscribe_shared_effect(shared),
+        watershed_lustre.subscribe_ripples(doc, ScenarioRippleReceived),
+      ])
+
+    None -> subscribe_shared_effect(shared)
+  }
 }
 
 fn maybe_bootstrap(model: Model) -> #(Model, Effect(Msg)) {
@@ -234,7 +322,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
               feedback: Some(bootstrap_guard.info("pantry handles assembled")),
             )
             |> refresh_snapshots
-          #(model, subscribe_shared_effect(shared))
+          #(model, ready_effect(model, shared))
         }
         Some(_), _ -> #(Model(..model, readiness: Ready), effect.none())
         None, _ -> #(Model(..model, readiness: Bootstrapping), effect.none())
@@ -307,6 +395,32 @@ fn controls_ready(model: Model) -> Bool {
   option.is_some(model.shared) && !bootstrap_guard.failure_latched(model.error)
 }
 
+fn scenario_busy(model: Model) -> Bool {
+  tombstone_running(model.scenario.tombstone)
+  || concurrent_active(model.scenario.concurrent)
+}
+
+fn tombstone_running(state: TombstoneState) -> Bool {
+  case state {
+    TombstoneRunning(_) -> True
+    _ -> False
+  }
+}
+
+fn tombstone_completed(state: TombstoneState) -> Bool {
+  case state {
+    TombstoneComplete -> True
+    _ -> False
+  }
+}
+
+fn concurrent_active(state: ConcurrentState) -> Bool {
+  case state {
+    ConcurrentIdle(_) -> False
+    _ -> True
+  }
+}
+
 fn with_feedback(model: Model, feedback: Feedback) -> Model {
   case bootstrap_guard.failure_latched(model.error) {
     True -> model
@@ -314,30 +428,158 @@ fn with_feedback(model: Model, feedback: Feedback) -> Model {
   }
 }
 
+fn feedback_of_kind(kind: FeedbackKind, message: String) -> Feedback {
+  case kind {
+    Info -> bootstrap_guard.info(message)
+    Warning -> bootstrap_guard.warning(message)
+  }
+}
+
+fn own_client_id(model: Model) -> Option(String) {
+  model.doc
+  |> option.then(watershed_js.client_id)
+}
+
+fn next_run_id(model: Model) -> String {
+  option.unwrap(own_client_id(model), model.user_id)
+  <> "-"
+  <> int.to_string(int.random(1_000_000))
+}
+
+fn shared_action_reason(model: Model) -> Option(String) {
+  case controls_ready(model) {
+    False ->
+      Some(
+        "Shared edits are disabled until the document handle and pantry bootstrap finish.",
+      )
+
+    True ->
+      case scenario_busy(model) {
+        True ->
+          Some(
+            "Shared edits are disabled while the current scenario is running.",
+          )
+        False -> None
+      }
+  }
+}
+
+fn tombstone_button_reason(model: Model) -> Option(String) {
+  case model.scenario.tombstone {
+    TombstoneRunning(_) -> Some("Tombstone is already running in this room.")
+    state ->
+      case tombstone_completed(state) {
+        True -> Some(scenario_state.tombstone_locked_message())
+        False ->
+          scenario_state.tombstone_button_reason(
+            ready: controls_ready(model),
+            busy: concurrent_active(model.scenario.concurrent),
+            completed: False,
+          )
+      }
+  }
+}
+
+fn concurrent_button_reason(model: Model) -> Option(String) {
+  case controls_ready(model) {
+    False ->
+      Some(
+        "Concurrent add/remove is disabled until the document handle and pantry bootstrap finish.",
+      )
+
+    True ->
+      case model.scenario.tombstone {
+        TombstoneRunning(_) ->
+          Some("Concurrent add/remove is disabled while Tombstone is running.")
+
+        _ ->
+          case model.scenario.concurrent {
+            ConcurrentIdle(_) -> None
+            _ -> Some("Concurrent add/remove is already running in this tab.")
+          }
+      }
+  }
+}
+
+fn submit_scenario_ripple(
+  model: Model,
+  message: scenario_protocol.Message,
+) -> Effect(Msg) {
+  case model.doc {
+    Some(doc) ->
+      watershed_lustre.submit_ripple(
+        doc,
+        ripple_type: scenario_protocol.ripple_type,
+        content: scenario_protocol.encode(message),
+      )
+
+    None -> effect.none()
+  }
+}
+
+fn schedule_concurrent_verification(run_id: String) -> Effect(Msg) {
+  watershed_lustre.after(concurrent_verify_retry_ms, VerifyConcurrent(run_id))
+}
+
+fn shared_add(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
+  case model.shared {
+    Some(shared) -> {
+      let two_phase_was_present =
+        watershed_js.two_p_set_contains(shared.two_phase, item)
+
+      watershed_js.g_set_add(shared.grow_only, item)
+      watershed_js.two_p_set_add(shared.two_phase, item)
+      watershed_js.or_set_add(shared.observed, item)
+
+      let two_phase_is_present =
+        watershed_js.two_p_set_contains(shared.two_phase, item)
+
+      #(
+        refresh_snapshots(model),
+        #(two_phase_was_present, two_phase_is_present),
+      )
+    }
+
+    None -> #(model, #(False, False))
+  }
+}
+
+fn shared_remove(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
+  case model.shared {
+    Some(shared) -> {
+      let two_phase_present =
+        watershed_js.two_p_set_contains(shared.two_phase, item)
+      let observed_present = watershed_js.or_set_contains(shared.observed, item)
+
+      case two_phase_present {
+        True -> watershed_js.two_p_set_remove(shared.two_phase, item)
+        False -> Nil
+      }
+      case observed_present {
+        True -> watershed_js.or_set_remove(shared.observed, item)
+        False -> Nil
+      }
+
+      #(refresh_snapshots(model), #(two_phase_present, observed_present))
+    }
+
+    None -> #(model, #(False, False))
+  }
+}
+
 fn apply_shared_add(model: Model, raw_item: String) -> Model {
-  let model = Model(..model, scenario: NoScenario)
+  case shared_action_reason(model) {
+    Some(reason) -> with_feedback(model, bootstrap_guard.info(reason))
 
-  case triptych_actions.normalize_item_input(raw_item) {
-    Error(message) -> with_feedback(model, bootstrap_guard.warning(message))
+    None ->
+      case triptych_actions.normalize_item_input(raw_item) {
+        Error(message) -> with_feedback(model, bootstrap_guard.warning(message))
 
-    Ok(item) ->
-      case model.shared {
-        None ->
-          with_feedback(model, triptych_actions.not_ready_feedback("adding"))
-
-        Some(shared) -> {
-          let two_phase_was_present =
-            watershed_js.two_p_set_contains(shared.two_phase, item)
-
-          watershed_js.g_set_add(shared.grow_only, item)
-          watershed_js.two_p_set_add(shared.two_phase, item)
-          watershed_js.or_set_add(shared.observed, item)
-
-          let two_phase_is_present =
-            watershed_js.two_p_set_contains(shared.two_phase, item)
+        Ok(item) -> {
+          let #(model, #(two_phase_was_present, two_phase_is_present)) =
+            shared_add(model, item)
 
           Model(..model, draft: "")
-          |> refresh_snapshots
           |> with_feedback(triptych_actions.add_feedback(
             item,
             two_phase_was_present,
@@ -349,53 +591,815 @@ fn apply_shared_add(model: Model, raw_item: String) -> Model {
 }
 
 fn apply_shared_remove(model: Model, item: String) -> Model {
-  case model.shared {
+  case shared_action_reason(model) {
+    Some(reason) -> with_feedback(model, bootstrap_guard.info(reason))
+
     None ->
-      with_feedback(model, triptych_actions.not_ready_feedback("removing"))
+      case model.shared {
+        None ->
+          with_feedback(model, triptych_actions.not_ready_feedback("removing"))
 
-    Some(shared) -> {
-      let two_phase_present =
-        watershed_js.two_p_set_contains(shared.two_phase, item)
-      let observed_present = watershed_js.or_set_contains(shared.observed, item)
-      let removable =
-        triptych_actions.remove_action_available(
-          two_phase_present,
-          observed_present,
-        )
-
-      case removable {
-        False ->
-          with_feedback(
-            model,
-            triptych_actions.remove_feedback(
-              item,
+        Some(shared) -> {
+          let two_phase_present =
+            watershed_js.two_p_set_contains(shared.two_phase, item)
+          let observed_present =
+            watershed_js.or_set_contains(shared.observed, item)
+          let removable =
+            triptych_actions.remove_action_available(
               two_phase_present,
               observed_present,
-            ),
-          )
+            )
 
-        True -> {
-          let model = Model(..model, scenario: NoScenario)
+          case removable {
+            False ->
+              with_feedback(
+                model,
+                triptych_actions.remove_feedback(
+                  item,
+                  two_phase_present,
+                  observed_present,
+                ),
+              )
 
-          case two_phase_present {
-            True -> watershed_js.two_p_set_remove(shared.two_phase, item)
-            False -> Nil
+            True -> {
+              let #(model, _) = shared_remove(model, item)
+
+              model
+              |> with_feedback(triptych_actions.remove_feedback(
+                item,
+                two_phase_present,
+                observed_present,
+              ))
+            }
           }
-          case observed_present {
-            True -> watershed_js.or_set_remove(shared.observed, item)
-            False -> Nil
-          }
-
-          model
-          |> refresh_snapshots
-          |> with_feedback(triptych_actions.remove_feedback(
-            item,
-            two_phase_present,
-            observed_present,
-          ))
         }
       }
+  }
+}
+
+fn start_tombstone(model: Model) -> #(Model, Effect(Msg)) {
+  case tombstone_button_reason(model) {
+    Some(reason) -> #(
+      with_feedback(model, bootstrap_guard.info(reason)),
+      effect.none(),
+    )
+
+    None -> {
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            tombstone: TombstoneRunning(TombstoneAddStep),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(
+          "Tombstone started: it will add \"milk\", remove it, then re-add it once.",
+        ))
+
+      #(
+        model,
+        watershed_lustre.after(
+          tombstone_start_delay_ms,
+          TombstoneStepDue(TombstoneAddStep),
+        ),
+      )
     }
+  }
+}
+
+fn advance_tombstone(
+  model: Model,
+  step: TombstoneStep,
+) -> #(Model, Effect(Msg)) {
+  case model.scenario.tombstone, step {
+    TombstoneRunning(TombstoneAddStep), TombstoneAddStep -> {
+      let #(model, _) = shared_add(model, scenario_state.tombstone_item)
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            tombstone: TombstoneRunning(TombstoneRemoveStep),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(
+          "Tombstone 1/3: added \"milk\" to all three sets. Removing it next.",
+        ))
+
+      #(
+        model,
+        watershed_lustre.after(
+          tombstone_step_ms,
+          TombstoneStepDue(TombstoneRemoveStep),
+        ),
+      )
+    }
+
+    TombstoneRunning(TombstoneRemoveStep), TombstoneRemoveStep -> {
+      let #(model, _) = shared_remove(model, scenario_state.tombstone_item)
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            tombstone: TombstoneRunning(TombstoneReAddStep),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(
+          "Tombstone 2/3: removed \"milk\" from TwoPSet and OrSet while GSet retained it. Re-adding next.",
+        ))
+
+      #(
+        model,
+        watershed_lustre.after(
+          tombstone_step_ms,
+          TombstoneStepDue(TombstoneReAddStep),
+        ),
+      )
+    }
+
+    TombstoneRunning(TombstoneReAddStep), TombstoneReAddStep -> {
+      let #(model, #(two_phase_was_present, two_phase_is_present)) =
+        shared_add(model, scenario_state.tombstone_item)
+      let base =
+        triptych_actions.add_feedback(
+          scenario_state.tombstone_item,
+          two_phase_was_present,
+          two_phase_is_present,
+        )
+      let message =
+        "Tombstone 3/3: "
+        <> base.message
+        <> " "
+        <> scenario_state.tombstone_locked_message()
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            tombstone: TombstoneComplete,
+          ),
+        )
+        |> with_feedback(feedback_of_kind(base.kind, message))
+
+      #(model, effect.none())
+    }
+
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn start_concurrent(model: Model) -> #(Model, Effect(Msg)) {
+  case concurrent_button_reason(model) {
+    Some(reason) -> #(
+      with_feedback(model, bootstrap_guard.info(reason)),
+      effect.none(),
+    )
+
+    None -> {
+      let run_id = next_run_id(model)
+      let #(model, #(_two_phase_was_present, two_phase_is_present)) =
+        shared_add(model, scenario_state.concurrent_item)
+      let message = case two_phase_is_present {
+        True ->
+          "Concurrent add/remove: seeded \"eggs\" into all three sets and is waiting briefly before inviting a peer."
+        False ->
+          "Concurrent add/remove: seeded \"eggs\" into GSet and OrSet, but TwoPSet already has it tombstoned in this room. Waiting briefly before inviting a peer anyway."
+      }
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            concurrent: ConcurrentInitiator(
+              run_id: run_id,
+              phase: ConcurrentPreparing,
+              selected_peer: None,
+              peer_applied: False,
+              attempts_remaining: concurrent_verify_attempts,
+            ),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(message))
+
+      #(
+        model,
+        watershed_lustre.after(
+          concurrent_prepare_ms,
+          ConcurrentInvitePeers(run_id),
+        ),
+      )
+    }
+  }
+}
+
+fn invite_concurrent_peers(
+  model: Model,
+  run_id: String,
+) -> #(Model, Effect(Msg)) {
+  case model.scenario.concurrent {
+    ConcurrentInitiator(
+      current_run,
+      ConcurrentPreparing,
+      selected_peer,
+      peer_applied,
+      attempts_remaining,
+    )
+      if current_run == run_id
+    -> {
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            concurrent: ConcurrentInitiator(
+              run_id: run_id,
+              phase: ConcurrentAwaitingAck,
+              selected_peer: selected_peer,
+              peer_applied: peer_applied,
+              attempts_remaining: attempts_remaining,
+            ),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(
+          "Concurrent add/remove: invited other ready tabs to acknowledge the \"eggs\" race.",
+        ))
+
+      #(
+        model,
+        effect.batch([
+          submit_scenario_ripple(model, scenario_protocol.Invitation(run_id)),
+          watershed_lustre.after(
+            concurrent_invite_timeout_ms,
+            ConcurrentInviteTimedOut(run_id),
+          ),
+        ]),
+      )
+    }
+
+    _ -> #(model, effect.none())
+  }
+}
+
+fn handle_scenario_ripple(
+  model: Model,
+  ripple: Ripple,
+) -> #(Model, Effect(Msg)) {
+  case
+    scenario_protocol.decode(
+      watershed_js.ripple_type(ripple),
+      watershed_js.ripple_content(ripple),
+      watershed_js.ripple_client_id(ripple),
+    )
+  {
+    Some(inbound) ->
+      case inbound.message {
+        scenario_protocol.Invitation(_) -> handle_invitation(model, inbound)
+        scenario_protocol.Acknowledgement(_) ->
+          handle_acknowledgement(model, inbound)
+        scenario_protocol.Go(_, _) -> handle_go(model, inbound)
+        scenario_protocol.Status(_, _, _) -> handle_status(model, inbound)
+      }
+
+    None -> #(model, effect.none())
+  }
+}
+
+fn handle_invitation(
+  model: Model,
+  inbound: scenario_protocol.Inbound,
+) -> #(Model, Effect(Msg)) {
+  case own_client_id(model) {
+    Some(self_id) ->
+      case
+        scenario_protocol.should_acknowledge(
+          self_id,
+          controls_ready(model),
+          scenario_busy(model),
+          inbound,
+        )
+      {
+        True ->
+          case inbound.message {
+            scenario_protocol.Invitation(run_id) -> {
+              let message =
+                "Concurrent add/remove: acknowledged run "
+                <> run_id
+                <> " from tab "
+                <> inbound.from_peer
+                <> " and is waiting to see whether this tab is selected."
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentPeer(
+                      run_id: run_id,
+                      initiator: inbound.from_peer,
+                      phase: PeerAwaitingGo,
+                      attempts_remaining: concurrent_verify_attempts,
+                      note: Some(message),
+                    ),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.info(message))
+
+              #(
+                model,
+                effect.batch([
+                  submit_scenario_ripple(
+                    model,
+                    scenario_protocol.Acknowledgement(run_id),
+                  ),
+                  watershed_lustre.after(
+                    concurrent_peer_go_timeout_ms,
+                    ConcurrentPeerGoTimedOut(run_id),
+                  ),
+                ]),
+              )
+            }
+
+            _ -> #(model, effect.none())
+          }
+
+        False -> #(model, effect.none())
+      }
+
+    None -> #(model, effect.none())
+  }
+}
+
+fn handle_acknowledgement(
+  model: Model,
+  inbound: scenario_protocol.Inbound,
+) -> #(Model, Effect(Msg)) {
+  case own_client_id(model), model.scenario.concurrent {
+    Some(self_id),
+      ConcurrentInitiator(
+        run_id,
+        ConcurrentAwaitingAck,
+        selected_peer,
+        peer_applied,
+        attempts_remaining,
+      )
+    ->
+      case
+        scenario_protocol.select_first_ack(
+          self_id,
+          run_id,
+          selected_peer,
+          inbound,
+        )
+      {
+        Some(peer) -> {
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentInitiator(
+                  run_id: run_id,
+                  phase: ConcurrentRemoving,
+                  selected_peer: Some(peer),
+                  peer_applied: peer_applied,
+                  attempts_remaining: attempts_remaining,
+                ),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(
+              "Concurrent add/remove: selected tab "
+              <> peer
+              <> " and pushed go before deferring the initiator remove to the next timer tick.",
+            ))
+
+          // Push the coordination ripple first, then defer the initiator's
+          // remove. The peer's ripple callback runs before the later remove
+          // frame is processed, so neither authored operation observes the
+          // other even though the transport remains best-effort.
+          #(
+            model,
+            effect.batch([
+              submit_scenario_ripple(model, scenario_protocol.Go(run_id, peer)),
+              watershed_lustre.after(0, ConcurrentInitiatorRemove(run_id, peer)),
+            ]),
+          )
+        }
+
+        None -> #(model, effect.none())
+      }
+
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn handle_go(
+  model: Model,
+  inbound: scenario_protocol.Inbound,
+) -> #(Model, Effect(Msg)) {
+  case own_client_id(model), model.scenario.concurrent {
+    Some(self_id),
+      ConcurrentPeer(run_id, initiator, phase, attempts_remaining, _note)
+    -> {
+      let already_started = case phase {
+        PeerVerifying -> True
+        _ -> False
+      }
+
+      case
+        scenario_protocol.classify_go(self_id, run_id, already_started, inbound)
+      {
+        scenario_protocol.ApplyGo -> {
+          let #(model, _) = shared_add(model, scenario_state.concurrent_item)
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentPeer(
+                  run_id: run_id,
+                  initiator: initiator,
+                  phase: PeerVerifying,
+                  attempts_remaining: attempts_remaining,
+                  note: Some(
+                    "This tab handled go while still seeing the pre-remove state, then authored the concurrent add for \"eggs\" immediately.",
+                  ),
+                ),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(
+              "Concurrent add/remove: handled go from tab "
+              <> initiator
+              <> " and immediately re-added \"eggs\" before the later remove frame arrived. Verifying "
+              <> scenario_state.expected_concurrent_summary()
+              <> ".",
+            ))
+
+          #(
+            model,
+            effect.batch([
+              submit_scenario_ripple(
+                model,
+                scenario_protocol.Status(
+                  run_id: run_id,
+                  target_peer: initiator,
+                  status: scenario_protocol.PeerAppliedAdd,
+                ),
+              ),
+              schedule_concurrent_verification(run_id),
+            ]),
+          )
+        }
+
+        scenario_protocol.StandDown -> {
+          let message =
+            "Concurrent add/remove: another peer was selected for run "
+            <> run_id
+            <> ", so this tab ignored the go payload and returned to idle."
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(message))
+
+          #(model, effect.none())
+        }
+
+        scenario_protocol.Ignore -> #(model, effect.none())
+      }
+    }
+
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn handle_status(
+  model: Model,
+  inbound: scenario_protocol.Inbound,
+) -> #(Model, Effect(Msg)) {
+  case own_client_id(model), model.scenario.concurrent {
+    Some(self_id),
+      ConcurrentInitiator(
+        run_id,
+        phase,
+        selected_peer,
+        _peer_applied,
+        attempts_remaining,
+      )
+    ->
+      case scenario_protocol.should_accept_status(self_id, run_id, inbound) {
+        Some(scenario_protocol.PeerAppliedAdd) -> {
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentInitiator(
+                  run_id: run_id,
+                  phase: phase,
+                  selected_peer: selected_peer,
+                  peer_applied: True,
+                  attempts_remaining: attempts_remaining,
+                ),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(
+              "Concurrent add/remove: selected peer "
+              <> inbound.from_peer
+              <> " reported that it authored the concurrent add for \"eggs\".",
+            ))
+
+          #(model, effect.none())
+        }
+
+        Some(_) -> #(model, effect.none())
+        None -> #(model, effect.none())
+      }
+
+    Some(self_id),
+      ConcurrentPeer(run_id, initiator, phase, attempts_remaining, _note)
+    ->
+      case scenario_protocol.should_accept_status(self_id, run_id, inbound) {
+        Some(status) -> {
+          let message = case status {
+            scenario_protocol.VerifiedExpectedOutcome ->
+              "Concurrent add/remove: the initiator reported the expected eventual outcome while this tab keeps validating its own snapshots."
+            scenario_protocol.VerificationTimedOut ->
+              "Concurrent add/remove: the initiator timed out while waiting for the expected eventual outcome; this tab will report its own verified state honestly too."
+            scenario_protocol.PeerAppliedAdd ->
+              "Concurrent add/remove: ignored an unexpected peer-applied status on the peer side."
+          }
+
+          case phase {
+            PeerAwaitingGo -> {
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentIdle(Some(message)),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.info(message))
+
+              #(model, effect.none())
+            }
+
+            PeerVerifying -> {
+              let model =
+                Model(
+                  ..model,
+                  scenario: ScenarioState(
+                    ..model.scenario,
+                    concurrent: ConcurrentPeer(
+                      run_id: run_id,
+                      initiator: initiator,
+                      phase: PeerVerifying,
+                      attempts_remaining: attempts_remaining,
+                      note: Some(message),
+                    ),
+                  ),
+                )
+                |> with_feedback(bootstrap_guard.info(message))
+
+              #(model, effect.none())
+            }
+          }
+        }
+
+        None -> #(model, effect.none())
+      }
+
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn initiator_remove(
+  model: Model,
+  run_id: String,
+  peer: String,
+) -> #(Model, Effect(Msg)) {
+  case model.scenario.concurrent {
+    ConcurrentInitiator(
+      current_run,
+      ConcurrentRemoving,
+      Some(selected_peer),
+      peer_applied,
+      attempts_remaining,
+    )
+      if current_run == run_id && selected_peer == peer
+    -> {
+      let #(model, _) = shared_remove(model, scenario_state.concurrent_item)
+      let model =
+        Model(
+          ..model,
+          scenario: ScenarioState(
+            ..model.scenario,
+            concurrent: ConcurrentInitiator(
+              run_id: run_id,
+              phase: ConcurrentVerifying,
+              selected_peer: Some(peer),
+              peer_applied: peer_applied,
+              attempts_remaining: attempts_remaining,
+            ),
+          ),
+        )
+        |> with_feedback(bootstrap_guard.info(
+          "Concurrent add/remove: the initiator removed \"eggs\" after broadcasting go. Verifying "
+          <> scenario_state.expected_concurrent_summary()
+          <> ".",
+        ))
+
+      #(model, schedule_concurrent_verification(run_id))
+    }
+
+    _ -> #(model, effect.none())
+  }
+}
+
+fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
+  case model.scenario.concurrent {
+    ConcurrentInitiator(
+      current_run,
+      ConcurrentVerifying,
+      selected_peer,
+      peer_applied,
+      attempts_remaining,
+    )
+      if current_run == run_id
+    ->
+      case
+        scenario_state.advance_verification(model.snapshots, attempts_remaining)
+      {
+        scenario_state.Verified -> {
+          let message =
+            "Concurrent add/remove verified "
+            <> scenario_state.expected_concurrent_summary()
+            <> "; saw "
+            <> scenario_state.concurrent_summary(model.snapshots)
+            <> "."
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(message))
+          let notify = case selected_peer {
+            Some(peer) ->
+              submit_scenario_ripple(
+                model,
+                scenario_protocol.Status(
+                  run_id: run_id,
+                  target_peer: peer,
+                  status: scenario_protocol.VerifiedExpectedOutcome,
+                ),
+              )
+            None -> effect.none()
+          }
+
+          #(model, notify)
+        }
+
+        scenario_state.Retry(remaining) -> {
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentInitiator(
+                  run_id: run_id,
+                  phase: ConcurrentVerifying,
+                  selected_peer: selected_peer,
+                  peer_applied: peer_applied,
+                  attempts_remaining: remaining,
+                ),
+              ),
+            )
+
+          #(model, schedule_concurrent_verification(run_id))
+        }
+
+        scenario_state.TimedOut -> {
+          let message =
+            "Concurrent add/remove timed out while verifying "
+            <> scenario_state.expected_concurrent_summary()
+            <> "; saw "
+            <> scenario_state.concurrent_summary(model.snapshots)
+            <> "."
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.warning(message))
+          let notify = case selected_peer {
+            Some(peer) ->
+              submit_scenario_ripple(
+                model,
+                scenario_protocol.Status(
+                  run_id: run_id,
+                  target_peer: peer,
+                  status: scenario_protocol.VerificationTimedOut,
+                ),
+              )
+            None -> effect.none()
+          }
+
+          #(model, notify)
+        }
+      }
+
+    ConcurrentPeer(
+      current_run,
+      initiator,
+      PeerVerifying,
+      attempts_remaining,
+      note,
+    )
+      if current_run == run_id
+    ->
+      case
+        scenario_state.advance_verification(model.snapshots, attempts_remaining)
+      {
+        scenario_state.Verified -> {
+          let message =
+            "Concurrent add/remove reached "
+            <> scenario_state.expected_concurrent_summary()
+            <> " on this tab; saw "
+            <> scenario_state.concurrent_summary(model.snapshots)
+            <> "."
+          let feedback = case note {
+            Some(extra) -> message <> " " <> extra
+            None -> message
+          }
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(feedback))
+
+          #(model, effect.none())
+        }
+
+        scenario_state.Retry(remaining) -> {
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentPeer(
+                  run_id: run_id,
+                  initiator: initiator,
+                  phase: PeerVerifying,
+                  attempts_remaining: remaining,
+                  note: note,
+                ),
+              ),
+            )
+
+          #(model, schedule_concurrent_verification(run_id))
+        }
+
+        scenario_state.TimedOut -> {
+          let message =
+            "Concurrent add/remove timed out on this tab while verifying "
+            <> scenario_state.expected_concurrent_summary()
+            <> "; saw "
+            <> scenario_state.concurrent_summary(model.snapshots)
+            <> "."
+          let feedback = case note {
+            Some(extra) -> message <> " " <> extra
+            None -> message
+          }
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.warning(feedback))
+
+          #(model, effect.none())
+        }
+      }
+
+    _ -> #(model, effect.none())
   }
 }
 
@@ -477,20 +1481,73 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    DraftChanged(text) -> #(
-      Model(..model, draft: text, scenario: NoScenario),
-      effect.none(),
-    )
+    DraftChanged(text) -> #(Model(..model, draft: text), effect.none())
 
     AddSubmitted -> #(apply_shared_add(model, model.draft), effect.none())
 
     RemoveRequested(item) -> #(apply_shared_remove(model, item), effect.none())
 
-    ScenarioRequested(name) -> #(
-      Model(..model, scenario: PendingScenario(name))
-        |> with_feedback(triptych_actions.scenario_placeholder_feedback(name)),
-      effect.none(),
-    )
+    ScenarioRequested(TombstoneScenario) -> start_tombstone(model)
+
+    ScenarioRequested(ConcurrentAddRemoveScenario) -> start_concurrent(model)
+
+    ScenarioRippleReceived(ripple) -> handle_scenario_ripple(model, ripple)
+
+    TombstoneStepDue(step) -> advance_tombstone(model, step)
+
+    ConcurrentInvitePeers(run_id) -> invite_concurrent_peers(model, run_id)
+
+    ConcurrentInviteTimedOut(run_id) ->
+      case model.scenario.concurrent {
+        ConcurrentInitiator(current_run, ConcurrentAwaitingAck, None, _, _)
+          if current_run == run_id
+        -> {
+          let message = scenario_state.invitation_timeout_message()
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.warning(message))
+
+          #(model, effect.none())
+        }
+
+        _ -> #(model, effect.none())
+      }
+
+    ConcurrentPeerGoTimedOut(run_id) ->
+      case model.scenario.concurrent {
+        ConcurrentPeer(current_run, _initiator, PeerAwaitingGo, _, _)
+          if current_run == run_id
+        -> {
+          let message =
+            "Concurrent add/remove: no go arrived for run "
+            <> run_id
+            <> ", so this tab returned to idle without mutating anything."
+          let model =
+            Model(
+              ..model,
+              scenario: ScenarioState(
+                ..model.scenario,
+                concurrent: ConcurrentIdle(Some(message)),
+              ),
+            )
+            |> with_feedback(bootstrap_guard.info(message))
+
+          #(model, effect.none())
+        }
+
+        _ -> #(model, effect.none())
+      }
+
+    ConcurrentInitiatorRemove(run_id, peer) ->
+      initiator_remove(model, run_id, peer)
+
+    VerifyConcurrent(run_id) -> verify_concurrent(model, run_id)
 
     GrowOnlyChanged(_) -> schedule_shared_refresh(model)
 
@@ -555,8 +1612,22 @@ fn connection_view(model: Model) -> Element(Msg) {
 }
 
 fn controls_view(model: Model) -> Element(Msg) {
-  let ready = controls_ready(model)
+  let manual_reason = shared_action_reason(model)
+  let shared_enabled = case manual_reason {
+    None -> True
+    Some(_) -> False
+  }
   let add_help_id = "add-item-help"
+  let tombstone_reason = tombstone_button_reason(model)
+  let concurrent_reason = concurrent_button_reason(model)
+  let tombstone_enabled = case tombstone_reason {
+    None -> True
+    Some(_) -> False
+  }
+  let concurrent_enabled = case concurrent_reason {
+    None -> True
+    Some(_) -> False
+  }
 
   html.section([attribute.class("panel")], [
     html.h2([], [html.text("Shared controls")]),
@@ -577,7 +1648,7 @@ fn controls_view(model: Model) -> Element(Msg) {
             attribute.value(model.draft),
             attribute.aria_label("Grocery item name"),
             attribute.attribute("aria-describedby", add_help_id),
-            attribute.disabled(!ready),
+            attribute.disabled(!shared_enabled),
             event.on_input(DraftChanged),
           ]),
         ]),
@@ -585,7 +1656,7 @@ fn controls_view(model: Model) -> Element(Msg) {
           [
             attribute.class("primary"),
             attribute.type_("submit"),
-            attribute.disabled(!ready),
+            attribute.disabled(!shared_enabled),
             attribute.aria_label("Add grocery item to all three sets"),
             attribute.attribute("aria-describedby", add_help_id),
           ],
@@ -600,11 +1671,10 @@ fn controls_view(model: Model) -> Element(Msg) {
         attribute.attribute("aria-live", "polite"),
       ],
       [
-        html.text(case ready {
-          True ->
+        html.text(case manual_reason {
+          Some(reason) -> reason
+          None ->
             "Press Enter or Add to submit. Empty items are rejected with a warning."
-          False ->
-            "Add is disabled until the document handle and pantry bootstrap finish."
         }),
       ],
     ),
@@ -616,18 +1686,18 @@ fn controls_view(model: Model) -> Element(Msg) {
         html.button(
           [
             attribute.type_("button"),
-            event.on_click(ScenarioRequested("Tombstone")),
-            attribute.aria_label("Explain the upcoming tombstone preset"),
+            attribute.disabled(!tombstone_enabled),
+            event.on_click(ScenarioRequested(TombstoneScenario)),
+            attribute.aria_label("Run the tombstone preset"),
           ],
           [html.text("Tombstone")],
         ),
         html.button(
           [
             attribute.type_("button"),
-            event.on_click(ScenarioRequested("Concurrent add/remove")),
-            attribute.aria_label(
-              "Explain the upcoming concurrent add remove preset",
-            ),
+            attribute.disabled(!concurrent_enabled),
+            event.on_click(ScenarioRequested(ConcurrentAddRemoveScenario)),
+            attribute.aria_label("Run the concurrent add remove preset"),
           ],
           [html.text("Concurrent add/remove")],
         ),
@@ -635,25 +1705,39 @@ fn controls_view(model: Model) -> Element(Msg) {
     ]),
     html.p([attribute.class("hint")], [
       html.text(
-        "Scenario buttons are placeholders in this task; they explain the "
-        <> "next flow but do not automate it yet.",
+        "Tombstone uses fixed item \"milk\" and becomes one-shot for the room. Concurrent add/remove uses fixed item \"eggs\" and ripples only for coordination — completion still comes from the settled snapshots.",
+      ),
+    ]),
+    html.div([attribute.class("scenario-statuses")], [
+      scenario_status_view(
+        "Tombstone",
+        tombstone_status_text(model.scenario.tombstone),
+        tombstone_reason,
+      ),
+      scenario_status_view(
+        "Concurrent add/remove",
+        concurrent_status_text(model.scenario.concurrent),
+        concurrent_reason,
       ),
     ]),
   ])
 }
 
 fn shared_remove_view(model: Model) -> Element(Msg) {
-  let ready = controls_ready(model)
+  let manual_reason = shared_action_reason(model)
+  let shared_enabled = case manual_reason {
+    None -> True
+    Some(_) -> False
+  }
 
   html.section([attribute.class("panel")], [
     html.h2([], [html.text("Shared remove actions")]),
     html.p([attribute.class("hint")], [
-      html.text(
-        "Each remove stays enabled only while TwoPSet or OrSet still contains "
-        <> "the item. When both copies remain, the shared action removes both; "
-        <> "when only one remains, the label names that panel honestly. GSet "
-        <> "keeps the item because grow-only removal is not expressible.",
-      ),
+      html.text(case manual_reason {
+        Some(reason) -> reason
+        None ->
+          "Each remove stays enabled only while TwoPSet or OrSet still contains the item. When both copies remain, the shared action removes both; when only one remains, the label names that panel honestly. GSet keeps the item because grow-only removal is not expressible."
+      }),
     ]),
     case model.rows {
       [] ->
@@ -664,14 +1748,28 @@ fn shared_remove_view(model: Model) -> Element(Msg) {
       rows ->
         html.ul(
           [attribute.class("shared-actions")],
-          list.map(rows, shared_row_view(_, ready)),
+          list.map(rows, shared_row_view(_, shared_enabled, manual_reason)),
         )
     },
   ])
 }
 
-fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
+fn shared_row_view(
+  row: Row,
+  shared_enabled: Bool,
+  disabled_reason: Option(String),
+) -> Element(Msg) {
   let removable = pantry_snapshot.row_has_removable_copy(row)
+  let button_disabled = !shared_enabled || !removable
+  let hint_text = case disabled_reason {
+    Some(reason) -> Some(reason)
+    None ->
+      case removable {
+        True -> None
+        False ->
+          Some("Already absent from TwoPSet and OrSet. GSet still retains it.")
+      }
+  }
 
   html.li([attribute.class("shared-row")], [
     html.div([attribute.class("row-main")], [
@@ -683,7 +1781,7 @@ fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
         [
           attribute.class("danger"),
           attribute.type_("button"),
-          attribute.disabled(!ready || !removable),
+          attribute.disabled(button_disabled),
           event.on_click(RemoveRequested(row.item)),
           attribute.aria_label(triptych_actions.remove_action_label(
             row.item,
@@ -698,17 +1796,115 @@ fn shared_row_view(row: Row, ready: Bool) -> Element(Msg) {
           )),
         ],
       ),
-      case removable {
-        True -> html.text("")
-        False ->
-          html.span([attribute.class("hint")], [
-            html.text(
-              "Already absent from TwoPSet and OrSet. GSet still retains it.",
-            ),
-          ])
+      case hint_text {
+        Some(reason) ->
+          html.span([attribute.class("hint")], [html.text(reason)])
+        None -> html.text("")
       },
     ]),
   ])
+}
+
+fn scenario_status_view(
+  label: String,
+  status: String,
+  disabled_reason: Option(String),
+) -> Element(msg) {
+  html.div([attribute.class("scenario-status")], [
+    html.p([attribute.class("hint")], [html.text(label <> ": " <> status)]),
+    case disabled_reason {
+      Some(reason) ->
+        html.p([attribute.class("hint")], [
+          html.text("Disabled reason: " <> reason),
+        ])
+      None -> html.text("")
+    },
+  ])
+}
+
+fn tombstone_status_text(state: TombstoneState) -> String {
+  case state {
+    TombstoneAvailable -> "ready to run once with fixed item \"milk\"."
+    TombstoneRunning(TombstoneAddStep) ->
+      "running step 1/3: adding \"milk\" to all three sets."
+    TombstoneRunning(TombstoneRemoveStep) ->
+      "running step 2/3: removing \"milk\" from TwoPSet and OrSet."
+    TombstoneRunning(TombstoneReAddStep) ->
+      "running step 3/3: re-adding \"milk\" so TwoPSet stays absent while OrSet restores it."
+    TombstoneComplete -> scenario_state.tombstone_locked_message()
+  }
+}
+
+fn concurrent_status_text(state: ConcurrentState) -> String {
+  case state {
+    ConcurrentIdle(Some(status)) -> status
+    ConcurrentIdle(None) ->
+      "idle; it seeds \"eggs\" first, then coordinates a two-tab race over ripples."
+
+    ConcurrentInitiator(run_id, ConcurrentPreparing, _, _, _) ->
+      "run "
+      <> run_id
+      <> ": seeded \"eggs\" and is waiting briefly before inviting peers."
+
+    ConcurrentInitiator(run_id, ConcurrentAwaitingAck, _, _, _) ->
+      "run " <> run_id <> ": waiting for the first ready peer acknowledgement."
+
+    ConcurrentInitiator(run_id, ConcurrentRemoving, selected_peer, _, _) ->
+      "run "
+      <> run_id
+      <> ": selected "
+      <> selected_peer_text(selected_peer)
+      <> ", sent go, and queued the initiator remove on a zero-delay timer."
+
+    ConcurrentInitiator(
+      run_id,
+      ConcurrentVerifying,
+      selected_peer,
+      peer_applied,
+      _,
+    ) ->
+      "run "
+      <> run_id
+      <> ": verifying "
+      <> scenario_state.expected_concurrent_summary()
+      <> " after racing against "
+      <> selected_peer_text(selected_peer)
+      <> case peer_applied {
+        True -> "; the peer already reported its add."
+        False -> "; peer status is optional and may still be in flight."
+      }
+
+    ConcurrentPeer(run_id, initiator, PeerAwaitingGo, _, note) ->
+      case note {
+        Some(note) -> note
+        None ->
+          "run "
+          <> run_id
+          <> ": acknowledged initiator "
+          <> initiator
+          <> " and is waiting to learn whether this tab was selected."
+      }
+
+    ConcurrentPeer(run_id, initiator, PeerVerifying, _, note) ->
+      case note {
+        Some(note) -> note
+        None ->
+          "run "
+          <> run_id
+          <> ": authored the concurrent add with initiator "
+          <> initiator
+          <> " and is verifying "
+          <> scenario_state.expected_concurrent_summary()
+          <> "."
+      }
+  }
+}
+
+fn selected_peer_text(selected_peer: Option(String)) -> String {
+  case selected_peer {
+    Some(peer) -> "peer " <> peer
+    None -> "the selected peer"
+  }
 }
 
 fn comparison_view(model: Model) -> Element(Msg) {
@@ -934,8 +2130,8 @@ fn yes_no(value: Bool) -> String {
 }
 
 fn scenario_text(scenario: ScenarioState) -> String {
-  case scenario {
-    NoScenario -> "placeholder controls only"
-    PendingScenario(name) -> name <> " placeholder selected"
-  }
+  "Tombstone: "
+  <> tombstone_status_text(scenario.tombstone)
+  <> " · Concurrent add/remove: "
+  <> concurrent_status_text(scenario.concurrent)
 }
