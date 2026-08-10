@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue
 
 # Run tests
 test: _test-gleam _test-js _test-lustre _test-examples
@@ -123,7 +123,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel
+deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue
 
 _deps-gleam:
     gleam deps download
@@ -152,6 +152,9 @@ _deps-drum:
 
 _deps-pixel:
     pnpm --dir examples/pixel_canvas_lustre install
+
+_deps-work-queue:
+    pnpm --dir examples/work_queue_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -184,3 +187,6 @@ _build-drum:
 
 _build-pixel:
     pnpm --dir examples/pixel_canvas_lustre run build
+
+_build-work-queue:
+    pnpm --dir examples/work_queue_lustre run build

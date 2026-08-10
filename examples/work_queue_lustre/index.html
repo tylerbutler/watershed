@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · consensus work queue</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: 100%; max-width: 64rem; padding: 2rem; }
+      h1 { font-size: 1.25rem; font-weight: 600; }
+      h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.5rem; }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        opacity: 0.85;
+        margin-top: -0.5rem;
+      }
+      .role { opacity: 0.8; }
+      .role-mine { font-weight: 600; opacity: 1; }
+      button {
+        padding: 0.4rem 0.7rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover:not(:disabled) { opacity: 0.8; }
+      button:disabled { opacity: 0.35; cursor: default; }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+        margin-top: 1.5rem;
+        align-items: start;
+      }
+      .column {
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+      }
+      .cards { display: flex; flex-direction: column; gap: 0.5rem; }
+      .card {
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.65rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+      }
+      .card-mine {
+        border-style: dashed;
+        animation: pulse 1.2s ease-in-out infinite;
+      }
+      .card-done { opacity: 0.65; }
+      .card-label { font-weight: 600; font-size: 0.9rem; }
+      .card-meta {
+        font-size: 0.75rem;
+        opacity: 0.75;
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+      }
+      .chip {
+        display: inline-block;
+        border: 2px solid currentColor;
+        border-radius: 999px;
+        padding: 0 0.45rem;
+        font-size: 0.72rem;
+        font-variant-numeric: tabular-nums;
+      }
+      .empty { opacity: 0.5; font-size: 0.85rem; }
+      .hint { font-size: 0.8rem; opacity: 0.6; margin-top: 2rem; }
+      .error {
+        color: #c0392b;
+        font-size: 0.85rem;
+        min-height: 1.2rem;
+        margin: 0.25rem 0;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+      }
+      @media (max-width: 46rem) {
+        .board { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/work_queue_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>
