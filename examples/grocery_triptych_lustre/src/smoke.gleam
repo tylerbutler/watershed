@@ -149,12 +149,30 @@ fn readiness_retry(
   then: fn() -> Nil,
 ) -> Nil {
   case attempts <= 0 {
-    True ->
-      fail("readiness timeout waiting for " <> user_a <> " and " <> user_b)
+    True -> fail(readiness_timeout_message(user_a, user_b))
     False -> {
       use <- delay(readiness_poll_ms)
       await_readiness(user_a, user_b, attempts - 1, then)
     }
+  }
+}
+
+fn readiness_timeout_message(user_a: String, user_b: String) -> String {
+  let readiness_a = readiness_state(user_a)
+  let readiness_b = readiness_state(user_b)
+
+  case readiness_a {
+    Pending ->
+      case readiness_b {
+        Pending ->
+          "readiness timeout waiting for " <> user_a <> " and " <> user_b
+        _ -> "readiness timeout waiting for " <> user_a
+      }
+    _ ->
+      case readiness_b {
+        Pending -> "readiness timeout waiting for " <> user_b
+        _ -> "readiness timeout waiting for readiness"
+      }
   }
 }
 
