@@ -61,6 +61,7 @@ import watershed_lustre
 import watershed_lustre/textarea
 
 import doc_schema
+import watershed/browser
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -69,8 +70,6 @@ const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
-
-const document_id = "text"
 
 // ── Presence payload: where everyone's cursor is ─────────────────────────────
 //
@@ -120,7 +119,8 @@ fn colour_for(user_id: String) -> String {
 
 pub fn main() {
   let app = lustre.application(init, update, view)
-  let assert Ok(_) = lustre.start(app, "#app", Nil)
+  let document = browser.document_on_navigate("text")
+  let assert Ok(_) = lustre.start(app, "#app", document)
   Nil
 }
 
@@ -169,7 +169,7 @@ type Msg {
   PresenceEvent(presence.Event(Editing))
 }
 
-fn init(_args) -> #(Model, Effect(Msg)) {
+fn init(document: String) -> #(Model, Effect(Msg)) {
   // A distinct user per tab so the two clients are separate connections.
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
@@ -193,7 +193,7 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       url: socket_url,
       tenant: tenant,
       secret: tenant_secret,
-      document: document_id,
+      document: document,
       user_id: user_id,
       got_document: GotHandle,
       connected: Connected,

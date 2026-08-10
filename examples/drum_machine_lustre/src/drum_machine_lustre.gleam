@@ -33,6 +33,7 @@ import lustre/event
 
 import audio
 import doc_schema
+import watershed/browser
 import watershed/client_id
 import watershed/pact_map_kernel
 import watershed_js.{type Document, type OrSet, type PactMap}
@@ -45,8 +46,6 @@ const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
-
-const document_id = "drum-machine"
 
 /// Steps per bar. Sixteen 16th notes, the TR-808 grid everyone already knows.
 const step_count = 16
@@ -69,7 +68,8 @@ const signoff_poll_ms = 250
 
 pub fn main() {
   let app = lustre.application(init, update, view)
-  let assert Ok(_) = lustre.start(app, "#app", Nil)
+  let document = browser.document_on_navigate("drum-machine")
+  let assert Ok(_) = lustre.start(app, "#app", document)
   Nil
 }
 
@@ -241,7 +241,7 @@ type Msg {
   PollSignoffs
 }
 
-fn init(_args) -> #(Model, Effect(Msg)) {
+fn init(document: String) -> #(Model, Effect(Msg)) {
   // A distinct user per tab so the two clients are separate connections.
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let engine = audio.create()
@@ -272,7 +272,7 @@ fn init(_args) -> #(Model, Effect(Msg)) {
         url: socket_url,
         tenant: tenant,
         secret: tenant_secret,
-        document: document_id,
+        document: document,
         user_id: user_id,
         got_document: GotHandle,
         connected: Connected,

@@ -22,6 +22,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed/browser
 import watershed/map_kernel
 import watershed_js.{type Document}
 import watershed_lustre
@@ -34,13 +35,12 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-const document_id = "dice"
-
 const die_key = "die"
 
 pub fn main() {
   let app = lustre.application(init, update, view)
-  let assert Ok(_) = lustre.start(app, "#app", Nil)
+  let document = browser.document_on_navigate("dice")
+  let assert Ok(_) = lustre.start(app, "#app", document)
   Nil
 }
 
@@ -74,7 +74,7 @@ type Msg {
   ReconnectClicked
 }
 
-fn init(_args) -> #(Model, Effect(Msg)) {
+fn init(document: String) -> #(Model, Effect(Msg)) {
   // A distinct user per tab so the two clients are separate connections.
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
@@ -93,7 +93,7 @@ fn init(_args) -> #(Model, Effect(Msg)) {
       url: socket_url,
       tenant: tenant,
       secret: tenant_secret,
-      document: document_id,
+      document: document,
       user_id: user_id,
       got_document: GotHandle,
       connected: Connected,
