@@ -14,6 +14,11 @@ pub type VerificationOutcome {
   TimedOut
 }
 
+pub type ConcurrentTimeoutState {
+  RetryableTimeout(status: String)
+  LockedTimeout(status: String, disabled_reason: String)
+}
+
 pub type PeerStatusUpdate {
   IgnoreWhileAwaitingGo
   KeepVerifying(note: String)
@@ -24,7 +29,11 @@ pub fn tombstone_locked_message() -> String {
 }
 
 pub fn invitation_timeout_message() -> String {
-  "Concurrent add/remove timed out waiting for a second ready tab. Retry is available because the remove phase never started."
+  "Concurrent add/remove timed out waiting for a second ready tab. No mutation began, so retry is available."
+}
+
+pub fn concurrent_locked_message() -> String {
+  "Concurrent add/remove is disabled for this room. Use a fresh room URL before retrying because a timed-out run may still apply delayed \"eggs\" operations."
 }
 
 pub fn expected_concurrent_summary() -> String {
@@ -95,6 +104,16 @@ pub fn advance_verification(
         True -> Retry(attempts_remaining - 1)
         False -> TimedOut
       }
+  }
+}
+
+pub fn concurrent_timeout_state(
+  mutation_began mutation_began: Bool,
+  status status: String,
+) -> ConcurrentTimeoutState {
+  case mutation_began {
+    False -> RetryableTimeout(status)
+    True -> LockedTimeout(status, concurrent_locked_message())
   }
 }
 

@@ -124,6 +124,7 @@ type TombstoneStep {
 
 type ConcurrentState {
   ConcurrentIdle(last_status: Option(String))
+  ConcurrentLocked(last_status: String, disabled_reason: String)
   ConcurrentInitiator(
     run_id: String,
     phase: InitiatorPhase,
@@ -438,7 +439,7 @@ fn tombstone_completed(state: TombstoneState) -> Bool {
 
 fn concurrent_active(state: ConcurrentState) -> Bool {
   case state {
-    ConcurrentIdle(_) -> False
+    ConcurrentIdle(_) | ConcurrentLocked(_, _) -> False
     _ -> True
   }
 }
@@ -531,14 +532,21 @@ fn concurrent_button_reason(model: Model) -> Option(String) {
       )
 
     True ->
-      case model.scenario.tombstone {
-        TombstoneRunning(_) ->
-          Some("Concurrent add/remove is disabled while Tombstone is running.")
-
+      case model.scenario.concurrent {
+        ConcurrentLocked(_, disabled_reason) -> Some(disabled_reason)
         _ ->
-          case model.scenario.concurrent {
-            ConcurrentIdle(_) -> None
-            _ -> Some("Concurrent add/remove is already running in this tab.")
+          case model.scenario.tombstone {
+            TombstoneRunning(_) ->
+              Some(
+                "Concurrent add/remove is disabled while Tombstone is running.",
+              )
+
+            _ ->
+              case model.scenario.concurrent {
+                ConcurrentIdle(_) -> None
+                _ ->
+                  Some("Concurrent add/remove is already running in this tab.")
+              }
           }
       }
   }
@@ -562,6 +570,24 @@ fn submit_scenario_ripple(
 
 fn schedule_concurrent_verification(run_id: String) -> Effect(Msg) {
   watershed_lustre.after(concurrent_verify_retry_ms, VerifyConcurrent(run_id))
+}
+
+fn set_concurrent_timeout_state(
+  model: Model,
+  timeout_state: scenario_state.ConcurrentTimeoutState,
+  feedback: Feedback,
+) -> Model {
+  let concurrent = case timeout_state {
+    scenario_state.RetryableTimeout(status) -> ConcurrentIdle(Some(status))
+    scenario_state.LockedTimeout(status, disabled_reason) ->
+      ConcurrentLocked(status, disabled_reason)
+  }
+
+  Model(
+    ..model,
+    scenario: ScenarioState(..model.scenario, concurrent: concurrent),
+  )
+  |> with_feedback(feedback)
 }
 
 fn shared_add(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
@@ -924,7 +950,11 @@ fn handle_invitation(
           case
             scenario_protocol.should_acknowledge(
               self_id,
-              controls_ready(remembered),
+              controls_ready(remembered)
+                && case remembered.scenario.concurrent {
+                ConcurrentLocked(_, _) -> False
+                _ -> True
+              },
               scenario_busy(remembered),
               already_seen,
               inbound,
@@ -1333,16 +1363,17 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             <> scenario_state.expected_concurrent_summary()
             <> "; saw "
             <> scenario_state.concurrent_summary(model.snapshots)
-            <> "."
+            <> ". "
+            <> scenario_state.concurrent_locked_message()
           let model =
-            Model(
-              ..model,
-              scenario: ScenarioState(
-                ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+            set_concurrent_timeout_state(
+              model,
+              scenario_state.concurrent_timeout_state(
+                mutation_began: True,
+                status: message,
               ),
+              bootstrap_guard.warning(message),
             )
-            |> with_feedback(bootstrap_guard.warning(message))
           let notify = case selected_peer {
             Some(peer) ->
               submit_scenario_ripple(
@@ -1431,20 +1462,21 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
             <> scenario_state.expected_concurrent_summary()
             <> "; saw "
             <> scenario_state.concurrent_summary(model.snapshots)
-            <> "."
+            <> ". "
+            <> scenario_state.concurrent_locked_message()
           let feedback = case note {
             Some(extra) -> message <> " " <> extra
             None -> message
           }
           let model =
-            Model(
-              ..model,
-              scenario: ScenarioState(
-                ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+            set_concurrent_timeout_state(
+              model,
+              scenario_state.concurrent_timeout_state(
+                mutation_began: True,
+                status: message,
               ),
+              bootstrap_guard.warning(feedback),
             )
-            |> with_feedback(bootstrap_guard.warning(feedback))
 
           #(
             model,
@@ -1565,14 +1597,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         -> {
           let message = scenario_state.invitation_timeout_message()
           let model =
-            Model(
-              ..model,
-              scenario: ScenarioState(
-                ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+            set_concurrent_timeout_state(
+              model,
+              scenario_state.concurrent_timeout_state(
+                mutation_began: False,
+                status: message,
               ),
+              bootstrap_guard.warning(message),
             )
-            |> with_feedback(bootstrap_guard.warning(message))
 
           #(model, effect.none())
         }
@@ -1590,14 +1622,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             <> run_id
             <> ", so this tab stayed waiting until timeout, did not mutate anything, and returned to idle ready to retry."
           let model =
-            Model(
-              ..model,
-              scenario: ScenarioState(
-                ..model.scenario,
-                concurrent: ConcurrentIdle(Some(message)),
+            set_concurrent_timeout_state(
+              model,
+              scenario_state.concurrent_timeout_state(
+                mutation_began: False,
+                status: message,
               ),
+              bootstrap_guard.warning(message),
             )
-            |> with_feedback(bootstrap_guard.warning(message))
 
           #(model, effect.none())
         }
@@ -1901,6 +1933,7 @@ fn concurrent_status_text(state: ConcurrentState) -> String {
     ConcurrentIdle(Some(status)) -> status
     ConcurrentIdle(None) ->
       "idle; it seeds \"eggs\" first, then coordinates a two-tab race over ripples."
+    ConcurrentLocked(status, _) -> status
 
     ConcurrentInitiator(run_id, ConcurrentPreparing, _, _, _) ->
       "run "

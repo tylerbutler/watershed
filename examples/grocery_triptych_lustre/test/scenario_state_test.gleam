@@ -53,6 +53,27 @@ pub fn verification_times_out_honestly_when_retries_are_exhausted_test() {
   |> should.equal(scenario_state.TimedOut)
 }
 
+pub fn pre_mutation_timeouts_stay_retryable_test() {
+  scenario_state.concurrent_timeout_state(
+    mutation_began: False,
+    status: scenario_state.invitation_timeout_message(),
+  )
+  |> should.equal(
+    scenario_state.RetryableTimeout(scenario_state.invitation_timeout_message()),
+  )
+}
+
+pub fn post_mutation_timeouts_lock_the_room_test() {
+  scenario_state.concurrent_timeout_state(
+    mutation_began: True,
+    status: "verification timed out",
+  )
+  |> should.equal(scenario_state.LockedTimeout(
+    "verification timed out",
+    scenario_state.concurrent_locked_message(),
+  ))
+}
+
 pub fn concurrent_summary_reports_the_current_triptych_state_test() {
   scenario_state.concurrent_summary(unexpected_snapshots())
   |> should.equal("GSet present, TwoPSet present, OrSet absent")
