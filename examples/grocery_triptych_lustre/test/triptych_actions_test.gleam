@@ -18,6 +18,11 @@ pub fn normalize_item_input_rejects_whitespace_only_test() {
   |> should.equal(Error("Enter an item before adding to all three sets."))
 }
 
+pub fn has_submittable_item_trims_whitespace_test() {
+  triptych_actions.has_submittable_item("  oranges  ")
+  |> should.equal(True)
+}
+
 pub fn tombstoned_two_p_set_readd_reports_a_warning_test() {
   triptych_actions.add_feedback("milk", False, False)
   |> should.equal(bootstrap_guard.warning(

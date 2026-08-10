@@ -480,7 +480,7 @@ fn connection_view(model: Model) -> Element(Msg) {
 
 fn controls_view(model: Model) -> Element(Msg) {
   let ready = controls_ready(model)
-  let can_submit = ready && triptych_actions.has_submittable_item(model.draft)
+  let add_help_id = "add-item-help"
 
   html.section([attribute.class("panel")], [
     html.h2([], [html.text("Shared controls")]),
@@ -500,6 +500,8 @@ fn controls_view(model: Model) -> Element(Msg) {
             attribute.placeholder("milk"),
             attribute.value(model.draft),
             attribute.aria_label("Grocery item name"),
+            attribute.attribute("aria-describedby", add_help_id),
+            attribute.disabled(!ready),
             event.on_input(DraftChanged),
           ]),
         ]),
@@ -507,22 +509,29 @@ fn controls_view(model: Model) -> Element(Msg) {
           [
             attribute.class("primary"),
             attribute.type_("submit"),
-            attribute.disabled(!can_submit),
+            attribute.disabled(!ready),
             attribute.aria_label("Add grocery item to all three sets"),
+            attribute.attribute("aria-describedby", add_help_id),
           ],
           [html.text("Add to all three")],
         ),
       ],
     ),
-    case ready {
-      True -> html.text("")
-      False ->
-        html.p([attribute.class("hint")], [
-          html.text(
-            "Adds unlock after the connection and pantry bootstrap finish.",
-          ),
-        ])
-    },
+    html.p(
+      [
+        attribute.class("hint"),
+        attribute.attribute("id", add_help_id),
+        attribute.attribute("aria-live", "polite"),
+      ],
+      [
+        html.text(case ready {
+          True ->
+            "Press Enter or Add to submit. Empty items are rejected with a warning."
+          False ->
+            "Add is disabled until the document handle and pantry bootstrap finish."
+        }),
+      ],
+    ),
     html.div([attribute.class("scenario-row")], [
       html.span([attribute.class("field-label")], [
         html.text("Preset scenarios"),
