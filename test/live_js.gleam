@@ -232,18 +232,19 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   watershed_js.auto_summarize(
     doc_a,
     summary_policy.policy()
-      |> summary_policy.with_threshold(8)
+      |> summary_policy.with_threshold(4)
       |> summary_policy.with_jitter_ms(0),
   )
 
-  let before = watershed_js.ops_since_summary(doc_a)
-  write_keys(map_a, 12)
-
-  // The checkpoint moving is the observable: a client only knows about a
-  // summary it wrote or saw sequenced.
-  use summarized <- promise.await(
-    wait_until(fn() { watershed_js.ops_since_summary(doc_a) < before }),
-  )
+  // The drift falling back under the threshold is the observable: only a
+  // checkpoint moves it, and nothing here calls `summarize`.
+  //
+  // Traffic-until-it-happens rather than write-then-wait: the policy arms on a
+  // sequenced message, so a document that falls quiet just over the threshold
+  // stays there until the next one arrives. And the count is of *sequenced
+  // messages*, not edits — floodgate sequences a submitted batch as one, so
+  // writes issued back to back move it by far less than their number.
+  use summarized <- promise.await(summarizes_within(doc_a, map_a, 20, 4))
 
   // A post-checkpoint edit, so the joiner applies a delta on top of the blob
   // rather than landing on it exactly.
@@ -259,11 +260,13 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   use joined <- promise.await(
     wait_until(fn() {
       watershed_js.get(map_c, "post") == Some(json.string("after-summary"))
-      && watershed_js.get(map_c, "k12") == Some(json.int(12))
     }),
   )
-  // It seeded from the checkpoint rather than replaying from zero.
-  let from_checkpoint = watershed_js.ops_since_summary(doc_c) < 12
+  // It seeded from the checkpoint rather than replaying from zero: its drift
+  // counts only what followed the summary it loaded.
+  let from_checkpoint =
+    watershed_js.ops_since_summary(doc_c)
+    <= watershed_js.ops_since_summary(doc_a)
 
   watershed_js.close(doc_c)
   finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
@@ -276,12 +279,26 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
 }
 
 @target(javascript)
-fn write_keys(map: SharedMap, count: Int) -> Nil {
-  case count <= 0 {
-    True -> Nil
-    False -> {
-      write_keys(map, count - 1)
-      watershed_js.set(map, "k" <> int.to_string(count), json.int(count))
+/// Write a key, let it sequence, and check whether the drift has fallen under
+/// `threshold` — up to `attempts` times. Each write is the sequenced message
+/// the policy needs to arm on.
+fn summarizes_within(
+  document: Document,
+  map: SharedMap,
+  attempts: Int,
+  threshold: Int,
+) -> Promise(Bool) {
+  case watershed_js.ops_since_summary(document) < threshold, attempts <= 0 {
+    True, _ -> promise.resolve(True)
+    False, True -> promise.resolve(False)
+    False, False -> {
+      watershed_js.set(
+        map,
+        "tick" <> int.to_string(attempts),
+        json.int(attempts),
+      )
+      use _ <- promise.await(sleep(200))
+      summarizes_within(document, map, attempts - 1, threshold)
     }
   }
 }

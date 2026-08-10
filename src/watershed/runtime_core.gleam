@@ -372,8 +372,13 @@ pub fn is_synced(core: Core) -> Bool {
 
 /// How far the document has drifted past the newest checkpoint this client
 /// knows about — the number the automatic policy thresholds on, and the one
-/// worth showing in diagnostics. On a document nothing has summarized it is
-/// the full log length, which is the cost every joining client is paying.
+/// worth showing in diagnostics. On a document nothing has summarized it is the
+/// full log length, which is the cost every joining client is paying.
+///
+/// Counted in **sequenced messages**, not edits: a server sequences a batch of
+/// submitted ops as one message, so a burst of writes moves this by far less
+/// than its length. Messages are the right unit, because messages are what a
+/// joining client replays.
 pub fn ops_since_summary(core: Core) -> Int {
   int.max(0, core.last_seen_sn - core.last_summary_sn)
 }
@@ -930,9 +935,9 @@ fn apply_one(
     // Someone summarized. The contents are a storage handle this client has no
     // use for — it is already caught up — but the sequence number tells the
     // automatic policy that the document has a fresher checkpoint than it
-    // thought, which is how a room avoids every client summarizing the same
-    // state. `int.max` because a summarize op replayed out of an old log must
-    // not un-summarize a document loaded from a newer blob.
+    // thought, which is how a room writes one summary per crossing rather than
+    // one per client. `int.max` because a summarize op replayed out of an old
+    // log must not un-summarize a document loaded from a newer blob.
     "summarize" ->
       Ok(
         #(

@@ -105,28 +105,45 @@ json.object([
 - **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
 - **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
 - **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Off unless `auto_summarize` installs a policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
-- **SB4 — ✅ done, with one leg failing on the server it was run against.** The policy is on in the live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, a fourth `live_js` scenario) and in the drum machine, app and smoke. Verified live: a document summarizes itself with nothing calling `summarize`, on both targets. **Not** verified: a fresh client joining that document applies the post-checkpoint delta — see "The joiner leg" below, which is a pre-existing failure, not this work's.
+- **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets. The only live summary failure left is `summary_versions_test`'s 404, which is SB5.
 - **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
 - **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is pinned by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
 - **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
 
-**Remaining: SB6's default flip, SB8.** SB5 stays unimplemented (server-side). Before SB6, settle "The joiner leg" below against floodgate — turning summaries on by default while a post-checkpoint delta can be dropped would make that defect everyone's.
+**Remaining: SB6's default flip, SB8.** SB5 stays unimplemented (server-side). SB6 is unblocked as far as watershed is concerned — the whole path is green against floodgate — but pick the default threshold knowing it counts sequenced messages, not edits.
 
 ## What SB3 changed about its own design
 
-**A peer's summary is visible, and that is what makes the jitter window work.**
-The plan budgeted for redundant uploads because it assumed each client would
-find out about a summary only at its next handshake. It does better than that:
-floodgate broadcasts the sequenced summarize op, and `apply_one` now records its
-sequence number. So the window is not just a stagger — it is a *cancel*. The
-first client to summarize advances everyone else's `last_summary_sn`, and their
-wake-ups find nothing to do. Confirmed live by
-`a_peers_summary_resets_the_local_threshold_test`, which is the test that would
-have told us we were in the other world.
+**A peer's summary is announced, and that is what makes the jitter window
+work.** The plan budgeted for redundant uploads because it assumed a client
+would learn of a summary only at its next handshake. It does better: floodgate
+sequences and broadcasts the summarize op, and `apply_one` records its sequence
+number as the checkpoint. So the window is not just a stagger — it is a
+*cancel*. The first client to summarize advances everyone else's
+`last_summary_sn`, and their wake-ups find nothing to do. A room writes one
+summary per crossing, not one per client. Pinned by
+`a_peers_summary_resets_the_local_threshold_test`.
 
 This is why the arm/fire split matters: the decision is re-taken on wake against
 the core as it is *then*, never carried in the timer.
+
+**`ops_since_summary` counts sequenced messages, not edits, and the difference
+is large.** Floodgate sequences a submitted batch as one message, so twelve map
+writes issued back to back move the number by two or three. This is the right
+unit — a joining client replays messages — but it makes any threshold picked by
+imagining single edits far too high, and it is why the live tests write one key
+at a time and why they assert "the drift fell back under the threshold" rather
+than counting.
+
+**The policy arms on a sequenced message, so a document that falls quiet just
+over the threshold stays there until the next one arrives.** Correct, invisible
+in an app (the next edit summarizes), and a trap for a test that stops writing
+and waits — both live tests generate traffic until the checkpoint moves instead.
+
+**A client's own summarize op is itself a sequenced message**, so the drift
+settles at 1 rather than 0 after a checkpoint. Harmless at any sane threshold;
+worth knowing before setting one to 1, where it would self-trigger forever.
 
 **The jitter has to be scrambled, not modular.** `id % window` was the obvious
 formula and it is nearly useless: a server hands out client ids in sequence, so
@@ -147,31 +164,29 @@ becomes a one-line change to the runtime's initial `auto_summary`.
 confirmed on execution). One bounded stall per summary, no new concurrency, and
 the same path manual `summarize` has always taken.
 
-## The joiner leg: a post-checkpoint delta is lost on bootstrap
+## The summary suite is server-specific, and nothing in it says so
 
-Found while running SB4's gate, and **not caused by it** — `git stash` and the
-same suite reproduces it.
+Worth recording because it cost most of a session and would cost it again.
 
-A client that bootstraps from a summary lands on the summary's state and misses
-the ops sequenced after it. In `auto_summary_writes_without_an_explicit_call_test`
-the joiner has 12 of the author's 13 keys, and the missing one is exactly the
-post-checkpoint write. Its drift matches the author's, so it is not replaying
-from zero — it seeded from the blob, then advanced `last_seen` past the delta
-without applying it.
+SB4 was first run against whatever was listening on 127.0.0.1:4000, which was a
+stray `ghcr.io/tylerbutler/levee:latest` rather than the floodgate build
+`docker compose` produces. On that server a client bootstrapping from a summary
+lands on the summary's state and **drops the post-checkpoint delta** — the
+joiner has 12 of the author's 13 keys and the missing one is exactly the write
+that followed the checkpoint. `summary_bootstrap_test` and
+`summary_nested_bootstrap_test` fail there too, with all of SB3/SB4 stashed.
 
-Two pre-existing tests fail the same way and for the same reason:
-`summary_bootstrap_test` (whose `get(map_b, "post")` assertion is this defect,
-stated) and `summary_nested_bootstrap_test`. `summary_versions_test` fails
-separately with the 404 SB5 already documents.
+Against floodgate on a spare port, all three pass. So it is a levee defect (or a
+levee/watershed protocol mismatch), not a client one — but nothing about the
+suite makes the dependency visible, and the failure reads exactly like a client
+bug in the SB1 family. If these tests fail, **check what is actually on port
+4000 before debugging the client.**
 
-**Caveat on the environment, which may be the whole explanation.** These runs
-went against `ghcr.io/tylerbutler/levee:latest` on port 4000, not the floodgate
-build `just integration-up` produces — the port was already occupied. Floodgate
-and levee differ in exactly the area implicated (what `put_summary` records and
-where `initial_messages` starts). Re-run against floodgate before treating this
-as a client bug: if it reproduces there, it is the server half of the SB1 family
-and belongs in its own plan; if it does not, the note to keep is that the summary
-suite is silently server-specific.
+A second reason to check: the same run initially suggested floodgate did *not*
+announce summaries, from reading "both clients' drift is 5" as "neither reset"
+when it in fact means "both reset at the same checkpoint, then counted the same
+five messages after it". The assertion that settles it has to compare against a
+client's own earlier drift, not against zero or against a peer.
 
 ## How SB1 was actually settled
 

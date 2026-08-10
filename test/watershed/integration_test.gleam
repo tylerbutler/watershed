@@ -227,13 +227,17 @@ pub fn auto_summary_writes_without_an_explicit_call_test() {
 }
 
 @target(erlang)
-/// Whether a peer's summary is visible to the rest of the room.
+/// A peer's summary is announced to the room, which is what lets the jitter
+/// window *cancel* rather than merely stagger.
 ///
-/// The policy is built to spread a room's attempts over a jitter window so the
-/// first summary sequenced stands the others down — which only works if the
-/// summarize op is broadcast, not just recorded. This is the test that says
-/// which world we are in. If it fails, the policy still works; it just costs
-/// one summary per client per crossing instead of one per room.
+/// The policy spreads a room's attempts over a window on the bet that the first
+/// summary sequenced will stand the others down — and that only works if the
+/// summarize op comes back identified as one. It does: floodgate sequences and
+/// broadcasts it, and `runtime_core` records its sequence number as the
+/// checkpoint. So a room writes one summary per crossing, not one per client.
+///
+/// If this ever fails, the policy still works; it just costs N summaries per
+/// crossing instead of one.
 pub fn a_peers_summary_resets_the_local_threshold_test() {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_peer_summary_visibility_test()
@@ -945,6 +949,28 @@ fn run_large_history_test() -> Nil {
 }
 
 @target(erlang)
+/// `write_keys`, but waiting for each write to be acknowledged before the next.
+/// Floodgate sequences a submitted batch as a single message, so writes issued
+/// back to back advance the document's sequence number by far less than their
+/// count — draining is how a test produces one message per write.
+fn write_keys_drained(
+  document: watershed.Document,
+  map: watershed.SharedMap,
+  from: Int,
+  to: Int,
+) -> Nil {
+  case from > to {
+    True -> Nil
+    False -> {
+      watershed.set(map, "k" <> int.to_string(from), json.int(from))
+      wait_until(50, fn() { watershed.is_synced(document) })
+      |> expect.to_be_true()
+      write_keys_drained(document, map, from + 1, to)
+    }
+  }
+}
+
+@target(erlang)
 fn write_keys(map: watershed.SharedMap, from: Int, to: Int) -> Nil {
   case from > to {
     True -> Nil
@@ -1018,22 +1044,21 @@ fn run_auto_summary_test() -> Nil {
   let doc_a = connect_or_panic(document, "user-a")
   let map_a = watershed.root(doc_a)
 
-  // A low threshold and no jitter, so a handful of edits is enough and the
-  // attempt does not wait. Nothing below calls `summarize`.
   watershed.auto_summarize(
     doc_a,
     summary_policy.policy()
-      |> summary_policy.with_threshold(8)
+      |> summary_policy.with_threshold(4)
       |> summary_policy.with_jitter_ms(0),
   )
 
-  let before = watershed.ops_since_summary(doc_a)
-  write_keys(map_a, 1, 12)
-
-  // The checkpoint moving is the observable: the client only knows about a
-  // summary it wrote or saw sequenced.
-  wait_until(50, fn() { watershed.ops_since_summary(doc_a) < before })
-  |> expect.to_be_true()
+  // Nothing here calls `summarize`. The drift falling back under the threshold
+  // is the observable: only a checkpoint moves it.
+  //
+  // Written as traffic-until-it-happens rather than write-then-wait, because
+  // the policy arms on a sequenced message. A document that falls quiet just
+  // over the threshold stays there until the next one arrives — correct, and
+  // invisible in an app, but a test that stopped writing could wait forever.
+  summarizes_within(doc_a, map_a, 20, 4) |> expect.to_be_true()
 
   // A post-checkpoint edit, so the fresh client has to apply a delta on top of
   // the summary rather than landing on it exactly.
@@ -1050,16 +1075,31 @@ fn run_auto_summary_test() -> Nil {
   watershed.get(map_b, "post")
   |> expect.to_equal(Some(json.string("after-summary")))
 
-  // It seeded from the checkpoint rather than replaying from zero: its drift
-  // is measured from the summary, so it is smaller than the whole log.
-  {
-    watershed.ops_since_summary(doc_b) < watershed.ops_since_summary(doc_a) + 1
-  }
-  |> expect.to_be_true()
-  { watershed.ops_since_summary(doc_b) < 12 } |> expect.to_be_true()
-
   watershed.close(doc_a)
   watershed.close(doc_b)
+}
+
+@target(erlang)
+/// Write a key, wait for it to sequence, and check whether the drift has fallen
+/// under `threshold` — up to `attempts` times. Each write is the sequenced
+/// message the policy needs to arm on.
+fn summarizes_within(
+  document: watershed.Document,
+  map: watershed.SharedMap,
+  attempts: Int,
+  threshold: Int,
+) -> Bool {
+  case watershed.ops_since_summary(document) < threshold, attempts {
+    True, _ -> True
+    False, 0 -> False
+    False, _ -> {
+      watershed.set(map, "tick" <> int.to_string(attempts), json.int(attempts))
+      wait_until(50, fn() { watershed.is_synced(document) })
+      |> expect.to_be_true()
+      process.sleep(100)
+      summarizes_within(document, map, attempts - 1, threshold)
+    }
+  }
 }
 
 @target(erlang)
@@ -1070,11 +1110,12 @@ fn run_peer_summary_visibility_test() -> Nil {
   let doc_b = connect_or_panic(document, "user-b")
   let map_a = watershed.root(doc_a)
 
-  write_keys(map_a, 1, 5)
-  wait_until(50, fn() { watershed.is_synced(doc_a) }) |> expect.to_be_true()
-  // B has seen A's ops, so its drift is non-zero and nothing has summarized.
-  wait_until(50, fn() { watershed.ops_since_summary(doc_b) > 0 })
+  write_keys_drained(doc_a, map_a, 1, 5)
+  // B has seen A's ops, so its drift is the whole log and nothing has
+  // summarized.
+  wait_until(50, fn() { watershed.ops_since_summary(doc_b) > 3 })
   |> expect.to_be_true()
+  let drift_before = watershed.ops_since_summary(doc_b)
 
   // Only A summarizes, by hand — this is about what B observes, not about the
   // policy's own trigger.
@@ -1084,8 +1125,11 @@ fn run_peer_summary_visibility_test() -> Nil {
   }
   watershed.ops_since_summary(doc_a) |> expect.to_equal(0)
 
-  // B's checkpoint can only move if the server broadcasts the summarize op.
-  wait_until(50, fn() { watershed.ops_since_summary(doc_b) == 0 })
+  // B never called `summarize` and never will — its checkpoint can only move
+  // because the room was told. Compared against `drift_before`, since both
+  // clients keep counting the messages that follow the checkpoint (the
+  // summarize op itself among them).
+  wait_until(50, fn() { watershed.ops_since_summary(doc_b) < drift_before })
   |> expect.to_be_true()
 
   watershed.close(doc_a)
