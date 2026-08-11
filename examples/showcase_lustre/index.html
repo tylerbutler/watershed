@@ -76,6 +76,18 @@
         display: inline-block;
       }
       .chip-where { opacity: 0.7; }
+      .connection {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 0 0 0.75rem;
+        font-size: 0.8rem;
+      }
+      .connection-detail {
+        opacity: 0.7;
+        font-variant-numeric: tabular-nums;
+      }
       .panel {
         border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
         border-radius: 0.75rem;
@@ -197,6 +209,61 @@
         opacity: 0.75;
       }
       .note { min-width: 0; }
+
+      /* ── Canvas panel ─────────────────────────────────────────────────── */
+      .palette { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 1rem; }
+      .swatch {
+        width: 1.75rem;
+        height: 1.75rem;
+        padding: 0;
+        border-radius: 0.35rem;
+        border: 1px solid rgb(128 128 128 / 0.5);
+        cursor: pointer;
+      }
+      .swatch[aria-pressed="true"] {
+        outline: 3px solid currentColor;
+        outline-offset: 2px;
+      }
+      /* Index 0 is "erase". It paints the same colour as the empty canvas, so
+         the swatch needs a mark of its own to be findable. */
+      .swatch.erase { position: relative; }
+      .swatch.erase::after {
+        content: "";
+        position: absolute;
+        inset: 20%;
+        border-top: 1px solid rgb(128 128 128 / 0.9);
+        transform: rotate(45deg);
+        transform-origin: center;
+      }
+      /* The stage exists so peer markers can be positioned over the bitmap.
+         Nothing may be drawn *into* the canvas from Lustre — the FFI owns that
+         surface outright. */
+      .canvas-stage { position: relative; width: 100%; max-width: 32rem; }
+      .peer-marker {
+        position: absolute;
+        transform: translate(-50%, -120%);
+        font-size: 0.55rem;
+        line-height: 1;
+        padding: 1px 3px;
+        border-radius: 3px;
+        color: #fff;
+        white-space: nowrap;
+        pointer-events: none;
+      }
+      /* The bitmap is 64x64 — one canvas pixel per cell — and is scaled up by
+         CSS. `pixelated` keeps the cells crisp, and doing it this way means a
+         paint is `fillRect(x, y, 1, 1)` with no device-pixel-ratio arithmetic
+         anywhere. */
+      #canvas {
+        width: 100%;
+        aspect-ratio: 1;
+        image-rendering: pixelated;
+        border: 1px solid rgb(128 128 128 / 0.5);
+        border-radius: 0.25rem;
+        touch-action: none;
+        cursor: crosshair;
+        display: block;
+      }
       .error {
         color: #c0392b;
         font-size: 0.8rem;

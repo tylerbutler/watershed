@@ -48,6 +48,7 @@ import watershed/summary_policy
 import watershed_js.{type Document, type TypedMap}
 import watershed_lustre
 
+import pixel_canvas_lustre/component as canvas_panel
 import pixel_canvas_lustre/doc_schema as canvas_schema
 import playlist_lustre/component as playlist_panel
 import playlist_lustre/doc_schema as playlist_schema
@@ -154,11 +155,12 @@ type Panels {
     text: Option(text_panel.Model),
     playlist: Option(playlist_panel.Model),
     sudoku: Option(sudoku_panel.Model),
+    canvas: Option(canvas_panel.Model),
   )
 }
 
 fn no_panels() -> Panels {
-  Panels(text: None, playlist: None, sudoku: None)
+  Panels(text: None, playlist: None, sudoku: None, canvas: None)
 }
 
 type Model {
@@ -175,6 +177,10 @@ type Model {
     presence: Option(Handle(ShowcasePresence)),
     peers: List(presence.PresenceEntry(ShowcasePresence)),
     announced: Option(ShowcasePresence),
+    /// Promoted out of the canvas panel: both describe the document, and
+    /// neither can be scoped to a channel.
+    offline: Bool,
+    diagnostics: Option(watershed_js.Diagnostics),
     error: Option(String),
   )
 }
@@ -192,6 +198,9 @@ type Msg {
   TextMsg(text_panel.Msg)
   PlaylistMsg(playlist_panel.Msg)
   SudokuMsg(sudoku_panel.Msg)
+  CanvasMsg(canvas_panel.Msg)
+  ToggledOffline(Bool)
+  DiagnosticsTick
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -209,6 +218,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       presence: None,
       peers: [],
       announced: None,
+      offline: False,
+      diagnostics: None,
       error: None,
     )
   #(
@@ -233,8 +244,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // *creating* channels — `ensure_child` attaches, so it waits for
     // `Connected`.
     GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
-      #(model, presence_effect(model, doc))
+      let model =
+        Model(
+          ..model,
+          doc: Some(doc),
+          diagnostics: Some(watershed_js.diagnostics(doc)),
+        )
+      #(
+        model,
+        effect.batch([
+          presence_effect(model, doc),
+          watershed_lustre.after(250, DiagnosticsTick),
+        ]),
+      )
     }
 
     Connected(Ok(_)) -> {
@@ -342,6 +364,40 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(model, effect.batch([effect.map(fx, SudokuMsg), announce]))
         }
       }
+
+    CanvasMsg(inner) ->
+      case model.panels.canvas {
+        None -> #(model, effect.none())
+        Some(panel) -> {
+          let #(panel, fx) = canvas_panel.update(panel, inner)
+          let #(model, announce) =
+            announce(Model(
+              ..model,
+              panels: Panels(..model.panels, canvas: Some(panel)),
+            ))
+          #(model, effect.batch([effect.map(fx, CanvasMsg), announce]))
+        }
+      }
+
+    // Document-scoped, and therefore the shell's. As a panel button this would
+    // disconnect the other three panels along with the one it appears in.
+    ToggledOffline(offline) ->
+      case model.doc {
+        None -> #(model, effect.none())
+        Some(doc) -> #(Model(..model, offline: offline), case offline {
+          True -> watershed_lustre.go_offline(doc)
+          False -> watershed_lustre.go_online(doc)
+        })
+      }
+
+    DiagnosticsTick ->
+      case model.doc {
+        None -> #(model, effect.none())
+        Some(doc) -> #(
+          Model(..model, diagnostics: Some(watershed_js.diagnostics(doc))),
+          watershed_lustre.after(250, DiagnosticsTick),
+        )
+      }
   }
 }
 
@@ -398,7 +454,20 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
             }
             _, _ -> #(model, effect.none())
           }
-        _ -> #(model, effect.none())
+        CanvasPanel ->
+          case model.panels.canvas, model.maps.canvas {
+            None, Some(map) -> {
+              let #(panel, fx) = canvas_panel.init(doc, map)
+              #(
+                Model(
+                  ..model,
+                  panels: Panels(..model.panels, canvas: Some(panel)),
+                ),
+                effect.map(fx, CanvasMsg),
+              )
+            }
+            _, _ -> #(model, effect.none())
+          }
       }
   }
 }
@@ -497,7 +566,11 @@ fn current_presence(model: Model) -> ShowcasePresence {
           Some(panel) -> sudoku_panel.cursor(panel)
           None -> sudoku_panel.Cursor(cell: None, editing: False)
         })
-      CanvasPanel -> roster.InCanvas(None)
+      CanvasPanel ->
+        roster.InCanvas(case model.panels.canvas {
+          Some(panel) -> canvas_panel.cursor(panel)
+          None -> None
+        })
     },
   )
 }
@@ -552,9 +625,22 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
       }
     })
 
-  // The board's `set_peers` is a pure model update; the editor's returns an
-  // effect, because drawing a peer's caret means re-resolving its anchors
-  // against the live channel.
+  let canvas_peers =
+    list.filter_map(model.peers, fn(peer) {
+      case peer.meta.where {
+        roster.InCanvas(Some(cell)) ->
+          Ok(canvas_panel.Peer(
+            name: peer.meta.name,
+            color: peer.meta.color,
+            cell: cell,
+          ))
+        _ -> Error(Nil)
+      }
+    })
+
+  // The board's and the canvas's `set_peers` are pure model updates; the
+  // editor's returns an effect, because drawing a peer's caret means
+  // re-resolving its anchors against the live channel.
   let panels = case model.panels.sudoku {
     Some(board) ->
       Panels(
@@ -562,6 +648,11 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
         sudoku: Some(sudoku_panel.set_peers(board, sudoku_peers)),
       )
     None -> model.panels
+  }
+  let panels = case panels.canvas {
+    Some(canvas) ->
+      Panels(..panels, canvas: Some(canvas_panel.set_peers(canvas, canvas_peers)))
+    None -> panels
   }
   case panels.text {
     None -> #(Model(..model, panels: panels), effect.none())
@@ -585,6 +676,7 @@ fn view(model: Model) -> Element(Msg) {
       roster_view(model),
     ]),
     switcher(model),
+    connection_view(model),
     error_view(model),
     html.section([class("panel")], [panel_view(model)]),
     html.p([class("hint")], [
@@ -680,6 +772,44 @@ fn switcher(model: Model) -> Element(Msg) {
   )
 }
 
+/// The two controls promoted out of the canvas panel.
+///
+/// `go_offline` and `diagnostics` both take a `Document`. As panel furniture
+/// they read as "stop syncing the canvas" and "the canvas's in-flight count";
+/// they are in fact the whole document's, so they belong to the shell and are
+/// labelled that way. It also makes the better demo: one click partitions all
+/// four panels, and coming back converges a text buffer, a sequence, a claims
+/// grid, and an OR-map together.
+fn connection_view(model: Model) -> Element(Msg) {
+  let detail = case model.diagnostics {
+    Some(diagnostics) ->
+      diagnostics.phase
+      <> " · "
+      <> int.to_string(diagnostics.in_flight_count)
+      <> " ops in flight"
+    None -> "runtime diagnostics unavailable"
+  }
+  html.div([class("connection")], [
+    html.button(
+      [
+        event.on_click(ToggledOffline(!model.offline)),
+        attribute.attribute("aria-pressed", case model.offline {
+          True -> "true"
+          False -> "false"
+        }),
+        attribute.disabled(model.doc == None),
+      ],
+      [
+        html.text(case model.offline {
+          True -> "Come back online"
+          False -> "Take the document offline"
+        }),
+      ],
+    ),
+    html.span([class("connection-detail")], [html.text(detail)]),
+  ])
+}
+
 fn error_view(model: Model) -> Element(Msg) {
   html.p([class("error"), attribute.attribute("role", "alert")], [
     html.text(option.unwrap(model.error, "")),
@@ -705,7 +835,11 @@ fn panel_view(model: Model) -> Element(Msg) {
         Some(panel) -> sudoku_panel.view(panel) |> element.map(SudokuMsg)
         None -> waiting_view(model)
       }
-    _ -> waiting_view(model)
+    CanvasPanel ->
+      case model.panels.canvas {
+        Some(panel) -> canvas_panel.view(panel) |> element.map(CanvasMsg)
+        None -> waiting_view(model)
+      }
   }
 }
 
