@@ -60,6 +60,57 @@
       }
       .placeholder { opacity: 0.75; }
       .placeholder-state { font-size: 0.8rem; opacity: 0.7; }
+      .compose { display: flex; gap: 0.5rem; margin: 0.75rem 0; flex-wrap: wrap; }
+      .compose input { flex: 1 1 auto; min-width: 0; }
+      .empty { opacity: 0.5; }
+
+      /* ── Text panel ───────────────────────────────────────────────────── */
+      .editor {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0 0 0.5rem;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        line-height: 1.5;
+        resize: vertical;
+      }
+      .anchor {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      }
+      .anchor p { font-size: 0.8rem; opacity: 0.7; }
+      .anchor-detail {
+        font-variant-numeric: tabular-nums;
+        opacity: 0.9 !important;
+      }
+
+      /* ── Playlist panel ───────────────────────────────────────────────── */
+      .tracks { list-style: none; padding: 0; margin: 0; }
+      .track {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.5rem;
+        margin-bottom: 0.4rem;
+      }
+      .ordinal {
+        font-variant-numeric: tabular-nums;
+        opacity: 0.5;
+        min-width: 1.75rem;
+      }
+      .track-body { flex: 1 1 auto; min-width: 0; }
+      .track-title { font-weight: 600; }
+      .track-artist { font-size: 0.8rem; opacity: 0.65; }
+      .track-controls { display: flex; gap: 0.25rem; flex: 0 0 auto; }
+      .track-controls button { padding: 0.35rem 0.5rem; }
       .error {
         color: #c0392b;
         font-size: 0.8rem;

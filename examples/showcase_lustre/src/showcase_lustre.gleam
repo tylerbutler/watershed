@@ -47,6 +47,7 @@ import watershed_js.{type Document, type TypedMap}
 import watershed_lustre
 
 import pixel_canvas_lustre/doc_schema as canvas_schema
+import playlist_lustre/component as playlist_panel
 import playlist_lustre/doc_schema as playlist_schema
 import showcase_lustre/doc_schema
 import sudoku_lustre/doc_schema as sudoku_schema
@@ -144,11 +145,14 @@ fn no_maps() -> Maps {
 /// component owns beyond the document: the canvas's pixel buffer, a caret, a
 /// draft in an input.
 type Panels {
-  Panels(text: Option(text_panel.Model))
+  Panels(
+    text: Option(text_panel.Model),
+    playlist: Option(playlist_panel.Model),
+  )
 }
 
 fn no_panels() -> Panels {
-  Panels(text: None)
+  Panels(text: None, playlist: None)
 }
 
 type Model {
@@ -172,6 +176,7 @@ type Msg {
   EnsuredCanvas(Result(TypedMap(canvas_schema.CanvasDoc), String))
   PanelPicked(Panel)
   TextMsg(text_panel.Msg)
+  PlaylistMsg(playlist_panel.Msg)
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -252,8 +257,23 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(panel) -> {
           let #(panel, fx) = text_panel.update(panel, inner)
           #(
-            Model(..model, panels: Panels(text: Some(panel))),
+            Model(..model, panels: Panels(..model.panels, text: Some(panel))),
             effect.map(fx, TextMsg),
+          )
+        }
+      }
+
+    PlaylistMsg(inner) ->
+      case model.panels.playlist {
+        None -> #(model, effect.none())
+        Some(panel) -> {
+          let #(panel, fx) = playlist_panel.update(panel, inner)
+          #(
+            Model(
+              ..model,
+              panels: Panels(..model.panels, playlist: Some(panel)),
+            ),
+            effect.map(fx, PlaylistMsg),
           )
         }
       }
@@ -278,9 +298,23 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
               #(
                 Model(
                   ..model,
-                  panels: Panels(text: Some(panel)),
+                  panels: Panels(..model.panels, text: Some(panel)),
                 ),
                 effect.map(fx, TextMsg),
+              )
+            }
+            _, _ -> #(model, effect.none())
+          }
+        PlaylistPanel ->
+          case model.panels.playlist, model.maps.playlist {
+            None, Some(map) -> {
+              let #(panel, fx) = playlist_panel.init(doc, map, model.user_id)
+              #(
+                Model(
+                  ..model,
+                  panels: Panels(..model.panels, playlist: Some(panel)),
+                ),
+                effect.map(fx, PlaylistMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -400,9 +434,18 @@ fn error_view(model: Model) -> Element(Msg) {
 /// The open panel — the real component if it is mounted, a placeholder while
 /// its child map is still being ensured.
 fn panel_view(model: Model) -> Element(Msg) {
-  case model.panel, model.panels.text {
-    TextPanel, Some(panel) -> text_panel.view(panel) |> element.map(TextMsg)
-    _, _ -> waiting_view(model)
+  case model.panel {
+    TextPanel ->
+      case model.panels.text {
+        Some(panel) -> text_panel.view(panel) |> element.map(TextMsg)
+        None -> waiting_view(model)
+      }
+    PlaylistPanel ->
+      case model.panels.playlist {
+        Some(panel) -> playlist_panel.view(panel) |> element.map(PlaylistMsg)
+        None -> waiting_view(model)
+      }
+    _ -> waiting_view(model)
   }
 }
 
