@@ -60,7 +60,7 @@ type Log =
 @target(javascript)
 fn track(
   sluice: sluice_js.Sluice,
-  document: watershed_js.Document,
+  document: watershed_js.Document(root),
   config: presence.Config(Panel),
   initial: Panel,
 ) -> #(presence_js.Handle(Panel), Log) {

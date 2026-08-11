@@ -82,7 +82,7 @@ pub fn start(tenant tenant: String, document document: String) -> Sluice {
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
-) -> watershed_js.Document {
+) -> watershed_js.Document(root) {
   let transport = make_transport(sluice.cell)
   let document =
     watershed_js.connect_via(
@@ -128,13 +128,13 @@ pub fn connect(
 @target(javascript)
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered, so a race can be scripted.
-pub fn pause(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn pause(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.pause)
 }
 
 @target(javascript)
 /// Release a paused client's held frames back into the deliverable queue.
-pub fn resume(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn resume(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.resume)
 }
 
@@ -147,7 +147,10 @@ pub fn resume(sluice: Sluice, document: watershed_js.Document) -> Nil {
 /// drains because one of the clients it was waiting on is no longer in the
 /// room. `pause` cannot stand in for it — a paused client is still a member,
 /// so a pact still waits on it, which is exactly the stall being tested.
-pub fn disconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn disconnect(
+  sluice: Sluice,
+  document: watershed_js.Document(root),
+) -> Nil {
   apply_to_client(sluice, document, core.disconnect)
 }
 
@@ -174,7 +177,7 @@ pub fn disconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
 /// hands it a new identity.
 ///
 /// The handshake completes on the next `settle`, like `connect`.
-pub fn reconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn reconnect(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
@@ -191,7 +194,7 @@ pub fn reconnect(sluice: Sluice, document: watershed_js.Document) -> Nil {
 ///
 /// The runtime keeps its core and sits in its reconnecting phase until
 /// `rejoin`.
-pub fn drop(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn drop(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   case conn_for(state, watershed_js.runtime_of(document)) {
     Error(_) -> Nil
@@ -230,7 +233,7 @@ fn drop_token(cell: Cell(State), token: String) -> Nil {
 /// fresh server-assigned client id.
 ///
 /// A no-op for a client that was not `drop`ped.
-pub fn rejoin(sluice: Sluice, document: watershed_js.Document) -> Nil {
+pub fn rejoin(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   case conn_for(state, watershed_js.runtime_of(document)) {
     Ok(#(token, _)) -> rejoin_token(sluice.cell, token)
@@ -285,7 +288,7 @@ fn conn_for(
 @target(javascript)
 fn apply_to_client(
   sluice: Sluice,
-  document: watershed_js.Document,
+  document: watershed_js.Document(root),
   change: fn(core.Sluice, String) -> core.Sluice,
 ) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
@@ -366,7 +369,7 @@ pub fn pending(sluice: Sluice) -> Bool {
 /// fields of `step_info`), or `Error` if it isn't connected here.
 pub fn client_id(
   sluice: Sluice,
-  document: watershed_js.Document,
+  document: watershed_js.Document(root),
 ) -> Result(String, Nil) {
   client_id_of(
     transport_js.get_cell(sluice.cell),

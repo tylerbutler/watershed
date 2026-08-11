@@ -134,7 +134,7 @@ pub type WatershedConfig {
 }
 
 @target(javascript)
-pub opaque type Document {
+pub opaque type Document(root) {
   Document(runtime: runtime_js.Runtime)
 }
 
@@ -258,7 +258,7 @@ pub opaque type SharedDirectory {
 pub fn connect(
   config: WatershedConfig,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
-) -> Document {
+) -> Document(root) {
   let topic = "document:" <> config.tenant <> ":" <> config.document
   let connect_message =
     ConnectMessage(
@@ -308,7 +308,7 @@ pub fn connect_via(
   user_id user_id: String,
   transport transport: runtime_js.Transport,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
-) -> Document {
+) -> Document(root) {
   let connect_message =
     ConnectMessage(
       tenant_id: tenant,
@@ -346,13 +346,13 @@ pub fn connect_via(
 @target(javascript)
 /// The runtime behind a document. Exposed for the `sluice_js` test driver, which
 /// keys paused clients by their runtime. Not part of the app-facing API.
-pub fn runtime_of(document: Document) -> runtime_js.Runtime {
+pub fn runtime_of(document: Document(root)) -> runtime_js.Runtime {
   document.runtime
 }
 
 @target(javascript)
 /// The document's root map (channel address `"root"`).
-pub fn root(document: Document) -> SharedMap {
+pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
@@ -361,7 +361,7 @@ pub fn root(document: Document) -> SharedMap {
 /// edits produce no ops — until its handle (`handle_of`) is first stored into
 /// an attached map, at which point the runtime attaches it (snapshot and all)
 /// and starts syncing its edits. Requires a ready connection (`on_ready`).
-pub fn create_map(document: Document) -> Result(SharedMap, String) {
+pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   runtime_js.create_map(document.runtime)
   |> result.map(fn(address) {
     SharedMap(runtime: document.runtime, address: address)
@@ -386,7 +386,10 @@ pub fn is_handle(value: Json) -> Bool {
 /// references. Errors are retryable: a handle read from a remote value can be
 /// transiently unresolved while the referenced channel's attach op is still
 /// in flight.
-pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
+pub fn resolve(
+  document: Document(root),
+  value: Json,
+) -> Result(SharedMap, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -426,14 +429,16 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 
 @target(javascript)
 /// The document's root map, viewed through a schema.
-pub fn root_typed(document: Document) -> TypedMap(s) {
+pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
 @target(javascript)
 /// Create a new (detached) map, viewed through a schema. Same lifecycle as
 /// `create_map`.
-pub fn create_typed_map(document: Document) -> Result(TypedMap(s), String) {
+pub fn create_typed_map(
+  document: Document(root),
+) -> Result(TypedMap(s), String) {
   create_map(document) |> result.map(typed)
 }
 
@@ -496,7 +501,7 @@ pub fn set_child(
 /// the key is absent; errors from `resolve` (including transient
 /// not-yet-attached ones) are surfaced as-is and are retryable.
 pub fn resolve_child(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
 ) -> Result(Option(TypedMap(c)), String) {
@@ -553,7 +558,7 @@ pub fn stamp(
 /// roster keyed by id). Non-handle keys are skipped; each child's resolution
 /// `Result` is surfaced (transient not-yet-attached errors are retryable).
 pub fn typed_children(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(parent),
 ) -> List(#(String, Result(TypedMap(child), String))) {
   entries(typed_map.map)
@@ -584,10 +589,10 @@ fn put_channel_field(
 
 @target(javascript)
 fn get_channel_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, kind),
-  resolver: fn(Document, Json) -> Result(shared, String),
+  resolver: fn(Document(root), Json) -> Result(shared, String),
 ) -> Result(Option(shared), String) {
   case get(typed_map.map, schema.channel_field_key(field)) {
     None -> Ok(None)
@@ -608,7 +613,7 @@ pub fn set_map_field(
 @target(javascript)
 /// Resolve the map referenced by a typed channel field.
 pub fn resolve_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
 ) -> Result(Option(SharedMap), String) {
@@ -628,7 +633,7 @@ pub fn set_counter_field(
 @target(javascript)
 /// Resolve the counter referenced by a typed channel field.
 pub fn resolve_counter_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
 ) -> Result(Option(SharedCounter), String) {
@@ -648,7 +653,7 @@ pub fn set_or_map_field(
 @target(javascript)
 /// Resolve the OR-map referenced by a typed channel field.
 pub fn resolve_or_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
 ) -> Result(Option(OrMap), String) {
@@ -668,7 +673,7 @@ pub fn set_or_set_field(
 @target(javascript)
 /// Resolve the OR-set referenced by a typed channel field.
 pub fn resolve_or_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
 ) -> Result(Option(OrSet), String) {
@@ -686,7 +691,7 @@ pub fn set_sequence_field(
 
 @target(javascript)
 pub fn resolve_sequence_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
 ) -> Result(Option(SharedSequence), String) {
@@ -706,7 +711,7 @@ pub fn set_text_field(
 @target(javascript)
 /// Resolve the text channel referenced by a typed channel field.
 pub fn resolve_text_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
 ) -> Result(Option(SharedText), String) {
@@ -726,7 +731,7 @@ pub fn set_register_collection_field(
 @target(javascript)
 /// Resolve the register collection referenced by a typed channel field.
 pub fn resolve_register_collection_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
 ) -> Result(Option(RegisterCollection), String) {
@@ -746,7 +751,7 @@ pub fn set_claims_field(
 @target(javascript)
 /// Resolve the claims channel referenced by a typed channel field.
 pub fn resolve_claims_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
 ) -> Result(Option(Claims), String) {
@@ -766,7 +771,7 @@ pub fn set_task_manager_field(
 @target(javascript)
 /// Resolve the task manager referenced by a typed channel field.
 pub fn resolve_task_manager_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
 ) -> Result(Option(TaskManager), String) {
@@ -786,7 +791,7 @@ pub fn set_pn_counter_field(
 @target(javascript)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
@@ -806,7 +811,7 @@ pub fn set_pact_map_field(
 @target(javascript)
 /// Resolve the PactMap referenced by a typed channel field.
 pub fn resolve_pact_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
 ) -> Result(Option(PactMap), String) {
@@ -826,7 +831,7 @@ pub fn set_ordered_collection_field(
 @target(javascript)
 /// Resolve the ordered collection referenced by a typed channel field.
 pub fn resolve_ordered_collection_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
 ) -> Result(Option(OrderedCollection), String) {
@@ -846,7 +851,7 @@ pub fn set_json_ot_field(
 @target(javascript)
 /// Resolve the json0 channel referenced by a typed channel field.
 pub fn resolve_json_ot_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
 ) -> Result(Option(JsonOt), String) {
@@ -866,7 +871,7 @@ pub fn set_rich_text_field(
 @target(javascript)
 /// Resolve the rich-text channel referenced by a typed channel field.
 pub fn resolve_rich_text_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RichTextChannel),
 ) -> Result(Option(SharedRichText), String) {
@@ -886,7 +891,7 @@ pub fn set_g_set_field(
 @target(javascript)
 /// Resolve the G-set referenced by a typed channel field.
 pub fn resolve_g_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
 ) -> Result(Option(GSet), String) {
@@ -906,7 +911,7 @@ pub fn set_two_p_set_field(
 @target(javascript)
 /// Resolve the 2P-set referenced by a typed channel field.
 pub fn resolve_two_p_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
 ) -> Result(Option(TwoPSet), String) {
@@ -926,7 +931,7 @@ pub fn set_directory_field(
 @target(javascript)
 /// Resolve the directory referenced by a typed channel field.
 pub fn resolve_directory_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
 ) -> Result(Option(SharedDirectory), String) {
@@ -955,7 +960,11 @@ const resolve_attempts = 25
 @target(javascript)
 /// Poll `is_synced` until the confirmed root is stable (bounded by the resolve
 /// budget), then invoke `next`.
-fn await_synced(document: Document, attempts: Int, next: fn() -> Nil) -> Nil {
+fn await_synced(
+  document: Document(root),
+  attempts: Int,
+  next: fn() -> Nil,
+) -> Nil {
   case attempts <= 0 || is_synced(document) {
     True -> next()
     False ->
@@ -991,7 +1000,7 @@ fn resolve_with_retry(
 /// Adopt the channel under `key`: resolve the sequenced winner if the key is
 /// set, else `seed` a candidate, wait for sync, and resolve whatever won.
 fn ensure_channel(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   key: String,
   seed: fn() -> Result(Nil, String),
@@ -1014,7 +1023,7 @@ fn ensure_channel(
 @target(javascript)
 /// Ensure a nested (untyped) map exists under `field`.
 pub fn ensure_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
   done: fn(Result(SharedMap, String)) -> Nil,
@@ -1035,7 +1044,7 @@ pub fn ensure_map(
 @target(javascript)
 /// Ensure a counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
   done: fn(Result(SharedCounter, String)) -> Nil,
@@ -1056,7 +1065,7 @@ pub fn ensure_counter(
 @target(javascript)
 /// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
 pub fn ensure_or_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
@@ -1078,7 +1087,7 @@ pub fn ensure_or_map(
 @target(javascript)
 /// Ensure an OR-set exists under `field`.
 pub fn ensure_or_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
   done: fn(Result(OrSet, String)) -> Nil,
@@ -1098,7 +1107,7 @@ pub fn ensure_or_set(
 
 @target(javascript)
 pub fn ensure_sequence(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
   done: fn(Result(SharedSequence, String)) -> Nil,
@@ -1120,7 +1129,7 @@ pub fn ensure_sequence(
 /// Ensure a text channel exists under `field`, seeding one if the slot is
 /// empty.
 pub fn ensure_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
   done: fn(Result(SharedText, String)) -> Nil,
@@ -1141,7 +1150,7 @@ pub fn ensure_text(
 @target(javascript)
 /// Ensure a register collection exists under `field`.
 pub fn ensure_register_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
   done: fn(Result(RegisterCollection, String)) -> Nil,
@@ -1162,7 +1171,7 @@ pub fn ensure_register_collection(
 @target(javascript)
 /// Ensure a claims channel exists under `field`.
 pub fn ensure_claims(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
   done: fn(Result(Claims, String)) -> Nil,
@@ -1183,7 +1192,7 @@ pub fn ensure_claims(
 @target(javascript)
 /// Ensure a task manager exists under `field`.
 pub fn ensure_task_manager(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
   done: fn(Result(TaskManager, String)) -> Nil,
@@ -1204,7 +1213,7 @@ pub fn ensure_task_manager(
 @target(javascript)
 /// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_pn_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
   done: fn(Result(PnCounter, String)) -> Nil,
@@ -1225,7 +1234,7 @@ pub fn ensure_pn_counter(
 @target(javascript)
 /// Ensure a PactMap exists under `field`.
 pub fn ensure_pact_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
   done: fn(Result(PactMap, String)) -> Nil,
@@ -1246,7 +1255,7 @@ pub fn ensure_pact_map(
 @target(javascript)
 /// Ensure an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
   done: fn(Result(OrderedCollection, String)) -> Nil,
@@ -1267,7 +1276,7 @@ pub fn ensure_ordered_collection(
 @target(javascript)
 /// Ensure a json0 channel exists under `field`, seeding one if absent.
 pub fn ensure_json_ot(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
   done: fn(Result(JsonOt, String)) -> Nil,
@@ -1288,7 +1297,7 @@ pub fn ensure_json_ot(
 @target(javascript)
 /// Ensure a rich-text channel exists under `field`, seeding one if absent.
 pub fn ensure_rich_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RichTextChannel),
   done: fn(Result(SharedRichText, String)) -> Nil,
@@ -1309,7 +1318,7 @@ pub fn ensure_rich_text(
 @target(javascript)
 /// Ensure a G-set exists under `field`, seeding one if absent.
 pub fn ensure_g_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
   done: fn(Result(GSet, String)) -> Nil,
@@ -1330,7 +1339,7 @@ pub fn ensure_g_set(
 @target(javascript)
 /// Ensure a 2P-set exists under `field`, seeding one if absent.
 pub fn ensure_two_p_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
   done: fn(Result(TwoPSet, String)) -> Nil,
@@ -1351,7 +1360,7 @@ pub fn ensure_two_p_set(
 @target(javascript)
 /// Ensure a directory exists under `field`, seeding one if absent.
 pub fn ensure_directory(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
   done: fn(Result(SharedDirectory, String)) -> Nil,
@@ -1372,7 +1381,7 @@ pub fn ensure_directory(
 @target(javascript)
 /// Ensure a nested *typed* child map exists under a child field.
 pub fn ensure_child(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
   done: fn(Result(TypedMap(c), String)) -> Nil,
@@ -1410,7 +1419,9 @@ pub fn ensure_field(
 /// Create a new counter channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`counter_handle_of`) is first stored into an
 /// attached map. Requires a ready connection (`on_ready`).
-pub fn create_counter(document: Document) -> Result(SharedCounter, String) {
+pub fn create_counter(
+  document: Document(root),
+) -> Result(SharedCounter, String) {
   runtime_js.create_counter(document.runtime)
   |> result.map(fn(address) {
     SharedCounter(runtime: document.runtime, address: address)
@@ -1429,7 +1440,7 @@ pub fn counter_handle_of(counter: SharedCounter) -> Json {
 /// checked, not channel type: resolving a non-counter yields a counter whose
 /// reads return `None`. Errors are retryable, as with `resolve`.
 pub fn resolve_counter(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedCounter, String) {
   case handle.parse_handle(value) {
@@ -1495,7 +1506,7 @@ pub fn subscribe_counter(
 /// Create a new OR-map channel in tally or register mode. Same detached
 /// lifecycle as `create_map`.
 pub fn create_or_map(
-  document: Document,
+  document: Document(root),
   mode: OrMapMode,
 ) -> Result(OrMap, String) {
   runtime_js.create_or_map(document.runtime, mode)
@@ -1511,7 +1522,7 @@ pub fn or_map_handle_of(or_map: OrMap) -> Json {
 
 @target(javascript)
 pub fn resolve_or_map(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrMap, String) {
   case handle.parse_handle(value) {
@@ -1573,7 +1584,7 @@ pub fn subscribe_or_map(
 
 @target(javascript)
 /// Create a new observed-remove set channel for string elements.
-pub fn create_or_set(document: Document) -> Result(OrSet, String) {
+pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
   runtime_js.create_or_set(document.runtime)
   |> result.map(fn(address) {
     OrSet(runtime: document.runtime, address: address)
@@ -1587,7 +1598,7 @@ pub fn or_set_handle_of(or_set: OrSet) -> Json {
 
 @target(javascript)
 pub fn resolve_or_set(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrSet, String) {
   case handle.parse_handle(value) {
@@ -1633,7 +1644,9 @@ pub fn subscribe_or_set(
 // ── Shared sequences ──────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_sequence(document: Document) -> Result(SharedSequence, String) {
+pub fn create_sequence(
+  document: Document(root),
+) -> Result(SharedSequence, String) {
   runtime_js.create_sequence(document.runtime)
   |> result.map(fn(address) {
     SharedSequence(runtime: document.runtime, address: address)
@@ -1647,7 +1660,7 @@ pub fn sequence_handle_of(sequence: SharedSequence) -> Json {
 
 @target(javascript)
 pub fn resolve_sequence(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedSequence, String) {
   case handle.parse_handle(value) {
@@ -1730,7 +1743,7 @@ pub fn subscribe_sequence(
 // ── Shared text ───────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_text(document: Document) -> Result(SharedText, String) {
+pub fn create_text(document: Document(root)) -> Result(SharedText, String) {
   runtime_js.create_text(document.runtime)
   |> result.map(fn(address) {
     SharedText(runtime: document.runtime, address: address)
@@ -1744,7 +1757,7 @@ pub fn text_handle_of(text: SharedText) -> Json {
 
 @target(javascript)
 pub fn resolve_text(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedText, String) {
   case handle.parse_handle(value) {
@@ -1891,7 +1904,7 @@ pub fn subscribe_text(
 
 @target(javascript)
 pub fn create_register_collection(
-  document: Document,
+  document: Document(root),
 ) -> Result(RegisterCollection, String) {
   runtime_js.create_register_collection(document.runtime)
   |> result.map(fn(address) {
@@ -1906,7 +1919,7 @@ pub fn register_collection_handle_of(collection: RegisterCollection) -> Json {
 
 @target(javascript)
 pub fn resolve_register_collection(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(RegisterCollection, String) {
   case handle.parse_handle(value) {
@@ -1977,7 +1990,7 @@ pub fn subscribe_register_collection(
 // ── Claims ───────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_claims(document: Document) -> Result(Claims, String) {
+pub fn create_claims(document: Document(root)) -> Result(Claims, String) {
   runtime_js.create_claims(document.runtime)
   |> result.map(fn(address) {
     Claims(runtime: document.runtime, address: address)
@@ -1991,7 +2004,7 @@ pub fn claims_handle_of(claims: Claims) -> Json {
 
 @target(javascript)
 pub fn resolve_claims(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(Claims, String) {
   case handle.parse_handle(value) {
@@ -2047,7 +2060,9 @@ pub fn subscribe_claims(
 // ── Task managers ─────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn create_task_manager(document: Document) -> Result(TaskManager, String) {
+pub fn create_task_manager(
+  document: Document(root),
+) -> Result(TaskManager, String) {
   runtime_js.create_task_manager(document.runtime)
   |> result.map(fn(address) {
     TaskManager(runtime: document.runtime, address: address)
@@ -2061,7 +2076,7 @@ pub fn task_manager_handle_of(manager: TaskManager) -> Json {
 
 @target(javascript)
 pub fn resolve_task_manager(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(TaskManager, String) {
   case handle.parse_handle(value) {
@@ -2126,7 +2141,9 @@ pub fn subscribe_task_manager(
 
 @target(javascript)
 /// Create a new PN-counter channel. Same detached lifecycle as `create_map`.
-pub fn create_pn_counter(document: Document) -> Result(PnCounter, String) {
+pub fn create_pn_counter(
+  document: Document(root),
+) -> Result(PnCounter, String) {
   runtime_js.create_pn_counter(document.runtime)
   |> result.map(fn(address) {
     PnCounter(runtime: document.runtime, address: address)
@@ -2140,7 +2157,7 @@ pub fn pn_counter_handle_of(pn_counter: PnCounter) -> Json {
 
 @target(javascript)
 pub fn resolve_pn_counter(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(PnCounter, String) {
   case handle.parse_handle(value) {
@@ -2188,7 +2205,7 @@ pub fn subscribe_pn_counter(
 
 @target(javascript)
 /// Create a new PactMap channel. Same detached lifecycle as `create_map`.
-pub fn create_pact_map(document: Document) -> Result(PactMap, String) {
+pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
   runtime_js.create_pact_map(document.runtime)
   |> result.map(fn(address) {
     PactMap(runtime: document.runtime, address: address)
@@ -2202,7 +2219,7 @@ pub fn pact_map_handle_of(pact_map: PactMap) -> Json {
 
 @target(javascript)
 pub fn resolve_pact_map(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(PactMap, String) {
   case handle.parse_handle(value) {
@@ -2309,7 +2326,7 @@ pub fn pact_map_get_with_details(
 /// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
 /// `create_map`.
 pub fn create_ordered_collection(
-  document: Document,
+  document: Document(root),
 ) -> Result(OrderedCollection, String) {
   runtime_js.create_ordered_collection(document.runtime)
   |> result.map(fn(address) {
@@ -2324,7 +2341,7 @@ pub fn ordered_collection_handle_of(collection: OrderedCollection) -> Json {
 
 @target(javascript)
 pub fn resolve_ordered_collection(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrderedCollection, String) {
   case handle.parse_handle(value) {
@@ -2434,7 +2451,7 @@ pub fn subscribe_ordered_collection(
 /// Create a new json0 channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`json_ot_handle_of`) is stored into an attached
 /// container.
-pub fn create_json_ot(document: Document) -> Result(JsonOt, String) {
+pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
   runtime_js.create_json_ot(document.runtime)
   |> result.map(fn(address) {
     JsonOt(runtime: document.runtime, address: address)
@@ -2452,7 +2469,7 @@ pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
 /// Resolve a handle value to the JsonOt it references. Errors are retryable,
 /// as with `resolve`.
 pub fn resolve_json_ot(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(JsonOt, String) {
   case handle.parse_handle(value) {
@@ -2498,7 +2515,9 @@ pub fn subscribe_json_ot(
 /// Create a new rich-text channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`rich_text_handle_of`) is stored into an
 /// attached container.
-pub fn create_rich_text(document: Document) -> Result(SharedRichText, String) {
+pub fn create_rich_text(
+  document: Document(root),
+) -> Result(SharedRichText, String) {
   runtime_js.create_rich_text(document.runtime)
   |> result.map(fn(address) {
     SharedRichText(runtime: document.runtime, address: address)
@@ -2516,7 +2535,7 @@ pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
 /// Resolve a handle value to the SharedRichText it references. Existence is
 /// checked, not channel type. Errors are retryable, as with `resolve`.
 pub fn resolve_rich_text(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedRichText, String) {
   case handle.parse_handle(value) {
@@ -2565,7 +2584,7 @@ pub fn subscribe_rich_text(
 /// Create a new grow-only set channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`g_set_handle_of`) is stored into an attached
 /// container.
-pub fn create_g_set(document: Document) -> Result(GSet, String) {
+pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
   runtime_js.create_g_set(document.runtime)
   |> result.map(fn(address) {
     GSet(runtime: document.runtime, address: address)
@@ -2582,7 +2601,10 @@ pub fn g_set_handle_of(set: GSet) -> Json {
 @target(javascript)
 /// Resolve a handle value to the GSet it references. Errors are retryable, as
 /// with `resolve`.
-pub fn resolve_g_set(document: Document, value: Json) -> Result(GSet, String) {
+pub fn resolve_g_set(
+  document: Document(root),
+  value: Json,
+) -> Result(GSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -2629,7 +2651,7 @@ pub fn subscribe_g_set(
 /// local-only until its handle (`two_p_set_handle_of`) is stored into an
 /// attached map. A remove is a permanent tombstone: remove wins over a
 /// concurrent (re-)add.
-pub fn create_two_p_set(document: Document) -> Result(TwoPSet, String) {
+pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
   runtime_js.create_two_p_set(document.runtime)
   |> result.map(fn(address) {
     TwoPSet(runtime: document.runtime, address: address)
@@ -2647,7 +2669,7 @@ pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
 /// Resolve a handle value to the TwoPSet it references. Errors are retryable,
 /// as with `resolve`.
 pub fn resolve_two_p_set(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(TwoPSet, String) {
   case handle.parse_handle(value) {
@@ -2705,7 +2727,9 @@ pub fn subscribe_two_p_set(
 /// Create a new directory channel: a hierarchical map keyed by absolute paths
 /// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
 /// until its handle (`directory_handle_of`) is stored into an attached map.
-pub fn create_directory(document: Document) -> Result(SharedDirectory, String) {
+pub fn create_directory(
+  document: Document(root),
+) -> Result(SharedDirectory, String) {
   runtime_js.create_directory(document.runtime)
   |> result.map(fn(address) {
     SharedDirectory(runtime: document.runtime, address: address)
@@ -2723,7 +2747,7 @@ pub fn directory_handle_of(dir: SharedDirectory) -> Json {
 /// Resolve a handle value to the SharedDirectory it references. Errors are
 /// retryable, as with `resolve`.
 pub fn resolve_directory(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedDirectory, String) {
   case handle.parse_handle(value) {
@@ -2840,14 +2864,14 @@ pub fn subscribe_directory(
 }
 
 @target(javascript)
-pub fn close(document: Document) -> Nil {
+pub fn close(document: Document(root)) -> Nil {
   runtime_js.close(document.runtime)
 }
 
 @target(javascript)
 /// Fault-injection hook (tests/demos): drop the socket to force the
 /// reconnect/reconcile path. Pending and in-flight edits are preserved.
-pub fn force_reconnect(document: Document) -> Nil {
+pub fn force_reconnect(document: Document(root)) -> Nil {
   runtime_js.force_reconnect(document.runtime)
 }
 
@@ -2873,14 +2897,14 @@ pub fn force_reconnect(document: Document) -> Nil {
 /// While offline `diagnostics(doc).phase` reads `"reconnecting"`, and
 /// `in_flight_count` is the number of edits waiting to reach the server — which
 /// is what a "3 changes not yet saved" indicator wants.
-pub fn go_offline(document: Document) -> Nil {
+pub fn go_offline(document: Document(root)) -> Nil {
   runtime_js.go_offline(document.runtime)
 }
 
 @target(javascript)
 /// Come back from `go_offline`, replaying the gap and flushing what was edited
 /// during it. A no-op unless the document is currently held offline.
-pub fn go_online(document: Document) -> Nil {
+pub fn go_online(document: Document(root)) -> Nil {
   runtime_js.go_online(document.runtime)
 }
 
@@ -2904,7 +2928,7 @@ pub fn go_online(document: Document) -> Nil {
 ///
 /// Re-read it after a reconnect rather than caching: the fresh handshake may
 /// assign a different id, and a stale one silently stops matching.
-pub fn client_id(document: Document) -> Option(String) {
+pub fn client_id(document: Document(root)) -> Option(String) {
   runtime_js.client_id(document.runtime)
 }
 
@@ -2920,7 +2944,7 @@ pub type Ripple =
 /// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
 /// catch-up. No-op until the first handshake assigns a client id.
 pub fn submit_ripple(
-  document: Document,
+  document: Document(root),
   ripple_type ripple_type: String,
   content content: Json,
 ) -> Nil {
@@ -2930,7 +2954,7 @@ pub fn submit_ripple(
 @target(javascript)
 /// Register a callback invoked for every inbound ripple on the document.
 pub fn subscribe_ripples(
-  document: Document,
+  document: Document(root),
   handler: fn(Ripple) -> Nil,
 ) -> Nil {
   runtime_js.subscribe_ripples(document.runtime, handler)
@@ -2959,13 +2983,13 @@ pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
 /// Whether the document is fully caught up: every local edit has been
 /// acknowledged by the server, so the confirmed state is complete and stable.
 /// Useful to wait for quiescence before summarizing.
-pub fn is_synced(document: Document) -> Bool {
+pub fn is_synced(document: Document(root)) -> Bool {
   runtime_js.is_synced(document.runtime)
 }
 
 @target(javascript)
 /// Snapshot the document runtime's connection and sequencing state.
-pub fn diagnostics(document: Document) -> Diagnostics {
+pub fn diagnostics(document: Document(root)) -> Diagnostics {
   runtime_js.diagnostics(document.runtime)
 }
 
@@ -2974,7 +2998,7 @@ pub fn diagnostics(document: Document) -> Diagnostics {
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Resolves with the summary handle (git tree SHA). Requires the
 /// connection to be fully synced and the token to carry `summary:write`.
-pub fn summarize(document: Document) -> Promise(Result(String, String)) {
+pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime_js.summarize(document.runtime)
 }
 
@@ -2994,7 +3018,7 @@ pub fn summarize(document: Document) -> Promise(Result(String, String)) {
 /// Requires the token to carry `summary:write`, which `connect` mints by
 /// default. Applies from the next sequenced op onward.
 pub fn auto_summarize(
-  document: Document,
+  document: Document(root),
   policy: summary_policy.Policy,
 ) -> Nil {
   runtime_js.auto_summarize(document.runtime, Some(policy))
@@ -3003,7 +3027,7 @@ pub fn auto_summarize(
 @target(javascript)
 /// Stop summarizing automatically. Any attempt already scheduled still
 /// re-checks before acting, and finds no policy.
-pub fn stop_auto_summarize(document: Document) -> Nil {
+pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime_js.auto_summarize(document.runtime, None)
 }
 
@@ -3013,7 +3037,7 @@ pub fn stop_auto_summarize(document: Document) -> Nil {
 /// client would have to replay on top of the checkpoint.
 ///
 /// On a document nothing has ever summarized this is the whole log.
-pub fn ops_since_summary(document: Document) -> Int {
+pub fn ops_since_summary(document: Document(root)) -> Int {
   runtime_js.ops_since_summary(document.runtime)
 }
 
@@ -3023,7 +3047,7 @@ pub fn ops_since_summary(document: Document) -> Int {
 /// the newest is what a fresh connection bootstraps from. Requires the token
 /// to carry `doc:read`.
 pub fn get_versions(
-  document: Document,
+  document: Document(root),
   count count: Int,
 ) -> Promise(Result(List(SummaryVersion), String)) {
   runtime_js.get_versions(document.runtime, count)
@@ -3036,7 +3060,7 @@ pub fn get_versions(
 /// they were captured at. A point-in-time read: the live document is
 /// unaffected.
 pub fn load_version(
-  document: Document,
+  document: Document(root),
   handle handle: String,
 ) -> Promise(Result(SummaryBlob, String)) {
   runtime_js.load_version(document.runtime, handle)

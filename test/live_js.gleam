@@ -283,7 +283,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
 /// `threshold` — up to `attempts` times. Each write is the sequenced message
 /// the policy needs to arm on.
 fn summarizes_within(
-  document: Document,
+  document: Document(root),
   map: SharedMap,
   attempts: Int,
   threshold: Int,
@@ -312,7 +312,7 @@ fn summarizes_within(
 /// run leaves a readable trail on the server.
 fn room(
   prefix: String,
-) -> Promise(#(Document, Document, SharedMap, SharedMap)) {
+) -> Promise(#(Document(root), Document(root), SharedMap, SharedMap)) {
   use #(_document, doc_a, doc_b, map_a, map_b) <- promise.map(room_named(prefix))
   #(doc_a, doc_b, map_a, map_b)
 }
@@ -322,7 +322,7 @@ fn room(
 /// a third client to the same document later on.
 fn room_named(
   prefix: String,
-) -> Promise(#(String, Document, Document, SharedMap, SharedMap)) {
+) -> Promise(#(String, Document(root), Document(root), SharedMap, SharedMap)) {
   let document =
     "watershed-js-"
     <> prefix
@@ -349,7 +349,7 @@ fn room_named(
 /// `Connecting`; the readiness signal is the `on_ready` callback. Editing before
 /// that lands is a race the scenarios cannot afford — the setup writes would be
 /// the thing under test rather than the reconnect.
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(document: String, user: String) -> Promise(Document(root)) {
   use token <- promise.await(watershed_js.dev_token(
     secret: secret,
     tenant: tenant,
@@ -413,8 +413,8 @@ fn do_wait_until(attempts: Int, check: fn() -> Bool) -> Promise(Bool) {
 /// convergence miss, and the difference is invisible without them.
 fn finish(
   name: String,
-  doc_a: Document,
-  doc_b: Document,
+  doc_a: Document(root),
+  doc_b: Document(root),
   checks: List(#(String, Bool)),
 ) -> Promise(Bool) {
   let passed = list.all(checks, fn(check) { check.1 })
@@ -440,7 +440,7 @@ fn failed_checks(checks: List(#(String, Bool))) -> String {
 }
 
 @target(javascript)
-fn diagnostics(doc: Document) -> String {
+fn diagnostics(doc: Document(root)) -> String {
   let d = watershed_js.diagnostics(doc)
   d.phase
   <> " last_seen="

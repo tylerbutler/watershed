@@ -24,6 +24,8 @@
 @target(javascript)
 import gleam/dynamic/decode
 @target(javascript)
+import gleam/json.{type Json}
+@target(javascript)
 import gleam/list
 @target(javascript)
 import gleam/option.{type Option, None, Some}
@@ -46,7 +48,12 @@ pub opaque type Handle(a) {
 @target(javascript)
 type Driver(a) {
   Driver(
-    document: Document,
+    /// The runtime handle and a "send one presence ripple" closure stand in
+    /// for the document, so the root-schema tag on `Document(root)` stops at
+    /// `start` instead of threading through `Driver` into the public
+    /// `Handle(a)`.
+    runtime: runtime_js.Runtime,
+    broadcast: fn(Json) -> Nil,
     config: Config(a),
     on_event: fn(Event(a)) -> Nil,
     scheduler: Scheduler,
@@ -79,7 +86,7 @@ type Implementation(a) {
 /// Metadata is required up front rather than announced separately, so there is
 /// no window in which the handle is running but has nothing to say.
 pub fn start(
-  document document: Document,
+  document document: Document(root),
   config config: Config(a),
   initial initial: a,
   on_event on_event: fn(Event(a)) -> Nil,
@@ -98,7 +105,7 @@ pub fn start(
 /// `sluice_js.scheduler` to advance a heartbeat or a TTL by stepping a test's
 /// logical clock instead of waiting out real time.
 pub fn start_with_scheduler(
-  document document: Document,
+  document document: Document(root),
   config config: Config(a),
   initial initial: a,
   on_event on_event: fn(Event(a)) -> Nil,
@@ -107,7 +114,14 @@ pub fn start_with_scheduler(
   let runtime = watershed_js.runtime_of(document)
   let cell =
     transport_js.new_cell(Driver(
-      document: document,
+      runtime: runtime,
+      broadcast: fn(content) {
+        watershed_js.submit_ripple(
+          document,
+          ripple_type: presence.ripple_type,
+          content: content,
+        )
+      },
       config: config,
       on_event: on_event,
       scheduler: scheduler,
@@ -402,7 +416,7 @@ fn push(cell: Cell(Driver(a)), event: String, meta: a) -> Nil {
 
 @target(javascript)
 fn runtime_of(driver: Driver(a)) -> runtime_js.Runtime {
-  watershed_js.runtime_of(driver.document)
+  driver.runtime
 }
 
 // ── Ripple mode ──────────────────────────────────────────────────────────────
@@ -505,15 +519,11 @@ fn schedule(cell: Cell(Driver(a))) -> Nil {
 @target(javascript)
 fn broadcast_ripple(cell: Cell(Driver(a)), meta: a) -> Nil {
   let driver = transport_js.get_cell(cell)
-  watershed_js.submit_ripple(
-    driver.document,
-    ripple_type: presence.ripple_type,
-    content: presence.encode_ripple(
-      driver.key,
-      presence.config_encode(driver.config),
-      meta,
-    ),
-  )
+  driver.broadcast(presence.encode_ripple(
+    driver.key,
+    presence.config_encode(driver.config),
+    meta,
+  ))
 }
 
 @target(javascript)
