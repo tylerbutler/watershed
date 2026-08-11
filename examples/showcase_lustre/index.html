@@ -52,6 +52,30 @@
         background: color-mix(in srgb, currentColor 10%, transparent);
         font-weight: 600;
       }
+      .roster {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        align-items: center;
+        margin: 0.5rem 0;
+        min-height: 1.6rem;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.15rem 0.5rem;
+        border: 1.5px solid currentColor;
+        border-radius: 999px;
+        font-size: 0.8rem;
+      }
+      .chip .dot {
+        width: 0.6rem;
+        height: 0.6rem;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .chip-where { opacity: 0.7; }
       .panel {
         border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
         border-radius: 0.75rem;

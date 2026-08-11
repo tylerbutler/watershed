@@ -42,6 +42,8 @@ import lustre/element/html
 import lustre/event
 
 import watershed/browser
+import watershed/presence
+import watershed/presence_js.{type Handle}
 import watershed/summary_policy
 import watershed_js.{type Document, type TypedMap}
 import watershed_lustre
@@ -50,10 +52,12 @@ import pixel_canvas_lustre/doc_schema as canvas_schema
 import playlist_lustre/component as playlist_panel
 import playlist_lustre/doc_schema as playlist_schema
 import showcase_lustre/doc_schema
+import showcase_lustre/roster.{type ShowcasePresence, ShowcasePresence}
 import sudoku_lustre/component as sudoku_panel
 import sudoku_lustre/doc_schema as sudoku_schema
 import text_lustre/component as text_panel
 import text_lustre/doc_schema as text_schema
+import watershed_lustre/textarea
 
 // ── Dev config for `just server` (floodgate dev mode) ────────────────────────
 
@@ -165,6 +169,12 @@ type Model {
     panel: Panel,
     maps: Maps,
     panels: Panels,
+    color: String,
+    /// The one presence driver for the whole document, and the last payload
+    /// announced through it — kept so a re-announce only fires on a real move.
+    presence: Option(Handle(ShowcasePresence)),
+    peers: List(presence.PresenceEntry(ShowcasePresence)),
+    announced: Option(ShowcasePresence),
     error: Option(String),
   )
 }
@@ -177,6 +187,8 @@ type Msg {
   EnsuredSudoku(Result(TypedMap(sudoku_schema.SudokuDoc), String))
   EnsuredCanvas(Result(TypedMap(canvas_schema.CanvasDoc), String))
   PanelPicked(Panel)
+  PresenceStarted(Handle(ShowcasePresence))
+  PresenceEvent(presence.Event(ShowcasePresence))
   TextMsg(text_panel.Msg)
   PlaylistMsg(playlist_panel.Msg)
   SudokuMsg(sudoku_panel.Msg)
@@ -193,6 +205,10 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       panel: TextPanel,
       maps: no_maps(),
       panels: no_panels(),
+      color: presence.color_for(user_id),
+      presence: None,
+      peers: [],
+      announced: None,
       error: None,
     )
   #(
@@ -216,7 +232,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The handle arrives before the handshake. Good for reads, not yet for
     // *creating* channels — `ensure_child` attaches, so it waits for
     // `Connected`.
-    GotHandle(doc) -> #(Model(..model, doc: Some(doc)), effect.none())
+    GotHandle(doc) -> {
+      let model = Model(..model, doc: Some(doc))
+      #(model, presence_effect(model, doc))
+    }
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
@@ -252,17 +271,46 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    PanelPicked(panel) -> open_current(Model(..model, panel: panel))
+    // Switching panels moves this client, which is a presence change: the
+    // roster's whole point is that it can say which panel someone is in.
+    PanelPicked(panel) -> {
+      let #(model, opened) = open_current(Model(..model, panel: panel))
+      let #(model, announce) = announce(model)
+      #(model, effect.batch([opened, announce]))
+    }
+
+    PresenceStarted(handle) -> announce(Model(..model, presence: Some(handle)))
+
+    PresenceEvent(event) ->
+      case event {
+        presence.State(entries) | presence.Changed(_, entries) -> {
+          push_peers(Model(..model, peers: remote_peers(model, entries)))
+        }
+        // A peer whose payload will not decode is dropped by the driver. A
+        // rejected join is worth surfacing: presence silently not working is
+        // exactly the failure this one-driver design exists to avoid.
+        presence.Failed(presence.DecodeFailed(_, _)) -> #(model, effect.none())
+        presence.Failed(presence.UnsupportedPresence) -> #(
+          Model(..model, error: Some("presence unavailable on this server")),
+          effect.none(),
+        )
+        presence.Failed(presence.Rejected(_, message)) -> #(
+          Model(..model, error: Some("presence rejected: " <> message)),
+          effect.none(),
+        )
+      }
 
     TextMsg(inner) ->
       case model.panels.text {
         None -> #(model, effect.none())
         Some(panel) -> {
           let #(panel, fx) = text_panel.update(panel, inner)
-          #(
-            Model(..model, panels: Panels(..model.panels, text: Some(panel))),
-            effect.map(fx, TextMsg),
-          )
+          let #(model, announce) =
+            announce(Model(
+              ..model,
+              panels: Panels(..model.panels, text: Some(panel)),
+            ))
+          #(model, effect.batch([effect.map(fx, TextMsg), announce]))
         }
       }
 
@@ -286,10 +334,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(panel) -> {
           let #(panel, fx) = sudoku_panel.update(panel, inner)
-          #(
-            Model(..model, panels: Panels(..model.panels, sudoku: Some(panel))),
-            effect.map(fx, SudokuMsg),
-          )
+          let #(model, announce) =
+            announce(Model(
+              ..model,
+              panels: Panels(..model.panels, sudoku: Some(panel)),
+            ))
+          #(model, effect.batch([effect.map(fx, SudokuMsg), announce]))
         }
       }
   }
@@ -392,6 +442,139 @@ fn panel_ready(model: Model, panel: Panel) -> Bool {
   }
 }
 
+// ── Presence: one driver, four panels ────────────────────────────────────────
+
+/// Start the document's only presence driver.
+///
+/// It needs the handle, not the handshake, so it starts as soon as the document
+/// exists. Every panel's peers are derived from this one roster: a second
+/// driver anywhere in the app would cross-talk with this one, because they
+/// share a ripple kind and differ only in payload.
+fn presence_effect(
+  model: Model,
+  doc: Document(doc_schema.Showcase),
+) -> Effect(Msg) {
+  watershed_lustre.presence(
+    document: doc,
+    config: presence.config(roster.encode, roster.decoder()),
+    initial: current_presence(model),
+    started: PresenceStarted,
+    on_event: PresenceEvent,
+  )
+}
+
+/// Broadcast this client's presence, but only when it actually changed.
+///
+/// Panel messages arrive constantly — every keystroke routes through `update` —
+/// and most of them move nothing a peer can see. Comparing the whole payload
+/// keeps the wire quiet without any per-panel bookkeeping.
+fn announce(model: Model) -> #(Model, Effect(Msg)) {
+  let current = current_presence(model)
+  case model.presence, Some(current) == model.announced {
+    _, True -> #(model, effect.none())
+    None, _ -> #(Model(..model, announced: Some(current)), effect.none())
+    Some(handle), False -> #(
+      Model(..model, announced: Some(current)),
+      watershed_lustre.update_presence(handle, current),
+    )
+  }
+}
+
+/// This client's identity, plus whatever the open panel says about where it is.
+fn current_presence(model: Model) -> ShowcasePresence {
+  ShowcasePresence(
+    name: presence.short_name(model.user_id),
+    color: model.color,
+    where: case model.panel {
+      TextPanel ->
+        roster.InText(case model.panels.text {
+          Some(panel) -> text_panel.cursor(panel)
+          None -> None
+        })
+      PlaylistPanel -> roster.InPlaylist
+      SudokuPanel ->
+        roster.InSudoku(case model.panels.sudoku {
+          Some(panel) -> sudoku_panel.cursor(panel)
+          None -> sudoku_panel.Cursor(cell: None, editing: False)
+        })
+      CanvasPanel -> roster.InCanvas(None)
+    },
+  )
+}
+
+/// Everyone but this tab. Presence state includes the local session by design,
+/// so the roster is filtered here rather than in the driver.
+fn remote_peers(
+  model: Model,
+  entries: List(presence.PresenceEntry(ShowcasePresence)),
+) -> List(presence.PresenceEntry(ShowcasePresence)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
+  }
+}
+
+/// Hand each panel the peers that are actually in it.
+///
+/// This is the filtering the plan calls for, and it is the reason a panel never
+/// needs to know that other panels exist: a text peer is invisible to the
+/// board, and a sudoku peer is invisible to the editor, because neither
+/// survives the other's `case`.
+fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
+  let text_peers =
+    list.filter_map(model.peers, fn(peer) {
+      case peer.meta.where {
+        roster.InText(Some(cursor)) ->
+          Ok(textarea.peer(
+            id: peer.session_id,
+            label: peer.meta.name,
+            colour: peer.meta.color,
+            cursor: cursor,
+          ))
+        _ -> Error(Nil)
+      }
+    })
+  let sudoku_peers =
+    list.filter_map(model.peers, fn(peer) {
+      case peer.meta.where {
+        roster.InSudoku(cursor) ->
+          Ok(sudoku_panel.Peer(
+            name: peer.meta.name,
+            color: peer.meta.color,
+            cell: cursor.cell,
+            editing: cursor.editing,
+          ))
+        _ -> Error(Nil)
+      }
+    })
+
+  // The board's `set_peers` is a pure model update; the editor's returns an
+  // effect, because drawing a peer's caret means re-resolving its anchors
+  // against the live channel.
+  let panels = case model.panels.sudoku {
+    Some(board) ->
+      Panels(
+        ..model.panels,
+        sudoku: Some(sudoku_panel.set_peers(board, sudoku_peers)),
+      )
+    None -> model.panels
+  }
+  case panels.text {
+    None -> #(Model(..model, panels: panels), effect.none())
+    Some(editor) -> {
+      let #(editor, fx) = text_panel.set_peers(editor, text_peers)
+      #(
+        Model(..model, panels: Panels(..panels, text: Some(editor))),
+        effect.map(fx, TextMsg),
+      )
+    }
+  }
+}
+
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
@@ -399,6 +582,7 @@ fn view(model: Model) -> Element(Msg) {
     html.header([class("chrome")], [
       html.h1([], [html.text("watershed · showcase")]),
       status_line(model),
+      roster_view(model),
     ]),
     switcher(model),
     error_view(model),
@@ -412,6 +596,48 @@ fn view(model: Model) -> Element(Msg) {
       ),
     ]),
   ])
+}
+
+/// Who is here, and which panel each of them is in.
+///
+/// This is the sentence the gallery form cannot say. Four separate apps give
+/// four separate rosters, each blind to the others; one document gives one
+/// roster that spans panels, so "Dana is in the sudoku panel" is a fact this
+/// chrome can state while you are looking at the text editor.
+fn roster_view(model: Model) -> Element(Msg) {
+  let self =
+    chip(
+      presence.short_name(model.user_id) <> " (you)",
+      model.color,
+      panel_name(model.panel),
+    )
+  let peers =
+    list.map(model.peers, fn(peer) {
+      chip(
+        peer.meta.name,
+        peer.meta.color,
+        roster.panel_label(peer.meta.where),
+      )
+    })
+  html.div(
+    [class("roster"), attribute.attribute("aria-label", "Who is here")],
+    [self, ..peers],
+  )
+}
+
+fn chip(name: String, color: String, where: String) -> Element(Msg) {
+  html.span(
+    [
+      class("chip"),
+      attribute.style("border-color", color),
+      attribute.style("color", color),
+    ],
+    [
+      html.span([class("dot"), attribute.style("background", color)], []),
+      html.text(name),
+      html.span([class("chip-where")], [html.text(" · " <> where)]),
+    ],
+  )
 }
 
 fn status_line(model: Model) -> Element(Msg) {
