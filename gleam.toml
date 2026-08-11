@@ -41,3 +41,47 @@ qcheck = ">= 1.0.0 and < 2.0.0"
 simplifile = ">= 2.5.0 and < 3.0.0"
 envoy = ">= 1.0.0 and < 2.0.0"
 exception = ">= 2.1.0 and < 3.0.0"
+
+# Trellis (https://trellis.tylerbutler.com) supplies the workspace layer Gleam
+# lacks: task fan-out across the packages here, plus changelog fragments,
+# version bumps, and tagging. Members are auto-discovered from git — every
+# directory with a `gleam.toml` — so there is no `members` list to keep in sync.
+[tools.trellis]
+[tools.trellis.exclude]
+# The examples are demos, not products. They stay in the dependency graph and in
+# every `trellis run` task, but get no changelog, no version bump, and no tag:
+# `@release` maps them to the `workspace` lifecycle.
+"@release" = ["examples/*"]
+
+# `gleam test` is an error, not a no-op, in a package with no `test/` directory,
+# so the suite-less packages are named out of the fan-out. Delete an entry here
+# the day that package grows a suite — `trellis doctor` fails on a glob that
+# matches no member, so a stale name here cannot go unnoticed.
+test = [
+    "examples/bench_book_lustre",
+    "examples/dice_cli",
+    "examples/dice_lustre",
+    "examples/playlist_lustre",
+    "examples/scoreboard_cli",
+    "examples/text_lustre",
+]
+
+# Two target families live here, and only `watershed` belongs to both: it and
+# the CLI examples run on the BEAM, while `watershed_lustre` and the browser
+# examples compile to JavaScript. A package built for the wrong target is a hard
+# error (missing externals one way, `lustre` the other), so each family gets its
+# own task and its own exclusions rather than one `build` that cannot express it.
+build-erlang = ["watershed_lustre", "examples/*_lustre"]
+build-javascript = ["examples/dice_cli", "examples/scoreboard_cli"]
+
+[tools.trellis.tasks.build-erlang]
+command = "gleam build --target erlang"
+
+[tools.trellis.tasks.build-javascript]
+command = "gleam build --target javascript"
+
+# `watershed` and `watershed_lustre` are consumed by git ref, not from the
+# registry, so they get changelogs, versions, and tags but are never pushed to
+# Hex. Raise a package to `hex` here when that changes.
+[tools.trellis.publish.lifecycle]
+default = "git_only"

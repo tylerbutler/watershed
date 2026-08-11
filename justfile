@@ -14,57 +14,41 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue _build-retro _build-showcase
+build: _build-gleam _build-bundles
+
+# `trellis run` fans the Gleam compile across every member in dependency order.
+# Only `watershed` belongs to both target families, so each target is its own
+# task with its own exclusions — see `[tools.trellis.exclude]` in gleam.toml.
+# A new package under examples/ is picked up here for free.
+_build-gleam:
+    trellis run build-erlang
+    trellis run build-javascript
+
+# The browser bundles. These are pnpm scripts (esbuild), not Gleam builds, and
+# each example is a self-contained pnpm workspace with its own lockfile — the
+# root `pnpm-workspace.yaml` deliberately declares `packages: []` so `pnpm -r`
+# will not reach down here. Hence the glob rather than trellis or pnpm recursion.
+_build-bundles:
+    for d in examples/*/package.json; do pnpm --dir "$(dirname "$d")" run build; done
 
 # Run tests
-test: _test-gleam _test-js _test-lustre _test-examples _test-compile-fail
+test: _test-gleam _test-js
 
+# Every member with a `test/` directory, each on the target its own gleam.toml
+# pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
+# conversion — gleeunit, because startest pins gleam_stdlib < 1.0 while lustre
+# is on 1.x) and the app-level example suites, which are gleeunit on the JS
+# target driven by the in-memory sluice, so they need no server and no browser.
+# Suite-less packages are excluded in gleam.toml; everything else is automatic.
 _test-gleam:
-    gleam test
+    trellis run test
 
-# The JS-target suite. `gleam.toml` pins `target = "erlang"`, so the
-# `@target(javascript)` tests — chiefly the sluice driver suite — only run when
-# the target is named explicitly. They are a separate suite, not a re-run:
-# neither target sees the other's tests.
+# The JS-target suite for `watershed` itself. `gleam.toml` pins
+# `target = "erlang"`, so the `@target(javascript)` tests — chiefly the sluice
+# driver suite — only run when the target is named explicitly. They are a
+# separate suite, not a re-run: neither target sees the other's tests.
 _test-js:
-    gleam test --target javascript
-
-# Unit tests for the Lustre bindings package. Its pure modules (grapheme diff,
-# UTF-16 offset conversion) have their own gleeunit suite — startest cannot be
-# shared here, it pins gleam_stdlib < 1.0 while lustre is on 1.x.
-_test-lustre:
-    cd watershed_lustre && gleam test
-
-# The app-level suites that live in the example packages. These are gleeunit on
-# the JS target, driven by the in-memory sluice, so they need no server and no
-# browser — they are the closest thing here to testing watershed the way an app
-# author would. Only the examples that have a `test/` directory are listed.
-_test-examples:
-    cd examples/sudoku_lustre && gleam test
-    cd examples/drum_machine_lustre && gleam test
-    cd examples/pixel_canvas_lustre && gleam test
-    cd examples/retro_board_lustre && gleam test
-    cd examples/showcase_lustre && gleam test
-
-# The one guarantee no ordinary test can make: that *wrong* code is rejected.
-# `tools/compile-fail/two_root_tags` views one document's root through two
-# schemas, which `Document(root)` exists to forbid. Passing means the build
-# failed *and* failed for the stated reason — the grep is what stops a typo
-# from making this recipe green for the wrong cause.
-_test-compile-fail:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    out=$(cd tools/compile-fail/two_root_tags && gleam build --target javascript 2>&1)
-    if [ $? -eq 0 ]; then
-      echo "FAIL: two_root_tags compiled. A document now admits two root schemas."
-      exit 1
-    fi
-    if ! grep -q 'Field(Sudoku, String)' <<<"$out"; then
-      echo "FAIL: two_root_tags failed to build, but not with the expected type error:"
-      echo "$out"
-      exit 1
-    fi
-    echo "ok  two_root_tags is rejected, as it must be"
+    trellis run test --target javascript watershed
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
@@ -133,9 +117,9 @@ format:
 lint:
     gleam format --check
 
-# Remove build artifacts
+# Remove build artifacts, in every member rather than just the root package
 clean:
-    gleam clean
+    trellis run clean
 
 # Full validation workflow
 ci: format lint test build
@@ -145,82 +129,17 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue _deps-retro _deps-showcase
+deps: _deps-gleam _deps-live-js _deps-bundles
 
+# `gleam deps download` in every member — each example carries its own manifest,
+# which is why this cannot be a single root-level download.
 _deps-gleam:
-    gleam deps download
+    trellis run deps
 
 # phoenix + ws, for the live JS integration suite only
 _deps-live-js:
     pnpm install
 
-_deps-dice:
-    pnpm --dir examples/dice_lustre install
-
-_deps-sudoku:
-    pnpm --dir examples/sudoku_lustre install
-
-_deps-playlist:
-    pnpm --dir examples/playlist_lustre install
-
-_deps-grocery:
-    pnpm --dir examples/grocery_triptych_lustre install
-
-_deps-text:
-    pnpm --dir examples/text_lustre install
-
-_deps-drum:
-    pnpm --dir examples/drum_machine_lustre install
-
-_deps-pixel:
-    pnpm --dir examples/pixel_canvas_lustre install
-
-_deps-work-queue:
-    pnpm --dir examples/work_queue_lustre install
-
-_deps-retro:
-    pnpm --dir examples/retro_board_lustre install
-
-_deps-showcase:
-    pnpm --dir examples/showcase_lustre install
-
-_build-erlang:
-    gleam build --target erlang
-
-_build-javascript:
-    gleam build --target javascript
-
-# Build the Lustre effect bindings on their own (examples build it
-# transitively, but this typechecks the package standalone).
-_build-lustre:
-    cd watershed_lustre && gleam build --target javascript
-
-_build-dice:
-    pnpm --dir examples/dice_lustre run build
-
-_build-sudoku:
-    pnpm --dir examples/sudoku_lustre run build
-
-_build-playlist:
-    pnpm --dir examples/playlist_lustre run build
-
-_build-grocery:
-    pnpm --dir examples/grocery_triptych_lustre run build
-
-_build-text:
-    pnpm --dir examples/text_lustre run build
-
-_build-drum:
-    pnpm --dir examples/drum_machine_lustre run build
-
-_build-pixel:
-    pnpm --dir examples/pixel_canvas_lustre run build
-
-_build-work-queue:
-    pnpm --dir examples/work_queue_lustre run build
-
-_build-retro:
-    pnpm --dir examples/retro_board_lustre run build
-
-_build-showcase:
-    pnpm --dir examples/showcase_lustre run build
+# npm deps for the browser examples; see `_build-bundles` for why this is a glob.
+_deps-bundles:
+    for d in examples/*/package.json; do pnpm --dir "$(dirname "$d")" install; done

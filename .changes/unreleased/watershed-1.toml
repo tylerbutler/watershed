@@ -1,0 +1,3 @@
+project = "watershed"
+kind = "Changed"
+body = "Adopt Trellis for workspace task fan-out, changelogs, versioning, and tagging."
