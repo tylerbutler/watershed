@@ -382,3 +382,83 @@ pub fn from_sequenced_rebrands_existing_map_test() {
   summary_counts(loaded, "spoil", "positive")
   |> expect.to_equal(dict.from_list([#("a", 2), #("c", 1)]))
 }
+
+// ── Same-millisecond writes ──────────────────────────────────────────────────
+//
+// The timestamp a register is stamped with comes from the wall clock
+// (`transport_js.now_ms`), and `lww_register` accepts a write only when the
+// timestamp is *strictly* greater than the one it holds. Two writes to one key
+// inside the same millisecond therefore used to drop the second — silently, and
+// even from the same replica, where "later" is not a matter of opinion.
+//
+// The kernel now keeps a per-key clock and stamps every local write above
+// everything it has already seen for that key, from either end. That is a
+// hybrid logical clock: wall-clock when the wall clock is moving, a counter
+// when it is not.
+
+pub fn a_second_write_in_the_same_millisecond_wins_test() {
+  let state = new_register("a")
+  let #(state, _, _, _) = set_reg(state, "cell", "7", 1000)
+  let #(state, events, _, _) = set_reg(state, "cell", "0", 1000)
+
+  or_map_kernel.get(state, "cell")
+  |> expect.to_equal(Some(Register("0")))
+  events
+  |> expect.to_equal([RegisterUpdated("cell", "0")])
+  expect_coherent(state)
+}
+
+/// A stalled clock must not stall the document: writes keep landing in order.
+pub fn many_writes_in_one_millisecond_keep_their_order_test() {
+  let state =
+    list.fold(["1", "2", "3", "4"], new_register("a"), fn(state, value) {
+      let #(state, _, _, _) = set_reg(state, "cell", value, 1000)
+      state
+    })
+
+  or_map_kernel.get(state, "cell")
+  |> expect.to_equal(Some(Register("4")))
+  expect_coherent(state)
+}
+
+/// A backwards clock — NTP correction, a suspended laptop — must not silently
+/// freeze a key either.
+pub fn a_write_with_an_older_timestamp_still_wins_locally_test() {
+  let state = new_register("a")
+  let #(state, _, _, _) = set_reg(state, "cell", "7", 5000)
+  let #(state, _, _, _) = set_reg(state, "cell", "0", 1000)
+
+  or_map_kernel.get(state, "cell")
+  |> expect.to_equal(Some(Register("0")))
+  expect_coherent(state)
+}
+
+/// The clock tracks what arrives from peers too, so a local write after a
+/// remote one beats it rather than tying with it.
+pub fn a_local_write_beats_a_remote_write_it_has_seen_test() {
+  let #(peer, _, remote_op, _) = set_reg(new_register("b"), "cell", "9", 4000)
+  let _ = peer
+
+  let #(state, _) = remote(new_register("a"), remote_op)
+  let #(state, _, _, _) = set_reg(state, "cell", "3", 4000)
+
+  or_map_kernel.get(state, "cell")
+  |> expect.to_equal(Some(Register("3")))
+  expect_coherent(state)
+}
+
+/// Independent keys keep independent clocks: a busy key must not push an
+/// untouched one into the future.
+pub fn the_clock_is_per_key_test() {
+  let state = new_register("a")
+  let #(state, _, _, _) = set_reg(state, "busy", "1", 1000)
+  let #(state, _, _, _) = set_reg(state, "busy", "2", 1000)
+  let #(state, _, quiet_op, _) = set_reg(state, "quiet", "x", 1000)
+
+  case quiet_op {
+    or_map_kernel.SetRegister(_, _, timestamp, _) ->
+      timestamp |> expect.to_equal(1000)
+    _ -> panic as "expected a SetRegister op"
+  }
+  expect_coherent(state)
+}

@@ -37,6 +37,30 @@ pub type OrMapState {
     sequenced: ORMap,
     optimistic: ORMap,
     own_tallies: Dict(String, #(Int, Int)),
+    /// The highest register timestamp this replica has seen per key, from
+    /// either end — the logical half of a hybrid logical clock.
+    ///
+    /// The timestamps stamped on register writes come from a wall clock, and
+    /// `lww_register` accepts a write only when its timestamp is *strictly*
+    /// greater than the one held. A wall clock is not a logical clock: it
+    /// stands still for a millisecond at a time and occasionally runs
+    /// backwards, and either way two writes can end up unordered when the
+    /// order was never in doubt. Keeping the maximum per key lets a local
+    /// write be stamped above everything already seen for that key, so a
+    /// second write in the same millisecond lands instead of vanishing.
+    ///
+    /// Per key rather than per channel: a hot key must not push an untouched
+    /// one into the future, where it would beat a peer's genuinely later
+    /// write.
+    ///
+    /// Starts empty on `from_summary` and `from_sequenced`, and cannot be
+    /// seeded from them: `lww_register` is opaque and exposes only `value`, so
+    /// a loaded checkpoint's timestamps are unreadable. A client that joins
+    /// against a checkpoint written by a replica whose clock ran ahead can
+    /// therefore still lose its first write to a key. That needs an accessor
+    /// upstream; the same-replica case this covers is the one that was
+    /// reproducibly losing writes.
+    register_clock: Dict(String, Int),
     pending: List(PendingOp),
     next_pending_message_id: Int,
   )
@@ -88,6 +112,7 @@ pub fn new(replica_id: ReplicaId, mode: OrMapMode) -> OrMapState {
     sequenced: empty,
     optimistic: empty,
     own_tallies: dict.new(),
+    register_clock: dict.new(),
     pending: [],
     next_pending_message_id: 0,
   )
@@ -161,6 +186,7 @@ pub fn set_register(
     TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
     RegisterMode -> {
       let before = entries(state)
+      let timestamp = stamp(state.register_clock, key, timestamp)
       let register = lww_register.new(value, timestamp, state.replica_id)
       let assert Ok(#(_discarded, delta)) =
         or_map.update_with_delta(state.optimistic, key, fn(_) {
@@ -173,6 +199,7 @@ pub fn set_register(
         OrMapState(
           ..state,
           optimistic: optimistic,
+          register_clock: observe(state.register_clock, key, timestamp),
           pending: list.append(state.pending, [PendingOp(op, message_id)]),
           next_pending_message_id: message_id + 1,
         )
@@ -183,6 +210,45 @@ pub fn set_register(
         message_id,
       ))
     }
+  }
+}
+
+/// The timestamp to stamp a local register write with: the wall clock, unless
+/// this replica has already seen that instant or later for this key, in which
+/// case one tick past the newest it has seen.
+///
+/// This is the whole fix for "two writes in the same millisecond, second one
+/// silently dropped". It cannot be done by loosening `lww_register`'s strictly-
+/// greater comparison to `>=`: that comparison is what makes the merge
+/// commutative, and the `replica_id` tie-break underneath it is what settles
+/// genuinely concurrent writes from different replicas. Only the *stamping*
+/// side knows that these two writes are ordered.
+fn stamp(clock: Dict(String, Int), key: String, wall_clock: Int) -> Int {
+  case dict.get(clock, key) {
+    Ok(seen) if seen >= wall_clock -> seen + 1
+    _ -> wall_clock
+  }
+}
+
+/// Record a timestamp as seen for a key, keeping the maximum.
+fn observe(
+  clock: Dict(String, Int),
+  key: String,
+  timestamp: Int,
+) -> Dict(String, Int) {
+  case dict.get(clock, key) {
+    Ok(seen) if seen >= timestamp -> clock
+    _ -> dict.insert(clock, key, timestamp)
+  }
+}
+
+/// Track what a peer's write claimed, so the next local write to that key beats
+/// it rather than tying with it and falling through to the replica-id
+/// tie-break.
+fn observe_op(clock: Dict(String, Int), op: OrMapOp) -> Dict(String, Int) {
+  case op {
+    SetRegister(key, _, timestamp, _) -> observe(clock, key, timestamp)
+    Increment(_, _, _) | Remove(_, _) -> clock
   }
 }
 
@@ -214,7 +280,12 @@ pub fn apply_remote(
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
   let optimistic = replay_pending(sequenced, state.pending)
   let new_state =
-    OrMapState(..state, sequenced: sequenced, optimistic: optimistic)
+    OrMapState(
+      ..state,
+      sequenced: sequenced,
+      optimistic: optimistic,
+      register_clock: observe_op(state.register_clock, op),
+    )
   Ok(#(new_state, events_between(before, entries(new_state))))
 }
 
@@ -345,6 +416,7 @@ pub fn from_summary(
     sequenced: sequenced,
     optimistic: sequenced,
     own_tallies: dict.new(),
+    register_clock: dict.new(),
     pending: [],
     next_pending_message_id: 0,
   ))
@@ -368,6 +440,7 @@ pub fn from_sequenced(
         sequenced: rebranded,
         optimistic: rebranded,
         own_tallies: dict.new(),
+        register_clock: dict.new(),
         pending: [],
         next_pending_message_id: 0,
       ))
