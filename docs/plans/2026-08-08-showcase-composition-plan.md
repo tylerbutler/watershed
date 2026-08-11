@@ -1,5 +1,7 @@
 # Showcase composition plan — many demos, one document
 
+**Status: shipped 2026-08-10.** SC0–SC8 all landed in `examples/showcase_lustre/`.
+
 **Date:** 2026-08-08
 **Builds on:** `2026-07-06-typed-layer-dx-plan.md` (the `ChildField` machinery this rests on), `2026-08-03-shared-textarea-component-plan.md` (the nested-MVU contract, shipped), `examples/text_lustre` + `examples/playlist_lustre` + `examples/sudoku_lustre` + `examples/pixel_canvas_lustre` (the panels).
 
@@ -99,10 +101,21 @@ The demo's `main` keeps working by calling the same triple against `root_typed(d
 
 ## Rungs
 
+- **SC0 — namespace the example modules.** *Not in the original plan; discovered
+  at the first `gleam build`.* Gleam requires globally unique module names
+  across the whole dependency graph, and all four panels shipped
+  `src/doc_schema.gleam` *and* `src/smoke.gleam`. A package depending on two of
+  them fails with "the module `smoke` is defined multiple times", which blocks
+  SC1 before it starts. Every shared-name module moved under `src/<package>/`
+  (doc_schema, smoke + its FFI, track, puzzles, canvas + its FFI, grid), imports
+  rewritten, and the two `build:smoke` esbuild paths moved down a directory.
+  Nothing about the plan's design changed — it is a prerequisite, not a
+  revision — but any future v2 panel needs the same move first.
 - **SC1 — the shell.** New `examples/showcase_lustre/` on the `playlist_lustre` template (its own `gleam.toml`, `package.json`, `build.mjs`, `index.html`; `justfile` install/build stanzas alongside the existing examples). `doc_schema.gleam` as above; `connect_dev`; all four ensures batched on `GotHandle`; a panel switcher rendering placeholder panels. Gate: two tabs connect, and `entries(root)` on both is exactly the four declared keys, each resolving to a map.
 - **SC2 — extract the text panel, and with it the contract.** Split `text_lustre.gleam` into `text_lustre/component.gleam` (the triple) and a thin `main`. Gate: the standalone example's build and smoke test pass **unchanged**, and the showcase's text panel converges across two tabs. This is the rung that can go wrong quietly — if the contract is wrong here, SC3–SC6 repeat the mistake four times, so do not start SC3 until the standalone smoke test is green.
 - **SC3 — playlist panel.** Same split. `playlist_lustre.gleam:141`'s `root_typed` call is the only root-bound line. Gate: reorder in one tab, follows in the other, with the panel nested.
 - **SC4 — sudoku panel.** The heaviest: claims, OR-set, counter, and a nested `MapChannel` under a child map (a grandchild — worth confirming explicitly that the depth works). Presence stays *disabled* in this rung; SC5 restores it. Gate: two tabs play the same puzzle from within the showcase.
+  *As built:* sudoku had **two** root-bound lines, not one. Besides bootstrap, `puzzle_from_root` re-read the puzzle id off `root_typed` on every snapshot — composed, that would look the id up in a map holding four panel handles. Worth checking every panel for reads as well as writes, not just for its `ensure_*` batch.
 - **SC5 — one presence driver.** `ShowcasePresence` sum type in the shell, one `watershed_lustre.presence` call, per-panel filtering, and a roster in the shell chrome showing who is in which panel. Text and sudoku lose their own drivers. The `ShowcasePresence` variant for the canvas carries a cursor cell and the peer's current palette index, which is what SC6 renders. Gate: two tabs on *different* panels each see the other in the roster, with the correct panel label — the thing four separate apps cannot do.
 - **SC6 — canvas panel, and the offline toggle's promotion.** The mechanical split is the smallest of the four: `root_typed` (`pixel_canvas_lustre.gleam:156`) is the only root-bound line, and the `OrMap` bootstrap under it moves down unchanged. What is not mechanical is subtraction — the offline toggle (`:217–222`, `:421`) and the diagnostics footer (`:140`, `:203`, `:446–451`) leave the panel for the shell chrome, because both describe the document and neither can be scoped to a channel. The panel keeps the palette, the grid, and the FFI buffer; it gains peer cursors from SC5. Gate: paint in two tabs and both converge, with the panel nested. Second gate, and the one worth demoing: go offline from the chrome, paint in one tab while reordering the playlist in the other, come back — all four panels converge, and the canvas converges by join with no rebase.
 - **SC7 — root purity test + convergence tests + cold-join measurement + README.** See below. The measurement: paint the canvas heavily, then time a fresh client's join with and without the shell's `auto_summarize` policy in force. It is one number, it is the number that justifies the policy, and taking it on an empty canvas would measure nothing.
