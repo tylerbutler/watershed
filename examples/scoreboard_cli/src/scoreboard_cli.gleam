@@ -148,7 +148,7 @@ type Msg {
 
 type State {
   State(
-    doc: watershed.Document,
+    doc: watershed.Document(GameRoot),
     my_id: String,
     me: watershed.TypedMap(Player),
     roster: watershed.TypedMap(Roster),
@@ -324,7 +324,7 @@ fn event_loop(state: State) -> Nil {
 /// after writing we wait for our op to be sequenced and adopt whichever handle
 /// the field holds.
 fn ensure_roster(
-  doc: watershed.Document,
+  doc: watershed.Document(GameRoot),
   root: watershed.TypedMap(GameRoot),
 ) -> watershed.TypedMap(Roster) {
   case resolve_child_retry(doc, root, players(), resolve_attempts) {
@@ -394,7 +394,7 @@ fn adopt_player(
 /// Resolve a child map, retrying transient not-yet-attached errors. `Ok(None)`
 /// (the key is simply absent) is returned immediately, not retried.
 fn resolve_child_retry(
-  doc: watershed.Document,
+  doc: watershed.Document(GameRoot),
   parent: watershed.TypedMap(s),
   field: ChildField(s, c),
   attempts: Int,
@@ -412,7 +412,7 @@ fn resolve_child_retry(
   }
 }
 
-fn wait_synced(doc: watershed.Document) -> Nil {
+fn wait_synced(doc: watershed.Document(GameRoot)) -> Nil {
   case watershed.is_synced(doc) {
     True -> Nil
     False -> {

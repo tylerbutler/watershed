@@ -66,7 +66,7 @@ fn start(document: String) -> sluice.Sluice {
 }
 
 @target(erlang)
-fn connect(sluice: sluice.Sluice, user: String) -> watershed.Document {
+fn connect(sluice: sluice.Sluice, user: String) -> watershed.Document(root) {
   let assert Ok(document) = sluice.connect(sluice, user)
   document
 }
@@ -169,7 +169,7 @@ pub fn counter_sum_converges_test() {
 
 @target(erlang)
 fn resolve_counter(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.SharedCounter {

@@ -526,7 +526,7 @@ fn await_claim_reply_or_panic(
 
 @target(erlang)
 fn resolve_claims_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.Claims {
@@ -546,7 +546,7 @@ fn resolve_claims_key_or_panic(
 
 @target(erlang)
 fn resolve_counter_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.SharedCounter {
@@ -798,7 +798,7 @@ fn run_load_version_multichannel_test() -> Nil {
 /// Retries both the read (the set may not have arrived) and the resolve
 /// (the referenced channel's attach may still be in flight).
 fn resolve_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.SharedMap {
@@ -812,7 +812,7 @@ fn resolve_key_or_panic(
 @target(erlang)
 fn try_resolve_key(
   attempts: Int,
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> Result(watershed.SharedMap, String) {
@@ -954,7 +954,7 @@ fn run_large_history_test() -> Nil {
 /// back to back advance the document's sequence number by far less than their
 /// count — draining is how a test produces one message per write.
 fn write_keys_drained(
-  document: watershed.Document,
+  document: watershed.Document(root),
   map: watershed.SharedMap,
   from: Int,
   to: Int,
@@ -1084,7 +1084,7 @@ fn run_auto_summary_test() -> Nil {
 /// under `threshold` — up to `attempts` times. Each write is the sequenced
 /// message the policy needs to arm on.
 fn summarizes_within(
-  document: watershed.Document,
+  document: watershed.Document(root),
   map: watershed.SharedMap,
   attempts: Int,
   threshold: Int,
@@ -1549,7 +1549,10 @@ fn shell(command: String) -> String {
 fn os_cmd(command: Charlist) -> Charlist
 
 @target(erlang)
-fn connect_or_panic(document: String, user_id: String) -> watershed.Document {
+fn connect_or_panic(
+  document: String,
+  user_id: String,
+) -> watershed.Document(root) {
   let token = mint_token(tenant, document, user_id)
   case
     watershed.connect(
@@ -1802,7 +1805,7 @@ fn run_json_ot_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_json_ot_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.JsonOt {
@@ -1898,7 +1901,7 @@ fn run_rich_text_converge_test() -> Nil {
 
 @target(erlang)
 fn resolve_rich_text_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.SharedRichText {
@@ -2042,7 +2045,7 @@ fn is_register(value: Option(or_map_kernel.OrMapValue)) -> Bool {
 
 @target(erlang)
 fn resolve_or_map_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.OrMap {
@@ -2183,7 +2186,7 @@ fn run_or_set_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_or_set_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.OrSet {
@@ -2321,7 +2324,7 @@ fn run_register_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_register_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.RegisterCollection {
@@ -2471,7 +2474,7 @@ fn run_task_manager_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_task_manager_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.TaskManager {
@@ -2606,7 +2609,7 @@ fn run_g_set_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_g_set_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.GSet {
@@ -2746,7 +2749,7 @@ fn run_two_p_set_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_two_p_set_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.TwoPSet {
@@ -2889,7 +2892,7 @@ fn run_directory_summary_test() -> Nil {
 
 @target(erlang)
 fn resolve_directory_key_or_panic(
-  doc: watershed.Document,
+  doc: watershed.Document(root),
   map: watershed.SharedMap,
   key: String,
 ) -> watershed.SharedDirectory {
@@ -3334,9 +3337,9 @@ fn run_narrowed_subscriptions_test() -> Nil {
 /// Resolve a channel stored under `key` on the root map, retrying while the
 /// handle is still replicating.
 fn resolve_at(
-  document: watershed.Document,
+  document: watershed.Document(root),
   key: String,
-  resolver: fn(watershed.Document, Json) -> Result(a, String),
+  resolver: fn(watershed.Document(root), Json) -> Result(a, String),
 ) -> Result(a, String) {
   case watershed.get(watershed.root(document), key) {
     None -> Error("handle for " <> key <> " has not replicated yet")
@@ -3346,7 +3349,7 @@ fn resolve_at(
 
 @target(erlang)
 fn resolve_pn_counter(
-  document: watershed.Document,
+  document: watershed.Document(root),
   value: Json,
 ) -> Result(watershed.PnCounter, String) {
   watershed.resolve_pn_counter(document, value)
@@ -3354,7 +3357,7 @@ fn resolve_pn_counter(
 
 @target(erlang)
 fn resolve_pact_map(
-  document: watershed.Document,
+  document: watershed.Document(root),
   value: Json,
 ) -> Result(watershed.PactMap, String) {
   watershed.resolve_pact_map(document, value)

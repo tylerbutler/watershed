@@ -49,6 +49,11 @@ type CliMsg {
   RollDue
 }
 
+/// Phantom tag naming the dice root map. The CLI reads the root through
+/// untyped keys, so there are no fields to declare — but naming the tag is
+/// what keeps a second schema from claiming this same root map.
+type DiceDoc
+
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub fn main() {
@@ -75,40 +80,42 @@ pub fn main() {
     Error(reason) -> {
       io.println("Connection failed: " <> reason)
     }
-    Ok(doc) -> {
-      io.println("Connected. Subscribing to events…")
-      let map = watershed.root(doc)
-      let events = watershed.subscribe(map)
+    Ok(doc) -> run(doc)
+  }
+}
 
-      // Print current state
-      let current = watershed.entries(map)
-      case current {
-        [] -> io.println("Document is empty.")
-        entries -> {
-          io.println("Current entries:")
-          list.each(entries, fn(entry) {
-            let #(k, v) = entry
-            io.println("  " <> k <> " = " <> json.to_string(v))
-          })
-        }
-      }
+fn run(doc: watershed.Document(DiceDoc)) -> Nil {
+  io.println("Connected. Subscribing to events…")
+  let map = watershed.root(doc)
+  let events = watershed.subscribe(map)
 
-      // Roll a die
-      let roll_due = process.new_subject()
-      let selector =
-        process.new_selector()
-        |> process.select_map(events, MapChanged)
-        |> process.select_map(roll_due, fn(_) { RollDue })
-
-      io.println(
-        "Rolling every "
-        <> int.to_string(roll_interval_ms / 1000)
-        <> "s; press Ctrl+C to stop.",
-      )
-      schedule_roll(roll_due, first_roll_delay_ms)
-      event_loop(map, selector, roll_due)
+  // Print current state
+  let current = watershed.entries(map)
+  case current {
+    [] -> io.println("Document is empty.")
+    entries -> {
+      io.println("Current entries:")
+      list.each(entries, fn(entry) {
+        let #(k, v) = entry
+        io.println("  " <> k <> " = " <> json.to_string(v))
+      })
     }
   }
+
+  // Roll a die
+  let roll_due = process.new_subject()
+  let selector =
+    process.new_selector()
+    |> process.select_map(events, MapChanged)
+    |> process.select_map(roll_due, fn(_) { RollDue })
+
+  io.println(
+    "Rolling every "
+    <> int.to_string(roll_interval_ms / 1000)
+    <> "s; press Ctrl+C to stop.",
+  )
+  schedule_roll(roll_due, first_roll_delay_ms)
+  event_loop(map, selector, roll_due)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

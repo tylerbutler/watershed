@@ -119,7 +119,7 @@ const socket_path = "/socket/websocket?vsn=2.0.0"
 const call_timeout_ms = 5000
 
 @target(erlang)
-pub opaque type Document {
+pub opaque type Document(root) {
   Document(runtime: Subject(runtime.Msg))
 }
 
@@ -241,7 +241,7 @@ pub fn connect(
   document document: String,
   token token: String,
   user_id user_id: String,
-) -> Result(Document, String) {
+) -> Result(Document(root), String) {
   let connect_message =
     build_connect_message(tenant, document, user_id, Some(token))
 
@@ -310,7 +310,7 @@ pub fn connect_via(
   document document: String,
   user_id user_id: String,
   transport transport: runtime.Transport,
-) -> Result(Document, String) {
+) -> Result(Document(root), String) {
   let connect_message = build_connect_message(tenant, document, user_id, None)
   case
     runtime.start_with_transport(
@@ -329,13 +329,13 @@ pub fn connect_via(
 /// The runtime actor behind a document. Exposed for the `sluice` test driver,
 /// which barriers the actor (a synchronous call flushes its mailbox) to make
 /// delivery deterministic. Not part of the app-facing API.
-pub fn runtime_subject(document: Document) -> Subject(runtime.Msg) {
+pub fn runtime_subject(document: Document(root)) -> Subject(runtime.Msg) {
   document.runtime
 }
 
 @target(erlang)
 /// The document's root map (channel address `"root"`).
-pub fn root(document: Document) -> SharedMap {
+pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
@@ -344,7 +344,7 @@ pub fn root(document: Document) -> SharedMap {
 /// edits produce no ops — until its handle (`handle_of`) is first stored into
 /// an attached map, at which point the runtime attaches it (snapshot and all)
 /// and starts syncing its edits.
-pub fn create_map(document: Document) -> Result(SharedMap, String) {
+pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -373,7 +373,10 @@ pub fn is_handle(value: Json) -> Bool {
 /// references. Errors are retryable: a handle read from a remote value can be
 /// transiently unresolved while the referenced channel's attach op is still
 /// in flight.
-pub fn resolve(document: Document, value: Json) -> Result(SharedMap, String) {
+pub fn resolve(
+  document: Document(root),
+  value: Json,
+) -> Result(SharedMap, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -419,14 +422,16 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 
 @target(erlang)
 /// The document's root map, viewed through a schema.
-pub fn root_typed(document: Document) -> TypedMap(s) {
+pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
 @target(erlang)
 /// Create a new (detached) map, viewed through a schema. Same lifecycle as
 /// `create_map`.
-pub fn create_typed_map(document: Document) -> Result(TypedMap(s), String) {
+pub fn create_typed_map(
+  document: Document(root),
+) -> Result(TypedMap(s), String) {
   create_map(document) |> result.map(typed)
 }
 
@@ -489,7 +494,7 @@ pub fn set_child(
 /// the key is absent; errors from `resolve` (including transient
 /// not-yet-attached ones) are surfaced as-is and are retryable.
 pub fn resolve_child(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
 ) -> Result(Option(TypedMap(c)), String) {
@@ -546,7 +551,7 @@ pub fn stamp(
 /// roster keyed by id). Non-handle keys are skipped; each child's resolution
 /// `Result` is surfaced (transient not-yet-attached errors are retryable).
 pub fn typed_children(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(parent),
 ) -> List(#(String, Result(TypedMap(child), String))) {
   entries(typed_map.map)
@@ -579,10 +584,10 @@ fn put_channel_field(
 
 @target(erlang)
 fn get_channel_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, kind),
-  resolver: fn(Document, Json) -> Result(shared, String),
+  resolver: fn(Document(root), Json) -> Result(shared, String),
 ) -> Result(Option(shared), String) {
   case get(typed_map.map, schema.channel_field_key(field)) {
     None -> Ok(None)
@@ -603,7 +608,7 @@ pub fn set_map_field(
 @target(erlang)
 /// Resolve the map referenced by a typed channel field.
 pub fn resolve_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
 ) -> Result(Option(SharedMap), String) {
@@ -623,7 +628,7 @@ pub fn set_counter_field(
 @target(erlang)
 /// Resolve the counter referenced by a typed channel field.
 pub fn resolve_counter_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
 ) -> Result(Option(SharedCounter), String) {
@@ -643,7 +648,7 @@ pub fn set_json_ot_field(
 @target(erlang)
 /// Resolve the json0 channel referenced by a typed channel field.
 pub fn resolve_json_ot_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
 ) -> Result(Option(JsonOt), String) {
@@ -663,7 +668,7 @@ pub fn set_rich_text_field(
 @target(erlang)
 /// Resolve the rich-text channel referenced by a typed channel field.
 pub fn resolve_rich_text_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RichTextChannel),
 ) -> Result(Option(SharedRichText), String) {
@@ -683,7 +688,7 @@ pub fn set_or_map_field(
 @target(erlang)
 /// Resolve the OR-map referenced by a typed channel field.
 pub fn resolve_or_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
 ) -> Result(Option(OrMap), String) {
@@ -703,7 +708,7 @@ pub fn set_or_set_field(
 @target(erlang)
 /// Resolve the OR-set referenced by a typed channel field.
 pub fn resolve_or_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
 ) -> Result(Option(OrSet), String) {
@@ -721,7 +726,7 @@ pub fn set_sequence_field(
 
 @target(erlang)
 pub fn resolve_sequence_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
 ) -> Result(Option(SharedSequence), String) {
@@ -741,7 +746,7 @@ pub fn set_text_field(
 @target(erlang)
 /// Resolve the text channel referenced by a typed channel field.
 pub fn resolve_text_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
 ) -> Result(Option(SharedText), String) {
@@ -761,7 +766,7 @@ pub fn set_register_collection_field(
 @target(erlang)
 /// Resolve the register collection referenced by a typed channel field.
 pub fn resolve_register_collection_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
 ) -> Result(Option(RegisterCollection), String) {
@@ -781,7 +786,7 @@ pub fn set_claims_field(
 @target(erlang)
 /// Resolve the claims channel referenced by a typed channel field.
 pub fn resolve_claims_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
 ) -> Result(Option(Claims), String) {
@@ -801,7 +806,7 @@ pub fn set_task_manager_field(
 @target(erlang)
 /// Resolve the task manager referenced by a typed channel field.
 pub fn resolve_task_manager_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
 ) -> Result(Option(TaskManager), String) {
@@ -821,7 +826,7 @@ pub fn set_g_set_field(
 @target(erlang)
 /// Resolve the G-set referenced by a typed channel field.
 pub fn resolve_g_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
 ) -> Result(Option(GSet), String) {
@@ -841,7 +846,7 @@ pub fn set_two_p_set_field(
 @target(erlang)
 /// Resolve the 2P-set referenced by a typed channel field.
 pub fn resolve_two_p_set_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
 ) -> Result(Option(TwoPSet), String) {
@@ -861,7 +866,7 @@ pub fn set_directory_field(
 @target(erlang)
 /// Resolve the directory referenced by a typed channel field.
 pub fn resolve_directory_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
 ) -> Result(Option(SharedDirectory), String) {
@@ -881,7 +886,7 @@ pub fn set_pn_counter_field(
 @target(erlang)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
@@ -901,7 +906,7 @@ pub fn set_pact_map_field(
 @target(erlang)
 /// Resolve the PactMap referenced by a typed channel field.
 pub fn resolve_pact_map_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
 ) -> Result(Option(PactMap), String) {
@@ -921,7 +926,7 @@ pub fn set_ordered_collection_field(
 @target(erlang)
 /// Resolve the ordered collection referenced by a typed channel field.
 pub fn resolve_ordered_collection_field(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
 ) -> Result(Option(OrderedCollection), String) {
@@ -948,7 +953,7 @@ const resolve_attempts = 25
 @target(erlang)
 /// Block until every local edit is acked (the confirmed root is stable),
 /// bounded by the resolve budget, then return regardless.
-fn await_synced(document: Document, attempts: Int) -> Nil {
+fn await_synced(document: Document(root), attempts: Int) -> Nil {
   case attempts <= 0 || is_synced(document) {
     True -> Nil
     False -> {
@@ -981,7 +986,7 @@ fn resolve_with_retry(
 /// Adopt the channel under `key`: resolve the sequenced winner if the key is
 /// set, else `seed` a candidate, wait for sync, and resolve whatever won.
 fn ensure_channel(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   key: String,
   seed: fn() -> Result(Nil, String),
@@ -1000,7 +1005,7 @@ fn ensure_channel(
 @target(erlang)
 /// Ensure a nested (untyped) map exists under `field`.
 pub fn ensure_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
 ) -> Result(SharedMap, String) {
@@ -1019,7 +1024,7 @@ pub fn ensure_map(
 @target(erlang)
 /// Ensure a counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
 ) -> Result(SharedCounter, String) {
@@ -1038,7 +1043,7 @@ pub fn ensure_counter(
 @target(erlang)
 /// Ensure a json0 channel exists under `field`.
 pub fn ensure_json_ot(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
 ) -> Result(JsonOt, String) {
@@ -1057,7 +1062,7 @@ pub fn ensure_json_ot(
 @target(erlang)
 /// Ensure a rich-text channel exists under `field`.
 pub fn ensure_rich_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RichTextChannel),
 ) -> Result(SharedRichText, String) {
@@ -1076,7 +1081,7 @@ pub fn ensure_rich_text(
 @target(erlang)
 /// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
 pub fn ensure_or_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
@@ -1096,7 +1101,7 @@ pub fn ensure_or_map(
 @target(erlang)
 /// Ensure an OR-set exists under `field`.
 pub fn ensure_or_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
 ) -> Result(OrSet, String) {
@@ -1114,7 +1119,7 @@ pub fn ensure_or_set(
 
 @target(erlang)
 pub fn ensure_sequence(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
 ) -> Result(SharedSequence, String) {
@@ -1134,7 +1139,7 @@ pub fn ensure_sequence(
 /// Ensure a text channel exists under `field`, seeding an empty one if the
 /// slot is empty.
 pub fn ensure_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
 ) -> Result(SharedText, String) {
@@ -1153,7 +1158,7 @@ pub fn ensure_text(
 @target(erlang)
 /// Ensure a register collection exists under `field`.
 pub fn ensure_register_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
 ) -> Result(RegisterCollection, String) {
@@ -1172,7 +1177,7 @@ pub fn ensure_register_collection(
 @target(erlang)
 /// Ensure a claims channel exists under `field`.
 pub fn ensure_claims(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
 ) -> Result(Claims, String) {
@@ -1191,7 +1196,7 @@ pub fn ensure_claims(
 @target(erlang)
 /// Ensure a task manager exists under `field`.
 pub fn ensure_task_manager(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
 ) -> Result(TaskManager, String) {
@@ -1210,7 +1215,7 @@ pub fn ensure_task_manager(
 @target(erlang)
 /// Ensure a grow-only set exists under `field`.
 pub fn ensure_g_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
 ) -> Result(GSet, String) {
@@ -1229,7 +1234,7 @@ pub fn ensure_g_set(
 @target(erlang)
 /// Ensure a two-phase set exists under `field`.
 pub fn ensure_two_p_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
 ) -> Result(TwoPSet, String) {
@@ -1248,7 +1253,7 @@ pub fn ensure_two_p_set(
 @target(erlang)
 /// Ensure a directory exists under `field`.
 pub fn ensure_directory(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
 ) -> Result(SharedDirectory, String) {
@@ -1267,7 +1272,7 @@ pub fn ensure_directory(
 @target(erlang)
 /// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_pn_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(PnCounter, String) {
@@ -1286,7 +1291,7 @@ pub fn ensure_pn_counter(
 @target(erlang)
 /// Ensure a PactMap exists under `field`.
 pub fn ensure_pact_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
 ) -> Result(PactMap, String) {
@@ -1305,7 +1310,7 @@ pub fn ensure_pact_map(
 @target(erlang)
 /// Ensure an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
 ) -> Result(OrderedCollection, String) {
@@ -1324,7 +1329,7 @@ pub fn ensure_ordered_collection(
 @target(erlang)
 /// Ensure a nested *typed* child map exists under a child field.
 pub fn ensure_child(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
 ) -> Result(TypedMap(c), String) {
@@ -1362,7 +1367,9 @@ pub fn ensure_field(
 /// Create a new counter channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`counter_handle_of`) is first stored into an
 /// attached map.
-pub fn create_counter(document: Document) -> Result(SharedCounter, String) {
+pub fn create_counter(
+  document: Document(root),
+) -> Result(SharedCounter, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1385,7 +1392,7 @@ pub fn counter_handle_of(counter: SharedCounter) -> Json {
 /// checked, not channel type: resolving a non-counter yields a counter whose
 /// reads return `None`. Errors are retryable, as with `resolve`.
 pub fn resolve_counter(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedCounter, String) {
   case handle.parse_handle(value) {
@@ -1465,7 +1472,7 @@ pub fn subscribe_counter(
 /// Create a new json0 (JSON-OT) channel. Same detached lifecycle as
 /// `create_map`: local-only until its handle (`json_ot_handle_of`) is first
 /// stored into an attached map.
-pub fn create_json_ot(document: Document) -> Result(JsonOt, String) {
+pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1487,7 +1494,7 @@ pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
 /// Resolve a handle value to the JsonOt it references. Existence is
 /// checked, not channel type. Errors are retryable, as with `resolve`.
 pub fn resolve_json_ot(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(JsonOt, String) {
   case handle.parse_handle(value) {
@@ -1538,7 +1545,9 @@ pub fn subscribe_json_ot(
 
 @target(erlang)
 /// Create a new rich-text channel. Same detached lifecycle as `create_map`.
-pub fn create_rich_text(document: Document) -> Result(SharedRichText, String) {
+pub fn create_rich_text(
+  document: Document(root),
+) -> Result(SharedRichText, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1560,7 +1569,7 @@ pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
 /// Resolve a handle value to the SharedRichText it references. Existence is
 /// checked, not channel type. Errors are retryable, as with `resolve`.
 pub fn resolve_rich_text(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedRichText, String) {
   case handle.parse_handle(value) {
@@ -1620,7 +1629,7 @@ pub fn subscribe_rich_text(
 /// lifecycle as `create_map`: local-only until its handle is stored into an
 /// attached container.
 pub fn create_or_map(
-  document: Document,
+  document: Document(root),
   mode: OrMapMode,
 ) -> Result(OrMap, String) {
   process.call(document.runtime, waiting: call_timeout_ms, sending: fn(reply) {
@@ -1638,7 +1647,7 @@ pub fn or_map_handle_of(or_map: OrMap) -> Json {
 
 @target(erlang)
 pub fn resolve_or_map(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrMap, String) {
   case handle.parse_handle(value) {
@@ -1712,7 +1721,7 @@ pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
 
 @target(erlang)
 /// Create a new observed-remove set channel for string elements.
-pub fn create_or_set(document: Document) -> Result(OrSet, String) {
+pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1730,7 +1739,7 @@ pub fn or_set_handle_of(or_set: OrSet) -> Json {
 
 @target(erlang)
 pub fn resolve_or_set(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrSet, String) {
   case handle.parse_handle(value) {
@@ -1786,7 +1795,9 @@ pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_sequence(document: Document) -> Result(SharedSequence, String) {
+pub fn create_sequence(
+  document: Document(root),
+) -> Result(SharedSequence, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1804,7 +1815,7 @@ pub fn sequence_handle_of(sequence: SharedSequence) -> Json {
 
 @target(erlang)
 pub fn resolve_sequence(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedSequence, String) {
   case handle.parse_handle(value) {
@@ -1895,7 +1906,7 @@ pub fn subscribe_sequence(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_text(document: Document) -> Result(SharedText, String) {
+pub fn create_text(document: Document(root)) -> Result(SharedText, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -1913,7 +1924,7 @@ pub fn text_handle_of(text: SharedText) -> Json {
 
 @target(erlang)
 pub fn resolve_text(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedText, String) {
   case handle.parse_handle(value) {
@@ -2079,7 +2090,7 @@ pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
 /// Create a new consensus register collection. Like other non-root channels it
 /// starts detached until its handle is stored in an attached map.
 pub fn create_register_collection(
-  document: Document,
+  document: Document(root),
 ) -> Result(RegisterCollection, String) {
   process.call(
     document.runtime,
@@ -2098,7 +2109,7 @@ pub fn register_collection_handle_of(collection: RegisterCollection) -> Json {
 
 @target(erlang)
 pub fn resolve_register_collection(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(RegisterCollection, String) {
   case handle.parse_handle(value) {
@@ -2179,7 +2190,7 @@ pub fn subscribe_register_collection(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_claims(document: Document) -> Result(Claims, String) {
+pub fn create_claims(document: Document(root)) -> Result(Claims, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2197,7 +2208,7 @@ pub fn claims_handle_of(claims: Claims) -> Json {
 
 @target(erlang)
 pub fn resolve_claims(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(Claims, String) {
   case handle.parse_handle(value) {
@@ -2256,7 +2267,9 @@ pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn create_task_manager(document: Document) -> Result(TaskManager, String) {
+pub fn create_task_manager(
+  document: Document(root),
+) -> Result(TaskManager, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2274,7 +2287,7 @@ pub fn task_manager_handle_of(manager: TaskManager) -> Json {
 
 @target(erlang)
 pub fn resolve_task_manager(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(TaskManager, String) {
   case handle.parse_handle(value) {
@@ -2347,7 +2360,7 @@ pub fn subscribe_task_manager(
 /// `create_map`: local-only until its handle (`g_set_handle_of`) is first
 /// stored into an attached map. Elements can only be added, never removed;
 /// concurrent adds always converge to the union.
-pub fn create_g_set(document: Document) -> Result(GSet, String) {
+pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2368,7 +2381,10 @@ pub fn g_set_handle_of(set: GSet) -> Json {
 @target(erlang)
 /// Resolve a handle value to the GSet it references. Errors are
 /// retryable, as with `resolve`.
-pub fn resolve_g_set(document: Document, value: Json) -> Result(GSet, String) {
+pub fn resolve_g_set(
+  document: Document(root),
+  value: Json,
+) -> Result(GSet, String) {
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
@@ -2423,7 +2439,7 @@ pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
 /// stored into an attached map. A remove is a permanent tombstone: a removed
 /// element can never be made active again, so remove wins over a concurrent
 /// (re-)add.
-pub fn create_two_p_set(document: Document) -> Result(TwoPSet, String) {
+pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2445,7 +2461,7 @@ pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
 /// Resolve a handle value to the TwoPSet it references. Errors are
 /// retryable, as with `resolve`.
 pub fn resolve_two_p_set(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(TwoPSet, String) {
   case handle.parse_handle(value) {
@@ -2513,7 +2529,9 @@ pub fn subscribe_two_p_set(
 /// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
 /// until its handle (`directory_handle_of`) is first stored into an attached
 /// map.
-pub fn create_directory(document: Document) -> Result(SharedDirectory, String) {
+pub fn create_directory(
+  document: Document(root),
+) -> Result(SharedDirectory, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2535,7 +2553,7 @@ pub fn directory_handle_of(dir: SharedDirectory) -> Json {
 /// Resolve a handle value to the SharedDirectory it references. Errors are
 /// retryable, as with `resolve`.
 pub fn resolve_directory(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(SharedDirectory, String) {
   case handle.parse_handle(value) {
@@ -2675,7 +2693,9 @@ pub fn subscribe_directory(
 @target(erlang)
 /// Create a new PN-counter channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle is stored into an attached container.
-pub fn create_pn_counter(document: Document) -> Result(PnCounter, String) {
+pub fn create_pn_counter(
+  document: Document(root),
+) -> Result(PnCounter, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2693,7 +2713,7 @@ pub fn pn_counter_handle_of(pn_counter: PnCounter) -> Json {
 
 @target(erlang)
 pub fn resolve_pn_counter(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(PnCounter, String) {
   case handle.parse_handle(value) {
@@ -2747,7 +2767,7 @@ pub fn subscribe_pn_counter(
 
 @target(erlang)
 /// Create a new PactMap channel. Same detached lifecycle as `create_map`.
-pub fn create_pact_map(document: Document) -> Result(PactMap, String) {
+pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
   process.call(
     document.runtime,
     waiting: call_timeout_ms,
@@ -2765,7 +2785,7 @@ pub fn pact_map_handle_of(pact_map: PactMap) -> Json {
 
 @target(erlang)
 pub fn resolve_pact_map(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(PactMap, String) {
   case handle.parse_handle(value) {
@@ -2890,7 +2910,7 @@ pub fn pact_map_get_with_details(
 /// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
 /// `create_map`.
 pub fn create_ordered_collection(
-  document: Document,
+  document: Document(root),
 ) -> Result(OrderedCollection, String) {
   process.call(
     document.runtime,
@@ -2909,7 +2929,7 @@ pub fn ordered_collection_handle_of(collection: OrderedCollection) -> Json {
 
 @target(erlang)
 pub fn resolve_ordered_collection(
-  document: Document,
+  document: Document(root),
   value: Json,
 ) -> Result(OrderedCollection, String) {
   case handle.parse_handle(value) {
@@ -3047,7 +3067,7 @@ pub type Ripple =
 /// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
 /// catch-up. No-op until the first handshake assigns a client id.
 pub fn submit_ripple(
-  document: Document,
+  document: Document(root),
   ripple_type ripple_type: String,
   content content: Json,
 ) -> Nil {
@@ -3058,7 +3078,7 @@ pub fn submit_ripple(
 /// Subscribe the calling process to every inbound ripple on the document. The
 /// returned subject carries `Ripple` values, mirroring the per-channel
 /// `subscribe_*` functions.
-pub fn subscribe_ripples(document: Document) -> Subject(Ripple) {
+pub fn subscribe_ripples(document: Document(root)) -> Subject(Ripple) {
   let subject = process.new_subject()
   process.send(
     document.runtime,
@@ -3088,7 +3108,7 @@ pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
 
 @target(erlang)
 /// Close the connection and stop the runtime.
-pub fn close(document: Document) -> Nil {
+pub fn close(document: Document(root)) -> Nil {
   process.send(document.runtime, runtime.Shutdown)
 }
 
@@ -3096,7 +3116,7 @@ pub fn close(document: Document) -> Nil {
 /// Fault-injection hook (primarily for tests): drop the current transport
 /// channel, forcing the runtime through its reconnect/reconcile path. Pending
 /// and in-flight edits are preserved and resubmitted after the reconnect.
-pub fn force_reconnect(document: Document) -> Nil {
+pub fn force_reconnect(document: Document(root)) -> Nil {
   process.send(document.runtime, runtime.DropChannel)
 }
 
@@ -3120,7 +3140,7 @@ pub fn force_reconnect(document: Document) -> Nil {
 ///
 /// Re-read it after a reconnect rather than caching: the fresh handshake may
 /// assign a different id, and a stale one silently stops matching.
-pub fn client_id(document: Document) -> Option(String) {
+pub fn client_id(document: Document(root)) -> Option(String) {
   runtime.client_id(document.runtime)
 }
 
@@ -3129,7 +3149,7 @@ pub fn client_id(document: Document) -> Option(String) {
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Returns the summary handle (git tree SHA). Requires the connection
 /// to be fully synced and the token to carry the `summary:write` scope.
-pub fn summarize(document: Document) -> Result(String, String) {
+pub fn summarize(document: Document(root)) -> Result(String, String) {
   runtime.summarize(document.runtime)
 }
 
@@ -3149,7 +3169,7 @@ pub fn summarize(document: Document) -> Result(String, String) {
 /// Requires the token to carry `summary:write`, which `connect` mints by
 /// default. Applies from the next sequenced op onward.
 pub fn auto_summarize(
-  document: Document,
+  document: Document(root),
   policy: summary_policy.Policy,
 ) -> Nil {
   runtime.auto_summarize(document.runtime, Some(policy))
@@ -3158,7 +3178,7 @@ pub fn auto_summarize(
 @target(erlang)
 /// Stop summarizing automatically. Any attempt already scheduled still
 /// re-checks before acting, and finds no policy.
-pub fn stop_auto_summarize(document: Document) -> Nil {
+pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime.auto_summarize(document.runtime, None)
 }
 
@@ -3168,7 +3188,7 @@ pub fn stop_auto_summarize(document: Document) -> Nil {
 /// client would have to replay on top of the checkpoint.
 ///
 /// On a document nothing has ever summarized this is the whole log.
-pub fn ops_since_summary(document: Document) -> Int {
+pub fn ops_since_summary(document: Document(root)) -> Int {
   runtime.ops_since_summary(document.runtime)
 }
 
@@ -3176,7 +3196,7 @@ pub fn ops_since_summary(document: Document) -> Int {
 /// Whether the document is fully caught up: every local edit has been
 /// acknowledged by the server, so the confirmed state is complete and stable.
 /// Useful to wait for quiescence before summarizing or handing off.
-pub fn is_synced(document: Document) -> Bool {
+pub fn is_synced(document: Document(root)) -> Bool {
   runtime.is_synced(document.runtime)
 }
 
@@ -3186,7 +3206,7 @@ pub fn is_synced(document: Document) -> Bool {
 /// the newest is what a fresh connection bootstraps from. Requires the token
 /// to carry `doc:read`.
 pub fn get_versions(
-  document: Document,
+  document: Document(root),
   count count: Int,
 ) -> Result(List(SummaryVersion), String) {
   runtime.get_versions(document.runtime, count)
@@ -3198,7 +3218,7 @@ pub fn get_versions(
 /// snapshot blob — entries in insertion order plus the sequence number they
 /// were captured at. A point-in-time read: the live document is unaffected.
 pub fn load_version(
-  document: Document,
+  document: Document(root),
   handle handle: String,
 ) -> Result(SummaryBlob, String) {
   runtime.load_version(document.runtime, handle)

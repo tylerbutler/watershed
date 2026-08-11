@@ -86,7 +86,7 @@ pub fn start(
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
-) -> Result(watershed.Document, String) {
+) -> Result(watershed.Document(root), String) {
   let transport = sluice_transport(sluice.actor)
   case
     watershed.connect_via(
@@ -135,7 +135,7 @@ pub fn connect(
 /// the runtime run its whole reconnect — `ChannelClosed` → re-`connect` →
 /// `ChannelReady` → `connect_document` carrying `last_seen` — before `Bind`
 /// re-points the binding at the connection it just opened.
-pub fn reconnect(sluice: Sluice, document: watershed.Document) -> Nil {
+pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
@@ -152,7 +152,7 @@ pub fn reconnect(sluice: Sluice, document: watershed.Document) -> Nil {
 ///
 /// The runtime keeps its core and sits in its reconnecting phase until
 /// `rejoin`.
-pub fn drop(sluice: Sluice, document: watershed.Document) -> Nil {
+pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let subject = watershed.runtime_subject(document)
   let _ =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -166,7 +166,7 @@ pub fn drop(sluice: Sluice, document: watershed.Document) -> Nil {
 /// fresh server-assigned client id.
 ///
 /// A no-op for a client that was not `drop`ped.
-pub fn rejoin(sluice: Sluice, document: watershed.Document) -> Nil {
+pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let subject = watershed.runtime_subject(document)
   case
     process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -214,7 +214,7 @@ pub fn step(sluice: Sluice) -> Bool {
 @target(erlang)
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered.
-pub fn pause(sluice: Sluice, document: watershed.Document) -> Nil {
+pub fn pause(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let subject = watershed.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Pause(subject, reply)
@@ -223,7 +223,7 @@ pub fn pause(sluice: Sluice, document: watershed.Document) -> Nil {
 
 @target(erlang)
 /// Release a paused client's held frames back into the deliverable queue.
-pub fn resume(sluice: Sluice, document: watershed.Document) -> Nil {
+pub fn resume(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let subject = watershed.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Resume(subject, reply)
