@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-11T19:44:26.694309+00:00'
+generated_at: '2026-08-11T22:59:34.757617+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: dietrichgebert/ponytail
@@ -43,15 +43,6 @@ dependencies:
   - .claude/skills/ponytail-review
   - .claude/skills/ponytail-review/SKILL.md
   - .claude/skills/ponytail/SKILL.md
-  - .github/hooks/ponytail-copilot-hooks.json
-  - .github/hooks/scripts/ponytail/hooks/ponytail-activate.js
-  - .github/hooks/scripts/ponytail/hooks/ponytail-config.js
-  - .github/hooks/scripts/ponytail/hooks/ponytail-instructions.js
-  - .github/hooks/scripts/ponytail/hooks/ponytail-mode-tracker.js
-  - .github/hooks/scripts/ponytail/hooks/ponytail-runtime.js
-  - .github/hooks/scripts/ponytail/hooks/ponytail-statusline.ps1
-  - .github/hooks/scripts/ponytail/hooks/ponytail-statusline.sh
-  - .github/hooks/scripts/ponytail/hooks/ponytail-subagent.js
   deployed_file_hashes:
     .agents/skills/ponytail-audit/SKILL.md: sha256:5560b8e383dbe2ddfddc873a1e2bf2e586e23e0cd7d995537482b2315331f6d1
     .agents/skills/ponytail-debt/SKILL.md: sha256:c84fba75f0ca12bfe83f9a78ea02fd125c5dd3f1fbb18124105a489937f284e6
@@ -74,15 +65,6 @@ dependencies:
     .claude/skills/ponytail-help/SKILL.md: sha256:2264d1615117b02b0fd5a69ec84cd2757006471a78e4d6c22eed6d581c1d37a4
     .claude/skills/ponytail-review/SKILL.md: sha256:40df33b58fc6ef889b93585733feb9566b76e9586efa7f376785c1e995197ac0
     .claude/skills/ponytail/SKILL.md: sha256:1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2
-    .github/hooks/ponytail-copilot-hooks.json: sha256:4ad52e6fd633e8fa1b73172da33e6b23d2b874fea94cd18a7def7a08037188a5
-    .github/hooks/scripts/ponytail/hooks/ponytail-activate.js: sha256:1c428c4ee9687c2f4321924109ee92e8f8b06fd6600cb6be9ec5b59633cafab1
-    .github/hooks/scripts/ponytail/hooks/ponytail-config.js: sha256:0a8daf96cf9ac703dc4cb7b5065253567e513c951d60b8eb94a0fe727514aeca
-    .github/hooks/scripts/ponytail/hooks/ponytail-instructions.js: sha256:23c050103f28dbe6bad953ae21d98cd06d720a20f33d4716e9de419f947d495e
-    .github/hooks/scripts/ponytail/hooks/ponytail-mode-tracker.js: sha256:5d1a960ff01b73f651ec0242052a8cf1e064cb88147806bf6e13f92798aca251
-    .github/hooks/scripts/ponytail/hooks/ponytail-runtime.js: sha256:02fa6127cf6c4b65a7b07b66541677ea587a0691802b6d1d2be2419bccea9110
-    .github/hooks/scripts/ponytail/hooks/ponytail-statusline.ps1: sha256:6138f15bc7651ee7e5ced2a2a2280f5c810d58cad3e9f3252c628f4c923e48c9
-    .github/hooks/scripts/ponytail/hooks/ponytail-statusline.sh: sha256:f1dbfa5997a5d4b5339619709053eff557ab16d71af75eb3041c3d3e3dca42ec
-    .github/hooks/scripts/ponytail/hooks/ponytail-subagent.js: sha256:7f6bee86702a488d29ef0dcaabf424bbe2aca345a6a642319d43a1fe0276792e
   content_hash: sha256:17a5d405c7a1b9ef17969bc14deacaa78ae420fb453c0f2b1f7170d530e55b26
   is_dev: true
 - repo_url: juliusbrussee/caveman
@@ -111,18 +93,22 @@ dependencies:
 - repo_url: tylerbutler/trellis
   name: trellis
   host: github.com
-  resolved_commit: 787c6609ece544e86bd68e5c47f496d1b49e28d6
+  resolved_commit: e97e82933639d91e76d0d250fc283cb12101cbae
   version: 1.0.0
   package_type: apm_package
   deployed_files:
   - .agents/skills/trellis-onboarding
   - .agents/skills/trellis-onboarding/SKILL.md
+  - .claude/rules/no-laziness.md
   - .claude/skills/trellis-onboarding
   - .claude/skills/trellis-onboarding/SKILL.md
+  - .github/instructions/no-laziness.instructions.md
   deployed_file_hashes:
     .agents/skills/trellis-onboarding/SKILL.md: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
+    .claude/rules/no-laziness.md: sha256:7bfa0b61b27e7f8aa782881e243ff010a542615ce14f0ce917615b23dcea1cd4
     .claude/skills/trellis-onboarding/SKILL.md: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
-  content_hash: sha256:715af501b7cba3911a1699a2de0c47d366b2ac09c9eafd01e75932b010c67641
+    .github/instructions/no-laziness.instructions.md: sha256:d0f928dfdf98b1ddee5e676e212cff34c866c65cf839952c9d62c730068d7c1e
+  content_hash: sha256:353f948904375b20ce0be550020be948e9fb31be91313c6527ab562792eb8e99
   is_dev: true
 deployments:
 - kind: project-relative
@@ -206,6 +192,15 @@ deployments:
   - dietrichgebert/ponytail
   active_owner: dietrichgebert/ponytail
   content_hash: sha256:7f6bee86702a488d29ef0dcaabf424bbe2aca345a6a642319d43a1fe0276792e
+- kind: project-relative
+  target: claude
+  value: .claude/rules/no-laziness.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/trellis
+  active_owner: tylerbutler/trellis
+  content_hash: sha256:7bfa0b61b27e7f8aa782881e243ff010a542615ce14f0ce917615b23dcea1cd4
 - kind: project-relative
   target: claude
   value: .claude/skills/caveman-commit
@@ -514,82 +509,10 @@ deployments:
   content_hash: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
 - kind: project-relative
   target: copilot
-  value: .github/hooks/ponytail-copilot-hooks.json
+  value: .github/instructions/no-laziness.instructions.md
   runtime: null
   scope: project
   owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:4ad52e6fd633e8fa1b73172da33e6b23d2b874fea94cd18a7def7a08037188a5
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-activate.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:1c428c4ee9687c2f4321924109ee92e8f8b06fd6600cb6be9ec5b59633cafab1
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-config.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:0a8daf96cf9ac703dc4cb7b5065253567e513c951d60b8eb94a0fe727514aeca
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-instructions.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:23c050103f28dbe6bad953ae21d98cd06d720a20f33d4716e9de419f947d495e
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-mode-tracker.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:5d1a960ff01b73f651ec0242052a8cf1e064cb88147806bf6e13f92798aca251
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-runtime.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:02fa6127cf6c4b65a7b07b66541677ea587a0691802b6d1d2be2419bccea9110
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-statusline.ps1
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:6138f15bc7651ee7e5ced2a2a2280f5c810d58cad3e9f3252c628f4c923e48c9
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-statusline.sh
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:f1dbfa5997a5d4b5339619709053eff557ab16d71af75eb3041c3d3e3dca42ec
-- kind: project-relative
-  target: copilot
-  value: .github/hooks/scripts/ponytail/hooks/ponytail-subagent.js
-  runtime: null
-  scope: project
-  owners:
-  - dietrichgebert/ponytail
-  active_owner: dietrichgebert/ponytail
-  content_hash: sha256:7f6bee86702a488d29ef0dcaabf424bbe2aca345a6a642319d43a1fe0276792e
+  - tylerbutler/trellis
+  active_owner: tylerbutler/trellis
+  content_hash: sha256:d0f928dfdf98b1ddee5e676e212cff34c866c65cf839952c9d62c730068d7c1e
