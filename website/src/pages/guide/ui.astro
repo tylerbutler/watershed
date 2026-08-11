@@ -33,7 +33,7 @@ import watershed_lustre
 
 // The same ensure_* from step 02, now as a batch of effects. Each channel
 // ensure dispatches its handle back so update can store it in the model.
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Survey)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(root, doc_schema.title(), "Untitled survey"),
@@ -81,7 +81,7 @@ import watershed_lustre
 // The heartbeat/TTL presence driver from step 04, as one effect. \`started\`
 // hands back a Handle to keep in the model; \`on_peers\` fires with the sorted
 // roster whenever the visible peer set changes.
-fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
+fn presence_effect(model: Model, doc: Document(doc_schema.Survey)) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
     user_id: model.user_id,

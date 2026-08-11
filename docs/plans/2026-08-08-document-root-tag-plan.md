@@ -1,5 +1,14 @@
 # Document root-tag plan — make the root map's schema checkable
 
+**Status: shipped 2026-08-10.** DR1–DR6 all landed, DR6 included — the
+compile-fail fixture lives at `tools/compile-fail/two_root_tags` and runs as
+`just _test-compile-fail`, wired into `just test`. Two deviations from the plan
+below, both scope only: the examples had grown from five to twelve (nine
+already carried a usable tag in their `doc_schema.gleam`), and the `just build`
+gate had to be repaired first — `dice_lustre` pinned a broken pnpm release and
+`sudoku_lustre`'s manifest pinned a stale spillway commit, neither related to
+this change.
+
 **Date:** 2026-08-08
 **Builds on:** `2026-07-06-typed-layer-dx-plan.md` (the phantom-tag design this extends to the one place it never reached).
 **Blocks (softly):** `2026-08-08-showcase-composition-plan.md` — the showcase is the first app in this repo with more than one schema tag in play, and so the first place the gap does real damage. Best landed before SC1; the showcase's SC7 root-purity test is the stopgap if it isn't.

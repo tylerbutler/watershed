@@ -421,7 +421,25 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 }
 
 @target(erlang)
-/// The document's root map, viewed through a schema.
+/// The document's root map, viewed through the document's own schema.
+///
+/// One tag per document. The tag comes from the `Document(root)` you pass, so
+/// it is fixed wherever your app writes the type concretely — the function
+/// that receives the connected document, or the state record holding it:
+///
+/// ```gleam
+/// fn run(doc: watershed.Document(GameRoot)) -> Nil
+/// ```
+///
+/// Every `root_typed` on that document then agrees, and a second schema at the
+/// root is a compile error rather than a silently shared key namespace.
+///
+/// A caller generic in `root` may still call this, but an abstract tag has no
+/// fields, so it cannot read or write the root.
+///
+/// `typed(root(document))` remains available and remains unchecked; it is the
+/// deliberate way to view the root through a foreign schema, and unlike the
+/// old signature it now has to be written out loud.
 pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }

@@ -428,7 +428,26 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 }
 
 @target(javascript)
-/// The document's root map, viewed through a schema.
+/// The document's root map, viewed through the document's own schema.
+///
+/// One tag per document. The tag comes from the `Document(root)` you pass, so
+/// it is fixed wherever your app writes the type concretely — the `Msg`
+/// constructor carrying the handle, or the `Model` field holding it:
+///
+/// ```gleam
+/// GotHandle(Document(doc_schema.Survey))
+/// ```
+///
+/// Every `root_typed` on that document then agrees, and a second schema at the
+/// root is a compile error rather than a silently shared key namespace.
+///
+/// A component generic in `root` may still call this, but an abstract tag has
+/// no fields, so it cannot read or write the root — which is what makes a
+/// nested panel structurally unable to reach past its own child map.
+///
+/// `typed(root(document))` remains available and remains unchecked; it is the
+/// deliberate way to view the root through a foreign schema, and unlike the
+/// old signature it now has to be written out loud.
 pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }

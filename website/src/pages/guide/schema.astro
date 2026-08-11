@@ -98,6 +98,14 @@ fn station_schema() -> schema.Schema(Station, StationState) {
       counter. A phantom <code>Survey</code> tag scopes every field to this map,
       so the compiler stops you reading a field against the wrong document.
     </p>
+    <p>
+      That tag names the document itself, not just the fields:
+      <code>connect</code> hands back a <code>Document(Survey)</code>, and
+      <code>root_typed</code> on it returns a <code>TypedMap(Survey)</code>. One
+      document admits one root schema — mounting a second app’s fields on the
+      same root map is a compile error rather than two apps quietly sharing a
+      key namespace.
+    </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
       <Code code={schemaFile} lang="gleam" theme={watershedCodeTheme} />

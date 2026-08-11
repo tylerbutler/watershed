@@ -28,6 +28,12 @@
 //// }
 //// ```
 ////
+//// The root map is tagged like any other. Its tag lives on the document —
+//// `Document(root)` — so `root_typed` hands back a `TypedMap(root)` and one
+//// document admits exactly one root schema. An app whose root holds only
+//// untyped keys still declares a bare tag; that tag is the document's
+//// identity, not a promise about its contents.
+////
 //// For a *whole record* stored across several keys, build a `Schema` with the
 //// `record1`..`record9` codecs: each `prop` declares a field once and both the
 //// decoder and the per-key encoder derive from it, so they cannot drift.

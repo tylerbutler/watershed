@@ -17,7 +17,7 @@ default:
 build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue _build-retro
 
 # Run tests
-test: _test-gleam _test-js _test-lustre _test-examples
+test: _test-gleam _test-js _test-lustre _test-examples _test-compile-fail
 
 _test-gleam:
     gleam test
@@ -44,6 +44,26 @@ _test-examples:
     cd examples/drum_machine_lustre && gleam test
     cd examples/pixel_canvas_lustre && gleam test
     cd examples/retro_board_lustre && gleam test
+
+# The one guarantee no ordinary test can make: that *wrong* code is rejected.
+# `tools/compile-fail/two_root_tags` views one document's root through two
+# schemas, which `Document(root)` exists to forbid. Passing means the build
+# failed *and* failed for the stated reason — the grep is what stops a typo
+# from making this recipe green for the wrong cause.
+_test-compile-fail:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out=$(cd tools/compile-fail/two_root_tags && gleam build --target javascript 2>&1)
+    if [ $? -eq 0 ]; then
+      echo "FAIL: two_root_tags compiled. A document now admits two root schemas."
+      exit 1
+    fi
+    if ! grep -q 'Field(Sudoku, String)' <<<"$out"; then
+      echo "FAIL: two_root_tags failed to build, but not with the expected type error:"
+      echo "$out"
+      exit 1
+    fi
+    echo "ok  two_root_tags is rejected, as it must be"
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
