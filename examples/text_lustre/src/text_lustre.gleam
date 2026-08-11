@@ -17,23 +17,23 @@
 //// UTF-16 code units: an emoji or a combining mark is one CRDT index, so ops
 //// land where the user meant them to.
 ////
-//// That whole bridge — snapshot, diff, one minimal op, error folding, and
-//// holding the caret still while a peer edits around it — is
-//// `watershed_lustre/textarea`, a nested MVU triple this app holds as
-//// `editor` and routes messages through. What is left here is what an app
-//// actually owns: connecting, bootstrapping the schema, layout, and the
-//// mutations the component does not perform (append, anchors).
+//// That whole bridge lives two levels down now. `watershed_lustre/textarea`
+//// owns the snapshot-diff-one-op loop and the caret; `text_lustre/component`
+//// owns the document state around it — the body channel, the append action,
+//// and the pinned anchor — as a nested MVU triple.
 ////
-//// Every mutation returns `Result(Nil, String)` — an index can go stale when a
-//// peer edits between render and keystroke — and the app surfaces the runtime's
-//// message in a banner rather than asserting.
+//// What is left in *this* module is what an application owns and a panel must
+//// not: the connection, the runtime diagnostics, and the presence driver. All
+//// three take a `Document` rather than a channel, so they are document-wide
+//// wherever they are called from — which is why the same component, mounted in
+//// `showcase_lustre` beside three other demos, is handed their results by the
+//// shell instead of starting them. Standalone, this module *is* that shell,
+//// with one panel and no switcher.
 ////
-//// A pinned **anchor** (`text_anchor_at`) tracks a stable position in the
-//// document: as remote edits insert and delete text before it, its resolved
-//// grapheme index moves with the content, which is the property that makes
-//// shared cursors possible (though broadcasting them is out of scope here).
-//// The component uses the same primitive internally for the user's caret,
-//// which is why a peer's keystroke no longer teleports it.
+//// A pinned **anchor** tracks a stable position as remote edits move text
+//// around it, which is the property that makes shared cursors possible — and
+//// the presence payload below is that property cashed in: every peer's caret,
+//// broadcast as a pair of anchors and drawn in everyone else's editor.
 ////
 //// Open two browser tabs against the same `just server` document to watch edits
 //// converge grapheme-for-grapheme.
@@ -47,21 +47,22 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 import lustre
-import lustre/attribute.{class, disabled, placeholder, rows, value}
+import lustre/attribute.{class}
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/text_kernel
-import watershed_js.{type Document, type SharedText, type TextAnchor}
+import watershed_js.{type Document}
 import watershed_lustre
 import watershed_lustre/textarea
 
+import text_lustre/component
 import text_lustre/doc_schema
-import watershed/browser
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -136,14 +137,13 @@ type Model {
   Model(
     status: Status,
     doc: Option(Document(doc_schema.TextDoc)),
-    /// The bound `<textarea>`. `None` until `ensure_text` resolves — the
-    /// component is constructed with a live channel, never an empty one.
-    editor: Option(textarea.Model),
+    /// The editor panel. `None` until the handshake completes — the component
+    /// is constructed with a live map, never an empty one.
+    editor: Option(component.Model),
+    /// Whether this app has taken its own subscription on the body channel.
+    /// The component takes one too; a channel fans out to every subscriber.
+    traced: Bool,
     user_id: String,
-    draft_append: String,
-    anchor: Option(TextAnchor),
-    anchor_pos: Option(Int),
-    last_error: Option(String),
     diagnostics: Option(watershed_js.Diagnostics),
     diagnostic_log: List(String),
     /// The presence driver, once started, and the last cursor announced
@@ -156,14 +156,9 @@ type Model {
 type Msg {
   GotHandle(Document(doc_schema.TextDoc))
   Connected(Result(Nil, String))
-  EnsuredBody(Result(SharedText, String))
-  BodyChanged(text_kernel.TextEvent)
   DiagnosticsTick
-  Editor(textarea.Msg)
-  DraftAppendChanged(String)
-  AppendClicked
-  PinAnchorClicked
-  ClearAnchorClicked
+  BodyChanged(text_kernel.TextEvent)
+  Editor(component.Msg)
   ReconnectClicked
   PresenceStarted(Handle(Editing))
   PresenceEvent(presence.Event(Editing))
@@ -177,11 +172,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       status: Connecting,
       doc: None,
       editor: None,
+      traced: False,
       user_id: user_id,
-      draft_append: "",
-      anchor: None,
-      anchor_pos: None,
-      last_error: None,
       diagnostics: None,
       diagnostic_log: [],
       presence: None,
@@ -218,12 +210,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
-    // Handshake and history replay are done: now seed the title and bootstrap
-    // the body text channel. `ensure_text` creates and attaches one only if the
-    // slot is empty, so every tab runs this unconditionally without racing to a
-    // duplicate — the property that makes joiners converge on the *same*
-    // document. Attaching a channel needs a ready connection, which is why this
-    // waits rather than firing alongside the handle.
+    // Handshake and history replay are done: mount the panel against this
+    // document's root, and start the one presence driver. `root_typed` is the
+    // line that makes this the standalone app rather than a panel — mounted in
+    // the showcase, the component is handed a *child* map instead, and nothing
+    // else about it changes.
     Connected(Ok(_)) -> {
       let model =
         Model(..model, status: Ready)
@@ -231,21 +222,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.doc {
         None -> #(model, effect.none())
         Some(doc) -> {
-          let root = watershed_js.root_typed(doc)
+          let #(editor, editor_effect) =
+            component.init(doc, watershed_js.root_typed(doc))
           #(
-            model,
+            Model(..model, editor: Some(editor)),
             effect.batch([
-              watershed_lustre.ensure_field(
-                root,
-                doc_schema.title(),
-                "watershed shared document",
-              ),
-              watershed_lustre.ensure_text(
-                doc,
-                root,
-                doc_schema.body(),
-                EnsuredBody,
-              ),
+              effect.map(editor_effect, Editor),
               watershed_lustre.presence(
                 document: doc,
                 config: presence.config(encode_editing, editing_decoder()),
@@ -265,33 +247,26 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, effect.none())
     }
 
-    // The body resolved: hand the live channel to the component, which
-    // subscribes and takes its own first snapshot so a tab joining an existing
-    // document renders its text without waiting for an edit. The second
-    // subscription here is this app's own — a channel fans out to every
-    // subscriber — and drives the diagnostics panel and the pinned anchor.
-    EnsuredBody(Ok(text)) -> {
-      let #(editor, editor_effect) = textarea.init(text)
-      let model =
-        Model(..model, editor: Some(editor))
-        |> refresh_anchor
-        |> add_diagnostic("body text channel ready")
-      #(
-        model,
-        effect.batch([
-          effect.map(editor_effect, Editor),
-          watershed_lustre.subscribe_text(text, BodyChanged),
-        ]),
-      )
-    }
-    EnsuredBody(Error(reason)) -> {
-      let model = add_diagnostic(model, "body text channel failed · " <> reason)
-      #(Model(..model, last_error: Some(reason)), effect.none())
-    }
+    // Every panel message routes through here, which is also where this app
+    // notices the caret may have moved and where it picks up its own trace
+    // subscription the first time the body channel exists.
+    Editor(inner) ->
+      case model.editor {
+        None -> #(model, effect.none())
+        Some(editor) -> {
+          let #(editor, editor_effect) = component.update(editor, inner)
+          let model = Model(..model, editor: Some(editor))
+          let #(model, announce) = announce_cursor(model)
+          let #(model, trace) = trace_body(model)
+          #(
+            model,
+            effect.batch([effect.map(editor_effect, Editor), announce, trace]),
+          )
+        }
+      }
 
-    // A text event fired (local or remote). The component re-renders itself off
-    // its own subscription; this arm is the app's share of the same event — the
-    // diagnostics trace and the pinned anchor's resolved position.
+    // The app's share of a text event: the diagnostics trace. The component
+    // re-renders itself off its own subscription.
     BodyChanged(event) -> {
       let diagnostics = case model.doc {
         Some(doc) -> Some(watershed_js.diagnostics(doc))
@@ -304,7 +279,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
       let model =
         Model(..model, diagnostics: diagnostics)
-        |> refresh_anchor
         |> add_diagnostic(detail)
       #(model, effect.none())
     }
@@ -322,26 +296,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
       #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
-
-    // The core of the demo, and now one line of routing: the component owns the
-    // diff, the minimal op, and the rejected-index banner. Read
-    // `textarea.value`/`length`/`error` off the returned model to see what it
-    // did — no callbacks to plumb.
-    Editor(inner) ->
-      case model.editor {
-        None -> #(model, effect.none())
-        Some(editor) -> {
-          let #(editor, editor_effect) = textarea.update(editor, inner)
-          // Any message may have moved the caret, so this is where the cursor
-          // gets broadcast. `announce_cursor` no-ops unless it actually moved:
-          // re-anchoring after a remote edit yields the same anchor values when
-          // the caret tracked the same content, so a peer typing does not make
-          // every client re-announce.
-          let #(model, announce) =
-            announce_cursor(Model(..model, editor: Some(editor)))
-          #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
-        }
-      }
 
     PresenceStarted(handle) ->
       announce_cursor(Model(..model, presence: Some(handle)))
@@ -372,7 +326,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                     None -> Error(Nil)
                   }
                 })
-              let #(editor, editor_effect) = textarea.set_peers(editor, cursors)
+              let #(editor, editor_effect) = component.set_peers(editor, cursors)
               #(
                 Model(..model, editor: Some(editor)),
                 effect.map(editor_effect, Editor),
@@ -380,66 +334,6 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
           }
       }
-
-    DraftAppendChanged(text) -> #(
-      Model(..model, draft_append: text),
-      effect.none(),
-    )
-
-    // The explicit append action — its own mutation family, distinct from the
-    // insert the textarea diff would produce. Appends to the end regardless of
-    // where the caret is.
-    AppendClicked ->
-      case model.editor, model.draft_append {
-        _, "" -> #(model, effect.none())
-        None, _ -> #(model, effect.none())
-        Some(editor), value -> {
-          // An edit the component does not own. It needs no notification: the
-          // channel's own event re-snapshots the component a microtask later.
-          let result = watershed_js.text_append(textarea.channel(editor), value)
-          let model =
-            Model(..model, draft_append: "")
-            |> refresh_anchor
-            |> record(result, "append")
-          #(model, effect.none())
-        }
-      }
-
-    // Pin an anchor at the current end of the text. As remote edits insert or
-    // delete text before it, `text_resolve_anchor` reports its shifted grapheme
-    // position — re-resolved on every snapshot.
-    PinAnchorClicked ->
-      case model.editor {
-        None -> #(model, effect.none())
-        Some(editor) -> {
-          let text = textarea.channel(editor)
-          let index = textarea.length(editor)
-          case
-            watershed_js.text_anchor_at(text, index, watershed_js.bias_before)
-          {
-            Ok(anchor) -> {
-              let model =
-                Model(..model, anchor: Some(anchor))
-                |> refresh_anchor
-                |> record(Ok(Nil), "anchor")
-                |> add_diagnostic(
-                  "anchor pinned at grapheme " <> int.to_string(index),
-                )
-              #(model, effect.none())
-            }
-            Error(reason) -> #(
-              record(model, Error(reason), "anchor"),
-              effect.none(),
-            )
-          }
-        }
-      }
-
-    ClearAnchorClicked -> #(
-      Model(..model, anchor: None, anchor_pos: None)
-        |> add_diagnostic("anchor cleared"),
-      effect.none(),
-    )
 
     ReconnectClicked ->
       case model.doc {
@@ -449,6 +343,24 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         )
         None -> #(model, effect.none())
       }
+  }
+}
+
+/// Take this app's own subscription on the body channel, once, as soon as the
+/// component has one to share. The component's subscription drives the editor;
+/// this one drives the diagnostics trace.
+fn trace_body(model: Model) -> #(Model, Effect(Msg)) {
+  case model.traced, model.editor {
+    False, Some(editor) ->
+      case component.channel(editor) {
+        Some(text) -> #(
+          Model(..model, traced: True)
+            |> add_diagnostic("body text channel ready"),
+          watershed_lustre.subscribe_text(text, BodyChanged),
+        )
+        None -> #(model, effect.none())
+      }
+    _, _ -> #(model, effect.none())
   }
 }
 
@@ -474,7 +386,7 @@ fn remote_entries(
 /// this stays quiet through a peer's typing and fires only on a real move.
 fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
   let current = case model.editor {
-    Some(editor) -> textarea.cursor(editor)
+    Some(editor) -> component.cursor(editor)
     None -> None
   }
 
@@ -485,52 +397,6 @@ fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
       Model(..model, announced: current),
       watershed_lustre.update_presence(handle, Editing(cursor: current)),
     )
-  }
-}
-
-/// Fold the result of an app-owned mutation into the model: clear the banner on
-/// success, surface the runtime's own message on failure. The component folds
-/// its own edits the same way — see `current_error`.
-fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
-  case result {
-    Ok(Nil) -> Model(..model, last_error: None)
-    Error(reason) ->
-      Model(..model, last_error: Some(verb <> " failed: " <> reason))
-      |> add_diagnostic(verb <> " rejected · " <> reason)
-  }
-}
-
-/// Resolve the pinned anchor to its current grapheme position, or drop it to
-/// `None` if it has gone stale/unknown.
-fn refresh_anchor(model: Model) -> Model {
-  case model.editor, model.anchor {
-    Some(editor), Some(anchor) ->
-      case watershed_js.text_resolve_anchor(textarea.channel(editor), anchor) {
-        Ok(pos) -> Model(..model, anchor_pos: Some(pos))
-        Error(_) -> Model(..model, anchor_pos: None)
-      }
-    _, _ -> Model(..model, anchor_pos: None)
-  }
-}
-
-/// The text's length in graphemes, or zero before the channel resolves.
-fn text_length(model: Model) -> Int {
-  case model.editor {
-    Some(editor) -> textarea.length(editor)
-    None -> 0
-  }
-}
-
-/// The banner to show: a rejected keystroke from the component takes precedence
-/// over an older app-owned failure.
-fn current_error(model: Model) -> Option(String) {
-  case model.editor {
-    Some(editor) ->
-      case textarea.error(editor) {
-        Some(reason) -> Some(reason)
-        None -> model.last_error
-      }
-    None -> model.last_error
   }
 }
 
@@ -593,10 +459,12 @@ fn view(model: Model) -> Element(Msg) {
   html.main([class("wrap")], [
     html.h1([], [html.text("watershed · collaborative text")]),
     status_line(model),
-    editor_view(model),
-    error_view(model),
-    append_view(model),
-    anchor_view(model),
+    panel_view(model),
+    html.div([class("compose")], [
+      html.button([event.on_click(ReconnectClicked)], [
+        html.text("Force reconnect"),
+      ]),
+    ]),
     diagnostics_view(model),
     html.p([class("hint")], [
       html.text(
@@ -619,100 +487,22 @@ fn status_line(model: Model) -> Element(Msg) {
     Some(diagnostics) -> " · " <> diagnostics.phase
     None -> ""
   }
+  let graphemes = case model.editor {
+    Some(editor) -> component.length(editor)
+    None -> 0
+  }
   html.p([class("status")], [
     html.text(
-      connection
-      <> runtime
-      <> " · "
-      <> int.to_string(text_length(model))
-      <> " graphemes",
+      connection <> runtime <> " · " <> int.to_string(graphemes) <> " graphemes",
     ),
   ])
 }
 
-/// All that is left of the editor here: presentation, plus the `element.map`
-/// that lifts the component's messages into this app's `Msg`. The attributes
-/// are the caller's to choose; the value binding and the input handler are the
-/// component's.
-fn editor_view(model: Model) -> Element(Msg) {
+fn panel_view(model: Model) -> Element(Msg) {
   case model.editor {
-    Some(editor) ->
-      textarea.view(editor, [
-        class("editor"),
-        rows(10),
-        placeholder("Start typing — every keystroke is one grapheme op…"),
-        attribute.attribute("aria-label", "collaborative document body"),
-      ])
-      |> element.map(Editor)
-
-    None ->
-      html.textarea(
-        [
-          class("editor"),
-          rows(10),
-          placeholder("connecting…"),
-          attribute.attribute("aria-label", "collaborative document body"),
-          disabled(True),
-        ],
-        "",
-      )
+    Some(editor) -> component.view(editor) |> element.map(Editor)
+    None -> html.p([class("status")], [html.text("connecting…")])
   }
-}
-
-fn append_view(model: Model) -> Element(Msg) {
-  html.div([class("compose")], [
-    html.input([
-      placeholder("Text to append (try an emoji 🌊 or accent é)"),
-      value(model.draft_append),
-      event.on_input(DraftAppendChanged),
-      attribute.attribute("aria-label", "text to append"),
-    ]),
-    html.button(
-      [event.on_click(AppendClicked), disabled(model.draft_append == "")],
-      [html.text("Append")],
-    ),
-    html.button([event.on_click(ReconnectClicked)], [
-      html.text("Force reconnect"),
-    ]),
-  ])
-}
-
-fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error"), attribute.attribute("role", "alert")], [
-    html.text(option.unwrap(current_error(model), "")),
-  ])
-}
-
-fn anchor_view(model: Model) -> Element(Msg) {
-  let detail = case model.anchor, model.anchor_pos {
-    Some(_), Some(pos) ->
-      "pinned · resolves to grapheme "
-      <> int.to_string(pos)
-      <> " of "
-      <> int.to_string(text_length(model))
-    Some(_), None -> "pinned · anchor target is currently unresolvable"
-    None, _ -> "no anchor pinned"
-  }
-  html.section([class("anchor")], [
-    html.h2([], [html.text("Pinned anchor")]),
-    html.p([], [
-      html.text(
-        "Pin an anchor at the end of the text, then edit from another tab "
-        <> "before it — its resolved position moves with the content.",
-      ),
-    ]),
-    html.p([class("anchor-detail")], [html.text(detail)]),
-    html.div([class("compose")], [
-      html.button(
-        [event.on_click(PinAnchorClicked), disabled(model.editor == None)],
-        [html.text("Pin anchor at end")],
-      ),
-      html.button(
-        [event.on_click(ClearAnchorClicked), disabled(model.anchor == None)],
-        [html.text("Clear anchor")],
-      ),
-    ]),
-  ])
 }
 
 fn diagnostics_view(model: Model) -> Element(Msg) {

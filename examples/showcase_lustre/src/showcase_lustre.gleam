@@ -50,6 +50,7 @@ import pixel_canvas_lustre/doc_schema as canvas_schema
 import playlist_lustre/doc_schema as playlist_schema
 import showcase_lustre/doc_schema
 import sudoku_lustre/doc_schema as sudoku_schema
+import text_lustre/component as text_panel
 import text_lustre/doc_schema as text_schema
 
 // ── Dev config for `just server` (floodgate dev mode) ────────────────────────
@@ -135,6 +136,21 @@ fn no_maps() -> Maps {
   Maps(text: None, playlist: None, sudoku: None, canvas: None)
 }
 
+/// The panels that have been opened, each holding its component's model.
+///
+/// A panel is initialised the first time it is opened, so an unopened panel
+/// holds no subscriptions — and once opened it is *kept*, because switching
+/// away only hides a panel's view. Dropping it would discard whatever the
+/// component owns beyond the document: the canvas's pixel buffer, a caret, a
+/// draft in an input.
+type Panels {
+  Panels(text: Option(text_panel.Model))
+}
+
+fn no_panels() -> Panels {
+  Panels(text: None)
+}
+
 type Model {
   Model(
     status: Status,
@@ -142,6 +158,7 @@ type Model {
     user_id: String,
     panel: Panel,
     maps: Maps,
+    panels: Panels,
     error: Option(String),
   )
 }
@@ -154,6 +171,7 @@ type Msg {
   EnsuredSudoku(Result(TypedMap(sudoku_schema.SudokuDoc), String))
   EnsuredCanvas(Result(TypedMap(canvas_schema.CanvasDoc), String))
   PanelPicked(Panel)
+  TextMsg(text_panel.Msg)
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -166,6 +184,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       user_id: user_id,
       panel: TextPanel,
       maps: no_maps(),
+      panels: no_panels(),
       error: None,
     )
   #(
@@ -203,22 +222,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    EnsuredText(Ok(map)) -> #(
-      Model(..model, maps: Maps(..model.maps, text: Some(map))),
-      effect.none(),
-    )
-    EnsuredPlaylist(Ok(map)) -> #(
-      Model(..model, maps: Maps(..model.maps, playlist: Some(map))),
-      effect.none(),
-    )
-    EnsuredSudoku(Ok(map)) -> #(
-      Model(..model, maps: Maps(..model.maps, sudoku: Some(map))),
-      effect.none(),
-    )
-    EnsuredCanvas(Ok(map)) -> #(
-      Model(..model, maps: Maps(..model.maps, canvas: Some(map))),
-      effect.none(),
-    )
+    // Each child map arrives on its own. `open_current` is called after every
+    // one because the panel showing right now may have been waiting for it.
+    EnsuredText(Ok(map)) ->
+      open_current(Model(..model, maps: Maps(..model.maps, text: Some(map))))
+    EnsuredPlaylist(Ok(map)) ->
+      open_current(Model(
+        ..model,
+        maps: Maps(..model.maps, playlist: Some(map)),
+      ))
+    EnsuredSudoku(Ok(map)) ->
+      open_current(Model(..model, maps: Maps(..model.maps, sudoku: Some(map))))
+    EnsuredCanvas(Ok(map)) ->
+      open_current(Model(..model, maps: Maps(..model.maps, canvas: Some(map))))
 
     EnsuredText(Error(reason))
     | EnsuredPlaylist(Error(reason))
@@ -228,7 +244,49 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    PanelPicked(panel) -> #(Model(..model, panel: panel), effect.none())
+    PanelPicked(panel) -> open_current(Model(..model, panel: panel))
+
+    TextMsg(inner) ->
+      case model.panels.text {
+        None -> #(model, effect.none())
+        Some(panel) -> {
+          let #(panel, fx) = text_panel.update(panel, inner)
+          #(
+            Model(..model, panels: Panels(text: Some(panel))),
+            effect.map(fx, TextMsg),
+          )
+        }
+      }
+  }
+}
+
+/// Initialise the open panel if it has a child map and no component yet.
+///
+/// This is the lazy half of decision 5: the maps are ensured eagerly, all at
+/// once, so the document's shape is declarative in one place, but a panel's
+/// `init` — and therefore its subscriptions — waits until someone looks at it.
+/// Already-open panels are left exactly as they are.
+fn open_current(model: Model) -> #(Model, Effect(Msg)) {
+  case model.doc {
+    None -> #(model, effect.none())
+    Some(doc) ->
+      case model.panel {
+        TextPanel ->
+          case model.panels.text, model.maps.text {
+            None, Some(map) -> {
+              let #(panel, fx) = text_panel.init(doc, map)
+              #(
+                Model(
+                  ..model,
+                  panels: Panels(text: Some(panel)),
+                ),
+                effect.map(fx, TextMsg),
+              )
+            }
+            _, _ -> #(model, effect.none())
+          }
+        _ -> #(model, effect.none())
+      }
   }
 }
 
@@ -339,8 +397,16 @@ fn error_view(model: Model) -> Element(Msg) {
   ])
 }
 
-/// The open panel. Placeholders until SC2–SC6 mount the real components.
+/// The open panel — the real component if it is mounted, a placeholder while
+/// its child map is still being ensured.
 fn panel_view(model: Model) -> Element(Msg) {
+  case model.panel, model.panels.text {
+    TextPanel, Some(panel) -> text_panel.view(panel) |> element.map(TextMsg)
+    _, _ -> waiting_view(model)
+  }
+}
+
+fn waiting_view(model: Model) -> Element(Msg) {
   html.div([class("placeholder")], [
     html.h2([], [html.text(panel_name(model.panel))]),
     html.p([], [html.text(panel_blurb(model.panel))]),
