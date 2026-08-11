@@ -1,0 +1,19 @@
+name: watershed
+version: 0.0.0
+description: APM project for watershed
+author: Tyler Butler
+targets:
+  - copilot
+  - claude
+
+devDependencies:
+  apm:
+    # - tylerbutler/agent-marketplace/plugins/repo-tools
+    # - tylerbutler/agent-marketplace/plugins/specialists
+    - tylerbutler/trellis
+    - JuliusBrussee/caveman/skills/caveman-commit
+    # - git: https://github.com/obra/superpowers
+    - DietrichGebert/ponytail
+  mcp: []
+includes: auto
+scripts: {}

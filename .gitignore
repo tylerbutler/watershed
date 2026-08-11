@@ -10,3 +10,7 @@ erl_crash.dump
 /.playwright-mcp/
 /.serena/
 /.worktrees/
+
+
+# APM dependencies
+apm_modules/
