@@ -1,13 +1,69 @@
 lockfile_version: '1'
-generated_at: '2026-08-11T22:59:34.757617+00:00'
+generated_at: '2026-08-12T00:04:42.596610+00:00'
 apm_version: 0.28.0
 dependencies:
+- repo_url: tylerbutler/agent-marketplace
+  name: astro-tinylytics
+  host: github.com
+  resolved_commit: 3a7646a1d6615ca01ef5a46141b1b10fcc17af87
+  version: unknown
+  virtual_path: plugins/repo-tools/skills/astro-tinylytics
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/astro-tinylytics
+  - .agents/skills/astro-tinylytics/SKILL.md
+  - .claude/skills/astro-tinylytics
+  - .claude/skills/astro-tinylytics/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/astro-tinylytics/SKILL.md: sha256:1d7ddc4f42e5bce0de9e346b345370fa78a193a3f1a86da8ae89b5827da7221d
+    .claude/skills/astro-tinylytics/SKILL.md: sha256:1d7ddc4f42e5bce0de9e346b345370fa78a193a3f1a86da8ae89b5827da7221d
+  content_hash: sha256:4f0465a84171d71b7e2ff550d2aca4fc564da33c1fa3d6e38fd1f09a09b39c7a
+  is_dev: true
+- repo_url: tylerbutler/apm-base
+  name: apm-base
+  host: github.com
+  resolved_commit: b7df627a7c15adbd6f22b967385f2f48eebd875a
+  version: 0.0.1
+  package_type: apm_package
+  deployed_files:
+  - .claude/rules/no-laziness.md
+  - .github/instructions/no-laziness.instructions.md
+  deployed_file_hashes:
+    .claude/rules/no-laziness.md: sha256:7bfa0b61b27e7f8aa782881e243ff010a542615ce14f0ce917615b23dcea1cd4
+    .github/instructions/no-laziness.instructions.md: sha256:d0f928dfdf98b1ddee5e676e212cff34c866c65cf839952c9d62c730068d7c1e
+  content_hash: sha256:0744d55c36e4a60856362dd55df542e58c3d9868cd6c0d6add6115175beb9927
+  is_dev: true
+- repo_url: tylerbutler/vestibule
+  name: gleam-review
+  host: github.com
+  resolved_commit: a59833c8f1ec24ce1322db6298539645a224d030
+  version: unknown
+  virtual_path: .claude/skills/gleam-review
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/gleam-review
+  - .agents/skills/gleam-review/SKILL.md
+  - .agents/skills/gleam-review/references/conventions.md
+  - .claude/skills/gleam-review
+  - .claude/skills/gleam-review/SKILL.md
+  - .claude/skills/gleam-review/references/conventions.md
+  deployed_file_hashes:
+    .agents/skills/gleam-review/SKILL.md: sha256:285a54a75346349ff12f6579c184847a6b35bbcecd2842b5065117a5d91ff071
+    .agents/skills/gleam-review/references/conventions.md: sha256:cd0b6dee401eff48c7afcb83db73ee5971e2563989f266dfd58bd93b997fe6ed
+    .claude/skills/gleam-review/SKILL.md: sha256:285a54a75346349ff12f6579c184847a6b35bbcecd2842b5065117a5d91ff071
+    .claude/skills/gleam-review/references/conventions.md: sha256:cd0b6dee401eff48c7afcb83db73ee5971e2563989f266dfd58bd93b997fe6ed
+  content_hash: sha256:5a86818a2312055b63558f5a9b208766b7e8266823d215bbfa8438d157491958
+  is_dev: true
 - repo_url: dietrichgebert/ponytail
   materialization_repo_url: DietrichGebert/ponytail
   name: ponytail
   host: github.com
   resolved_commit: 2ed6c52c9d7e5e56942508591085fd45dea277d3
   version: 2ed6c52
+  depth: 2
+  resolved_by: tylerbutler/apm-base
   package_type: marketplace_plugin
   deployed_files:
   - .agents/skills/ponytail
@@ -75,6 +131,8 @@ dependencies:
   version: unknown
   virtual_path: skills/caveman-commit
   is_virtual: true
+  depth: 2
+  resolved_by: tylerbutler/apm-base
   package_type: claude_skill
   deployed_files:
   - .agents/skills/caveman-commit
@@ -89,26 +147,6 @@ dependencies:
     .claude/skills/caveman-commit/README.md: sha256:a2e82924b487fc1845114c247b47c2d3c2d1bd60f90bbfa60e9831319eb964fa
     .claude/skills/caveman-commit/SKILL.md: sha256:58db7b8efab911a629c26e7132517d9076e4e3645009eb604cb8c25663477841
   content_hash: sha256:790a4eeace0be35c6691faf923518ba5bd50f1f1305d1101d09dd4971be94e00
-  is_dev: true
-- repo_url: tylerbutler/trellis
-  name: trellis
-  host: github.com
-  resolved_commit: e97e82933639d91e76d0d250fc283cb12101cbae
-  version: 1.0.0
-  package_type: apm_package
-  deployed_files:
-  - .agents/skills/trellis-onboarding
-  - .agents/skills/trellis-onboarding/SKILL.md
-  - .claude/rules/no-laziness.md
-  - .claude/skills/trellis-onboarding
-  - .claude/skills/trellis-onboarding/SKILL.md
-  - .github/instructions/no-laziness.instructions.md
-  deployed_file_hashes:
-    .agents/skills/trellis-onboarding/SKILL.md: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
-    .claude/rules/no-laziness.md: sha256:7bfa0b61b27e7f8aa782881e243ff010a542615ce14f0ce917615b23dcea1cd4
-    .claude/skills/trellis-onboarding/SKILL.md: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
-    .github/instructions/no-laziness.instructions.md: sha256:d0f928dfdf98b1ddee5e676e212cff34c866c65cf839952c9d62c730068d7c1e
-  content_hash: sha256:353f948904375b20ce0be550020be948e9fb31be91313c6527ab562792eb8e99
   is_dev: true
 deployments:
 - kind: project-relative
@@ -198,9 +236,27 @@ deployments:
   runtime: null
   scope: project
   owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
+  - tylerbutler/apm-base
+  active_owner: tylerbutler/apm-base
   content_hash: sha256:7bfa0b61b27e7f8aa782881e243ff010a542615ce14f0ce917615b23dcea1cd4
+- kind: project-relative
+  target: claude
+  value: .claude/skills/astro-tinylytics
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  active_owner: tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/astro-tinylytics/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  active_owner: tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  content_hash: sha256:1d7ddc4f42e5bce0de9e346b345370fa78a193a3f1a86da8ae89b5827da7221d
 - kind: project-relative
   target: claude
   value: .claude/skills/caveman-commit
@@ -228,6 +284,33 @@ deployments:
   - juliusbrussee/caveman/skills/caveman-commit
   active_owner: juliusbrussee/caveman/skills/caveman-commit
   content_hash: sha256:58db7b8efab911a629c26e7132517d9076e4e3645009eb604cb8c25663477841
+- kind: project-relative
+  target: claude
+  value: .claude/skills/gleam-review
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/gleam-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: sha256:285a54a75346349ff12f6579c184847a6b35bbcecd2842b5065117a5d91ff071
+- kind: project-relative
+  target: claude
+  value: .claude/skills/gleam-review/references/conventions.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: sha256:cd0b6dee401eff48c7afcb83db73ee5971e2563989f266dfd58bd93b997fe6ed
 - kind: project-relative
   target: claude
   value: .claude/skills/ponytail
@@ -337,23 +420,23 @@ deployments:
   active_owner: dietrichgebert/ponytail
   content_hash: sha256:1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2
 - kind: project-relative
-  target: claude
-  value: .claude/skills/trellis-onboarding
+  target: copilot
+  value: .agents/skills/astro-tinylytics
   runtime: null
   scope: project
   owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
+  - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  active_owner: tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
   content_hash: null
 - kind: project-relative
-  target: claude
-  value: .claude/skills/trellis-onboarding/SKILL.md
+  target: copilot
+  value: .agents/skills/astro-tinylytics/SKILL.md
   runtime: null
   scope: project
   owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
-  content_hash: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
+  - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  active_owner: tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+  content_hash: sha256:1d7ddc4f42e5bce0de9e346b345370fa78a193a3f1a86da8ae89b5827da7221d
 - kind: project-relative
   target: copilot
   value: .agents/skills/caveman-commit
@@ -381,6 +464,33 @@ deployments:
   - juliusbrussee/caveman/skills/caveman-commit
   active_owner: juliusbrussee/caveman/skills/caveman-commit
   content_hash: sha256:58db7b8efab911a629c26e7132517d9076e4e3645009eb604cb8c25663477841
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/gleam-review
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/gleam-review/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: sha256:285a54a75346349ff12f6579c184847a6b35bbcecd2842b5065117a5d91ff071
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/gleam-review/references/conventions.md
+  runtime: null
+  scope: project
+  owners:
+  - tylerbutler/vestibule/.claude/skills/gleam-review
+  active_owner: tylerbutler/vestibule/.claude/skills/gleam-review
+  content_hash: sha256:cd0b6dee401eff48c7afcb83db73ee5971e2563989f266dfd58bd93b997fe6ed
 - kind: project-relative
   target: copilot
   value: .agents/skills/ponytail
@@ -491,28 +601,10 @@ deployments:
   content_hash: sha256:1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2
 - kind: project-relative
   target: copilot
-  value: .agents/skills/trellis-onboarding
-  runtime: null
-  scope: project
-  owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
-  content_hash: null
-- kind: project-relative
-  target: copilot
-  value: .agents/skills/trellis-onboarding/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
-  content_hash: sha256:2b147d03e89aca49126605bf858828428c6c6f3640d71c0e018d7fde7eaa3ef3
-- kind: project-relative
-  target: copilot
   value: .github/instructions/no-laziness.instructions.md
   runtime: null
   scope: project
   owners:
-  - tylerbutler/trellis
-  active_owner: tylerbutler/trellis
+  - tylerbutler/apm-base
+  active_owner: tylerbutler/apm-base
   content_hash: sha256:d0f928dfdf98b1ddee5e676e212cff34c866c65cf839952c9d62c730068d7c1e
