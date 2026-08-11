@@ -1,0 +1,21 @@
+name = "showcase_lustre"
+version = "1.0.0"
+description = "Four collaborative apps in one document (Lustre SPA): a shell that nests each demo under its own ChildField"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_javascript = ">= 1.0.0 and < 2.0.0"
+lustre = ">= 5.0.0 and < 6.0.0"
+watershed = { path = "../.." }
+watershed_lustre = { path = "../../watershed_lustre" }
+text_lustre = { path = "../text_lustre" }
+playlist_lustre = { path = "../playlist_lustre" }
+sudoku_lustre = { path = "../sudoku_lustre" }
+pixel_canvas_lustre = { path = "../pixel_canvas_lustre" }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 3.0.0"

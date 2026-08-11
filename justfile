@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue _build-retro
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue _build-retro _build-showcase
 
 # Run tests
 test: _test-gleam _test-js _test-lustre _test-examples _test-compile-fail
@@ -44,6 +44,7 @@ _test-examples:
     cd examples/drum_machine_lustre && gleam test
     cd examples/pixel_canvas_lustre && gleam test
     cd examples/retro_board_lustre && gleam test
+    cd examples/showcase_lustre && gleam test
 
 # The one guarantee no ordinary test can make: that *wrong* code is rejected.
 # `tools/compile-fail/two_root_tags` views one document's root through two
@@ -144,7 +145,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue _deps-retro
+deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue _deps-retro _deps-showcase
 
 _deps-gleam:
     gleam deps download
@@ -179,6 +180,9 @@ _deps-work-queue:
 
 _deps-retro:
     pnpm --dir examples/retro_board_lustre install
+
+_deps-showcase:
+    pnpm --dir examples/showcase_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -217,3 +221,6 @@ _build-work-queue:
 
 _build-retro:
     pnpm --dir examples/retro_board_lustre run build
+
+_build-showcase:
+    pnpm --dir examples/showcase_lustre run build

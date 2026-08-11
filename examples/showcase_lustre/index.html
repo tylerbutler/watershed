@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · showcase</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .shell { width: 100%; max-width: 52rem; padding: 2rem; }
+      /* The shell adds a heading level the single-app examples do not have:
+         document title above panel title. A 1.5 ratio keeps the two apart. */
+      h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+      h2 { font-size: 1rem; margin: 0 0 0.25rem; }
+      .status { opacity: 0.7; margin-top: 0; }
+      input, textarea {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      button {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover:not(:disabled) { opacity: 0.8; }
+      button:disabled { opacity: 0.3; cursor: default; }
+
+      /* ── Shell chrome ─────────────────────────────────────────────────── */
+      .switcher {
+        display: flex;
+        gap: 0.5rem;
+        margin: 1.25rem 0 1rem;
+        flex-wrap: wrap;
+      }
+      .tab { border-color: color-mix(in srgb, currentColor 35%, transparent); }
+      .tab-selected {
+        border-color: currentColor;
+        background: color-mix(in srgb, currentColor 10%, transparent);
+        font-weight: 600;
+      }
+      .panel {
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        min-height: 18rem;
+      }
+      .placeholder { opacity: 0.75; }
+      .placeholder-state { font-size: 0.8rem; opacity: 0.7; }
+      .error {
+        color: #c0392b;
+        font-size: 0.8rem;
+        min-height: 1.2rem;
+        margin: 0.25rem 0;
+      }
+      .hint { font-size: 0.8rem; opacity: 0.6; margin-top: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/showcase_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>
