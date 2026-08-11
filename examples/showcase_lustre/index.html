@@ -111,6 +111,68 @@
       .track-artist { font-size: 0.8rem; opacity: 0.65; }
       .track-controls { display: flex; gap: 0.25rem; flex: 0 0 auto; }
       .track-controls button { padding: 0.35rem 0.5rem; }
+
+      /* ── Sudoku panel ─────────────────────────────────────────────────── */
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: center;
+        margin: 0 0 1rem;
+      }
+      .mistakes { font-variant-numeric: tabular-nums; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(9, 1fr);
+        width: min(92vw, 32rem);
+        aspect-ratio: 1;
+        margin: 1rem auto;
+        border: 3px solid currentColor;
+      }
+      .cell {
+        position: relative;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        border-radius: 0;
+        padding: 0;
+        display: grid;
+        place-items: center;
+        min-width: 0;
+        background: transparent;
+      }
+      .cell:nth-child(3n) { border-right-width: 3px; }
+      .cell:nth-child(9n) { border-right-width: 0; }
+      .cell:nth-child(n+19):nth-child(-n+27),
+      .cell:nth-child(n+46):nth-child(-n+54) { border-bottom-width: 3px; }
+      .cell.given {
+        font-weight: 700;
+        background: color-mix(in srgb, currentColor 10%, transparent);
+      }
+      .cell.selected { outline: 3px solid Highlight; outline-offset: -3px; }
+      .cell .cursor {
+        position: absolute;
+        top: 0; left: 0;
+        transform: translateY(-100%);
+        font-size: 0.55rem;
+        line-height: 1;
+        padding: 1px 3px;
+        border-radius: 3px 3px 3px 0;
+        color: #fff;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 1;
+      }
+      .digit { font-size: clamp(1.25rem, 5vw, 2rem); line-height: 1; }
+      .notes {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.05rem;
+        width: 80%;
+        height: 80%;
+        font-size: clamp(0.45rem, 2vw, 0.8rem);
+        opacity: 0.75;
+      }
+      .note { min-width: 0; }
       .error {
         color: #c0392b;
         font-size: 0.8rem;

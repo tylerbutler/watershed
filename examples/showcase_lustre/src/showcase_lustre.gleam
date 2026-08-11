@@ -50,6 +50,7 @@ import pixel_canvas_lustre/doc_schema as canvas_schema
 import playlist_lustre/component as playlist_panel
 import playlist_lustre/doc_schema as playlist_schema
 import showcase_lustre/doc_schema
+import sudoku_lustre/component as sudoku_panel
 import sudoku_lustre/doc_schema as sudoku_schema
 import text_lustre/component as text_panel
 import text_lustre/doc_schema as text_schema
@@ -148,11 +149,12 @@ type Panels {
   Panels(
     text: Option(text_panel.Model),
     playlist: Option(playlist_panel.Model),
+    sudoku: Option(sudoku_panel.Model),
   )
 }
 
 fn no_panels() -> Panels {
-  Panels(text: None, playlist: None)
+  Panels(text: None, playlist: None, sudoku: None)
 }
 
 type Model {
@@ -177,6 +179,7 @@ type Msg {
   PanelPicked(Panel)
   TextMsg(text_panel.Msg)
   PlaylistMsg(playlist_panel.Msg)
+  SudokuMsg(sudoku_panel.Msg)
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
@@ -277,6 +280,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
         }
       }
+
+    SudokuMsg(inner) ->
+      case model.panels.sudoku {
+        None -> #(model, effect.none())
+        Some(panel) -> {
+          let #(panel, fx) = sudoku_panel.update(panel, inner)
+          #(
+            Model(..model, panels: Panels(..model.panels, sudoku: Some(panel))),
+            effect.map(fx, SudokuMsg),
+          )
+        }
+      }
   }
 }
 
@@ -315,6 +330,20 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
                   panels: Panels(..model.panels, playlist: Some(panel)),
                 ),
                 effect.map(fx, PlaylistMsg),
+              )
+            }
+            _, _ -> #(model, effect.none())
+          }
+        SudokuPanel ->
+          case model.panels.sudoku, model.maps.sudoku {
+            None, Some(map) -> {
+              let #(panel, fx) = sudoku_panel.init(doc, map)
+              #(
+                Model(
+                  ..model,
+                  panels: Panels(..model.panels, sudoku: Some(panel)),
+                ),
+                effect.map(fx, SudokuMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -443,6 +472,11 @@ fn panel_view(model: Model) -> Element(Msg) {
     PlaylistPanel ->
       case model.panels.playlist {
         Some(panel) -> playlist_panel.view(panel) |> element.map(PlaylistMsg)
+        None -> waiting_view(model)
+      }
+    SudokuPanel ->
+      case model.panels.sudoku {
+        Some(panel) -> sudoku_panel.view(panel) |> element.map(SudokuMsg)
         None -> waiting_view(model)
       }
     _ -> waiting_view(model)
