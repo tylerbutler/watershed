@@ -26,8 +26,8 @@ import gleam/string
 import watershed/or_map_kernel
 import watershed_js.{type Document, type OrMap, WatershedConfig}
 
-import doc_schema
-import grid
+import pixel_canvas_lustre/doc_schema
+import pixel_canvas_lustre/grid
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 

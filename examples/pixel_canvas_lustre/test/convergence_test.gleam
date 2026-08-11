@@ -15,7 +15,7 @@
 //// The canvas FFI is deliberately untested: it is pure rendering, and these
 //// tests cover the state it renders from.
 
-import doc_schema
+import pixel_canvas_lustre/doc_schema
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, Some}
@@ -26,7 +26,7 @@ import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed_js.{type Document, type OrMap}
 
-import grid
+import pixel_canvas_lustre/grid
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 

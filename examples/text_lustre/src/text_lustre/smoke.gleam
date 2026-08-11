@@ -20,7 +20,7 @@ import gleam/string
 
 import watershed_js.{type Document, type SharedText, WatershedConfig}
 
-import doc_schema
+import text_lustre/doc_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 

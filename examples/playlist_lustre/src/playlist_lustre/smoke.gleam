@@ -19,8 +19,8 @@ import gleam/string
 
 import watershed_js.{type Document, type SharedSequence, WatershedConfig}
 
-import doc_schema
-import track.{Track}
+import playlist_lustre/doc_schema
+import playlist_lustre/track.{Track}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 

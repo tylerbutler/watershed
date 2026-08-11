@@ -42,8 +42,8 @@ import watershed/sequence_kernel
 import watershed_js.{type Document, type SharedSequence}
 import watershed_lustre
 
-import doc_schema
-import track.{type Track, Track}
+import playlist_lustre/doc_schema
+import playlist_lustre/track.{type Track, Track}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 

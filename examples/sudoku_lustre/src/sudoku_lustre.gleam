@@ -23,8 +23,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import doc_schema
-import puzzles.{type Puzzle}
+import sudoku_lustre/doc_schema
+import sudoku_lustre/puzzles.{type Puzzle}
 import watershed_js.{
   type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
 }

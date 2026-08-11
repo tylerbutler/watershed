@@ -60,7 +60,7 @@ import watershed_js.{type Document, type SharedText, type TextAnchor}
 import watershed_lustre
 import watershed_lustre/textarea
 
-import doc_schema
+import text_lustre/doc_schema
 import watershed/browser
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────

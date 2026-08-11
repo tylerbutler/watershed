@@ -10,7 +10,7 @@ import gleam/list
 import gleam/string
 import gleeunit/should
 
-import grid
+import pixel_canvas_lustre/grid
 
 /// Every cell in the grid, in the order `encode` is documented to sort into.
 fn all_cells() -> List(#(Int, Int)) {

@@ -35,9 +35,9 @@ import watershed/or_map_kernel
 import watershed_js.{type Document, type OrMap}
 import watershed_lustre
 
-import canvas.{type Canvas}
-import doc_schema
-import grid
+import pixel_canvas_lustre/canvas.{type Canvas}
+import pixel_canvas_lustre/doc_schema
+import pixel_canvas_lustre/grid
 
 // ── Dev config for `just integration-up` (floodgate dev mode) ────────────────
 
