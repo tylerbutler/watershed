@@ -1,3 +1,4 @@
 [tools]
 erlang = "latest"
 gleam = "1.18"
+"github:tylerbutler/trellis" = "latest"
