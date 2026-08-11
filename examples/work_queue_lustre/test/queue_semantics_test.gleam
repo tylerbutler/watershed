@@ -6,6 +6,7 @@
 //// `settle` drains the room before the assertions read it — including the
 //// sequenced `"leave"` that `disconnect` fans out to the survivors.
 
+import doc_schema
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{Some}
@@ -27,7 +28,9 @@ const role = "dispatcher"
 /// A room with the queue and roles channels seeded on A and resolvable by
 /// everyone. The app bootstraps these with `ensure_*` retry loops — right in a
 /// browser, wrong here, where delivery is synchronous and deterministic.
-fn room(name: String) -> #(Sluice, Document, Document) {
+fn room(
+  name: String,
+) -> #(Sluice, Document(doc_schema.Dispatch), Document(doc_schema.Dispatch)) {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -47,19 +50,19 @@ fn room(name: String) -> #(Sluice, Document, Document) {
   #(sluice, doc_a, doc_b)
 }
 
-fn queue_of(doc: Document) -> OrderedCollection {
+fn queue_of(doc: Document(doc_schema.Dispatch)) -> OrderedCollection {
   let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "queue")
   let assert Ok(queue) = watershed_js.resolve_ordered_collection(doc, handle)
   queue
 }
 
-fn roles_of(doc: Document) -> TaskManager {
+fn roles_of(doc: Document(doc_schema.Dispatch)) -> TaskManager {
   let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "roles")
   let assert Ok(roles) = watershed_js.resolve_task_manager(doc, handle)
   roles
 }
 
-fn int_of(doc: Document) -> Int {
+fn int_of(doc: Document(doc_schema.Dispatch)) -> Int {
   let assert Some(id) = watershed_js.client_id(doc)
   client_id.to_int(id)
 }

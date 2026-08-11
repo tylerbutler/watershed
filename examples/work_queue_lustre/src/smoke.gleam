@@ -48,7 +48,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.Dispatch)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -85,7 +88,10 @@ pub fn main() {
 }
 
 /// A ensures both consensus channels; B adopts the handles A published.
-fn bootstrap(doc_a: Document, doc_b: Document) -> Nil {
+fn bootstrap(
+  doc_a: Document(doc_schema.Dispatch),
+  doc_b: Document(doc_schema.Dispatch),
+) -> Nil {
   use <- delay(2000)
   log("smoke: ensuring the queue and roles channels on A")
   use queue_a <- ensure_queue(doc_a, "A")
@@ -99,7 +105,7 @@ fn bootstrap(doc_a: Document, doc_b: Document) -> Nil {
 /// Phase 1: A takes the dispatcher role and dispatches a job; B claims it
 /// through consensus and completes it.
 fn dispatch_phase(
-  doc_a: Document,
+  doc_a: Document(doc_schema.Dispatch),
   queue_a: OrderedCollection,
   roles_a: TaskManager,
   queue_b: OrderedCollection,
@@ -153,7 +159,7 @@ fn dispatch_phase(
 /// socket is torn down without a goodbye. The server's sequenced leave must
 /// return the job and hand over the role.
 fn kill_phase(
-  doc_a: Document,
+  doc_a: Document(doc_schema.Dispatch),
   queue_a: OrderedCollection,
   roles_a: TaskManager,
   queue_b: OrderedCollection,
@@ -210,7 +216,7 @@ fn kill_phase(
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn ensure_queue(
-  doc: Document,
+  doc: Document(doc_schema.Dispatch),
   who: String,
   then: fn(OrderedCollection) -> Nil,
 ) -> Nil {
@@ -228,7 +234,7 @@ fn ensure_queue(
 }
 
 fn ensure_roles(
-  doc: Document,
+  doc: Document(doc_schema.Dispatch),
   who: String,
   then: fn(TaskManager) -> Nil,
 ) -> Nil {

@@ -42,7 +42,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.BoardDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -78,7 +81,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.BoardDoc),
+  doc_b: Document(doc_schema.BoardDoc),
+) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
 
@@ -136,7 +142,7 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
 /// A seeds one card, then B resolves the same channels from its own root —
 /// proving adoption rather than duplicate creation.
 fn seed_then_resolve(
-  doc_b: Document,
+  doc_b: Document(doc_schema.BoardDoc),
   notes_a: OrMap,
   votes_a: OrMap,
   seq_a: watershed_js.SharedSequence,

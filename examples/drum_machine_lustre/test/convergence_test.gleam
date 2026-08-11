@@ -7,6 +7,7 @@
 //// Web Audio concern with no collaborative content, and a test that asserted
 //// step timings against a mocked clock would be testing the mock.
 
+import doc_schema
 import gleam/list
 import gleam/option.{Some}
 import gleam/string
@@ -48,7 +49,7 @@ fn room(name: String) -> #(Sluice, Client, Client) {
   #(sluice, client(doc_a), client(doc_b))
 }
 
-fn client(doc: Document) -> Client {
+fn client(doc: Document(doc_schema.Machine)) -> Client {
   let root = watershed_js.root(doc)
   let tracks =
     track_keys

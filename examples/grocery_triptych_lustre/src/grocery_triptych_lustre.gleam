@@ -71,7 +71,7 @@ type Model {
     document_name: String,
     user_id: String,
     readiness: Readiness,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.Pantry)),
     ready_callback_seen: Bool,
     bootstrap_requested: Bool,
     pending: PendingPantry,
@@ -172,7 +172,7 @@ type Panel {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.Pantry))
   Connected(Result(Nil, String))
   EnsuredGrowOnly(Result(GSet, String))
   EnsuredTwoPhase(Result(TwoPSet, String))
@@ -235,7 +235,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Pantry)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_g_set(

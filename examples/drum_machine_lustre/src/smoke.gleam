@@ -38,7 +38,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.Machine)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -74,7 +77,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.Machine),
+  doc_b: Document(doc_schema.Machine),
+) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
 
@@ -107,7 +113,11 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   )
 }
 
-fn adopt_on_b(doc_a: Document, doc_b: Document, kick_a: OrSet) -> Nil {
+fn adopt_on_b(
+  doc_a: Document(doc_schema.Machine),
+  doc_b: Document(doc_schema.Machine),
+  kick_a: OrSet,
+) -> Nil {
   // B adopts the same channel rather than creating its own — `ensure_or_set`
   // resolves the handle A just published.
   use <- delay(1500)
@@ -127,7 +137,11 @@ fn adopt_on_b(doc_a: Document, doc_b: Document, kick_a: OrSet) -> Nil {
   )
 }
 
-fn toggle_scenario(doc_a: Document, kick_a: OrSet, kick_b: OrSet) -> Nil {
+fn toggle_scenario(
+  doc_a: Document(doc_schema.Machine),
+  kick_a: OrSet,
+  kick_b: OrSet,
+) -> Nil {
   log("smoke: A programs four-on-the-floor")
   list.each(["0", "4", "8", "12"], fn(step) {
     watershed_js.or_set_add(kick_a, step)

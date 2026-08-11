@@ -8,6 +8,7 @@
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
 
+import doc_schema
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/javascript/promise.{type Promise}
@@ -53,7 +54,10 @@ fn ping_decoder() -> Decoder(Ping) {
   decode.success(Ping(cell:, editing:))
 }
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.SudokuDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -93,7 +97,10 @@ fn ping_config() -> presence.Config(Ping) {
   presence.config(encode_ping, ping_decoder())
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.SudokuDoc),
+  doc_b: Document(doc_schema.SudokuDoc),
+) -> Nil {
   // B tracks its roster through the driver; A joins with one payload and then
   // updates it. Whether that rides the server lane or the ripple heartbeat is
   // the driver's business — this harness asserts the same outcome either way.

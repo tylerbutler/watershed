@@ -119,7 +119,7 @@ type PendingShared {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.SudokuDoc)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -141,7 +141,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.SudokuDoc))
   Connected(Result(Nil, String))
   EnsuredCells(Result(SharedMap, String))
   EnsuredNotes(Result(OrSet, String))
@@ -197,7 +197,10 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// Ephemeral presence rides on the library driver, independent of the DDS
 /// streams: it negotiates server or ripple mode, joins, and rejoins after a
 /// reconnect; we only re-render on the roster it reports.
-fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
+fn presence_effect(
+  model: Model,
+  doc: Document(doc_schema.SudokuDoc),
+) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
     config: presence.config(encode_presence, presence_decoder()),
@@ -247,7 +250,7 @@ fn current_presence(model: Model) -> SudokuPresence {
 /// `ensure_*` dispatches its channel back as an `Ensured*` message; they
 /// assemble into `SharedState` once all four have arrived (`assemble`). Plain
 /// fields seed set-if-absent, LWW settling concurrent joins.
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.SudokuDoc)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(
@@ -760,7 +763,7 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 
 // ── Read helpers ─────────────────────────────────────────────────────────────
 
-fn puzzle_from_root(doc: Document) -> Puzzle {
+fn puzzle_from_root(doc: Document(doc_schema.SudokuDoc)) -> Puzzle {
   case
     watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.puzzle())
   {

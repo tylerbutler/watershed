@@ -5,6 +5,7 @@
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
 
+import doc_schema
 import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
@@ -30,7 +31,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.DiceDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -66,7 +70,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.DiceDoc),
+  doc_b: Document(doc_schema.DiceDoc),
+) -> Nil {
   let map_a = watershed_js.root(doc_a)
   let map_b = watershed_js.root(doc_b)
 

@@ -135,7 +135,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.TextDoc)),
     /// The bound `<textarea>`. `None` until `ensure_text` resolves — the
     /// component is constructed with a live channel, never an empty one.
     editor: Option(textarea.Model),
@@ -154,7 +154,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.TextDoc))
   Connected(Result(Nil, String))
   EnsuredBody(Result(SharedText, String))
   BodyChanged(text_kernel.TextEvent)

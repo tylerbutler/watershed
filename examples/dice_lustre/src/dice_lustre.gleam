@@ -8,6 +8,7 @@
 //// Open two browser tabs against the same `just server` document and watch
 //// rolls converge. Roll during a forced reconnect and nothing is lost.
 
+import doc_schema
 import gleam/int
 import gleam/io
 import gleam/json
@@ -55,7 +56,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.DiceDoc)),
     user_id: String,
     die: Option(String),
     entries: List(#(String, String)),
@@ -65,7 +66,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.DiceDoc))
   Connected(Result(Nil, String))
   MapChanged(map_kernel.MapEvent)
   DiagnosticsTick

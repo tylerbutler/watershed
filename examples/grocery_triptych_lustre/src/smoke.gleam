@@ -66,7 +66,10 @@ type Readiness {
   Failed(String)
 }
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.Pantry)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -188,7 +191,10 @@ fn fail_ready(user: String, reason: String) -> Nil {
   fail("on_ready error for " <> user <> ": " <> reason)
 }
 
-fn bootstrap(doc_a: Document, doc_b: Document) -> Nil {
+fn bootstrap(
+  doc_a: Document(doc_schema.Pantry),
+  doc_b: Document(doc_schema.Pantry),
+) -> Nil {
   log("smoke: ensuring pantry channels on A")
   use grow_only_a <- ensure_grow_only(doc_a, "A")
   use two_phase_a <- ensure_two_phase(doc_a, "A")
@@ -327,7 +333,11 @@ fn eggs_phase(client_a: Client, client_b: Client) -> Nil {
   }
 }
 
-fn ensure_grow_only(doc: Document, who: String, then: fn(GSet) -> Nil) -> Nil {
+fn ensure_grow_only(
+  doc: Document(doc_schema.Pantry),
+  who: String,
+  then: fn(GSet) -> Nil,
+) -> Nil {
   watershed_js.ensure_g_set(
     doc,
     watershed_js.root_typed(doc),
@@ -343,7 +353,7 @@ fn ensure_grow_only(doc: Document, who: String, then: fn(GSet) -> Nil) -> Nil {
 }
 
 fn ensure_two_phase(
-  doc: Document,
+  doc: Document(doc_schema.Pantry),
   who: String,
   then: fn(TwoPSet) -> Nil,
 ) -> Nil {
@@ -361,7 +371,11 @@ fn ensure_two_phase(
   )
 }
 
-fn ensure_observed(doc: Document, who: String, then: fn(OrSet) -> Nil) -> Nil {
+fn ensure_observed(
+  doc: Document(doc_schema.Pantry),
+  who: String,
+  then: fn(OrSet) -> Nil,
+) -> Nil {
   watershed_js.ensure_or_set(
     doc,
     watershed_js.root_typed(doc),
@@ -382,7 +396,7 @@ fn add_everywhere(client: Client, item: String) -> Nil {
   watershed_js.or_set_add(client.observed, item)
 }
 
-fn root_channel_fields_present(doc: Document) -> Bool {
+fn root_channel_fields_present(doc: Document(doc_schema.Pantry)) -> Bool {
   let root = watershed_js.untyped(watershed_js.root_typed(doc))
 
   watershed_js.has(root, "grow_only")

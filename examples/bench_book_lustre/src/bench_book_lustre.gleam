@@ -63,7 +63,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.Survey)),
     readings_channel: Option(SharedMap),
     flags_channel: Option(SharedCounter),
     user_id: String,
@@ -78,7 +78,7 @@ type Model {
 }
 
 type Msg {
-  GotDocument(Document)
+  GotDocument(Document(doc_schema.Survey))
   Connected(Result(Nil, String))
   EnsuredReadings(Result(SharedMap, String))
   EnsuredFlags(Result(SharedCounter, String))
@@ -122,7 +122,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Survey)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(
@@ -143,7 +143,10 @@ fn bootstrap_effect(doc: Document) -> Effect(Msg) {
   ])
 }
 
-fn presence_effect(model: Model, doc: Document) -> Effect(Msg) {
+fn presence_effect(
+  model: Model,
+  doc: Document(doc_schema.Survey),
+) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
     config: presence.config(encode_presence, presence_decoder()),

@@ -37,7 +37,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.PlaylistDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -73,7 +76,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.PlaylistDoc),
+  doc_b: Document(doc_schema.PlaylistDoc),
+) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the tracks sequence on A")
@@ -95,7 +101,10 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
 }
 
 /// A seeds three tracks, then B resolves the same sequence from the root map.
-fn seed_then_resolve(doc_b: Document, seq_a: SharedSequence) -> Nil {
+fn seed_then_resolve(
+  doc_b: Document(doc_schema.PlaylistDoc),
+  seq_a: SharedSequence,
+) -> Nil {
   log("smoke: seeding three tracks from A")
   insert_track(seq_a, "Windowlicker", "Aphex Twin")
   insert_track(seq_a, "Xtal", "Aphex Twin")

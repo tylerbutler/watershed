@@ -126,7 +126,7 @@ type ClaimState {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.Dispatch)),
     shared: Option(Shared),
     pending: PendingShared,
     user_id: String,
@@ -145,7 +145,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.Dispatch))
   Connected(Result(Nil, String))
   EnsuredQueue(Result(OrderedCollection, String))
   EnsuredRoles(Result(TaskManager, String))
@@ -380,7 +380,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Dispatch)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_ordered_collection(

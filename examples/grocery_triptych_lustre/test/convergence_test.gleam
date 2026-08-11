@@ -42,7 +42,7 @@ fn room(name: String) -> #(Sluice, Client, Client) {
   #(sluice, client(doc_a), client(doc_b))
 }
 
-fn client(doc: Document) -> Client {
+fn client(doc: Document(doc_schema.Pantry)) -> Client {
   let root = watershed_js.root_typed(doc)
   let assert Ok(Some(grow_only)) =
     watershed_js.resolve_g_set_field(doc, root, doc_schema.grow_only())

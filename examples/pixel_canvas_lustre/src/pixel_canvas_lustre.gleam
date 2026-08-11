@@ -66,7 +66,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.CanvasDoc)),
     pixels: Option(OrMap),
     /// The pixel buffer. Not part of the model's value in any meaningful
     /// sense — it is a handle to mutable JS state — but it has to be reachable
@@ -85,7 +85,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.CanvasDoc))
   Connected(Result(Nil, String))
   EnsuredPixels(Result(OrMap, String))
   PixelsChanged(or_map_kernel.OrMapEvent)

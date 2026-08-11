@@ -15,6 +15,7 @@
 //// The canvas FFI is deliberately untested: it is pure rendering, and these
 //// tests cover the state it renders from.
 
+import doc_schema
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, Some}
@@ -35,7 +36,15 @@ import grid
 /// loop on a timer. That is right in a browser and wrong here — the sluice's
 /// whole point is synchronous, deterministic delivery — so the test seeds the
 /// handle directly and keeps the assertions free of waiting.
-fn room(name: String) -> #(Sluice, Document, Document, OrMap, OrMap) {
+fn room(
+  name: String,
+) -> #(
+  Sluice,
+  Document(doc_schema.CanvasDoc),
+  Document(doc_schema.CanvasDoc),
+  OrMap,
+  OrMap,
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -53,7 +62,7 @@ fn room(name: String) -> #(Sluice, Document, Document, OrMap, OrMap) {
   #(sluice, doc_a, doc_b, pixels_of(doc_a), pixels_of(doc_b))
 }
 
-fn pixels_of(doc: Document) -> OrMap {
+fn pixels_of(doc: Document(doc_schema.CanvasDoc)) -> OrMap {
   let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "pixels")
   let assert Ok(pixels) = watershed_js.resolve_or_map(doc, handle)
   pixels

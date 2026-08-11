@@ -8,6 +8,7 @@
 //// silently wrong the moment it has three. Two clients cannot distinguish a
 //// real roster from that hardcoding. Do not reduce these to two.
 
+import doc_schema
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -27,7 +28,7 @@ const bpm_key = "bpm"
 type Room {
   Room(
     sluice: Sluice,
-    docs: List(Document),
+    docs: List(Document(doc_schema.Machine)),
     settings: List(PactMap),
     events: List(fn() -> List(pact_map_kernel.PactMapEvent)),
   )

@@ -71,7 +71,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.PlaylistDoc)),
     tracks_channel: Option(SharedSequence),
     user_id: String,
     tracks: List(Track),
@@ -84,7 +84,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.PlaylistDoc))
   Connected(Result(Nil, String))
   EnsuredTracks(Result(SharedSequence, String))
   TracksChanged(sequence_kernel.SequenceEvent)

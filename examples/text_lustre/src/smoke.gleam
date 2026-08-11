@@ -48,7 +48,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.TextDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -84,7 +87,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.TextDoc),
+  doc_b: Document(doc_schema.TextDoc),
+) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the body text on A")
@@ -106,7 +112,10 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
 }
 
 /// A seeds the document, then B resolves the same text from the root map.
-fn seed_then_resolve(doc_b: Document, text_a: SharedText) -> Nil {
+fn seed_then_resolve(
+  doc_b: Document(doc_schema.TextDoc),
+  text_a: SharedText,
+) -> Nil {
   log("smoke: seeding text from A")
   case watershed_js.text_insert(text_a, 0, seed_text) {
     Ok(Nil) -> Nil

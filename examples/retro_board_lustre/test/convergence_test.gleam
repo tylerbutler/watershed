@@ -14,6 +14,7 @@
 //// Register leaves are wall-clock LWW tie-broken by replica id, so no test
 //// asserts *which* value wins a race — only that the room agrees.
 
+import doc_schema
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -44,7 +45,15 @@ type Channels {
 }
 
 /// A room with all five channels seeded on client A and resolved on both.
-fn room(name: String) -> #(Sluice, Document, Document, Channels, Channels) {
+fn room(
+  name: String,
+) -> #(
+  Sluice,
+  Document(doc_schema.BoardDoc),
+  Document(doc_schema.BoardDoc),
+  Channels,
+  Channels,
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -70,7 +79,7 @@ fn room(name: String) -> #(Sluice, Document, Document, Channels, Channels) {
   #(sluice, doc_a, doc_b, channels_of(doc_a), channels_of(doc_b))
 }
 
-fn channels_of(doc: Document) -> Channels {
+fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
   let root = watershed_js.root(doc)
   let assert Some(notes_handle) = watershed_js.get(root, "notes")
   let assert Ok(notes) = watershed_js.resolve_or_map(doc, notes_handle)

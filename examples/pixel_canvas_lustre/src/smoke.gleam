@@ -44,7 +44,10 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(document: String, user: String) -> Promise(Document) {
+fn connect_client(
+  document: String,
+  user: String,
+) -> Promise(Document(doc_schema.CanvasDoc)) {
   use token <- promise.map(watershed_js.dev_token(
     secret,
     tenant,
@@ -80,7 +83,10 @@ pub fn main() {
   Nil
 }
 
-fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
+fn run_scenario(
+  doc_a: Document(doc_schema.CanvasDoc),
+  doc_b: Document(doc_schema.CanvasDoc),
+) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the pixels channel on A")
@@ -102,7 +108,11 @@ fn run_scenario(doc_a: Document, doc_b: Document) -> Nil {
   )
 }
 
-fn adopt_on_b(doc_a: Document, doc_b: Document, pixels_a: OrMap) -> Nil {
+fn adopt_on_b(
+  doc_a: Document(doc_schema.CanvasDoc),
+  doc_b: Document(doc_schema.CanvasDoc),
+  pixels_a: OrMap,
+) -> Nil {
   // B adopts the same channel rather than creating its own — `ensure_or_map`
   // resolves the handle A just published.
   use <- delay(1500)
@@ -123,7 +133,11 @@ fn adopt_on_b(doc_a: Document, doc_b: Document, pixels_a: OrMap) -> Nil {
   )
 }
 
-fn paint_scenario(doc_a: Document, a: OrMap, b: OrMap) -> Nil {
+fn paint_scenario(
+  doc_a: Document(doc_schema.CanvasDoc),
+  a: OrMap,
+  b: OrMap,
+) -> Nil {
   log("smoke: A paints a short row")
   let row = [1, 2, 3, 4]
   list.each(row, fn(x) { paint(a, x, 5, 9) })
@@ -180,9 +194,13 @@ fn paint_scenario(doc_a: Document, a: OrMap, b: OrMap) -> Nil {
   let caught_up = color_at(a, 40, 40) == Some("11")
   log("  A after rejoin: " <> diag(doc_a))
 
-  case seeded && disjoint && erased && held && isolated && flushed && caught_up {
+  case
+    seeded && disjoint && erased && held && isolated && flushed && caught_up
+  {
     True -> {
-      log("SMOKE PASS: the canvas converged, and the offline toggle round-trips")
+      log(
+        "SMOKE PASS: the canvas converged, and the offline toggle round-trips",
+      )
       exit(0)
     }
     False -> {
@@ -233,7 +251,7 @@ fn summarise(pixels: OrMap) -> String {
   <> "]"
 }
 
-fn diag(doc: Document) -> String {
+fn diag(doc: Document(doc_schema.CanvasDoc)) -> String {
   let d = watershed_js.diagnostics(doc)
   d.phase
   <> " last_seen="

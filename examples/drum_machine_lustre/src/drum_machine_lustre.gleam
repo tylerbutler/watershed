@@ -179,7 +179,7 @@ type Proposal {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.Machine)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -220,7 +220,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.Machine))
   Connected(Result(Nil, String))
   EnsuredKick(Result(OrSet, String))
   EnsuredSnare(Result(OrSet, String))
@@ -289,7 +289,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// nested channel, and watch the root — all as one batch of effects. Each
 /// `ensure_*` dispatches its channel back as an `Ensured*` message; they
 /// assemble into `SharedState` once all five have arrived.
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     // A jam session writes a lot of small ops — a step toggle apiece — so this

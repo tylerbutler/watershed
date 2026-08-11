@@ -214,7 +214,7 @@ type PendingShared {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document),
+    doc: Option(Document(doc_schema.BoardDoc)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -235,7 +235,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document)
+  GotHandle(Document(doc_schema.BoardDoc))
   Connected(Result(Nil, String))
   EnsuredNotes(Result(OrMap, String))
   EnsuredVotes(Result(OrMap, String))
@@ -304,7 +304,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// (both fields are `ChannelField(BoardDoc, OrMapChannel)`), and a client that
 /// passes the wrong mode silently adopts whatever the channel was created
 /// with, surfacing only later as a runtime ModeMismatch.
-fn bootstrap_effect(doc: Document) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     // A retro writes many small ops (a card, a vote apiece); summarizing keeps
