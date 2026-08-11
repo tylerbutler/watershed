@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · retro board</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: 100%; max-width: 72rem; padding: 2rem; }
+      h1 { font-size: 1.5rem; font-weight: 650; margin: 0; }
+      h2 {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.75;
+        margin: 0 0 0.75rem;
+      }
+      .board-header {
+        display: flex;
+        align-items: baseline;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      .board-header button { margin-left: auto; }
+      .status { opacity: 0.7; margin: 0; }
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        align-items: start;
+      }
+      @media (max-width: 48rem) { .board { grid-template-columns: 1fr; } }
+      .column {
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        min-height: 12rem;
+      }
+      .column.drop-target {
+        border-color: color-mix(in srgb, currentColor 60%, transparent);
+        background: color-mix(in srgb, currentColor 5%, transparent);
+      }
+      .compose { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+      .compose input { flex: 1 1 auto; min-width: 0; }
+      input, textarea {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      button {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover:not(:disabled) { opacity: 0.8; }
+      button:disabled { opacity: 0.3; cursor: default; }
+      .cards { list-style: none; padding: 0; margin: 0; }
+      .card {
+        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+        border-radius: 0.5rem;
+        padding: 0.6rem;
+        margin-bottom: 0.5rem;
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
+      .card.dragging { opacity: 0.4; border-style: dashed; }
+      .card.ghost { width: 18rem; box-shadow: 0 6px 24px rgb(0 0 0 / 0.25); }
+      .wrap.dragging-active { user-select: none; -webkit-user-select: none; }
+      .grip { cursor: grab; opacity: 0.5; padding: 0 0.2rem; }
+      .grip:hover { opacity: 1; }
+      .column { display: flex; flex-direction: column; }
+      .column-footer { flex: 1 1 auto; min-height: 2rem; }
+      .card-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+      .card-meta {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+        font-size: 0.8rem;
+        opacity: 0.75;
+        margin-top: 0.4rem;
+      }
+      .card-meta .author { margin-right: auto; }
+      .card-meta button { padding: 0.2rem 0.45rem; font-size: 0.8rem; }
+      .tally { font-variant-numeric: tabular-nums; font-weight: 600; }
+      .unfiled {
+        margin-top: 1rem;
+        border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+      }
+      .roster { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 0.1rem 0.6rem;
+        font-size: 0.8rem;
+      }
+      .chip .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+      .budget { font-size: 0.8rem; opacity: 0.8; }
+      .empty { opacity: 0.5; }
+      .hint { font-size: 0.8rem; opacity: 0.6; margin-top: 2rem; }
+      .error {
+        color: #c0392b;
+        font-size: 0.8rem;
+        min-height: 1.2rem;
+        margin: 0.25rem 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/retro_board_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

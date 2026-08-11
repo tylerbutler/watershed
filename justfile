@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue
+build: _build-erlang _build-javascript _build-lustre _build-dice _build-sudoku _build-playlist _build-grocery _build-text _build-drum _build-pixel _build-work-queue _build-retro
 
 # Run tests
 test: _test-gleam _test-js _test-lustre _test-examples
@@ -43,6 +43,7 @@ _test-examples:
     cd examples/sudoku_lustre && gleam test
     cd examples/drum_machine_lustre && gleam test
     cd examples/pixel_canvas_lustre && gleam test
+    cd examples/retro_board_lustre && gleam test
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
@@ -123,7 +124,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue
+deps: _deps-gleam _deps-live-js _deps-dice _deps-sudoku _deps-playlist _deps-grocery _deps-text _deps-drum _deps-pixel _deps-work-queue _deps-retro
 
 _deps-gleam:
     gleam deps download
@@ -155,6 +156,9 @@ _deps-pixel:
 
 _deps-work-queue:
     pnpm --dir examples/work_queue_lustre install
+
+_deps-retro:
+    pnpm --dir examples/retro_board_lustre install
 
 _build-erlang:
     gleam build --target erlang
@@ -190,3 +194,6 @@ _build-pixel:
 
 _build-work-queue:
     pnpm --dir examples/work_queue_lustre run build
+
+_build-retro:
+    pnpm --dir examples/retro_board_lustre run build

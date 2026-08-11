@@ -1,0 +1,21 @@
+{
+  "name": "retro_board_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phoenix JS client dependency for the watershed Lustre retro board example",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/retro_board_lustre/retro_board_lustre.mjs --bundle --format=esm --outfile=dist/retro_board_lustre.mjs",
+    "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/retro_board_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
+    "smoke": "pnpm run build:smoke && node smoke/run.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.8",
+    "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}
