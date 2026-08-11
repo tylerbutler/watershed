@@ -81,7 +81,7 @@ fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
 /// (`Error(reason)`). Owns the deferral of both.
 pub fn connect(
   config: WatershedConfig,
-  got_document got_document: fn(Document) -> msg,
+  got_document got_document: fn(Document(root)) -> msg,
   connected connected: fn(Result(Nil, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
@@ -102,7 +102,7 @@ pub fn connect_dev(
   secret secret: String,
   document document: String,
   user_id user_id: String,
-  got_document got_document: fn(Document) -> msg,
+  got_document got_document: fn(Document(root)) -> msg,
   connected connected: fn(Result(Nil, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
@@ -360,7 +360,7 @@ pub fn subscribe_json_ot(
 /// Subscribe to the document's inbound ephemeral ripples (presence-style
 /// transient messages — cursors, selection, typing indicators).
 pub fn subscribe_ripples(
-  document: Document,
+  document: Document(root),
   to_msg to_msg: fn(Ripple) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
@@ -406,7 +406,7 @@ pub fn subscribe_typed(
 
 /// Ensure a nested (untyped) map exists under `field`.
 pub fn ensure_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
   to_msg to_msg: fn(Result(SharedMap, String)) -> msg,
@@ -419,7 +419,7 @@ pub fn ensure_map(
 
 /// Ensure a directory exists under `field`, seeding an empty root if absent.
 pub fn ensure_directory(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
   to_msg to_msg: fn(Result(SharedDirectory, String)) -> msg,
@@ -432,7 +432,7 @@ pub fn ensure_directory(
 
 /// Ensure a counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
   to_msg to_msg: fn(Result(SharedCounter, String)) -> msg,
@@ -445,7 +445,7 @@ pub fn ensure_counter(
 
 /// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
 pub fn ensure_or_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
@@ -459,7 +459,7 @@ pub fn ensure_or_map(
 
 /// Ensure an OR-set exists under `field`.
 pub fn ensure_or_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
   to_msg to_msg: fn(Result(OrSet, String)) -> msg,
@@ -472,7 +472,7 @@ pub fn ensure_or_set(
 
 /// Ensure a grow-only set exists under `field`.
 pub fn ensure_g_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.GSetChannel),
   to_msg to_msg: fn(Result(GSet, String)) -> msg,
@@ -485,7 +485,7 @@ pub fn ensure_g_set(
 
 /// Ensure a two-phase set exists under `field`.
 pub fn ensure_two_p_set(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TwoPSetChannel),
   to_msg to_msg: fn(Result(TwoPSet, String)) -> msg,
@@ -498,7 +498,7 @@ pub fn ensure_two_p_set(
 
 /// Ensure a register collection exists under `field`.
 pub fn ensure_register_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
   to_msg to_msg: fn(Result(RegisterCollection, String)) -> msg,
@@ -514,7 +514,7 @@ pub fn ensure_register_collection(
 
 /// Ensure a claims channel exists under `field`.
 pub fn ensure_claims(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
   to_msg to_msg: fn(Result(Claims, String)) -> msg,
@@ -527,7 +527,7 @@ pub fn ensure_claims(
 
 /// Ensure a task manager exists under `field`.
 pub fn ensure_task_manager(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
   to_msg to_msg: fn(Result(TaskManager, String)) -> msg,
@@ -540,7 +540,7 @@ pub fn ensure_task_manager(
 
 /// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_pn_counter(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
   to_msg to_msg: fn(Result(PnCounter, String)) -> msg,
@@ -553,7 +553,7 @@ pub fn ensure_pn_counter(
 
 /// Ensure a PactMap exists under `field`.
 pub fn ensure_pact_map(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
   to_msg to_msg: fn(Result(PactMap, String)) -> msg,
@@ -566,7 +566,7 @@ pub fn ensure_pact_map(
 
 /// Ensure an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
   to_msg to_msg: fn(Result(OrderedCollection, String)) -> msg,
@@ -579,7 +579,7 @@ pub fn ensure_ordered_collection(
 
 /// Ensure a sequence exists under `field`, seeding an empty one if absent.
 pub fn ensure_sequence(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
   to_msg to_msg: fn(Result(SharedSequence, String)) -> msg,
@@ -592,7 +592,7 @@ pub fn ensure_sequence(
 
 /// Ensure a text channel exists under `field`, seeding an empty one if absent.
 pub fn ensure_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
   to_msg to_msg: fn(Result(SharedText, String)) -> msg,
@@ -606,7 +606,7 @@ pub fn ensure_text(
 /// Ensure a rich text channel exists under `field`, seeding an empty document
 /// if absent.
 pub fn ensure_rich_text(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RichTextChannel),
   to_msg to_msg: fn(Result(SharedRichText, String)) -> msg,
@@ -619,7 +619,7 @@ pub fn ensure_rich_text(
 
 /// Ensure a JSON-OT document exists under `field`.
 pub fn ensure_json_ot(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.JsonOtChannel),
   to_msg to_msg: fn(Result(JsonOt, String)) -> msg,
@@ -632,7 +632,7 @@ pub fn ensure_json_ot(
 
 /// Ensure a nested *typed* child map exists under a child field.
 pub fn ensure_child(
-  document: Document,
+  document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
   to_msg to_msg: fn(Result(TypedMap(c), String)) -> msg,
@@ -668,7 +668,7 @@ pub fn after(ms: Int, msg: msg) -> Effect(msg) {
 /// Broadcast an ephemeral ripple to every other connected client. Fire-and-
 /// forget: no message is dispatched back.
 pub fn submit_ripple(
-  document: Document,
+  document: Document(root),
   ripple_type ripple_type: String,
   content content: Json,
 ) -> Effect(msg) {
@@ -682,7 +682,7 @@ pub fn submit_ripple(
 
 /// Fault-injection hook (tests/demos): drop the socket to force the
 /// reconnect/reconcile path. Pending and in-flight edits are preserved.
-pub fn force_reconnect(document: Document) -> Effect(msg) {
+pub fn force_reconnect(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed_js.force_reconnect(document)
 }
@@ -701,14 +701,14 @@ pub fn force_reconnect(document: Document) -> Effect(msg) {
 ///   },
 /// )
 /// ```
-pub fn go_offline(document: Document) -> Effect(msg) {
+pub fn go_offline(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed_js.go_offline(document)
 }
 
 /// Come back from `go_offline`, replaying the gap and flushing what was edited
 /// during it. A no-op unless the document is currently held offline.
-pub fn go_online(document: Document) -> Effect(msg) {
+pub fn go_online(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed_js.go_online(document)
 }
@@ -731,7 +731,7 @@ pub fn go_online(document: Document) -> Effect(msg) {
 /// roster, or a `Failed`. Render on whichever suits; the roster in `Changed` is
 /// always complete.
 pub fn presence(
-  document document: Document,
+  document document: Document(root),
   config config: presence.Config(a),
   initial initial: a,
   started started: fn(presence_js.Handle(a)) -> msg,
@@ -775,7 +775,7 @@ pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
 /// effect from the next sequenced op. Batch it beside `connect_dev` in the
 /// effect that receives the `Document`.
 pub fn auto_summarize(
-  document document: Document,
+  document document: Document(root),
   policy policy: summary_policy.Policy,
 ) -> Effect(msg) {
   use _dispatch <- effect.from
@@ -783,7 +783,7 @@ pub fn auto_summarize(
 }
 
 /// Stop summarizing automatically.
-pub fn stop_auto_summarize(document document: Document) -> Effect(msg) {
+pub fn stop_auto_summarize(document document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed_js.stop_auto_summarize(document)
 }
