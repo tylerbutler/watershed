@@ -9,7 +9,8 @@
     "prebuild": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
     "build": "astro build",
     "preview": "astro preview",
-    "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs"
+    "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
+    "test:demo-boot": "node --test src/scripts/demo/boot.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.8",

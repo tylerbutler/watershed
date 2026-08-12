@@ -221,9 +221,11 @@ function bootstrapCounterCore(clientId) {
   const summary = new runtimeCore.Summary(
     0,
     toList([[COUNTER_ADDRESS, new channel.CounterSnapshot(COUNTER_BASE)]]),
+    toList([]),
   );
   const connected = {
     client_id: `demo-client-${clientId}`,
+    initial_clients: toList([]),
     initial_messages: toList([]),
     checkpoint_sequence_number: new Some(0),
   };
@@ -398,15 +400,6 @@ export function initDemo() {
   const ddsPicks = document.querySelectorAll("[data-dds-pick]");
   const mergeRules = document.querySelectorAll("[data-merge-rule]");
 
-  // Controls are authored `disabled` so they are never interactive before the
-  // kernels are loaded (or at all, if this module fails to boot).
-  const demoSection = document.querySelector("#demo");
-  for (const el of demoSection.querySelectorAll("button, input")) {
-    el.disabled = false;
-  }
-  // Re-deliver stays dark until a CRDT delta has actually been sequenced.
-  replayBtn.disabled = true;
-
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
   const gCounterBaseline = gCounterBaselineSummary();
   const pnBaseline = pnBaselineSummary();
@@ -468,6 +461,16 @@ export function initDemo() {
       lastSeq: 0, // last delivered container SN — the runtime's job, done here
     };
   }
+
+  // Controls are authored `disabled` and stay that way until every kernel has
+  // booted above — if anything threw, the section stays inert and Demo.astro's
+  // catch shows the offline note instead of live-looking dead buttons.
+  const demoSection = document.querySelector("#demo");
+  for (const el of demoSection.querySelectorAll("button, input")) {
+    el.disabled = false;
+  }
+  // Re-deliver stays dark until a CRDT delta has actually been sequenced.
+  replayBtn.disabled = true;
 
   let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
   // Structures whose field notes flash the values that change (see tutorial.js
