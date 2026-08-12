@@ -35,8 +35,8 @@ import lustre/element/html
 import lustre/event
 
 import watershed_js.{
-  type Claims, type Document, type OrSet, type SharedCounter,
-  type SharedMap, type TypedMap,
+  type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
+  type TypedMap,
 }
 import watershed_lustre
 
@@ -176,7 +176,12 @@ pub fn init(
         doc_schema.puzzle(),
         puzzles.default_puzzle().id,
       ),
-      watershed_lustre.ensure_map(document, map, doc_schema.cells(), EnsuredCells),
+      watershed_lustre.ensure_map(
+        document,
+        map,
+        doc_schema.cells(),
+        EnsuredCells,
+      ),
       watershed_lustre.ensure_or_set(
         document,
         map,
@@ -309,7 +314,9 @@ fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
   effect.batch([
     watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),
     watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),
-    watershed_lustre.subscribe_claims(shared.givens, fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe_claims(shared.givens, fn(_event) {
+      SharedChanged
+    }),
     watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {
       SharedChanged
     }),

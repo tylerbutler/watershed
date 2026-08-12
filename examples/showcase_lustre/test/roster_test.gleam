@@ -39,7 +39,10 @@ pub fn sudoku_presence_round_trips_test() {
     ShowcasePresence(
       name: "tyler",
       color: "#e5484d",
-      where: roster.InSudoku(sudoku_panel.Cursor(cell: Some("r3c4"), editing: True)),
+      where: roster.InSudoku(sudoku_panel.Cursor(
+        cell: Some("r3c4"),
+        editing: True,
+      )),
     )
 
   round_trip(payload)
@@ -61,7 +64,11 @@ pub fn canvas_presence_round_trips_test() {
 /// A peer who has not moved yet is still a peer.
 pub fn empty_positions_round_trip_test() {
   let payload =
-    ShowcasePresence(name: "sam", color: "#30a46c", where: roster.InCanvas(None))
+    ShowcasePresence(
+      name: "sam",
+      color: "#30a46c",
+      where: roster.InCanvas(None),
+    )
 
   round_trip(payload)
   |> should.equal(Ok(payload))

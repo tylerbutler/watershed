@@ -48,7 +48,9 @@ import lustre/element/html
 import lustre/event
 
 import watershed/text_kernel
-import watershed_js.{type Document, type SharedText, type TextAnchor, type TypedMap}
+import watershed_js.{
+  type Document, type SharedText, type TextAnchor, type TypedMap,
+}
 import watershed_lustre
 import watershed_lustre/textarea
 
@@ -104,7 +106,12 @@ pub fn init(
         doc_schema.title(),
         "watershed shared document",
       ),
-      watershed_lustre.ensure_text(document, map, doc_schema.body(), EnsuredBody),
+      watershed_lustre.ensure_text(
+        document,
+        map,
+        doc_schema.body(),
+        EnsuredBody,
+      ),
     ]),
   )
 }

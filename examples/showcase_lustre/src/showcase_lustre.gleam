@@ -276,10 +276,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     EnsuredText(Ok(map)) ->
       open_current(Model(..model, maps: Maps(..model.maps, text: Some(map))))
     EnsuredPlaylist(Ok(map)) ->
-      open_current(Model(
-        ..model,
-        maps: Maps(..model.maps, playlist: Some(map)),
-      ))
+      open_current(
+        Model(..model, maps: Maps(..model.maps, playlist: Some(map))),
+      )
     EnsuredSudoku(Ok(map)) ->
       open_current(Model(..model, maps: Maps(..model.maps, sudoku: Some(map))))
     EnsuredCanvas(Ok(map)) ->
@@ -328,10 +327,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(panel) -> {
           let #(panel, fx) = text_panel.update(panel, inner)
           let #(model, announce) =
-            announce(Model(
-              ..model,
-              panels: Panels(..model.panels, text: Some(panel)),
-            ))
+            announce(
+              Model(..model, panels: Panels(..model.panels, text: Some(panel))),
+            )
           #(model, effect.batch([effect.map(fx, TextMsg), announce]))
         }
       }
@@ -357,10 +355,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(panel) -> {
           let #(panel, fx) = sudoku_panel.update(panel, inner)
           let #(model, announce) =
-            announce(Model(
-              ..model,
-              panels: Panels(..model.panels, sudoku: Some(panel)),
-            ))
+            announce(
+              Model(
+                ..model,
+                panels: Panels(..model.panels, sudoku: Some(panel)),
+              ),
+            )
           #(model, effect.batch([effect.map(fx, SudokuMsg), announce]))
         }
       }
@@ -371,10 +371,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(panel) -> {
           let #(panel, fx) = canvas_panel.update(panel, inner)
           let #(model, announce) =
-            announce(Model(
-              ..model,
-              panels: Panels(..model.panels, canvas: Some(panel)),
-            ))
+            announce(
+              Model(
+                ..model,
+                panels: Panels(..model.panels, canvas: Some(panel)),
+              ),
+            )
           #(model, effect.batch([effect.map(fx, CanvasMsg), announce]))
         }
       }
@@ -651,7 +653,10 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
   }
   let panels = case panels.canvas {
     Some(canvas) ->
-      Panels(..panels, canvas: Some(canvas_panel.set_peers(canvas, canvas_peers)))
+      Panels(
+        ..panels,
+        canvas: Some(canvas_panel.set_peers(canvas, canvas_peers)),
+      )
     None -> panels
   }
   case panels.text {
@@ -705,16 +710,12 @@ fn roster_view(model: Model) -> Element(Msg) {
     )
   let peers =
     list.map(model.peers, fn(peer) {
-      chip(
-        peer.meta.name,
-        peer.meta.color,
-        roster.panel_label(peer.meta.where),
-      )
+      chip(peer.meta.name, peer.meta.color, roster.panel_label(peer.meta.where))
     })
-  html.div(
-    [class("roster"), attribute.attribute("aria-label", "Who is here")],
-    [self, ..peers],
-  )
+  html.div([class("roster"), attribute.attribute("aria-label", "Who is here")], [
+    self,
+    ..peers
+  ])
 }
 
 fn chip(name: String, color: String, where: String) -> Element(Msg) {

@@ -314,7 +314,8 @@ fn or_map_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(canvas_schema.CanvasDoc),
 ) -> watershed_js.OrMap {
-  let assert Some(handle) = watershed_js.get(watershed_js.untyped(map), "pixels")
+  let assert Some(handle) =
+    watershed_js.get(watershed_js.untyped(map), "pixels")
   let assert Ok(pixels) = watershed_js.resolve_or_map(doc, handle)
   pixels
 }
@@ -350,7 +351,8 @@ fn sequence_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(playlist_schema.PlaylistDoc),
 ) -> watershed_js.SharedSequence {
-  let assert Some(handle) = watershed_js.get(watershed_js.untyped(map), "tracks")
+  let assert Some(handle) =
+    watershed_js.get(watershed_js.untyped(map), "tracks")
   let assert Ok(sequence) = watershed_js.resolve_sequence(doc, handle)
   sequence
 }

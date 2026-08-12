@@ -175,10 +175,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let #(playlist, playlist_effect) = component.update(playlist, inner)
           let #(model, trace) =
             trace_tracks(Model(..model, playlist: Some(playlist)))
-          #(
-            model,
-            effect.batch([effect.map(playlist_effect, Playlist), trace]),
-          )
+          #(model, effect.batch([effect.map(playlist_effect, Playlist), trace]))
         }
       }
 

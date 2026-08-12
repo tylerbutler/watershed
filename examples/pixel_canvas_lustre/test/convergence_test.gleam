@@ -15,12 +15,12 @@
 //// The canvas FFI is deliberately untested: it is pure rendering, and these
 //// tests cover the state it renders from.
 
-import pixel_canvas_lustre/doc_schema
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, Some}
 import gleam/string
 import gleeunit/should
+import pixel_canvas_lustre/doc_schema
 
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}

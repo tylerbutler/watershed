@@ -326,7 +326,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                     None -> Error(Nil)
                   }
                 })
-              let #(editor, editor_effect) = component.set_peers(editor, cursors)
+              let #(editor, editor_effect) =
+                component.set_peers(editor, cursors)
               #(
                 Model(..model, editor: Some(editor)),
                 effect.map(editor_effect, Editor),

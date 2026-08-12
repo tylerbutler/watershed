@@ -8,12 +8,12 @@
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
 
-import sudoku_lustre/doc_schema
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/json.{type Json}
 import gleam/list
+import sudoku_lustre/doc_schema
 
 import watershed/presence
 import watershed/presence_js

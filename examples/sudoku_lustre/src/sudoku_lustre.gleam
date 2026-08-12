@@ -229,8 +229,7 @@ fn mount_board(
   model: Model,
   doc: Document(doc_schema.SudokuDoc),
 ) -> #(Model, Effect(Msg)) {
-  let #(board, board_effect) =
-    component.init(doc, watershed_js.root_typed(doc))
+  let #(board, board_effect) = component.init(doc, watershed_js.root_typed(doc))
   #(
     push_peers(Model(..model, board: Some(board))),
     effect.map(board_effect, Board),
@@ -244,19 +243,17 @@ fn push_peers(model: Model) -> Model {
     Some(board) ->
       Model(
         ..model,
-        board: Some(
-          component.set_peers(
-            board,
-            list.map(model.peers, fn(peer) {
-              component.Peer(
-                name: peer.meta.name,
-                color: peer.meta.color,
-                cell: peer.meta.cursor.cell,
-                editing: peer.meta.cursor.editing,
-              )
-            }),
-          ),
-        ),
+        board: Some(component.set_peers(
+          board,
+          list.map(model.peers, fn(peer) {
+            component.Peer(
+              name: peer.meta.name,
+              color: peer.meta.color,
+              cell: peer.meta.cursor.cell,
+              editing: peer.meta.cursor.editing,
+            )
+          }),
+        )),
       )
   }
 }
