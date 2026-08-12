@@ -88,6 +88,12 @@ fn card_schema() -> schema.Schema(Card, CardState) {
       case exactly once, at the read, instead of it corrupting your state
       silently.
     </p>
+    <p>
+      Fluid Framework’s <code>SharedTree</code> puts that guarantee in the other
+      place — a stored schema the service enforces, so its reads need no error
+      arm at all. <a href="/sharedtree">The two, side by side</a> works through
+      what each choice buys and costs.
+    </p>
   </div>
 
   <div class="g-block">

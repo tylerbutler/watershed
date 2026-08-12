@@ -1,0 +1,938 @@
+---
+import { Code } from "astro:components";
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+import { watershedCodeTheme } from "../styles/code-theme";
+
+// Both columns model the same document — Flowboard, the kanban board the build
+// guide assembles. The Gleam side is adapted from code that compiles today
+// (examples/flowboard_lustre, examples/scoreboard_cli, examples/sudoku_lustre);
+// the TypeScript side uses only APIs the Fluid Framework docs publish.
+
+const tsDeclare = `import { SchemaFactory } from "fluid-framework";
+
+// This id is written into the document. It becomes the *stored* schema,
+// and from here on the service enforces it.
+const sf = new SchemaFactory("com.example.flowboard");
+
+class Card extends sf.object("Card", {
+  title: sf.string,
+  column: sf.string,
+  owner: sf.optional(sf.string),
+}) {}
+
+class Cards extends sf.array("Cards", Card) {}
+
+class Board extends sf.object("Board", {
+  title: sf.string,
+  cards: Cards,
+  wipBreaches: sf.number,
+}) {}`;
+
+const gleamDeclare = `import gleam/dynamic/decode
+import gleam/json
+import watershed/schema.{
+  type ChannelField, type CounterChannel, type Field, type MapChannel,
+}
+
+// A phantom tag. It is erased at compile time — nothing about \`Board\`
+// reaches the document, and no peer has to agree it exists.
+pub type Board
+
+pub fn title() -> Field(Board, String) {
+  schema.field("title", json.string, decode.string)
+}
+
+pub fn cards() -> ChannelField(Board, MapChannel) {
+  schema.channel_field("cards")
+}
+
+pub fn wip_breaches() -> ChannelField(Board, CounterChannel) {
+  schema.channel_field("wip_breaches")
+}`;
+
+const tsRoot = `import { TreeViewConfiguration } from "fluid-framework";
+
+const config = new TreeViewConfiguration({ schema: Board });
+const view = tree.viewWith(config);
+
+// Once, against an empty document. After this the stored schema is
+// authoritative and every later client just reads it.
+view.initialize(
+  new Board({ title: "Sprint board", cards: [], wipBreaches: 0 }),
+);
+
+const board = view.root; // typed Board, guaranteed to exist`;
+
+const gleamRoot = `fn bootstrap(doc: Document(doc_schema.Board)) -> Effect(Msg) {
+  let root = watershed_js.root_typed(doc)
+  effect.batch([
+    // Idempotent, and run by every client on every boot. Each one
+    // seeds a candidate; the handle the sequencer ordered is adopted
+    // by all of them.
+    watershed_lustre.ensure_field(
+      root,
+      doc_schema.title(),
+      "Sprint board",
+    ),
+    watershed_lustre.ensure_map(
+      doc,
+      root,
+      doc_schema.cards(),
+      EnsuredCards,
+    ),
+    watershed_lustre.ensure_counter(
+      doc,
+      root,
+      doc_schema.wip_breaches(),
+      EnsuredBreaches,
+    ),
+  ])
+}`;
+
+const tsReadWrite = `// Writing is checked by the compiler and again by the service.
+board.title = "Q3 sprint board";
+
+// Reading is total. \`title\` is a string, and no client running this
+// schema can make it anything else.
+renderHeader(board.title);`;
+
+const gleamReadWrite = `// Writing is checked at the field — only a String is accepted here.
+watershed.set_field(root, doc_schema.title(), "Q3 sprint board")
+
+// Reading decodes at the boundary. A peer running an older build — or
+// a stale summary — could have written anything here, so the result is
+// a \`Result\`, never a raw value.
+case watershed.get_field(root, doc_schema.title()) {
+  Ok(Some(title)) -> render_header(title)
+  Ok(None) -> render_header("Untitled board")  // key absent
+  Error(_) -> render_header("Untitled board")  // a peer wrote a number
+}`;
+
+const tsRecord = `// The shape was declared once, on the class. There is no second
+// encoder to keep in sync, because the tree stores the node itself.
+card.title = "Ship the gauge rebuild";
+card.column = "doing";
+card.owner = undefined; // clears the optional property`;
+
+const gleamRecord = `/// \`record3\` derives the decoder AND the per-key encoder from one
+/// prop list, so the two can never drift. \`sealed_known\` seals the
+/// schema to exactly these keys without a hand-repeated list, and
+/// \`versioned\` stamps a version so a future layout fails loudly.
+fn card_schema() -> schema.Schema(Card, CardState) {
+  schema.record3(
+    CardState,
+    schema.prop(card_title(), fn(c: CardState) { c.title }),
+    schema.prop(card_column(), fn(c: CardState) { c.column }),
+    schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }),
+  )
+  |> schema.versioned(1)
+  |> schema.sealed_known
+}
+
+// \`write\` emits one op per key, never a blob — so a peer editing
+// \`owner\` at the same time keeps their edit. An optional prop that is
+// \`None\` deletes its key rather than skipping it.
+watershed.write(
+  card,
+  card_schema(),
+  CardState(title: "Ship it", column: "doing", owner: None),
+)`;
+
+const tsNest = `// Everything is in one tree under one changeset algebra, so inserts,
+// removals, and reorders are all edits to the same document — and all
+// merge by the same rules.
+board.cards.insertAtEnd(new Card({ title: "Ship it", column: "todo" }));
+board.cards.moveRangeToIndex(4, 0, 3);
+board.cards.removeAt(2);`;
+
+const gleamNest = `/// One root, four merge policies — named per slot, at declaration time.
+pub type SudokuDoc
+
+pub fn cells() -> ChannelField(SudokuDoc, MapChannel) {
+  schema.channel_field("cells") // last write wins, per key
+}
+
+pub fn notes() -> ChannelField(SudokuDoc, OrSetChannel) {
+  schema.channel_field("notes") // add wins over a concurrent remove
+}
+
+pub fn givens() -> ChannelField(SudokuDoc, ClaimsChannel) {
+  schema.channel_field("givens") // the first writer owns the slot
+}
+
+pub fn mistakes() -> ChannelField(SudokuDoc, CounterChannel) {
+  schema.channel_field("mistakes") // commutative increments
+}`;
+
+const tsEvents = `// Per node, plus a subtree rollup for free: \`treeChanged\` fires for a
+// change anywhere below the node, because there is a tree to roll up.
+const stopCards = Tree.on(board.cards, "nodeChanged", renderCards);
+const stopAll = Tree.on(board, "treeChanged", renderEverything);
+
+// Editing the tree from inside a change callback throws a UsageError.`;
+
+const gleamEvents = `// Per field. The change carries the decoded previous value AND the
+// new one, plus whether this client made it — and a peer's
+// type-confused write surfaces here as \`Error(Invalid(_))\`.
+let changes = watershed.subscribe_field(root, doc_schema.title())
+
+case process.receive(from: changes, within: 5000) {
+  Ok(FieldChange(value: Ok(Some(title)), local: False, ..)) ->
+    render_header(title)
+  Ok(FieldChange(value: Error(_), ..)) -> keep_previous_header()
+  _ -> Nil
+}`;
+
+const gleamPerKind = `// Or subscribe per channel. Each handler sees only its own channel's
+// event type — a counter subscriber never pattern-matches a map event.
+effect.batch([
+  watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),
+  watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),
+  watershed_lustre.subscribe_claims(shared.givens, fn(_event) { SharedChanged }),
+  watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {
+    SharedChanged
+  }),
+])`;
+
+const tsGaps = `// Atomicity — every edit in the callback lands, or none of them does.
+Tree.runTransaction(board, () => {
+  card.column = "doing";
+  card.owner = "ada";
+  if (overWipLimit(board)) return Tree.runTransaction.rollback;
+});
+
+// Undo — each local commit offers a revertible.
+view.events.on("commitApplied", (data, getRevertible) => {
+  if (getRevertible !== undefined) undoStack.push(getRevertible());
+});
+
+// Schema upgrade — an old document can be moved onto the new stored schema.
+if (!view.compatibility.canView && view.compatibility.canUpgrade) {
+  view.upgradeSchema();
+}`;
+
+const rows = [
+  {
+    axis: "Schema lives",
+    tree: "in the document — a stored schema, written on first initialize",
+    ws: "in your build only — a phantom tag and a set of field descriptors, erased at runtime",
+  },
+  {
+    axis: "A peer writes the wrong type",
+    tree: "cannot happen under the stored schema; the write is rejected",
+    ws: "reaches the document, and surfaces as Error(Invalid(_)) on your read",
+  },
+  {
+    axis: "Shape of the data",
+    tree: "one tree, one changeset algebra over the whole document",
+    ws: "a graph of independently addressed channels, joined by handles stored as map values",
+  },
+  {
+    axis: "Merge policy",
+    tree: "one, applied to everything in the tree",
+    ws: "one per slot — LWW map, add-wins OR-set, first-writer-wins claims, commutative counter, OT rich text",
+  },
+  {
+    axis: "Declare once",
+    tree: "SchemaFactory classes; static types derived",
+    ws: "Field / ChannelField / recordN; encoder and decoder derived from one prop list",
+  },
+  {
+    axis: "Guaranteed roots",
+    tree: "viewWith + initialize, once, against an empty document",
+    ws: "ensure_* per slot, idempotent, run by every client on every boot",
+  },
+  {
+    axis: "Invalidation",
+    tree: "nodeChanged plus a treeChanged subtree rollup",
+    ws: "subscribe_field (decoded previous and new) and narrowed per-kind channel events; no rollup above a channel",
+  },
+  {
+    axis: "Atomic multi-field write",
+    tree: "Tree.runTransaction, with rollback and preconditions",
+    ws: "none — per-key ops, so peers can observe a partial record",
+  },
+  {
+    axis: "Undo / redo",
+    tree: "commitApplied → Revertible.revert()",
+    ws: "none offered",
+  },
+  {
+    axis: "Schema upgrade",
+    tree: "canView / canUpgrade / upgradeSchema, plus staged rollout",
+    ws: "versioned(n) fails closed with SchemaMismatch; no migration path",
+  },
+  {
+    axis: "Moves",
+    tree: "moveRangeToIndex, including between arrays in the same tree",
+    ws: "convergent move inside one SharedSequence; no cross-parent move",
+  },
+  {
+    axis: "Runs on",
+    tree: "TypeScript and JavaScript",
+    ws: "one Gleam core, on the BEAM and in the browser",
+  },
+  {
+    axis: "Implementation size",
+    tree: "77,804 lines in the Fluid tree package",
+    ws: "686 lines in watershed/schema.gleam",
+  },
+];
+---
+
+<Sheet
+  title="watershed — SharedTree and the schema layer"
+  description="Fluid Framework's SharedTree puts the schema inside the document, where the service enforces it. watershed's typed layer puts it in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+>
+  <header class="st-hero">
+    <div class="st-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/">← watershed</a> · <a href="/models">Models</a> / SharedTree
+      </p>
+      <h1>Two places to put<br /><em>the guarantee.</em></h1>
+      <p class="lede">
+        Fluid Framework’s <code>SharedTree</code> and watershed’s typed layer
+        want the same thing: declare a document’s shape once, get static types,
+        get roots that are guaranteed to be there, get told when something
+        changes. They disagree about where the guarantee lives — and almost
+        everything else follows from that.
+      </p>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    <div class="g-block">
+      <h2>The one difference the rest follows from</h2>
+      <p>
+        SharedTree makes the schema <em>the document</em>. The
+        <code>SchemaFactory</code> id you pick is written into the container as
+        the <strong>stored schema</strong>, and from then on the service
+        enforces it: a client whose view schema disagrees cannot silently write
+        the wrong shape. Because there is one tree under one rebasable
+        changeset algebra, transactions, undo/redo, node identity, cross-parent
+        moves, and a real schema-upgrade path all fall out of the same
+        machinery.
+      </p>
+      <p>
+        watershed makes the schema a <strong>decode boundary</strong> that
+        exists only in your build. The tag scoping a set of fields is a phantom
+        type, erased at compile time; nothing about it reaches the wire, and
+        <a href="https://github.com/tylerbutler/levee">levee</a> is
+        content-agnostic by design. What you get instead is a document that is
+        not one structure but a graph of independently converging channels —
+        so the merge policy is named per slot rather than once for everything —
+        and reads that hand back a <code>Result</code>, because a peer really
+        can write anything. What you do not get is atomicity, undo, or a
+        schema upgrade. Those are listed
+        <a href="#gaps">further down</a>, not buried.
+      </p>
+      <div class="g-note">
+        <p>
+          <strong>Both columns below model the same board.</strong> The Gleam is
+          adapted from examples that compile today —
+          <code>flowboard_lustre</code>, <code>scoreboard_cli</code>,
+          <code>sudoku_lustre</code>. The TypeScript uses only APIs the Fluid
+          Framework documentation publishes.
+        </p>
+      </div>
+    </div>
+
+    <div class="g-block">
+      <h2>1 · Declaring the shape</h2>
+      <p>
+        Both declare once and derive the types. The difference is what the
+        declaration <em>is</em>: a <code>SchemaFactory</code> id becomes part of
+        the document, where <code>pub type Board</code> is a phantom tag that
+        exists only to stop you reading a field against the wrong map. Note the
+        counter, too — SharedTree’s <code>wipBreaches</code> is a number in the
+        tree; watershed’s is a handle to a whole <code>SharedCounter</code>,
+        with commutative increments of its own.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code code={tsDeclare} lang="typescript" theme={watershedCodeTheme} />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot">watershed · src/doc_schema.gleam</figcaption>
+          <Code code={gleamDeclare} lang="gleam" theme={watershedCodeTheme} />
+        </figure>
+      </div>
+    </div>
+
+    <div class="g-block">
+      <h2>2 · Getting a root that is really there</h2>
+      <p>
+        <code>initialize</code> is a once-only act against an empty document; it
+        writes the stored schema and every later client reads it back.
+        <code>ensure_*</code> is the opposite shape — idempotent, and run by
+        every client on every boot. Two clients opening a fresh document both
+        seed a candidate channel; after sync each re-reads the root key and
+        adopts whichever handle the sequencer ordered, so they converge on one
+        without a leader.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code code={tsRoot} lang="typescript" theme={watershedCodeTheme} />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot">watershed · Lustre effects</figcaption>
+          <Code code={gleamRoot} lang="gleam" theme={watershedCodeTheme} />
+        </figure>
+      </div>
+      <div class="g-note">
+        <p>
+          <strong>The losers stay attached.</strong> A candidate channel that
+          did not win the race is still attached to the document, just
+          unreferenced. Orphan collection is out of scope — the cost of not
+          having a leader elect the root.
+        </p>
+      </div>
+    </div>
+
+    <div class="g-block">
+      <h2>3 · Reading and writing a field</h2>
+      <p>
+        This is the whole argument in eight lines. <code>board.title</code> is a
+        <code>string</code>, and under a stored schema it cannot be anything
+        else, so the read needs no error arm. watershed cannot promise that, so
+        it does not pretend to: <code>get_field</code> returns
+        <code>Result(Option(a), FieldError)</code> and you confront the “a peer
+        disagrees about this type” case exactly once, at the read, instead of
+        discovering it as corrupted state later.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code
+            code={tsReadWrite}
+            lang="typescript"
+            theme={watershedCodeTheme}
+          />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot">watershed · Gleam</figcaption>
+          <Code
+            code={gleamReadWrite}
+            lang="gleam"
+            theme={watershedCodeTheme}
+          />
+        </figure>
+      </div>
+      <p>
+        Whether that <code>Error</code> arm is a tax or a feature depends on
+        what you can assume about the clients. If every writer runs your build
+        against an enforced stored schema, it is noise. If an old tab, a stale
+        summary, or a second application can reach the same document, it is the
+        one place a multiplayer app gets to decide what to do about
+        disagreement. The <a href="/guide/schema">build guide</a> works through
+        it in context.
+      </p>
+    </div>
+
+    <div class="g-block">
+      <h2>4 · A record spread across keys</h2>
+      <p>
+        SharedTree stores the node, so the class declaration is the only
+        declaration there is. watershed stores JSON per key, which normally
+        means writing a decoder and an encoder and keeping them in sync by hand
+        — so the <code>record1</code>…<code>record9</code> builders derive both
+        from one prop list, and <code>sealed_known</code> seals the schema
+        without you repeating the key names a third time.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code code={tsRecord} lang="typescript" theme={watershedCodeTheme} />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot">watershed · Gleam</figcaption>
+          <Code code={gleamRecord} lang="gleam" theme={watershedCodeTheme} />
+        </figure>
+      </div>
+      <div class="g-note">
+        <p>
+          <strong>Per-key ops cut both ways.</strong> Writing a whole record as
+          one op per key is why a peer editing <code>owner</code> at the same
+          moment keeps their edit — the record view is never a clobbering blob.
+          It is also why a peer can read the record <em>mid-write</em> and see
+          three of four keys updated. <code>Tree.runTransaction</code> would
+          prevent that; watershed has no answer for it yet. See
+          <a href="#gaps">below</a>.
+        </p>
+      </div>
+    </div>
+
+    <div class="g-block">
+      <h2>5 · One tree, or a graph of channels</h2>
+      <p>
+        Here the two models stop resembling each other. Everything in a
+        SharedTree is in the tree, under one changeset algebra — which is what
+        makes a reorder across two arrays a coherent operation, and what makes
+        the merge behaviour uniform enough that you never have to think about
+        it.
+      </p>
+      <p>
+        A watershed document is not one structure. Each slot on the root holds a
+        handle to a channel that converges on its own terms, and the field
+        declaration names which terms. The Sudoku example is the clearest case:
+        four slots, four different answers to “what happens when two clients
+        touch this at once”.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code code={tsNest} lang="typescript" theme={watershedCodeTheme} />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot"
+            >watershed · sudoku_lustre/doc_schema.gleam</figcaption
+          >
+          <Code code={gleamNest} lang="gleam" theme={watershedCodeTheme} />
+        </figure>
+      </div>
+      <p>
+        So watershed makes you choose, and in exchange lets you choose right:
+        pencil marks want an <a href="/structures/sets#orset">OR-set</a> where a
+        concurrent add beats a remove, the puzzle’s givens want
+        <a href="/structures/coordination#claims">first-writer-wins claims</a>,
+        the mistake tally wants a
+        <a href="/structures/counters#counter">counter</a> that does not
+        double-count a redelivered op. SharedTree would give all four the same
+        treatment. The
+        <a href="/models">DDS · CRDT · OT comparison</a> lays out what each of
+        those policies costs.
+      </p>
+      <div class="g-note">
+        <p>
+          <strong>Nesting is indirection, not containment.</strong> A nested
+          typed map — <code>schema.child_field("players")</code> — stores a
+          handle, and the child is a peer channel, not a subtree of its parent.
+          There is no cross-parent move, no operation that spans two channels,
+          and a root made of child fields cannot be sealed by a record schema at
+          all.
+        </p>
+      </div>
+    </div>
+
+    <div class="g-block">
+      <h2>6 · Being told what changed</h2>
+      <p>
+        <code>treeChanged</code> is the thing a tree buys you that a graph
+        cannot: a rollup over an entire subtree, for free, because the subtree
+        is a real thing with a boundary. watershed has no rollup above a single
+        channel — you subscribe per channel, and per field.
+      </p>
+      <p>
+        What a field subscription gives back in exchange is decoded on both
+        sides. A <code>FieldChange</code> carries the previous value and the new
+        one, already run through the field’s decoder, plus whether this client
+        made it — and a peer’s type-confused write arrives as an
+        <code>Error</code> in the event rather than as state that looks fine
+        until it does not.
+      </p>
+      <div class="st-pair">
+        <figure class="g-code">
+          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+          <Code code={tsEvents} lang="typescript" theme={watershedCodeTheme} />
+        </figure>
+        <figure class="g-code">
+          <figcaption class="annot">watershed · Gleam</figcaption>
+          <Code code={gleamEvents} lang="gleam" theme={watershedCodeTheme} />
+        </figure>
+      </div>
+      <figure class="g-code">
+        <figcaption class="annot"
+          >watershed · sudoku_lustre — narrowed per-kind subscriptions</figcaption
+        >
+        <Code code={gleamPerKind} lang="gleam" theme={watershedCodeTheme} />
+      </figure>
+    </div>
+
+    <div class="g-block" id="gaps">
+      <h2>What SharedTree has that watershed does not</h2>
+      <p>
+        All three of these are consequences of the same choice. A rebasable
+        changeset over one enforced tree is what lets you group edits, revert
+        them, and move a document from one stored schema to the next. watershed
+        has ops over independent channels and a client-side decoder, so it has
+        none of them.
+      </p>
+      <figure class="g-code">
+        <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
+        <Code code={tsGaps} lang="typescript" theme={watershedCodeTheme} />
+      </figure>
+      <ul>
+        <li>
+          <strong>Transactions.</strong> watershed writes per-key ops, so peers
+          can observe a partial record. Fixing it means a batched multi-set map
+          op — a wire-format change, deliberately deferred until a real consumer
+          hurts.
+        </li>
+        <li>
+          <strong>Undo and redo.</strong> Not offered. The kernels do have a
+          <code>rollback</code>, but that is nack-and-resubmit machinery for
+          unacknowledged local ops, not a user-facing stack.
+        </li>
+        <li>
+          <strong>Schema upgrade.</strong> <code>schema.versioned(n)</code>
+          stamps a version and fails closed on mismatch, which is a dead end
+          rather than a path. Entries-level migrations are designed and
+          unshipped.
+        </li>
+        <li>
+          <strong>Enforcement, node identity, cross-parent moves, branching.</strong>
+          Absent by design. Typing stays a client decode boundary; the server
+          stays content-agnostic.
+        </li>
+      </ul>
+      <p>
+        The reason is worth stating as a number rather than an adjective. Fluid
+        Framework’s tree package — stored-versus-view schema system, forest,
+        compositional changeset rebasing, undo/redo, ID compression — is
+        <strong>77,804 lines</strong>, and watershed’s own porting survey rates
+        it a 10 out of 10: a multi-year project in any language, listed dead
+        last on the ladder, “only if there’s a compelling product need.”
+        watershed’s entire schema vocabulary is
+        <code>src/watershed/schema.gleam</code>, <strong>686 lines</strong>.
+        That is the trade.
+      </p>
+    </div>
+  </main>
+
+  <section class="st-table-section" aria-labelledby="st-table-title">
+    <div class="st-table-inner">
+      <h2 id="st-table-title">Side by side</h2>
+      <p class="st-table-intro">
+        The same axes, two answers. Read the bottom four rows together with the
+        top one — they are the same decision, seen from either end.
+      </p>
+      <div
+        class="st-table-scroll"
+        role="region"
+        aria-labelledby="st-table-title"
+        tabindex="0"
+      >
+        <table class="st-table">
+          <thead>
+            <tr>
+              <th scope="col"><span class="visually-hidden">Property</span></th>
+              <th scope="col"><span class="th-kind">SharedTree</span></th>
+              <th scope="col"
+                ><span class="th-kind" data-side="ws">watershed</span></th
+              >
+            </tr>
+          </thead>
+          <tbody>
+            {
+              rows.map((r) => (
+                <tr>
+                  <th scope="row">{r.axis}</th>
+                  <td>{r.tree}</td>
+                  <td>{r.ws}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="st-guide" aria-labelledby="st-guide-title">
+    <div class="st-guide-inner">
+      <h2 id="st-guide-title">Further reading</h2>
+      <div class="st-cta">
+        <a class="cta-primary" href="/guide/schema">The schema step</a>
+        <a class="cta-quiet" href="/models">DDS · CRDT · OT →</a>
+        <a class="cta-quiet" href="/structures">The field atlas →</a>
+        <a
+          class="cta-quiet"
+          href="https://fluidframework.com/docs/data-structures/tree/"
+          >SharedTree documentation ↗</a
+        >
+      </div>
+    </div>
+  </section>
+
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  /* ── hero ───────────────────────────────────────────────────────────────── */
+  .st-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .st-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  /* Narrow screens: the 122% width expansion overflows the sheet frame. */
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 58ch;
+  }
+
+  .lede code {
+    font-size: 0.85em;
+    color: var(--overprint-deep);
+  }
+
+  /* ── the code pair ──────────────────────────────────────────────────────
+     The one piece of layout this sheet adds. `minmax(0, 1fr)` rather than
+     `1fr` is load-bearing: a grid track defaults to min-content width, so a
+     long code line would push the column — and the page — wider than the
+     viewport instead of scrolling inside its own figure. */
+  .st-pair {
+    margin-top: var(--space-lg);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-lg);
+    align-items: start;
+  }
+
+  /* Two columns of code do not fit the 68rem reading measure — at that width
+     every pair scrolls sideways to be read, which defeats the comparison. So
+     the pairs alone break out of the column, symmetrically, once the viewport
+     can spare it. The negative margin is derived from the parent's own content
+     width, so it stays centred whatever --content-pad clamps to. */
+  @media (min-width: 82rem) {
+    .st-pair {
+      width: 78rem;
+      margin-inline: calc((100% - 78rem) / 2);
+    }
+  }
+
+  /* Set against the widened column this lands ~75 characters per line, which
+     is what the snippets are hand-wrapped to. */
+  .doc-body .st-pair .g-code :global(pre) {
+    font-size: 0.765rem;
+  }
+
+  /* The shared .g-code caption sits below its block; in a pair it has to lead,
+     because you need to know which side you are reading before you read it. */
+  .st-pair .g-code,
+  .doc-body .st-pair .g-code {
+    margin-top: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .doc-body .st-pair .g-code figcaption,
+  .doc-body > .g-block > .g-code figcaption {
+    order: -1;
+    margin: 0 0 var(--space-sm);
+    text-align: left;
+  }
+
+  .doc-body > .g-block > .g-code {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 860px) {
+    .st-pair {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  /* ── scorecard ──────────────────────────────────────────────────────────── */
+  .st-table-section {
+    padding: var(--space-2xl) var(--content-pad);
+    margin-top: var(--space-2xl);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .st-table-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .st-table-section h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .st-table-intro {
+    margin-top: var(--space-md);
+    color: var(--muted);
+    max-width: 58ch;
+  }
+
+  .st-table-scroll {
+    margin-top: var(--space-xl);
+    overflow-x: auto;
+    border: 1px solid var(--ink);
+  }
+
+  .st-table-scroll:focus-visible {
+    outline: 2px solid var(--overprint);
+    outline-offset: 2px;
+  }
+
+  .st-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 44rem;
+    background: var(--bg);
+  }
+
+  .st-table th,
+  .st-table td {
+    text-align: left;
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--hairline);
+    vertical-align: top;
+    font-size: var(--text-sm);
+  }
+
+  .st-table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .st-table tbody tr:last-child th,
+  .st-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .st-table tbody th[scope="row"] {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+    background: var(--surface);
+    border-right: 1px solid var(--hairline);
+  }
+
+  .th-kind {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+  }
+
+  .th-kind[data-side="ws"] {
+    color: var(--overprint-deep);
+  }
+
+  /* ── closer ─────────────────────────────────────────────────────────────── */
+  .st-guide {
+    border-top: 1px solid var(--hairline);
+    background:
+      linear-gradient(var(--hairline-faint) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline-faint) 1px, transparent 1px),
+      var(--surface);
+    background-size: 3.5rem 3.5rem;
+    padding: var(--space-section) var(--content-pad);
+  }
+
+  .st-guide-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .st-guide h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  .st-cta {
+    margin-top: var(--space-xl);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: oklch(100% 0 0);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: oklch(100% 0 0);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    color: var(--waterline);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+</style>
