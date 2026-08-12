@@ -10,35 +10,35 @@ import gleeunit/should
 import watershed/sluice_js
 import watershed_js
 
-pub fn two_surveyors_converge_test() {
-  let sluice = sluice_js.start(tenant: "survey-co", document: "bench-book")
-  let doc_a = sluice_js.connect(sluice, "surveyor-ada")
-  let doc_b = sluice_js.connect(sluice, "surveyor-boaz")
+pub fn two_teammates_converge_test() {
+  let sluice = sluice_js.start(tenant: "flow-co", document: "flowboard")
+  let doc_a = sluice_js.connect(sluice, "ada")
+  let doc_b = sluice_js.connect(sluice, "boaz")
   sluice_js.settle(sluice)              // complete both handshakes
 
-  let survey_a = watershed_js.root(doc_a)
-  let survey_b = watershed_js.root(doc_b)
+  let board_a = watershed_js.root(doc_a)
+  let board_b = watershed_js.root(doc_b)
 
-  // Concurrent readings, including a same-station race.
-  watershed_js.set(survey_a, "station-7", json.float(3.2))
-  watershed_js.set(survey_b, "station-9", json.float(1.85))
-  watershed_js.set(survey_a, "station-4", json.float(2.0))
-  watershed_js.set(survey_b, "station-4", json.float(2.4))
+  // Concurrent card moves, including a same-card race.
+  watershed_js.set(board_a, "card-7", json.string("Doing"))
+  watershed_js.set(board_b, "card-9", json.string("Review"))
+  watershed_js.set(board_a, "card-4", json.string("Doing"))
+  watershed_js.set(board_b, "card-4", json.string("Done"))
   sluice_js.settle(sluice)              // deliver every edit everywhere
 
   // Uncontested writes land on both replicas.
-  watershed_js.get(survey_b, "station-7")
-  |> should.equal(Some(json.float(3.2)))
+  watershed_js.get(board_b, "card-7")
+  |> should.equal(Some(json.string("Doing")))
 
-  // Both surveyors agree on the contested station — deterministically,
+  // Both teammates agree on the contested card — deterministically,
   // no polling, no server, no timing accident.
-  watershed_js.get(survey_a, "station-4")
-  |> should.equal(watershed_js.get(survey_b, "station-4"))
+  watershed_js.get(board_a, "card-4")
+  |> should.equal(watershed_js.get(board_b, "card-4"))
 }`;
 
 const race = `// Script the race instead of hoping for a schedule: deliver frames on demand.
-watershed_js.set(watershed_js.root(doc_a), "station-4", json.float(2.0))
-watershed_js.set(watershed_js.root(doc_b), "station-4", json.float(2.4))
+watershed_js.set(watershed_js.root(doc_a), "card-4", json.string("Doing"))
+watershed_js.set(watershed_js.root(doc_b), "card-4", json.string("Done"))
 
 sluice_js.step(sluice)     // deliver exactly one frame
 sluice_js.settle(sluice)   // then drain the rest to quiescence`;
@@ -110,7 +110,7 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     <p>
       Connect a document, give it a typed schema, choose a merge model per slot,
       add ripples for the ephemeral tier, wire it to Lustre, and lock the whole
-      thing down with deterministic convergence tests. Bench Book is small, but
+      thing down with deterministic convergence tests. Flowboard is small, but
       the shape is the shape of any real watershed app.
     </p>
     <p>

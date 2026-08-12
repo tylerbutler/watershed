@@ -58,7 +58,7 @@ exception = ">= 2.1.0 and < 3.0.0"
 # the day that package grows a suite — `trellis doctor` fails on a glob that
 # matches no member, so a stale name here cannot go unnoticed.
 test = [
-    "examples/bench_book_lustre",
+    "examples/flowboard_lustre",
     "examples/clap_counter_lustre",
     "examples/dice_cli",
     "examples/dice_lustre",

@@ -27,31 +27,31 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 
 pub fn main() {
   let app = lustre.application(init, update, view)
-  let document = browser.document_on_navigate("bench-book")
+  let document = browser.document_on_navigate("flowboard")
   let assert Ok(_) = lustre.start(app, "#app", document)
   Nil
 }
 
-pub type SurveyPresence {
-  SurveyPresence(station: Option(String))
+pub type BoardPresence {
+  BoardPresence(card: Option(String))
 }
 
-fn encode_presence(presence: SurveyPresence) -> Json {
+fn encode_presence(presence: BoardPresence) -> Json {
   json.object([
-    #("station", case presence.station {
-      Some(station) -> json.string(station)
+    #("card", case presence.card {
+      Some(card) -> json.string(card)
       None -> json.null()
     }),
   ])
 }
 
-fn presence_decoder() -> Decoder(SurveyPresence) {
-  use station <- decode.optional_field(
-    "station",
+fn presence_decoder() -> Decoder(BoardPresence) {
+  use card <- decode.optional_field(
+    "card",
     None,
     decode.optional(decode.string),
   )
-  decode.success(SurveyPresence(station:))
+  decode.success(BoardPresence(card:))
 }
 
 type Status {
@@ -63,45 +63,45 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Survey)),
-    readings_channel: Option(SharedMap),
-    flags_channel: Option(SharedCounter),
+    doc: Option(Document(doc_schema.Board)),
+    cards_channel: Option(SharedMap),
+    breaches_channel: Option(SharedCounter),
     user_id: String,
     title: String,
-    readings: List(#(String, String)),
-    flags: Int,
+    cards: List(#(String, String)),
+    breaches: Int,
     focus: Option(String),
-    presence: Option(Handle(SurveyPresence)),
-    peers: List(presence.PresenceEntry(SurveyPresence)),
+    presence: Option(Handle(BoardPresence)),
+    peers: List(presence.PresenceEntry(BoardPresence)),
     error: Option(String),
   )
 }
 
 type Msg {
-  GotDocument(Document(doc_schema.Survey))
+  GotDocument(Document(doc_schema.Board))
   Connected(Result(Nil, String))
-  EnsuredReadings(Result(SharedMap, String))
-  EnsuredFlags(Result(SharedCounter, String))
+  EnsuredCards(Result(SharedMap, String))
+  EnsuredBreaches(Result(SharedCounter, String))
   SharedChanged
-  RecordReading(String, Float)
-  AddFlag
-  FocusStation(String)
-  PresenceStarted(Handle(SurveyPresence))
-  PresenceEvent(presence.Event(SurveyPresence))
+  MoveCard(String, String)
+  ReportBreach
+  FocusCard(String)
+  PresenceStarted(Handle(BoardPresence))
+  PresenceEvent(presence.Event(BoardPresence))
 }
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
-  let user_id = "surveyor-" <> int.to_string(1000 + int.random(9000))
+  let user_id = "teammate-" <> int.to_string(1000 + int.random(9000))
   let model =
     Model(
       status: Connecting,
       doc: None,
-      readings_channel: None,
-      flags_channel: None,
+      cards_channel: None,
+      breaches_channel: None,
       user_id:,
-      title: "Bench Book",
-      readings: [],
-      flags: 0,
+      title: "Flowboard",
+      cards: [],
+      breaches: 0,
       focus: None,
       presence: None,
       peers: [],
@@ -122,21 +122,26 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn bootstrap_effect(doc: Document(doc_schema.Survey)) -> Effect(Msg) {
+fn bootstrap_effect(doc: Document(doc_schema.Board)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(
       root,
       doc_schema.title(),
-      "Mill Race spring survey",
+      "Sprint board",
     ),
     watershed_lustre.ensure_map(
       doc,
       root,
-      doc_schema.readings(),
-      EnsuredReadings,
+      doc_schema.cards(),
+      EnsuredCards,
     ),
-    watershed_lustre.ensure_counter(doc, root, doc_schema.flags(), EnsuredFlags),
+    watershed_lustre.ensure_counter(
+      doc,
+      root,
+      doc_schema.wip_breaches(),
+      EnsuredBreaches,
+    ),
     watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
       SharedChanged
     }),
@@ -145,12 +150,12 @@ fn bootstrap_effect(doc: Document(doc_schema.Survey)) -> Effect(Msg) {
 
 fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.Survey),
+  doc: Document(doc_schema.Board),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
     config: presence.config(encode_presence, presence_decoder()),
-    initial: SurveyPresence(station: model.focus),
+    initial: BoardPresence(card: model.focus),
     started: PresenceStarted,
     on_event: PresenceEvent,
   )
@@ -161,7 +166,7 @@ fn announce_effect(model: Model) -> Effect(Msg) {
     Some(handle) ->
       watershed_lustre.update_presence(
         handle,
-        SurveyPresence(station: model.focus),
+        BoardPresence(card: model.focus),
       )
     None -> effect.none()
   }
@@ -185,22 +190,22 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    EnsuredReadings(Ok(readings)) -> #(
-      snapshot(Model(..model, readings_channel: Some(readings))),
-      watershed_lustre.subscribe(readings, fn(_event) { SharedChanged }),
+    EnsuredCards(Ok(cards)) -> #(
+      snapshot(Model(..model, cards_channel: Some(cards))),
+      watershed_lustre.subscribe(cards, fn(_event) { SharedChanged }),
     )
 
-    EnsuredReadings(Error(reason)) -> #(
+    EnsuredCards(Error(reason)) -> #(
       Model(..model, error: Some(reason)),
       effect.none(),
     )
 
-    EnsuredFlags(Ok(flags)) -> #(
-      snapshot(Model(..model, flags_channel: Some(flags))),
-      watershed_lustre.subscribe_counter(flags, fn(_event) { SharedChanged }),
+    EnsuredBreaches(Ok(breaches)) -> #(
+      snapshot(Model(..model, breaches_channel: Some(breaches))),
+      watershed_lustre.subscribe_counter(breaches, fn(_event) { SharedChanged }),
     )
 
-    EnsuredFlags(Error(reason)) -> #(
+    EnsuredBreaches(Error(reason)) -> #(
       Model(..model, error: Some(reason)),
       effect.none(),
     )
@@ -208,24 +213,24 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // Both optimistic local edits and applied remote edits use this path.
     SharedChanged -> #(snapshot(model), effect.none())
 
-    RecordReading(station, depth) -> {
-      case model.readings_channel {
-        Some(readings) -> watershed_js.set(readings, station, json.float(depth))
+    MoveCard(card_id, column) -> {
+      case model.cards_channel {
+        Some(cards) -> watershed_js.set(cards, card_id, json.string(column))
         None -> Nil
       }
       #(model, effect.none())
     }
 
-    AddFlag -> {
-      case model.flags_channel {
-        Some(flags) -> watershed_js.increment(flags, 1)
+    ReportBreach -> {
+      case model.breaches_channel {
+        Some(breaches) -> watershed_js.increment(breaches, 1)
         None -> Nil
       }
       #(model, effect.none())
     }
 
-    FocusStation(station) -> {
-      let model = Model(..model, focus: Some(station))
+    FocusCard(card_id) -> {
+      let model = Model(..model, focus: Some(card_id))
       #(model, announce_effect(model))
     }
 
@@ -258,21 +263,21 @@ fn snapshot(model: Model) -> Model {
     None -> #(model.title, model.error)
   }
 
-  let readings = case model.readings_channel {
+  let cards = case model.cards_channel {
     Some(channel) ->
       watershed_js.entries(channel)
       |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
-    None -> model.readings
+    None -> model.cards
   }
 
-  let flags = case model.flags_channel {
+  let breaches = case model.breaches_channel {
     Some(channel) ->
       watershed_js.counter_value(channel)
-      |> option.unwrap(model.flags)
-    None -> model.flags
+      |> option.unwrap(model.breaches)
+    None -> model.breaches
   }
 
-  Model(..model, title:, readings:, flags:, error:)
+  Model(..model, title:, cards:, breaches:, error:)
 }
 
 fn view(model: Model) -> Element(Msg) {
@@ -283,41 +288,41 @@ fn view(model: Model) -> Element(Msg) {
     ]),
     html.p([], [
       html.text(
-        "Open a second tab. Local readings render at once; remote readings "
+        "Open a second tab. Local card moves render at once; remote moves "
         <> "arrive through the same subscription.",
       ),
     ]),
     html.div([class("actions")], [
-      html.button([event.on_click(RecordReading("station-7", 3.2))], [
-        html.text("Record station-7: 3.2 m"),
+      html.button([event.on_click(MoveCard("card-12", "Doing"))], [
+        html.text("Move card-12 → Doing"),
       ]),
-      html.button([event.on_click(RecordReading("station-4", 2.4))], [
-        html.text("Record station-4: 2.4 m"),
+      html.button([event.on_click(MoveCard("card-7", "Done"))], [
+        html.text("Move card-7 → Done"),
       ]),
-      html.button([event.on_click(AddFlag)], [
-        html.text("Flag for re-check"),
+      html.button([event.on_click(ReportBreach)], [
+        html.text("Report WIP breach"),
       ]),
     ]),
-    html.h2([], [html.text("Readings")]),
-    readings_view(model.readings),
-    html.p([], [html.text("Re-check flags: " <> int.to_string(model.flags))]),
+    html.h2([], [html.text("Cards")]),
+    cards_view(model.cards),
+    html.p([], [html.text("WIP breaches: " <> int.to_string(model.breaches))]),
     html.h2([], [html.text("Presence")]),
     html.p([class("peers")], [html.text(peers_text(model.peers))]),
     error_view(model.error),
   ])
 }
 
-fn readings_view(readings: List(#(String, String))) -> Element(Msg) {
-  case readings {
-    [] -> html.p([], [html.text("No readings yet.")])
+fn cards_view(cards: List(#(String, String))) -> Element(Msg) {
+  case cards {
+    [] -> html.p([], [html.text("No cards yet.")])
     _ ->
       html.div(
         [],
-        list.map(readings, fn(reading) {
-          html.div([class("station")], [
-            html.span([], [html.text(reading.0 <> ": " <> reading.1 <> " m")]),
-            html.button([event.on_click(FocusStation(reading.0))], [
-              html.text("Inspect"),
+        list.map(cards, fn(card) {
+          html.div([class("card")], [
+            html.span([], [html.text(card.0 <> ": " <> card.1)]),
+            html.button([event.on_click(FocusCard(card.0))], [
+              html.text("Focus"),
             ]),
           ])
         }),
@@ -325,12 +330,12 @@ fn readings_view(readings: List(#(String, String))) -> Element(Msg) {
   }
 }
 
-/// Everyone but this surveyor. Presence state includes the local session by
+/// Everyone but this teammate. Presence state includes the local session by
 /// design, so the roster is filtered here rather than in the driver.
 fn remote_entries(
   model: Model,
-  entries: List(presence.PresenceEntry(SurveyPresence)),
-) -> List(presence.PresenceEntry(SurveyPresence)) {
+  entries: List(presence.PresenceEntry(BoardPresence)),
+) -> List(presence.PresenceEntry(BoardPresence)) {
   case model.presence {
     Some(handle) ->
       case presence_js.local_session(handle) {
@@ -341,16 +346,16 @@ fn remote_entries(
   }
 }
 
-fn peers_text(peers: List(presence.PresenceEntry(SurveyPresence))) -> String {
+fn peers_text(peers: List(presence.PresenceEntry(BoardPresence))) -> String {
   case peers {
-    [] -> "No other surveyors connected."
+    [] -> "No other teammates connected."
     _ ->
       peers
       |> list.map(fn(peer) {
-        let SurveyPresence(station:) = peer.meta
+        let BoardPresence(card:) = peer.meta
         peer.key
-        <> case station {
-          Some(station) -> " is inspecting " <> station
+        <> case card {
+          Some(card) -> " is focused on " <> card
           None -> " is connected"
         }
       })

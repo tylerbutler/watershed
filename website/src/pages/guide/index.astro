@@ -34,26 +34,27 @@ import { steps } from "../../data/guide";
         <div class="gi-build-copy">
           <h2 id="gi-build-title">What you’ll build</h2>
           <p>
-            One app runs the whole way through: <strong>Bench&nbsp;Book</strong>,
-            a shared field survey. Several surveyors open the same document and
-            log gauge readings at once. It stays small on purpose — a title, a
-            map of readings, a running tally of flags — so every step adds one
-            real capability to the same growing codebase rather than a new toy.
+            One app runs the whole way through: <strong>Flowboard</strong>,
+            a shared kanban board. Several teammates open the same document and
+            drag cards between columns at once. It stays small on purpose — a
+            title, a map of cards, a running tally of WIP-limit breaches — so
+            every step adds one real capability to the same growing codebase
+            rather than a new toy.
           </p>
           <p class="gi-prereq">
             You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>
             and a <a href="https://github.com/tylerbutler/levee">levee</a> server
             — though the last step shows how to test convergence with no server
-            at all. Step 05 includes every file for a runnable Bench Book
+            at all. Step 05 includes every file for a runnable Flowboard
             project; the earlier sheets explain the pieces it assembles.
           </p>
         </div>
-        <figure class="gi-doc" aria-label="The Bench Book document shape">
-          <figcaption class="annot">document · bench-book</figcaption>
+        <figure class="gi-doc" aria-label="The Flowboard document shape">
+          <figcaption class="annot">document · flowboard</figcaption>
           <ul class="gi-doc-tree">
             <li><span class="gi-key">title</span><span class="gi-typ">String field</span></li>
-            <li><span class="gi-key">readings</span><span class="gi-typ">SharedMap → depth per station</span></li>
-            <li><span class="gi-key">flags</span><span class="gi-typ">SharedCounter → re-check tally</span></li>
+            <li><span class="gi-key">cards</span><span class="gi-typ">SharedMap → column per card</span></li>
+            <li><span class="gi-key">wip_breaches</span><span class="gi-typ">SharedCounter → limit-breach tally</span></li>
             <li class="gi-doc-eph"><span class="gi-key">↯ focus</span><span class="gi-typ">ripple → who’s looking where</span></li>
           </ul>
         </figure>

@@ -1,6 +1,6 @@
-name = "bench_book_lustre"
+name = "flowboard_lustre"
 version = "1.0.0"
-description = "Complete Bench Book example from the watershed build guide"
+description = "Complete Flowboard example from the watershed build guide"
 licences = ["MIT"]
 gleam = ">= 1.7.0"
 target = "javascript"

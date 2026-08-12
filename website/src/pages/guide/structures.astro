@@ -7,26 +7,26 @@ const swap = `import watershed
 import watershed/or_map_kernel.{RegisterMode}
 import watershed/schema.{type ChannelField, type OrMapChannel}
 
-// Replace the previous ChannelField(Survey, MapChannel) declaration.
-pub fn readings() -> ChannelField(Survey, OrMapChannel) {
-  schema.channel_field("readings")
+// Replace the previous ChannelField(Board, MapChannel) declaration.
+pub fn cards() -> ChannelField(Board, OrMapChannel) {
+  schema.channel_field("cards")
 }
 
-pub fn ensure_readings(
+pub fn ensure_cards(
   doc: watershed.Document,
-  root: watershed.TypedMap(Survey),
+  root: watershed.TypedMap(Board),
 ) -> Result(watershed.OrMap, String) {
   watershed.ensure_or_map(
     doc,
     root,
-    readings(),
+    cards(),
     mode: RegisterMode,
   )
 }`;
 
-const counter = `// flags is a counter, not a number in the map. Each surveyor sends a
+const counter = `// wip_breaches is a counter, not a number in the map. Each teammate sends a
 // signed DELTA, so two concurrent +1s converge on +2 — never clobber.
-watershed.increment(flags, 1)
+watershed.increment(wip_breaches, 1)
 
 // A number stored in a SharedMap would lose one of the two increments:
 // last-write-wins keeps only the highest-sequenced value. That's the
@@ -47,25 +47,25 @@ watershed.increment(flags, 1)
       slot, by choosing a kind.
     </p>
     <p>
-      Bench Book’s three slots each answer it differently, and that’s the point —
+      Flowboard’s three slots each answer it differently, and that’s the point —
       one document mixes merge models freely, because they all ride the same
       sequenced stream.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>readings: order it, or merge it</h2>
+    <h2>cards: order it, or merge it</h2>
     <p>
-      The readings map defaults to a <a href="/structures/maps#map">SharedMap</a>:
-      last-write-wins per station, resolved by server order. Two surveyors
-      writing <code>station-4</code> at once? The higher-sequenced write holds;
-      the other is dropped. That’s correct when a reading is simply the latest
-      measurement.
+      The cards map defaults to a <a href="/structures/maps#map">SharedMap</a>:
+      last-write-wins per card, resolved by server order. Two teammates
+      dragging <code>card-4</code> at once? The higher-sequenced write holds;
+      the other is dropped. That’s correct when a card’s column is simply the
+      latest place it was dropped.
     </p>
     <p>
-      But if a surveyor can <em>delete</em> a station while another is
-      re-measuring it, last-write-wins can silently lose the re-reading. Swap the
-      kind to an <a href="/structures/maps#ormap">OR-map</a> and observed-remove
+      But if a teammate can <em>archive</em> a card while another is moving it,
+      last-write-wins can silently lose the concurrent move. Swap the kind to
+      an <a href="/structures/maps#ormap">OR-map</a> and observed-remove
       semantics keep the concurrent write. For a new slot, declare
       <code>OrMapChannel</code> and choose the required value mode when ensuring
       it:
@@ -76,11 +76,11 @@ watershed.increment(flags, 1)
     <div class="g-note">
       <p>
         <strong>A type edit is not an in-place migration.</strong> If
-        <code>readings</code> already contains a SharedMap handle,
+        <code>cards</code> already contains a SharedMap handle,
         <code>ensure_or_map</code> does not convert its data or replace that
         channel. Deploy a new field key, copy values with an explicit migration,
         then retire the old field. <code>RegisterMode</code> stores string
-        registers, so this depth example also needs an explicit string
+        registers, so this column example also needs an explicit string
         representation; use <code>TallyMode</code> only for integer tally
         leaves.
       </p>
@@ -88,9 +88,9 @@ watershed.increment(flags, 1)
   </div>
 
   <div class="g-block">
-    <h2>flags: never store a counter in a map</h2>
+    <h2>wip_breaches: never store a counter in a map</h2>
     <p>
-      The re-check tally is a <a href="/structures/counters#counter">SharedCounter</a>,
+      The limit-breach tally is a <a href="/structures/counters#counter">SharedCounter</a>,
       and this is not a stylistic choice. A counter ships each change as a signed
       <em>delta</em>; because addition commutes, concurrent increments add up
       instead of overwriting. Store that same number as a value in a SharedMap

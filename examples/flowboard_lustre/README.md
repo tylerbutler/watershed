@@ -1,4 +1,4 @@
-# Bench Book
+# Flowboard
 
 The complete Lustre application from the watershed build guide. It demonstrates
 typed document bootstrap, optimistic local updates, remote subscriptions, a
@@ -14,5 +14,5 @@ pnpm build
 pnpm serve
 ```
 
-Open <http://localhost:8080> in two tabs. A local reading renders at once. The
+Open <http://localhost:8080> in two tabs. A local card move renders at once. The
 other tab receives the remote edit through the same `SharedChanged` update path.

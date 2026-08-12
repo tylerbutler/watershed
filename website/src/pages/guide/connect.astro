@@ -18,19 +18,19 @@ pub fn main() {
     watershed.connect(
       host: "127.0.0.1",
       port: 4000,
-      tenant: "survey-co",
-      document: "bench-book",
+      tenant: "flow-co",
+      document: "flowboard",
       token: token,
-      user_id: "surveyor-ada",
+      user_id: "ada",
     )
-  let survey = watershed.root(doc)
-  let events = watershed.subscribe(survey)
+  let board = watershed.root(doc)
+  let events = watershed.subscribe(board)
   let selector =
     process.new_selector()
     |> process.select_map(events, MapChanged)
 
   // Subscribe first: this local write emits immediately.
-  watershed.set(survey, "title", json.string("Mill Race — spring survey"))
+  watershed.set(board, "title", json.string("Q3 sprint board"))
 
   // The same subject also receives remote changes as they are applied.
   let MapChanged(_event) = process.selector_receive_forever(selector)
@@ -44,10 +44,10 @@ pub fn main() {
   let config =
     WatershedConfig(
       url: "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0",
-      tenant: "survey-co",
-      document: "bench-book",
+      tenant: "flow-co",
+      document: "flowboard",
       token: token,
-      user_id: "surveyor-ada",
+      user_id: "ada",
     )
 
   // Returns immediately; on_ready fires after handshake + history replay.
@@ -59,7 +59,7 @@ pub fn main() {
       }
     })
 
-  let survey = watershed_js.root(doc)
+  let board = watershed_js.root(doc)
 }`;
 ---
 
@@ -73,8 +73,8 @@ pub fn main() {
       Everything watershed synchronises lives inside a <strong>document</strong>:
       a server-sequenced container addressed by a <code>tenant</code> and a
       <code>document</code> id. Every client that connects to the same pair joins
-      the same live state. Bench Book’s surveyors all open
-      <code>survey-co / bench-book</code>.
+      the same live state. Flowboard’s teammates all open
+      <code>flow-co / flowboard</code>.
     </p>
     <p>
       Connecting replays the document’s op history so you start from the current
@@ -102,13 +102,13 @@ pub fn main() {
         <figure class="g-code g-panel g-panel-beam">
           <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
           <figcaption class="annot">
-            src/bench_book.gleam · erlang target
+            src/flowboard.gleam · erlang target
           </figcaption>
         </figure>
         <figure class="g-code g-panel g-panel-js">
           <Code code={js} lang="gleam" theme={watershedCodeTheme} />
           <figcaption class="annot">
-            src/bench_book.gleam · javascript target
+            src/flowboard.gleam · javascript target
           </figcaption>
         </figure>
       </div>

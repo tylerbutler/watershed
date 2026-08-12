@@ -149,14 +149,14 @@ export const exampleGroups: {
 
 export const examples: Example[] = [
   {
-    id: "bench_book_lustre",
-    name: "Bench Book",
+    id: "flowboard_lustre",
+    name: "Flowboard",
     group: "foundation",
     summary:
-      "The complete application from the build guide: typed bootstrap, shared readings, a counter, and presence.",
+      "The complete application from the build guide: typed bootstrap, shared cards, a counter, and presence.",
     structures: ["SharedMap", "SharedCounter", "Presence"],
     payoff:
-      "Local and remote gauge readings pass through one declared Lustre effect loop.",
+      "Local and remote card moves pass through one declared Lustre effect loop.",
     patterns: [
       "ready-bootstrap",
       "typed-bootstrap",
