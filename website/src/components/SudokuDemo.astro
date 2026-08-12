@@ -10,8 +10,8 @@ const clients = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="sudoku-demo-title">SharedMap sudoku cells, live</h2>
     <p>
-      All three clients are real <code>watershed</code> documents — the full
-      runtime, wire codecs and pending queues — compiled to JavaScript and
+      All three clients are real <code>watershed</code> documents: the full
+      runtime, wire codecs and pending queues, compiled to JavaScript and
       running in your browser. They talk to one <code>sluice</code>: the
       in-memory server that ships in the library for deterministic tests,
       standing in for levee with no backend. A cell edit renders optimistically
@@ -141,14 +141,14 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the real watershed runtime and
       the in-memory <code>sluice</code> as compiled JavaScript in your browser.
       The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-sudoku-fallback hidden>
-    The live demo couldn’t start — it runs the real watershed runtime against
+    The live demo couldn’t start: it runs the real watershed runtime against
     the in-memory <code>sluice</code> as compiled JavaScript, and this browser
     didn’t load it. The rest of the page works fine without it.
   </p>

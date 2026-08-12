@@ -14,7 +14,7 @@ let config =
 
 <RuntimeLayout
   slug="presence"
-  description="Watershed's ephemeral tier: ripples are document-scoped, non-sequenced broadcasts that never touch converged state, and presence turns them into a live roster of who is here — backed by the server's own connection tracking where the server offers it, and by a heartbeat and TTL where it does not."
+  description="Watershed's ephemeral tier: ripples are document-scoped, non-sequenced broadcasts that never touch converged state, and presence turns them into a live roster of who is here, backed by the server's own connection tracking where the server offers it, and by a heartbeat and TTL where it does not."
 >
   <div class="g-block">
     <h2>Not everything belongs in the document</h2>
@@ -22,7 +22,7 @@ let config =
       Some signals are about <em>now</em>, not about state: which station a
       surveyor is looking at, a cursor position, a "re-check this" nudge, a
       reaction. Put those in a channel and they get sequenced, summarised, and
-      replayed to whoever joins an hour later — long after they stopped meaning
+      replayed to whoever joins an hour later, long after they stopped meaning
       anything. A converged document is the wrong home for a signal whose whole
       value is that it is fleeting.
     </p>
@@ -38,7 +38,7 @@ let config =
     <p>
       A <strong>ripple</strong> is a document-scoped, non-sequenced broadcast
       delivered to every <em>other</em> connected client and then gone. No
-      ordering, no storage, no convergence — deliberately.
+      ordering, no storage, no convergence, deliberately.
       <code>submit_ripple</code> sends a type tag plus a JSON payload and returns
       nothing, because there is no state to change and no ack to await;
       <code>subscribe_ripples</code> hands each inbound ripple to your handler
@@ -49,7 +49,7 @@ let config =
     <p>
       Because a ripple never lands in a summary, a client that
       <a href="/runtime/reconnect">reconnects</a> or joins late will not see the
-      ones it missed — which is exactly right for a cursor and exactly wrong for
+      ones it missed, which is exactly right for a cursor and exactly wrong for
       a reading. The tier's forgetfulness is the feature.
     </p>
   </div>
@@ -58,7 +58,7 @@ let config =
     <h2>Presence: who is here</h2>
     <p>
       Raw ripples are stateless, and that leaves one gap: a peer who simply goes
-      quiet — closes the tab, loses signal — leaves their last marker stranded on
+      quiet (closes the tab, loses signal) leaves their last marker stranded on
       everyone's screen, because "gone" was never an event.
       <strong>Presence</strong> closes it, and offers one API over two ways of
       doing so.
@@ -69,7 +69,7 @@ let config =
     <p>
       A <strong>session</strong> is one tab, device, or process; a
       <strong>key</strong> groups the sessions of one authenticated person. Two
-      tabs from the same user are two entries sharing a key — the roster is keyed
+      tabs from the same user are two entries sharing a key: the roster is keyed
       by session, so they never overwrite each other. Your handler receives a
       <code>State</code> that replaces the roster wholesale, or a
       <code>Changed</code> carrying both the delta and the resulting roster; both
@@ -82,14 +82,14 @@ let config =
     <p>
       <strong>Server presence</strong> is connection-backed. The server tracks
       each connection, so a client that joins late is handed the entire roster in
-      one snapshot, and a socket that drops takes its entry with it — no browser
+      one snapshot, and a socket that drops takes its entry with it. No browser
       involved, no waiting. There is no heartbeat at all: the connection
       <em>is</em> the liveness signal.
     </p>
     <p>
       <strong>Ripple presence</strong> is soft presence, for servers that do not
       offer the lane. Each client re-announces its metadata on a timer and expires
-      peers it stops hearing from — by default beating every two seconds and
+      peers it stops hearing from, by default beating every two seconds and
       expiring after six and a half, roughly three missed beats. It is honest but
       approximate: a late joiner waits for each peer's next beat, and a
       background tab whose timers get throttled can briefly look gone.
@@ -98,7 +98,7 @@ let config =
       <code>Auto</code> chooses between them from what the server advertises in
       its handshake. <code>Ripple</code> forces the heartbeat.
       <code>Server</code> refuses to fall back and reports
-      <code>UnsupportedPresence</code> instead — a silent downgrade would make
+      <code>UnsupportedPresence</code> instead: a silent downgrade would make
       presence look intermittently broken with nothing to point at.
       <code>presence_js.mode</code> reports which one is running, because the two
       have genuinely different failure timing and hiding that makes it
@@ -107,7 +107,7 @@ let config =
     <div class="g-note">
       <p>
         <strong>Send the right traffic down each tier.</strong> Presence carries
-        membership and low-frequency status — which panel, which cell, typing or
+        membership and low-frequency status: which panel, which cell, typing or
         not. High-frequency cursor motion still belongs on raw ripples: presence
         exists to answer "who is here", not to be a pipe.
       </p>
@@ -118,7 +118,7 @@ let config =
     <span class="annot">In short</span>
     <p>
       Ripples are throwaway broadcasts that never touch converged state; presence
-      turns them into a roster of who is here — backed by the server's own
+      turns them into a roster of who is here, backed by the server's own
       connection tracking where that exists, and by a heartbeat and TTL where it
       does not, behind one API that reports which it chose.
     </p>

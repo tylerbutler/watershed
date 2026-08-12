@@ -78,7 +78,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
       Raw key strings scattered through an app rot fast. The typed layer
       (<code>watershed/schema</code>) lets you declare a document’s shape once
       and read and write through it. But it is deliberately <em>not</em> a
-      closed schema: a remote peer running an older build — or a stale summary —
+      closed schema: a remote peer running an older build, or a stale summary,
       can still write any JSON to any key.
     </p>
     <p>
@@ -90,7 +90,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     </p>
     <p>
       Fluid Framework’s <code>SharedTree</code> puts that guarantee in the other
-      place — a stored schema the service enforces, so its reads need no error
+      place: a stored schema the service enforces, so its reads need no error
       arm at all. <a href="/sharedtree">The two, side by side</a> works through
       what each choice buys and costs.
     </p>
@@ -101,7 +101,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <p>
       Each slot on the root is a field. A plain value is a <code>Field</code>; a
       handle to another channel kind is a <code>ChannelField</code>. Flowboard’s
-      root has one of each family — a string title, a cards map, a breach
+      root has one of each family: a string title, a cards map, a breach
       counter. A phantom <code>Board</code> tag scopes every field to this map,
       so the compiler stops you reading a field against the wrong document.
     </p>
@@ -109,7 +109,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
       That tag names the document itself, not just the fields:
       <code>connect</code> hands back a <code>Document(Board)</code>, and
       <code>root_typed</code> on it returns a <code>TypedMap(Board)</code>. One
-      document admits one root schema — mounting a second app’s fields on the
+      document admits one root schema: mounting a second app’s fields on the
       same root map is a compile error rather than two apps quietly sharing a
       key namespace.
     </p>
@@ -123,7 +123,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <h2>Seed the channels with <code>ensure_*</code></h2>
     <p>
       A fresh document is empty. Two clients opening it at once both want to
-      create the <code>cards</code> map and <code>wip_breaches</code> counter —
+      create the <code>cards</code> map and <code>wip_breaches</code> counter,
       and exactly one must win, with the other adopting the winner. That
       create-race-retry dance is what <code>ensure_*</code> collapses into a
       declaration: from the field alone, it seeds the channel if absent and
@@ -140,7 +140,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <p>
       With the fields declared, you never touch a key string again.
       <code>set_field</code> encodes; <code>get_field</code> decodes and returns
-      <code>Result(Option(a), FieldError)</code> — <code>Ok(None)</code> for an
+      <code>Result(Option(a), FieldError)</code>: <code>Ok(None)</code> for an
       absent key, <code>Error</code> when a peer wrote a value that doesn’t
       decode to your type.
     </p>
@@ -150,7 +150,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <div class="g-note">
       <p>
         <strong>The boundary is the feature.</strong> That <code>Error(_)</code>
-        arm isn’t defensive boilerplate — it’s the one place a multiplayer app
+        arm isn’t defensive boilerplate. It’s the one place a multiplayer app
         has to decide what to do when a peer disagrees about a value’s type.
         Handling it here keeps every read past this point total.
       </p>
@@ -160,8 +160,8 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   <div class="g-block">
     <h3>Deepening: a whole record across keys</h3>
     <p>
-      When a slot holds a record rather than a scalar — a card with a column,
-      an owner, and an optional note — the <code>record1</code>…<code>record9</code>
+      When a slot holds a record rather than a scalar (a card with a column,
+      an owner, and an optional note), the <code>record1</code>…<code>record9</code>
       builders derive the decoder <em>and</em> the encoder from a single prop
       list, so the two can’t drift. Writes stay per-key, so concurrent edits to
       sibling fields still merge.

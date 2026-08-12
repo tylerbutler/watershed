@@ -96,14 +96,14 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
 
 <GuideLayout
   slug="ui"
-  description="Step five of the watershed build guide: watershed_lustre binds the browser facade to Lustre as effects — connect, ensure_* bootstrap, per-channel subscriptions, and presence — so an app declares its sync wiring instead of hand-bridging callbacks into dispatch."
+  description="Step five of the watershed build guide: watershed_lustre binds the browser facade to Lustre as effects (connect, ensure_* bootstrap, per-channel subscriptions, and presence) so an app declares its sync wiring instead of hand-bridging callbacks into dispatch."
 >
   <div class="g-block">
     <h2>Declare the wiring, don’t hand-bridge it</h2>
     <p>
       watershed’s browser facade speaks in callbacks: <code>on_ready</code>,
       <code>subscribe</code> handlers, presence <code>on_change</code>. Wired
-      into Lustre by hand, each of those has to <code>dispatch</code> a message —
+      into Lustre by hand, each of those has to <code>dispatch</code> a message,
       and dispatching from inside an <code>update</code> clobbers the very model
       you’re returning, so you end up deferring every callback to dodge it.
     </p>
@@ -111,7 +111,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
       <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
       <code>watershed_lustre</code></a> does that once, correctly. Every piece of
       the facade becomes a Lustre <code>Effect</code> that dispatches a message
-      you name — so your app <em>declares</em> its sync instead of gluing it.
+      you name, so your app <em>declares</em> its sync instead of gluing it.
     </p>
   </div>
 
@@ -162,8 +162,8 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <div class="g-note">
       <p>
         <strong>See it running.</strong> The <a href="/sudoku">collaborative
-        Sudoku demo</a> is a full <code>watershed_lustre</code> app — connect,
-        typed bootstrap, per-channel subscriptions, and live presence cursors —
+        Sudoku demo</a> is a full <code>watershed_lustre</code> app: connect,
+        typed bootstrap, per-channel subscriptions, and live presence cursors,
         built on exactly this wiring. Its source is the reference implementation
         for this step.
       </p>
@@ -239,8 +239,8 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Wire a whole document into a Lustre SPA as a handful of declared effects —
-      connection, typed bootstrap, subscriptions, and presence — with none of
+      Wire a whole document into a Lustre SPA as a handful of declared effects:
+      connection, typed bootstrap, subscriptions, and presence, with none of
       the mid-<code>update</code> dispatch hazards of bridging callbacks by hand.
     </p>
   </div>

@@ -54,7 +54,7 @@ const structures = [
   {
     name: "OR-Map",
     module: "or_map_kernel",
-    rule: "delete a key while someone else edits it, and the edit survives — the write wins",
+    rule: "delete a key while someone else edits it, and the edit survives: the write wins",
     pending: "deleted rows stay readable until the delete is confirmed",
     summary: "entries remember their edit history, not just the current value",
   },
@@ -62,13 +62,13 @@ const structures = [
     name: "Claims",
     module: "claims_kernel",
     rule: "the first client to claim a slot owns it; every later claim is refused",
-    pending: "a claim only shows as yours once it has actually won — never before",
+    pending: "a claim only shows as yours once it has actually won, never before",
     summary: "who owns what reloads intact",
   },
   {
     name: "Register collection",
     module: "register_collection_kernel",
-    rule: "read the first uncontested write, or the most recent one — your choice, per read",
+    rule: "read the first uncontested write, or the most recent one, your choice, per read",
     pending: "writes stay hidden until confirmed, then settle as the winner or a kept version",
     summary: "every competing version is kept, so either read rule still works later",
   },
@@ -118,7 +118,7 @@ const flow = [
     step: "4",
     title: "Summarize",
     detail:
-      "A saved snapshot lets any client reload the current state — the same path used after a reconnect.",
+      "A saved snapshot lets any client reload the current state, the same path used after a reconnect.",
   },
 ];
 ---
@@ -134,8 +134,8 @@ const flow = [
         can reload later.
       </p>
       <p class="dds-atlas-note">
-        Only a few of watershed’s structures are shown here. The rest — grouped
-        by family — live in the field atlas, our full catalog, each with its own
+        Only a few of watershed’s structures are shown here. The rest (grouped
+        by family) live in the field atlas, our full catalog, each with its own
         live demo.
       </p>
       <nav class="family-nav" aria-label="Data structures in depth">
@@ -188,7 +188,7 @@ const flow = [
   <div class="flow-inner">
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Every structure above rides the same ordered stream of changes — the very
+      Every structure above rides the same ordered stream of changes, the very
       one the live SharedMap demo runs on. Open any family to switch which
       structure is on screen; they all stay hosted together as channels sharing
       one sequenced document.

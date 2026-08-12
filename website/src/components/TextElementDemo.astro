@@ -16,8 +16,8 @@ const panes = [
       Everything the rig above does by hand ships as a
       component: <code>&lt;watershed-textarea&gt;</code>, the <code>watershed_lustre</code> editor
       compiled from Gleam and registered as a custom element. These two panes
-      are that element — real documents, one shared <code>SharedText</code>,
-      the same in-memory sluice — and this page contributes <em>no editor code at all</em>.
+      are that element: real documents, one shared <code>SharedText</code>,
+      the same in-memory sluice, and this page contributes <em>no editor code at all</em>.
       The channel goes in as one property (<code>el.channel&nbsp;=&nbsp;text</code>);
       edits, errors, and this user’s cursor come back out as DOM events; the
       other pane’s cursor goes back in as data.
@@ -27,7 +27,7 @@ const panes = [
       diffed into one minimal grapheme op, a peer’s edit can’t teleport your
       caret, and an IME composition survives remote
       keystrokes. <strong>Select a few words in one pane</strong> and a named
-      highlight appears in the other — then type before them and watch it stay
+      highlight appears in the other, then type before them and watch it stay
       glued to those words. It travels as content-bound anchors, not offsets,
       which is the same machinery that keeps your own caret in place.
     </p>
@@ -58,14 +58,14 @@ const panes = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the real watershed runtime and
       the compiled editor component in your browser. The rest of the page works
       fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-text-element-fallback hidden>
-    The live demo couldn’t start — it runs the compiled
+    The live demo couldn’t start: it runs the compiled
     <code>&lt;watershed-textarea&gt;</code> component against the in-memory
     <code>sluice</code>, and this browser didn’t load it. The rest of the page
     works fine without it.

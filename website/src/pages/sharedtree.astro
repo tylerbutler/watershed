@@ -215,8 +215,8 @@ if (!view.compatibility.canView && view.compatibility.canUpgrade) {
 const rows = [
   {
     axis: "Schema lives",
-    tree: "in the document — a stored schema, written on first initialize",
-    ws: "in your build only — a phantom tag and a set of field descriptors, erased at runtime",
+    tree: "in the document, as a stored schema written on first initialize",
+    ws: "in your build only, as a phantom tag and a set of field descriptors erased at runtime",
   },
   {
     axis: "A peer writes the wrong type",
@@ -231,7 +231,7 @@ const rows = [
   {
     axis: "Merge policy",
     tree: "one, applied to everything in the tree",
-    ws: "one per slot — LWW map, add-wins OR-set, first-writer-wins claims, commutative counter, OT rich text",
+    ws: "one per slot: LWW map, add-wins OR-set, first-writer-wins claims, commutative counter, OT rich text",
   },
   {
     axis: "Declare once",
@@ -251,7 +251,7 @@ const rows = [
   {
     axis: "Atomic multi-field write",
     tree: "Tree.runTransaction, with rollback and preconditions",
-    ws: "none — per-key ops, so peers can observe a partial record",
+    ws: "none: per-key ops, so peers can observe a partial record",
   },
   {
     axis: "Undo / redo",
@@ -295,7 +295,7 @@ const rows = [
         Fluid Framework’s <code>SharedTree</code> and watershed’s typed layer
         want the same thing: declare a document’s shape once, get static types,
         get roots that are guaranteed to be there, get told when something
-        changes. They disagree about where the guarantee lives — and almost
+        changes. They disagree about where the guarantee lives, and almost
         everything else follows from that.
       </p>
     </div>
@@ -320,9 +320,9 @@ const rows = [
         type, erased at compile time; nothing about it reaches the wire, and
         <a href="https://github.com/tylerbutler/levee">levee</a> is
         content-agnostic by design. What you get instead is a document that is
-        not one structure but a graph of independently converging channels —
-        so the merge policy is named per slot rather than once for everything —
-        and reads that hand back a <code>Result</code>, because a peer really
+        not one structure but a graph of independently converging channels, so
+        the merge policy is named per slot rather than once for everything.
+        Reads hand back a <code>Result</code>, because a peer really
         can write anything. What you do not get is atomicity, undo, or a
         schema upgrade. Those are listed
         <a href="#gaps">further down</a>, not buried.
@@ -330,7 +330,7 @@ const rows = [
       <div class="g-note">
         <p>
           <strong>Both columns below model the same board.</strong> The Gleam is
-          adapted from examples that compile today —
+          adapted from examples that compile today:
           <code>flowboard_lustre</code>, <code>scoreboard_cli</code>,
           <code>sudoku_lustre</code>. The TypeScript uses only APIs the Fluid
           Framework documentation publishes.
@@ -345,7 +345,7 @@ const rows = [
         declaration <em>is</em>: a <code>SchemaFactory</code> id becomes part of
         the document, where <code>pub type Board</code> is a phantom tag that
         exists only to stop you reading a field against the wrong map. Note the
-        counter, too — SharedTree’s <code>wipBreaches</code> is a number in the
+        counter too: SharedTree’s <code>wipBreaches</code> is a number in the
         tree; watershed’s is a handle to a whole <code>SharedCounter</code>,
         with commutative increments of its own.
       </p>
@@ -366,7 +366,7 @@ const rows = [
       <p>
         <code>initialize</code> is a once-only act against an empty document; it
         writes the stored schema and every later client reads it back.
-        <code>ensure_*</code> is the opposite shape — idempotent, and run by
+        <code>ensure_*</code> is the opposite shape: idempotent, and run by
         every client on every boot. Two clients opening a fresh document both
         seed a candidate channel; after sync each re-reads the root key and
         adopts whichever handle the sequencer ordered, so they converge on one
@@ -386,8 +386,8 @@ const rows = [
         <p>
           <strong>The losers stay attached.</strong> A candidate channel that
           did not win the race is still attached to the document, just
-          unreferenced. Orphan collection is out of scope — the cost of not
-          having a leader elect the root.
+          unreferenced. Orphan collection is out of scope; that’s the cost of
+          not having a leader elect the root.
         </p>
       </div>
     </div>
@@ -437,9 +437,9 @@ const rows = [
       <p>
         SharedTree stores the node, so the class declaration is the only
         declaration there is. watershed stores JSON per key, which normally
-        means writing a decoder and an encoder and keeping them in sync by hand
-        — so the <code>record1</code>…<code>record9</code> builders derive both
-        from one prop list, and <code>sealed_known</code> seals the schema
+        means writing a decoder and an encoder         and keeping them in sync by hand.
+        The <code>record1</code>…<code>record9</code> builders derive both
+        from one prop list instead, and <code>sealed_known</code> seals the schema
         without you repeating the key names a third time.
       </p>
       <div class="st-pair">
@@ -456,7 +456,7 @@ const rows = [
         <p>
           <strong>Per-key ops cut both ways.</strong> Writing a whole record as
           one op per key is why a peer editing <code>owner</code> at the same
-          moment keeps their edit — the record view is never a clobbering blob.
+          moment keeps their edit: the record view is never a clobbering blob.
           It is also why a peer can read the record <em>mid-write</em> and see
           three of four keys updated. <code>Tree.runTransaction</code> would
           prevent that; watershed has no answer for it yet. See
@@ -469,7 +469,7 @@ const rows = [
       <h2>5 · One tree, or a graph of channels</h2>
       <p>
         Here the two models stop resembling each other. Everything in a
-        SharedTree is in the tree, under one changeset algebra — which is what
+        SharedTree is in the tree, under one changeset algebra. That is what
         makes a reorder across two arrays a coherent operation, and what makes
         the merge behaviour uniform enough that you never have to think about
         it.
@@ -508,7 +508,7 @@ const rows = [
       <div class="g-note">
         <p>
           <strong>Nesting is indirection, not containment.</strong> A nested
-          typed map — <code>schema.child_field("players")</code> — stores a
+          typed map, <code>schema.child_field("players")</code>, stores a
           handle, and the child is a peer channel, not a subtree of its parent.
           There is no cross-parent move, no operation that spans two channels,
           and a root made of child fields cannot be sealed by a record schema at
@@ -523,13 +523,13 @@ const rows = [
         <code>treeChanged</code> is the thing a tree buys you that a graph
         cannot: a rollup over an entire subtree, for free, because the subtree
         is a real thing with a boundary. watershed has no rollup above a single
-        channel — you subscribe per channel, and per field.
+        channel: you subscribe per channel, and per field.
       </p>
       <p>
         What a field subscription gives back in exchange is decoded on both
         sides. A <code>FieldChange</code> carries the previous value and the new
         one, already run through the field’s decoder, plus whether this client
-        made it — and a peer’s type-confused write arrives as an
+        made it. A peer’s type-confused write arrives as an
         <code>Error</code> in the event rather than as state that looks fine
         until it does not.
       </p>
@@ -545,7 +545,7 @@ const rows = [
       </div>
       <figure class="g-code">
         <figcaption class="annot"
-          >watershed · sudoku_lustre — narrowed per-kind subscriptions</figcaption
+          >watershed · sudoku_lustre, narrowed per-kind subscriptions</figcaption
         >
         <Code code={gleamPerKind} lang="gleam" theme={watershedCodeTheme} />
       </figure>
@@ -568,7 +568,7 @@ const rows = [
         <li>
           <strong>Transactions.</strong> watershed writes per-key ops, so peers
           can observe a partial record. Fixing it means a batched multi-set map
-          op — a wire-format change, deliberately deferred until a real consumer
+          op: a wire-format change, deliberately deferred until a real consumer
           hurts.
         </li>
         <li>
@@ -590,8 +590,8 @@ const rows = [
       </ul>
       <p>
         The reason is worth stating as a number rather than an adjective. Fluid
-        Framework’s tree package — stored-versus-view schema system, forest,
-        compositional changeset rebasing, undo/redo, ID compression — is
+        Framework’s tree package (stored-versus-view schema system, forest,
+        compositional changeset rebasing, undo/redo, ID compression) is
         <strong>77,804 lines</strong>, and watershed’s own porting survey rates
         it a 10 out of 10: a multi-year project in any language, listed dead
         last on the ladder, “only if there’s a compelling product need.”
@@ -607,7 +607,7 @@ const rows = [
       <h2 id="st-table-title">Side by side</h2>
       <p class="st-table-intro">
         The same axes, two answers. Read the bottom four rows together with the
-        top one — they are the same decision, seen from either end.
+        top one: they are the same decision, seen from either end.
       </p>
       <div
         class="st-table-scroll"

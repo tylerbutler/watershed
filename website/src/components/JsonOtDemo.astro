@@ -14,7 +14,7 @@ const clients = [
       JSON document over the ottypes <code>json0</code> algebra with the
       single-op-in-flight client protocol. One client creates it and shares the
       handle; the others resolve it. They talk to one <code>sluice</code>, the
-      in-memory server that ships in the library for deterministic tests — the
+      in-memory server that ships in the library for deterministic tests: the
       real runtime, no backend. Optimistic edits are drawn in
       <strong class="k-pending">magenta</strong>; server-sequenced state in
       <strong class="k-seq">ink</strong>.
@@ -22,10 +22,10 @@ const clients = [
     <p class="demo-hint">
       Nudge the <code>gauge.stage</code> reading or flip its trend, rename the
       site, add or remove a surveyor, reorder the crew, stretch the link latency,
-      then race two inserts at the same index. Ops address any depth — the gauge
+      then race two inserts at the same index. Ops address any depth: the gauge
       lives in a nested object, so a bump targets the path
       <code>.gauge.stage</code>. Numbers add commutatively; a rename is
-      last-writer-by-sequencing; but the crew list is where OT earns its keep —
+      last-writer-by-sequencing; but the crew list is where OT earns its keep:
       concurrent inserts have their indices <em>transformed</em> so every replica
       converges to the same array, positions and all.
     </p>
@@ -192,14 +192,14 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the real watershed runtime and
       the in-memory <code>sluice</code> as compiled JavaScript in your browser.
       The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-jot-fallback hidden>
-    The live demo couldn’t start — it runs the real watershed runtime against
+    The live demo couldn’t start: it runs the real watershed runtime against
     the in-memory <code>sluice</code> as compiled JavaScript, and this browser
     didn’t load it. The rest of the page works fine without it.
   </p>

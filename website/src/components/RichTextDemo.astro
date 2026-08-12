@@ -11,13 +11,13 @@ const clients = [
     <h2 id="rt-demo-title">SharedRichText, live</h2>
     <p>
       All three editors are real <code>watershed</code> documents sharing one
-      rich-text channel over the <code>rich_text_kernel</code> — the same
+      rich-text channel over the <code>rich_text_kernel</code>, the same
       single-op-in-flight client-transform protocol as the
       <a href="/json-ot">json_ot demo</a>, but its algebra is quill-delta's:
       operations <em>retain</em>, <em>insert</em>, or <em>delete</em> spans of
       text, each optionally carrying an attribute patch (bold, color, …) or
       wrapping an embed (an image, say) instead of plain text. Positions are
-      counted in UTF-16 code units, matching how Quill itself addresses text —
+      counted in UTF-16 code units, matching how Quill itself addresses text:
       the same units a JavaScript string indexes by, so no conversion happens
       at the editor boundary. Each editor keeps at most one op in flight;
       anything typed while it's outstanding composes into a single buffered
@@ -27,7 +27,7 @@ const clients = [
       transform.
     </p>
     <p class="demo-hint">
-      Local edits apply the instant you type — Quill's own optimistic model,
+      Local edits apply the instant you type, Quill's own optimistic model,
       no different from typing into any editor. Race two clients at the same
       spot, format concurrently, or delete under someone else's formatting,
       then watch the op log and the canonical text below each editor converge.
@@ -157,8 +157,8 @@ const clients = [
   </div>
 
   <p class="controls-hint">
-    The scenario buttons submit through each editor's own Quill instance —
-    the same path a real keystroke takes — so what you're watching is the
+    The scenario buttons submit through each editor's own Quill instance,
+    the same path a real keystroke takes, so what you're watching is the
     genuine client-transform protocol, not a scripted animation. Manual
     typing and toolbar formatting work in all three editors too; try editing
     one while a race is still in flight in another.
@@ -166,7 +166,7 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs the real watershed runtime,
+      The live demo needs JavaScript: it runs the real watershed runtime,
       the <code>rich_text_kernel</code>, and the in-memory <code>sluice</code>
       as compiled JavaScript in your browser, plus Quill for the editor
       surface. The rest of the page works fine without it.
@@ -174,7 +174,7 @@ const clients = [
   </noscript>
 
   <p class="demo-noscript" data-rt-fallback hidden>
-    The live demo couldn’t start — it runs the real watershed runtime against
+    The live demo couldn’t start: it runs the real watershed runtime against
     the in-memory <code>sluice</code> and a real Quill editor as compiled
     JavaScript, and this browser didn’t load it. The rest of the page works
     fine without it.

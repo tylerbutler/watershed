@@ -112,18 +112,18 @@ const PICKER_CELLS = [
         field-checked. This demo borrows that color code: pending edits are drawn
         in <strong class="k-pending">magenta</strong> and sequenced state in
         <strong class="k-seq">ink</strong>. All three clients run watershed’s real
-        Gleam code in one ordered stream — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
+        Gleam code in one ordered stream: map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
         kernels, TaskManager, plus the runtime counter channel.
       </p>
       <p class="demo-hint">
-        Nudge a gauge, race a concurrent write, stretch the link latency — the
+        Nudge a gauge, race a concurrent write, stretch the link latency: the
         replicas settle to the same state after the stream drains, each
         structure by its own rule.
       </p>
       <p class="demo-hint">
-        These structures converge by merge rules. For the other family —
+        These structures converge by merge rules. For the other family,
         operational transform over a shared JSON document, where concurrent edits
-        are <em>transformed</em> past one another — see the
+        are <em>transformed</em> past one another, see the
         <a href="/json-ot">JSON OT demo →</a>
       </p>
     </slot>
@@ -159,74 +159,74 @@ const PICKER_CELLS = [
       </fieldset>
     )}
     <p class="merge-rule" data-merge-rule="map" hidden={initial !== "map"}>
-      <strong>Merge rule — last write wins.</strong> Race two writes to the
+      <strong>Merge rule: last write wins.</strong> Race two writes to the
       same key and the op the sequencer stamps later overwrites the earlier
       one, identically on every replica.
     </p>
     <p class="merge-rule" data-merge-rule="counter" hidden={initial !== "counter"}>
-      <strong>Merge rule — increments commute.</strong> Race two increments
+      <strong>Merge rule: increments commute.</strong> Race two increments
       and both apply. The counter converges on the sum; nothing is
       overwritten.
     </p>
     <p class="merge-rule" data-merge-rule="gcounter" hidden={initial !== "gcounter"}>
-      <strong>Merge rule — grow-only max per replica.</strong> Each client owns
+      <strong>Merge rule: grow-only max per replica.</strong> Each client owns
       one monotonically increasing tally. Race two inspections or deliver a
       delta twice: replicas converge by keeping the maximum count seen for
       each author.
     </p>
     <p class="merge-rule" data-merge-rule="pn" hidden={initial !== "pn"}>
-      <strong>Merge rule — deltas join a lattice.</strong> Every update
+      <strong>Merge rule: deltas join a lattice.</strong> Every update
       travels as a CRDT delta; merging is commutative and idempotent. Race
-      it, resend it, deliver it twice — it counts exactly once, and the
+      it, resend it, deliver it twice: it counts exactly once, and the
       balance converges on fill&nbsp;−&nbsp;cut.
     </p>
     <p class="merge-rule" data-merge-rule="claims" hidden={initial !== "claims"}>
-      <strong>Merge rule — first writer wins.</strong> A claim commits only
+      <strong>Merge rule: first writer wins.</strong> A claim commits only
       if the slot is still unclaimed when the sequencer stamps it (or its
       reference SN matches the holder&rsquo;s exactly). Nothing prints
-      optimistically: a filed claim is invisible — even to you — until it
+      optimistically: a filed claim is invisible, even to you, until it
       round-trips as won or lost.
     </p>
     <p class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
-      <strong>Merge rule — add-wins, observed-remove.</strong> A strike only
+      <strong>Merge rule: add-wins, observed-remove.</strong> A strike only
       removes stockpile entries the striker had seen. Race a strike against a
-      concurrent delivery and the row survives — with every logged yard.
+      concurrent delivery and the row survives, with every logged yard.
       Re-opening a struck pile brings its ledger back.
     </p>
     <p class="merge-rule" data-merge-rule="orset" hidden={initial !== "orset"}>
-      <strong>Merge rule — add-wins, observed-remove.</strong> Clearing a marker
+      <strong>Merge rule: add-wins, observed-remove.</strong> Clearing a marker
       removes only the add tags this replica had observed. Race a clear against
       a concurrent re-mark and the marker remains present because the fresh tag
       was unseen by the clear.
     </p>
     <p class="merge-rule" data-merge-rule="gset" hidden={initial !== "gset"}>
-      <strong>Merge rule — grow-only union.</strong> Marking a benchmark is a
+      <strong>Merge rule: grow-only union.</strong> Marking a benchmark is a
       permanent fact. Race two marks or deliver one twice: the registry only
       grows, and duplicate deltas are absorbed.
     </p>
     <p class="merge-rule" data-merge-rule="twopset" hidden={initial !== "twopset"}>
-      <strong>Merge rule — tombstone wins.</strong> A retired marker can never
+      <strong>Merge rule: tombstone wins.</strong> A retired marker can never
       become active again. Race a re-place against a retire: both replicas keep
       the tombstone, and duplicate retire deltas are absorbed.
     </p>
     <p class="merge-rule" data-merge-rule="registers" hidden={initial !== "registers"}>
-      <strong>Merge rule — atomic plus retained versions.</strong> A write that
+      <strong>Merge rule: atomic plus retained versions.</strong> A write that
       knew the current atomic sequence wins the linearizable slot. Concurrent
       losers still append a version, so LWW reads can intentionally diverge from
       atomic reads.
     </p>
     <p class="merge-rule" data-merge-rule="ordered" hidden={initial !== "ordered"}>
-      <strong>Merge rule — FIFO by sequence.</strong> Adds enter the queue in
+      <strong>Merge rule: FIFO by sequence.</strong> Adds enter the queue in
       server order. Acquires remove the front item when their op sequences; a
       racing acquire may come back empty because the earlier SN already took it.
     </p>
     <p class="merge-rule" data-merge-rule="tasks" hidden={initial !== "tasks"}>
-      <strong>Merge rule — one assignee, FIFO waiters.</strong> Volunteers join
+      <strong>Merge rule: one assignee, FIFO waiters.</strong> Volunteers join
       a per-task queue in sequenced order. The first connected volunteer owns the
       task; abandon promotes the next waiter, and complete clears the queue.
     </p>
     <p class="merge-rule" data-merge-rule="pact" hidden={initial !== "pact"}>
-      <strong>Merge rule — quorum acceptance.</strong> A set first prints as
+      <strong>Merge rule: quorum acceptance.</strong> A set first prints as
       pending with a frozen signoff list. It becomes accepted only after every
       connected client signs off, or leaves drain the list.
     </p>
@@ -789,7 +789,7 @@ const PICKER_CELLS = [
         step="100"
         value="700"
         data-latency
-        title="Simulated network delay — how long an op spends travelling client → sequencer → replicas. This is the demo's physics: it changes ordering and which writes collide."
+        title="Simulated network delay: how long an op spends travelling client → sequencer → replicas. This is the demo's physics: it changes ordering and which writes collide."
         disabled
       />
       <output data-latency-out>700 ms</output>
@@ -856,7 +856,7 @@ const PICKER_CELLS = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs watershed’s actual
+      The live demo needs JavaScript: it runs watershed’s actual
       <code>runtime_core</code> counter channel plus
       <code>map_kernel</code>, <code>lattice_counters/g_counter</code>,
       <code>pn_counter_kernel</code>,
@@ -870,7 +870,7 @@ const PICKER_CELLS = [
   </noscript>
 
   <p class="demo-noscript" data-demo-fallback hidden>
-    The live demo couldn’t start — it runs watershed’s runtime counter channel
+    The live demo couldn’t start: it runs watershed’s runtime counter channel
     and kernels as compiled JavaScript modules, and this browser didn’t load
     them. The rest of the page works fine without it.
     <a href="">Reload the page to retry.</a>
@@ -888,7 +888,7 @@ const PICKER_CELLS = [
     const status = document.querySelector("[data-status]");
     if (status instanceof HTMLElement) {
       status.innerHTML =
-        '<span class="stamp revising">Offline</span> kernels did not load — see below';
+        '<span class="stamp revising">Offline</span> kernels did not load, see below';
     }
   }
 </script>

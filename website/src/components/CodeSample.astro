@@ -45,21 +45,21 @@ pub fn main() {
     <div class="code-prose">
       <h2 id="code-title">A map over one sequenced stream</h2>
       <p>
-        <code>SharedMap</code> exposes familiar operations — <code>set</code>,
+        <code>SharedMap</code> exposes familiar operations: <code>set</code>,
         <code>get</code>, <code>subscribe</code>. There is no merge callback to
         install: local writes apply optimistically, the server assigns their
         sequence numbers, and the highest-sequenced write wins per key.
       </p>
       <p>
         The same API runs on the Erlang target as an OTP actor and on the
-        JavaScript target inside a Lustre single-page app — see
+        JavaScript target inside a Lustre single-page app: see
         <a href="https://github.com/tylerbutler/watershed/tree/main/examples"
           >the examples</a
         > for both, verified converging against a live levee sequencer.
       </p>
       <p class="code-cta">
         <a href="/guide"
-          >Build a real one, step by step — the field guide →</a
+          >Build a real one, step by step: the field guide →</a
         >
       </p>
     </div>

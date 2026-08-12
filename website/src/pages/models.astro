@@ -20,7 +20,7 @@ const models = [
     gloss: "Converges by one server’s total order.",
     body: [
       "A DDS here follows Fluid Framework’s collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
-      "The conflict policy lives on top of that order — last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+      "The conflict policy lives on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
     ],
     tradeoff:
       "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on.",
@@ -31,8 +31,8 @@ const models = [
     name: "Conflict-free Replicated Data Type",
     gloss: "Converges by a merge function, no order required.",
     body: [
-      "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge — no central authority needed to referee.",
-      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count — safety the structure carries itself, where an order-based DDS relies on the runtime deduping by sequence number.",
+      "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge. No central authority is needed to referee.",
+      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count: safety the structure carries itself, where an order-based DDS relies on the runtime deduping by sequence number.",
     ],
     tradeoff:
       "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",
@@ -44,10 +44,10 @@ const models = [
     gloss: "Converges by transforming ops past one another.",
     body: [
       "OT takes the opposite tack from CRDTs: instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions so that applying them in different orders still lands everyone in the same place.",
-      "watershed ships two OT kernels on the identical single-op-in-flight client protocol: json_ot, a faithful port of the ottypes json0 algebra for structured JSON documents, and SharedRichText, the same protocol over quill-delta's rich-text algebra — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Concurrent list inserts, or concurrent text edits and formatting, have their positions transformed so every replica converges identically.",
+      "watershed ships two OT kernels on the identical single-op-in-flight client protocol: json_ot, a faithful port of the ottypes json0 algebra for structured JSON documents, and SharedRichText, the same protocol over quill-delta's rich-text algebra (retain/insert/delete spans, attribute patches, embeds) for collaborative Quill editors. Concurrent list inserts, or concurrent text edits and formatting, have their positions transformed so every replica converges identically.",
     ],
     tradeoff:
-      "Minimal per-op metadata and a natural fit for ordered sequences and rich text — though SharedSequence now reaches similar ground by merge — at the cost of transform functions that must be correct for every pair of op types.",
+      "Minimal per-op metadata and a natural fit for ordered sequences and rich text (though SharedSequence now reaches similar ground by merge), at the cost of transform functions that must be correct for every pair of op types.",
     members: ot.map((s) => ({
       name: s.name,
       href: s.demoHref ?? `/structures/${s.slug}#${s.id}`,
@@ -64,9 +64,9 @@ const rows = [
   },
   {
     axis: "Needs a sequencer",
-    dds: "Yes — the order is the truth",
+    dds: "Yes: the order is the truth",
     crdt: "No (watershed uses one anyway)",
-    ot: "Yes — to assign the order to transform against",
+    ot: "Yes: to assign the order to transform against",
   },
   {
     axis: "Duplicate / reordered delivery",
@@ -109,8 +109,8 @@ const rows = [
       <p class="lede">
         Every structure watershed ships has to answer one question: when two
         clients change the same thing at once, how does everyone end up in the
-        same state? There are three answers in this codebase — order it, merge
-        it, or transform it — and each is the right one somewhere.
+        same state? There are three answers in this codebase: order it, merge
+        it, or transform it, and each is the right one somewhere.
       </p>
     </div>
   </header>
@@ -198,7 +198,7 @@ const rows = [
             <strong>Reach for a CRDT when delivery is unreliable.</strong> Offline
             edits backed by durable local storage, at-least-once delivery, or a
             counter that must survive a re-sent delta call for a merge that does
-            not care about order —
+            not care about order:
             <a href="/structures/counters#pn">PN counter</a>,
             <a href="/structures/sets#orset">OR-set</a>, or
             <a href="/structures/maps#ormap">OR-map</a>.
@@ -206,7 +206,7 @@ const rows = [
           <li>
             <strong>Reach for OT for ordered sequences and rich text.</strong>
             Collaborative text and lists, where positions shift as others
-            edit, are what transform functions were built for — see the
+            edit, are what transform functions were built for. See the
             <a href="/json-ot">json_ot demo</a> for structured JSON or the
             <a href="/rich-text">SharedRichText demo</a> for a real
             three-editor Quill session.

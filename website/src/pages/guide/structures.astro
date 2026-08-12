@@ -47,7 +47,7 @@ watershed.increment(wip_breaches, 1)
       slot, by choosing a kind.
     </p>
     <p>
-      Flowboard’s three slots each answer it differently, and that’s the point —
+      Flowboard’s three slots each answer it differently, and that’s the point:
       one document mixes merge models freely, because they all ride the same
       sequenced stream.
     </p>
@@ -103,9 +103,9 @@ watershed.increment(wip_breaches, 1)
     <div class="g-note">
       <p>
         <strong>This bug is worth seeing.</strong> The
-        <a href="/counter-bug">counter-bug page</a> stages exactly this —
+        <a href="/counter-bug">counter-bug page</a> stages exactly this:
         a boat count stored in a map, two concurrent increments, one silently
-        lost — then fixes it by reaching for the counter. It’s the sharpest
+        lost, then fixes it by reaching for the counter. It’s the sharpest
         argument for choosing kinds deliberately.
       </p>
     </div>
@@ -124,7 +124,7 @@ watershed.increment(wip_breaches, 1)
       </li>
       <li>
         <strong>Must it survive offline or duplicate delivery?</strong> Then a
-        <a href="/models">CRDT</a> — OR-map, OR-set, PN counter — whose merge
+        <a href="/models">CRDT</a> (OR-map, OR-set, PN counter) whose merge
         doesn’t depend on order, over a plain DDS.
       </li>
       <li>
@@ -144,7 +144,7 @@ watershed.increment(wip_breaches, 1)
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Choose a merge model per slot — order it, merge it, or coordinate it —
+      Choose a merge model per slot (order it, merge it, or coordinate it)
       and keep that choice explicit in the schema. Changing an occupied slot’s
       kind requires a data migration, not only a type edit.
     </p>

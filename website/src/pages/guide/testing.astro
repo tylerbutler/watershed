@@ -57,8 +57,8 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       single-process sequencer and transport.
     </p>
     <p>
-      Crucially, it isn’t a mock. It runs the <em>real</em> runtime — the same
-      codecs, pending queues, resubmit, and reconnect catch-up — over an injected
+      Crucially, it isn’t a mock. It runs the <em>real</em> runtime: the same
+      codecs, pending queues, resubmit, and reconnect catch-up, over an injected
       transport, together with the same sequencing module used by the server.
       It exercises the production client paths without claiming to reproduce
       levee’s storage, authentication, or network boundary.
@@ -131,7 +131,7 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     <span class="annot">You can now</span>
     <p>
       Write multi-client convergence tests that run under <code>gleam test</code>
-      with no infrastructure — deterministic, scriptable, and exercising the same
+      with no infrastructure: deterministic, scriptable, and exercising the same
       code that runs in production.
     </p>
   </div>

@@ -11,31 +11,31 @@ const clients = [
     <h2 id="text-demo-title">One shared string, live</h2>
     <p>
       All three clients are real <code>watershed</code> documents sharing one
-      <code>SharedText</code> — a collaboratively-typed string. One client
+      <code>SharedText</code>, a collaboratively-typed string. One client
       creates it and shares the handle; the others resolve it. They talk to one
       <code>sluice</code>, the in-memory server that ships in the library for
-      deterministic tests — the real runtime, no backend. Type in any editor:
+      deterministic tests: the real runtime, no backend. Type in any editor:
       your keystrokes show in <strong class="k-pending">magenta</strong> while
       pending, then settle to <strong class="k-seq">ink</strong> once the sluice
       sequences them and every replica lands the same text.
     </p>
     <p class="demo-hint">
-      Every keystroke is diffed into <em>one</em> minimal grapheme edit — an
+      Every keystroke is diffed into <em>one</em> minimal grapheme edit: an
       insert, delete, or replace against <strong>grapheme indexes</strong>,
       never raw UTF-16 offsets. Stage a race: <strong>Crowd an insert</strong>
       has B and C type different words at the same spot; <strong
         >Overlapping edit</strong
       > has B replace a word while C deletes across it. Both converge, because
-      each grapheme keeps a stable identity — the delta names graphemes, not
+      each grapheme keeps a stable identity: the delta names graphemes, not
       character positions.
     </p>
     <p class="grapheme-legend">
       The seed text is grapheme-rich on purpose.
       <span class="g-chip">👨‍👩‍👧</span> is a
-      <strong>ZWJ sequence</strong> — several code points joined into
+      <strong>ZWJ sequence</strong>, several code points joined into
       <em>one</em> grapheme, one index; a cursor can never split it. The
       <strong>í</strong> in <span class="g-chip">río</span> is a letter plus a
-      <strong>combining accent</strong> — again one grapheme. And
+      <strong>combining accent</strong>, again one grapheme. And
       <span class="g-chip">🏞️</span> carries a variation selector. SharedText
       indexes by grapheme, so none of these can be bisected by an edit.
     </p>
@@ -62,7 +62,7 @@ const clients = [
             </span>
           </header>
           <label class="editor-label annot" for={`text-editor-${c.id}`}>
-            {c.name} editor — type to edit the shared text
+            {c.name} editor, type to edit the shared text
           </label>
           <textarea
             id={`text-editor-${c.id}`}
@@ -191,14 +191,14 @@ const clients = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript — it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the real watershed runtime and
       the in-memory <code>sluice</code> as compiled JavaScript in your browser.
       The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-text-fallback hidden>
-    The live demo couldn’t start — it runs the real watershed runtime against
+    The live demo couldn’t start: it runs the real watershed runtime against
     the in-memory <code>sluice</code> as compiled JavaScript, and this browser
     didn’t load it. The rest of the page works fine without it.
   </p>

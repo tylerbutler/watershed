@@ -7,7 +7,7 @@ import Ecosystem from "../components/Ecosystem.astro";
 
 <Sheet
   title="watershed — SharedText demo"
-  description="Three browser clients type into one string through watershed's real text_kernel — a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence."
+  description="Three browser clients type into one string through watershed's real text_kernel: a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
@@ -17,13 +17,13 @@ import Ecosystem from "../components/Ecosystem.astro";
       <h1>Graphemes keep<br /><em>their place.</em></h1>
       <p class="lede">
         A character offset only means something against one version of a
-        string — the instant two people type in the same word, “index 6” names
+        string, the instant two people type in the same word, “index 6” names
         different characters on different screens.
         <strong>SharedText</strong> gives every grapheme a stable identity
         beneath its index: you say <em>insert at 6</em> or
         <em>replace 0..5</em>, but the delta that ships names the graphemes, not
-        the offsets. Two people can type into the same word at the same instant
-        — concurrent inserts both land, overlapping edits merge — and every
+        the offsets. Two people can type into the same word at the same instant,
+        concurrent inserts both land, overlapping edits merge, and every
         replica converges on the same text. Indexing is by
         <strong>grapheme</strong>, never UTF-16 code unit, so an emoji or a
         combining accent is one indivisible character. watershed’s

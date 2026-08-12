@@ -47,7 +47,7 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
     <p class="lede">
       watershed lets many people edit the same data at once without losing each
       other’s changes. Each client updates instantly, a server assigns one order,
-      and each structure applies its own conflict policy — last-write-wins,
+      and each structure applies its own conflict policy: last-write-wins,
       additive, observed-remove, or transform. Every copy converges through the
       same Gleam core on the BEAM and in the browser; the DDS runtime and sequencer
       draw from Fluid Framework’s design.
