@@ -4,6 +4,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/400-italic.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "../styles/global.css";
+import { Script } from "astro-tinylytics";
 
 interface Props {
   title: string;
@@ -40,6 +41,7 @@ const isActive = (match: string) =>
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <Script embedCode="uhk_zvSq2fBb_T2hTaLx" min hits events beacon />
   </head>
   <body>
     <header class="sheet-index">
