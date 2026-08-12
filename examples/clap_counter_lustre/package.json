@@ -1,0 +1,20 @@
+{
+  "name": "clap_counter_lustre",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phoenix JS client dependency for the watershed Lustre clap counter example",
+  "scripts": {
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/clap_counter_lustre/clap_counter_lustre.mjs --bundle --format=esm --outfile=dist/clap_counter_lustre.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.1",
+    "phoenix": "^1.8.8",
+    "ws": "^8.21.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  },
+  "packageManager": "pnpm@11.13.1"
+}

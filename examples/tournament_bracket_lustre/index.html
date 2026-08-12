@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · tournament bracket</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .wrap { width: 100%; max-width: 64rem; padding: 2rem; }
+      h1 { font-size: 1.5rem; font-weight: 650; margin: 0; }
+      h2 {
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.75;
+        margin: 0 0 0.75rem;
+      }
+      .bracket-header {
+        display: flex;
+        align-items: baseline;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      .status { opacity: 0.7; margin: 0; }
+      .champion {
+        font-size: 1.1rem;
+        font-weight: 650;
+        margin: 0 0 1.25rem;
+      }
+      .rounds {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+        align-items: start;
+      }
+      @media (max-width: 56rem) { .rounds { grid-template-columns: 1fr; } }
+      .match {
+        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        margin-bottom: 0.75rem;
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
+      .match-id {
+        font-size: 0.7rem;
+        opacity: 0.5;
+        margin: 0 0 0.4rem;
+        font-variant-numeric: tabular-nums;
+      }
+      .slot {
+        margin: 0 0 0.25rem;
+        font-weight: 500;
+      }
+      .slots.pending .hint {
+        font-size: 0.75rem;
+        opacity: 0.65;
+        margin: 0.35rem 0 0;
+      }
+      .report-row {
+        display: flex;
+        gap: 0.4rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 0.4rem;
+      }
+      input {
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      .score-input { flex: 1 1 6rem; min-width: 5rem; }
+      button {
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover:not(:disabled) { opacity: 0.8; }
+      .winner { font-weight: 650; margin: 0; }
+      .version-log {
+        margin-top: 0.5rem;
+        font-size: 0.75rem;
+        opacity: 0.8;
+      }
+      .version-log summary { cursor: pointer; }
+      .version-log ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+      .roster { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-left: auto; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 0.1rem 0.6rem;
+        font-size: 0.8rem;
+      }
+      .chip .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+      .error {
+        color: #c0392b;
+        font-size: 0.8rem;
+        min-height: 1.2rem;
+        margin: 0.25rem 0 1rem;
+      }
+      .diagnostics {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      }
+      .diagnostics p { font-size: 0.8rem; opacity: 0.7; }
+      .diagnostic-log {
+        margin-top: 0.5rem;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        background: color-mix(in srgb, currentColor 8%, transparent);
+        overflow: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-size: 0.75rem;
+        max-height: 16rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/tournament_bracket_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

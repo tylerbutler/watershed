@@ -83,6 +83,21 @@ import { steps } from "../../data/guide";
         }
       </ol>
     </section>
+
+    <aside class="gi-companion" aria-labelledby="gi-companion-title">
+      <div>
+        <h2 id="gi-companion-title">Then compare the working shapes.</h2>
+        <p>
+          The procedure builds one application in order. The patterns reference
+          extracts the boundaries repeated across thirteen browser apps; the
+          gallery lets you choose one by conflict rule, interaction, or test.
+        </p>
+        <div class="gi-companion-links">
+          <a href="/patterns">Read the application patterns &#8594;</a>
+          <a href="/examples">Browse the browser examples &#8594;</a>
+        </div>
+      </div>
+    </aside>
   </main>
 
   <Ecosystem />
@@ -363,6 +378,32 @@ import { steps } from "../../data/guide";
 
   .gi-step a:hover .gi-step-go {
     color: var(--overprint);
+  }
+
+  .gi-companion {
+    padding: var(--space-2xl) var(--content-pad);
+    border-top: 1px solid var(--ink);
+    background: var(--surface);
+  }
+
+  .gi-companion > div {
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .gi-companion p {
+    margin-top: var(--space-md);
+  }
+
+  .gi-companion-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm) var(--space-xl);
+    margin-top: var(--space-lg);
+  }
+
+  .gi-companion-links a {
+    font-weight: 600;
   }
 
   @media (max-width: 34rem) {

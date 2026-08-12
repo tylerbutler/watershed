@@ -59,6 +59,7 @@ exception = ">= 2.1.0 and < 3.0.0"
 # matches no member, so a stale name here cannot go unnoticed.
 test = [
     "examples/bench_book_lustre",
+    "examples/clap_counter_lustre",
     "examples/dice_cli",
     "examples/dice_lustre",
     "examples/playlist_lustre",

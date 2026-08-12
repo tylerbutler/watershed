@@ -21,15 +21,15 @@ One plan is not a demo but a way of presenting them:
 
 ## Why this list exists: kind coverage
 
-Coverage across `examples/` and the website demos as of 2026-08-08.
+Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026-08-11 as pixel canvas, retro board, and the clap counter shipped.
 
 | State | Kinds |
 |---|---|
-| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap` |
+| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter) |
 | One site only | `Claims` (sudoku), `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
-| **No demo** | `OrMap`, `PnCounter`, `RegisterCollection` |
+| **No demo** | none |
 
-`PactMap` came off the bottom row with the drum machine. The remaining promoted plans chiefly take `OrMap` off it; grocery and work-queue coverage have already shipped.
+`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively. Every kind now has at least one example — the remaining gaps are the "one site only" row (getting `Claims`, `SharedDirectory`, `JsonOt`, and `SharedRichText` proper Lustre examples) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
 
 ## Two corrections worth not re-learning
 
@@ -94,23 +94,28 @@ Doubles as real tooling for a conference talk about watershed, which is a nice p
 
 **Prerequisites:** `subscribe_pn_counter`, unless votes go in an `OrMap` tally like the retro board — in which case none, but then it stops being a `PnCounter` demo.
 
-### Clap counter — `PnCounter`
+### ✅ Shipped: Clap counter — `PnCounter`
+
+→ `examples/clap_counter_lustre/`
 
 Medium-style claps. Trivially small, and the most direct possible stress test of a single counter under high concurrency: hold the button down in four tabs and watch the number stay correct.
 
-The right vehicle for closing the `subscribe_pn_counter` gap, since it needs nothing else. Would pair well as an inline widget on the website's `counter-bug` page — the broken version and the correct version side by side on the page that already makes the argument in prose.
+Closed the `subscribe_pn_counter` demo gap: `PnCounter` was fully present on both facades but exercised by nothing in `examples/` until this shipped. The smoke test's headline assertion is concurrent, uncoordinated increments from two clients converging on the true sum with no lost update, surviving a forced reconnect.
 
-**Prerequisites:** `subscribe_pn_counter`.
+**`PnCounter`, not a grow-only counter.** `lattice_counters` (the vendored CRDT library) ships `g_counter.gleam`, but nothing in `src/watershed/` wires it up — there's no `g_counter_kernel.gleam`, no `GCounter` type on either facade, no schema `ChannelField` variant, no runtime dispatch. Claps only ever go up; the app calls `pn_counter_update` with positive amounts only and never exercises the decrement path, but the kernel underneath is the full P/N lattice. Wiring up a real `GCounter` kind is its own small plan, not a prerequisite for this one — see `docs/demo-ideas.md`'s own history below for that discussion.
+
+Not yet done: wiring the same widget onto the website's `counter-bug` page (broken-vs-correct side by side) — left as follow-on, low cost.
+
+**Prerequisites:** `subscribe_pn_counter` (shipped).
 **Cost:** very low.
 
-### Tournament bracket — `RegisterCollection`
+### ✅ Shipped: Tournament bracket — `RegisterCollection`
+
+→ `examples/tournament_bracket_lustre/`
 
 Each match result is a register owned by one referee; refs report their own results with no coordination. `RegisterCollection` is "a collection of registers, each written by one owner", and a bracket is the one application where that is the obvious model rather than a contrivance.
 
-Retires the last no-demo kind that none of the other ideas here reach.
-
-**Prerequisites:** none — `subscribe_register_collection` exists on both facades and in `watershed_lustre`.
-**Cost:** low-medium. Bracket layout is fiddly CSS with no collaborative content.
+Retired the last no-demo kind that none of the other ideas here reach. Fixed 8-player single-elimination (7 matches, 3 rounds), `Atomic` read policy, presence roster, and a convergence test for the payoff scenario: two tabs reporting the same match with different results concurrently, converging on one official winner while the loser's submission stays visible via `register_versions`.
 
 ### Shared form with field claims — typed layer + schema + `Claims`
 
@@ -164,4 +169,4 @@ Revised 2026-08-09, after FP1–FP6 and the drum machine landed. The same princi
 
 Not a demo, and ahead of all of them if summaries are close: **`docs/plans/2026-08-09-summary-bootstrap-plan.md`** (SB1–SB8). It carries the goal every recent consensus fix was in service of — joining a document should cost recent history, not all of it — and it absorbs the two pieces the replay-quorum plan left open. SB1 is cheap and worth doing regardless: it either confirms or clears a suspected checkpoint-boundary bug in shipped behaviour.
 
-**Done:** FP1–FP6 (facade parity sweep), grocery triptych GT1–GT6, drum machine DM1–DM7, work queue WQ1–WQ7, consensus replay quorum (client half).
+**Done:** FP1–FP6 (facade parity sweep), grocery triptych GT1–GT6, drum machine DM1–DM7, work queue WQ1–WQ7, consensus replay quorum (client half), pixel canvas, retro board, clap counter.
