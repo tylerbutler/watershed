@@ -15,8 +15,8 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
   <div class="arch-inner">
     <h2 id="arch-title">One pure core, two runtimes</h2>
     <p class="arch-intro">
-      watershed is written once and runs in two places. The shared layer is real
-      code, not a diagram convenience: <code>runtime_core</code>,
+      watershed is written once and runs in two places. The shared layer compiles
+      for both targets: <code>runtime_core</code>,
       <code>channel</code>, <code>wire</code>, and the kernels compile for both
       targets. Erlang and JavaScript keep separate facades, runtimes, and socket
       bindings only where the platform forces them to differ.

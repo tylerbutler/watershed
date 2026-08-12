@@ -35,7 +35,7 @@
  */
 
 /**
- * The shape the caller uses to hand the adapter a RichText change event
+ * The caller passes a RichText change event with these fields
  * (e.g. from `rich_text_kernel.RichTextChanged`), without coupling this
  * module to that generated type.
  * @typedef {Object} RichTextChangeEvent

@@ -16,7 +16,7 @@ const panes = [
       Everything the rig above does by hand ships as a
       component: <code>&lt;watershed-textarea&gt;</code>, the <code>watershed_lustre</code> editor
       compiled from Gleam and registered as a custom element. These two panes
-      are that element: real documents, one shared <code>SharedText</code>,
+      are that element: two documents, one shared <code>SharedText</code>,
       the same in-memory sluice, and this page contributes <em>no editor code at all</em>.
       The channel goes in as one property (<code>el.channel&nbsp;=&nbsp;text</code>);
       edits, errors, and this user’s cursor come back out as DOM events; the
@@ -51,14 +51,14 @@ const panes = [
   </div>
 
   <p class="controls-hint">
-    Cursors here hop panes through a property assignment; in a real app
+    Cursors here hop panes through a property assignment; in an app
     the <code>cursor</code> event’s payload rides your presence channel
     unchanged.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript: it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the production watershed runtime and
       the compiled editor component in your browser. The rest of the page works
       fine without it.
     </p>

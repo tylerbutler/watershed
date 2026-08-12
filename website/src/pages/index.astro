@@ -12,7 +12,7 @@ import Ecosystem from "../components/Ecosystem.astro";
 
 <Sheet
   title="watershed — collaborative data structures for Gleam"
-  description="A Gleam toolkit for exploring collaborative data structures: optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. One pure core, running on the BEAM and in the browser."
+  description="A Gleam DDS client toolkit for optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. Its pure core runs on the BEAM and in the browser."
 >
   <Hero />
   <main>
@@ -23,14 +23,14 @@ import Ecosystem from "../components/Ecosystem.astro";
           field-checked. This demo borrows that color code: edits that aren’t
           confirmed yet are drawn in <strong class="k-pending">magenta</strong>,
           confirmed state in <strong class="k-seq">ink</strong>. All three
-          clients run watershed’s real <code>map_kernel</code> Gleam code,
+          clients run watershed’s compiled <code>map_kernel</code> Gleam code,
           sharing one ordered list of changes: a shared map, the collaborative
-          structure most apps reach for first.
+          structure most apps start with.
         </p>
         <p class="demo-hint">
           Nudge a gauge, have two clients write at once, stretch the network
-          delay: the copies always agree, and the most recent write to a key
-          wins.
+          delay: the copies agree after queued writes arrive, and the most
+          recent write to a key wins.
         </p>
         <aside class="demo-bug-teaser">
           <p>

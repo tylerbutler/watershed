@@ -366,7 +366,7 @@ export function initTextDemo() {
     if (ta instanceof HTMLTextAreaElement) {
       // The rig's enable pass only re-enables <button>/<input>; textareas start
       // disabled (so the pre-JS/failed-JS page never offers a dead editor) and
-      // become editable only once the real runtime is wired up here.
+      // become editable only once the production runtime is wired up here.
       ta.disabled = false;
       ta.addEventListener("input", (event) => {
         // During composition the browser emits `input` with isComposing=true;

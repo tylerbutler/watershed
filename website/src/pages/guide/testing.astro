@@ -57,9 +57,9 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       single-process sequencer and transport.
     </p>
     <p>
-      Crucially, it isn’t a mock. It runs the <em>real</em> runtime: the same
-      codecs, pending queues, resubmit, and reconnect catch-up, over an injected
-      transport, together with the same sequencing module used by the server.
+      The sluice runs the production runtime with the same codecs, pending
+      queues, resubmit, and reconnect catch-up over an injected transport. It
+      also uses the same sequencing module as the server.
       It exercises the production client paths without claiming to reproduce
       levee’s storage, authentication, or network boundary.
     </p>
@@ -111,7 +111,7 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       Connect a document, give it a typed schema, choose a merge model per slot,
       add ripples for the ephemeral tier, wire it to Lustre, and lock the whole
       thing down with deterministic convergence tests. Flowboard is small, but
-      the shape is the shape of any real watershed app.
+      the structure matches a production watershed app.
     </p>
     <p>
       The <a href="/patterns">application patterns</a> take this loop apart

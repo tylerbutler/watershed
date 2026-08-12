@@ -105,7 +105,7 @@ watershed.increment(wip_breaches, 1)
         <strong>This bug is worth seeing.</strong> The
         <a href="/counter-bug">counter-bug page</a> stages exactly this:
         a boat count stored in a map, two concurrent increments, one silently
-        lost, then fixes it by reaching for the counter. It’s the sharpest
+        lost, then fixes it with <code>SharedCounter</code>. It’s the sharpest
         argument for choosing kinds deliberately.
       </p>
     </div>

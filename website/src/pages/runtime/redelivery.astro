@@ -74,7 +74,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
         <strong>This is the line the runtime never lets an op-based counter
         see.</strong> Hand the same duplicate to <code>counter_kernel</code>
         directly and it would add again, which is why the sequence-number check
-        in front of it is load-bearing. The lattice kernels need no such guard:
+        in front of it prevents double-counting. The lattice kernels need no such guard:
         the duplicate reaches the merge and the merge shrugs. Both are safe on
         the stream; only one is safe without it.
       </p>

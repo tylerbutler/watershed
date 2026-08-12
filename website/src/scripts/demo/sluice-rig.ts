@@ -1,4 +1,4 @@
-// Shared harness for the "real runtime against an in-browser server" demos.
+// Shared harness for the production runtime against an in-browser server.
 //
 // Every convergence demo (sudoku, directory, json-ot) has the same spine: spin
 // up an in-memory `sluice`, connect a few real `watershed` documents, let a

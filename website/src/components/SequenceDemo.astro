@@ -16,11 +16,12 @@ const actions = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="route-demo-title">A shared portage route, live</h2>
     <p>
-      All three clients are real <code>watershed</code> documents sharing one
+      Three <code>watershed</code> documents share one
       <code>SharedSequence</code>, an ordered list of waypoints down a river.
       One client creates it and shares the handle; the others resolve it. They
       talk to one <code>sluice</code>, the in-memory server that ships in the
-      library for deterministic tests: the real runtime, no backend. Local
+      library for deterministic tests. It runs the production client runtime
+      without a network backend. Local
       edits are drawn in <strong class="k-pending">magenta</strong> until the
       sluice stamps them; server-sequenced state is
       <strong class="k-seq">ink</strong>.
@@ -170,14 +171,14 @@ const actions = [
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript: it runs the real watershed runtime and
+      The live demo needs JavaScript: it runs the production client runtime and
       the in-memory <code>sluice</code> as compiled JavaScript in your browser.
       The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-route-fallback hidden>
-    The live demo couldn’t start: it runs the real watershed runtime against
+    The live demo couldn’t start: it runs the production client runtime against
     the in-memory <code>sluice</code> as compiled JavaScript, and this browser
     didn’t load it. The rest of the page works fine without it.
   </p>

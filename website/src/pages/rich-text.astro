@@ -6,7 +6,7 @@ import Ecosystem from "../components/Ecosystem.astro";
 
 <Sheet
   title="watershed — SharedRichText Quill demo"
-  description="Three browser Quill editors edit one shared rich-text document through watershed's real rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+  description="Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
@@ -20,7 +20,7 @@ import Ecosystem from "../components/Ecosystem.astro";
         <code>rich_text_kernel</code> ports the quill-delta algebra
         (retain/insert/delete spans, attribute patches, embeds) behind the
         identical single-op-in-flight client-transform machinery, so three
-        real Quill editors can share one document with concurrent typing,
+        Quill editors can share one document with concurrent typing,
         formatting, and deletion. Transforming concurrent deltas against one
         another brings replicas to the same text, formatting, and embeds.
         SharedRichText is OT-backed; the

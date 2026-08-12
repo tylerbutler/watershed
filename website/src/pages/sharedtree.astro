@@ -118,7 +118,7 @@ card.owner = undefined; // clears the optional property`;
 const gleamRecord = `/// \`record3\` derives the decoder AND the per-key encoder from one
 /// prop list, so the two can never drift. \`sealed_known\` seals the
 /// schema to exactly these keys without a hand-repeated list, and
-/// \`versioned\` stamps a version so a future layout fails loudly.
+/// \`versioned\` stamps a version and rejects an incompatible future layout.
 fn card_schema() -> schema.Schema(Card, CardState) {
   schema.record3(
     CardState,
@@ -362,7 +362,7 @@ const rows = [
     </div>
 
     <div class="g-block">
-      <h2>2 · Getting a root that is really there</h2>
+      <h2>2 · Establishing one root</h2>
       <p>
         <code>initialize</code> is a once-only act against an empty document; it
         writes the stored schema and every later client reads it back.
@@ -727,7 +727,7 @@ const rows = [
 
   /* ── the code pair ──────────────────────────────────────────────────────
      The one piece of layout this sheet adds. `minmax(0, 1fr)` rather than
-     `1fr` is load-bearing: a grid track defaults to min-content width, so a
+     `1fr` is required: a grid track defaults to min-content width, so a
      long code line would push the column — and the page — wider than the
      viewport instead of scrolling inside its own figure. */
   .st-pair {

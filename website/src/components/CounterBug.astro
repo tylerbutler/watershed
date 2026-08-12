@@ -22,7 +22,7 @@
     <figure
       class="cb-rig"
       data-counter-bug="bug"
-      data-caption-idle="Press “Demonstrate the bug” to race two concurrent tallies through the real map_kernel."
+      data-caption-idle="Press “Demonstrate the bug” to race two concurrent tallies through the compiled map_kernel."
       data-state="idle"
     >
       <figcaption class="cb-rig-label annot">
@@ -195,7 +195,7 @@
         further: the op <em>is</em> the delta. A client never reads the tally to
         write it back. It sends <code>increment(+1)</code>, or
         <code>increment(−1)</code> for a correction, and signed deltas sum the
-        same in any order. This rig runs the real
+        same in any order. This rig runs the compiled
         <code>counter_kernel</code>, the SharedCounter engine itself, not a
         map at all.
       </p>
@@ -204,7 +204,7 @@
     <figure
       class="cb-rig cb-rig-fix"
       data-counter-bug="counter"
-      data-caption-idle="Press “Play the SharedCounter fix” to run the same race, plus a −1 correction, through the real counter_kernel."
+      data-caption-idle="Press “Play the SharedCounter fix” to run the same race, plus a −1 correction, through the compiled counter_kernel."
       data-state="idle"
     >
       <figcaption class="cb-rig-label annot">
