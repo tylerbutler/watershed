@@ -6,8 +6,11 @@ server sequencing, and reconnect safety. SharedMap is the anchor DDS;
 SharedCounter, SharedSequence, SharedText, SharedRichText, OR-set, claims, and
 the other channel kinds share the same runtime. An opt-in
 [typed document layer](#typed-documents) declares a document's shape once.
-[levee](https://github.com/tylerbutler/levee) is one compatible server
-implementation.
+watershed speaks the wire protocol of any Fluid Framework-compatible
+sequencing service — [floodgate](https://floodgate.tylerbutler.com),
+[levee](https://github.com/tylerbutler/levee), or Fluid Framework's own
+[routerlicious](https://github.com/microsoft/FluidFramework/tree/main/server/routerlicious).
+The examples and test suite here run against floodgate.
 
 Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
 
@@ -22,7 +25,7 @@ Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-
 │  catch-up · resubmit · nack · event fan-out │
 ├──────────────────────┬──────────────────────┤
 │  DDS kernels (PURE)  │  wire (PURE)         │   (M1 ✅ / M3)
-│  sequenced + pending │  levee channel       │
+│  sequenced + pending │  floodgate channel   │
 │  LWW/delta merge     │  payload codecs      │
 ├──────────────────────┴──────────────────────┤
 │  aquamarine (channel client, roost codec)   │
@@ -325,7 +328,7 @@ incrementAmount}`).
 ## Testing your app (the sluice)
 
 `watershed/sluice` (erlang) and `watershed/sluice_js` (JavaScript) are an
-**in-memory levee**: a deterministic, single-process stand-in for the server so
+**in-memory floodgate**: a deterministic, single-process stand-in for the server so
 you can write multi-client convergence tests with no infrastructure. It runs the
 *real* runtime — same codecs, pending queues, resubmit, reconnect catch-up — over
 an injected transport, and the *real* server sequencing (spillway's `sequencing`
@@ -362,8 +365,8 @@ presence's ripple fallback above all — is stepped rather than waited out; pass
 `sluice_js.scheduler` to `presence_js.start_with_scheduler`). The sluice also
 speaks `presence_v1`, so the server-backed presence path is testable in-repo
 without a live server. The live-server integration
-suite stays authoritative and untouched; the sluice models levee, it is not
-levee. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
+suite stays authoritative and untouched; the sluice models floodgate, it is not
+floodgate. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
 test, and `docs/plans/2026-07-06-in-memory-hub-plan.md` for the design.
 
 Take "models, is not" literally when adding to it. The sluice once pushed the

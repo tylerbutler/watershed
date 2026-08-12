@@ -4,7 +4,7 @@
 //// - `ConnectMessage.document_id` maps to wire key `id`, not `documentId`.
 //// - Sequenced ops carry exactly the 9 keys spillway's
 ////   `session_logic.build_sequenced_op` emits; everything else is optional.
-//// - `lastSeenSequenceNumber` is a levee extension to `connect_document`, so it
+//// - `lastSeenSequenceNumber` is a floodgate extension to `connect_document`, so it
 ////   is a separate argument rather than a `ConnectMessage` field. It is
 ////   advisory only — see `encode_connect_document`.
 

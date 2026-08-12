@@ -7,7 +7,7 @@
 ////
 //// ## Single op in flight (the Wave/ShareDB client model)
 ////
-//// levee never transforms (the sequencer is kernel-agnostic), so an op is
+//// floodgate never transforms (the sequencer is kernel-agnostic), so an op is
 //// broadcast verbatim with the reference sequence number (RSN) it was authored
 //// against, and a receiver must transform it past every op sequenced in
 //// `(op.ref_seq, op.seq)` its author had not seen. For that to be

@@ -14,7 +14,7 @@ const clients = [
       runtime, wire codecs and pending queues, compiled to JavaScript and
       running in your browser. They talk to one <code>sluice</code>: the
       in-memory server that ships in the library for deterministic tests,
-      standing in for levee with no backend. A cell edit renders optimistically
+      standing in for floodgate with no backend. A cell edit renders optimistically
       and pushes an op the sluice sequences; delivery is explicit, so state
       propagates one stamped hop at a time. Local edits are drawn in
       <strong class="k-pending">magenta</strong> until the sequencer stamps them;

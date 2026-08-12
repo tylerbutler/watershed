@@ -1,6 +1,6 @@
 //// Inverse wire codecs for the in-memory sluice.
 ////
-//// `wire/socket.gleam` holds the *client's* half of the levee protocol: it
+//// `wire/socket.gleam` holds the *client's* half of the floodgate protocol: it
 //// encodes client→server pushes and decodes server→client frames. The sluice is
 //// the server, so it needs the mirror image — decode what the client encodes,
 //// encode what the client decodes. Those inverse codecs live here.
@@ -336,7 +336,7 @@ pub fn system_leave_data(client_id: String) -> String {
 }
 
 /// Build a `signal` broadcast (inverse of `socket.ripple_message_decoder`).
-/// levee strips the ripple `type` on broadcast for Fluid compatibility, so it
+/// floodgate strips the ripple `type` on broadcast for Fluid compatibility, so it
 /// is deliberately omitted; consumers discriminate on the content envelope.
 pub fn encode_signal(
   from_client from_client: String,
@@ -473,7 +473,7 @@ fn encode_metas_by_key(entries: List(#(String, PresenceMeta))) -> Json {
 // Internals
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// levee's dev defaults; the client only needs these present and positive.
+/// floodgate's dev defaults; the client only needs these present and positive.
 const block_size = 65_536
 
 const max_message_size = 16_384

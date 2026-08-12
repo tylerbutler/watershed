@@ -1,4 +1,4 @@
-//// HTTP client for levee's storage REST endpoints: the git-storage
+//// HTTP client for floodgate's storage REST endpoints: the git-storage
 //// (Historian) API used to read and write SharedMap summaries, and the
 //// deltas API (`GET /deltas/:tenant_id/:id`) used to fetch sequenced ops
 //// that have aged out of the server's in-band history window.

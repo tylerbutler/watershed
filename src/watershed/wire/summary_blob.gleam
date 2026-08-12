@@ -1,4 +1,4 @@
-//// The summary snapshot blob (v4): the format `summarize` uploads to levee's
+//// The summary snapshot blob (v4): the format `summarize` uploads to floodgate's
 //// git storage and fresh connections bootstrap from. A *storage* format, not
 //// a wire format — versioned independently so loaders reject snapshots they
 //// don't understand rather than misread them.

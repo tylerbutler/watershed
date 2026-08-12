@@ -1,4 +1,4 @@
-//// Public JavaScript API: connect to a levee document and edit its root
+//// Public JavaScript API: connect to a floodgate document and edit its root
 //// SharedMap from the browser. The BEAM counterpart is `watershed`.
 ////
 //// ```gleam
@@ -3013,7 +3013,7 @@ pub fn diagnostics(document: Document(root)) -> Diagnostics {
 }
 
 @target(javascript)
-/// Summarize the document's current confirmed state to levee storage so future
+/// Summarize the document's current confirmed state to floodgate storage so future
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Resolves with the summary handle (git tree SHA). Requires the
 /// connection to be fully synced and the token to carry `summary:write`.

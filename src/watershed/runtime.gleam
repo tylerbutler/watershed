@@ -114,7 +114,7 @@ const max_ops_per_submission = 100
 // ─────────────────────────────────────────────────────────────────────────────
 // Transport seam
 //
-// The runtime talks to levee through an injectable `Transport` rather than
+// The runtime talks to floodgate through an injectable `Transport` rather than
 // calling aquamarine directly. The default transport (`aquamarine_transport`)
 // reproduces the historical behavior exactly; the in-memory hub (see
 // `watershed/hub`) supplies an alternate transport so app authors can run
@@ -157,7 +157,7 @@ pub type TransportCallbacks {
 }
 
 @target(erlang)
-/// A pluggable connection to a levee-shaped server. `connect` establishes the
+/// A pluggable connection to a floodgate-shaped server. `connect` establishes the
 /// link (spawning whatever process it needs) and drives the callbacks; it
 /// returns immediately, never blocking the actor.
 pub type Transport {
@@ -329,7 +329,7 @@ pub type Msg {
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
-  /// Summarize the current confirmed state to levee storage, replying with the
+  /// Summarize the current confirmed state to floodgate storage, replying with the
   /// summary handle (git tree SHA) on success.
   Summarize(reply: Subject(Result(String, String)))
   /// List the document's stored summary versions, newest first.
@@ -547,7 +547,7 @@ type Phase {
 type State {
   State(
     // `host`/`port` are retained for the REST summary API (git-storage), which
-    // shares levee's origin. The websocket path/topic/join payload now live
+    // shares floodgate's origin. The websocket path/topic/join payload now live
     // inside the transport closure.
     host: String,
     port: Int,
@@ -584,7 +584,7 @@ type State {
 }
 
 @target(erlang)
-/// Start a document runtime against a live levee: spawns the actor and the
+/// Start a document runtime against a live floodgate: spawns the actor and the
 /// channel receiver process, then returns the actor subject. Callers should
 /// `AwaitReady` (via `process.call`) before editing.
 pub fn start(
@@ -704,7 +704,7 @@ pub fn text_anchor_from_json(
 }
 
 @target(erlang)
-/// Summarize the current confirmed state to levee storage. Returns the summary
+/// Summarize the current confirmed state to floodgate storage. Returns the summary
 /// handle (git tree SHA) on success. Requires the connection to be fully synced
 /// and the token to carry the `summary:write` scope.
 pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
@@ -2812,7 +2812,7 @@ fn fetch_summary(
 
 @target(erlang)
 /// The HTTP(S) base URL for git-storage calls, derived from the socket host
-/// and port. levee serves both the Phoenix socket and the REST API from the
+/// and port. floodgate serves both the Phoenix socket and the REST API from the
 /// same origin.
 fn http_base_url(state: State) -> String {
   "http://" <> state.host <> ":" <> int.to_string(state.port)

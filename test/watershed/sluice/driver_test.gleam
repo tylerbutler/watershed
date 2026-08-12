@@ -1,6 +1,6 @@
 //// Ungated convergence tests driving real `watershed` documents against the
 //// in-memory `sluice` (plan HM3). These mirror the core subset of
-//// `integration_test.gleam` — but run with no levee server and no env gate,
+//// `integration_test.gleam` — but run with no floodgate server and no env gate,
 //// and assert *deterministically* after an explicit `settle` rather than
 //// polling with `wait_until`.
 
@@ -267,7 +267,7 @@ pub fn ripple_broadcasts_to_peers_test() {
   sluice.settle(sluice)
 
   // B hears A's ripple: the sender is stamped and the content carried through.
-  // levee strips the `type` tag on broadcast, so it arrives as `None`.
+  // floodgate strips the `type` tag on broadcast, so it arrives as `None`.
   let assert Ok(ripple) = process.receive(from: ripples_b, within: 100)
   let assert Some(_) = watershed.ripple_client_id(ripple)
   watershed.ripple_type(ripple) |> expect.to_equal(None)

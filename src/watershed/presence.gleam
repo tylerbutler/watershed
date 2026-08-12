@@ -33,7 +33,7 @@ import gleam/string
 import watershed/wire
 
 /// The ripple `type` tag and envelope `kind` value for all presence broadcasts.
-/// levee strips the ripple `type` on broadcast (Fluid compat), so we discriminate
+/// floodgate strips the ripple `type` on broadcast (Fluid compat), so we discriminate
 /// inbound by the `kind` field of the content envelope; the `type` stamp is kept
 /// only for forward compat. Multiple ripple uses per document coexist by `kind`.
 pub const ripple_type = "presence"

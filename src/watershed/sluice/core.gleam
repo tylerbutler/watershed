@@ -1,4 +1,4 @@
-//// The in-memory sluice's pure, target-agnostic core: a levee-shaped sequencer
+//// The in-memory sluice's pure, target-agnostic core: a floodgate-shaped sequencer
 //// over parsed wire frames.
 ////
 //// It reuses spillway's *real* `sequencing` module (the same SN/MSN/CSN logic
@@ -351,7 +351,7 @@ fn on_signal(sluice: Sluice, payload: Dynamic) -> Sluice {
     Ok(signal) -> {
       let frame = frames.encode_signal(signal.client_id, signal.content)
       // Fan out to everyone *except* the author (a client never hears its own
-      // ripple), stripping the `type` tag the way levee does.
+      // ripple), stripping the `type` tag the way floodgate does.
       connected_ids(sluice)
       |> list.filter(fn(id) { id != signal.client_id })
       |> list.fold(sluice, fn(sluice, id) {

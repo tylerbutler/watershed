@@ -85,7 +85,7 @@ const max_ops_per_submission = 100
 // ─────────────────────────────────────────────────────────────────────────────
 // Transport seam
 //
-// The runtime talks to levee through an injectable `Transport` rather than
+// The runtime talks to floodgate through an injectable `Transport` rather than
 // calling `transport_js` directly, so the in-memory hub (see `watershed/hub`)
 // can supply an alternate transport for deterministic app tests. The concrete
 // link (a phoenix `Channel`, a hub cell) is captured inside the closures of a
@@ -126,7 +126,7 @@ pub type TransportCallbacks {
 }
 
 @target(javascript)
-/// A pluggable connection to a levee-shaped server. `connect` opens the link,
+/// A pluggable connection to a floodgate-shaped server. `connect` opens the link,
 /// wires the callbacks, and returns the handle used for outbound frames.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> TransportHandle)
@@ -177,7 +177,7 @@ type State {
   State(
     connect_message: ConnectMessage,
     /// HTTP(S) base URL for git-storage (summary) calls, derived from the
-    /// Phoenix socket URL. levee serves both the socket and REST from one
+    /// Phoenix socket URL. floodgate serves both the socket and REST from one
     /// origin.
     http_base_url: String,
     channel: Option(TransportHandle),
@@ -1913,7 +1913,7 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Summarize the document's current confirmed state to levee storage so future
+/// Summarize the document's current confirmed state to floodgate storage so future
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Resolves with the summary handle (git tree SHA). Requires the
 /// connection to be fully synced and the token to carry `summary:write`.

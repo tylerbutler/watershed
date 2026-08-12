@@ -17,7 +17,7 @@ try {
   // phoenix not installed — fine unless the real transport's connect() is used.
 }
 
-// Levee document-channel events the runtime cares about. Everything else
+// Floodgate document-channel events the runtime cares about. Everything else
 // (summary acks, pongs) is ignored, matching the erlang runtime. `signal`
 // carries ephemeral, non-sequenced presence-style messages.
 const CHANNEL_EVENTS = [
@@ -128,7 +128,7 @@ export function clearTimer(id) {
   return undefined;
 }
 
-// Mint an HS256 dev JWT matching levee's JOSE verification, so the Lustre
+// Mint an HS256 dev JWT matching floodgate's JOSE verification, so the Lustre
 // example works against `just server` with no backend token endpoint. Web
 // Crypto's subtle.sign is async, so this returns a Promise<string>.
 export async function mintDevToken(secret, tenant, document, userId) {

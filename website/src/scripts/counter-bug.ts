@@ -9,7 +9,7 @@
 // Both rigs below run watershed's real `map_kernel`, compiled with
 // `gleam build --target javascript`, over one in-page sequencer that stamps
 // sequence numbers (SNs) and broadcasts in FIFO order — the same protocol shape
-// a Fluid-style sequencer like levee uses. Nothing here is faked:
+// a Fluid-style sequencer like floodgate uses. Nothing here is faked:
 //
 //   • The BUG rig stores the tally in one shared key. Concurrent read-modify-
 //     write races drop a boat, because LWW overwrites instead of merging.

@@ -318,7 +318,7 @@ const rows = [
         watershed makes the schema a <strong>decode boundary</strong> that
         exists only in your build. The tag scoping a set of fields is a phantom
         type, erased at compile time; nothing about it reaches the wire, and
-        <a href="https://github.com/tylerbutler/levee">levee</a> is
+        any Fluid Framework-compatible sequencer — floodgate included — is
         content-agnostic by design. What you get instead is a document that is
         not one structure but a graph of independently converging channels, so
         the merge policy is named per slot rather than once for everything.

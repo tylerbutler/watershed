@@ -276,7 +276,7 @@ pub fn encode_signal_strips_type_test() {
     json.parse(json.to_string(payload), socket.ripple_message_decoder())
 
   signal.client_id |> expect.to_equal(Some("sluice-client-1"))
-  // levee strips the ripple `type` on broadcast — consumers key on the content
+  // floodgate strips the ripple `type` on broadcast — consumers key on the content
   // envelope instead. The sluice reproduces that quirk.
   signal.signal_type |> expect.to_equal(None)
   signal.content

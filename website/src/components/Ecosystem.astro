@@ -17,8 +17,8 @@ const flows = [
         href: "https://github.com/tylerbutler/roost",
       },
     ],
-    target: "levee",
-    targetHref: "https://github.com/tylerbutler/levee",
+    target: "floodgate",
+    targetHref: "https://floodgate.tylerbutler.com",
     note: "OTP runtime, Gun transport, Roost Phoenix V2 frame codec.",
   },
   {
@@ -27,8 +27,8 @@ const flows = [
     sourceHref: "https://github.com/tylerbutler/watershed",
     verb: "opens Phoenix channels with",
     path: [{ name: "Phoenix.js", href: "https://hexdocs.pm/phoenix/js/" }],
-    target: "levee",
-    targetHref: "https://github.com/tylerbutler/levee",
+    target: "floodgate",
+    targetHref: "https://floodgate.tylerbutler.com",
     note: "Gleam JavaScript runtime over transport_js and the browser Web Crypto API.",
   },
   {
@@ -42,14 +42,14 @@ const flows = [
         href: "https://spillway.tylerbutler.com",
       },
     ],
-    target: "levee",
-    targetHref: "https://github.com/tylerbutler/levee",
+    target: "floodgate",
+    targetHref: "https://floodgate.tylerbutler.com",
     note: "Shared operation, session, sequencing, and watershed summary types.",
   },
   {
     label: "Server side",
-    source: "levee",
-    sourceHref: "https://github.com/tylerbutler/levee",
+    source: "floodgate",
+    sourceHref: "https://floodgate.tylerbutler.com",
     verb: "hosts rooms and broadcasts through",
     path: [
       {
@@ -76,7 +76,9 @@ const flows = [
     <p>
       The shared DDS core stays target-independent. These paths show which
       packages provide each target’s transport and framing, and which protocol
-      types cross the client/server boundary.
+      types cross the client/server boundary. floodgate is shown as the
+      reference server; the same protocol also reaches levee and Fluid
+      Framework’s own routerlicious.
     </p>
     <ol class="flow-list" aria-label="Package relationships">
       {

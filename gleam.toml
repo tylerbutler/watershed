@@ -1,6 +1,6 @@
 name = "watershed"
 version = "0.1.0"
-description = "Gleam DDS client toolkit for levee — SharedMap kernel, runtime actor, and wire codecs"
+description = "Gleam DDS client toolkit for Fluid Framework-compatible servers — SharedMap kernel, runtime actor, and wire codecs"
 licences = ["MIT"]
 repository = { type = "github", user = "tylerbutler", repo = "watershed" }
 gleam = ">= 1.7.0"

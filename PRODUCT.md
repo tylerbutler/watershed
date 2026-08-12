@@ -10,11 +10,11 @@ BEAM and Gleam developers evaluating real-time collaborative data sync for their
 
 ## Product Purpose
 
-watershed is a Gleam (BEAM) DDS client toolkit for levee: collaborative data structures (SharedMap first) with optimistic local edits, server-sequenced convergence, and reconnect safety. The pure core is target-agnostic and compiles to both Erlang and JavaScript. The website's job is to make that credibility legible fast — and to *show* convergence live in the browser rather than claim it. Success: a visiting Gleam dev stars the repo, runs an example, or reads the architecture.
+watershed is a Gleam (BEAM) DDS client toolkit for Fluid Framework-compatible sequencing services (floodgate, levee, and Fluid Framework's own routerlicious): collaborative data structures (SharedMap first) with optimistic local edits, server-sequenced convergence, and reconnect safety. The pure core is target-agnostic and compiles to both Erlang and JavaScript. The website's job is to make that credibility legible fast — and to *show* convergence live in the browser rather than claim it. Success: a visiting Gleam dev stars the repo, runs an example, or reads the architecture.
 
 ## Brand Personality
 
-Hydrological engineering: calm, precise, systems-confidence. The ecosystem naming (watershed, levee, spillway, aquamarine, roost) is a literal water-infrastructure family — the brand treats that metaphor as load-bearing, not decorative. Voice like a well-written engineering document about river control: measured, exact, quietly authoritative. Three words: **precise, fluid, grounded**.
+Hydrological engineering: calm, precise, systems-confidence. The ecosystem naming (watershed, floodgate, spillway, aquamarine, roost) is a literal water-infrastructure family — the brand treats that metaphor as load-bearing, not decorative. Voice like a well-written engineering document about river control: measured, exact, quietly authoritative. Three words: **precise, fluid, grounded**.
 
 ## Anti-references
 

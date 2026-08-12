@@ -109,7 +109,7 @@ pub fn real_scheduler() -> Scheduler {
 }
 
 @target(javascript)
-/// Mint an HS256 dev JWT matching levee's dev-mode verification. Signs with
+/// Mint an HS256 dev JWT matching floodgate's dev-mode verification. Signs with
 /// Web Crypto, so the token resolves asynchronously.
 @external(javascript, "./transport_ffi.mjs", "mintDevToken")
 pub fn mint_dev_token(

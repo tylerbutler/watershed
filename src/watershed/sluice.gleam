@@ -2,7 +2,7 @@
 ////
 //// Wraps the pure `sluice/core` in an actor and drives real `watershed`
 //// documents through the runtime's injectable transport — so an app author
-//// writes deterministic multi-client convergence tests with no levee server.
+//// writes deterministic multi-client convergence tests with no floodgate server.
 ////
 //// ## Determinism without a clock
 ////

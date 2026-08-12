@@ -1,6 +1,6 @@
 //// Codec tests for `watershed/wire`.
 ////
-//// Inbound fixtures mirror the exact frames levee produces:
+//// Inbound fixtures mirror the exact frames floodgate produces:
 //// - `connect_document_success` from `session.ex` `build_connected_response`
 //// - sequenced ops from spillway `session_logic.build_sequenced_op` (9 keys,
 ////   `metadata: null`, nullable `clientId`)

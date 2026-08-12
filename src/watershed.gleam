@@ -1,4 +1,4 @@
-//// Public API: connect to a levee document and edit its root SharedMap.
+//// Public API: connect to a floodgate document and edit its root SharedMap.
 ////
 //// ```gleam
 //// let assert Ok(doc) = watershed.connect(
@@ -111,7 +111,7 @@ import watershed/two_p_set_kernel
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(erlang)
-/// The default Phoenix websocket mount for levee. `vsn=2.0.0` selects the
+/// The default Phoenix websocket mount for floodgate. `vsn=2.0.0` selects the
 /// V2 array frame serializer that the roost codec speaks.
 const socket_path = "/socket/websocket?vsn=2.0.0"
 
@@ -3163,7 +3163,7 @@ pub fn client_id(document: Document(root)) -> Option(String) {
 }
 
 @target(erlang)
-/// Summarize the document's current confirmed state to levee storage so future
+/// Summarize the document's current confirmed state to floodgate storage so future
 /// clients can bootstrap from the snapshot instead of replaying the full op
 /// history. Returns the summary handle (git tree SHA). Requires the connection
 /// to be fully synced and the token to carry the `summary:write` scope.
@@ -3374,7 +3374,7 @@ pub fn subscribe_field(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Mint an HS256 dev JWT for a levee server running in dev mode (`just server`).
+/// Mint an HS256 dev JWT for a floodgate server running in dev mode (`just server`).
 /// Matches the signature that `watershed_js.dev_token` produces on the JS
 /// target. **Do not use in production** — the secret must never be embedded in
 /// a deployed binary.
