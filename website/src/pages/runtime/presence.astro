@@ -42,12 +42,12 @@ let config =
       <code>submit_ripple</code> sends a type tag plus a JSON payload and returns
       nothing, because there is no state to change and no ack to await;
       <code>subscribe_ripples</code> hands each inbound ripple to your handler
-      with the sender's id attached. The
+      with the sender's id attached. The{" "}
       <a href="/guide/ripples">build guide's ripples step</a> walks through the
       send and receive code end to end.
     </p>
     <p>
-      Because a ripple never lands in a summary, a client that
+      Because a ripple never lands in a summary, a client that{" "}
       <a href="/runtime/reconnect">reconnects</a> or joins late will not see the
       ones it missed, which is exactly right for a cursor and exactly wrong for
       a reading. The tier's forgetfulness is the feature.

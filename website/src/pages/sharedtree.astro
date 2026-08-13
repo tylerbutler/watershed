@@ -324,7 +324,7 @@ const rows = [
         the merge policy is named per slot rather than once for everything.
         Reads hand back a <code>Result</code>, because a peer really
         can write anything. What you do not get is atomicity, undo, or a
-        schema upgrade. Those are listed
+        schema upgrade. Those are listed{" "}
         <a href="#gaps">further down</a>, not buried.
       </p>
       <div class="g-note">
@@ -459,7 +459,7 @@ const rows = [
           moment keeps their edit: the record view is never a clobbering blob.
           It is also why a peer can read the record <em>mid-write</em> and see
           three of four keys updated. <code>Tree.runTransaction</code> would
-          prevent that; watershed has no answer for it yet. See
+          prevent that; watershed has no answer for it yet. See{" "}
           <a href="#gaps">below</a>.
         </p>
       </div>
@@ -496,12 +496,12 @@ const rows = [
       <p>
         So watershed makes you choose, and in exchange lets you choose right:
         pencil marks want an <a href="/structures/sets#orset">OR-set</a> where a
-        concurrent add beats a remove, the puzzle’s givens want
+        concurrent add beats a remove, the puzzle’s givens want{" "}
         <a href="/structures/coordination#claims">first-writer-wins claims</a>,
-        the mistake tally wants a
+        the mistake tally wants a{" "}
         <a href="/structures/counters#counter">counter</a> that does not
         double-count a redelivered op. SharedTree would give all four the same
-        treatment. The
+        treatment. The{" "}
         <a href="/models">DDS · CRDT · OT comparison</a> lays out what each of
         those policies costs.
       </p>

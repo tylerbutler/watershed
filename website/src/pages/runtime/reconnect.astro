@@ -31,8 +31,9 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     <p>
       Every channel knows how to serialise and rebuild itself this way, so the
       snapshot is not a lossy cache: it is the converged state, exactly, plus the
-      metadata each structure needs to keep its merge rule honest. An
+      metadata each structure needs to keep its merge rule honest. An{" "}
       <a href="/structures/sets#orset">OR-set</a>'s add tags and a
+      {" "}
       <a href="/structures/sets">2P-set</a>'s tombstones travel in the summary,
       so add-wins and permanent-removal semantics survive a reload intact.
     </p>
@@ -53,7 +54,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       identity. That validates channel snapshot decoding, but it is not the
       transport reconnect path. Because required sequence metadata rides along
       in snapshots,
-      order-sensitive structures like <a href="/structures/coordination#claims">claims</a>
+      order-sensitive structures like <a href="/structures/coordination#claims">claims</a>{" "}
       stay correct after a load: a slot that was claimed before you dropped is
       still claimed when you return, and a compare-and-set still refers to the
       right prior state.

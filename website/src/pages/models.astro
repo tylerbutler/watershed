@@ -189,25 +189,30 @@ const rows = [
           <li>
             <strong>Start with a DDS.</strong> If a central server is already in
             the loop and last-write-wins or explicit coordination is acceptable,
-            an order-based DDS is the least machinery for the job. Use
+            an order-based DDS is the least machinery for the job. Use{" "}
             <a href="/structures/maps#map">SharedMap</a>,
+            {" "}
             <a href="/structures/coordination#claims">Claims</a>, or
+            {" "}
             <a href="/structures/coordination#pact">Pact map</a>.
           </li>
           <li>
             <strong>Use a CRDT when delivery is unreliable.</strong> Offline
             edits backed by durable local storage, at-least-once delivery, or a
             counter that must survive a re-sent delta call for a merge that does
-            not care about order:
+            not care about order:{" "}
             <a href="/structures/counters#pn">PN counter</a>,
+            {" "}
             <a href="/structures/sets#orset">OR-set</a>, or
+            {" "}
             <a href="/structures/maps#ormap">OR-map</a>.
           </li>
           <li>
             <strong>Use OT for ordered sequences and rich text.</strong>
             Collaborative text and lists, where positions shift as others
-            edit, are what transform functions were built for. See the
+            edit, are what transform functions were built for. See the{" "}
             <a href="/json-ot">json_ot demo</a> for structured JSON or the
+            {" "}
             <a href="/rich-text">SharedRichText demo</a> for a
             three-editor Quill session.
           </li>

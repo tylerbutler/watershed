@@ -102,7 +102,7 @@ watershed.increment(wip_breaches, 1)
     </figure>
     <div class="g-note">
       <p>
-        <strong>This bug is worth seeing.</strong> The
+        <strong>This bug is worth seeing.</strong> The{" "}
         <a href="/counter-bug">counter-bug page</a> stages exactly this:
         a boat count stored in a map, two concurrent increments, one silently
         lost, then fixes it with <code>SharedCounter</code>. It’s the sharpest
@@ -118,18 +118,18 @@ watershed.increment(wip_breaches, 1)
     </p>
     <ul>
       <li>
-        <strong>Is it additive?</strong> Tallies, votes, quantities → a
+        <strong>Is it additive?</strong> Tallies, votes, quantities → a{" "}
         <a href="/structures/counters#counter">counter</a>, so concurrent changes
         sum instead of clobbering.
       </li>
       <li>
-        <strong>Must it survive offline or duplicate delivery?</strong> Then a
+        <strong>Must it survive offline or duplicate delivery?</strong> Then a{" "}
         <a href="/models">CRDT</a> (OR-map, OR-set, PN counter) whose merge
         doesn’t depend on order, over a plain DDS.
       </li>
       <li>
         <strong>Is it a decision, not a value?</strong> Ownership, turn-taking,
-        agreement → the <a href="/structures/coordination">coordination</a>
+        agreement → the <a href="/structures/coordination">coordination</a>{" "}
         family: claims, ordered collections, the pact map.
       </li>
     </ul>

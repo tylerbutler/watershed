@@ -3,6 +3,8 @@ import { defineConfig } from "astro/config";
 
 export default defineConfig({
   site: "https://watershed.tylerbutler.com",
+  // Preserve spaces around inline elements when prose wraps across source lines.
+  compressHTML: true,
   devToolbar: { enabled: false },
   vite: {
     resolve: {
