@@ -200,6 +200,15 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
       />
     </figure>
 
+    <p>
+      watershed is not published to Hex yet. The two <code>path</code>
+      dependencies below resolve because this example sits in
+      <code>examples/</code> inside a watershed checkout. In your own project,
+      take both as git dependencies pinned to a commit instead — the
+      <a href="https://github.com/tylerbutler/watershed#install">README</a>
+      gives the exact lines.
+    </p>
+
     <span class="g-file">gleam.toml</span>
     <figure class="g-code">
       <Code code={gleamToml} lang="toml" theme={watershedCodeTheme} />

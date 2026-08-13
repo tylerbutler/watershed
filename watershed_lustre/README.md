@@ -36,12 +36,11 @@ fn update(model, msg) {
 - **Scheduling, not vocabulary.** Every effect takes a caller-supplied
   `fn(...) -> msg` constructor, the way `lustre/event` handlers do. The app keeps
   its own `Msg` type.
-- **The mid-`update` dispatch bug, deleted.** watershed delivers events
-  synchronously — sometimes from inside a running `update` (a local edit made in
-  `update` fires its subscription callback before `update` returns). A `dispatch`
-  nested in a running update is clobbered. Every inbound callback here is
-  unconditionally deferred to a microtask, so the bug class is designed out
-  rather than documented.
+- **No mid-`update` dispatch.** watershed delivers events synchronously —
+  sometimes from inside a running `update`, since a local edit made there fires
+  its subscription callback before `update` returns, and a nested `dispatch` is
+  clobbered. Every inbound callback here is deferred to a microtask, so that
+  whole class of lost update never arises.
 - **Timers as effects.** `after(ms, msg)` for heartbeats, debounces, and retries
   — no hand-rolled `setTimeout` FFI per app.
 

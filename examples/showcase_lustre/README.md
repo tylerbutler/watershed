@@ -69,10 +69,9 @@ it. Three of them show up here:
   envelopes; the `kind` check passes and only the payload decoder rejects them,
   *silently*. The shell runs one driver with a `Where` variant per panel and
   hands each panel its filtered peers.
-- `go_offline` — the canvas's offline toggle used to be a canvas button. It
-  disconnects the document, so composed it stops all four panels at once. It
-  cannot be scoped down (the connection is per-document), so it is promoted into
-  the chrome and labelled as what it is.
+- `go_offline` — it disconnects the document, so it stops all four panels at
+  once. It cannot be scoped down to one panel (the connection is per-document),
+  so it lives in the chrome, labelled as what it is.
 - `auto_summarize` — one policy per document, stored in a slot rather than a
   list. A panel installing its own would set the threshold for the whole
   showcase, and with panels initialised lazily, *which* policy won would depend
@@ -80,7 +79,7 @@ it. Three of them show up here:
 
 ## Three things worth knowing
 
-**The offline toggle is now a better demo, not just a safer one.** One click
+**The offline toggle partitions everything at once.** One click
 partitions a text buffer, a sequence, a claims grid, and an OR-map; coming back
 converges all four in one reconnect. `offline_partitions_every_panel_test`
 asserts exactly that.

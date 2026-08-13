@@ -69,20 +69,10 @@ The pending line names the clients it is waiting on, and marks the one that is
 use, so the match is exact. The other entries stay opaque numbers, which is
 honest: nothing in the document says who a peer is.
 
-### The bug this demo found
-
-Building the quorum tempo turned up a real watershed bug: a client joining
-after a tempo had been agreed rebuilt the pact's signoff list from *its own
-present-day roster* instead of the roster the proposal was sequenced against,
-writing itself into the quorum of a proposal that settled before it arrived. A
-new tab read the default 120 BPM, and against a live server it failed to
-connect at all with `AckMismatch("client was not expected to sign off")` — a
-document with an agreed tempo was effectively unjoinable.
-
-Fixed in
-[`docs/plans/2026-08-09-consensus-replay-quorum-plan.md`](../../docs/plans/2026-08-09-consensus-replay-quorum-plan.md);
-`a_late_joiner_reads_the_agreed_tempo_test` is the guard. One piece is still
-open — the roster at a summary checkpoint — and is written up there.
+A client joining after a tempo has been agreed reads that tempo, not the
+default: a pact's signoff list is rebuilt from the roster its proposal was
+sequenced against, not the joiner's present-day roster.
+`a_late_joiner_reads_the_agreed_tempo_test` is the guard.
 
 ## What watershed does not do: phase
 
@@ -137,11 +127,9 @@ pnpm run smoke        # the same claims against a live floodgate server
 where delivery is explicit and synchronous, and asserts the pattern claims
 above — including the add-wins case and the off-then-on toggle.
 
-`test/quorum_test.gleam` runs **three**. That is not a stylistic choice: the
-runtime used to fabricate a pact's signoff list as `[self, author]`, which is
-indistinguishable from a correct roster when the room has two people in it and
-silently wrong the moment it has three. Every test in that file passes against
-the broken version if you reduce it to two clients. Don't.
+`test/quorum_test.gleam` runs **three**. That is not a stylistic choice: a
+two-client room cannot distinguish a correct signoff roster from `[self,
+author]`, so quorum bugs only show up at three. Don't reduce it to two.
 
 ## Run it
 

@@ -1,347 +1,198 @@
 # watershed
 
-A Gleam Fluid Framework DDS client toolkit for Erlang and JavaScript. It provides
-collaborative data structures with optimistic local edits, convergence through
-server sequencing, and reconnect safety. SharedMap is the anchor DDS;
-SharedCounter, SharedSequence, SharedText, SharedRichText, OR-set, claims, and
-the other channel kinds share the same runtime. An opt-in
-[typed document layer](#typed-documents) declares a document's shape once.
-watershed speaks the wire protocol of any Fluid Framework-compatible
-sequencing service — [floodgate](https://floodgate.tylerbutler.com),
+Collaborative data structures for Gleam. Many people edit the same document at
+once; watershed applies each edit locally the moment it happens, sequences it
+through a server, and converges every client on the same state — across
+concurrent edits, dropped connections, and reloads.
+
+It runs on both Gleam targets from one codebase: an OTP actor on the BEAM, and
+the browser via the JavaScript target ([Lustre bindings](watershed_lustre)
+included). It speaks the Fluid Framework wire protocol, so it works against any
+Fluid-compatible sequencing service — [floodgate](https://floodgate.tylerbutler.com),
 [levee](https://github.com/tylerbutler/levee), or Fluid Framework's own
 [routerlicious](https://github.com/microsoft/FluidFramework/tree/main/server/routerlicious).
-The examples and test suite here run against floodgate.
 
-Plan: [docs/plans/2026-07-01-gleam-sharedmap-client-plan.md](docs/plans/2026-07-01-gleam-sharedmap-client-plan.md).
+**[Guide](https://watershed.tylerbutler.com/guide)** ·
+**[Data structures](https://watershed.tylerbutler.com/structures)** ·
+**[Live demos](https://watershed.tylerbutler.com)**
 
-## Architecture
+## Install
 
-```
-┌─────────────────────────────────────────────┐
-│  Public API: connect, map handle, subscribe │   (M5)
-├─────────────────────────────────────────────┤
-│  Runtime actor ("delta manager")            │   (M3/M4)
-│  handshake · CSN/RSN · inbound ordering ·   │
-│  catch-up · resubmit · nack · event fan-out │
-├──────────────────────┬──────────────────────┤
-│  DDS kernels (PURE)  │  wire (PURE)         │   (M1 ✅ / M3)
-│  sequenced + pending │  floodgate channel   │
-│  LWW/delta merge     │  payload codecs      │
-├──────────────────────┴──────────────────────┤
-│  aquamarine (channel client, roost codec)   │
-└─────────────────────────────────────────────┘
+watershed is not on Hex yet. Add it to your `gleam.toml` as a git dependency,
+pinned to a commit — a branch ref is not a pin, and projects that resolve on
+different days will land on different revisions:
+
+```toml
+[dependencies]
+watershed = { git = "https://github.com/tylerbutler/watershed", ref = "<commit-sha>" }
 ```
 
-## Status
+[`watershed_lustre`](watershed_lustre) ships from this same repository, so Lustre
+apps take it with a `path` into the clone (Gleam 1.18 or newer):
 
-- **M1 — kernel: done.** `watershed/map_kernel` is a pure port of FluidFramework's
-  `mapKernel.ts` (sequenced + pending state, lifetimes, event suppression,
-  insertion-order iteration). Unit tests plus qcheck properties: convergence
-  across authorship/submit-timing interleavings, ack transparency, and rebase
-  equivalence, at 1000 iterations each.
-- **SharedCounter kernel: done.** `watershed/counter_kernel` is a pure port of
-  FluidFramework's `counter.ts` delta semantics: integer increments, optimistic
-  local apply, FIFO acks, local message-id validation, stashed ops, rollback,
-  and summary seeding.
-- **SharedSequence kernel: done.** `watershed/sequence_kernel` uses
-  `lattice_sequence` for optimistic insert, delete, and move operations over
-  arbitrary JSON values, with summaries, stashed ops, rollback, and
-  multi-client convergence.
-- **SharedRichText kernel: done.** `watershed/rich_text` is a checked port of
-  `quill-delta@4.2.1`/`rich-text@4.1.0` (the ot-types Quill format);
-  `watershed/rich_text_kernel` rides that algebra on the same single-op-in-flight
-  client-transform protocol as `watershed/json_ot_kernel`. See
-  [Shared rich text](#shared-rich-text) below.
-- **SharedText kernel: done.** `watershed/text_kernel` uses `lattice_text` for
-  optimistic collaborative plain-text editing: grapheme-indexed `insert`,
-  `delete_range`, `replace_range`, and `append` over an optimistic string, plus
-  cursor anchors that survive concurrent edits. Indexing is by Unicode grapheme
-  (never UTF-16 code unit), replace is one composed op, and the wire format is
-  watershed's own delta over the `lattice_text` identity CRDT — **not** a port
-  of Fluid Framework's SharedString merge-tree format.
-- **M2 — shared test corpus: done.** 20 scenarios generated from the TS
-  `MapKernel` oracle and replayed against `map_kernel` in a multi-client sim.
-- **M3 — wire + happy-path runtime: done.** `watershed/wire` codecs over
-  spillway types; `watershed/runtime_core` pure state machine; `watershed/runtime`
-  OTP actor over aquamarine. Two BEAM clients converge against a live server.
-- **M4 — resilience: done.** Out-of-order buffering + in-band `requestOps`,
-  reconnect/reconcile with client-id remap, nack policy, noop heartbeat.
-- **M5 — polish + example: in progress.** Public API (`watershed`), and a
-  **Gleam-end-to-end Lustre** dice roller (see below).
-- **Automatic summaries: opt-in.** `summarize` writes a checkpoint a later
-  client bootstraps from instead of replaying the whole log; on its own it has
-  to be called by hand. `auto_summarize(document, summary_policy.policy())`
-  hands that decision to the runtime, which writes one once the document has
-  drifted past the policy's threshold and this client is settled. Safe on every
-  client in a room: attempts are spread over a jitter window, and the first
-  summary sequenced stands the rest down. Off unless installed;
-  `ops_since_summary` reports the current drift.
+```toml
+watershed_lustre = { git = "https://github.com/tylerbutler/watershed", ref = "<commit-sha>", path = "watershed_lustre" }
+```
 
-## Targets
+That pulls `watershed` along with it; declare `watershed` yourself only if you
+also use it directly. Pin both to the same commit.
 
-The pure core (`map_kernel`, `counter_kernel`, `sequence_kernel`, `rich_text`,
-`rich_text_kernel`, `text_kernel`, `wire`, `runtime_core`) is target-agnostic.
-Two runtimes sit on top:
-
-| Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
-| --- | --- | --- |
-| Transport | aquamarine (gun / roost) | phoenix.js via FFI |
-| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
-| Pure core | `map_kernel` · `counter_kernel` · `sequence_kernel` · `rich_text` · `rich_text_kernel` · `text_kernel` · `wire` · `runtime_core` | ← identical, shared |
-
-The erlang-only modules are gated with `@target(erlang)` so
-`gleam build --target javascript` compiles just the pure core plus the JS
-runtime. See [`examples/dice_lustre`](examples/dice_lustre) for a Lustre SPA
-whose entire client is Gleam, verified converging against a live `just server`,
-[`examples/dice_cli`](examples/dice_cli) for its Erlang-target CLI counterpart,
-[`examples/scoreboard_cli`](examples/scoreboard_cli) for a multi-player
-scoreboard whose per-player records use the [typed document layer](#typed-documents),
-and [`examples/playlist_lustre`](examples/playlist_lustre) for a reorderable
-playlist on `SharedSequence` — the example that exercises `move`, the
-convergent reorder no other DDS here offers, and
-[`examples/text_lustre`](examples/text_lustre) for a collaborative plain-text
-editor on `SharedText`, diffing each `<textarea>` keystroke into one
-grapheme-indexed op (mirrored by the [live `/text`
-demo](https://watershed.tylerbutler.com/text)), and
-[`examples/pixel_canvas_lustre`](examples/pixel_canvas_lustre) for a shared
-64×64 bitmap on an `OrMap` of register leaves — the one example that proves
-convergence by eye rather than by assertion, and the one that emits ops by the
-thousand.
-
-For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
-Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and
-a presence effect — so an app declares its wiring instead of hand-bridging
-watershed's callbacks into `dispatch` (and deferring each to dodge the
-mid-`update` clobber). Every Lustre example here is built on it.
-
-## Shared sequences
-
-`SharedSequence` is a collaborative Array-like DDS that stores arbitrary JSON
-values. The Erlang and JavaScript facades expose the same create, resolve,
-insert, delete, move, replace, read, and subscription operations:
+## Quick start
 
 ```gleam
+import gleam/erlang/process
 import gleam/json
+import watershed
+import watershed/channel.{type ChannelEvent}
 
+type Msg {
+  MapChanged(ChannelEvent)
+}
+
+pub fn main() {
+  // Blocks until the op history has replayed locally.
+  let assert Ok(doc) =
+    watershed.connect(
+      host: "127.0.0.1",
+      port: 4000,
+      tenant: "flow-co",
+      document: "flowboard",
+      token: token,
+      user_id: "ada",
+    )
+  let board = watershed.root(doc)
+  let events = watershed.subscribe(board)
+  let selector =
+    process.new_selector()
+    |> process.select_map(events, MapChanged)
+
+  // Subscribe first: this local write emits immediately.
+  watershed.set(board, "title", json.string("Q3 sprint board"))
+
+  // The same subject also receives remote changes as they are applied.
+  let MapChanged(_event) = process.selector_receive_forever(selector)
+}
+```
+
+In the browser, `watershed_js.connect` takes a `WatershedConfig` and an
+`on_ready` callback instead of blocking, and delivers events to callbacks rather
+than a `Subject`. Everything below the facade is the same code. See the
+[connect guide](https://watershed.tylerbutler.com/guide/connect) for both.
+
+## Data structures
+
+Every structure rides the same sequenced stream and can be mixed freely in one
+document. Pick by how you want concurrent edits to merge — the
+[field guide](https://watershed.tylerbutler.com/structures) covers each one's
+merge rule, optimistic behaviour, and what it is best for.
+
+| Family | Structures | Use it for |
+| --- | --- | --- |
+| Maps | `SharedMap`, `OR-Map`, `SharedDirectory` | key/value state; last-write-wins, edit-wins-over-delete, or nested folders |
+| Counters | `SharedCounter`, `G-Counter`, `PN Counter` | numbers many people add to at once |
+| Sets | `OR-Set`, `G-Set`, `2P-Set` | membership: re-addable, add-only, or permanent removal |
+| Sequences | `SharedSequence`, `SharedText` | ordered lists with `move`, and plain text many people type into |
+| Transforms | `JSON OT`, `SharedRichText` | one JSON document, or Quill-style rich text with formatting |
+| Coordination | `Claims`, `TaskManager`, `Ordered collection`, `Register collection`, `Pact map` | ownership, work queues, and quorum agreement |
+
+Each has matching `create_*`, `ensure_*`, mutation, read, and `subscribe_*`
+functions on both the Erlang (`watershed`) and JavaScript (`watershed_js`)
+facades. For example:
+
+```gleam
 let assert Ok(items) = watershed.create_sequence(doc)
-let assert Ok(Nil) =
-  watershed.sequence_insert(items, 0, json.string("first"))
-let assert Ok(Nil) =
-  watershed.sequence_insert(items, 1, json.string("second"))
+let assert Ok(Nil) = watershed.sequence_insert(items, 0, json.string("first"))
+let assert Ok(Nil) = watershed.sequence_insert(items, 1, json.string("second"))
 let assert Ok(Nil) = watershed.sequence_move(items, 0, 1)
 watershed.sequence_values(items)
 // [json.string("second"), json.string("first")]
 ```
 
-Move destinations are interpreted after removing the source value. Replace is
-one Watershed operation composed by merging `lattice_sequence` delete and insert
-deltas; `lattice_sequence` has no native replace primitive. This Array-like DDS
-is the substrate beneath collaborative text; the text-specific API is
-[`SharedText`](#shared-text).
+Indexing rules differ by structure and are enforced, not clamped:
+`SharedSequence` and `SharedText` index by **Unicode grapheme cluster**, while
+`SharedRichText` uses **UTF-16 code units** to match Quill and JavaScript string
+indexing exactly.
 
-## Shared rich text
+## Targets
 
-`SharedRichText` is a collaborative rich-text DDS for Quill-style editors. It
-is **OT-backed** (client-transform over a central sequencer, the same protocol
-`json_ot_kernel` uses), not the CRDT-backed `SharedText` used for plain
-grapheme-indexed text. The two are separate, non-interchangeable designs.
+The core (kernels, wire codecs, and the runtime state machine) is
+target-agnostic; only the transport and the runtime shell differ. Erlang-only
+modules are gated with `@target(erlang)`, so `gleam build --target javascript`
+compiles the core plus the JS runtime and nothing else.
 
-- `watershed/rich_text` is a checked port of `quill-delta@4.2.1` composed with
-  `rich-text@4.1.0` (the [ot-types](https://github.com/ottypes) Quill OT type):
-  pure `apply`/`compose`/`transform`/`invert` over Quill Delta documents and
-  changes. `watershed/rich_text_kernel` rides that algebra on the client
-  runtime; the public API is `SharedRichText` (`watershed.gleam` on BEAM,
-  `runtime_js.create_rich_text` / `submit_rich_text` / `rich_text_view` on
-  JavaScript). Upstream license notices for both ported packages are in
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
-- Documents and deltas are JSON arrays of Quill Delta ops: `{"insert": ...}`,
-  `{"retain": n, "attributes": {...}}`, and `{"delete": n}`, matching the wire
-  format Quill itself emits and consumes. An `insert` op's value is either a
-  string or an embed (any other JSON value); embeds always have length `1`
-  regardless of their JSON shape. In a `retain` op's `attributes` patch, a
-  `null` value *removes* that formatting attribute rather than setting it —
-  standard Quill Delta `compose` semantics.
-- Positions are **UTF-16 code units**, matching Quill/JavaScript string
-  indexing exactly (not grapheme clusters, unlike `SharedSequence` and
-  `SharedText`). A `retain`/`delete` boundary that lands inside a supplementary
-  character's UTF-16 surrogate pair is rejected rather than silently
-  truncating a scalar.
-- `rich_text.transform_position` / `transform_selection` carry a caret or
-  selection range through a remote delta, so editors and shared-cursor
-  presence can re-anchor a peer's cursor without recomputing it from scratch.
-- The kernel keeps **at most one local operation in flight**; further local
-  edits compose into a single pending buffer until the in-flight op is
-  acknowledged, then that buffer becomes the next in-flight op.
-- Remote (and local) change events carry the delta already transformed into
-  the *current optimistic view's* context — not just the confirmed document —
-  so an editor can apply it incrementally (`updateContents`) instead of
-  re-rendering the whole document, and presence code can transform cached
-  peer selections through the same delta.
-- Summaries persist only sequenced (fully acknowledged) state. A detached
-  channel's `attach` snapshot, by contrast, includes its optimistic state
-  (pending local edits), matching every other optimistic kernel here.
-- Unlike Quill/Fluid's `SharedString`, the data-structure layer does not
-  require or assume a document-final trailing newline; that convention, where
-  wanted, is an editor-layer concern.
+| Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
+| --- | --- | --- |
+| Transport | aquamarine (gun / roost) | phoenix.js via FFI |
+| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
+| Core | kernels · `wire` · `runtime_core` | ← identical, shared |
 
-```gleam
-import watershed/rich_text
-
-let assert Ok(doc) = watershed.create_rich_text(document)
-let assert Ok(delta) =
-  rich_text.delta_insert_text(rich_text.empty_delta(), "Hello", rich_text.attributes([]))
-watershed.submit_rich_text(doc, delta)
-watershed.rich_text_view(doc)
-// Some(document containing [{"insert": "Hello"}])
-```
-
-JavaScript/Lustre apps use the equivalent `runtime_js` functions
-(`create_rich_text`, `submit_rich_text`, `rich_text_view`, plus `subscribe`)
-against the same `rich_text`/`rich_text_kernel` modules — see
-[`website/src/scripts/rich-text-demo.ts`](website/src/scripts/rich-text-demo.ts)
-for a full three-editor Quill wiring, live at the
-[`/rich-text`](website/src/pages/rich-text.astro) website demo.
-
-## Shared text
-
-`SharedText` is a collaborative plain-text DDS for many typists on one string,
-backed by `lattice_text`. All indexes are **grapheme** indexes (Unicode
-extended grapheme clusters), so an emoji or a combining sequence counts as one
-unit — never a UTF-16 code-unit offset. The Erlang and JavaScript facades expose
-the same create, resolve, mutate, read, anchor, and subscription operations:
-
-```gleam
-let assert Ok(body) = watershed.create_text(doc)
-let assert Ok(Nil) = watershed.text_append(body, "hello world")
-let assert Ok(Nil) = watershed.text_insert(body, 5, ",")       // "hello, world"
-let assert Ok(Nil) = watershed.text_delete_range(body, 0, 5)   // ", world"
-let assert Ok(Nil) = watershed.text_replace_range(body, 2, 7, "there") // ", there"
-watershed.text_value(body)
-// ", there"
-```
-
-- Edits are **optimistic**: a local mutation shows immediately in the optimistic
-  string and rides the sequenced stream as a delta; if the server rejects it the
-  kernel rolls back and replays the remaining pending edits over the sequenced
-  base. `text_value`, `text_length`, and `text_substring` read the optimistic
-  view; every mutation returns `Result` and an out-of-bounds index is refused,
-  not clamped. An empty edit validates its index and then succeeds as a no-op.
-- **Replace is one composed operation** — a delete and an insert at the same
-  place merged into a single pending entry, one wire op, one event — not a
-  delete + insert pair.
-- **Anchors** (`text_anchor_at`, `text_start_anchor`, `text_end_anchor`,
-  `text_resolve_anchor`, `text_anchor_to_json`, `text_anchor_from_json`) pin a
-  stable position that survives concurrent edits and merges: as text is inserted
-  or deleted before an anchor, `text_resolve_anchor` reports its shifted grapheme
-  index. This is the primitive shared cursors are built on; broadcasting them
-  (presence) is out of scope for this release.
-- `subscribe_text` delivers a `text_kernel.TextEvent` carrying the full
-  post-edit optimistic string, for local and remote edits alike.
-
-Unlike SharedMap and SharedCounter — byte-for-byte ports of the Fluid Framework
-formats — `SharedText` is **not** a port of Fluid's `SharedString`. It uses
-watershed's own delta wire format over the `lattice_text` identity CRDT (the
-same identity lattice as `SharedSequence`), not Fluid's interval merge-tree
-format. This first release also excludes rich-text formatting and attributes,
-range-delta events, tombstone compaction and forwarding retention, the
-`lattice_fugue` / `lattice_text_fugue` variants, and presence-based shared
-cursors.
-
-See [`examples/text_lustre`](examples/text_lustre) for a full collaborative
-editor and the [live `/text` demo](https://watershed.tylerbutler.com/text).
+For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
+Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, and
+presence — so an app declares its wiring instead of hand-bridging callbacks into
+`dispatch`. Every Lustre example here is built on it.
 
 ## Typed documents
 
 `watershed/schema` adds an opt-in typed view over a SharedMap: declare a
-document's shape once and read/write through it. Typing is a *decode boundary*,
-not a closed schema — remote peers (or old summaries) can still write any JSON,
-so typed reads return `Result`.
+document's shape once and read and write through it. Typing is a *decode
+boundary*, not a closed schema — remote peers (or old summaries) can still write
+any JSON, so typed reads return `Result`.
 
-Declare each slot as a field — a plain value, a nested typed map (`ChildField`),
-or a handle to any other channel kind (`ChannelField`):
+Each slot is a field: a plain value, a nested typed map (`ChildField`), or a
+handle to any other channel kind (`ChannelField`).
 
 ```gleam
-import watershed/schema.{
-  type ChannelField,
-  type CounterChannel,
-  type Field,
-  type SequenceChannel,
-}
-
 pub type Doc
+
 pub fn title() -> Field(Doc, String) {
   schema.field("title", json.string, decode.string)
-}
-pub fn mistakes() -> ChannelField(Doc, CounterChannel) {
-  schema.channel_field("mistakes")
 }
 pub fn items() -> ChannelField(Doc, SequenceChannel) {
   schema.channel_field("items")
 }
 ```
 
-`ensure_*` seeds and adopts the root's channels declaratively, subsuming the
-create / race / retry bootstrap apps used to hand-write:
+`ensure_*` seeds and adopts the root's channels declaratively, replacing the
+create / race / retry bootstrap apps otherwise write by hand:
 
 ```gleam
 let root = watershed.typed(watershed.root(doc))
 watershed.ensure_field(root, title(), "Untitled")
-let assert Ok(counter) = watershed.ensure_counter(doc, root, mistakes())
 let assert Ok(sequence) = watershed.ensure_sequence(doc, root, items())
 ```
 
 For a whole record spread across keys, the `record1`..`record9` builders plus
 `sealed_known` derive the decoder *and* the encoder from one prop list so they
-cannot drift (see [`examples/scoreboard_cli`](examples/scoreboard_cli)). Events
-narrow per field or per channel via `subscribe_field`, `subscribe_counter`,
-`subscribe_sequence`, and `subscribe_typed`.
-[`examples/sudoku_lustre`](examples/sudoku_lustre) shows the full pattern end to
-end.
+cannot drift. Events narrow per field or per channel via `subscribe_field`,
+`subscribe_counter`, `subscribe_sequence`, and `subscribe_typed`.
+[`examples/sudoku_lustre`](examples/sudoku_lustre) shows the pattern end to end;
+[`examples/scoreboard_cli`](examples/scoreboard_cli) shows the record builders.
 
-## Development
+## Summaries
 
-```sh
-gleam deps download
-gleam test                      # BEAM: unit + property + corpus tests
-gleam build --target erlang     # BEAM: OTP runtime
-gleam build --target javascript # browser: pure core + JS runtime
-pnpm --dir examples/dice_lustre install
-pnpm --dir examples/dice_lustre run build
-gleam format
-```
+`summarize` writes a checkpoint that a later client bootstraps from instead of
+replaying the whole op log. `auto_summarize(document, summary_policy.policy())`
+hands that decision to the runtime, which writes one once the document has
+drifted past the policy's threshold and this client is settled. It is safe to
+install on every client in a room: attempts are spread over a jitter window, and
+the first summary sequenced stands the rest down. Off unless installed;
+`ops_since_summary` reports the current drift.
 
-Or use the root justfile:
+## Testing your app
 
-```sh
-just deps
-just test
-just build
-just format
-just lint
-```
+`watershed/sluice` (Erlang) and `watershed/sluice_js` (JavaScript) are an
+in-memory server: a deterministic, single-process stand-in so you can write
+multi-client convergence tests with no infrastructure. It runs the *real*
+runtime — same codecs, pending queues, resubmit, reconnect catch-up — over an
+injected transport, and the *real* server sequencing, so a passing sluice test
+exercises production code paths end to end.
 
-Map ops are byte-identical to the TS `@fluidframework/map` format
-(`{type: "set"|"delete"|"clear", key?, value?: {type: "Plain", value}}`);
-SharedCounter ops match `@fluidframework/counter` (`{type: "increment",
-incrementAmount}`).
-
-## Testing your app (the sluice)
-
-`watershed/sluice` (erlang) and `watershed/sluice_js` (JavaScript) are an
-**in-memory floodgate**: a deterministic, single-process stand-in for the server so
-you can write multi-client convergence tests with no infrastructure. It runs the
-*real* runtime — same codecs, pending queues, resubmit, reconnect catch-up — over
-an injected transport, and the *real* server sequencing (spillway's `sequencing`
-module), so a passing sluice test exercises production code paths end to end.
-
-Delivery is **explicit**: ops sequence when submitted but arrive only when you
-call `settle` (deliver until quiescent) or `step` (deliver one frame). That makes
+Delivery is explicit: ops sequence when submitted but arrive only when you call
+`settle` (deliver until quiescent) or `step` (deliver one frame). That makes
 races scriptable — "both clients claim the cell, deliver B first" is a sequence
-of calls, not a timing accident — and makes assertions deterministic without
-polling.
+of calls, not a timing accident.
 
 ```gleam
-// JavaScript (browser/Lustre apps); erlang is identical via watershed/sluice.
 import watershed/sluice_js
 import watershed_js
 
@@ -358,21 +209,62 @@ pub fn two_clients_converge_test() {
 }
 ```
 
-Controls: `settle`, `step`, `pause`/`resume` (erlang — hold a client's frames to
-script delivery order), and `advance(ms)` (move the sluice's logical clock and
-fire the timers that fall due with it, so heartbeat- and TTL-driven logic —
-presence's ripple fallback above all — is stepped rather than waited out; pass
-`sluice_js.scheduler` to `presence_js.start_with_scheduler`). The sluice also
-speaks `presence_v1`, so the server-backed presence path is testable in-repo
-without a live server. The live-server integration
-suite stays authoritative and untouched; the sluice models floodgate, it is not
-floodgate. See `examples/sudoku_lustre/test/convergence_test.gleam` for a real app
-test, and `docs/plans/2026-07-06-in-memory-hub-plan.md` for the design.
+Other controls: `pause`/`resume` (Erlang — hold a client's frames to script
+delivery order) and `advance(ms)`, which moves the sluice's logical clock and
+fires the timers that fall due with it, so heartbeat- and TTL-driven logic such
+as presence is stepped rather than waited out. The sluice also speaks
+`presence_v1`, so server-backed presence is testable in-repo.
 
-Take "models, is not" literally when adding to it. The sluice once pushed the
-joiner's own join op back to the joiner, which no real server does; every
-reconnect test passed on a client that could not reconnect, because that one
-extra frame stood in for a catch-up the client never requested. A double that
-compensates for a behaviour the real server lacks does not merely miss the bug,
-it certifies it. Write down what the server actually does, and check.
-`docs/plans/2026-08-09-js-reconnect-catchup-defect.md` is the full account.
+The sluice models a real server; it is not one. Keep a live-server test for
+anything whose correctness depends on the server's actual behaviour.
+[`examples/sudoku_lustre/test/convergence_test.gleam`](examples/sudoku_lustre/test/convergence_test.gleam)
+is a real app test.
+
+## Compatibility
+
+- SharedMap ops are byte-identical to the TypeScript `@fluidframework/map`
+  format (`{type: "set"|"delete"|"clear", key?, value?: {type: "Plain", value}}`);
+  SharedCounter ops match `@fluidframework/counter`
+  (`{type: "increment", incrementAmount}`).
+- `SharedRichText` documents and deltas are JSON arrays of Quill Delta ops, the
+  same wire format Quill itself emits and consumes.
+- `SharedText` is **not** Fluid's `SharedString`: it uses watershed's own delta
+  format over an identity CRDT, so it does not interoperate with Fluid's
+  interval merge-tree format. Use it when watershed is on both ends.
+
+Upstream license notices for ported packages are in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## Examples
+
+[`examples/`](examples) holds runnable apps, each with its own README:
+a [dice roller](examples/dice_lustre) (Lustre) and its
+[CLI counterpart](examples/dice_cli), a
+[collaborative text editor](examples/text_lustre), a
+[reorderable playlist](examples/playlist_lustre) on `SharedSequence`, a
+[shared pixel canvas](examples/pixel_canvas_lustre), a
+[Sudoku board](examples/sudoku_lustre) on the typed layer, a
+[drum machine](examples/drum_machine_lustre) with quorum-agreed tempo, and a
+[showcase](examples/showcase_lustre) composing several into one document.
+Several are live at [watershed.tylerbutler.com](https://watershed.tylerbutler.com).
+
+## Development
+
+```sh
+gleam deps download
+gleam test                      # BEAM: unit + property + corpus tests
+gleam build --target erlang     # BEAM: OTP runtime
+gleam build --target javascript # browser: core + JS runtime
+gleam format
+```
+
+Or use the root justfile:
+
+```sh
+just deps
+just test
+just build
+just format
+just lint
+just integration-up             # local floodgate server on :4000
+```

@@ -80,10 +80,3 @@ pnpm exec esbuild build/dev/javascript/dice_lustre/smoke.mjs \
 node smoke/run.mjs   # supplies a WebSocket global for phoenix.js
 # → SMOKE PASS: clients converged across a reconnect
 ```
-
-## Status
-
-This is the **M5 spike** proving a Gleam-end-to-end Lustre client is feasible by
-reusing the pure core. Productizing it (splitting the pure core into its own
-package so a JS app doesn't build the erlang runtime, a Lustre-native reconnect
-UX, presence) is follow-on work.

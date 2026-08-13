@@ -57,8 +57,7 @@ the other Lustre examples do. `ensure_*` retries while *resolving* a channel
 someone else published, but seeding a new one is a single attempt — on a
 document whose root map is still empty, `create_or_map` refuses with "requires a
 ready document connection" and the callback fails for good, leaving the app
-painting locally and sharing nothing. See
-[`docs/plans/2026-08-09-ensure-channel-seed-needs-a-ready-connection.md`](../../docs/plans/2026-08-09-ensure-channel-seed-needs-a-ready-connection.md).
+painting locally and sharing nothing.
 
 ## The canvas is owned by the FFI
 
@@ -81,25 +80,15 @@ The bitmap is 64×64 scaled up by CSS with `image-rendering: pixelated`, so one
 cell is one canvas pixel, a paint is `fillRect(x, y, 1, 1)`, and there is no
 device-pixel-ratio arithmetic anywhere.
 
-## The offline toggle, and a caveat
+## The offline toggle
 
 "Go offline" calls `watershed_js.go_offline`, which holds the socket down —
 distinct from `force_reconnect`, which is away-and-back in one step and leaves no
 window to edit in, and from `close`, which is terminal. The document keeps
 serving reads and accepting edits while held; the status line shows
-`in_flight_count`, the number of cells waiting to reach the server.
-
-**Coming back does not currently work against a live server.** The JS runtime
-stalls in `catching-up` after any reconnect that spans sequenced ops, and never
-receives what it missed. This is not a fault of the toggle — the shipped
-`force_reconnect` reproduces it on a fresh document with nothing in flight — and
-it is written up in
-[`docs/plans/2026-08-09-js-reconnect-catchup-defect.md`](../../docs/plans/2026-08-09-js-reconnect-catchup-defect.md).
-
-So: going offline, painting while held, and staying isolated from the room all
-work and are asserted in the smoke test. The return leg is asserted only at the
-kernel level, in `test/convergence_test.gleam`, where the in-memory sluice drives
-it and it passes.
+`in_flight_count`, the number of cells waiting to reach the server. Coming back
+replays what the room did in the meantime and flushes the held edits, so both
+sides converge.
 
 ## Tests
 

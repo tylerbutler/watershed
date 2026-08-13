@@ -7,11 +7,10 @@ Visual system for the watershed website (`website/`). Register: brand.
 The site is styled as a USGS-style survey sheet. The metaphor is load-bearing:
 on photorevised quadrangles, magenta overprint marks revisions not yet
 field-checked — on this site, magenta marks *pending, unsequenced* state, and
-ink marks state the server has sequenced. The roadmap ledger uses the same
-grammar: implemented work prints in ink; planned or researching work prints as
-magenta overprint. Every decorative element maps to a real protocol concept
-(contours labeled with server sequence numbers, the architecture drawn as a
-geological cross-section, roadmap entries as a revision ledger).
+ink marks state the server has sequenced. Every decorative element maps to a
+real protocol concept (contours labeled with server sequence numbers, the
+architecture drawn as a geological cross-section, the coverage table as a
+surveyor's ledger).
 
 ## Color (OKLCH, light theme only)
 
