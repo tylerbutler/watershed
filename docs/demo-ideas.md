@@ -155,6 +155,161 @@ Add `OrMap` tally votes to the existing playlist and re-sort by score. The cheap
 
 Good filler work, but it makes an existing example more complicated rather than adding a new claim, so it ranks below anything that clears a no-demo kind.
 
+### Collaborative JSON workspace: `SharedDirectory` + `JsonOt` + presence
+
+A project tree whose directories contain named JSON documents. Selecting a
+document opens a structured property editor, and presence shows which path each
+peer has open. Two clients can change nested values while disconnected, then
+rejoin and converge through the same JSON OT path that the website demonstrates
+today.
+
+This is the smaller alternative to the spreadsheet. It demonstrates directory
+creation, deletion, and recreation plus concurrent JSON edits without formula
+evaluation, dependency graphs, or a grid widget. The payoff test should combine
+the two important races: recreate a directory while another client still holds
+its old instance, and edit separate paths in one JSON document before
+reconnecting.
+
+**Prerequisites:** none. FP5 shipped the Lustre directory and JSON OT effects.
+**Cost:** medium.
+
+### RFC publishing room: `SharedRichText` + `PactMap` + presence
+
+A shared RFC draft with rich-text formatting and one published-revision slot.
+Authors edit the draft without coordination. Publishing copies the current
+revision into a `PactMap`, where it stays pending until every client in the
+frozen signoff list has acknowledged the sequenced value.
+
+The UI must describe protocol acknowledgement, not human approval. Watershed
+submits accept operations automatically, so controls such as "approve" or
+"vote" would teach the wrong model. The useful contrast is immediate,
+optimistic drafting beside a publication state that the room has not settled
+yet.
+
+This gives `SharedRichText` a proper Lustre example and reuses the Quill bridge
+already prototyped on the website. A deterministic test can hold one client's
+frames, assert that publication remains pending, then deliver its
+acknowledgement and observe acceptance.
+
+**Prerequisites:** none. FP2 and FP5 shipped the public JS and Lustre surfaces.
+**Cost:** medium.
+
+### Incident command board: `Claims` + `SharedSequence` + `OrMap`
+
+An incident room with claimed responder roles, an ordered event timeline, and a
+shared resource board. `Claims` decides concurrent attempts to take the same
+role at sequencing time. A deliberate compare-and-set handoff transfers a role
+from one responder to another; presence can show who remains connected without
+pretending that disconnect automatically releases durable ownership.
+
+The headline race is two responders claiming incident commander at once. One
+wins, the loser sees the committed owner, and both clients append follow-up
+events to the same timeline. The resource board can use `OrMap` register mode
+for items whose edits should survive concurrent remove and update.
+
+This combines coordination with ordinary collaborative state in a familiar
+operational setting. Keep the incident model fixed and small so the example
+does not turn into a ticketing system.
+
+**Prerequisites:** none.
+**Cost:** medium.
+
+### Browser and BEAM control room: typed document across both targets
+
+Run one existing typed application in a browser and expose the same document
+through a small BEAM terminal client. The terminal can list state, submit one
+mutation, go offline, reconnect, and print the converged snapshot while the
+browser renders each change.
+
+This makes the target-independence claim visible. The current CLI and browser
+examples use separate applications, so visitors must infer that both runtimes
+can join the same room. Reusing the Flowboard schema would avoid inventing
+another domain and keep the new code focused on transport and runtime parity.
+
+The payoff check starts one sluice or live floodgate room, connects one client
+through each facade, performs concurrent edits, and compares their final typed
+snapshots.
+
+**Prerequisites:** choose an existing example schema that can move into a small
+shared package without coupling its UI to the BEAM client.
+**Cost:** low.
+
+### Collaborative form builder: `SharedDirectory` + `JsonOt` + `Claims`
+
+A form designer with sections in a directory tree, a JSON OT schema for each
+section, and claims on fields undergoing structural edits. One user can reorder
+or rename a section while another edits validation rules inside a different
+section.
+
+The example should focus on schema design rather than form submission. Claims
+protect edits that need one temporary owner, while JSON OT merges independent
+property changes and the directory models section hierarchy. The UI must show
+that a pending claim has no committed owner until sequencing resolves it.
+
+This uses the same underrepresented structures as the JSON workspace but makes
+the typed-layer and coordination story stronger. Build one of the two, not
+both, unless users need both a minimal primitive demo and a business-app demo.
+
+**Prerequisites:** none.
+**Cost:** medium-high.
+
+### Open planning poker: `RegisterCollection` + presence
+
+Give each participant one named estimate register. Estimates sequence without
+optimistic display, and every concurrent submission remains available through
+the register's version history even though the atomic read settles on one
+official value.
+
+This is open estimation, not a secret ballot. Register values are shared state,
+so a reveal phase would require encryption or a trusted server and would bury
+the data-structure lesson. The useful race is one participant submitting from
+two sessions at once: everyone converges on the atomic estimate while the
+losing submission stays inspectable.
+
+Compared with the tournament bracket, this removes bracket mechanics and puts
+register ownership, committed-only reads, and retained conflicts at the center.
+
+**Prerequisites:** none.
+**Cost:** low.
+
+### Release checklist: `OrSet` + `Claims` + `PactMap`
+
+A fixed release room where an `OrSet` records completed checks, `Claims`
+selects one release captain, and a `PactMap` carries the release target once all
+connected clients have acknowledged it. Concurrent completion and reopening of
+checks use observed-remove semantics instead of a last-write-wins boolean.
+
+The demo must keep checklist completion separate from publication. `PactMap`
+does not collect human votes; clients acknowledge the pending value
+automatically. The UI can show "waiting for 1 connected client" while a paused
+tab delays publication, then settle when that client resumes or leaves the
+quorum.
+
+This is a compact developer-tool framing for three distinct rules: add/remove
+membership, first-writer ownership, and quorum-settled configuration.
+
+**Prerequisites:** none.
+**Cost:** low-medium.
+
+### Offline field notebook: `OrMap` + `SharedText` + presence
+
+A notebook for observers who lose connectivity during field work. Each
+observation has an ID and structured metadata in an `OrMap`; a shared text log
+holds narrative notes. Presence shows active observers only while they are
+connected and never enters durable summaries.
+
+The scripted scenario partitions two clients, lets each add observations and
+edit notes, then reconnects both. Their structured records and text converge,
+while stale presence entries expire. That puts offline recovery, mixed channel
+composition, and durable-versus-ephemeral state in one small app.
+
+Keep maps and geolocation out of the first version. A list of observations, a
+text panel, and an offline toggle prove the claim without adding external APIs
+or a mapping library.
+
+**Prerequisites:** none.
+**Cost:** medium.
+
 ---
 
 ## Rough ordering
