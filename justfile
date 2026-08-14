@@ -57,6 +57,76 @@ _test-js:
 fuzz:
     FUZZ_ITERATIONS=5000 gleam test
 
+# Real-browser WebRTC smoke: two `crdt_core` peers connect over an actual
+# `RTCPeerConnection` data channel through an in-memory signaling adapter and
+# converge, with no server of any kind. Not part of `just test`: it needs a
+# browser, and it is a promise-driven scenario with nowhere to return from a
+# startest case (same reason as the live JS suite). The deterministic
+# fake-RTCPeerConnection tests that *are* in the suite cover the same
+# transport; this proves the FFI against a real one. `gleam test` here is the
+# build step for the harness module. Skips with an explicit message, and exit
+# 0, on a machine with no Chromium — set WATERSHED_CHROME to point at one.
+p2p-smoke:
+    gleam test --target javascript
+    node smoke/p2p_browser.mjs
+
+# The reference WebRTC signaling service, for the p2p examples. It introduces
+# peers and carries offers, answers, and ICE candidates; by protocol shape it
+# cannot route document data (`src/watershed/crdt_signaling.gleam`). In-memory,
+# unauthenticated, and a reference rather than a deployment.
+signaling:
+    gleam build --target javascript
+    node tools/signaling/server.mjs --port 4400
+
+# The signaling service's own tests: room membership, routing, the eight-peer
+# cap, malformed/oversize/cross-room refusals, a signal to a departed peer
+# being dropped rather than fatal, the browser adapter's roster/timeout/
+# failure behaviour, and — the point — that a document envelope is rejected
+# rather than routed. Real sockets, so this is a node script rather than a
+# `gleam test` case; the pure protocol underneath it is covered by
+# `test/watershed/crdt_signaling_test.gleam` in the JS suite.
+signaling-test:
+    gleam build --target javascript
+    node tools/signaling/test.mjs
+
+# The reference relay: a durable `crdt_relay_v1` fan-out point for CRDT
+# documents. It stamps a diagnostic order, keeps an append-only log it can
+# replay, and broadcasts what it accepts — it merges nothing and decodes no
+# kernel payload (`src/watershed/crdt_relay.gleam`). Optional: a p2p document
+# works without one, and `Auto` never waits for it.
+relay:
+    gleam build --target javascript
+    node tools/relay/server.mjs --port 4500 --data ./relay-data
+
+# What each room's log and checkpoint hold on disk. Read-only: it takes no
+# lock, repairs nothing, and is safe to run beside a live service — see
+# `docs/crdt-relay-v1.md`, *One writer per data directory*, for what the
+# numbers mean.
+relay-inspect data="./relay-data":
+    gleam build --target javascript
+    node tools/relay/server.mjs --data {{data}} --inspect
+
+# The relay's own tests: admission, room isolation, frame limits, and — the
+# point — the whole absent → attach → checkpoint → outage edits → restart →
+# converge lifecycle against the real process, with its data directory in a
+# fresh temp dir that is removed afterwards. Real sockets and a real disk, so
+# this is a node script rather than a `gleam test` case; the pure protocol
+# underneath it is covered by `test/watershed/crdt_relay_test.gleam` on both
+# targets, and the client and facade by the JS suite.
+relay-test:
+    gleam test --target javascript
+    node tools/relay/test.mjs
+
+# The p2p gate: two *real* browser pages join a room through the real
+# signaling process, clap concurrently, and must converge on the same total
+# and the same canonical digest — with the late page ready only after its
+# state merge, and the signaling process asserted to have carried no document
+# data. Not part of `just test`: it needs a browser.
+# Skips with an explicit message, and exit 0, on a machine with no Chromium.
+p2p-clap:
+    gleam test --target javascript
+    node smoke/p2p_clap.mjs
+
 # === INTEGRATION (live floodgate server) ===
 
 # Start a floodgate dev server in Docker, built from the levee repo's

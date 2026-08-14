@@ -1,6 +1,6 @@
 name = "clap_counter_lustre"
 version = "1.0.0"
-description = "Medium-style collaborative claps (Lustre SPA) on a watershed PnCounter"
+description = "Peer-to-peer collaborative claps (Lustre SPA) on a watershed CRDT PnCounter"
 licences = ["MIT"]
 gleam = ">= 1.7.0"
 target = "javascript"

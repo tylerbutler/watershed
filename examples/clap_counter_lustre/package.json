@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Phoenix JS client dependency for the watershed Lustre clap counter example",
+  "description": "Peer-to-peer collaborative claps (Lustre SPA) on a watershed CRDT PnCounter",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/clap_counter_lustre/clap_counter_lustre.mjs --bundle --format=esm --outfile=dist/clap_counter_lustre.mjs",
     "serve": "python3 -m http.server 8080"

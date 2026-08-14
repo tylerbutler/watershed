@@ -87,6 +87,106 @@ turns it off. Off unless installed.
 
 **Timers & misc**: `after(ms, msg)`, `submit_ripple`, `force_reconnect`.
 
+## Peer-to-peer CRDTs
+
+`watershed_lustre/crdt` is the Lustre surface for the peer-to-peer facade
+(`watershed/crdt_js`), the same way the effects above wrap the sequenced
+`watershed_js`. A document's channels merge directly between browser tabs over
+WebRTC data channels — there is no document server, and nothing sequences an
+edit. The bindings keep the package's discipline: they schedule and defer, the
+app owns its `Msg` vocabulary, so an app never hand-writes an `effect.from`
+around a `crdt_js` callback.
+
+```gleam
+import watershed/crdt_js
+import watershed/p2p
+import watershed_lustre/crdt
+
+// init — join the room. `Retained` carries the connection to keep (and later
+// close), `Connected` the readiness result, `StatusChanged` the status stream.
+crdt.connect(config, connection: Retained, ready: Connected, status: StatusChanged)
+
+// after Connected(Ok(document)) — watch the root counter, keep the subscription
+crdt.subscribe_pn_counter(crdt_js.root(document), subscribed: Watching, event: Bumped)
+
+// on a click — author an edit; the subscription reports the new total
+crdt.perform(fn() { crdt_js.pn_counter_update(counter, 1) }, Clapped)
+```
+
+### Why a separate module
+
+The names mirror `crdt_js` exactly, and the module boundary is what keeps them
+from colliding with the sequenced `subscribe_*`/`ensure_*` effects:
+`watershed_lustre.subscribe_pn_counter` binds a server-sequenced counter,
+`watershed_lustre/crdt.subscribe_pn_counter` a peer-to-peer one. Their handle
+types differ and are not interchangeable, so a qualified import
+(`import watershed_lustre/crdt`) reads unambiguously and the compiler rejects a
+handle passed to the wrong stack.
+
+### What it wraps
+
+| Group | Effects |
+| --- | --- |
+| Connect & lifecycle | `connect`, `attach`, `attach_with_rtc` — each delivers the `CrdtConnection` to retain (always before `ready`), the readiness `Result(CrdtDocument, P2pError)`, and every `Status`; `close` tears the connection down |
+| Subscriptions | `subscribe_pn_counter` / `_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_sequence` / `_text` — each delivers its channel's own event type and hands back the `Subscription`; `unsubscribe` drops one while the document stays connected |
+| Mutations | one generic `perform(operation:, outcome:)` — compose it with the typed `crdt_js` edit (`perform(fn() { crdt_js.or_set_add(set, "x") }, Added)`); it runs the edit in the effect phase and delivers the typed `Result(Nil, P2pError)` deferred, passed through untouched — an invalid or unsupported edit stays an `Error`, never a success-shaped `Ok` |
+| Snapshots | `export_snapshot`, `import_snapshot` |
+
+Every inbound callback — readiness, status, an event, a mutation `Result`, a
+delivered connection or subscription — is deferred to a microtask before
+dispatch, exactly like the sequenced bindings, so a callback watershed fires
+synchronously from inside a running `update` can never clobber it.
+
+Pure configuration (`crdt_js.config`, `with_transport_policy`,
+`with_sequencer`, `with_ice_servers`), synchronous reads (`pn_counter_value`,
+`or_set_values`, `text_value`, …), channel registration (`create_channel`,
+`root`), and diagnostics (`peer_count`, `policy`, `effective_path`, …) stay on
+`crdt_js` and are called directly: they need no scheduling, and wrapping them
+would only duplicate a pure API. The transport policy is chosen with
+`crdt_js.with_transport_policy` (`Auto`, `P2pOnly`, `SequencedOnly`) and read
+back through the delivered `Status` stream and `crdt_js.effective_path`.
+
+### Operational contract
+
+- **Signaling is required for peer discovery, and never carries document
+  data.** A signaling service introduces peers and relays WebRTC offers,
+  answers, and ICE candidates; by protocol shape it cannot route a document
+  payload. Peers that are already connected keep working if it goes away.
+- **WebRTC needs application-supplied STUN/TURN across NATs.** Tabs on one
+  machine or one LAN connect on host candidates alone; anything across a NAT
+  needs ICE servers you configure with `crdt_js.with_ice_servers`. Watershed
+  ships no STUN or TURN service and no credentials.
+- **The full mesh is capped at eight peers** by the current reference
+  transport — every peer holds a connection to every other, and the ninth to
+  join is refused with `RoomFull`.
+- **Readiness under `Auto` is sequencer-independent.** The document is editable
+  from the first frame; readiness waits only for the mesh — an empty roster is
+  ready immediately, a populated one after a peer's state merges — never for a
+  relay. A relay that is down costs a status line and no edits.
+- **Durability depends on the active transport.** Peer-only state disappears
+  when the last peer leaves unless it was captured with
+  `crdt_js.export_snapshot`. Relay-primary state (`SequencedOnly`, or `Auto`
+  once a relay has proven itself) is durably logged; edits authored during a
+  relay outage stay peer-held until they merge back. Signaling alone is never
+  durable storage.
+- **Relay limits, checkpointing, and quarantine** are specified in
+  [`docs/crdt-relay-v1.md`](../docs/crdt-relay-v1.md).
+- **Supported structures** are PN counter, OR-map, OR-set, G-set, 2P-set,
+  sequence, and text. The consensus, acknowledgement-based DDS, and
+  last-write-wins types that need a sequencer are outside this set: they are not
+  eligible and are refused at the `create_channel`/`new_document` boundary
+  rather than diverging later.
+- **Trust and authentication are examples, not production admission.** The
+  reference signaling and relay services admit anyone who names a room and an
+  unused peer id. Every payload that arrives on a data channel is still
+  decoded, attributed to its sender, and checked against the room's
+  protocol/compatibility/root before it merges; a peer that breaks a rule is
+  closed one at a time without touching the local document.
+
+See [`examples/clap_counter_lustre`](../examples/clap_counter_lustre) for the
+whole surface in a real two-tab app — the `just p2p-clap` gate drives it in two
+real browsers.
+
 ## Components
 
 Where the effects above wrap watershed's callbacks, these wrap a whole

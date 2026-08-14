@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>watershed · collaborative claps</title>
+    <title>watershed · peer-to-peer claps</title>
     <style>
       :root { color-scheme: light dark; }
       body {
@@ -40,15 +40,14 @@
       }
       .clap-button:active { transform: scale(0.96); }
       .hint { font-size: 0.8rem; opacity: 0.6; margin-top: 2rem; }
-      .diagnostics {
+      .errors {
         margin-top: 2rem;
         padding-top: 1rem;
         border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
         text-align: left;
       }
-      .diagnostics h2 { font-size: 1rem; margin-bottom: 0.25rem; }
-      .diagnostics p { font-size: 0.8rem; opacity: 0.7; }
-      .diagnostics pre {
+      .errors h2 { font-size: 1rem; margin-bottom: 0.25rem; }
+      .errors pre {
         padding: 0.75rem;
         border-radius: 0.5rem;
         background: color-mix(in srgb, currentColor 8%, transparent);
@@ -57,7 +56,6 @@
         overflow-wrap: anywhere;
         font-size: 0.75rem;
       }
-      .diagnostic-log { max-height: 16rem; }
     </style>
   </head>
   <body>

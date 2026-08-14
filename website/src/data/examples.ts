@@ -190,19 +190,12 @@ export const examples: Example[] = [
     name: "Clap counter",
     group: "foundation",
     summary:
-      "A one-channel stress test for concurrent increments using a state-based PN counter.",
+      "A one-channel stress test for concurrent increments using a state-based PN counter, peer to peer over WebRTC with no server sequencing it.",
     structures: ["PN Counter"],
     payoff:
-      "Held buttons in several tabs add every clap without a lost update.",
-    patterns: [
-      "ready-bootstrap",
-      "typed-bootstrap",
-      "channel-loop",
-      "conflict-modeling",
-      "pending-errors",
-      "payoff-tests",
-    ],
-    checks: "Headless live-server concurrent-clap and reconnect smoke",
+      "Held buttons in several tabs add every clap without a lost update, and no server ever sees one.",
+    patterns: ["ready-bootstrap", "conflict-modeling", "pending-errors", "payoff-tests"],
+    checks: "Two real browser peers converge through the reference signaling service",
   },
   {
     id: "grocery_triptych_lustre",
