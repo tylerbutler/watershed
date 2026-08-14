@@ -2,6 +2,7 @@
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
 import { exampleGroups, exampleSource, examples } from "../data/examples";
+import { practicesByExample } from "../data/practices";
 import { structureLinks } from "../data/structures";
 ---
 
@@ -73,6 +74,22 @@ import { structureLinks } from "../data/structures";
                           <dt class="annot">Payoff race</dt>
                           <dd>{example.payoff}</dd>
                         </div>
+                        {
+                          (practicesByExample[example.id] ?? []).length > 0 && (
+                            <div>
+                              <dt class="annot">Demonstrates</dt>
+                              <dd class="e-practices">
+                                {practicesByExample[example.id].map(
+                                  (practice) => (
+                                    <a href={`/patterns#${practice.id}`}>
+                                      {practice.title}
+                                    </a>
+                                  ),
+                                )}
+                              </dd>
+                            </div>
+                          )
+                        }
                         <div>
                           <dt class="annot">Checks</dt>
                           <dd>{example.checks}</dd>
@@ -289,6 +306,21 @@ import { structureLinks } from "../data/structures";
   }
 
   .e-structures a:hover code {
+    color: var(--overprint-deep);
+  }
+
+  .e-practices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs) var(--space-md);
+  }
+
+  .e-practices a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .e-practices a:hover {
     color: var(--overprint-deep);
   }
 

@@ -1,0 +1,383 @@
+---
+import { Code } from "astro:components";
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "../components/Ecosystem.astro";
+import {
+  exampleForPractice,
+  practiceExampleName,
+  practiceSourceUrl,
+  practices,
+} from "../data/practices";
+import { watershedCodeTheme } from "../styles/code-theme";
+---
+
+<Sheet
+  title="watershed — patterns from the examples"
+  description="Best practices extracted one per example: relay decorators, quorum UI, presence idioms, ripple protocols, FFI surfaces, authoritative channels, idempotent seeding, anchors, non-optimistic writes, and deterministic death tests — each with the code that proves it."
+>
+  <header class="p-hero">
+    <div class="p-hero-inner">
+      <p class="p-crumbs annot"><a href="/">&#8592; watershed</a> / Patterns</p>
+      <h1>Each example exists<br />to prove one thing.</h1>
+      <p class="p-lede">
+        Not conventions that recur — the opposite. Every section here is a
+        technique demonstrated by the one checked-in application built to prove
+        it, with the code that carries the claim. Trace the example when the
+        excerpt is not enough.
+      </p>
+      <div class="p-actions">
+        <a class="cta-primary" href="#reference">Read the reference &#8595;</a>
+        <a class="cta-quiet" href="/examples">Browse all examples &#8594;</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="reference" class="p-main">
+    <nav class="p-index" aria-label="Practices">
+      <p class="annot">Field index</p>
+      <ol>
+        {
+          practices.map((practice) => (
+            <li>
+              <a href={`#${practice.id}`}>
+                <span>{practice.title}</span>
+                <span aria-hidden="true">&#8595;</span>
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </nav>
+
+    <div class="p-reference">
+      {
+        practices.map((practice) => {
+          const example = exampleForPractice(practice);
+          const exampleName = practiceExampleName(practice);
+          return (
+            <section id={practice.id} class="p-pattern">
+              <header>
+                <h2>{practice.title}</h2>
+                <p class="p-rule">{practice.rule}</p>
+              </header>
+              <div class="p-detail">
+                {practice.body.map((paragraph) => <p>{paragraph}</p>)}
+              </div>
+              <figure class="p-figure">
+                <Code
+                  code={practice.snippet}
+                  lang={practice.snippetLang === "js" ? "js" : "gleam"}
+                  theme={watershedCodeTheme}
+                />
+                <figcaption class="annot">
+                  {exampleName} &middot; {practice.snippetFile}
+                </figcaption>
+              </figure>
+              {
+                practice.testNote && (
+                  <p class="p-testnote">
+                    <span class="annot">The check</span>
+                    {practice.testNote}
+                  </p>
+                )
+              }
+              <div class="p-evidence">
+                <span class="annot">Demonstrated by</span>
+                {
+                  example ? (
+                    <a href={`/examples#${example.id}`}>{exampleName}</a>
+                  ) : (
+                    <span>{exampleName}</span>
+                  )
+                }
+                <a class="p-source" href={practiceSourceUrl(practice)}>
+                  Source &#8599;
+                </a>
+              </div>
+            </section>
+          );
+        })
+      }
+    </div>
+  </main>
+
+  <aside class="p-boundary" aria-labelledby="p-boundary-title">
+    <div>
+      <h2 id="p-boundary-title">A pattern is not an abstraction quota.</h2>
+      <p>
+        These are boundaries the examples defend, not boilerplate to copy
+        whole. Reuse the lifecycle and ownership rules; keep domain-specific
+        state and views close to the app that needs them.
+      </p>
+      <a href="/examples">Choose an example to trace &#8594;</a>
+    </div>
+  </aside>
+
+  <Ecosystem />
+</Sheet>
+
+<style>
+  .p-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad)
+      clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .p-hero-inner,
+  .p-main,
+  .p-boundary > div {
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .p-crumbs {
+    margin-bottom: var(--space-lg);
+  }
+
+  .p-crumbs a {
+    text-decoration: none;
+  }
+
+  h1 {
+    max-width: 18ch;
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  .p-lede {
+    margin-top: var(--space-xl);
+    max-width: 60ch;
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+  }
+
+  .p-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-lg);
+    margin-top: var(--space-2xl);
+  }
+
+  .cta-primary {
+    display: inline-block;
+    padding: 0.8rem 1.6rem;
+    background: var(--overprint);
+    color: var(--bg);
+    text-decoration: none;
+    font-weight: 600;
+    font-stretch: 110%;
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .cta-primary:hover {
+    background: var(--overprint-deep);
+    color: var(--bg);
+  }
+
+  .cta-quiet {
+    font-weight: 500;
+    text-decoration: none;
+  }
+
+  .p-main {
+    display: grid;
+    grid-template-columns: minmax(12rem, 0.3fr) minmax(0, 1fr);
+    gap: clamp(var(--space-xl), 6vw, 6rem);
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+  }
+
+  .p-index {
+    align-self: start;
+    position: sticky;
+    top: var(--space-lg);
+  }
+
+  .p-index > p {
+    color: var(--overprint-deep);
+  }
+
+  .p-index ol {
+    list-style: none;
+    margin: var(--space-md) 0 0;
+    padding: 0;
+    border-top: 1px solid var(--ink);
+  }
+
+  .p-index li {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .p-index a {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: 0.7rem 0;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    line-height: 1.35;
+  }
+
+  .p-index a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .p-reference {
+    min-width: 0;
+  }
+
+  .p-pattern {
+    scroll-margin-top: var(--space-lg);
+    padding-bottom: var(--space-2xl);
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .p-pattern + .p-pattern {
+    padding-top: var(--space-2xl);
+  }
+
+  .p-pattern h2,
+  .p-boundary h2 {
+    max-width: 26ch;
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+
+  .p-rule {
+    margin-top: var(--space-md);
+    max-width: 58ch;
+    font-size: 1.15rem;
+    line-height: 1.55;
+  }
+
+  .p-detail {
+    margin-top: var(--space-xl);
+    max-width: 62ch;
+  }
+
+  .p-detail p {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.65;
+  }
+
+  .p-detail p + p {
+    margin-top: var(--space-md);
+  }
+
+  .p-figure {
+    margin: var(--space-xl) 0 0;
+    min-width: 0;
+  }
+
+  .p-figure :global(pre) {
+    margin: 0;
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.65;
+  }
+
+  .p-figure figcaption {
+    margin-top: var(--space-sm);
+    text-align: right;
+  }
+
+  .p-testnote {
+    margin-top: var(--space-lg);
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .p-testnote .annot {
+    display: block;
+    color: var(--overprint-deep);
+    margin-bottom: var(--space-xs);
+  }
+
+  .p-evidence {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-lg);
+    margin-top: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+  }
+
+  .p-evidence > .annot {
+    color: var(--ink);
+  }
+
+  .p-evidence a {
+    font-size: var(--text-sm);
+  }
+
+  .p-source {
+    margin-left: auto;
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .p-source:hover {
+    color: var(--overprint-deep);
+  }
+
+  .p-boundary {
+    padding: var(--space-2xl) var(--content-pad);
+    border-block: 1px solid var(--ink);
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 8px,
+        var(--hairline-faint) 8px,
+        var(--hairline-faint) 9px
+      ),
+      var(--surface);
+  }
+
+  .p-boundary > div {
+    padding: var(--space-xl);
+    background: var(--bg);
+    border: 1px solid var(--ink);
+  }
+
+  .p-boundary p {
+    margin-top: var(--space-md);
+  }
+
+  .p-boundary a {
+    display: inline-block;
+    margin-top: var(--space-lg);
+    font-weight: 600;
+  }
+
+  @media (max-width: 48rem) {
+    .p-main {
+      grid-template-columns: 1fr;
+    }
+
+    .p-index {
+      position: static;
+    }
+  }
+
+  @media (max-width: 34rem) {
+    h1 {
+      font-size: clamp(2rem, 10vw, 3rem);
+      font-stretch: 105%;
+    }
+  }
+</style>
