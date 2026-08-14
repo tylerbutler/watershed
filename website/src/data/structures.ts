@@ -71,7 +71,7 @@ const counters: Structure[] = [
   },
   {
     id: "gcounter",
-    name: "G-Counter",
+    name: "GCounter",
     module: "lattice_counters/g_counter",
     kind: "CRDT",
     onHomepage: true,
@@ -92,7 +92,7 @@ const counters: Structure[] = [
   },
   {
     id: "pn",
-    name: "PN Counter",
+    name: "PnCounter",
     module: "pn_counter_kernel",
     kind: "CRDT",
     onHomepage: true,
@@ -115,7 +115,7 @@ const counters: Structure[] = [
 const sets: Structure[] = [
   {
     id: "gset",
-    name: "G-Set",
+    name: "GSet",
     module: "g_set_kernel",
     kind: "CRDT",
     onHomepage: true,
@@ -136,7 +136,7 @@ const sets: Structure[] = [
   },
   {
     id: "twopset",
-    name: "2P-Set",
+    name: "TwoPSet",
     module: "two_p_set_kernel",
     kind: "CRDT",
     onHomepage: true,
@@ -157,7 +157,7 @@ const sets: Structure[] = [
   },
   {
     id: "orset",
-    name: "OR-Set",
+    name: "OrSet",
     module: "or_set_kernel",
     kind: "CRDT",
     onHomepage: true,
@@ -202,7 +202,7 @@ const maps: Structure[] = [
   },
   {
     id: "ormap",
-    name: "OR-Map",
+    name: "OrMap",
     module: "or_map_kernel",
     kind: "CRDT",
     onHomepage: true,
@@ -298,7 +298,7 @@ const sequences: Structure[] = [
 const transforms: Structure[] = [
   {
     id: "json_ot",
-    name: "JSON OT",
+    name: "JsonOt",
     module: "json_ot",
     kind: "OT",
     onHomepage: false,
@@ -363,7 +363,7 @@ const coordination: Structure[] = [
   },
   {
     id: "registers",
-    name: "Register collection",
+    name: "RegisterCollection",
     module: "register_collection_kernel",
     kind: "DDS",
     onHomepage: true,
@@ -384,7 +384,7 @@ const coordination: Structure[] = [
   },
   {
     id: "ordered",
-    name: "Ordered collection",
+    name: "OrderedCollection",
     module: "ordered_collection_kernel",
     kind: "DDS",
     onHomepage: true,
@@ -425,7 +425,7 @@ const coordination: Structure[] = [
   },
   {
     id: "pact",
-    name: "Pact map",
+    name: "PactMap",
     module: "pact_map_kernel",
     kind: "DDS",
     onHomepage: true,

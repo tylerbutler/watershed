@@ -251,7 +251,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // server order, so the queue and held jobs flash ink as each op is sequenced.
     ordered() {
       setNote(
-        "Ordered collection — FIFO by sequence. Adds enter the queue in server order and acquires take the front item: watch the queue and held-jobs values flash ink as each op is sequenced and applied. A racing acquire may come back empty because the earlier SN already took the front.",
+        "OrderedCollection — FIFO by sequence. Adds enter the queue in server order and acquires take the front item: watch the queue and held-jobs values flash ink as each op is sequenced and applied. A racing acquire may come back empty because the earlier SN already took the front.",
       );
     },
     // TaskManager is optimistic: volunteering assigns locally before the op is
@@ -265,7 +265,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // accepted value only lands after a full quorum signs off — both ink.
     pact() {
       setNote(
-        "Pact map — quorum acceptance. A proposal first prints as pending with a frozen signoff list: watch the pending value flash ink as it is sequenced, then the accepted value flash ink once every connected client signs off. A leave drains the list.",
+        "PactMap — quorum acceptance. A proposal first prints as pending with a frozen signoff list: watch the pending value flash ink as it is sequenced, then the accepted value flash ink once every connected client signs off. A leave drains the list.",
       );
     },
   };

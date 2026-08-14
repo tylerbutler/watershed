@@ -89,6 +89,12 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       reorder operations already sequenced; submission call order determines
       that order in sluice:
     </p>
+    <p>
+      Name the concurrency claim your app’s story depends on and script
+      <em>that</em> race — a generic two-client test can pass while the actual
+      story is broken. Reserve live smoke tests for the network and browser
+      boundaries sluice does not reproduce.
+    </p>
     <figure class="g-code">
       <Code code={race} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -114,11 +120,9 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       the structure matches a production watershed app.
     </p>
     <p>
-      The <a href="/patterns">application patterns</a> take this loop apart
-      across thirteen browser apps: bootstrap timing, typed shapes, component
-      ownership, pending state, and payoff-first tests. The{" "}
-      <a href="/examples">example gallery</a> then maps those patterns back to
-      complete applications and their checked-in run guides.
+      The <a href="/examples">example gallery</a> maps this loop onto thirteen
+      complete browser applications, each with its structures, its payoff race,
+      and a checked-in run guide.
     </p>
     <p>
       Prefer the raw files? The{" "}

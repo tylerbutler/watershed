@@ -10,35 +10,35 @@ const structures = [
     summary: "only one number needs saving, since every change is an add",
   },
   {
-    name: "G-Counter",
+    name: "GCounter",
     module: "lattice_counters/g_counter",
     rule: "each client keeps its own tally; the totals combine safely even if a change arrives twice",
     pending: "your increment overlays the total in magenta until it’s confirmed",
     summary: "each client’s running tally reloads intact",
   },
   {
-    name: "PN Counter",
+    name: "PnCounter",
     module: "pn_counter_kernel",
     rule: "keeps separate up and down tallies, so it can move both ways and still shrug off duplicates",
     pending: "adds and subtractions can be re-sent without being counted twice",
     summary: "per-client tallies survive reconnect and repeated delivery",
   },
   {
-    name: "G-Set",
+    name: "GSet",
     module: "g_set_kernel",
     rule: "an add-only set; once something is in, it stays, and merging is a plain union",
     pending: "your addition shows in magenta until it’s confirmed",
     summary: "the confirmed set reloads as a permanent record",
   },
   {
-    name: "2P-Set",
+    name: "TwoPSet",
     module: "two_p_set_kernel",
     rule: "supports removal, but once an item is removed it can never be added again",
     pending: "adds and removals show in magenta until they’re confirmed",
     summary: "current items and removed ones reload together",
   },
   {
-    name: "OR-Set",
+    name: "OrSet",
     module: "or_set_kernel",
     rule: "add, remove, and add again all work; if an add and a remove race, the add wins",
     pending: "your change overlays the list in magenta until it’s confirmed",
@@ -52,7 +52,7 @@ const structures = [
     summary: "confirmed entries reload with their keys and insertion order intact",
   },
   {
-    name: "OR-Map",
+    name: "OrMap",
     module: "or_map_kernel",
     rule: "delete a key while someone else edits it, and the edit survives: the write wins",
     pending: "deleted rows stay readable until the delete is confirmed",
@@ -66,21 +66,21 @@ const structures = [
     summary: "who owns what reloads intact",
   },
   {
-    name: "Register collection",
+    name: "RegisterCollection",
     module: "register_collection_kernel",
     rule: "read the first uncontested write, or the most recent one, your choice, per read",
     pending: "writes stay hidden until confirmed, then settle as the winner or a kept version",
     summary: "every competing version is kept, so either read rule still works later",
   },
   {
-    name: "Ordered collection",
+    name: "OrderedCollection",
     module: "ordered_collection_kernel",
     rule: "items come out in the order the server received them; first to grab one holds it",
     pending: "queue changes stay hidden until the server confirms them",
     summary: "the queue and who holds what reload intact",
   },
   {
-    name: "Pact map",
+    name: "PactMap",
     module: "pact_map_kernel",
     rule: "a value takes effect only once every required client has signed off",
     pending: "a pending proposal blocks competing ones until it’s accepted or dropped",
@@ -90,7 +90,7 @@ const structures = [
 
 // One representative sheet per family — the homepage teases the breadth without
 // enumerating all twelve. The full catalog lives on the /structures/* pages.
-const featuredNames = ["SharedMap", "SharedCounter", "OR-Set", "Claims"];
+const featuredNames = ["SharedMap", "SharedCounter", "OrSet", "Claims"];
 const featured = featuredNames.map(
   (name) => structures.find((dds) => dds.name === name)!,
 );

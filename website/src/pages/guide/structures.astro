@@ -139,6 +139,16 @@ watershed.increment(wip_breaches, 1)
       structure with its merge rule and best-fit uses. Both are the reference
       this step points into rather than repeats.
     </p>
+    <div class="g-note">
+      <p>
+        <strong>The kind also decides what the UI owes the user.</strong> Most
+        structures apply a local guess immediately; consensus structures like
+        the pact map intentionally wait for sequencing, and index-based
+        sequence edits can reject after a concurrent change. Render
+        optimistic, pending, and rejected mutations as distinct states instead
+        of showing every click as committed.
+      </p>
+    </div>
   </div>
 
   <div class="g-out">

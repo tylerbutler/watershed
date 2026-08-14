@@ -133,7 +133,10 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <p>
       The <code>ensure_*</code> calls from step 02 are the same here, batched as
       effects. Each channel ensure dispatches its handle back; in
-      <code>update</code> you store the handle and subscribe to the channel.
+      <code>update</code> you store the handle, take an initial snapshot, and
+      subscribe to the channel. The snapshot is not optional: subscriptions
+      fire only on subsequent change and never replay existing state, so
+      without it the UI boots empty.
       An optimistic local edit dispatches <code>SharedChanged</code> at once. A
       remote edit dispatches the same message when it reaches your replica.
       Both re-snapshot the shared state through one render path.
@@ -166,6 +169,16 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
         typed bootstrap, per-channel subscriptions, and live presence cursors,
         built on exactly this wiring. Its source is the reference implementation
         for this step.
+      </p>
+    </div>
+    <div class="g-note">
+      <p>
+        <strong>Scope effects to their owner.</strong> The shell owns
+        document-wide effects — connection, presence, reconnect, diagnostics —
+        even when the button that triggers one lives inside a single panel.
+        Nested components receive a typed map or channel and lift their
+        messages into the parent. That keeps a feature runnable both standalone
+        and embedded, and prevents duplicate drivers.
       </p>
     </div>
   </div>

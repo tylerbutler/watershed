@@ -1,12 +1,8 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
-import {
-  exampleGroups,
-  exampleSource,
-  examples,
-  patternById,
-} from "../data/examples";
+import { exampleGroups, exampleSource, examples } from "../data/examples";
+import { structureLinks } from "../data/structures";
 ---
 
 <Sheet
@@ -25,7 +21,7 @@ import {
       </p>
       <div class="e-actions">
         <a class="cta-primary" href="#catalog">Open the field index &#8595;</a>
-        <a class="cta-quiet" href="/patterns">Read the shared patterns &#8594;</a>
+        <a class="cta-quiet" href="/guide">Build one with the guide &#8594;</a>
       </div>
     </div>
   </header>
@@ -59,9 +55,18 @@ import {
                         <div>
                           <dt class="annot">Structures</dt>
                           <dd class="e-structures">
-                            {example.structures.map((structure) => (
-                              <code>{structure}</code>
-                            ))}
+                            {example.structures.map((structure) => {
+                              const link = structureLinks[structure];
+                              return link ? (
+                                <a
+                                  href={`/structures/${link.slug}#${link.id}`}
+                                >
+                                  <code>{structure}</code>
+                                </a>
+                              ) : (
+                                <code>{structure}</code>
+                              );
+                            })}
                           </dd>
                         </div>
                         <div>
@@ -71,16 +76,6 @@ import {
                         <div>
                           <dt class="annot">Checks</dt>
                           <dd>{example.checks}</dd>
-                        </div>
-                        <div>
-                          <dt class="annot">Patterns</dt>
-                          <dd class="e-patterns">
-                            {example.patterns.map((patternId) => (
-                              <a href={`/patterns#${patternId}`}>
-                                {patternById[patternId].title}
-                              </a>
-                            ))}
-                          </dd>
                         </div>
                       </dl>
                     </article>
@@ -99,10 +94,10 @@ import {
       <h2 id="e-next-title">Trace one before copying five.</h2>
       <p>
         Each README explains why its structure fits, the race worth watching,
-        and the smallest set of checks that proves the claim. The patterns page
-        connects those local choices into the shared application shape.
+        and the smallest set of checks that proves the claim. The build guide
+        walks the same shape step by step.
       </p>
-      <a href="/patterns">Read the extracted patterns &#8594;</a>
+      <a href="/guide">Follow the build guide &#8594;</a>
     </div>
   </aside>
 
@@ -274,8 +269,7 @@ import {
     line-height: 1.55;
   }
 
-  .e-structures,
-  .e-patterns {
+  .e-structures {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-xs) var(--space-md);
@@ -286,8 +280,16 @@ import {
     font-size: 0.82rem;
   }
 
-  .e-patterns a {
+  .e-structures a {
+    text-decoration: none;
+  }
+
+  .e-structures a code {
     color: var(--waterline);
+  }
+
+  .e-structures a:hover code {
+    color: var(--overprint-deep);
   }
 
   .e-next {

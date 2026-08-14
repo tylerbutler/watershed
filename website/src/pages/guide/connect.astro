@@ -120,7 +120,11 @@ pub fn main() {
         <code>connect</code> blocks and returns <code>Result(Document, _)</code>
         once history has replayed: natural inside an OTP process. In the
         browser it returns immediately and calls <code>on_ready</code> when the
-        handshake completes, because you cannot block the event loop. Map
+        handshake completes, because you cannot block the event loop. Keep the
+        handle when it arrives — it is fine for diagnostics and document-scoped
+        services — but attach or ensure channels only after
+        <code>on_ready</code> reports <code>Ok</code>; treating handle-arrival
+        and readiness as one event is a first-load race. Map
         subscriptions differ too: BEAM returns an OTP
         <code>Subject(MapEvent)</code>; the browser facade registers a callback
         directly. Step 05 hands the browser pattern to Lustre as effects.

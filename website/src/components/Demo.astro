@@ -97,9 +97,9 @@ const PICKER_CELLS = [
   { value: "twopset", label: "2P-set", kind: "CRDT" },
   { value: "claims", label: "Claims", kind: "DDS" },
   { value: "registers", label: "Registers", kind: "DDS" },
-  { value: "ordered", label: "Ordered collection", kind: "DDS" },
+  { value: "ordered", label: "OrderedCollection", kind: "DDS" },
   { value: "tasks", label: "TaskManager", kind: "DDS" },
-  { value: "pact", label: "Pact map", kind: "DDS" },
+  { value: "pact", label: "PactMap", kind: "DDS" },
 ].filter((cell) => show(cell.value));
 ---
 
@@ -124,7 +124,7 @@ const PICKER_CELLS = [
         These structures converge by merge rules. For the other family,
         operational transform over a shared JSON document, where concurrent edits
         are <em>transformed</em> past one another, see the{" "}
-        <a href="/json-ot">JSON OT demo →</a>
+        <a href="/json-ot">JsonOt demo →</a>
       </p>
     </slot>
     <ol class="demo-legend annot" aria-label="How an edit converges">
@@ -153,7 +153,7 @@ const PICKER_CELLS = [
         ))}
         {otJump && (
           <a class="dds-jump" href="/json-ot" aria-label="Open the JSON operational transform demo on its own page">
-            <span>JSON OT <b>OT</b></span>
+            <span>JsonOt <b>OT</b></span>
           </a>
         )}
       </fieldset>
@@ -579,7 +579,7 @@ const PICKER_CELLS = [
           </table>
           <table class="gauge-table register-table dds-registers">
             <caption class="visually-hidden">
-              Register collection replica on {c.name}
+              RegisterCollection replica on {c.name}
             </caption>
             <thead>
               <tr>
@@ -620,7 +620,7 @@ const PICKER_CELLS = [
           </table>
           <table class="gauge-table ordered-table dds-ordered">
             <caption class="visually-hidden">
-              Ordered collection replica on {c.name}
+              OrderedCollection replica on {c.name}
             </caption>
             <thead>
               <tr>
@@ -658,7 +658,7 @@ const PICKER_CELLS = [
             </tbody>
           </table>
           <table class="gauge-table pact-table dds-pact">
-            <caption class="visually-hidden">Pact map replica on {c.name}</caption>
+            <caption class="visually-hidden">PactMap replica on {c.name}</caption>
             <thead>
               <tr>
                 <th scope="col">pact</th>
