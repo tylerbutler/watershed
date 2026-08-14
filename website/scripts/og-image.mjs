@@ -23,6 +23,19 @@ if (!chrome) {
   process.exit(1);
 }
 
+// Cartographic label halo: a ring of hard white shadows knocks the contour
+// field out from behind the headline, the way map labels mask the linework
+// they sit on. A few blurred copies soften the edge of the knockout.
+const halo = [
+  ...Array.from({ length: 16 }, (_, i) => {
+    const a = (i / 16) * 2 * Math.PI;
+    return `${(Math.cos(a) * 5).toFixed(1)}px ${(Math.sin(a) * 5).toFixed(1)}px 0 var(--bg)`;
+  }),
+  "0 0 14px var(--bg)",
+  "0 0 14px var(--bg)",
+  "0 0 28px var(--bg)",
+].join(", ");
+
 const contours = Array.from({ length: ROWS }, (_, i) => ({
   d: contourPath(i),
   index: i % 4 === 1,
@@ -64,7 +77,7 @@ const html = `<!doctype html>
     --muted: oklch(44% 0.015 260);
     --overprint: oklch(55% 0.21 340);
     --overprint-deep: oklch(44% 0.185 340);
-    --waterline-faint: oklch(37% 0.095 240 / 0.35);
+    --waterline-faint: oklch(37% 0.095 240 / 0.55);
     --font-sans: "Archivo Variable", sans-serif;
     --font-mono: "JetBrains Mono", monospace;
   }
@@ -103,7 +116,7 @@ const html = `<!doctype html>
 
   .wordmark {
     font-family: var(--font-mono);
-    font-size: 17px;
+    font-size: 19px;
     color: var(--ink);
   }
 
@@ -143,15 +156,15 @@ const html = `<!doctype html>
     height: 100%;
     mask-image: linear-gradient(
       100deg,
-      transparent 40%,
-      oklch(0 0 0 / 0.35) 64%,
-      black 86%
+      transparent 18%,
+      oklch(0 0 0 / 0.45) 52%,
+      black 78%
     );
     -webkit-mask-image: linear-gradient(
       100deg,
-      transparent 40%,
-      oklch(0 0 0 / 0.35) 64%,
-      black 86%
+      transparent 18%,
+      oklch(0 0 0 / 0.45) 52%,
+      black 78%
     );
   }
 
@@ -172,11 +185,12 @@ const html = `<!doctype html>
   }
 
   h1 {
-    font-size: 88px;
+    font-size: 96px;
     font-weight: 640;
     font-stretch: 122%;
     line-height: 0.99;
     letter-spacing: -0.025em;
+    text-shadow: ${halo};
   }
   h1 em {
     font-style: normal;
@@ -184,9 +198,10 @@ const html = `<!doctype html>
   }
 
   .tagline {
-    margin-top: 40px;
+    margin-top: 38px;
     font-family: var(--font-mono);
-    font-size: 20px;
+    font-size: 22px;
+    text-shadow: ${halo};
     letter-spacing: 0.07em;
     text-transform: uppercase;
     color: var(--muted);
@@ -196,7 +211,7 @@ const html = `<!doctype html>
 <body>
   <div class="margin-row top">
     <span class="wordmark">watershed</span>
-    <span class="annot">Photorevised — state flows toward sequencing</span>
+    <span class="annot">Edits apply locally — the server sequences — clients converge</span>
   </div>
 
   <div class="sheet">
@@ -208,13 +223,13 @@ const html = `<!doctype html>
       </svg>
     </div>
     <div class="inner">
-      <h1>Edit upstream.<br>Converge <em>downstream.</em></h1>
-      <p class="tagline"><span class="tick">▸</span> Collaborative data structures for Gleam</p>
+      <h1>Edit upstream.<br>Converge<br><em>downstream.</em></h1>
+      <p class="tagline"><span class="tick">▸</span> Shared maps, sequences, counters &amp; sets in pure Gleam</p>
     </div>
   </div>
 
   <div class="margin-row bottom">
-    <span class="annot magenta">Magenta indicates revisions not yet field-checked</span>
+    <span class="annot magenta">Speaks the Fluid Framework wire protocol</span>
     <span class="annot">watershed.tylerbutler.com</span>
   </div>
 </body></html>`;
