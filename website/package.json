@@ -9,6 +9,7 @@
     "prebuild": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
     "build": "astro build",
     "preview": "astro preview",
+    "og:image": "node scripts/og-image.mjs",
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
     "test:demo-boot": "node --test src/scripts/demo/boot.test.mjs"
   },

@@ -13,6 +13,9 @@ interface Props {
 
 const { title, description } = Astro.props;
 
+// Social card, regenerated with `pnpm og:image` (see scripts/og-image.mjs).
+const ogImage = new URL("/og.png", Astro.site);
+
 // Sheet-index navigation. On a photorevised quadrangle the margins carry the
 // sheet's own index — the name, the legend, the adjoining-sheet references. Here
 // they carry the site's: a persistent quick-jump printed in the top margin, the
@@ -42,6 +45,15 @@ const isActive = (match: string) =>
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={new URL(Astro.url.pathname, Astro.site)} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="2400" />
+    <meta property="og:image:height" content="1260" />
+    <meta
+      property="og:image:alt"
+      content="A survey-sheet card reading “Edit upstream. Converge downstream.” — watershed, collaborative data structures for Gleam."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
     <Script embedCode="uhk_zvSq2fBb_T2hTaLx" min hits events beacon />
   </head>
   <body>
