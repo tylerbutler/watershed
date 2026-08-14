@@ -47,6 +47,13 @@ export const runtimeDocs: RuntimeDoc[] = [
       "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them — connection-backed where the server offers it, heartbeat-and-TTL where it does not.",
     concept: "submit_ripple · sessions · server or heartbeat",
   },
+  {
+    slug: "p2p",
+    title: "Peer-to-peer over WebRTC",
+    gloss:
+      "A document that runs on a WebRTC mesh with no sequencer at all — eligible structures merge instead of ordering, and a relay attaches later for durability without changing the document's state or handles.",
+    concept: "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1",
+  },
 ];
 
 /** slug → doc, for cross-links. */

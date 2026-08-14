@@ -6,7 +6,7 @@ import { runtimeDocs } from "../../data/runtime";
 
 <Sheet
   title="watershed — runtime behavior"
-  description="How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, and the ephemeral presence tier. The field notes behind the convergence guarantee."
+  description="How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
 >
   <header class="rh-hero">
     <div class="rh-hero-inner">
@@ -19,8 +19,9 @@ import { runtimeDocs } from "../../data/runtime";
         and the <a href="/models">models</a> page shows <em>how</em> it converges.
         These are the field notes underneath: the behaviors every watershed
         document exhibits at runtime, across every structure:
-        optimism, reconnection, duplicate safety, and the ephemeral tier that
-        never touches converged state.
+        optimism, reconnection, duplicate safety, the ephemeral tier that
+        never touches converged state, and the mesh that lets a document run
+        with no sequencer joined at all.
       </p>
     </div>
   </header>
@@ -28,7 +29,7 @@ import { runtimeDocs } from "../../data/runtime";
   <main class="rh-ledger" aria-labelledby="rh-ledger-title">
     <div class="rh-ledger-head">
       <h2 id="rh-ledger-title">Runtime behaviors</h2>
-      <p>Four sheets. Read in order, or jump to the one that's biting you.</p>
+      <p>Five sheets. Read in order, or jump to the one that's biting you.</p>
     </div>
     <ol class="rh-list">
       {

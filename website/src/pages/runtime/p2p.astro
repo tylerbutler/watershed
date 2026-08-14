@@ -1,0 +1,155 @@
+---
+import { Code } from "astro:components";
+import RuntimeLayout from "../../components/RuntimeLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+
+const cfg = `import watershed/crdt_js
+
+// Auto starts on WebRTC and attempts the relay in parallel — it never
+// waits for one, and prefers it while healthy.
+let config =
+  crdt_js.config(
+    room_id: "retro-board-9c2",
+    replica_label: "ada",
+    compatibility_tag: "retro-board/v1",
+    root: crdt_js.pn_counter(),
+    signaling: signaling,
+  )
+  |> crdt_js.with_transport_policy(crdt_js.Auto)
+  |> crdt_js.with_sequencer(crdt_js.sequencer("wss://relay.example/room"))`;
+---
+
+<RuntimeLayout
+  slug="p2p"
+  description="How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
+>
+  <div class="g-block">
+    <h2>A document that doesn't need a sequencer</h2>
+    <p>
+      Every other sheet on this page assumes a server assigns the order that
+      resolves concurrent writes. A <strong>CRDT document</strong> drops that
+      assumption: browsers discover one another over WebRTC, edit while
+      disconnected, reconnect in any order, and converge once they exchange
+      state — because the structures involved carry their own merge rule
+      rather than depending on somebody stamping a sequence number. The clap
+      counter in <a href={`/examples#clap_counter_lustre`}>the examples
+      index</a> is this running with the sequencer never in the picture at
+      all: two tabs holding the clap button down both land, and nothing
+      acknowledges either one.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Signaling introduces peers; it never sequences</h2>
+    <p>
+      A signaling service exchanges offers, answers, and ICE candidates so two
+      browsers can open a direct connection — and admits a room, if it
+      chooses to authenticate. It never assigns operation order, never stores
+      document state, and cannot see a delta once the data channel is open:
+      by protocol shape, an opaque envelope is the only thing that ever
+      crosses it. A signaling outage blocks new peers from finding each
+      other; it does not touch a document already converged.
+    </p>
+    <p>
+      The first topology is a small full mesh: every peer opens one data
+      channel to every other peer, capped at eight, and the ninth arrival is
+      refused with <code>RoomFull</code> rather than degrading the mesh
+      underneath everyone already in it. Applications supply their own STUN
+      and TURN servers — watershed ships neither, and host candidates alone
+      only connect peers with no NAT between them.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Not every structure is eligible</h2>
+    <p>
+      A merge rule is what makes order-independence possible, so only the
+      channels built as CRDTs may run this way:
+      <a href="/structures/counters#pn">PN counter</a>,
+      <a href="/structures/sets#orset">OR-set</a>,
+      the <a href="/structures/maps#ormap">OR-map</a>,
+      <a href="/structures/sets#gset">G-set</a>,
+      <a href="/structures/sets#twopset">2P-set</a>,
+      <a href="/structures/sequences#sequence">SharedSequence</a>, and
+      <a href="/structures/sequences#text">SharedText</a>. A p2p document's
+      root is one of these, chosen explicitly at <code>config</code> time,
+      never the ordinary last-write-wins <a href="/structures/maps">SharedMap</a>.
+    </p>
+    <p>
+      Everything that depends on server order or acknowledgement stays out:
+      <a href="/structures/maps">SharedMap</a>,
+      <a href="/structures/counters">SharedCounter</a>, and
+      <a href="/structures/maps#directory">SharedDirectory</a> resolve by
+      sequence number; <a href="/structures/coordination#claims">claims</a>
+      and <a href="/structures/coordination#registers">registers</a> persist
+      one; <a href="/structures/coordination#tasks">TaskManager</a>,
+      <a href="/structures/coordination#pact">pact maps</a>, and{" "}
+      <a href="/structures/coordination#ordered">ordered collections</a>{" "}
+      depend on ordered membership; and the OT-transformed{" "}
+      <a href="/structures/transforms">json_ot and rich-text</a> channels
+      transform against sequenced history. None of these have a merge
+      function to fall back on, so none of them are safe with no sequencer in
+      the room.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>One document, three policies</h2>
+    <p>
+      A <code>CrdtDocument</code> chooses its transports once, at
+      <code>config</code> time:
+    </p>
+    <figure class="g-code">
+      <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      <strong><code>Auto</code></strong> is the default: the mesh comes up on
+      its own schedule and a configured relay attempts its own, readiness
+      waits only for the mesh, and the relay becomes the durable delta path
+      if and when it proves itself. <strong><code>P2pOnly</code></strong>{" "}
+      opens no relay socket and ignores a configured one entirely.
+      <strong><code>SequencedOnly</code></strong> is the inverse: no
+      signaling, no <code>RTCPeerConnection</code>, and readiness waits on the
+      relay alone, under a bounded deadline, because there is nothing else to
+      wait on. All three run the identical document over the identical wire
+      envelopes, so a snapshot exported under one policy imports under
+      either of the others.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>Losing the relay doesn't lose the document.</strong> When a
+        primary relay connection drops, the document reports the failover,
+        pushes the digest it owed the mesh, asks its peers for state, and
+        keeps running on WebRTC — the same public handles, the same
+        converged state, one transport quietly retired. Readiness under
+        <code>Auto</code> never waited on the relay in the first place.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>An optional durable relay</h2>
+    <p>
+      A relay speaking <code>crdt_relay_v1</code> is a durable fan-out point,
+      not a sequencer transplanted into this mode: it stamps a diagnostic
+      order for its own log, broadcasts what it accepts, and answers a
+      request for the state it holds — and it never merges, never decodes a
+      kernel payload, and never decides which of two replicas is right. That
+      stays the mesh's job. A room with no relay simply keeps its state in
+      whichever replicas are connected; one that attaches a relay keeps
+      running exactly the same after it disconnects again, minus the
+      durability.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      A CRDT document trades the server's order for a merge rule, so it can
+      run on a WebRTC mesh with no sequencer at all. Signaling only
+      introduces peers; eligible structures converge by merge; and an
+      optional relay attaches later purely for durability and reach, never
+      changing what the document means.
+    </p>
+  </div>
+</RuntimeLayout>
