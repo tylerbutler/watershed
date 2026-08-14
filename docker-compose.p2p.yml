@@ -1,0 +1,82 @@
+# Reference p2p stack for watershed's WebRTC transport
+# (`watershed/p2p_transport_js`, `watershed/crdt_js`): a signaling service so
+# peers can find each other, and coturn for STUN/TURN so they can connect
+# across a NAT. Standalone from docker-compose.yml's floodgate service — p2p
+# mode's whole point is that it does not need a sequencer — but the two
+# compose fine together for the `Auto`-policy failover scenarios in
+# docs/plans/2026-08-12-webrtc-p2p-plan.md.
+#
+# coturn's credentials here are a fixed demo pair (`lt-cred-mech`), matching
+# what examples/clap_counter_lustre's `?iceUser=`/`?icePass=` expects — good
+# for local dev and the p2p smoke suite, not for a deployment reachable by
+# strangers. A real deployment should mint short-lived credentials per
+# session (coturn's `use-auth-secret` REST scheme, or a hosted TURN
+# provider's credentials API) rather than share one static password — see
+# the "ICE server options" section of the plan above.
+#
+# Usage:
+#   docker compose -f docker-compose.p2p.yml up -d --wait --build
+#   Open examples/clap_counter_lustre with, e.g.:
+#     ?signaling=ws://127.0.0.1:4400/&ice=turn:127.0.0.1:3478&iceUser=watershed&icePass=watershed-dev-password
+#   docker compose -f docker-compose.p2p.yml down
+#
+# Or via the justfile: `just p2p-up` / `just p2p-down`.
+#
+# The optional relay — an alternative durable sequencer to floodgate, see
+# `watershed/crdt_relay` — sits behind the `relay` profile and is not started
+# by a plain `up`:
+#   docker compose -f docker-compose.p2p.yml --profile relay up -d --wait --build
+services:
+  signaling:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile
+    image: watershed-p2p-services:local
+    command: ["node", "tools/signaling/server.mjs", "--port", "4400", "--host", "0.0.0.0"]
+    ports:
+      - "4400:4400"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(4400,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+
+  relay:
+    build:
+      context: .
+      dockerfile: tools/Dockerfile
+    image: watershed-p2p-services:local
+    command: ["node", "tools/relay/server.mjs", "--port", "4500", "--host", "0.0.0.0", "--data", "/data/relay"]
+    ports:
+      - "4500:4500"
+    volumes:
+      - relay-data:/data/relay
+    profiles: ["relay"]
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    command:
+      - -n
+      - --listening-port=3478
+      - --fingerprint
+      - --lt-cred-mech
+      - --user=watershed:watershed-dev-password
+      - --realm=watershed.local
+      - --min-port=49160
+      - --max-port=49200
+      - --no-cli
+      - --log-file=stdout
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "turnutils_stunclient 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+
+volumes:
+  relay-data:

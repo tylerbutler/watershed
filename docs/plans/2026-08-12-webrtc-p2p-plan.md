@@ -209,6 +209,44 @@ repository's server stack has a suitable endpoint by P2P5. Keep the core API
 adapter-based so an application can use Phoenix, a hosted signaling product,
 or manual invitation exchange.
 
+### ICE server options
+
+`with_ice_servers` passes `IceServer` values straight into the browser's
+`RTCConfiguration`. Watershed ships none by default and must not imply that
+STUN alone connects every NAT pair (decision 4). Document these options for
+applications choosing what to pass in, and use them to pick defaults for the
+P2P4/P2P5 examples and test harness:
+
+- **STUN only (dev and same-NAT testing).** A public STUN server such as
+  `stun:stun.l.google.com:19302` resolves each peer's reflexive address but
+  cannot relay media through symmetric NATs or restrictive firewalls. Public
+  STUN endpoints are unauthenticated, rate-limited, and offer no uptime
+  guarantee — fine for local development and the sluice test suite's fake
+  signaling adapter, unsuitable for anything an application ships to users.
+- **Self-hosted TURN: coturn.** The de facto open-source TURN/STUN server.
+  Full control over credentials, region, and retention; no per-GB fee beyond
+  hosting cost; the application operator owns patching, scaling, and
+  time-limited credential minting (coturn's `use-auth-secret` REST API is the
+  usual approach). Recommend this as the reference deployment for the
+  `crdt_relay_v1` signaling example (P2P5) since it keeps document envelopes
+  and TURN relay in infrastructure the application already controls.
+- **Hosted TURN: Cloudflare Calls TURN, Metered.ca, Twilio Network Traversal
+  Service, Xirsys.** Usage-billed TURN with global points of presence and a
+  credentials API; no server to operate. Cloudflare and Metered are priced for
+  high-volume low-margin use (roughly $0.04–0.05/GB); Twilio costs more but
+  carries an enterprise SLA. Any of these are reasonable "quick start" options
+  to mention in the P2P5 example docs alongside the coturn reference, since a
+  new integrator can get a working TURN credential without standing up
+  infrastructure first.
+- **Kubernetes-native: STUNner.** Worth a mention for applications deploying
+  signaling and TURN inside a cluster; niche relative to coturn.
+
+Regardless of provider, TURN credentials are short-lived and scoped to a
+session — document that `with_ice_servers` expects the application to refresh
+them, not that watershed mints or caches credentials itself. The delivery
+rungs and test matrix's "TURN-only network" case (see below) exercise
+`IceServer` values with `credential`/`username` set, not just `urls`.
+
 ## Runtime architecture
 
 Do not run CRDT messages through `runtime_core.handle_sequenced`, including

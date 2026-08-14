@@ -179,6 +179,23 @@ integration-restart:
     docker compose -f docker-compose.yml -f docker-compose.persistent.yml up -d --wait --build
     WATERSHED_INTEGRATION=1 WATERSHED_INTEGRATION_RESTART=1 gleam test; status=$?; docker compose -f docker-compose.yml -f docker-compose.persistent.yml down -v; exit $status
 
+# === P2P (reference signaling + coturn TURN/STUN) ===
+
+# Start the reference signaling service and a coturn TURN/STUN server in
+# Docker, for exercising watershed's WebRTC transport across a NAT — see
+# docker-compose.p2p.yml for the credentials and example URL
+p2p-up:
+    docker compose -f docker-compose.p2p.yml up -d --wait --build
+
+# Start the signaling service, coturn, and the optional durable relay
+# (an alternative sequencer to floodgate; `watershed/crdt_relay`)
+p2p-up-relay:
+    docker compose -f docker-compose.p2p.yml --profile relay up -d --wait --build
+
+# Stop and remove the p2p reference stack
+p2p-down:
+    docker compose -f docker-compose.p2p.yml --profile relay down
+
 # Format code
 format:
     gleam format
