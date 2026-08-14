@@ -118,6 +118,51 @@ pub fn update(
   )
 }
 
+/// Ack-free p2p variant of `update`: authors the same delta, but merges it
+/// into confirmed and visible state immediately instead of queuing a
+/// pending entry for a later ack. Reports `amount` unconditionally, exactly
+/// like `update`, since this is still a local edit (counter parity).
+pub fn p2p_update(
+  state: PnCounterState,
+  amount: Int,
+) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp) {
+  // The magnitude is non-negative by construction, so the NegativeDelta
+  // error arm is unreachable.
+  let assert Ok(#(_, delta)) = case amount >= 0 {
+    True -> pn_counter.try_increment_with_delta(state.optimistic, amount)
+    False -> pn_counter.try_decrement_with_delta(state.optimistic, 0 - amount)
+  }
+  let sequenced = pn_counter.merge(state.sequenced, delta)
+  let optimistic = pn_counter.merge(state.optimistic, delta)
+  let new_value = pn_counter.value(optimistic)
+  let new_state =
+    PnCounterState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(new_state, [Updated(amount, new_value)], Update(amount, delta))
+}
+
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner: the result is the least upper bound of both sides.
+pub fn p2p_merge(
+  state: PnCounterState,
+  other: PNCounter,
+) -> #(PnCounterState, List(PnCounterEvent)) {
+  let before = pn_counter.value(state.optimistic)
+  let optimistic = pn_counter.merge(state.optimistic, other)
+  let after = pn_counter.value(optimistic)
+  let new_state =
+    PnCounterState(
+      ..state,
+      sequenced: pn_counter.merge(state.sequenced, other),
+      optimistic: optimistic,
+    )
+  case after == before {
+    True -> #(new_state, [])
+    False -> #(new_state, [Updated(after - before, after)])
+  }
+}
+
 /// Apply a sequenced op from another client: merge its delta into both the
 /// sequenced base and the optimistic cache (lattice laws make the order
 /// against pending deltas irrelevant: `(s ⊔ d) ⊔ P = (s ⊔ P) ⊔ d`). Emits

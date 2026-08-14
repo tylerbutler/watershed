@@ -164,6 +164,29 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
   }
 }
 
+/// Whether a channel's merge semantics are safe without server sequencing.
+pub fn supports_p2p(channel_type: ChannelType) -> Bool {
+  case channel_type {
+    PnCounterChannel
+    | OrMapChannel
+    | OrSetChannel
+    | GSetChannel
+    | TwoPSetChannel
+    | SequenceChannel
+    | TextChannel -> True
+    MapChannel
+    | CounterChannel
+    | RegisterCollectionChannel
+    | ClaimsChannel
+    | TaskManagerChannel
+    | PactMapChannel
+    | JsonOtChannel
+    | DirectoryChannel
+    | OrderedCollectionChannel
+    | RichTextChannel -> False
+  }
+}
+
 /// One channel's kernel state.
 pub type ChannelState {
   MapState(map_kernel.MapState)
@@ -211,6 +234,31 @@ pub type ChannelOp {
   SequenceOp(sequence_kernel.SequenceOp)
   RichTextOp(rich_text_kernel.RichTextWireOp)
   TextOp(text_kernel.TextOp)
+}
+
+/// A local mutation for the ack-free p2p lifecycle (`apply_p2p_local`).
+/// One variant per public mutation of every `supports_p2p` kernel — the
+/// smallest closed sum that can express them, carrying the same parameters
+/// their kernel functions already take. Only these seven kernels ever admit
+/// a `P2pEdit`; every other channel rejects one with `UnsupportedP2p`.
+pub type P2pEdit {
+  PnCounterEdit(amount: Int)
+  OrMapIncrementEdit(key: String, amount: Int)
+  OrMapSetRegisterEdit(key: String, value: String, timestamp: Int)
+  OrMapRemoveEdit(key: String)
+  OrSetAddEdit(element: String)
+  OrSetRemoveEdit(element: String)
+  GSetAddEdit(element: String)
+  TwoPSetAddEdit(element: String)
+  TwoPSetRemoveEdit(element: String)
+  SequenceInsertEdit(index: Int, value: Json)
+  SequenceDeleteEdit(index: Int)
+  SequenceMoveEdit(from_index: Int, to_index: Int)
+  SequenceReplaceEdit(index: Int, value: Json)
+  TextInsertEdit(index: Int, value: String)
+  TextDeleteRangeEdit(start: Int, end: Int)
+  TextReplaceRangeEdit(start: Int, end: Int, value: String)
+  TextAppendEdit(value: String)
 }
 
 /// A kernel event, address-tagged by the runtime before fan-out.
@@ -327,6 +375,13 @@ pub type ChannelError {
   /// so a mismatch here is a routing bug, not bad input.
   WrongChannelType(detail: String)
   CorruptRemoteOp(detail: String)
+  /// A `P2pEdit`/op does not match the channel's kernel, or the channel's
+  /// kernel does not support ack-free p2p at all (see `supports_p2p`).
+  /// Also covers a p2p-eligible kernel's own edit-level rejection (an
+  /// OR-map mode mismatch, an out-of-bounds sequence/text edit) — p2p has
+  /// no pending queue to leave untouched, so these surface here instead of
+  /// a kernel-specific error type.
+  UnsupportedP2p(detail: String)
 }
 
 pub fn channel_type(state: ChannelState) -> ChannelType {
@@ -1136,6 +1191,245 @@ fn rich_text_error_detail(err: rich_text.Error) -> String {
     rich_text.InvalidBoundary(offset) ->
       "rich-text invalid boundary at offset " <> int.to_string(offset)
   }
+}
+
+/// Author a local p2p edit and merge its delta into both confirmed and
+/// visible state in one transition — no pending entry, no acknowledgement.
+/// Only a `supports_p2p` channel paired with its own `P2pEdit` variant is
+/// accepted; every other combination (an ineligible channel, or an edit
+/// meant for a different kernel) returns `UnsupportedP2p`, never a silent
+/// no-op. Every eligible kernel exposes a dedicated `p2p_*` function that
+/// authors its delta and merges it into `sequenced` and `optimistic`
+/// directly (see e.g. `text_kernel.commit_p2p`); none of these paths touch
+/// `pending` or call any `ack_local` function.
+pub fn apply_p2p_local(
+  state: ChannelState,
+  edit: P2pEdit,
+) -> Result(#(ChannelState, List(ChannelEvent), ChannelOp), ChannelError) {
+  case state, edit {
+    PnCounterState(kernel), PnCounterEdit(amount) -> {
+      let #(kernel, events, op) = pn_counter_kernel.p2p_update(kernel, amount)
+      Ok(#(
+        PnCounterState(kernel),
+        list.map(events, PnCounterEvent),
+        PnCounterOp(op),
+      ))
+    }
+    OrMapState(kernel), OrMapIncrementEdit(key, amount) ->
+      case or_map_kernel.p2p_increment(kernel, key, amount) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
+    OrMapState(kernel), OrMapSetRegisterEdit(key, value, timestamp) ->
+      case or_map_kernel.p2p_set_register(kernel, key, value, timestamp) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
+    OrMapState(kernel), OrMapRemoveEdit(key) -> {
+      let #(kernel, events, op) = or_map_kernel.p2p_remove(kernel, key)
+      Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+    }
+    OrSetState(kernel), OrSetAddEdit(element) -> {
+      let #(kernel, events, op) = or_set_kernel.p2p_add(kernel, element)
+      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), OrSetOp(op)))
+    }
+    OrSetState(kernel), OrSetRemoveEdit(element) -> {
+      let #(kernel, events, op) = or_set_kernel.p2p_remove(kernel, element)
+      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), OrSetOp(op)))
+    }
+    GSetState(kernel), GSetAddEdit(element) -> {
+      let #(kernel, events, op) = g_set_kernel.p2p_add(kernel, element)
+      Ok(#(GSetState(kernel), list.map(events, GSetEvent), GSetOp(op)))
+    }
+    TwoPSetState(kernel), TwoPSetAddEdit(element) -> {
+      let #(kernel, events, op) = two_p_set_kernel.p2p_add(kernel, element)
+      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), TwoPSetOp(op)))
+    }
+    TwoPSetState(kernel), TwoPSetRemoveEdit(element) -> {
+      let #(kernel, events, op) = two_p_set_kernel.p2p_remove(kernel, element)
+      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), TwoPSetOp(op)))
+    }
+    SequenceState(kernel), SequenceInsertEdit(index, value) ->
+      case sequence_kernel.p2p_insert(kernel, index, value) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(
+            SequenceState(kernel),
+            list.map(events, SequenceEvent),
+            SequenceOp(op),
+          ))
+        Error(error) -> Error(sequence_p2p_error(error))
+      }
+    SequenceState(kernel), SequenceDeleteEdit(index) ->
+      case sequence_kernel.p2p_delete(kernel, index) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(
+            SequenceState(kernel),
+            list.map(events, SequenceEvent),
+            SequenceOp(op),
+          ))
+        Error(error) -> Error(sequence_p2p_error(error))
+      }
+    SequenceState(kernel), SequenceMoveEdit(from_index, to_index) ->
+      case sequence_kernel.p2p_move(kernel, from_index, to_index) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(
+            SequenceState(kernel),
+            list.map(events, SequenceEvent),
+            SequenceOp(op),
+          ))
+        Error(error) -> Error(sequence_p2p_error(error))
+      }
+    SequenceState(kernel), SequenceReplaceEdit(index, value) ->
+      case sequence_kernel.p2p_replace(kernel, index, value) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(
+            SequenceState(kernel),
+            list.map(events, SequenceEvent),
+            SequenceOp(op),
+          ))
+        Error(error) -> Error(sequence_p2p_error(error))
+      }
+    TextState(kernel), TextInsertEdit(index, value) ->
+      case text_kernel.p2p_insert(kernel, index, value) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Error(error) -> Error(text_p2p_error(error))
+      }
+    TextState(kernel), TextDeleteRangeEdit(start, end) ->
+      case text_kernel.p2p_delete_range(kernel, start, end) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Error(error) -> Error(text_p2p_error(error))
+      }
+    TextState(kernel), TextReplaceRangeEdit(start, end, value) ->
+      case text_kernel.p2p_replace_range(kernel, start, end, value) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Error(error) -> Error(text_p2p_error(error))
+      }
+    TextState(kernel), TextAppendEdit(value) -> {
+      let #(kernel, events, op) = text_kernel.p2p_append(kernel, value)
+      Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+    }
+    state, _ -> Error(unsupported_p2p(state, "local p2p edit"))
+  }
+}
+
+/// Merge a remote p2p op straight into confirmed and visible state, with no
+/// sequence metadata and no pending entry to reclaim — the ack-free
+/// counterpart to `apply_remote`. None of the seven eligible kernels
+/// consults `SequencedMeta` or owes follow-up ops, so this delegates to
+/// `apply_remote` with a zeroed meta and drops the owed-ops list. Any other
+/// channel, or an op that does not match the channel's kernel, returns
+/// `UnsupportedP2p`.
+pub fn apply_p2p_remote(
+  state: ChannelState,
+  op: ChannelOp,
+) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
+  case supports_p2p(channel_type(state)) {
+    False -> Error(unsupported_p2p(state, "remote p2p op"))
+    True ->
+      case apply_remote(state, op, zeroed_meta()) {
+        Ok(#(state, events, _owed)) -> Ok(#(state, events))
+        // A mismatched op is bad p2p input here, not a runtime routing bug.
+        Error(WrongChannelType(_)) ->
+          Error(unsupported_p2p(state, "remote p2p op"))
+        Error(error) -> Error(error)
+      }
+  }
+}
+
+/// The metadata `apply_remote` demands, for the p2p path that has none.
+/// Safe because every `supports_p2p` kernel ignores it.
+fn zeroed_meta() -> SequencedMeta {
+  SequencedMeta(
+    seq: 0,
+    last_seen_sn: 0,
+    min_seq: 0,
+    author: 0,
+    self: 0,
+    quorum: [],
+    roster: [],
+    reference_sequence_number: 0,
+  )
+}
+
+/// Merge a peer's whole channel snapshot into this channel's state — the
+/// full-state counterpart of `apply_p2p_remote`. Every eligible kernel
+/// merges the incoming CRDT state as a lattice join into confirmed and
+/// visible state, so a merge is idempotent and never replaces a winner or
+/// discards local edits. A snapshot for a different kernel, or for a
+/// channel that does not support ack-free p2p at all, returns
+/// `UnsupportedP2p`.
+pub fn merge_p2p_snapshot(
+  state: ChannelState,
+  snapshot: Snapshot,
+) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
+  case state, snapshot {
+    PnCounterState(kernel), PnCounterSnapshot(other) -> {
+      let #(kernel, events) = pn_counter_kernel.p2p_merge(kernel, other)
+      Ok(#(PnCounterState(kernel), list.map(events, PnCounterEvent)))
+    }
+    OrMapState(kernel), OrMapSnapshot(_, other) ->
+      case or_map_kernel.p2p_merge(kernel, other) {
+        Ok(#(kernel, events)) ->
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent)))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
+    OrSetState(kernel), OrSetSnapshot(other) -> {
+      let #(kernel, events) = or_set_kernel.p2p_merge(kernel, other)
+      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent)))
+    }
+    GSetState(kernel), GSetSnapshot(other) -> {
+      let #(kernel, events) = g_set_kernel.p2p_merge(kernel, other)
+      Ok(#(GSetState(kernel), list.map(events, GSetEvent)))
+    }
+    TwoPSetState(kernel), TwoPSetSnapshot(other) -> {
+      let #(kernel, events) = two_p_set_kernel.p2p_merge(kernel, other)
+      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent)))
+    }
+    SequenceState(kernel), SequenceSummary(other) -> {
+      let #(kernel, events) = sequence_kernel.p2p_merge(kernel, other)
+      Ok(#(SequenceState(kernel), list.map(events, SequenceEvent)))
+    }
+    TextState(kernel), TextSummary(other) -> {
+      let #(kernel, events) = text_kernel.p2p_merge(kernel, other)
+      Ok(#(TextState(kernel), list.map(events, TextEvent)))
+    }
+    state, _ -> Error(unsupported_p2p(state, "remote p2p snapshot"))
+  }
+}
+
+/// Map an or-map kernel error onto `ChannelError` for the p2p paths: a mode
+/// mismatch is a p2p-level rejection (no pending queue to leave untouched),
+/// everything else mirrors the server-backed `apply_remote`/`ack_local`
+/// mapping.
+fn or_map_p2p_error(error: or_map_kernel.KernelError) -> ChannelError {
+  case error {
+    or_map_kernel.ModeMismatch(detail) -> UnsupportedP2p(detail)
+    or_map_kernel.CorruptDelta(detail) -> CorruptRemoteOp(detail)
+    or_map_kernel.UnexpectedAck(detail)
+    | or_map_kernel.UnexpectedRollback(detail) -> UnexpectedAck(detail)
+  }
+}
+
+fn sequence_p2p_error(error: sequence_kernel.EditError) -> ChannelError {
+  UnsupportedP2p(sequence_kernel.edit_error_detail(error))
+}
+
+fn text_p2p_error(error: text_kernel.EditError) -> ChannelError {
+  UnsupportedP2p(text_kernel.edit_error_detail(error))
+}
+
+fn unsupported_p2p(state: ChannelState, context: String) -> ChannelError {
+  UnsupportedP2p(
+    context
+    <> " does not match the "
+    <> type_to_string(channel_type(state))
+    <> " channel it was routed to",
+  )
 }
 
 /// Drain an op the kernel released onto the wire while an ack was ingested

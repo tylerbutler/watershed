@@ -91,12 +91,20 @@ fn changed_event(before: List(Json), after: List(Json)) -> List(SequenceEvent) {
   }
 }
 
+/// Equal encoded strings are equal values, so the cheap comparison settles
+/// the common no-change case; only a mismatch pays for the normalizing
+/// element-by-element comparison (which forgives e.g. object key order).
 fn same_json_list(before: List(Json), after: List(Json)) -> Bool {
+  list.map(before, json.to_string) == list.map(after, json.to_string)
+  || same_normalized_list(before, after)
+}
+
+fn same_normalized_list(before: List(Json), after: List(Json)) -> Bool {
   case before, after {
     [], [] -> True
     [before_head, ..before_tail], [after_head, ..after_tail] ->
       same_json_value(before_head, after_head)
-      && same_json_list(before_tail, after_tail)
+      && same_normalized_list(before_tail, after_tail)
     _, _ -> False
   }
 }
@@ -172,6 +180,22 @@ pub fn replace(
   }
 }
 
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner: the result is the least upper bound of both sides.
+pub fn p2p_merge(
+  state: SequenceState,
+  other: Sequence(Json),
+) -> #(SequenceState, List(SequenceEvent)) {
+  let before = values(state)
+  let sequenced = sequence.merge(state.sequenced, other)
+  let optimistic = replay_pending(sequenced, state.pending)
+  let state =
+    SequenceState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(state, changed_event(before, values(state)))
+}
+
 pub fn apply_remote(
   state: SequenceState,
   op: SequenceOp,
@@ -182,6 +206,87 @@ pub fn apply_remote(
   let state =
     SequenceState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, values(state)))
+}
+
+/// Merge a freshly-authored local delta into both `sequenced` and
+/// `optimistic` in one step, with no pending entry — the ack-free p2p
+/// commit. Mirrors `text_kernel.commit_p2p`.
+fn commit_p2p(
+  state: SequenceState,
+  op: SequenceOp,
+) -> #(SequenceState, List(SequenceEvent), SequenceOp) {
+  let before = values(state)
+  let delta = op_delta(op)
+  let state =
+    SequenceState(
+      ..state,
+      sequenced: sequence.merge(state.sequenced, delta),
+      optimistic: sequence.merge(state.optimistic, delta),
+    )
+  #(state, changed_event(before, values(state)), op)
+}
+
+/// Ack-free p2p variant of `insert`: authors the same delta, but merges it
+/// into confirmed and visible state immediately (see `commit_p2p`) instead
+/// of queuing a pending entry for a later ack.
+pub fn p2p_insert(
+  state: SequenceState,
+  index: Int,
+  value: Json,
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+  case sequence.try_insert_with_delta(state.optimistic, index, value) {
+    Ok(#(_, delta)) -> Ok(commit_p2p(state, Insert(index, value, delta)))
+    Error(sequence.IndexOutOfBounds(index, length)) ->
+      Error(InsertOutOfBounds(index, length))
+  }
+}
+
+/// Ack-free p2p variant of `delete`. See `p2p_insert`.
+pub fn p2p_delete(
+  state: SequenceState,
+  index: Int,
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+  case sequence.try_delete_with_delta(state.optimistic, index) {
+    Ok(#(_, delta)) -> Ok(commit_p2p(state, Delete(index, delta)))
+    Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
+      Error(DeleteOutOfBounds(index, length))
+  }
+}
+
+/// Ack-free p2p variant of `move`. See `p2p_insert`.
+pub fn p2p_move(
+  state: SequenceState,
+  from_index: Int,
+  to_index: Int,
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+  case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
+    Ok(#(_, delta)) -> Ok(commit_p2p(state, Move(from_index, to_index, delta)))
+    Error(sequence.MoveFromIndexOutOfBounds(index, length)) ->
+      Error(MoveFromOutOfBounds(index, length))
+    Error(sequence.MoveToIndexOutOfBounds(index, length_after_removal)) ->
+      Error(MoveToOutOfBounds(index, length_after_removal))
+  }
+}
+
+/// Ack-free p2p variant of `replace`. See `p2p_insert`.
+pub fn p2p_replace(
+  state: SequenceState,
+  index: Int,
+  value: Json,
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+  case sequence.try_delete_with_delta(state.optimistic, index) {
+    Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
+      Error(ReplaceOutOfBounds(index, length))
+    Ok(#(after_delete, delete_delta)) ->
+      case sequence.try_insert_with_delta(after_delete, index, value) {
+        Error(sequence.IndexOutOfBounds(_, length)) ->
+          Error(ReplaceOutOfBounds(index, length))
+        Ok(#(_, insert_delta)) -> {
+          let delta = sequence.merge(delete_delta, insert_delta)
+          Ok(commit_p2p(state, Replace(index, value, delta)))
+        }
+      }
+  }
 }
 
 pub fn ack_local(

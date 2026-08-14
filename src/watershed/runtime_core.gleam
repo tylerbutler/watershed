@@ -1230,7 +1230,8 @@ fn apply_remote_channel(
       )
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
-    | Error(channel.CorruptRemoteOp(detail)) -> Error(AckMismatch(detail))
+    | Error(channel.CorruptRemoteOp(detail))
+    | Error(channel.UnsupportedP2p(detail)) -> Error(AckMismatch(detail))
   }
 }
 
@@ -1389,7 +1390,8 @@ fn ack_own_op(
                       )
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
-                    | Error(channel.CorruptRemoteOp(detail)) ->
+                    | Error(channel.CorruptRemoteOp(detail))
+                    | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
                   }
                 False ->
@@ -1406,7 +1408,8 @@ fn ack_own_op(
                       ))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
-                    | Error(channel.CorruptRemoteOp(detail)) ->
+                    | Error(channel.CorruptRemoteOp(detail))
+                    | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
                   }
               }

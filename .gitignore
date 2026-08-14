@@ -4,6 +4,10 @@
 /node_modules
 erl_crash.dump
 
+# The reference relay's default data directory (`just relay`). A durable
+# relay writes one append-only JSONL log per room; none of it belongs in git.
+/relay-data
+
 # Local tool state
 /.claude/
 /.impeccable/

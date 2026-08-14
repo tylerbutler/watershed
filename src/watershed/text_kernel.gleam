@@ -266,6 +266,94 @@ pub fn append(
   }
 }
 
+/// Merge a freshly-authored local delta into both `sequenced` and
+/// `optimistic` in one step, with no pending entry — the ack-free p2p
+/// commit. Unlike `finish_local`, this never needs the empty-edit
+/// `Option(Submission)` no-op path: p2p has no pending queue to spare from a
+/// content-free entry, so every call (even one whose delta is a no-op,
+/// e.g. inserting `""`) reports its op for broadcast.
+fn commit_p2p(
+  state: TextState,
+  op: TextOp,
+) -> #(TextState, List(TextEvent), TextOp) {
+  let before = value(state)
+  let delta = op_delta(op)
+  let state =
+    TextState(
+      ..state,
+      sequenced: text.merge(state.sequenced, delta),
+      optimistic: text.merge(state.optimistic, delta),
+    )
+  #(state, changed_event(before, value(state)), op)
+}
+
+/// Ack-free p2p variant of `insert`: authors the same delta, but merges it
+/// into confirmed and visible state immediately (see `commit_p2p`) instead
+/// of queuing a pending entry for a later ack.
+pub fn p2p_insert(
+  state: TextState,
+  index: Int,
+  value: String,
+) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+  case text.try_insert_with_delta(state.optimistic, index, value) {
+    Error(sequence.IndexOutOfBounds(index, length)) ->
+      Error(InsertOutOfBounds(index, length))
+    Ok(#(_, delta)) -> Ok(commit_p2p(state, Insert(index, value, delta)))
+  }
+}
+
+/// Ack-free p2p variant of `delete_range`. See `p2p_insert`.
+pub fn p2p_delete_range(
+  state: TextState,
+  start: Int,
+  end: Int,
+) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+  case text.try_delete_range_with_delta(state.optimistic, start, end) {
+    Error(text.RangeOutOfBounds(start, end, length)) ->
+      Error(DeleteRangeOutOfBounds(start, end, length))
+    Ok(#(_, delta)) -> Ok(commit_p2p(state, DeleteRange(start, end, delta)))
+  }
+}
+
+/// Ack-free p2p variant of `replace_range`. See `p2p_insert`.
+pub fn p2p_replace_range(
+  state: TextState,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+  case text.try_replace_range_with_delta(state.optimistic, start, end, value) {
+    Error(text.RangeOutOfBounds(start, end, length)) ->
+      Error(ReplaceRangeOutOfBounds(start, end, length))
+    Ok(#(_, delta)) ->
+      Ok(commit_p2p(state, ReplaceRange(start, end, value, delta)))
+  }
+}
+
+/// Ack-free p2p variant of `append`. Always valid, like `append`.
+pub fn p2p_append(
+  state: TextState,
+  value: String,
+) -> #(TextState, List(TextEvent), TextOp) {
+  let #(_, delta) = text.append_with_delta(state.optimistic, value)
+  commit_p2p(state, Append(value, delta))
+}
+
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner: the result is the least upper bound of both sides.
+pub fn p2p_merge(
+  state: TextState,
+  other: Text,
+) -> #(TextState, List(TextEvent)) {
+  let before = value(state)
+  let sequenced = text.merge(state.sequenced, other)
+  let optimistic = replay_pending(sequenced, state.pending)
+  let state = TextState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(state, changed_event(before, value(state)))
+}
+
 pub fn apply_remote(
   state: TextState,
   op: TextOp,

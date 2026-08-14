@@ -53,13 +53,13 @@ pub type OrMapState {
     /// one into the future, where it would beat a peer's genuinely later
     /// write.
     ///
-    /// Starts empty on `from_summary` and `from_sequenced`, and cannot be
-    /// seeded from them: `lww_register` is opaque and exposes only `value`, so
-    /// a loaded checkpoint's timestamps are unreadable. A client that joins
-    /// against a checkpoint written by a replica whose clock ran ahead can
-    /// therefore still lose its first write to a key. That needs an accessor
-    /// upstream; the same-replica case this covers is the one that was
-    /// reproducibly losing writes.
+    /// Starts empty on `from_summary` and `from_sequenced`, which cannot
+    /// seed it: `lww_register` is opaque, so those paths have no timestamp
+    /// to read. A client that joins against a *server* checkpoint written
+    /// by a replica whose clock ran ahead can therefore still lose its
+    /// first write to a key. The p2p path does not have that hole —
+    /// `p2p_merge` reads each merged register's own timestamp back out
+    /// through `lww_register.to_json` and folds it in here.
     register_clock: Dict(String, Int),
     pending: List(PendingOp),
     next_pending_message_id: Int,
@@ -271,6 +271,172 @@ pub fn remove(
   #(new_state, events_between(before, entries(new_state)), op, message_id)
 }
 
+/// Ack-free p2p variant of `increment`: authors the same delta, but merges
+/// it into confirmed and visible state immediately instead of queuing a
+/// pending entry for a later ack.
+pub fn p2p_increment(
+  state: OrMapState,
+  key: String,
+  amount: Int,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
+  case state.mode {
+    RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
+    TallyMode -> {
+      let #(pos, neg) =
+        dict.get(state.own_tallies, key) |> result.unwrap(#(0, 0))
+      let #(new_pos, new_neg) = case amount >= 0 {
+        True -> #(pos + amount, neg)
+        False -> #(pos, neg + { 0 - amount })
+      }
+      let own_counter = own_tally_counter(state.replica_id, new_pos, new_neg)
+      let assert Ok(#(_discarded, delta)) =
+        or_map.update_with_delta(state.optimistic, key, fn(_) {
+          crdt.CrdtPnCounter(own_counter)
+        })
+      let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
+      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      let op = Increment(key, amount, delta)
+      let new_state =
+        OrMapState(
+          ..state,
+          sequenced: sequenced,
+          optimistic: optimistic,
+          own_tallies: dict.insert(state.own_tallies, key, #(new_pos, new_neg)),
+        )
+      let new_value = case get(new_state, key) {
+        Some(Tally(value)) -> value
+        _ -> 0
+      }
+      Ok(#(new_state, [TallyUpdated(key, amount, new_value)], op))
+    }
+  }
+}
+
+/// Ack-free p2p variant of `set_register`. See `p2p_increment`.
+pub fn p2p_set_register(
+  state: OrMapState,
+  key: String,
+  value: String,
+  timestamp: Int,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
+  case state.mode {
+    TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
+    RegisterMode -> {
+      let before = entries(state)
+      let timestamp = stamp(state.register_clock, key, timestamp)
+      let register = lww_register.new(value, timestamp, state.replica_id)
+      let assert Ok(#(_discarded, delta)) =
+        or_map.update_with_delta(state.optimistic, key, fn(_) {
+          crdt.CrdtLwwRegister(register)
+        })
+      let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
+      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      let op = SetRegister(key, value, timestamp, delta)
+      let new_state =
+        OrMapState(
+          ..state,
+          sequenced: sequenced,
+          optimistic: optimistic,
+          register_clock: observe(state.register_clock, key, timestamp),
+        )
+      Ok(#(new_state, events_between(before, entries(new_state)), op))
+    }
+  }
+}
+
+/// Ack-free p2p variant of `remove`. Never fails, like `remove`.
+pub fn p2p_remove(
+  state: OrMapState,
+  key: String,
+) -> #(OrMapState, List(OrMapEvent), OrMapOp) {
+  let before = entries(state)
+  let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
+  let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
+  let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+  let op = Remove(key, delta)
+  let new_state =
+    OrMapState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(new_state, events_between(before, entries(new_state)), op)
+}
+
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner.
+///
+/// In `RegisterMode` the merged registers' own timestamps are folded into
+/// `register_clock`, so a replica that bootstraps from a peer whose clock
+/// ran ahead still wins its own next write to those keys instead of
+/// silently losing it. The timestamps are read back through
+/// `lww_register.to_json`, because `LWWRegister` is opaque and exposes only
+/// `value`; that is a JSON round trip per register, which is why it happens
+/// on merge (bootstrap and repair) and not on the per-op path.
+pub fn p2p_merge(
+  state: OrMapState,
+  other: ORMap,
+) -> Result(#(OrMapState, List(OrMapEvent)), KernelError) {
+  let before = entries(state)
+  // `or_map.merge` compares the two maps' `crdt_spec` itself, and
+  // `state.sequenced` always carries the spec of `state.mode`, so its
+  // `TypeMismatch` *is* the mode check.
+  case or_map.merge(state.sequenced, other) {
+    Error(crdt.TypeMismatch(_, _)) ->
+      Error(ModeMismatch("merged value spec does not match the channel mode"))
+    Ok(sequenced) -> {
+      let optimistic = replay_pending(sequenced, state.pending)
+      let new_state =
+        OrMapState(
+          ..state,
+          sequenced: sequenced,
+          optimistic: optimistic,
+          register_clock: observe_registers(
+            state.register_clock,
+            state.mode,
+            optimistic,
+          ),
+        )
+      Ok(#(new_state, events_between(before, entries(new_state))))
+    }
+  }
+}
+
+/// Fold every merged register's timestamp into the clock, keeping the
+/// per-key maximum. A `TallyMode` map holds no registers, so it is skipped
+/// whole rather than walked.
+fn observe_registers(
+  clock: Dict(String, Int),
+  mode: OrMapMode,
+  map: ORMap,
+) -> Dict(String, Int) {
+  case mode {
+    TallyMode -> clock
+    RegisterMode ->
+      list.fold(or_map.keys(map), clock, fn(clock, key) {
+        case or_map.get(map, key) {
+          Ok(crdt.CrdtLwwRegister(register)) ->
+            case register_timestamp(register) {
+              Ok(timestamp) -> observe(clock, key, timestamp)
+              Error(_) -> clock
+            }
+          _ -> clock
+        }
+      })
+  }
+}
+
+/// `LWWRegister` is opaque and has no timestamp accessor, but `to_json`
+/// publishes the timestamp it merged on, so the clock is rebuilt from the
+/// register's own value rather than from anything invented here.
+fn register_timestamp(
+  register: lww_register.LWWRegister(String),
+) -> Result(Int, Nil) {
+  json.parse(
+    json.to_string(lww_register.to_json(register)),
+    decode.at(["state", "timestamp"], decode.int),
+  )
+  |> result.replace_error(Nil)
+}
+
 pub fn apply_remote(
   state: OrMapState,
   op: OrMapOp,
@@ -427,13 +593,12 @@ pub fn from_sequenced(
   mode: OrMapMode,
   replica_id: ReplicaId,
 ) -> Result(OrMapState, KernelError) {
-  case mode_of_map(sequenced) {
-    Error(_) -> Error(CorruptDelta("could not read ORMap crdt_spec"))
-    Ok(actual) if actual != mode ->
+  // The merge's own `crdt_spec` comparison is the mode check; see
+  // `p2p_merge`.
+  case or_map.merge(or_map.new(replica_id, mode_to_spec(mode)), sequenced) {
+    Error(crdt.TypeMismatch(_, _)) ->
       Error(ModeMismatch("summary value spec does not match requested mode"))
-    Ok(_) -> {
-      let assert Ok(rebranded) =
-        or_map.merge(or_map.new(replica_id, mode_to_spec(mode)), sequenced)
+    Ok(rebranded) ->
       Ok(OrMapState(
         replica_id: replica_id,
         mode: mode,
@@ -444,7 +609,6 @@ pub fn from_sequenced(
         pending: [],
         next_pending_message_id: 0,
       ))
-    }
   }
 }
 
@@ -572,16 +736,6 @@ fn pop_last(
         Ok(#(last, init)) -> Ok(#(last, [head, ..init]))
       }
   }
-}
-
-fn mode_of_map(map: ORMap) -> Result(OrMapMode, json.DecodeError) {
-  let json_string = json.to_string(or_map.to_json(map))
-  use spec <- result.try(json.parse(
-    json_string,
-    decode.at(["state", "crdt_spec"], decode.string),
-  ))
-  mode_from_spec_string(spec)
-  |> result.map_error(fn(_) { unsupported_spec_error(spec) })
 }
 
 fn unsupported_spec_error(spec: String) -> json.DecodeError {

@@ -81,6 +81,48 @@ pub fn add(
   #(state, events_between(before, values(state)), op, message_id)
 }
 
+/// Merge a freshly-authored local delta into both `sequenced` and
+/// `optimistic` in one step, with no pending entry — the ack-free p2p
+/// commit. Mirrors `sequence_kernel.commit_p2p`.
+fn commit_p2p(
+  state: GSetState,
+  op: GSetOp,
+) -> #(GSetState, List(GSetEvent), GSetOp) {
+  let before = values(state)
+  let Add(_, delta) = op
+  let state =
+    GSetState(
+      ..state,
+      sequenced: g_set.merge(state.sequenced, delta),
+      optimistic: g_set.merge(state.optimistic, delta),
+    )
+  #(state, events_between(before, values(state)), op)
+}
+
+/// Ack-free p2p variant of `add`: commits immediately, see `commit_p2p`.
+pub fn p2p_add(
+  state: GSetState,
+  element: String,
+) -> #(GSetState, List(GSetEvent), GSetOp) {
+  let #(_, delta) = g_set.add_with_delta(state.optimistic, element)
+  commit_p2p(state, Add(element, delta))
+}
+
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner: the result is the least upper bound of both sides.
+pub fn p2p_merge(
+  state: GSetState,
+  other: GSet(String),
+) -> #(GSetState, List(GSetEvent)) {
+  let before = values(state)
+  let sequenced = g_set.merge(state.sequenced, other)
+  let optimistic = replay_pending(sequenced, state.pending)
+  let state = GSetState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(state, events_between(before, values(state)))
+}
+
 pub fn apply_remote(
   state: GSetState,
   op: GSetOp,

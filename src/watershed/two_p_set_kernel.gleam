@@ -102,6 +102,58 @@ pub fn remove(
   #(state, events_between(before, values(state)), op, message_id)
 }
 
+/// Merge a freshly-authored local delta into both `sequenced` and
+/// `optimistic` in one step, with no pending entry — the ack-free p2p
+/// commit. Mirrors `sequence_kernel.commit_p2p`.
+fn commit_p2p(
+  state: TwoPSetState,
+  op: TwoPSetOp,
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+  let before = values(state)
+  let delta = op_delta(op)
+  let state =
+    TwoPSetState(
+      ..state,
+      sequenced: two_p_set.merge(state.sequenced, delta),
+      optimistic: two_p_set.merge(state.optimistic, delta),
+    )
+  #(state, events_between(before, values(state)), op)
+}
+
+/// Ack-free p2p variant of `add`: commits immediately, see `commit_p2p`.
+pub fn p2p_add(
+  state: TwoPSetState,
+  element: String,
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+  let #(_, delta) = two_p_set.add_with_delta(state.optimistic, element)
+  commit_p2p(state, Add(element, delta))
+}
+
+/// Ack-free p2p variant of `remove`: commits immediately, see `commit_p2p`.
+pub fn p2p_remove(
+  state: TwoPSetState,
+  element: String,
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+  let #(_, delta) = two_p_set.remove_with_delta(state.optimistic, element)
+  commit_p2p(state, Remove(element, delta))
+}
+
+/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
+/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
+/// than one delta. Lattice merge is a join, so this never replaces a
+/// winner: the result is the least upper bound of both sides.
+pub fn p2p_merge(
+  state: TwoPSetState,
+  other: TwoPSet(String),
+) -> #(TwoPSetState, List(TwoPSetEvent)) {
+  let before = values(state)
+  let sequenced = two_p_set.merge(state.sequenced, other)
+  let optimistic = replay_pending(sequenced, state.pending)
+  let state =
+    TwoPSetState(..state, sequenced: sequenced, optimistic: optimistic)
+  #(state, events_between(before, values(state)))
+}
+
 pub fn apply_remote(
   state: TwoPSetState,
   op: TwoPSetOp,
