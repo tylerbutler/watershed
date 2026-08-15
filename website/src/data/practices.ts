@@ -9,11 +9,24 @@
 // ──────────────────────────────────────────────────────────────────────────
 import { examples, type Example } from "./examples";
 
+/** Section order on /patterns. */
+export const practiceGroups = [
+  "Connection & architecture",
+  "Schema & document shape",
+  "Presence & ripples",
+  "Writes & convergence",
+  "Testing",
+] as const;
+
+export type PracticeGroup = (typeof practiceGroups)[number];
+
 export interface Practice {
   /** Anchor slug on /patterns. */
   id: string;
   /** Section title. */
   title: string;
+  /** Grouping section on /patterns. */
+  group: PracticeGroup;
   /** `Example.id` of the app that demonstrates this practice. */
   example: string;
   /** One-sentence imperative rule. */
@@ -26,7 +39,7 @@ export interface Practice {
   snippetLang: "gleam" | "js";
   /** Path of the excerpted file, relative to the example directory. */
   snippetFile: string;
-  /** The unique check that pins the claim, if the example has one. */
+  /** Only for Testing-group patterns: the check that pins the claim. */
   testNote?: string;
 }
 
@@ -34,6 +47,7 @@ export const practices: Practice[] = [
   {
     id: "relay-decorator",
     title: "Treat the server as an optional decorator",
+    group: "Connection & architecture",
     example: "clap_counter_lustre",
     rule: "When the app is peer-to-peer, add durability as a config decorator that readiness never waits on.",
     body: [
@@ -65,12 +79,11 @@ fn with_relay(
 }`,
     snippetLang: "gleam",
     snippetFile: "src/clap_counter_lustre.gleam",
-    testNote:
-      "just p2p-clap runs two real headless browsers through the reference signaling service and asserts equal totals, equal canonical digests, and that signaling carried nothing but join/signal/leave frames.",
   },
   {
     id: "shared-core-two-runtimes",
     title: "One shared core, two runtimes",
+    group: "Connection & architecture",
     example: "dice_cli",
     rule: "Prove the core is portable by joining the same document from an OTP actor and a browser tab.",
     body: [
@@ -101,6 +114,7 @@ fn with_relay(
   {
     id: "diagnostics-first",
     title: "Sample diagnostics on every event",
+    group: "Connection & architecture",
     example: "dice_lustre",
     rule: "Render the runtime's own diagnostics before guessing at a sync bug.",
     body: [
@@ -127,12 +141,11 @@ fn with_relay(
 }`,
     snippetLang: "gleam",
     snippetFile: "src/dice_lustre.gleam",
-    testNote:
-      "The headless smoke forces a mid-session reconnect with edits applied during the drop, then asserts convergence.",
   },
   {
     id: "quorum-pending-roster",
     title: "Propose on release, render the pending signoff",
+    group: "Writes & convergence",
     example: "drum_machine_lustre",
     rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
     body: [
@@ -164,12 +177,11 @@ BpmCommitted ->
   }`,
     snippetLang: "gleam",
     snippetFile: "src/drum_machine_lustre.gleam",
-    testNote:
-      "test/quorum_test.gleam runs three clients (a two-client room cannot distinguish a correct signoff roster from [self, author]) and drains a stalled proposal by disconnecting the silent client.",
   },
   {
     id: "realtime-out-of-band",
     title: "Keep latency-critical loops out of the update path",
+    group: "Presence & ripples",
     example: "drum_machine_lustre",
     rule: "A real-time loop reads a plain snapshot the app pushes to it; it never calls back into the application.",
     body: [
@@ -207,6 +219,7 @@ BpmCommitted ->
   {
     id: "presence-idiom",
     title: "The minimal presence idiom",
+    group: "Presence & ripples",
     example: "flowboard_lustre",
     rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
     body: [
@@ -247,6 +260,7 @@ fn remote_entries(
   {
     id: "protocol-on-ripples",
     title: "Ride an application protocol on ripples",
+    group: "Presence & ripples",
     example: "grocery_triptych_lustre",
     rule: "Coordination that should die with the session gets its own message envelope on ripples, never a document channel.",
     body: [
@@ -276,12 +290,11 @@ pub fn should_acknowledge(
 }`,
     snippetLang: "gleam",
     snippetFile: "src/scenario_protocol.gleam",
-    testNote:
-      "scenario_protocol_test covers every phase transition (including rejecting a foreign run id and this client's own echo) with no document and no transport.",
   },
   {
     id: "pure-modules",
     title: "Extract pure modules; test without a server",
+    group: "Testing",
     example: "grocery_triptych_lustre",
     rule: "Pull decision logic out of update into pure modules, and let most of the suite need no doc, no sluice, no server.",
     body: [
@@ -319,6 +332,7 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
   {
     id: "ffi-surface",
     title: "Hand a rendering surface to FFI, and bootstrap on Connected",
+    group: "Connection & architecture",
     example: "pixel_canvas_lustre",
     rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
     body: [
@@ -343,12 +357,11 @@ Connected(Error(reason)) -> #(
 )`,
     snippetLang: "gleam",
     snippetFile: "src/pixel_canvas_lustre.gleam",
-    testNote:
-      "The convergence suite owns the offline-window family (regions painted while offline join on reconnect; a cell contested across the window converges) and deliberately does not assert which colour wins.",
   },
   {
     id: "fallible-edits",
     title: "Fallible edits render; never assert on a mutation",
+    group: "Writes & convergence",
     example: "playlist_lustre",
     rule: "Every index-addressed edit returns a Result, because a peer can delete the row between render and click.",
     body: [
@@ -385,12 +398,11 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
 }`,
     snippetLang: "gleam",
     snippetFile: "src/playlist_lustre/component.gleam",
-    testNote:
-      "The library suite pins the payoff race (a concurrent move against a replace preserves every element), and the smoke asserts an out-of-bounds delete is refused rather than clamped.",
   },
   {
     id: "authoritative-channel",
     title: "When a move is not atomic, crown one channel authoritative",
+    group: "Schema & document shape",
     example: "retro_board_lustre",
     rule: "A cross-channel move cannot be transactional, so pick the channel that wins and reconcile at render time.",
     body: [
@@ -437,12 +449,11 @@ fn render_column(
 }`,
     snippetLang: "gleam",
     snippetFile: "src/board.gleam",
-    testNote:
-      "board_test unit-tests the render rules themselves (duplicate ids, orphan votes, unknown columns), and the convergence suite pins observed behaviour: an edit racing a delete wins, and the card resurrects at the column tail.",
   },
   {
     id: "stamp-schema",
     title: "Stamp the schema; refuse bad reads",
+    group: "Schema & document shape",
     example: "scoreboard_cli",
     rule: "Seed a detached typed map in one write, stamp its schema version, then attach, so incompatible layouts fail at read time instead of silently.",
     body: [
@@ -472,6 +483,7 @@ let selector =
   {
     id: "typedmap-panels",
     title: "Panels take a TypedMap, never a root",
+    group: "Schema & document shape",
     example: "showcase_lustre",
     rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
     body: [
@@ -503,12 +515,11 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
 }`,
     snippetLang: "gleam",
     snippetFile: "src/showcase_lustre.gleam",
-    testNote:
-      "composition_test asserts what the types cannot: panel keys do not leak into the root, racing clients agree on one set of children, and one go_offline partitions all four panels.",
   },
   {
     id: "claims-seeding",
     title: "Seed idempotently with Claims",
+    group: "Schema & document shape",
     example: "sudoku_lustre",
     rule: "When every client must agree on initial data, let every client run the same seeding loop through first-writer-wins claims.",
     body: [
@@ -545,6 +556,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
   {
     id: "anchors-not-offsets",
     title: "Anchors, not offsets",
+    group: "Schema & document shape",
     example: "text_lustre",
     rule: "Never store a text position as an integer: hold an anchor and re-resolve it after every edit.",
     body: [
@@ -565,12 +577,11 @@ fn refresh_anchor(model: Model) -> Model {
 }`,
     snippetLang: "gleam",
     snippetFile: "src/text_lustre/component.gleam",
-    testNote:
-      "The smoke races an emoji insert at the head against a combining-mark insert at the tail and asserts grapheme integrity and anchor movement; caret and IME behaviour ship as reasoned manual checklists.",
   },
   {
     id: "unsettled-writes",
     title: "Show writes that have not settled",
+    group: "Writes & convergence",
     example: "tournament_bracket_lustre",
     rule: "When a structure is not optimistic, say so in the UI: pending until the event that proves the write sequenced.",
     body: [
@@ -606,12 +617,11 @@ AtomicChanged(key, value, _local) -> {
 }`,
     snippetLang: "gleam",
     snippetFile: "src/tournament_bracket_lustre.gleam",
-    testNote:
-      "The convergence suite pins the payoff: concurrent conflicting reports converge on one official winner while the losing report stays visible in the version log.",
   },
   {
     id: "deterministic-death",
     title: "Test client death deterministically",
+    group: "Testing",
     example: "work_queue_lustre",
     rule: "The interesting event is a client dying mid-job. Reproduce it in-process with a disconnect that sequences the same leave the server would.",
     body: [

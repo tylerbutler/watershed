@@ -15,7 +15,7 @@ const clients = [
       every folder holds its own key/value readings <em>and</em> a set of named
       child folders. One client creates it and shares the handle; the others
       resolve it. They talk to one <code>sluice</code>, the in-memory server
-      that ships in the library for deterministic tests. It runs the production
+      that ships in the library. It runs the production
       client runtime without a network backend. Local edits are drawn in
       <strong class="k-pending">magenta</strong> until the sluice stamps them;
       server-sequenced state is <strong class="k-seq">ink</strong>.

@@ -11,7 +11,6 @@ export interface Example {
   summary: string;
   structures: string[];
   payoff: string;
-  checks: string;
 }
 
 export const exampleGroups: {
@@ -55,7 +54,6 @@ export const examples: Example[] = [
     structures: ["SharedMap", "SharedCounter", "Presence"],
     payoff:
       "Local and remote card moves pass through one declared Lustre effect loop.",
-    checks: "Manual two-tab run; source is compiled by the website guide",
   },
   {
     id: "dice_lustre",
@@ -66,7 +64,6 @@ export const examples: Example[] = [
     structures: ["SharedMap"],
     payoff:
       "Two tabs converge through the same pure core used by the BEAM client and survive reconnect.",
-    checks: "Headless live-server convergence and reconnect smoke",
   },
   {
     id: "clap_counter_lustre",
@@ -77,7 +74,6 @@ export const examples: Example[] = [
     structures: ["PnCounter"],
     payoff:
       "Held buttons in several tabs add every clap without a lost update, and no server ever sees one.",
-    checks: "Two real browser peers converge through the reference signaling service",
   },
   {
     id: "grocery_triptych_lustre",
@@ -88,7 +84,6 @@ export const examples: Example[] = [
     structures: ["GSet", "TwoPSet", "OrSet"],
     payoff:
       "Remove and re-add milk: grow-only, tombstone, and observed-remove behavior diverge exactly as modeled.",
-    checks: "Sluice convergence, scenario state, and browser smoke tests",
   },
   {
     id: "drum_machine_lustre",
@@ -99,7 +94,6 @@ export const examples: Example[] = [
     structures: ["OrSet", "PactMap"],
     payoff:
       "Pattern edits land immediately while tempo waits for every connected signer; convergence becomes audible.",
-    checks: "Sluice convergence, quorum, and live-server smoke tests",
   },
   {
     id: "tournament_bracket_lustre",
@@ -110,7 +104,6 @@ export const examples: Example[] = [
     structures: ["RegisterCollection", "Presence"],
     payoff:
       "Conflicting reports converge on one CAS winner without discarding the losing submission.",
-    checks: "Sluice convergence, bracket unit, and live-server smoke tests",
   },
   {
     id: "work_queue_lustre",
@@ -121,7 +114,6 @@ export const examples: Example[] = [
     structures: ["OrderedCollection", "TaskManager", "SharedSequence"],
     payoff:
       "One worker wins each claim, and queued work plus dispatcher ownership recover when a client dies.",
-    checks: "Queue semantics, worker-death convergence, and server smoke tests",
   },
   {
     id: "retro_board_lustre",
@@ -132,7 +124,6 @@ export const examples: Example[] = [
     structures: ["OrMap", "SharedSequence", "Presence"],
     payoff:
       "Concurrent notes and votes survive; cross-channel moves render honestly without pretending to be atomic.",
-    checks: "Sluice convergence, board/codec, and live-server smoke tests",
   },
   {
     id: "sudoku_lustre",
@@ -143,7 +134,6 @@ export const examples: Example[] = [
     structures: ["SharedMap", "OrSet", "Claims", "SharedCounter", "Presence"],
     payoff:
       "Cell edits, pencil marks, givens, mistakes, and live awareness each use the conflict model they need.",
-    checks: "Sluice convergence and browser smoke tests",
   },
   {
     id: "showcase_lustre",
@@ -154,7 +144,6 @@ export const examples: Example[] = [
     structures: ["Child maps", "SharedText", "SharedSequence", "Claims", "OrMap"],
     payoff:
       "Panels switch without reconnecting, stay namespace-isolated, and share document-wide services safely.",
-    checks: "Composition, roster, partition, and multi-panel convergence tests",
   },
   {
     id: "playlist_lustre",
@@ -165,7 +154,6 @@ export const examples: Example[] = [
     structures: ["SharedSequence"],
     payoff:
       "Concurrent moves and replacements converge while stale indices surface as rejected edits.",
-    checks: "Headless concurrent move/replace and reconnect smoke",
   },
   {
     id: "text_lustre",
@@ -176,7 +164,6 @@ export const examples: Example[] = [
     structures: ["SharedText", "Presence"],
     payoff:
       "Minimal text operations converge without replacing the whole document or losing the local caret.",
-    checks: "Headless convergence smoke plus manual caret and IME checks",
   },
   {
     id: "pixel_canvas_lustre",
@@ -187,7 +174,6 @@ export const examples: Example[] = [
     structures: ["OrMap"],
     payoff:
       "Two disconnected painters rejoin and produce the same picture by joining sparse deltas.",
-    checks: "Sluice convergence, grid unit, and browser smoke tests",
   },
 ];
 

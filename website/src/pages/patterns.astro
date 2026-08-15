@@ -5,10 +5,16 @@ import Ecosystem from "../components/Ecosystem.astro";
 import {
   exampleForPractice,
   practiceExampleName,
+  practiceGroups,
   practiceSourceUrl,
   practices,
 } from "../data/practices";
 import { watershedCodeTheme } from "../styles/code-theme";
+
+const grouped = practiceGroups.map((group) => ({
+  group,
+  items: practices.filter((practice) => practice.group === group),
+}));
 ---
 
 <Sheet
@@ -21,9 +27,9 @@ import { watershedCodeTheme } from "../styles/code-theme";
       <h1>Each example exists<br />to prove one thing.</h1>
       <p class="p-lede">
         These are not recurring conventions; each section is a technique
-        demonstrated by the one checked-in application built to prove it,
-        with the code that carries the claim. Trace the example when the
-        excerpt is not enough.
+        demonstrated by the one application built to prove it, with the
+        code that carries the claim. Trace the example when the excerpt is
+        not enough.
       </p>
       <div class="p-actions">
         <a class="cta-primary" href="#reference">Read the reference &#8595;</a>
@@ -35,29 +41,37 @@ import { watershedCodeTheme } from "../styles/code-theme";
   <main id="reference" class="p-main">
     <nav class="p-index" aria-label="Practices">
       <p class="annot">Field index</p>
-      <ol>
-        {
-          practices.map((practice) => (
-            <li>
-              <a href={`#${practice.id}`}>
-                <span>{practice.title}</span>
-                <span aria-hidden="true">&#8595;</span>
-              </a>
-            </li>
-          ))
-        }
-      </ol>
+      {
+        grouped.map(({ group, items }) => (
+          <div class="p-index-group">
+            <p class="annot p-index-label">{group}</p>
+            <ol>
+              {items.map((practice) => (
+                <li>
+                  <a href={`#${practice.id}`}>
+                    <span>{practice.title}</span>
+                    <span aria-hidden="true">&#8595;</span>
+                  </a>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))
+      }
     </nav>
 
     <div class="p-reference">
       {
-        practices.map((practice) => {
-          const example = exampleForPractice(practice);
-          const exampleName = practiceExampleName(practice);
-          return (
+        grouped.map(({ group, items }) => (
+          <section class="p-group">
+            <h2 class="p-group-title">{group}</h2>
+            {items.map((practice) => {
+              const example = exampleForPractice(practice);
+              const exampleName = practiceExampleName(practice);
+              return (
             <section id={practice.id} class="p-pattern">
               <header>
-                <h2>{practice.title}</h2>
+                <h3>{practice.title}</h3>
                 <p class="p-rule">{practice.rule}</p>
               </header>
               <div class="p-detail">
@@ -95,8 +109,10 @@ import { watershedCodeTheme } from "../styles/code-theme";
                 </a>
               </div>
             </section>
-          );
-        })
+              );
+            })}
+          </section>
+        ))
       }
     </div>
   </main>
@@ -202,9 +218,18 @@ import { watershedCodeTheme } from "../styles/code-theme";
 
   .p-index ol {
     list-style: none;
-    margin: var(--space-md) 0 0;
+    margin: 0;
     padding: 0;
     border-top: 1px solid var(--ink);
+  }
+
+  .p-index-group {
+    margin-top: var(--space-md);
+  }
+
+  .p-index-label {
+    margin-bottom: var(--space-2xs);
+    color: var(--muted);
   }
 
   .p-index li {
@@ -230,17 +255,33 @@ import { watershedCodeTheme } from "../styles/code-theme";
     min-width: 0;
   }
 
+  .p-group + .p-group {
+    margin-top: var(--space-section);
+  }
+
+  .p-group-title {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--overprint-deep);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--ink);
+  }
+
   .p-pattern {
     scroll-margin-top: var(--space-lg);
     padding-bottom: var(--space-2xl);
     border-bottom: 1px solid var(--ink);
   }
 
-  .p-pattern + .p-pattern {
+  .p-pattern + .p-pattern,
+  .p-group-title + .p-pattern {
     padding-top: var(--space-2xl);
   }
 
-  .p-pattern h2,
+  .p-pattern h3,
   .p-boundary h2 {
     max-width: 26ch;
     font-size: var(--text-h2);
