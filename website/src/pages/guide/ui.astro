@@ -103,9 +103,9 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <p>
       watershed’s browser facade speaks in callbacks: <code>on_ready</code>,
       <code>subscribe</code> handlers, presence <code>on_change</code>. Wired
-      into Lustre by hand, each of those has to <code>dispatch</code> a message,
-      and dispatching from inside an <code>update</code> clobbers the very model
-      you’re returning, so you end up deferring every callback to dodge it.
+      into Lustre by hand, each of those has to <code>dispatch</code> a message.
+      Dispatching from inside <code>update</code> clobbers the very model you’re
+      returning, so you end up deferring every callback to dodge it.
     </p>
     <p>
       <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
@@ -174,7 +174,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <div class="g-note">
       <p>
         <strong>Scope effects to their owner.</strong> The shell owns
-        document-wide effects — connection, presence, reconnect, diagnostics —
+        document-wide effects (connection, presence, reconnect, diagnostics),
         even when the button that triggers one is inside a single panel.
         Nested components receive a typed map or channel and lift their
         messages into the parent. That keeps a feature runnable both standalone
@@ -217,7 +217,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
       watershed is not published to Hex yet. The two <code>path</code>
       dependencies below resolve because this example is in
       <code>examples/</code> inside a watershed checkout. In your own project,
-      take both as git dependencies pinned to a commit instead — the{" "}
+      take both as git dependencies pinned to a commit instead; the{" "}
       <a href="https://github.com/tylerbutler/watershed#install">README</a>{" "}
       gives the exact lines.
     </p>

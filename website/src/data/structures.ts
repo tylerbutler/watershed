@@ -60,8 +60,8 @@ const counters: Structure[] = [
     optimistic: "your change shows next to the confirmed total right away",
     summary: "only one number needs saving, since every change is an add",
     how: [
-      "A shared counter holds a single integer. Each client submits a signed delta — +5, −1 — rather than a new absolute value. Because addition commutes, the server can sequence those deltas in any order and every replica still lands on the same total.",
-      "That is the whole trick: by shipping the change instead of the result, two clients incrementing at the same instant never clobber one another. A local delta renders immediately as an unsequenced Δ beside the committed value; when the sequencer stamps it, the pending delta folds into the total.",
+      "A shared counter holds a single integer. Each client submits a signed delta (+5, −1) rather than a new absolute value. Addition commutes, so the server can sequence deltas in any order and every replica lands on the same total.",
+      "Shipping the change instead of the result is the whole trick: two clients incrementing at the same instant never clobber one another. A local delta renders immediately as an unsequenced Δ beside the committed value. When the sequencer stamps it, the pending delta folds into the total.",
     ],
     useCases: [
       "Live tallies: votes, reactions, attendees, items in a shared cart",
@@ -82,7 +82,7 @@ const counters: Structure[] = [
     summary: "each client’s running tally reloads intact",
     how: [
       "A grow-only counter keeps one monotone count per replica. Client A only ever raises A’s slot; client B only B’s. The visible value is the sum of every slot.",
-      "Merging two states takes, for each replica, the larger of the two counts. That pairwise maximum is idempotent, so a delta delivered twice — after a reconnect, say — changes nothing the second time. The price is that a G-counter can only increase; it has no decrement.",
+      "Merging two states takes the larger count for each replica. That pairwise maximum is idempotent, so a delta delivered twice (after a reconnect, say) changes nothing the second time. The price: a G-counter can only increase. It has no decrement.",
     ],
     useCases: [
       "Idempotent counters over at-least-once or unreliable delivery",
@@ -102,10 +102,10 @@ const counters: Structure[] = [
     summary: "per-client tallies survive reconnect and repeated delivery",
     how: [
       "A single G-counter can only grow, which rules out decrements. A PN counter restores them by pairing two G-counters: a positive ledger and a negative ledger, each keyed by replica. The value you read is the positive sum minus the negative sum.",
-      "Because each half is a max-merge CRDT, the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently — the demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter needs the runtime's sequence-number dedup to survive that; here the merge alone is enough.",
+      "Each half is a max-merge CRDT, so the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently. The demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter needs the runtime's sequence-number dedup to survive that; here the merge alone is enough.",
     ],
     useCases: [
-      "Counters that go up and down under unreliable delivery — reserve/release, like/unlike",
+      "Counters that go up and down under unreliable delivery (reserve/release, like/unlike)",
       "Collaborative budgets or capacity that both grows and shrinks concurrently",
       "Offline-first counters that reconcile on reconnect without dropping edits",
     ],
@@ -119,14 +119,14 @@ const sets: Structure[] = [
     module: "g_set_kernel",
     kind: "CRDT",
     onHomepage: true,
-    tagline: "A set you can only add to — the simplest one that always agrees.",
+    tagline: "A set you can only add to (the simplest one that always agrees).",
     rule: "an add-only set; once something is in, it stays, and merging is a plain union",
     optimistic:
       "your addition shows in magenta until it’s confirmed",
     summary: "the confirmed set reloads as a permanent record",
     how: [
-      "The simplest set CRDT. Elements can be added but never removed. Merging two replicas is a plain union — commutative, associative, and idempotent — so adds arrive in any order, any number of times, and everyone converges on the same membership.",
-      "Removal is simply not expressible, which is exactly what makes a G-set trivially correct. When you do need removal, you layer tombstones on top — that is the 2P-set and OR-set below.",
+      "The simplest set CRDT. Elements can be added but never removed. Merging two replicas is a plain union (commutative, associative, and idempotent), so adds arrive in any order, any number of times, and everyone converges on the same membership.",
+      "Removal is not expressible, which is what makes a G-set trivially correct. When you need removal, you layer tombstones on top: the 2P-set and OR-set below.",
     ],
     useCases: [
       "Append-only registries: recorded events, observed device IDs, seen keys",
@@ -146,8 +146,8 @@ const sets: Structure[] = [
       "adds and removals show in magenta until they’re confirmed",
     summary: "current items and removed ones reload together",
     how: [
-      "A two-phase set layers a second grow-only set — of tombstones — over a grow-only set of adds. An element is a member when it is in the add-set and absent from the tombstone-set.",
-      "Both halves only grow, so merge is two unions and convergence is guaranteed. The trade-off is stark: once removed, an element can never be re-added, because the tombstone always wins. Concurrent add-versus-remove resolves remove-wins on every replica, and a reset needs a fresh set rather than a shrinking op.",
+      "A two-phase set layers a grow-only set of tombstones over a grow-only set of adds. An element is a member when it is in the add-set and absent from the tombstone-set.",
+      "Both halves only grow, so merge is two unions and convergence is guaranteed. The trade-off is stark: once removed, an element can never be re-added, because the tombstone always wins. Concurrent add-versus-remove resolves remove-wins on every replica. A reset needs a fresh set rather than a shrinking op.",
     ],
     useCases: [
       "Membership where retirement is final: revoked credentials, decommissioned assets",
@@ -161,14 +161,14 @@ const sets: Structure[] = [
     module: "or_set_kernel",
     kind: "CRDT",
     onHomepage: true,
-    tagline: "A set where add, remove, and add-again all work — the everyday choice.",
+    tagline: "A set where add, remove, and add-again all work: the everyday choice.",
     rule: "add, remove, and add again all work; if an add and a remove race, the add wins",
     optimistic:
       "your change overlays the list in magenta until it’s confirmed",
     summary: "current members and their removal history reload intact",
     how: [
       "An observed-remove set fixes the 2P-set’s fatal flaw: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",
-      "So if one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays — add-wins. That extra bookkeeping is why the OR-set is the workhorse removable set across collaborative apps.",
+      "If one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays (add-wins). That bookkeeping is why the OR-set is the workhorse removable set across collaborative apps.",
     ],
     useCases: [
       "Collaborative selections, tags, labels, and shopping carts",
@@ -207,15 +207,15 @@ const maps: Structure[] = [
     kind: "CRDT",
     onHomepage: true,
     tagline: "A map where editing a key and deleting it at once won’t lose the edit.",
-    rule: "delete a key while someone else edits it, and the edit survives — the write wins",
+    rule: "delete a key while someone else edits it, and the edit survives (the write wins)",
     optimistic: "deleted rows stay readable until the delete is confirmed",
     summary: "entries remember their edit history, not just the current value",
     how: [
-      "An OR-map applies the OR-set’s observed-remove semantics to keyed entries. Each entry carries causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete — add-wins.",
+      "An OR-map applies the OR-set’s observed-remove semantics to keyed entries. Each entry carries causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete (add-wins).",
       "Values can themselves be additive tallies, which turns the map into a keyed CRDT ledger. In the demo it appears as a stockpile ledger where striking a row hides it and re-opening submits a +0 delta to surface the retained tally.",
     ],
     useCases: [
-      "Keyed ledgers edited offline or concurrently — stockpiles, inventories, per-key counters",
+      "Keyed ledgers edited offline or concurrently (stockpiles, inventories, per-key counters)",
       "Maps where deleting and concurrently updating a key must not lose the update",
       "A CRDT-correct alternative to SharedMap when last-write-wins would drop data",
     ],
@@ -227,18 +227,18 @@ const maps: Structure[] = [
     kind: "DDS",
     onHomepage: false,
     demoHref: "/directory",
-    tagline: "SharedMap with folders — nested groups of keys, each folder keeping its own identity.",
+    tagline: "SharedMap with folders: nested groups of keys, each keeping its own identity.",
     rule: "like SharedMap, but with folders; each folder keeps its identity even if it’s deleted and remade",
     optimistic: "folder and key edits show immediately until the server confirms them",
     summary: "the whole folder tree reloads intact",
     how: [
-      "SharedDirectory is SharedMap made recursive, modeled after Fluid Framework’s SharedDirectory design. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path — /surveys, /surveys/intake. Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
-      "The hard part isn’t the storage — it’s hierarchical identity. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op’s reference sequence number, so a stale op targeting an old instance of a path is ignored while concurrent same-name creates merge into a single folder. That is what a flat map cannot express.",
+      "SharedDirectory is SharedMap made recursive, modeled after Fluid Framework’s SharedDirectory design. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path (/surveys, /surveys/intake). Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
+      "The hard part is hierarchical identity, not storage. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op’s reference sequence number. A stale op targeting an old instance of a path is ignored; concurrent same-name creates merge into a single folder. A flat map cannot express that.",
     ],
     useCases: [
       "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
       "Studying hierarchical identity and server-ordered folder collaboration",
-      "Anywhere a flat map’s keys want structure — folders of readings, grouped settings",
+      "Anywhere a flat map’s keys want structure (folders of readings, grouped settings)",
     ],
   },
 ];
@@ -252,20 +252,20 @@ const sequences: Structure[] = [
     onHomepage: true,
     demoHref: "/sequence",
     tagline:
-      "An ordered list many people can edit at once — insert, move, and reorder without losing anyone’s changes.",
+      "An ordered list many people can edit at once: insert, move, and reorder without losing anyone’s changes.",
     rule: "each item keeps a stable identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers",
     optimistic:
       "your edit shows immediately in magenta; items slide when the sequenced order lands",
     summary: "the sequenced list reloads intact; pending edits replay on top",
     how: [
-      "A shared sequence holds an ordered list of JSON values. You address an edit by index — insert at 2, move 4 to 1 — but the index only records intent. Underneath, every item carries a stable identity, and the CRDT delta that ships is expressed against identities, not positions. That is what lets two replicas edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
+      "A shared sequence holds an ordered list of JSON values. You address an edit by index (insert at 2, move 4 to 1), but the index only records intent. Underneath, every item carries a stable identity, and the CRDT delta that ships is expressed against identities, not positions. Two replicas can therefore edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
       "The lattice merge is duplicate- and order-tolerant: a delta delivered twice, or after its neighbors, is absorbed without disturbing the list. Local edits apply optimistically and ride the sequenced stream as deltas; if the server rejects one, it rolls back and the remaining pending edits replay over the sequenced base.",
-      "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation — one pending entry, one wire op, one event. The identity-CRDT design and wire format are watershed’s own.",
+      "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation (one pending entry, one wire op, one event). The identity-CRDT design and wire format are watershed’s own.",
     ],
     useCases: [
       "Shared itineraries, checklists, and ordered plans edited by many hands",
-      "Reorderable collections — playlists, priority queues, kanban lanes — where a move must not clobber a concurrent edit",
-      "The ordered substrate beneath SharedText — the collaborative plain-text DDS built on the same identity lattice",
+      "Reorderable collections (playlists, priority queues, kanban lanes) where a move must not clobber a concurrent edit",
+      "The ordered substrate beneath SharedText, the collaborative plain-text DDS built on the same identity lattice",
     ],
   },
   {
@@ -276,21 +276,21 @@ const sequences: Structure[] = [
     onHomepage: false,
     demoHref: "/text",
     tagline:
-      "A string many people can type into at once — insert, delete, and replace characters without losing anyone’s keystrokes.",
+      "A string many people can type into at once: insert, delete, and replace characters without losing anyone’s keystrokes.",
     rule: "every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge instead of fighting over character offsets",
     optimistic:
       "your keystroke shows immediately in magenta; the text reflows when the sequenced order lands",
     summary: "the sequenced string reloads intact; pending edits replay on top",
     how: [
-      "A shared text holds an ordered run of graphemes — user-perceived characters. You address an edit by grapheme index — insert at 6, delete 3..7, replace 0..5 — but the index only records intent against your current view. Underneath, every grapheme carries a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. That is what lets two typists edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order rather than clobbering one another.",
-      "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity — so a cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
-      "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation — delete the span and insert the replacement at the same place — so it is a single pending entry, one wire op, one event, even across a range.",
-      "Anchors are stable positions that survive concurrent edits: pin one to a grapheme’s identity, keep editing around it, and resolve it back to a live index later — the basis for shared cursors and selections that don’t drift when a neighbor inserts. The delta format is watershed’s own, built on the same identity lattice as SharedSequence rather than Fluid’s SharedString merge tree.",
+      "A shared text holds an ordered run of graphemes (user-perceived characters). You address an edit by grapheme index (insert at 6, delete 3..7, replace 0..5), but the index only records intent against your current view. Underneath, every grapheme carries a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. Two typists can therefore edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order.",
+      "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity. A cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
+      "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation (delete the span, insert the replacement at the same place), so it is a single pending entry, one wire op, one event, even across a range.",
+      "Anchors are stable positions that survive concurrent edits: pin one to a grapheme’s identity, keep editing around it, and resolve it back to a live index later. They are the basis for shared cursors and selections that don’t drift when a neighbor inserts. The delta format is watershed’s own, built on the same identity lattice as SharedSequence rather than Fluid’s SharedString merge tree.",
     ],
     useCases: [
       "Collaborative notes, captions, and comment fields edited by many hands at once",
       "Live-typed labels and single-line fields where two people may touch the same word",
-      "Anything needing shared cursors or selections that stay put as neighbors type — anchors track identities, not offsets",
+      "Anything needing shared cursors or selections that stay put as neighbors type (anchors track identities, not offsets)",
     ],
   },
 ];
@@ -308,11 +308,11 @@ const transforms: Structure[] = [
     optimistic: "you edit instantly; your in-flight change is adjusted as other people’s confirmed edits arrive",
     summary: "the document reloads to the same value everywhere, list positions and all",
     how: [
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra — the operational-transform model behind ShareDB. Instead of merging keys by rule, it edits one shared JSON document with a small algebra of operations addressed by a path into the tree: set a key, insert or delete a list item, splice a string.",
-      "It runs the single-op-in-flight client protocol: a client applies an edit optimistically and sends it, keeping at most one op in flight. A central server sequences every op, and concurrent ops are transformed past one another — a concurrent list insert has its index shifted — so all replicas reach identical state, indices and all. This is the other convergence family: not merge, but transform.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra (the operational-transform model behind ShareDB). Instead of merging keys by rule, it edits one shared JSON document with a small algebra of operations addressed by a path into the tree: set a key, insert or delete a list item, splice a string.",
+      "It runs the single-op-in-flight client protocol: a client applies an edit optimistically and sends it, keeping at most one op in flight. A central server sequences every op, and concurrent ops are transformed past one another (a concurrent list insert has its index shifted), so all replicas reach identical state, indices and all. This is the other convergence family: transform rather than merge.",
     ],
     useCases: [
-      "Collaboratively edited structured documents — JSON trees, outlines, form models changed by many clients at once",
+      "Collaboratively edited structured documents (JSON trees, outlines, form models changed by many clients at once)",
       "Cases where last-write-wins would clobber a concurrent edit but you want one shared document rather than per-key CRDTs",
       "Studying the json0 algebra used by ottypes and ShareDB",
     ],
@@ -324,16 +324,16 @@ const transforms: Structure[] = [
     kind: "OT",
     onHomepage: false,
     demoHref: "/rich-text",
-    tagline: "The json_ot protocol turned on rich text — three Quill editors, one document, real concurrent formatting.",
+    tagline: "The json_ot protocol turned on rich text: three Quill editors, one document, real concurrent formatting.",
     rule: "one shared rich-text document; concurrent typing, formatting, and deletes are transformed to fit around each other",
     optimistic: "you edit instantly in Quill; your in-flight delta is adjusted as other people’s confirmed edits arrive",
     summary: "the document reloads to the same text, formatting, and embeds everywhere",
     how: [
-      "SharedRichText runs the identical single-op-in-flight client-transform protocol as json_ot, over a different algebra: a faithful port of rich-text/quill-delta, where operations retain, insert, or delete spans of text, each optionally carrying an attribute patch (bold, color, …) or wrapping an embed (an image) instead of plain text. Positions are counted in UTF-16 code units — the same units Quill and JavaScript strings themselves use — so the runtime and the editor never disagree about where an edit lands.",
-      "Each client keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. Remote deltas arrive already advanced into the client's optimistic view — the runtime applies them incrementally to the editor rather than replacing the whole document — and cursor/selection positions are transformed through every local and remote edit the same way the text itself is. This is watershed's OT-backed rich text. SharedText is the CRDT-backed plain-text counterpart: it indexes graphemes by stable identity and converges by merge instead of transform.",
+      "SharedRichText runs the same single-op-in-flight client-transform protocol as json_ot, over a different algebra: a faithful port of rich-text/quill-delta. Operations retain, insert, or delete spans of text, each optionally carrying an attribute patch (bold, color, …) or wrapping an embed (an image) instead of plain text. Positions are counted in UTF-16 code units (the same units Quill and JavaScript strings use), so the runtime and the editor never disagree about where an edit lands.",
+      "Each client keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. Remote deltas arrive already advanced into the client's optimistic view, and the runtime applies them incrementally to the editor rather than replacing the whole document. Cursor and selection positions are transformed through every local and remote edit the same way the text itself is. This is watershed's OT-backed rich text. SharedText is the CRDT-backed plain-text counterpart: it indexes graphemes by stable identity and converges by merge instead of transform.",
     ],
     useCases: [
-      "Collaborative rich-text editors — Quill, and anything built on the quill-delta/rich-text algebra",
+      "Collaborative rich-text editors (Quill, and anything built on the quill-delta/rich-text algebra)",
       "Documents where formatting and embeds must survive concurrent edits, not just plain characters",
       "Teams already invested in the OT model (ShareDB-style) who want rich text alongside json_ot's structured documents",
     ],
@@ -347,17 +347,17 @@ const coordination: Structure[] = [
     module: "claims_kernel",
     kind: "DDS",
     onHomepage: true,
-    tagline: "First come, first served ownership of named slots — no takebacks.",
+    tagline: "First come, first served ownership of named slots (no takebacks).",
     rule: "the first client to claim a slot owns it; every later claim is refused",
-    optimistic: "a claim only shows as yours once it has actually won — never before",
+    optimistic: "a claim only shows as yours once it has actually won, never before",
     summary: "who owns what reloads intact",
     how: [
       "A claims register assigns exclusive ownership of named slots. The first client whose claim is sequenced becomes the holder; every later claim is refused against the sequenced holder and its reference sequence number.",
-      "Reads are non-optimistic by design — a filed claim never shows as the holder until it actually wins, so the UI can never display a claim you might lose. Magenta annotates only the in-flight claim. There is no unclaim op; releasing means tearing off a fresh sheet.",
+      "Reads are non-optimistic by design: a filed claim never shows as the holder until it wins, so the UI can never display a claim you might lose. Magenta annotates only the in-flight claim. There is no unclaim op; releasing means tearing off a fresh sheet.",
     ],
     useCases: [
       "Exclusive resource ownership: locks, seat or room assignment, leader election",
-      "Uniqueness constraints — one owner per key, arbitrated by the server",
+      "Uniqueness constraints (one owner per key, arbitrated by the server)",
       "‘First one wins, no takebacks’ allocation",
     ],
   },
@@ -368,12 +368,12 @@ const coordination: Structure[] = [
     kind: "DDS",
     onHomepage: true,
     tagline: "Single-value cells you can read as first-writer-wins or most-recent-wins.",
-    rule: "read the first uncontested write, or the most recent one — your choice, per read",
+    rule: "read the first uncontested write, or the most recent one (your choice, per read)",
     optimistic:
       "writes stay hidden until confirmed, then settle as the winner or a kept version",
     summary: "every competing version is kept, so either read rule still works later",
     how: [
-      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer — a consensus-flavored pick — while a last-write-wins read returns the most recent version by sequence number.",
+      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer (a consensus-flavored pick). A last-write-wins read returns the most recent version by sequence number.",
       "Concurrent versions are retained with their sequence numbers, so either policy can be applied at read time. Writes stay invisible until sequenced, then resolve as atomic winners or as retained versions.",
     ],
     useCases: [
@@ -418,7 +418,7 @@ const coordination: Structure[] = [
       "If the assignee drops, the next queued volunteer takes over automatically. It is the coordination primitive for dividing exclusive work across an unreliable set of collaborators.",
     ],
     useCases: [
-      "Distributing exclusive tasks across peers — leader-per-task, sharded work",
+      "Distributing exclusive tasks across peers (leader-per-task, sharded work)",
       "Failover assignment where a backup should take over automatically",
       "Collaborative apps dividing responsibilities across clients",
     ],
@@ -434,7 +434,7 @@ const coordination: Structure[] = [
     optimistic: "a pending proposal blocks competing ones until it’s accepted or dropped",
     summary: "accepted values and pending sign-offs save and restore together",
     how: [
-      "A pact map is the strongest coordination structure here — it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
+      "A pact map is the strongest coordination structure here: it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
       "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. The design is modeled after Fluid’s quorum-consensus primitive.",
     ],
     useCases: [
@@ -451,7 +451,7 @@ export const categories: Category[] = [
     name: "Counters",
     tagline: "Numbers that many hands move at once.",
     lede: [
-      "Counters are the gentlest introduction to convergence, because addition does not care about order. Send each change as a signed delta instead of a new total, and simultaneous edits simply add up — there is nothing to overwrite.",
+      "Counters are the gentlest introduction to convergence, because addition does not care about order. Send each change as a signed delta instead of a new total, and simultaneous edits simply add up; there is nothing to overwrite.",
       "They climb in guarantee: a server-sequenced scalar, then a grow-only lattice that stays correct even when a delta is delivered twice, then a signed counter built from two of those lattices so it can move in both directions offline.",
     ],
     structures: counters,
@@ -472,7 +472,7 @@ export const categories: Category[] = [
     tagline: "Keyed state, resolved two different ways.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed’s maps span that choice.",
-      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete — correctness over simplicity when last-write-wins would drop data. SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete (correctness over simplicity when last-write-wins would drop data). SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
   },
@@ -481,7 +481,7 @@ export const categories: Category[] = [
     name: "Sequences",
     tagline: "Ordered lists that stay ordered while everyone rearranges them.",
     lede: [
-      "Order is the hardest thing to agree on. An index is only meaningful against one version of a list — the moment two people insert, move, or delete concurrently, “position 3” names different items on different screens.",
+      "Order is the hardest thing to agree on. An index is only meaningful against one version of a list. The moment two people insert, move, or delete concurrently, “position 3” names different items on different screens.",
       "Sequences resolve that by giving every item a stable identity beneath its index. Positions are how you address an edit; identities are how edits merge. Concurrent inserts at one spot both land, a move follows the item rather than the slot, and every replica converges on the same order.",
     ],
     structures: sequences,
@@ -491,7 +491,7 @@ export const categories: Category[] = [
     name: "Coordination",
     tagline: "Deciding who owns what, and agreeing before acting.",
     lede: [
-      "The last family is not about merging values but about arbitrating decisions: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
+      "The last family arbitrates decisions rather than merging values: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
       "They ascend from first-writer-wins ownership through versioned registers, FIFO queues, and task failover to a quorum-consensus map that will not commit a value until every required client signs off.",
     ],
     structures: coordination,
@@ -501,8 +501,8 @@ export const categories: Category[] = [
     name: "Transforms",
     tagline: "One shared document, kept in agreement as everyone edits.",
     lede: [
-      "The families above converge by merge rules — each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
-      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol: every client edits one shared JSON document optimistically, a central server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra instead — retain/insert/delete spans, attribute patches, embeds — for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
+      "The families above converge by merge rules: each replica applies the same commutative rule and lands the same state. This family converges the other way: operational transform, where concurrent ops are rewritten to account for one another.",
+      "watershed’s json_ot kernel is a faithful port of the ottypes json0 algebra with the single-op-in-flight client protocol. Every client edits one shared JSON document optimistically, a central server sequences each op, and concurrent ops are transformed past one another so all replicas reach identical state, indices and all. SharedRichText runs that same protocol over quill-delta's rich-text algebra (retain/insert/delete spans, attribute patches, embeds) for collaborative Quill editors. Both are OT-backed. SharedText, in the Sequences family, covers collaborative plain text with identity-based CRDT merge.",
     ],
     structures: transforms,
   },

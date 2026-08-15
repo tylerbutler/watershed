@@ -30,8 +30,8 @@ let config =
       resolves concurrent writes. A <strong>CRDT document</strong> drops that
       assumption: browsers discover one another over WebRTC, edit while
       disconnected, reconnect in any order, and converge once they exchange
-      state — because the structures involved carry their own merge rule
-      rather than depending on somebody stamping a sequence number. The clap
+      state. The structures involved carry their own merge rule rather than
+      depending on somebody stamping a sequence number. The clap
       counter in <a href={`/examples#clap_counter_lustre`}>the examples
       index</a> is this running with the sequencer never in the picture at
       all: two tabs holding the clap button down both land, and nothing
@@ -43,8 +43,8 @@ let config =
     <h2>Signaling introduces peers; it never sequences</h2>
     <p>
       A signaling service exchanges offers, answers, and ICE candidates so two
-      browsers can open a direct connection — and admits a room, if it
-      chooses to authenticate. It never assigns operation order, never stores
+      browsers can open a direct connection (and admits a room, if it chooses
+      to authenticate). It never assigns operation order, never stores
       document state, and cannot see a delta once the data channel is open:
       by protocol shape, an opaque envelope is the only thing that ever
       crosses it. A signaling outage blocks new peers from finding each
@@ -55,8 +55,8 @@ let config =
       channel to every other peer, capped at eight, and the ninth arrival is
       refused with <code>RoomFull</code> rather than degrading the mesh
       underneath everyone already in it. Applications supply their own STUN
-      and TURN servers — watershed ships neither, and host candidates alone
-      only connect peers with no NAT between them.
+      and TURN servers (watershed ships neither); host candidates alone only
+      connect peers with no NAT between them.
     </p>
   </div>
 
@@ -103,10 +103,10 @@ let config =
       <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      <strong><code>Auto</code></strong> is the default: the mesh comes up on
-      its own schedule and a configured relay attempts its own, readiness
-      waits only for the mesh, and the relay becomes the durable delta path
-      if and when it proves itself. <strong><code>P2pOnly</code></strong>{" "}
+      <strong><code>Auto</code></strong> is the default: the mesh and any
+      configured relay each come up on their own schedule, readiness waits
+      only for the mesh, and the relay becomes the durable delta path once it
+      proves itself. <strong><code>P2pOnly</code></strong>{" "}
       opens no relay socket and ignores a configured one entirely.
       <strong><code>SequencedOnly</code></strong> is the inverse: no
       signaling, no <code>RTCPeerConnection</code>, and readiness waits on the
@@ -120,8 +120,8 @@ let config =
         <strong>Losing the relay doesn't lose the document.</strong> When a
         primary relay connection drops, the document reports the failover,
         pushes the digest it owed the mesh, asks its peers for state, and
-        keeps running on WebRTC — the same public handles, the same
-        converged state, one transport quietly retired. Readiness under
+        keeps running on WebRTC: same public handles, same converged state,
+        one transport quietly retired. Readiness under
         <code>Auto</code> never waited on the relay in the first place.
       </p>
     </div>
@@ -133,7 +133,7 @@ let config =
       A relay speaking <code>crdt_relay_v1</code> is a durable fan-out point,
       not a sequencer transplanted into this mode: it stamps a diagnostic
       order for its own log, broadcasts what it accepts, and answers a
-      request for the state it holds — and it never merges, never decodes a
+      request for the state it holds. It never merges, never decodes a
       kernel payload, and never decides which of two replicas is right. That
       stays the mesh's job. A room with no relay simply keeps its state in
       whichever replicas are connected; one that attaches a relay keeps

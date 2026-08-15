@@ -11,15 +11,14 @@ const clients = [
     <h2 id="rt-demo-title">SharedRichText, live</h2>
     <p>
       Three <code>watershed</code> documents share one
-      rich-text channel over the <code>rich_text_kernel</code>, the same
-      single-op-in-flight client-transform protocol as the{" "}
-      <a href="/json-ot">json_ot demo</a>, but its algebra is quill-delta's:
+      rich-text channel over the <code>rich_text_kernel</code>. It runs the
+      same single-op-in-flight client-transform protocol as the{" "}
+      <a href="/json-ot">json_ot demo</a>, but over quill-delta's algebra:
       operations <em>retain</em>, <em>insert</em>, or <em>delete</em> spans of
-      text, each optionally carrying an attribute patch (bold, color, …) or
-      wrapping an embed (an image, say) instead of plain text. Positions are
-      counted in UTF-16 code units, matching how Quill itself addresses text:
-      the same units a JavaScript string indexes by, so no conversion happens
-      at the editor boundary. Each editor keeps at most one op in flight;
+      text. Each op can carry an attribute patch (bold, color, …) or wrap an
+      embed (an image) instead of plain text. Positions are counted in UTF-16
+      code units (the units Quill and JavaScript strings index by), so nothing
+      converts at the editor boundary. Each editor keeps at most one op in flight;
       anything typed while it's outstanding composes into a single buffered
       op behind it. This is SharedRichText, watershed's OT-backed rich text. For
       CRDT-backed plain text, <a href="/text"><code>SharedText</code></a> indexes
@@ -157,8 +156,8 @@ const clients = [
   </div>
 
   <p class="controls-hint">
-    The scenario buttons submit through each editor's own Quill instance,
-    the same path a browser keystroke takes, so what you're watching is the
+    The scenario buttons submit through each editor's own Quill instance
+    (the same path a browser keystroke takes), so you're watching the
     genuine client-transform protocol, not a scripted animation. Manual
     typing and toolbar formatting work in all three editors too; try editing
     one while a race is still in flight in another.

@@ -17,9 +17,9 @@ import Ecosystem from "../components/Ecosystem.astro";
       <p class="lede">
         SharedMap resolves each key to the write with the higher server sequence
         number. That gives every replica the same value, but it does not preserve
-        read-modify-write intent: if two clients read the same count and each
-        writes <code>count + 1</code>, both submit the same replacement value and
-        the later write contributes no additional increment. Here it is, live,
+        read-modify-write intent. If two clients read the same count and each
+        writes <code>count + 1</code>, both submit the same replacement value,
+        and the later write adds nothing. Here it is, live,
         through watershed's compiled <code>map_kernel</code>.
       </p>
       <div class="cta-row">

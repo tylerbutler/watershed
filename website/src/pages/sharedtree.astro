@@ -214,7 +214,7 @@ if (!view.compatibility.canView && view.compatibility.canUpgrade) {
 
 const rows = [
   {
-    axis: "Schema lives",
+    axis: "Schema location",
     tree: "in the document, as a stored schema written on first initialize",
     ws: "in your build only, as a phantom tag and a set of field descriptors erased at runtime",
   },
@@ -295,8 +295,8 @@ const rows = [
         Fluid Framework’s <code>SharedTree</code> and watershed’s typed layer
         want the same thing: declare a document’s shape once, get static types,
         get roots that are guaranteed to be there, get told when something
-        changes. They disagree about where the guarantee lives, and almost
-        everything else follows from that.
+        changes. They disagree about where to put the guarantee, and almost
+        everything else follows from that choice.
       </p>
     </div>
   </header>
@@ -308,7 +308,7 @@ const rows = [
         SharedTree makes the schema <em>the document</em>. The
         <code>SchemaFactory</code> id you pick is written into the container as
         the <strong>stored schema</strong>, and from then on the service
-        enforces it: a client whose view schema disagrees cannot silently write
+        enforces it. A client whose view schema disagrees cannot silently write
         the wrong shape. Because there is one tree under one rebasable
         changeset algebra, transactions, undo/redo, node identity, cross-parent
         moves, and a real schema-upgrade path all fall out of the same
@@ -317,11 +317,11 @@ const rows = [
       <p>
         watershed makes the schema a <strong>decode boundary</strong> that
         exists only in your build. The tag scoping a set of fields is a phantom
-        type, erased at compile time; nothing about it reaches the wire, and
-        any Fluid Framework-compatible sequencer — floodgate included — is
-        content-agnostic by design. What you get instead is a document that is
-        not one structure but a graph of independently converging channels, so
-        the merge policy is named per slot rather than once for everything.
+        type, erased at compile time. Nothing about it reaches the wire, and
+        any Fluid Framework-compatible sequencer (floodgate included) stays
+        content-agnostic by design. In exchange the document is not one
+        structure but a graph of independently converging channels, so the
+        merge policy is named per slot rather than once for everything.
         Reads hand back a <code>Result</code>, because a peer really
         can write anything. What you do not get is atomicity, undo, or a
         schema upgrade. Those are listed{" "}
@@ -399,9 +399,9 @@ const rows = [
         <code>string</code>, and under a stored schema it cannot be anything
         else, so the read needs no error arm. watershed cannot promise that, so
         it does not pretend to: <code>get_field</code> returns
-        <code>Result(Option(a), FieldError)</code> and you confront the “a peer
-        disagrees about this type” case exactly once, at the read, instead of
-        discovering it as corrupted state later.
+        <code>Result(Option(a), FieldError)</code>, and you confront the “a peer
+        disagrees about this type” case once, at the read, instead of
+        discovering it later as corrupted state.
       </p>
       <div class="st-pair">
         <figure class="g-code">
@@ -437,7 +437,7 @@ const rows = [
       <p>
         SharedTree stores the node, so the class declaration is the only
         declaration there is. watershed stores JSON per key, which normally
-        means writing a decoder and an encoder         and keeping them in sync by hand.
+        means writing a decoder and an encoder and keeping them in sync by hand.
         The <code>record1</code>…<code>record9</code> builders derive both
         from one prop list instead, and <code>sealed_known</code> seals the schema
         without you repeating the key names a third time.
@@ -592,7 +592,7 @@ const rows = [
         The reason is worth stating as a number rather than an adjective. Fluid
         Framework’s tree package (stored-versus-view schema system, forest,
         compositional changeset rebasing, undo/redo, ID compression) is
-        <strong>77,804 lines</strong>, and watershed’s own porting survey rates
+        <strong>77,804 lines</strong>. watershed’s own porting survey rates
         it a 10 out of 10: a multi-year project in any language, listed dead
         last on the ladder, “only if there’s a compelling product need.”
         watershed’s entire schema vocabulary is

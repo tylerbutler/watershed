@@ -87,8 +87,8 @@ pub fn main() {
     <h2>Connect</h2>
     <p>
       watershed is BEAM-first, and the same pure core compiles to the browser.
-      The facades share structure operations, but target constraints still
-      shape connection and subscription APIs. Pick your target:
+      The facades share structure operations, but each target still constrains
+      the connection and subscription APIs. Pick your target:
     </p>
 
     <div class="g-tabs">
@@ -121,9 +121,9 @@ pub fn main() {
         once history has replayed: natural inside an OTP process. In the
         browser it returns immediately and calls <code>on_ready</code> when the
         handshake completes, because you cannot block the event loop. Keep the
-        handle when it arrives — it is fine for diagnostics and document-scoped
-        services — but attach or ensure channels only after
-        <code>on_ready</code> reports <code>Ok</code>; treating handle-arrival
+        handle when it arrives (it is fine for diagnostics and document-scoped
+        services), but attach or ensure channels only after
+        <code>on_ready</code> reports <code>Ok</code>. Treating handle-arrival
         and readiness as one event is a first-load race. Map
         subscriptions differ too: BEAM returns an OTP
         <code>Subject(MapEvent)</code>; the browser facade registers a callback
@@ -136,7 +136,7 @@ pub fn main() {
     <h2>Read the root, write optimistically</h2>
     <p>
       Every document has a root <code>SharedMap</code> at address
-      <code>"root"</code>, reach it with <code>root(doc)</code>. It reads like
+      <code>"root"</code>; get it with <code>root(doc)</code>. It reads like
       an ordinary map: <code>set</code>, <code>get</code>, <code>subscribe</code>.
       There is no merge callback to write and no conflict handler to forget.
     </p>
@@ -156,8 +156,8 @@ pub fn main() {
     </p>
     <p>
       Storing a plain string under <code>"title"</code> works, but you don’t want
-      to sprinkle raw key strings through an app. Next we give the document a
-      typed shape so the keys, and their types, are declared in one place.
+      raw key strings sprinkled through an app. Next we give the document a
+      typed shape, so keys and their types are declared in one place.
     </p>
   </div>
 

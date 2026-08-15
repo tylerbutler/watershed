@@ -23,35 +23,35 @@ export const runtimeDocs: RuntimeDoc[] = [
     slug: "optimistic",
     title: "Optimistic edits",
     gloss:
-      "Show a local edit the instant it happens, reconcile it when the server sequences it — and unwind it cleanly if it loses.",
+      "Show a local edit the instant it happens, reconcile it when the server sequences it, and unwind it cleanly if it loses.",
     concept: "apply · pending → ack_local → sequenced",
   },
   {
     slug: "reconnect",
     title: "Reconnect & resync",
     gloss:
-      "Drop the link and rejoin the flow. A returning client rehydrates from a summary — the same path a fresh client boots from.",
+      "Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
     concept: "from_summary · replay · catch-up",
   },
   {
     slug: "redelivery",
     title: "Idempotent re-delivery",
     gloss:
-      "Why a re-sent delta lands as a non-event — dropped by the runtime's sequence-number check, or absorbed by an idempotent merge.",
+      "Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
     concept: "re-deliver · dedupe · absorb",
   },
   {
     slug: "presence",
     title: "Presence & ripples",
     gloss:
-      "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them — connection-backed where the server offers it, heartbeat-and-TTL where it does not.",
+      "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
     concept: "submit_ripple · sessions · server or heartbeat",
   },
   {
     slug: "p2p",
     title: "Peer-to-peer over WebRTC",
     gloss:
-      "A document that runs on a WebRTC mesh with no sequencer at all — eligible structures merge instead of ordering, and a relay attaches later for durability without changing the document's state or handles.",
+      "A document that runs on a WebRTC mesh with no sequencer at all. Eligible structures merge instead of ordering, and a relay can attach later for durability without changing the document's state or handles.",
     concept: "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1",
   },
 ];

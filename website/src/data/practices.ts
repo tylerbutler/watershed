@@ -37,8 +37,8 @@ export const practices: Practice[] = [
     example: "clap_counter_lustre",
     rule: "When the app is peer-to-peer, add durability as a config decorator that readiness never waits on.",
     body: [
-      "The clap counter is the one example built on the state-based CRDT stack: no sequencer, no tenant, no token. A relay only exists if the URL names one, and it is attached by piping the config through one decorator function.",
-      "Because the readiness policy stays Auto, a relay that is down costs a status line, not the application. The failure mode this prevents is quiet dependence: a demo that silently required a server would be lying about what the P2P mode needs.",
+      "The clap counter is the one example built on the state-based CRDT stack: no sequencer, no tenant, no token. A relay exists only if the URL names one, and one decorator function pipes it into the config.",
+      "The readiness policy stays Auto, so a relay that is down costs a status line, not the application. This prevents quiet dependence: a demo that silently required a server would lie about what the P2P mode needs.",
     ],
     snippet: `let config =
   crdt_js.config(
@@ -75,7 +75,7 @@ fn with_relay(
     rule: "Prove the core is portable by joining the same document from an OTP actor and a browser tab.",
     body: [
       "dice_cli is an Erlang-target client for the same floodgate document dice_lustre edits from a browser. The kernel, wire format, and runtime core are the same modules; only the transport shell differs. On the BEAM the app is a recursive receive loop over one selector instead of an MVU update function.",
-      "The pair also documents a real deployment gotcha: connect to 127.0.0.1, not localhost — Erlang's IPv6-first resolution can stall long enough for the server to drop the idle socket.",
+      "The pair also documents a real deployment gotcha: connect to 127.0.0.1, not localhost. Erlang's IPv6-first resolution can stall long enough for the server to drop the idle socket.",
     ],
     snippet: `fn event_loop(
   map: watershed.SharedMap,
@@ -105,7 +105,7 @@ fn with_relay(
     rule: "Render the runtime's own diagnostics before guessing at a sync bug.",
     body: [
       "The smallest browser example keeps a diagnostics line on screen and refreshes it on every event: connection phase, client id, last-seen sequence number, in-flight and buffered op counts, and the resubmit checkpoint. Its README reads each field as a triage recipe.",
-      "This is the canonical shape of a sync bug report. A stuck in_flight count, a climbing buffered count, or a phase that never reaches synced each point at a different layer — and none of them are visible from the application state alone.",
+      "This is the canonical shape of a sync bug report. A stuck in_flight count, a climbing buffered count, or a phase that never reaches synced each point at a different layer. None of them are visible from the application state alone.",
     ],
     snippet: `fn diagnostic_line(diagnostics: watershed_js.Diagnostics) -> String {
   "phase="
@@ -136,7 +136,7 @@ fn with_relay(
     example: "drum_machine_lustre",
     rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
     body: [
-      "Tempo is held in a PactMap: a change is accepted only when every connected client signs off. The slider therefore proposes on release, never per pointer move — a proposal per frame would flood a protocol in which a second proposal is rejected outright while one is pending.",
+      "Tempo is held in a PactMap: a change is accepted only when every connected client signs off. The slider therefore proposes on release, never per pointer move. A proposal per frame would flood a protocol that rejects a second proposal outright while one is pending.",
       "The pending state is rendered, not hidden: the roster of outstanding signoffs stays on screen and the control stays disabled, with a poll to catch the transitions the kernel does not report. Matching “you” in that roster uses the same client-id derivation the kernels use, so the match is exact.",
     ],
     snippet: `// Propose on release, never per pointer move. A \`pact_map_set\` per frame
@@ -165,7 +165,7 @@ BpmCommitted ->
     snippetLang: "gleam",
     snippetFile: "src/drum_machine_lustre.gleam",
     testNote:
-      "test/quorum_test.gleam runs three clients — a two-client room cannot distinguish a correct signoff roster from [self, author] — and drains a stalled proposal by disconnecting the silent client.",
+      "test/quorum_test.gleam runs three clients (a two-client room cannot distinguish a correct signoff roster from [self, author]) and drains a stalled proposal by disconnecting the silent client.",
   },
   {
     id: "realtime-out-of-band",
@@ -173,7 +173,7 @@ BpmCommitted ->
     example: "drum_machine_lustre",
     rule: "A real-time loop reads a plain snapshot the app pushes to it; it never calls back into the application.",
     body: [
-      "The audio engine is an FFI module running a lookahead scheduler: a 25 ms interval schedules every step falling inside the next 100 ms against the audio clock. It reads a mutable pattern array that Gleam pushes updates into — if the scheduler had to ask the application for the pattern, document latency would become audio jitter.",
+      "The audio engine is an FFI module running a lookahead scheduler: a 25 ms interval schedules every step falling inside the next 100 ms against the audio clock. It reads a mutable pattern array that Gleam pushes updates into. If the scheduler had to ask the application for the pattern, document latency would become audio jitter.",
       "The same file documents the background-tab trap: browsers throttle timers while the audio clock keeps running, so a naive scheduler greets a returning tab with a burst of every step it missed. The tick resyncs instead of catching up.",
     ],
     snippet: `function tick(engine) {
@@ -210,8 +210,8 @@ BpmCommitted ->
     example: "flowboard_lustre",
     rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
     body: [
-      "Flowboard is the guide's worked example, and its presence wiring is the template the larger apps elaborate: a single effect declares the driver with an encoder/decoder pair, and the roster callback filters out the local session before the model ever sees it.",
-      "Presence state includes the local session by design — the filtering is an application decision, made once, at the edge. Every peer cursor and avatar stack in the other examples is this same dozen lines with a richer payload.",
+      "Flowboard is the guide's worked example, and its presence wiring is the template the larger apps elaborate. A single effect declares the driver with an encoder/decoder pair, and the roster callback filters out the local session before the model ever sees it.",
+      "Presence state includes the local session by design; the filtering is an application decision, made once, at the edge. Every peer cursor and avatar stack in the other examples is this same dozen lines with a richer payload.",
     ],
     snippet: `fn presence_effect(
   model: Model,
@@ -250,7 +250,7 @@ fn remote_entries(
     example: "grocery_triptych_lustre",
     rule: "Coordination that should die with the session gets its own message envelope on ripples, never a document channel.",
     body: [
-      "The triptych's guided scenarios need two tabs to agree on who drives: an invitation, an acknowledgement, a go signal, status updates. All of it rides ripples inside a typed envelope with a run id, and none of it touches durable state — a browsing session's handshake has no business surviving in the document.",
+      "The triptych's guided scenarios need two tabs to agree on who drives: an invitation, an acknowledgement, a go signal, status updates. All of it rides ripples inside a typed envelope with a run id, and none of it touches durable state. A browsing session's handshake has no business surviving in the document.",
       "The envelope module is pure: run matching, self-filtering, ack selection, and foreign-type rejection are plain functions over decoded messages, which is what makes the protocol testable without a server.",
     ],
     snippet: `pub fn matches_run(expected_run_id: String, inbound: Inbound) -> Bool {
@@ -277,7 +277,7 @@ pub fn should_acknowledge(
     snippetLang: "gleam",
     snippetFile: "src/scenario_protocol.gleam",
     testNote:
-      "scenario_protocol_test covers every phase transition — including rejecting a foreign run id and this client's own echo — with no document and no transport.",
+      "scenario_protocol_test covers every phase transition (including rejecting a foreign run id and this client's own echo) with no document and no transport.",
   },
   {
     id: "pure-modules",
@@ -285,7 +285,7 @@ pub fn should_acknowledge(
     example: "grocery_triptych_lustre",
     rule: "Pull decision logic out of update into pure modules, and let most of the suite need no doc, no sluice, no server.",
     body: [
-      "The triptych carries the repo's largest pure-logic suite — around a thousand lines across protocol, scenario-state, and guard tests — because everything that decides was extracted from everything that performs. The 23-line refresh guard below is the smallest specimen: a generation counter that drops stale coalesced refreshes.",
+      "The triptych carries the repo's largest pure-logic suite (around a thousand lines across protocol, scenario-state, and guard tests), because everything that decides was extracted from everything that performs. The 23-line refresh guard below is the smallest specimen: a generation counter that drops stale coalesced refreshes.",
       "The payoff is proportion: the expensive convergence and browser smoke tests are reserved for claims only they can make, while every branch of the decision logic runs as ordinary unit tests.",
     ],
     snippet: `pub type State {
@@ -314,11 +314,11 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
     snippetLang: "gleam",
     snippetFile: "src/refresh_guard.gleam",
     testNote:
-      "Seven test files — protocol, scenario state, guards, actions — run pure, alongside a much smaller sluice and smoke tier.",
+      "Seven test files (protocol, scenario state, guards, actions) run pure, alongside a much smaller sluice and smoke tier.",
   },
   {
     id: "ffi-surface",
-    title: "Hand a rendering surface to FFI — and bootstrap on Connected",
+    title: "Hand a rendering surface to FFI, and bootstrap on Connected",
     example: "pixel_canvas_lustre",
     rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
     body: [
@@ -344,7 +344,7 @@ Connected(Error(reason)) -> #(
     snippetLang: "gleam",
     snippetFile: "src/pixel_canvas_lustre.gleam",
     testNote:
-      "The convergence suite owns the offline-window family — regions painted while offline join on reconnect; a cell contested across the window converges — and deliberately does not assert which colour wins.",
+      "The convergence suite owns the offline-window family (regions painted while offline join on reconnect; a cell contested across the window converges) and deliberately does not assert which colour wins.",
   },
   {
     id: "fallible-edits",
@@ -352,7 +352,7 @@ Connected(Error(reason)) -> #(
     example: "playlist_lustre",
     rule: "Every index-addressed edit returns a Result, because a peer can delete the row between render and click.",
     body: [
-      "Sequence operations — insert, move, replace, delete — are fallible by design: the index a client renders can be stale by the time it clicks. The playlist funnels every edit through one helper that surfaces the runtime's own error message as a banner, and no mutation is ever unwrapped with an assert.",
+      "Sequence operations (insert, move, replace, delete) are fallible by design: the index a client renders can be stale by the time it clicks. The playlist funnels every edit through one helper that surfaces the runtime's own error message as a banner, and no mutation is ever unwrapped with an assert.",
       "The boundary behaviour is part of the contract: an out-of-bounds edit is refused, not clamped. Clamping would silently reorder the wrong element; the refusal is honest and renderable.",
     ],
     snippet: `MoveDownClicked(index) -> #(
@@ -386,7 +386,7 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
     snippetLang: "gleam",
     snippetFile: "src/playlist_lustre/component.gleam",
     testNote:
-      "The library suite pins the payoff race — a concurrent move against a replace preserves every element — and the smoke asserts an out-of-bounds delete is refused rather than clamped.",
+      "The library suite pins the payoff race (a concurrent move against a replace preserves every element), and the smoke asserts an out-of-bounds delete is refused rather than clamped.",
   },
   {
     id: "authoritative-channel",
@@ -438,15 +438,15 @@ fn render_column(
     snippetLang: "gleam",
     snippetFile: "src/board.gleam",
     testNote:
-      "board_test unit-tests the render rules themselves — duplicate ids, orphan votes, unknown columns — and the convergence suite pins observed behaviour: an edit racing a delete wins, and the card resurrects at the column tail.",
+      "board_test unit-tests the render rules themselves (duplicate ids, orphan votes, unknown columns), and the convergence suite pins observed behaviour: an edit racing a delete wins, and the card resurrects at the column tail.",
   },
   {
     id: "stamp-schema",
     title: "Stamp the schema; refuse bad reads",
     example: "scoreboard_cli",
-    rule: "Seed a detached typed map in one write, stamp its schema version, then attach — so incompatible layouts fail on read, not silently.",
+    rule: "Seed a detached typed map in one write, stamp its schema version, then attach, so incompatible layouts fail at read time instead of silently.",
     body: [
-      "The scoreboard builds the deepest handle topology in the repo: root, roster, and one typed child map per player. A new player's map is filled while still detached — one write covers every key — then stamped with its schema version and attached by storing the handle in the roster.",
+      "The scoreboard builds the deepest handle topology in the repo: root, roster, and one typed child map per player. A new player's map is filled while still detached (one write covers every key), then stamped with its schema version and attached by storing the handle in the roster.",
       "The stamp is the part nothing else demonstrates: a future build reading this map through an incompatible schema errors instead of returning half-decoded state. The module also wraps child resolution in a retry, because a remote handle can be transiently unresolvable while its attach op is in flight.",
     ],
     snippet: `// attached — snapshot and all — by storing its handle in the roster.
@@ -473,7 +473,7 @@ let selector =
     id: "typedmap-panels",
     title: "Panels take a TypedMap, never a root",
     example: "showcase_lustre",
-    rule: "A composable component's init takes a typed map — standalone it happens to be the root; nested it is a child — and document-scoped effects stay in the shell.",
+    rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
     body: [
       "The showcase mounts four other examples as panels of one document. That works because each of those apps exposes a component whose init takes a TypedMap, never a document root: nothing inside a panel can tell whether its map is the whole document or one child of it. The shell declares one ChildField per panel and ensures all four in one batch.",
       "Document-scoped effects belong to the shell, and each has a concrete failure mode if a panel ran its own: two presence drivers share a ripple kind and cross-decode silently; go_offline is per-document and cannot be scoped down; the summary policy is one slot per document, so which panel's policy won would depend on click order.",
@@ -512,7 +512,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
     example: "sudoku_lustre",
     rule: "When every client must agree on initial data, let every client run the same seeding loop through first-writer-wins claims.",
     body: [
-      "Sudoku givens are seeded with try_set_claim: the first writer of each cell wins, and every later attempt is a harmless no-op. That means there is no initializer to elect and no bootstrap protocol — every client runs the identical loop, and all of them converge on the same puzzle.",
+      "Sudoku givens are seeded with try_set_claim: the first writer of each cell wins, and every later attempt is a harmless no-op. That means there is no initializer to elect and no bootstrap protocol: every client runs the identical loop, and all of them converge on the same puzzle.",
       "This is the general answer to “who sets up the document?” for any value that must be written exactly once: make the write idempotent at the structure level instead of coordinating at the application level.",
     ],
     snippet: `fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
@@ -548,7 +548,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
     example: "text_lustre",
     rule: "Never store a text position as an integer: hold an anchor and re-resolve it after every edit.",
     body: [
-      "The text editor never replaces the whole document — each input event is grapheme-diffed into one minimal insert, delete, or replace — which means every stored position would go stale on every remote edit. So positions are anchors: the pinned bookmark, the local caret across remote edits, and shared cursors riding presence are all the same primitive, resolved back to a grapheme index on demand.",
+      "The text editor never replaces the whole document (each input event is grapheme-diffed into one minimal insert, delete, or replace), so every stored position would go stale on every remote edit. So positions are anchors: the pinned bookmark, the local caret across remote edits, and shared cursors riding presence are all the same primitive, resolved back to a grapheme index on demand.",
       "The bias argument encodes the ProseMirror/Yjs association conventions: a collapsed caret hangs off the preceding grapheme, a range hugs its content. An anchor that has gone stale resolves to an error, and the app drops the marker instead of guessing.",
     ],
     snippet: `/// Resolve the pinned anchor to its current grapheme position, or drop it to
@@ -574,7 +574,7 @@ fn refresh_anchor(model: Model) -> Model {
     example: "tournament_bracket_lustre",
     rule: "When a structure is not optimistic, say so in the UI: pending until the event that proves the write sequenced.",
     body: [
-      "Match results live in a RegisterCollection read with the Atomic policy — the linearizable CAS winner, not last-write-wins. The kernel shows no local write before it sequences, so the bracket is the deliberate inverse of every optimistic example: a submitted result renders as “submitted, awaiting confirmation…” until its event lands.",
+      "A RegisterCollection holds the match results, read with the Atomic policy (the linearizable CAS winner, not last-write-wins). The kernel shows no local write before it sequences, so the bracket is the deliberate inverse of every optimistic example: a submitted result renders as “submitted, awaiting confirmation…” until its event lands.",
       "The two event kinds divide the truth cleanly: VersionChanged fires for every sequenced write and feeds the visible log of losing reports; AtomicChanged fires only for the CAS winner and is the sole source of official results. Conflicting submissions converge on one winner without discarding the loser.",
     ],
     snippet: `ReportClicked(match_key, winner) ->
@@ -613,10 +613,10 @@ AtomicChanged(key, value, _local) -> {
     id: "deterministic-death",
     title: "Test client death deterministically",
     example: "work_queue_lustre",
-    rule: "The interesting event is a client dying mid-job — reproduce it in-process with a disconnect that sequences the same leave the server would.",
+    rule: "The interesting event is a client dying mid-job. Reproduce it in-process with a disconnect that sequences the same leave the server would.",
     body: [
-      "The work queue's whole claim is recovery: close a tab holding a job and the surviving replicas return it to the queue tail; close the dispatcher and the queued backup inherits the role. No application code participates — which is exactly why it needs a deterministic test, not a demo.",
-      "sluice_js.disconnect sequences the same leave a real server would, so worker death becomes an ordinary in-process scenario. The suite is equally explicit about its limit: it cannot vouch that floodgate emits a leave for a vanished socket — that one claim is what the live smoke exists for.",
+      "The work queue's whole claim is recovery: close a tab holding a job and the surviving replicas return it to the queue tail; close the dispatcher and the queued backup inherits the role. No application code participates, which is exactly why it needs a deterministic test, not a demo.",
+      "sluice_js.disconnect sequences the same leave a real server would, so worker death becomes an ordinary in-process scenario. The suite is equally explicit about its limit: it cannot vouch that floodgate emits a leave for a vanished socket; that one claim is what the live smoke exists for.",
     ],
     snippet: `pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
   let #(sluice, doc_a, doc_b) = room("wq-worker-dies")
@@ -646,7 +646,7 @@ AtomicChanged(key, value, _local) -> {
     snippetLang: "gleam",
     snippetFile: "test/queue_semantics_test.gleam",
     testNote:
-      "The same harness asserts a dispatcher promotion arrives as a queue event, not an assignment — pinning the event shape of recovery, not just its outcome.",
+      "The same harness asserts a dispatcher promotion arrives as a queue event, not an assignment, pinning the event shape of recovery rather than just its outcome.",
   },
 ];
 

@@ -81,7 +81,7 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
       <code>subscribe_ripples</code> hands every inbound ripple to your handler.
       Match on <code>ripple_type</code>, decode <code>ripple_content</code> at
       the boundary, and use <code>ripple_client_id</code> to know which peer it
-      came from, enough to render a live roster of who is looking where.
+      came from. That is enough to render a live roster of who is looking where.
     </p>
     <figure class="g-code">
       <Code code={recv} lang="gleam" theme={watershedCodeTheme} />
@@ -89,9 +89,9 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
     <div class="g-note">
       <p>
         <strong>Ripples for now, channels for state.</strong> A ripple never
-        lands in a summary, so a client that joins later won’t see it, which is
-        exactly right for a cursor and exactly wrong for a card’s column. If a
-        late-joiner must see it, it belongs in a channel, not a ripple.
+        lands in a summary, so a client that joins later won’t see it. That is
+        right for a cursor and wrong for a card’s column. If a late-joiner must
+        see it, it belongs in a channel, not a ripple.
       </p>
       <p>
         On the BEAM, <code>subscribe_ripples(doc)</code> returns a
@@ -106,9 +106,9 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
     <p>
       Raw ripples are stateless, so a peer who goes quiet leaves their last
       marker stuck on screen. <strong>Presence</strong> supplies the missing
-      lifecycle. Where the server offers connection-backed presence it tracks
-      each socket directly, so a late joiner gets the whole roster at once and a
-      dropped connection removes its entry immediately; where it does not,
+      lifecycle. Where the server offers connection-backed presence, it tracks
+      each socket directly: a late joiner gets the whole roster at once, and a
+      dropped connection removes its entry immediately. Where it does not,
       presence falls back to heartbeating over ripples and expiring peers on a
       TTL. One API covers both, and it tells you which one it picked. You rarely
       hand-roll any of it. The next step wires the built-in driver to your UI as

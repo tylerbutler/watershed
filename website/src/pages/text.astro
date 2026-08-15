@@ -17,12 +17,12 @@ import Ecosystem from "../components/Ecosystem.astro";
       <h1>Graphemes keep<br /><em>their place.</em></h1>
       <p class="lede">
         A character offset only means something against one version of a
-        string, the instant two people type in the same word, “index 6” names
+        string. The instant two people type in the same word, “index 6” names
         different characters on different screens.
         <strong>SharedText</strong> gives every grapheme a stable identity
         beneath its index: you say <em>insert at 6</em> or
         <em>replace 0..5</em>, but the delta that ships names the graphemes, not
-        the offsets. Two people can type into the same word at the same instant,
+        the offsets. Two people can type into the same word at once:
         concurrent inserts both land, overlapping edits merge, and every
         replica converges on the same text. Indexing is by
         <strong>grapheme</strong>, never UTF-16 code unit, so an emoji or a

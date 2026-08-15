@@ -26,9 +26,9 @@ const clients = [
       then race two inserts at the same index. Ops address any depth: the gauge
       is nested inside an object, so a bump targets the path
       <code>.gauge.stage</code>. Numbers add commutatively; a rename is
-      last-writer-by-sequencing; but the crew list is where OT earns its keep:
-      concurrent inserts have their indices <em>transformed</em> so every replica
-      converges to the same array, positions and all.
+      last-writer-by-sequencing; but the crew list is where OT earns its keep.
+      Concurrent inserts have their indices <em>transformed</em>, so every
+      replica converges to the same array (positions and all).
     </p>
   </div>
 

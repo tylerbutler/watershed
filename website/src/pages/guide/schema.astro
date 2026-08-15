@@ -123,9 +123,9 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <h2>Seed the channels with <code>ensure_*</code></h2>
     <p>
       A fresh document is empty. Two clients opening it at once both want to
-      create the <code>cards</code> map and <code>wip_breaches</code> counter,
-      and exactly one must win, with the other adopting the winner. That
-      create-race-retry dance is what <code>ensure_*</code> collapses into a
+      create the <code>cards</code> map and <code>wip_breaches</code> counter;
+      exactly one must win, and the other must adopt the winner.
+      <code>ensure_*</code> collapses that create-race-retry dance into a
       declaration: from the field alone, it seeds the channel if absent and
       resolves the existing one otherwise.
     </p>

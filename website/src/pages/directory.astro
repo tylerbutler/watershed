@@ -18,10 +18,10 @@ import Ecosystem from "../components/Ecosystem.astro";
         <a href="/structures/maps">SharedMap</a> resolves a flat set of keys.
         <strong>SharedDirectory</strong> is the recursive version: a map at
         every node plus named child folders, modeled after Fluid Framework’s
-        design. The hard part isn’t the storage; it’s
-        <em>hierarchical identity</em>: a folder can be created by two clients
-        at once, deleted, and recreated under the same path, and every replica
-        must still agree on which folder is which. watershed’s
+        design. The hard part is <em>hierarchical identity</em>, not storage.
+        A folder can be created by two clients at once, deleted, and recreated
+        under the same path, and every replica must still agree on which folder
+        is which. watershed’s
         <code>directory_kernel</code> models that identity explicitly and
         converges.
       </p>

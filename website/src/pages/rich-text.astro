@@ -19,10 +19,10 @@ import Ecosystem from "../components/Ecosystem.astro";
         same protocol turned on rich text. watershed's
         <code>rich_text_kernel</code> ports the quill-delta algebra
         (retain/insert/delete spans, attribute patches, embeds) behind the
-        identical single-op-in-flight client-transform machinery, so three
-        Quill editors can share one document with concurrent typing,
-        formatting, and deletion. Transforming concurrent deltas against one
-        another brings replicas to the same text, formatting, and embeds.
+        same single-op-in-flight client-transform machinery. Three Quill
+        editors share one document with concurrent typing, formatting, and
+        deletion, and transformed deltas bring every replica to the same
+        text, formatting, and embeds.
         SharedRichText is OT-backed; the
         CRDT-backed <a href="/text"><code>SharedText</code></a> handles plain
         text with grapheme identities and merge-based convergence.
