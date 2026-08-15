@@ -48,8 +48,8 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
       watershed lets people edit shared data without losing concurrent changes.
       Clients apply edits at once; the server sequences them; each data structure
       resolves conflicts under its stated policy. The same Gleam core runs on the
-      BEAM and in the browser, using a DDS runtime and sequencer drawn from Fluid
-      Framework’s design.
+      BEAM and in the browser, on a distributed-data-structure (DDS) runtime and
+      sequencer drawn from Fluid Framework’s design.
     </p>
     <div class="cta-row">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
@@ -136,12 +136,13 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
   }
 
   /* On narrow screens the 122% width expansion overflows the line; relax the
-     width and reduce the size floor so "Edit upstream." fits without clipping. */
+     width and reduce the size floor so "Edit upstream." fits without clipping —
+     but keep some expansion: the width axis is the brand's voice. */
   @media (max-width: 30rem) {
     h1 {
-      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
-      font-stretch: 100%;
-      letter-spacing: -0.03em;
+      font-size: clamp(1.9rem, 8vw, 2.7rem);
+      font-stretch: 110%;
+      letter-spacing: -0.028em;
     }
   }
 

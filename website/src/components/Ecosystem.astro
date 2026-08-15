@@ -112,9 +112,17 @@ const flows = [
         ))
       }
     </ol>
+    <div class="eco-take">
+      <p class="annot eco-take-label">Take it into a project · Gleam ≥ 1.18</p>
+      <pre class="dep-line"><code>[dependencies]
+watershed = &lbrace; git = "https://github.com/tylerbutler/watershed", ref = "&lt;commit-sha&gt;" &rbrace;</code></pre>
+    </div>
     <div class="eco-close">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">
         Read the source
+      </a>
+      <a class="eco-star" href="https://github.com/tylerbutler/watershed/stargazers">
+        ★ Star the repo
       </a>
       <span class="annot">MIT · built by Tyler Butler</span>
     </div>
@@ -200,6 +208,37 @@ const flows = [
   .flow-row p {
     grid-column: 2;
     margin-top: calc(-1 * var(--space-xs));
+  }
+
+  .eco-take {
+    margin-top: var(--space-2xl);
+  }
+
+  .eco-take-label {
+    color: var(--muted);
+  }
+
+  .dep-line {
+    margin: var(--space-sm) 0 0;
+    padding: var(--space-md) var(--space-lg);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+
+  .eco-star {
+    font-weight: 600;
+    color: var(--waterline);
+    text-decoration: none;
+    border-bottom: 1px solid var(--waterline-faint);
+  }
+
+  .eco-star:hover {
+    color: var(--overprint-deep);
+    border-bottom-color: var(--overprint-deep);
   }
 
   .eco-close {

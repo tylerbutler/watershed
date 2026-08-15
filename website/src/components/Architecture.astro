@@ -193,9 +193,9 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
     gap: var(--space-xl);
   }
 
-  .split > div:last-child {
-    text-align: right;
-  }
+  /* The browser column keeps its position; its text stays left-aligned so
+     three-line paragraphs read without a ragged left edge. The target-heads
+     annots above carry the left/right mirroring instead. */
 
   .wave {
     display: block;

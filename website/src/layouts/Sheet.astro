@@ -93,7 +93,7 @@ const isActive = (match: string) =>
 
     <div class="margin-row margin-bottom annot" aria-hidden="true">
       <span>Magenta indicates revisions not yet field-checked</span>
-      <span class="margin-mid">Convergence guaranteed by server sequencing</span>
+      <span class="margin-mid">Convergence by server sequencing — assumptions on the models sheet</span>
       <span>tylerbutler.com</span>
     </div>
   </body>
@@ -154,6 +154,18 @@ const isActive = (match: string) =>
     color: var(--muted);
     padding-bottom: 0.15rem;
     transition: color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  /* touch: grow the tap target without moving the printed baseline */
+  @media (pointer: coarse) {
+    .si-link,
+    .si-mark {
+      padding-block: 0.8rem;
+    }
+
+    .si-link[aria-current="page"]::after {
+      bottom: 0.55rem;
+    }
   }
 
   .si-link:hover {

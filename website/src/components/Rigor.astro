@@ -43,37 +43,59 @@ const ledger = [
     <div class="guarantees">
       <h2 id="rigor-title">What is implemented and tested</h2>
       <p>
-        The runtime is tested three ways: against a reference model, against a
+        The runtime is tested three ways: against reference models, against a
         live floodgate server, and against deliberately nasty orderings of
-        operations. The ledger is what those checks cover: everything watershed
-        ships.
+        operations — 1,392 test functions across 105 test files at last count.
+        The ledger is what those checks cover: everything watershed ships.
       </p>
       <dl class="claims">
         <div data-reveal="rise">
           <dt>Property-tested convergence</dt>
           <dd>
-            The fuzz harness runs randomized command traces across multiple
-            clients, including partial sequencing and delivery, reconnect,
-            rollback, stashed ops, and summary-loaded joins. It checks model
-            invariants after each command and convergence after a final sync;
-            qcheck shrinks failures and the harness records a replayable trace.
+            Eleven reference models — map, directory, counters, claims,
+            registers, ordered collection, pact, sequence, text — each replay
+            randomized multi-client command traces, 200 per property by default
+            (<code>FUZZ_ITERATIONS</code> raises it), including partial
+            sequencing and delivery, reconnect, rollback, stashed ops, and
+            summary-loaded joins. Invariants are checked after each command and
+            convergence after a final sync; qcheck shrinks failures and the
+            harness dumps a replayable JSON trace.
+            <a
+              class="claim-source annot"
+              href="https://github.com/tylerbutler/watershed/tree/main/test/watershed/fuzz"
+            >
+              Read the harness →
+            </a>
           </dd>
         </div>
         <div data-reveal="rise">
           <dt>Reference-checked map ops</dt>
           <dd>
             SharedMap’s inner <code>set</code>, <code>delete</code>, and
-            <code>clear</code> payloads are checked against a corpus generated
-            from <code>@fluidframework/map</code>, including state, events, and
-            convergence. Container, attach, and summary formats remain
-            watershed’s own.
+            <code>clear</code> payloads are checked against 26 oracle scenarios
+            generated from <code>@fluidframework/map</code> itself, including
+            state, events, and convergence. Container, attach, and summary
+            formats remain watershed’s own.
+            <a
+              class="claim-source annot"
+              href="https://github.com/tylerbutler/watershed/tree/main/test/fixtures/corpus"
+            >
+              Read the corpus →
+            </a>
           </dd>
         </div>
         <div data-reveal="rise">
           <dt>Reconnect safety</dt>
           <dd>
             Buffered out-of-order delivery, in-band op requests, and client-id
-            remapping on reconnect. Pending edits survive the round trip.
+            remapping on reconnect. Pending edits survive the round trip — the
+            fuzz harness disconnects clients mid-trace to prove it.
+            <a
+              class="claim-source annot"
+              href="https://github.com/tylerbutler/watershed/blob/main/test/watershed/fuzz/disconnect_test.gleam"
+            >
+              Read the disconnect suite →
+            </a>
           </dd>
         </div>
       </dl>
@@ -96,6 +118,12 @@ const ledger = [
           }
         </tbody>
       </table>
+      <p class="ledger-notyet">
+        <span class="annot">Not yet</span> a Hex release — installs are
+        git-pinned — and container, attach, and summary formats are
+        watershed’s own rather than Fluid’s. Wire compatibility is at the
+        operation layer.
+      </p>
     </div>
   </div>
 </section>
@@ -150,6 +178,30 @@ const ledger = [
   .claims code {
     font-size: 0.85em;
     color: var(--ink);
+  }
+
+  .claim-source {
+    display: block;
+    margin-top: var(--space-xs);
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .claim-source:hover {
+    color: var(--overprint-deep);
+  }
+
+  .ledger-notyet {
+    margin-top: var(--space-md);
+    max-width: 62ch;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    text-wrap: pretty;
+  }
+
+  .ledger-notyet .annot {
+    color: var(--overprint-deep);
+    margin-right: var(--space-xs);
   }
 
   .ledger-wrap {

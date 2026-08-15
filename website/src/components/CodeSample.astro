@@ -13,7 +13,9 @@ type Msg {
 }
 
 pub fn main() {
-  // Connect, blocking until the op history has replayed locally.
+  // Connect, blocking until the op history has replayed locally. \`connect\`
+  // returns a Result — asserted here for brevity; a supervised app matches
+  // the Error case and lets OTP restart the link.
   let assert Ok(doc) =
     watershed.connect(
       host: "127.0.0.1",
@@ -76,13 +78,16 @@ pub fn main() {
     border-bottom: 1px solid var(--hairline);
   }
 
+  /* Prose above, code panel at full content width below: a Gleam dev
+     evaluating the API should never have to sideways-scroll the sample on a
+     large monitor while half the row sits empty. */
   .code-inner {
     max-width: 68rem;
     margin-inline: auto;
-    display: grid;
-    grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
-    gap: clamp(var(--space-xl), 6vw, 6rem);
-    align-items: start;
+  }
+
+  .code-prose {
+    max-width: 62ch;
   }
 
   h2 {
@@ -119,7 +124,7 @@ pub fn main() {
   }
 
   .code-figure {
-    margin: 0;
+    margin: var(--space-xl) 0 0;
     min-width: 0;
   }
 
@@ -137,9 +142,4 @@ pub fn main() {
     text-align: right;
   }
 
-  @media (max-width: 860px) {
-    .code-inner {
-      grid-template-columns: 1fr;
-    }
-  }
 </style>

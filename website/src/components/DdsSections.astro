@@ -37,7 +37,7 @@ const flow = [
 ];
 ---
 
-<section class="dds-field" aria-labelledby="dds-field-title">
+<section id="after-demo" class="dds-field" aria-labelledby="dds-field-title">
   <div class="dds-inner">
     <div class="dds-copy">
       <h2 id="dds-field-title">One ordered stream, one clear rule per structure</h2>
@@ -49,14 +49,10 @@ const flow = [
       </p>
       <p class="dds-atlas-note">
         Only a few of watershed’s structures are shown here. The rest (grouped
-        by family) live in the field atlas, our full catalog, each with its own
-        live demo.
+        by family) live in <a href="/structures">the field atlas</a>, our full
+        catalog, each with its own live demo.
       </p>
-      <nav class="family-nav" aria-label="Data structures in depth">
-        <span class="annot">Zoom in by family</span>
-        {categories.map((c) => (
-          <a href={`/structures/${c.slug}`}>{c.name}</a>
-        ))}
+      <nav class="family-nav" aria-label="Convergence models compared">
         <a class="family-nav-models" href="/models">DDS vs CRDT vs OT →</a>
       </nav>
     </div>
@@ -112,7 +108,7 @@ const flow = [
       {
         flow.map((item) => (
           <li data-reveal="settle">
-            <span class="flow-step annot">SN {item.step}</span>
+            <span class="flow-step annot">0{item.step}</span>
             <div class="flow-step-body">
               <h3>{item.title}</h3>
               <p>{item.detail}</p>
@@ -298,7 +294,9 @@ const flow = [
   .flow-inner {
     display: grid;
     grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
-    gap: clamp(var(--space-xl), 6vw, 6rem);
+    grid-template-rows: auto 1fr;
+    column-gap: clamp(var(--space-xl), 6vw, 6rem);
+    row-gap: 0;
     align-items: start;
   }
 

@@ -31,6 +31,11 @@ export interface SequencerConfig<C extends SeqClient> {
   fifoGap?: number;
   /** Called after every inFlight change so the demo can re-render status. */
   onChange: () => void;
+  /** Per-target link check at fan-out time; a down link holds the hop
+   *  (no dot, no delivery) instead of animating it. */
+  isLinkUp?: (client: C) => boolean;
+  /** Receives each held hop (staleness pre-checked) for replay on restore. */
+  onHold?: (client: C, deliver: () => void) => void;
 }
 
 export interface SendOptions<C extends SeqClient, E> {
@@ -85,6 +90,12 @@ export function createSequencer<C extends SeqClient>(
     label?: string,
   ): void {
     for (const target of Object.values(clients)) {
+      if (config.isLinkUp && !config.isLinkUp(target)) {
+        config.onHold?.(target, () => {
+          if (!isStale()) deliver(target);
+        });
+        continue;
+      }
       const hopLatency = controls.sampleLatency();
       flow.animateDot(
         seqNode,

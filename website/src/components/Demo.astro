@@ -104,8 +104,11 @@ const PICKER_CELLS = [
 ---
 
 <section id="demo" class="demo" aria-labelledby="demo-title">
+  <a class="demo-skip" href="#after-demo">Skip past the interactive demo</a>
   <div class="demo-head">
     <h2 id="demo-title">{heading}</h2>
+    <div class="demo-head-grid">
+    <div class="demo-intro">
     <slot name="intro">
       <p>
         On a photorevised survey sheet, magenta marks updates not yet
@@ -127,11 +130,13 @@ const PICKER_CELLS = [
         <a href="/json-ot">JsonOt demo →</a>
       </p>
     </slot>
+    </div>
     <ol class="demo-legend annot" aria-label="How an edit converges">
       <li><span class="k-pending">1 · local edit</span> prints in magenta</li>
       <li><span class="k-flow">2 · the sequencer</span> stamps it with an SN</li>
       <li><span class="k-seq">3 · every client</span> lands the same ink state</li>
     </ol>
+    </div>
   </div>
 
   <div class="dds-switch">
@@ -230,6 +235,10 @@ const PICKER_CELLS = [
       pending with a frozen signoff list. It becomes accepted only after every
       connected client signs off, or leaves drain the list.
     </p>
+    <label class="field-notes-toggle">
+      <input type="checkbox" data-field-notes disabled />
+      <span class="annot">Field notes</span>
+    </label>
   </div>
 
   <div class="rig" data-demo-rig data-dds={initial} data-views={views.join(",")}>
@@ -243,6 +252,18 @@ const PICKER_CELLS = [
         >
           <header class="client-head">
             <h3>{c.name}</h3>
+            {c.id === "b" && (
+              <button
+                type="button"
+                class="link-btn"
+                data-cut-link
+                aria-pressed="false"
+                title="Sever this replica's link to the sequencer; its edits park locally until the link is restored"
+                disabled
+              >
+                Cut link
+              </button>
+            )}
             <span
               class="pending-count annot"
               data-pending-count
@@ -251,6 +272,11 @@ const PICKER_CELLS = [
               0 pending
             </span>
           </header>
+          {c.id === "b" && (
+            <p class="annot link-note" data-link-note hidden>
+              link cut — ops park locally until the link is restored
+            </p>
+          )}
           <table class="gauge-table dds-map">
             <caption class="visually-hidden">
               Shared map replica on {c.name}
@@ -817,10 +843,6 @@ const PICKER_CELLS = [
       />
       <span class="annot">Jitter ±50&nbsp;ms</span>
     </label>
-    <label class="field-notes-toggle">
-      <input type="checkbox" data-field-notes disabled />
-      <span class="annot">Field notes</span>
-    </label>
     <button type="button" class="race-btn" data-race disabled>
       Race a concurrent write
     </button>
@@ -850,9 +872,33 @@ const PICKER_CELLS = [
   </div>
 
   <p class="controls-hint">
-    Latency and jitter affect simulated arrival order; animation speed changes
-    playback only.
+    <span>
+      Latency and jitter affect simulated arrival order; animation speed
+      changes playback only. “Ops in flight” counts every hop still
+      travelling: one client&nbsp;→&nbsp;sequencer leg, then one
+      sequencer&nbsp;→&nbsp;replica leg per client.
+    </span>
   </p>
+
+  <slot name="outro" />
+
+  {show("map") && (
+    <div class="gauge-strip" data-gauge-strip>
+      <div class="strip-values" aria-hidden="true">
+        {clients.map((c) => (
+          <div class="strip-client" data-strip-client={c.id}>
+            <span class="strip-id annot">{c.id.toUpperCase()}</span>
+            {gauges.map((g) => (
+              <span class="strip-val" data-strip-key={g.key}>{g.value}</span>
+            ))}
+          </div>
+        ))}
+      </div>
+      <button type="button" class="race-btn strip-race" data-strip-race disabled>
+        Race a concurrent write
+      </button>
+    </div>
+  )}
 
   <noscript>
     <p class="demo-noscript">
@@ -878,9 +924,46 @@ const PICKER_CELLS = [
 </section>
 
 <script>
+  // The sticky gauge strip mirrors the map replicas by observing their DOM —
+  // it never touches kernel state, so it cannot drift from the cards.
+  function initGaugeStrip() {
+    const strip = document.querySelector("[data-gauge-strip]");
+    const rig = document.querySelector("[data-demo-rig]");
+    if (!strip || !rig) return;
+    const proxy = strip.querySelector("[data-strip-race]");
+    const race = document.querySelector("[data-race]");
+    if (proxy instanceof HTMLElement && race instanceof HTMLElement) {
+      proxy.addEventListener("click", () => race.click());
+    }
+    const sync = () => {
+      for (const cell of strip.querySelectorAll("[data-strip-client]")) {
+        const id = cell.getAttribute("data-strip-client");
+        const client = rig.querySelector(`[data-client="${id}"]`);
+        if (!client) continue;
+        for (const val of cell.querySelectorAll("[data-strip-key]")) {
+          const key = val.getAttribute("data-strip-key");
+          const row = client.querySelector(`.dds-map tr[data-key="${key}"]`);
+          if (!row) continue;
+          val.textContent =
+            row.querySelector("[data-value]")?.textContent?.trim() ?? "";
+          val.classList.toggle("pending", row.classList.contains("pending"));
+        }
+      }
+    };
+    new MutationObserver(sync).observe(rig, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    sync();
+  }
+
   try {
     const { initDemo } = await import("../scripts/demo.js");
     initDemo();
+    initGaugeStrip();
   } catch (error) {
     console.error("watershed demo failed to start", error);
     const note = document.querySelector("[data-demo-fallback]");
@@ -895,8 +978,29 @@ const PICKER_CELLS = [
 
 <style>
   .demo {
+    position: relative;
     padding: var(--space-section) var(--content-pad);
     border-bottom: 1px solid var(--hairline);
+  }
+
+  /* Keyboard escape hatch past the demo's ~30 tab stops; visible on focus. */
+  .demo-skip {
+    position: absolute;
+    top: var(--space-md);
+    left: var(--content-pad);
+    z-index: 6;
+    padding: 0.5rem 0.9rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    text-decoration: none;
+    clip-path: inset(50%);
+  }
+
+  .demo-skip:focus-visible {
+    clip-path: none;
   }
 
   .demo-head {
@@ -943,6 +1047,33 @@ const PICKER_CELLS = [
     flex-wrap: wrap;
     gap: var(--space-xs) var(--space-lg);
     color: var(--muted);
+  }
+
+  /* Wide sheets: the intro column stops at its measure, so the legend moves
+     into the otherwise-empty right band as printed marginalia. */
+  @media (min-width: 1100px) {
+    .demo-head-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 17rem;
+      column-gap: clamp(var(--space-xl), 5vw, 5rem);
+      align-items: start;
+    }
+
+    .demo-legend {
+      flex-direction: column;
+      gap: var(--space-md);
+      margin-top: var(--space-xl);
+      padding-left: var(--space-lg);
+      border-left: 1px solid var(--hairline);
+    }
+
+    .demo-legend li {
+      padding-left: 0;
+    }
+
+    .demo-legend li + li::before {
+      content: none;
+    }
   }
 
   .demo-legend li {
@@ -1004,7 +1135,7 @@ const PICKER_CELLS = [
     padding: 0.05rem 0.28rem 0;
     border: 1px solid currentColor;
     font-family: var(--font-mono);
-    font-size: 0.62rem;
+    font-size: 0.6875rem;
     font-weight: 400;
     letter-spacing: 0.06em;
     line-height: 1.25;
@@ -1113,7 +1244,7 @@ const PICKER_CELLS = [
     padding: 0.05rem 0.28rem 0;
     border: 1px solid currentColor;
     font-family: var(--font-mono);
-    font-size: 0.62rem;
+    font-size: 0.6875rem;
     font-weight: 400;
     letter-spacing: 0.06em;
     line-height: 1.25;
@@ -1195,6 +1326,55 @@ const PICKER_CELLS = [
   .pending-count {
     color: var(--overprint-deep);
     transition: color var(--dur-state) var(--ease-out-quart);
+  }
+
+  /* Cut-link control: the reconnect story, one replica at a time. While the
+     link is down the card reads as a field unit out of radio contact. */
+  .link-btn {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .link-btn:hover:enabled {
+    background: var(--overprint-faint);
+  }
+
+  .link-btn[aria-pressed="true"] {
+    background: var(--overprint-deep);
+    border-color: var(--overprint-deep);
+    color: var(--bg);
+  }
+
+  .link-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .client.link-cut {
+    border-style: dashed;
+    border-color: var(--overprint-deep);
+  }
+
+  .link-note {
+    display: block;
+    padding: var(--space-2xs) var(--space-md);
+    color: var(--overprint-deep);
+    font-style: italic;
+    border-bottom: 1px dashed var(--overprint-faint);
+  }
+
+  /* display: block above would otherwise defeat the hidden attribute */
+  .link-note[hidden] {
+    display: none;
   }
 
   /* idle stays full-strength --muted (7.7:1); magenta alone marks pending */
@@ -1908,7 +2088,7 @@ const PICKER_CELLS = [
     bottom: calc(100% + 4px);
     transform: translateX(-50%);
     white-space: nowrap;
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     line-height: 1;
     font-weight: 600;
     letter-spacing: 0.01em;
@@ -1958,6 +2138,12 @@ const PICKER_CELLS = [
     color: var(--muted);
     font-size: var(--text-sm);
     line-height: 1.6;
+  }
+
+  /* the outer box keeps column alignment; the span caps the measure */
+  .controls-hint span {
+    display: block;
+    max-width: 62ch;
   }
 
   .field-notes-toggle {
@@ -2035,7 +2221,7 @@ const PICKER_CELLS = [
     color: var(--ink);
     font-size: var(--text-sm);
     line-height: 1.55;
-    text-align: center;
+    text-align: left;
     text-wrap: pretty;
   }
 
@@ -2109,6 +2295,89 @@ const PICKER_CELLS = [
 
     .op-log {
       max-height: 5.7rem;
+    }
+  }
+
+  /* Gauge strip: on stacked layouts the race button and the replica values
+     can never share a viewport, so a recorder strip pins to the viewport
+     bottom while the section is in view — action and evidence together.
+     The strip mirrors the map replicas; pending values print magenta italic
+     exactly like the cards. Desktop keeps A ⇄ seq ⇄ B visible, no strip. */
+  .gauge-strip {
+    display: none;
+  }
+
+  @media (max-width: 1080px) {
+    .gauge-strip {
+      position: sticky;
+      bottom: 0;
+      z-index: 6;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-xs) var(--space-md);
+      margin-top: var(--space-lg);
+      padding: var(--space-sm) var(--space-md);
+      padding-bottom: max(var(--space-sm), env(safe-area-inset-bottom));
+      border: 1px solid var(--ink);
+      background: var(--bg);
+    }
+
+    /* the strip mirrors the map view only; hide it when another structure
+       is on screen */
+    .demo:has(.rig[data-dds]:not([data-dds="map"])) .gauge-strip {
+      display: none;
+    }
+
+    /* three equal columns that can compress — the groups must never push the
+       strip past the viewport on narrow phones */
+    .strip-values {
+      flex: 1 1 100%;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--space-sm);
+    }
+
+    .strip-race {
+      flex: 1 1 auto;
+    }
+
+    .strip-client {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2xs);
+      min-width: 0;
+    }
+
+    .strip-id {
+      color: var(--muted);
+    }
+
+    .strip-val {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-variant-numeric: tabular-nums;
+      min-width: 2ch;
+      text-align: right;
+      color: var(--ink);
+      transition: color var(--dur-state) var(--ease-out-quart);
+    }
+
+    .strip-val.pending {
+      color: var(--overprint-deep);
+      font-style: italic;
+    }
+
+    .strip-race {
+      font-size: var(--text-sm);
+      padding: 0.55rem 0.9rem;
+    }
+
+    .strip-race:disabled {
+      opacity: 0.45;
+      cursor: default;
     }
   }
 

@@ -64,7 +64,10 @@ sections themselves get plain headings — no per-section eyebrows.
   Variants: `rise` (up) and `settle` (strata settle downward).
 - Demo ops travel as dots (magenta toward the sequencer, ink outward). On
   first reveal the demo submits one scripted op so convergence is witnessed
-  without interaction (skipped under reduced motion or after user input).
+  without interaction (skipped after user input). Under reduced motion the
+  scripted op still runs — dotless and without the reveal delay — so the
+  visitor lands on `SN 1` and a populated op log instead of an inert rig:
+  the alternative to motion is the outcome, not absence.
 - Global `prefers-reduced-motion` rule collapses all CSS animation to end
   state; scripts return early.
 
@@ -78,6 +81,21 @@ sections themselves get plain headings — no per-section eyebrows.
   `wire`, and kernel modules in the shared bedrock layer.
 - "Stamps" (`.stamp`, `.pure-stamp`): mono uppercase in a 1.5px
   `currentColor` box, rotated ~2deg, like a hand inspection stamp.
+- **Cut link** (`.link-btn` on Client B, homepage demo): severs B from the
+  sequencer. B keeps editing optimistically (magenta pending grows); sequenced
+  ops headed for B are held at the sequencer; B's sends park locally. Restore
+  replays catch-up first, then resubmits — the reconnect story witnessed live.
+  While cut, B's card border goes dashed magenta and the status stamp reads
+  `Link cut`.
+- **Gauge strip** (`.gauge-strip`, homepage demo): below 1080px the stacked
+  rig can't show action and evidence together, so a recorder strip pins to the
+  viewport bottom while the section is in view — per-client mono gauge values
+  (magenta italic while pending) plus a race button proxy. It mirrors the map
+  replicas' DOM via MutationObserver; map view only.
+- The field-notes toggle lives with the merge-rule copy above the rig, next to
+  where its panel appears (`rig.before`), not down in the control bar.
+- Demo gauges are river gauges: values clamp at 0 and each row's `−` disables
+  at the floor. Reset/race writes are clamped the same way.
 - Bedrock hatching: `repeating-linear-gradient(-45deg, …)` hairline diagonal.
 - Astro scoped styles don't reach JS-created elements — use `:global()` for
   anything rendered from `demo.js`.

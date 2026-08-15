@@ -397,6 +397,8 @@ export function initDemo() {
   const raceBtn = document.querySelector("[data-race]");
   const resetBtn = document.querySelector("[data-reset]");
   const replayBtn = document.querySelector("[data-replay]");
+  const cutLinkBtn = document.querySelector("[data-cut-link]");
+  const linkNote = document.querySelector("[data-link-note]");
   const ddsPicks = document.querySelectorAll("[data-dds-pick]");
   const mergeRules = document.querySelectorAll("[data-merge-rule]");
 
@@ -508,9 +510,20 @@ export function initDemo() {
     flow,
     controls,
     onChange: renderStatus,
+    // The cut-link affordance: while Client B's link is down, sequenced ops
+    // headed for B are held at the sequencer and replayed on restore — the
+    // same catch-up a reconnecting runtime performs.
+    isLinkUp: (client) => linkUp || client.id !== "b",
+    onHold: (_client, deliverHop) => {
+      heldHops.push(deliverHop);
+      renderStatus();
+    },
   });
   let counterSn = 0;
   let hasInteracted = false;
+  let linkUp = true; // Client B ⇄ sequencer link state
+  const heldHops = []; // sequenced ops awaiting delivery to B (catch-up)
+  const heldSubmits = []; // B's local ops parked while offline (resubmit)
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
   let lastGCounter = null; // the most recently *sequenced* G-counter delta
   let lastOrMap = null; // the most recently *sequenced* OR-map op
@@ -545,6 +558,8 @@ export function initDemo() {
       row.querySelector("[data-value]").textContent =
         value === null ? "—" : String(value);
       row.classList.toggle("pending", pending.has(key));
+      const minus = row.querySelector('button[data-step="-1"]');
+      if (minus) minus.disabled = value !== null && value <= 0;
     }
   }
 
@@ -1064,6 +1079,10 @@ export function initDemo() {
   function renderStatus() {
     const pending = pendingTotal();
     const inFlight = sequencer.inFlight;
+    if (!linkUp) {
+      statusEl.innerHTML = `<span class="stamp revising">Link cut</span> Client B off the wire · ${heldSubmits.length} to resubmit · ${heldHops.length} to catch up`;
+      return;
+    }
     if (inFlight === 0 && pending === 0) {
       const signatures = Object.values(clients).map(replicaSignature);
       const same = signatures.every((sig) => sig === signatures[0]);
@@ -1439,6 +1458,14 @@ export function initDemo() {
   }
 
   function submit(originId, ddsId, op) {
+    // Offline author: the edit already applied optimistically; the send parks
+    // until the link is restored, then resubmits — like the runtime's own
+    // resubmit queue.
+    if (originId === "b" && !linkUp) {
+      heldSubmits.push(() => submit(originId, ddsId, op));
+      renderStatus();
+      return;
+    }
     // Claims have no compensating op, so reset reloads replicas out of band
     // and bumps the epoch; a claim still in flight is dropped rather than
     // stamped, or it would commit on one replica and fail to ack on the
@@ -1989,7 +2016,9 @@ export function initDemo() {
         hasInteracted = true;
         const key = stepBtn.closest("tr").dataset.key;
         const current = readInt(mapKernel.get(client.map, key)) ?? 0;
-        localSet(client.id, key, current + Number(stepBtn.dataset.step));
+        // River gauges don't read below zero; renderMap disables "−" at 0.
+        const next = Math.max(0, current + Number(stepBtn.dataset.step));
+        if (next !== current) localSet(client.id, key, next);
         return;
       }
       const incBtn = event.target.closest("button[data-inc]");
@@ -2244,7 +2273,7 @@ export function initDemo() {
       const key = GAUGES[Math.floor(Math.random() * GAUGES.length)];
       const base = readInt(mapKernel.get(clients.a.map, key)) ?? 0;
       localSet("a", key, base + 10);
-      localSet("b", key, base - 10);
+      localSet("b", key, Math.max(0, base - 10));
     } else if (activeDds === "pn") {
       // A fills while B cuts, inside one latency window. Both deltas merge —
       // fill and cut are separate monotone tallies — and every replica lands
@@ -2412,28 +2441,60 @@ export function initDemo() {
   });
 
   // One scripted op on first reveal, so convergence is witnessed rather than
-  // waiting to be discovered. Skipped for reduced motion (the flow dots ARE
-  // the explanation) and once the visitor has already interacted.
+  // waiting to be discovered. Under reduced motion it still runs — dotless
+  // and without the reveal delay — so the visitor arrives to SN 1 and a
+  // populated op log instead of an inert rig. Skipped once the visitor has
+  // already interacted.
   if (
     activeDds === "map" &&
     present.has("map") &&
-    !reducedMotion.matches &&
     "IntersectionObserver" in window
   ) {
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         io.disconnect();
-        setTimeout(() => {
-          if (hasInteracted) return;
-          const current =
-            readInt(mapKernel.get(clients.b.map, "kettle-run")) ?? 0;
-          localSet("b", "kettle-run", current + 1);
-        }, controls.paced(600));
+        setTimeout(
+          () => {
+            if (hasInteracted) return;
+            const current =
+              readInt(mapKernel.get(clients.b.map, "kettle-run")) ?? 0;
+            localSet("b", "kettle-run", current + 1);
+          },
+          reducedMotion.matches ? 0 : controls.paced(600),
+        );
       },
       { threshold: 0.45 },
     );
     io.observe(rig);
+  }
+
+  // Cut-link: sever Client B from the sequencer, keep editing, restore, and
+  // watch catch-up + resubmit converge — the reconnect story, witnessed live.
+  if (cutLinkBtn) {
+    cutLinkBtn.addEventListener("click", () => {
+      hasInteracted = true;
+      linkUp = !linkUp;
+      clients.b.el.classList.toggle("link-cut", !linkUp);
+      cutLinkBtn.textContent = linkUp ? "Cut link" : "Restore link";
+      cutLinkBtn.setAttribute("aria-pressed", String(!linkUp));
+      if (linkNote instanceof HTMLElement) linkNote.hidden = linkUp;
+      const li = document.createElement("li");
+      li.className = "replay";
+      if (!linkUp) {
+        li.textContent = "link cut — Client B off the wire";
+      } else {
+        // Reconnect discipline: deliver the sequenced ops B missed first,
+        // then resubmit what B authored offline — the runtime's own order.
+        const hops = heldHops.splice(0);
+        for (const hop of hops) hop();
+        const subs = heldSubmits.splice(0);
+        for (const sub of subs) sub();
+        li.textContent = `link restored — caught up ${hops.length}, resubmitted ${subs.length}`;
+      }
+      opLog.push(li);
+      renderStatus();
+    });
   }
 
   render(clients.a);

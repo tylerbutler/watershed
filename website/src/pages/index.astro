@@ -32,19 +32,30 @@ import Ecosystem from "../components/Ecosystem.astro";
           delay. The copies agree once queued writes arrive; the most recent
           write to a key wins.
         </p>
+        <p class="demo-hint">
+          Try cutting Client B’s link mid-edit: its writes park locally, the
+          others keep converging, and restoring the link catches B up and
+          resubmits what it wrote offline.
+        </p>
+      </Fragment>
+      <Fragment slot="outro">
+        <div class="demo-outro">
         <aside class="demo-bug-teaser">
           <p>
-            <strong>…but “most recent write wins” has a famous failure mode.</strong>
-            Store a <em>counter</em> in this map and have two people add to it at
-            once: their increments silently overwrite each other instead of
-            adding up. It’s the classic distributed-systems bug.
+            <strong>Seen enough of “most recent write wins”? It has a famous
+            failure mode.</strong> Store a <em>counter</em> in this map and have
+            two people add to it at once: their increments silently overwrite
+            each other instead of adding up. It’s the classic
+            distributed-systems bug — and the reason the counter is its own
+            structure.
           </p>
           <a href="/counter-bug">Watch a boat vanish, live →</a>
         </aside>
-        <p class="demo-hint">
+        <p class="demo-hint demo-outro-hint">
           Every other structure runs the same way on its own page. Start with the{" "}
           <a href="/structures">field atlas</a>, the full catalog →
         </p>
+        </div>
       </Fragment>
     </Demo>
     <DdsSections />
@@ -67,6 +78,17 @@ import Ecosystem from "../components/Ecosystem.astro";
   /* Teaser callout inside the SharedMap demo intro — the LWW-is-a-trap hook
      that routes to the dedicated /counter-bug page. Magenta = attention, the
      sheet's "unverified revision" cue. */
+  .demo-outro {
+    max-width: 68rem;
+    margin: var(--space-xl) auto 0;
+  }
+
+  .demo-outro .demo-hint {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--ink);
+  }
+
   .demo-bug-teaser {
     margin-top: var(--space-lg);
     padding: var(--space-md) var(--space-lg);
