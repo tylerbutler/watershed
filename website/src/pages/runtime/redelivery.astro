@@ -87,7 +87,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       Every structure survives re-delivery on the sequenced stream, because the
       runtime drops any sequence number it has already seen. CRDTs carry a
       second, deeper guarantee: their merge is idempotent, so a duplicate is a
-      non-event even when it reaches the kernel itself: safety that lives in
+      non-event even when it reaches the kernel itself: safety that comes from
       the data type, not the delivery.
     </p>
   </div>

@@ -19,7 +19,7 @@ import * as runtime from "../../../watershed_lustre/build/dev/javascript/watersh
 import * as sluice from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/sluice_js.mjs";
 
 const SEED =
-  "Select a few words here, then look at the other pane. Type in one editor while your caret sits in the other — it stays on its text.";
+  "Select a few words here, then look at the other pane. Type in one editor while your caret is in the other — it stays on its text.";
 const TEXT_ADDRESS = "prose"; // root-map key holding the text handle
 const PUMP_MS = 150; // how long an edit stays "in flight" before the sluice sequences it
 

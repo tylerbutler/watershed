@@ -24,7 +24,7 @@ const clients = [
       Nudge the <code>gauge.stage</code> reading or flip its trend, rename the
       site, add or remove a surveyor, reorder the crew, stretch the link latency,
       then race two inserts at the same index. Ops address any depth: the gauge
-      lives in a nested object, so a bump targets the path
+      is nested inside an object, so a bump targets the path
       <code>.gauge.stage</code>. Numbers add commutatively; a rename is
       last-writer-by-sequencing; but the crew list is where OT earns its keep:
       concurrent inserts have their indices <em>transformed</em> so every replica

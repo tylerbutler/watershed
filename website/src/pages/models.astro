@@ -20,7 +20,7 @@ const models = [
     gloss: "Converges by one server’s total order.",
     body: [
       "A DDS here follows Fluid Framework’s collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
-      "The conflict policy lives on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+      "The conflict policy applies on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
     ],
     tradeoff:
       "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on.",

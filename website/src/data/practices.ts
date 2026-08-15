@@ -136,7 +136,7 @@ fn with_relay(
     example: "drum_machine_lustre",
     rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
     body: [
-      "Tempo lives in a PactMap: a change is accepted only when every connected client signs off. The slider therefore proposes on release, never per pointer move — a proposal per frame would flood a protocol in which a second proposal is rejected outright while one is pending.",
+      "Tempo is held in a PactMap: a change is accepted only when every connected client signs off. The slider therefore proposes on release, never per pointer move — a proposal per frame would flood a protocol in which a second proposal is rejected outright while one is pending.",
       "The pending state is rendered, not hidden: the roster of outstanding signoffs stays on screen and the control stays disabled, with a poll to catch the transitions the kernel does not report. Matching “you” in that roster uses the same client-id derivation the kernels use, so the match is exact.",
     ],
     snippet: `// Propose on release, never per pointer move. A \`pact_map_set\` per frame
@@ -323,7 +323,7 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
     rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
     body: [
       "The canvas is rendered by Lustre as a childless element and painted by an FFI module that owns the byte buffer and 2D context. Two rules keep that safe: width and height must stay static in view (a diff rewriting them wipes the surface), and the context is resolved lazily per call, so no mount-ordering effect is needed.",
-      "Bootstrap lives in the Connected arm, not GotHandle: attaching a channel needs a ready connection, while resolving a handle does not. Fire ensure_* early and the app paints locally while sharing nothing.",
+      "Bootstrap belongs in the Connected arm, not GotHandle: attaching a channel needs a ready connection, while resolving a handle does not. Fire ensure_* early and the app paints locally while sharing nothing.",
     ],
     snippet: `Connected(Ok(_)) ->
   case model.doc {
@@ -442,12 +442,12 @@ fn render_column(
   },
   {
     id: "stamp-schema",
-    title: "Stamp the schema; fail loudly on read",
+    title: "Stamp the schema; refuse bad reads",
     example: "scoreboard_cli",
     rule: "Seed a detached typed map in one write, stamp its schema version, then attach — so incompatible layouts fail on read, not silently.",
     body: [
       "The scoreboard builds the deepest handle topology in the repo: root, roster, and one typed child map per player. A new player's map is filled while still detached — one write covers every key — then stamped with its schema version and attached by storing the handle in the roster.",
-      "The stamp is the part nothing else demonstrates: a future build reading this map through an incompatible schema fails loudly instead of returning half-decoded state. The module also wraps child resolution in a retry, because a remote handle can be transiently unresolvable while its attach op is in flight.",
+      "The stamp is the part nothing else demonstrates: a future build reading this map through an incompatible schema errors instead of returning half-decoded state. The module also wraps child resolution in a retry, because a remote handle can be transiently unresolvable while its attach op is in flight.",
     ],
     snippet: `// attached — snapshot and all — by storing its handle in the roster.
 // A single \`write\` fills every key; \`stamp\` records the schema version.
