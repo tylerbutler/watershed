@@ -244,15 +244,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, subscribe_matches_effect(matches))
     }
     EnsuredMatches(Error(reason)) -> #(
-      Model(
-        ..model,
-        last_error: Some("could not ensure matches: " <> reason),
-      )
+      Model(..model, last_error: Some("could not ensure matches: " <> reason))
         |> log_line("matches channel failed · " <> reason),
       effect.none(),
     )
 
-    MatchesChanged(event) -> #(apply_register_event(model, event), effect.none())
+    MatchesChanged(event) -> #(
+      apply_register_event(model, event),
+      effect.none(),
+    )
 
     ScoreDraftChanged(key, text) -> #(
       Model(..model, score_drafts: dict.insert(model.score_drafts, key, text)),
@@ -415,7 +415,11 @@ fn champion_view(model: Model) -> Element(Msg) {
   }
 }
 
-fn round_view(model: Model, round: bracket.Round, ids: List(MatchId)) -> Element(Msg) {
+fn round_view(
+  model: Model,
+  round: bracket.Round,
+  ids: List(MatchId),
+) -> Element(Msg) {
   html.div([class("round")], [
     html.h2([], [html.text(bracket.round_label(round))]),
     html.div(
@@ -471,7 +475,8 @@ fn reportable_view(
 ) -> Element(Msg) {
   let name_a = bracket.slot_label(slot_a)
   let name_b = bracket.slot_label(slot_b)
-  let score = dict.get(model.score_drafts, key) |> option.from_result |> option.unwrap("")
+  let score =
+    dict.get(model.score_drafts, key) |> option.from_result |> option.unwrap("")
   html.div([class("slots reportable")], [
     html.div([class("report-row")], [
       html.button([event.on_click(ReportClicked(key, name_a))], [
@@ -490,7 +495,11 @@ fn reportable_view(
   ])
 }
 
-fn reported_view(model: Model, key: String, result: MatchResult) -> Element(Msg) {
+fn reported_view(
+  model: Model,
+  key: String,
+  result: MatchResult,
+) -> Element(Msg) {
   let also_reported =
     dict.get(model.versions, key)
     |> option.from_result
@@ -510,7 +519,9 @@ fn version_log_view(also_reported: List(MatchResult)) -> Element(Msg) {
     entries ->
       html.details([class("version-log")], [
         html.summary([], [
-          html.text(int.to_string(list.length(entries)) <> " other report(s) received"),
+          html.text(
+            int.to_string(list.length(entries)) <> " other report(s) received",
+          ),
         ]),
         html.ul(
           [],
@@ -523,7 +534,8 @@ fn version_log_view(also_reported: List(MatchResult)) -> Element(Msg) {
 }
 
 fn roster_view(model: Model) -> Element(Msg) {
-  let self_chip = chip(presence.short_name(model.user_id) <> " (you)", model.color)
+  let self_chip =
+    chip(presence.short_name(model.user_id) <> " (you)", model.color)
   let peer_chips =
     model.peers |> list.map(fn(peer) { chip(peer.meta.name, peer.meta.color) })
   html.div([class("roster"), attribute.aria_label("Participants online")], [

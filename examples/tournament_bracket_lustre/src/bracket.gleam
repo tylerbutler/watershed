@@ -47,7 +47,9 @@ pub fn match_key(id: MatchId) -> String {
 }
 
 pub const quarterfinals = [
-  MatchId(Quarterfinal, 1), MatchId(Quarterfinal, 2), MatchId(Quarterfinal, 3),
+  MatchId(Quarterfinal, 1),
+  MatchId(Quarterfinal, 2),
+  MatchId(Quarterfinal, 3),
   MatchId(Quarterfinal, 4),
 ]
 
@@ -89,8 +91,7 @@ pub fn feeders(id: MatchId) -> Option(#(MatchId, MatchId)) {
       Some(#(MatchId(Quarterfinal, 1), MatchId(Quarterfinal, 2)))
     MatchId(Semifinal, 2) ->
       Some(#(MatchId(Quarterfinal, 3), MatchId(Quarterfinal, 4)))
-    MatchId(Final, _) ->
-      Some(#(MatchId(Semifinal, 1), MatchId(Semifinal, 2)))
+    MatchId(Final, _) -> Some(#(MatchId(Semifinal, 1), MatchId(Semifinal, 2)))
     MatchId(Semifinal, _) -> None
   }
 }
@@ -142,10 +143,7 @@ fn slot_from_feeder(
 
 /// A match is reportable once both of its slots are decided (a fixed seed, or
 /// an earlier match's winner) and it has no result of its own yet.
-pub fn is_reportable(
-  id: MatchId,
-  results: Dict(String, MatchResult),
-) -> Bool {
+pub fn is_reportable(id: MatchId, results: Dict(String, MatchResult)) -> Bool {
   case dict.has_key(results, match_key(id)) {
     True -> False
     False ->

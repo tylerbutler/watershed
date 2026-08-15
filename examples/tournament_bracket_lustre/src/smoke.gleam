@@ -209,7 +209,10 @@ fn bootstrap(
   report_phase(matches_a, matches_b)
 }
 
-fn report_phase(matches_a: RegisterCollection, matches_b: RegisterCollection) -> Nil {
+fn report_phase(
+  matches_a: RegisterCollection,
+  matches_b: RegisterCollection,
+) -> Nil {
   log("smoke: A reports the first quarterfinal")
   watershed_js.register_write(
     matches_a,

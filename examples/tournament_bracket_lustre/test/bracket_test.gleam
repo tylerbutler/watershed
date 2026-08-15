@@ -28,8 +28,7 @@ pub fn semifinal_is_undecided_until_both_feeders_report_test() {
   |> should.equal(#(bracket.Undecided, bracket.Undecided))
   bracket.is_reportable(MatchId(Semifinal, 1), results) |> should.be_false
 
-  let results =
-    dict.from_list([#("r1m1", MatchResult("Alaric", "3-1"))])
+  let results = dict.from_list([#("r1m1", MatchResult("Alaric", "3-1"))])
   bracket.slots_for(MatchId(Semifinal, 1), results)
   |> should.equal(#(bracket.WinnerSlot("Alaric"), bracket.Undecided))
   bracket.is_reportable(MatchId(Semifinal, 1), results) |> should.be_false
@@ -40,7 +39,10 @@ pub fn semifinal_is_undecided_until_both_feeders_report_test() {
       #("r1m2", MatchResult("Delphine", "2-1")),
     ])
   bracket.slots_for(MatchId(Semifinal, 1), results)
-  |> should.equal(#(bracket.WinnerSlot("Alaric"), bracket.WinnerSlot("Delphine")))
+  |> should.equal(#(
+    bracket.WinnerSlot("Alaric"),
+    bracket.WinnerSlot("Delphine"),
+  ))
   bracket.is_reportable(MatchId(Semifinal, 1), results) |> should.be_true
 }
 

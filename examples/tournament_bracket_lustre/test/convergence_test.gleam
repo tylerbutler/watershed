@@ -24,7 +24,11 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
 
   let root_a = watershed_js.root_typed(doc_a)
   let assert Ok(matches) = watershed_js.create_register_collection(doc_a)
-  watershed_js.set_register_collection_field(root_a, doc_schema.matches(), matches)
+  watershed_js.set_register_collection_field(
+    root_a,
+    doc_schema.matches(),
+    matches,
+  )
   sluice_js.settle(sluice)
 
   #(sluice, matches, matches_for(doc_b))
@@ -33,11 +37,20 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
 fn matches_for(doc: Document(doc_schema.BracketDoc)) -> RegisterCollection {
   let root = watershed_js.root_typed(doc)
   let assert Ok(Some(matches)) =
-    watershed_js.resolve_register_collection_field(doc, root, doc_schema.matches())
+    watershed_js.resolve_register_collection_field(
+      doc,
+      root,
+      doc_schema.matches(),
+    )
   matches
 }
 
-fn report(matches: RegisterCollection, key: String, winner: String, score: String) -> Nil {
+fn report(
+  matches: RegisterCollection,
+  key: String,
+  winner: String,
+  score: String,
+) -> Nil {
   watershed_js.register_write(
     matches,
     key,
@@ -45,14 +58,20 @@ fn report(matches: RegisterCollection, key: String, winner: String, score: Strin
   )
 }
 
-fn official(matches: RegisterCollection, key: String) -> option.Option(bracket.MatchResult) {
+fn official(
+  matches: RegisterCollection,
+  key: String,
+) -> option.Option(bracket.MatchResult) {
   case watershed_js.register_read(matches, key, Atomic) {
     Some(value) -> Some(match_result.from_json(value))
     option.None -> option.None
   }
 }
 
-fn versions(matches: RegisterCollection, key: String) -> List(bracket.MatchResult) {
+fn versions(
+  matches: RegisterCollection,
+  key: String,
+) -> List(bracket.MatchResult) {
   case watershed_js.register_versions(matches, key) {
     Some(values) -> list.map(values, match_result.from_json)
     option.None -> []
@@ -68,8 +87,10 @@ pub fn full_bracket_converges_to_the_same_champion_test() {
   report(matches_b, "r1m4", "Gideon", "3-2")
   sluice_js.settle(sluice)
 
-  official(matches_a, "r1m1") |> should.equal(Some(bracket.MatchResult("Alaric", "3-1")))
-  official(matches_b, "r1m1") |> should.equal(Some(bracket.MatchResult("Alaric", "3-1")))
+  official(matches_a, "r1m1")
+  |> should.equal(Some(bracket.MatchResult("Alaric", "3-1")))
+  official(matches_b, "r1m1")
+  |> should.equal(Some(bracket.MatchResult("Alaric", "3-1")))
 
   report(matches_a, "r2m1", "Alaric", "3-2")
   report(matches_b, "r2m2", "Gideon", "3-1")
@@ -78,8 +99,10 @@ pub fn full_bracket_converges_to_the_same_champion_test() {
   report(matches_a, "r3m1", "Alaric", "4-2")
   sluice_js.settle(sluice)
 
-  official(matches_a, "r3m1") |> should.equal(Some(bracket.MatchResult("Alaric", "4-2")))
-  official(matches_b, "r3m1") |> should.equal(Some(bracket.MatchResult("Alaric", "4-2")))
+  official(matches_a, "r3m1")
+  |> should.equal(Some(bracket.MatchResult("Alaric", "4-2")))
+  official(matches_b, "r3m1")
+  |> should.equal(Some(bracket.MatchResult("Alaric", "4-2")))
 }
 
 /// The demo's payoff scenario: two clients report the *same* match
@@ -107,9 +130,13 @@ pub fn concurrent_conflicting_reports_converge_on_one_official_winner_test() {
   // Nothing is silently discarded: both submitted results are still present
   // in the retained version history, on both clients.
   let winners_a =
-    versions(matches_a, "r1m1") |> list.map(fn(r) { r.winner }) |> list.sort(order_winner)
+    versions(matches_a, "r1m1")
+    |> list.map(fn(r) { r.winner })
+    |> list.sort(order_winner)
   let winners_b =
-    versions(matches_b, "r1m1") |> list.map(fn(r) { r.winner }) |> list.sort(order_winner)
+    versions(matches_b, "r1m1")
+    |> list.map(fn(r) { r.winner })
+    |> list.sort(order_winner)
 
   winners_a |> should.equal(["Alaric", "Beatrix"])
   winners_b |> should.equal(["Alaric", "Beatrix"])

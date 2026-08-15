@@ -125,17 +125,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 fn bootstrap_effect(doc: Document(doc_schema.Board)) -> Effect(Msg) {
   let root = watershed_js.root_typed(doc)
   effect.batch([
-    watershed_lustre.ensure_field(
-      root,
-      doc_schema.title(),
-      "Sprint board",
-    ),
-    watershed_lustre.ensure_map(
-      doc,
-      root,
-      doc_schema.cards(),
-      EnsuredCards,
-    ),
+    watershed_lustre.ensure_field(root, doc_schema.title(), "Sprint board"),
+    watershed_lustre.ensure_map(doc, root, doc_schema.cards(), EnsuredCards),
     watershed_lustre.ensure_counter(
       doc,
       root,
@@ -164,10 +155,7 @@ fn presence_effect(
 fn announce_effect(model: Model) -> Effect(Msg) {
   case model.presence {
     Some(handle) ->
-      watershed_lustre.update_presence(
-        handle,
-        BoardPresence(card: model.focus),
-      )
+      watershed_lustre.update_presence(handle, BoardPresence(card: model.focus))
     None -> effect.none()
   }
 }
