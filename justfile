@@ -32,7 +32,7 @@ _build-bundles:
     for d in examples/*/package.json; do pnpm --dir "$(dirname "$d")" run build; done
 
 # Run tests
-test: _test-gleam _test-js
+test: _test-gleam _test-js _test-compile-fail
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -49,6 +49,27 @@ _test-gleam:
 # separate suite, not a re-run: neither target sees the other's tests.
 _test-js:
     trellis run test --target javascript watershed
+
+# The one guarantee no ordinary test can make: that *wrong* code is rejected.
+# `tools/compile-fail/two_root_tags` views one document's root through two
+# schemas, which `Document(root)` exists to forbid. Trellis never builds the
+# fixture (see [tools.trellis.exclude]); this recipe is the only thing that
+# does, and passing means the build failed *with the stated type error* — the
+# grep is what stops a typo from making this green for the wrong cause.
+_test-compile-fail:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    out=$(cd tools/compile-fail/two_root_tags && gleam build --target javascript 2>&1)
+    if [ $? -eq 0 ]; then
+      echo "FAIL: two_root_tags compiled. A document now admits two root schemas."
+      exit 1
+    fi
+    if ! grep -q 'Field(Sudoku, String)' <<<"$out"; then
+      echo "FAIL: two_root_tags failed to build, but not with the expected type error:"
+      echo "$out"
+      exit 1
+    fi
+    echo "ok  two_root_tags is rejected, as it must be"
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

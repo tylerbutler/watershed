@@ -50,8 +50,9 @@ exception = ">= 2.1.0 and < 3.0.0"
 [tools.trellis.exclude]
 # The examples are demos, not products. They stay in the dependency graph and in
 # every `trellis run` task, but get no changelog, no version bump, and no tag:
-# `@release` maps them to the `workspace` lifecycle.
-"@release" = ["examples/*"]
+# `@release` maps them to the `workspace` lifecycle. The compile-fail fixture is
+# not a product either.
+"@release" = ["examples/*", "tools/compile-fail/*"]
 
 # `gleam test` is an error, not a no-op, in a package with no `test/` directory,
 # so the suite-less packages are named out of the fan-out. Delete an entry here
@@ -65,6 +66,7 @@ test = [
     "examples/playlist_lustre",
     "examples/scoreboard_cli",
     "examples/text_lustre",
+    "tools/compile-fail/*",
 ]
 
 # Two target families live here, and only `watershed` belongs to both: it and
@@ -72,8 +74,10 @@ test = [
 # examples compile to JavaScript. A package built for the wrong target is a hard
 # error (missing externals one way, `lustre` the other), so each family gets its
 # own task and its own exclusions rather than one `build` that cannot express it.
-build-erlang = ["watershed_lustre", "examples/*_lustre"]
-build-javascript = ["examples/dice_cli", "examples/scoreboard_cli"]
+# `tools/compile-fail/*` is excluded from both: those packages exist to NOT
+# compile, and only `just _test-compile-fail` may build them (expecting failure).
+build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*"]
+build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*"]
 
 [tools.trellis.tasks.build-erlang]
 command = "gleam build --target erlang"
