@@ -1,0 +1,3 @@
+package = "watershed_lustre"
+kind = "Added"
+body = "Claims writes (`try_set_claim`, `compare_and_set_claim`) as Lustre effects that deliver a `claims_kernel.ClaimOutcome` to the app's own `Msg` type."

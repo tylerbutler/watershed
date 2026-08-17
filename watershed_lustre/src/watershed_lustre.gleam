@@ -31,6 +31,7 @@
 
 import gleam/javascript/promise
 import gleam/json.{type Json}
+import gleam/option.{Some}
 
 import lustre/effect.{type Effect}
 
@@ -51,6 +52,7 @@ import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/rich_text_kernel
+import watershed/runtime_js
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
 }
@@ -291,6 +293,84 @@ pub fn subscribe_claims(
   watershed_js.subscribe_claims(claims, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
+}
+
+/// Attempt a first-writer-wins claim on `key`, delivering the outcome as a
+/// message. Claims reads are not optimistic — nothing about this client's
+/// view of `key` changes until the outcome arrives — so render the interval
+/// between calling this and the message it produces as pending.
+///
+/// `to_msg` receives exactly one `claims_kernel.ClaimOutcome`: `Accepted` when
+/// this client's value won, `Lost` when the key was already claimed —
+/// synchronously if a committed claim already existed when this was called,
+/// or after the op sequences if a concurrent attempt won the race first — or
+/// `Aborted` if the client was not in a state that could submit the claim at
+/// all (still connecting, or permanently failed). A caller should not treat
+/// `Aborted` as "nothing happened" — surface it, the same as any other
+/// connection failure.
+pub fn try_set_claim(
+  claims: Claims,
+  key: String,
+  value: Json,
+  to_msg to_msg: fn(claims_kernel.ClaimOutcome) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  deliver_claim_outcome(
+    watershed_js.try_set_claim(claims, key, value),
+    fn(outcome) { dispatch(to_msg(outcome)) },
+  )
+}
+
+/// Compare-and-set claim on `key`: takes it regardless of who currently holds
+/// it, so long as nobody's write has landed since the committed entry this
+/// call captures its `ref_seq` from. Delivers its outcome the same way
+/// `try_set_claim` does — `Lost` here means a concurrent take-over attempt won
+/// the race, not that the key was already claimed.
+pub fn compare_and_set_claim(
+  claims: Claims,
+  key: String,
+  value: Json,
+  to_msg to_msg: fn(claims_kernel.ClaimOutcome) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  deliver_claim_outcome(
+    watershed_js.compare_and_set_claim(claims, key, value),
+    fn(outcome) { dispatch(to_msg(outcome)) },
+  )
+}
+
+/// Shared plumbing for `try_set_claim`/`compare_and_set_claim`: the two
+/// synchronous replies that never touch the wire (`AlreadyClaimed`,
+/// `AlreadyPendingLocally`) resolve to an immediate outcome; the asynchronous
+/// one (`Pending`) resolves once its promise settles. Both paths go through the
+/// same microtask deferral every other binding in this module uses.
+/// `WrongChannelType` covers two distinct runtime replies folded into one:
+/// the address genuinely not naming a claims channel (unreachable through a
+/// typed `ClaimsChannel` field, which only ever resolves a real one), and the
+/// runtime not being `Ready`/`Reconnecting` at all — still connecting, or
+/// permanently `Failed` — which *is* reachable, e.g. a claim click racing a
+/// disconnect. Both fold into `Aborted` rather than adding a fifth outcome a
+/// caller would act on identically either way: something kept this attempt
+/// from ever reaching the wire.
+fn deliver_claim_outcome(
+  reply: runtime_js.ClaimSubmitReply,
+  resolve: fn(claims_kernel.ClaimOutcome) -> Nil,
+) -> Nil {
+  case reply {
+    runtime_js.Pending(outcome) -> {
+      let _ =
+        promise.map(outcome, fn(outcome) {
+          queue_microtask(fn() { resolve(outcome) })
+        })
+      Nil
+    }
+    runtime_js.AlreadyClaimed(current_value) ->
+      queue_microtask(fn() { resolve(claims_kernel.Lost(Some(current_value))) })
+    runtime_js.AlreadyPendingLocally ->
+      queue_microtask(fn() { resolve(claims_kernel.Aborted) })
+    runtime_js.WrongChannelType ->
+      queue_microtask(fn() { resolve(claims_kernel.Aborted) })
+  }
 }
 
 /// Subscribe to a task manager channel.

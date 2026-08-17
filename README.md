@@ -244,7 +244,9 @@ a [dice roller](examples/dice_lustre) (Lustre) and its
 [reorderable playlist](examples/playlist_lustre) on `SharedSequence`, a
 [shared pixel canvas](examples/pixel_canvas_lustre), a
 [Sudoku board](examples/sudoku_lustre) on the typed layer, a
-[drum machine](examples/drum_machine_lustre) with quorum-agreed tempo, and a
+[drum machine](examples/drum_machine_lustre) with quorum-agreed tempo, a
+[release checklist](examples/release_checklist_lustre) with a first-writer-wins
+captain seat and a quorum-agreed release target, and a
 [showcase](examples/showcase_lustre) composing several into one document.
 Several are live at [watershed.tylerbutler.com](https://watershed.tylerbutler.com).
 

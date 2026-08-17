@@ -116,6 +116,16 @@ export const examples: Example[] = [
       "One worker wins each claim, and queued work plus dispatcher ownership recover when a client dies.",
   },
   {
+    id: "release_checklist_lustre",
+    name: "Release checklist",
+    group: "conflicts",
+    summary:
+      "A go/no-go room pairing an uncoordinated OR-set checklist with a first-writer-wins captain seat and a quorum-gated release target.",
+    structures: ["OrSet", "Claims", "PactMap"],
+    payoff:
+      "Checks converge immediately, exactly one captain seat survives concurrent claims, and only the captain can publish once every gate signs off.",
+  },
+  {
     id: "retro_board_lustre",
     name: "Retro board",
     group: "composition",

@@ -21,15 +21,15 @@ One plan is not a demo but a way of presenting them:
 
 ## Why this list exists: kind coverage
 
-Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026-08-11 as pixel canvas, retro board, and the clap counter shipped.
+Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026-08-11 as pixel canvas, retro board, and the clap counter shipped, and again as the release checklist shipped.
 
 | State | Kinds |
 |---|---|
-| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter) |
-| One site only | `Claims` (sudoku), `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
+| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist) |
+| One site only | `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
 | **No demo** | none |
 
-`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively. Every kind now has at least one example — the remaining gaps are the "one site only" row (getting `Claims`, `SharedDirectory`, `JsonOt`, and `SharedRichText` proper Lustre examples) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
+`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over. Every kind now has at least one example — the remaining gaps are the "one site only" row (getting `SharedDirectory`, `JsonOt`, and `SharedRichText` proper Lustre examples) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
 
 ## Two corrections worth not re-learning
 
@@ -272,7 +272,9 @@ register ownership, committed-only reads, and retained conflicts at the center.
 **Prerequisites:** none.
 **Cost:** low.
 
-### Release checklist: `OrSet` + `Claims` + `PactMap`
+### ✅ Shipped: Release checklist — `OrSet` + `Claims` + `PactMap`
+
+→ `examples/release_checklist_lustre/`
 
 A fixed release room where an `OrSet` records completed checks, `Claims`
 selects one release captain, and a `PactMap` carries the release target once all
@@ -287,9 +289,6 @@ quorum.
 
 This is a compact developer-tool framing for three distinct rules: add/remove
 membership, first-writer ownership, and quorum-settled configuration.
-
-**Prerequisites:** none.
-**Cost:** low-medium.
 
 ### Offline field notebook: `OrMap` + `SharedText` + presence
 

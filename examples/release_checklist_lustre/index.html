@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · collaborative release checklist</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        margin: 0;
+      }
+      .checklist { width: min(96vw, 42rem); padding: 2rem; }
+      h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+      .status, .hint, .error, .captain-status, .release-status { font-size: 0.85rem; }
+      .status, .hint { opacity: 0.7; }
+      .gates { margin: 1.25rem 0; }
+      .gate-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+      .gate-toggle {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+        text-align: left;
+      }
+      .gate-toggle:hover, .gate-toggle:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+      .gate-toggle.done { background: color-mix(in srgb, currentColor 12%, transparent); }
+      .gate-mark { font-variant-numeric: tabular-nums; opacity: 0.8; }
+      .captain, .release { margin: 1.25rem 0; padding-top: 0.75rem; border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+      button {
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .release-form { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 0.75rem; }
+      .target-input { display: flex; gap: 0.5rem; align-items: center; }
+      .target-input span { font-size: 0.85rem; opacity: 0.7; }
+      .target-input input {
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      .proposal {
+        font-size: 0.85rem;
+        margin: 0.75rem 0 0;
+        max-width: 42rem;
+        border-left: 2px solid currentColor;
+        padding-left: 0.6rem;
+      }
+      .proposal .signoffs { font-variant-numeric: tabular-nums; opacity: 0.75; }
+      .proposal .hint { display: block; opacity: 0.6; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin: 1.25rem 0; }
+      .error { color: crimson; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/release_checklist_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>
