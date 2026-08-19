@@ -1209,7 +1209,7 @@ fn remote_create_subdir(
         )
       // Stamp the create seq only if still unknown (a fresh optimistic-only
       // instance, or one whose identity a sequenced delete reset) AND this
-      // parent instance was itself live at this message (FF's re-stamp guard in
+      // parent instance was itself active when this message arrived (FF's re-stamp guard in
       // `processCreateSubDirectoryMessage`); an already-sequenced instance
       // keeps its original seq.
       let revived = case
@@ -1474,7 +1474,7 @@ fn ack_create_subdir(
           // empty — e.g. a create/delete/recreate where an earlier delete
           // cleared the slot.) A disposed instance is revived whole
           // (`undisposeSubdirectoryTree`), and the create seq is stamped only
-          // if still unknown and this parent instance was live at this message
+          // if still unknown and this parent instance was active when this message arrived
           // (FF's re-stamp guard); self is already a creator from submit time.
           None -> {
             let #(child, _revive_events) = case marker_node.disposed {

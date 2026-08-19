@@ -237,7 +237,7 @@ Decisions baked in:
   on sequenced ops, so the runtime matches acks exactly by `(client_id, csn)`
   against the in-flight queue. Inside the kernel, pop the corresponding head
   pending entry (per-key FIFO for sets within a lifetime, matching the TS
-  `shift()` + identity-assert behavior). Assert-fail loudly on CSN or FIFO
+  `shift()` + identity-assert behavior). Raise an immediate assertion on CSN or FIFO
   mismatch, same as the TS asserts.
 - **Event suppression rules** ported exactly: remote changes masked by local
   pending ops emit nothing; local clear emits `Cleared` plus per-key
@@ -256,7 +256,7 @@ Messages in: public API calls, aquamarine inbound frames, subscriber
    `connect_document_success`, record `client_id` and
    `checkpointSequenceNumber`, then bootstrap from the response's
    `initialMessages` (full history, chronological — no `requestOps(from: 0)`
-   round-trip needed). One subtlety, pinned by a test:
+   round-trip needed). One subtlety, verified by a test:
    `checkpointSequenceNumber` equals the SN of our *own join message*, which
    arrives as a separate `op` push right after the success event and is *not*
    in `initialMessages` — treat the checkpoint as "already seen" so the join
@@ -434,7 +434,7 @@ wire-contract and runtime sections above):
   deltas. All deltas *do* persist to storage, so the v1 escape hatch for docs
   past 1000 ops is the REST endpoint `GET /deltas/:tenant_id/:id`, not
   "create docs fresh". v1 can ship without it but should assert the
-  no-gap-after-bootstrap invariant and fail loudly. ✅ **Implemented
+  no-gap-after-bootstrap invariant and report violations immediately. ✅ **Implemented
   (2026-07-01):** `runtime_core.bootstrap` fails with a new
   `CoreError.HistoryGap` when replaying `initialMessages` leaves ops buffered
   past a gap (i.e. history does not start at SN 1), and both runtimes surface

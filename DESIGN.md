@@ -4,7 +4,7 @@ Visual system for the watershed website (`website/`). Register: brand.
 
 ## Theme: "Photorevised survey quadrangle"
 
-The site is styled as a USGS-style survey sheet. The metaphor is load-bearing:
+The site is styled as a USGS-style survey sheet. The metaphor is foundational:
 on photorevised quadrangles, magenta overprint marks revisions not yet
 field-checked — on this site, magenta marks *pending, unsequenced* state, and
 ink marks state the server has sequenced. Every decorative element maps to a

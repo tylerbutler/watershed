@@ -11,7 +11,7 @@
 //// snapshot, because the consensus kernels read it: a `PactMap` freezes a
 //// signoff list from the roster and `TaskManager` judges a volunteer's
 //// authorship against it. Without it, a client bootstrapping from a checkpoint
-//// replays every later op against an empty room — which does not fail loudly,
+//// replays every later op against an empty room — which does not report an error,
 //// it silently settles pacts the room is still deciding.
 ////
 //// There is no v3 loader, and there was no v2 one: formats are cut clean while

@@ -143,7 +143,7 @@ for claims.
 1. **Reads committed-only, non-optimistic** — inherited wholesale from claims.
    The doc-comment must shout it, because the tempting map-style port (show the
    local write immediately) is wrong and the test suite is built to catch it.
-2. **`>=` atomic CAS is observable here, so it is pinned by the fuzz model** (a
+2. **`>=` atomic CAS is observable here, so the fuzz model verifies it** (a
    contrast worth stating, because claims' analogous choice was *not*). In a
    single-DDS fuzz model a client's `ref_seq` is its own delivered cursor,
    which *can* equal a key's atomic sequence number (deliver the winning write,

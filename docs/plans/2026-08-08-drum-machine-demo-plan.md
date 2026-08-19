@@ -32,7 +32,7 @@ It is also the only place `PactMap` makes sense. The kind has sat unused because
 
 **watershed converges state, not time.** Two browsers holding the same pattern and the same BPM will still run their loops out of phase, because they started their audio clocks at different moments. Nothing in the toolkit fixes this, and no amount of CRDT correctness will.
 
-Three options, and the choice shapes the demo:
+Three options, and the choice determines the demo:
 
 - **(a) Per-client phase, stated plainly.** Each client loops independently. Everyone hears the same *pattern* at the same *tempo*, not the same *beat* at the same *instant*. Zero extra machinery, zero risk of over-claiming. In one room over speakers this sounds like four sequencers playing together slightly out of phase — musically fine, and arguably a nicer texture.
 - **(b) Shared start timestamp + clock estimation.** Store a loop origin in the document; each client estimates its offset against a reference and schedules to the shared grid. This can align to roughly network-jitter accuracy, which is audibly imperfect at 128 BPM (a 30ms skew is clearly hearable on a hat). It is real work, it will be blamed for sync bugs it did not cause, and it is not a watershed feature.

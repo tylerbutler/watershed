@@ -151,7 +151,7 @@ pub type KernelError {
    the pure kernel and needs *nothing* from levee beyond the SN/RSN it already
    stamps.
 
-2. **RSN is redundant on the fast path, load-bearing on reconnect.** On a live
+2. **RSN is redundant on the fast path, essential on reconnect.** On a live
    connection the client already knows its unacked ops (`pending`), so incoming
    remotes are transformed past that local queue — RSN is not consulted. RSN
    *is* needed to rebase pending ops on **reconnect / history catch-up**

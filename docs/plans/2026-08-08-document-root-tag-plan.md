@@ -1,7 +1,7 @@
 # Document root-tag plan — make the root map's schema checkable
 
 **Status: shipped 2026-08-10.** DR1–DR6 all landed, DR6 included — the
-compile-fail fixture lives at `tools/compile-fail/two_root_tags` and runs as
+compile-fail fixture is in `tools/compile-fail/two_root_tags` and runs as
 `just _test-compile-fail`, wired into `just test`. Two deviations from the plan
 below, both scope only: the examples had grown from five to twelve (nine
 already carried a usable tag in their `doc_schema.gleam`), and the `just build`
@@ -21,7 +21,7 @@ this change.
 pub fn root_typed(document: Document) -> TypedMap(s)   // src/watershed.gleam:420
 ```
 
-`s` is free and unconstrained by any argument, so the caller picks it. Two different demos can each call `root_typed` on the same document, get `TypedMap(PlaylistDoc)` and `TypedMap(SudokuDoc)` for the same physical map, and share one key namespace with no diagnostic. Every other typed-layer entry point that hands out a tagged handle is pinned by an argument — `resolve_child` and `ensure_child` take the `ChildField(s, c)` that names the child tag, and `create_typed_map`/`typed` are self-correcting because the tag unifies at the store site (`set_child` demands the field's child tag). `root_typed` is the only unpinned handle to a map with a stable identity, which is why it is the only one that bites.
+`s` is free and unconstrained by any argument, so the caller picks it. Two different demos can each call `root_typed` on the same document, get `TypedMap(PlaylistDoc)` and `TypedMap(SudokuDoc)` for the same physical map, and share one key namespace with no diagnostic. Every other typed-layer entry point that hands out a tagged handle is constrained by an argument — `resolve_child` and `ensure_child` take the `ChildField(s, c)` that names the child tag, and `create_typed_map`/`typed` are self-correcting because the tag unifies at the store site (`set_child` demands the field's child tag). `root_typed` is the only unpinned handle to a map with a stable identity, which is why it is the only one that bites.
 
 The typed layer's premise is that a map's shape is checked. The root map is the one map in every document, and it is the one map the premise does not cover.
 

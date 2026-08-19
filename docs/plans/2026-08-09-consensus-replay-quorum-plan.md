@@ -48,7 +48,7 @@ Regression tests:
 
 ## The fix that landed
 
-**CR1 — membership is checkpoint state.** `Summary` grows a `members` field, and `bootstrap` seeds `Core.members` from it rather than from the handshake's `initialClients`. Replayed `join`/`leave` advance it, machinery that already existed and was already right — `handle_join`'s own docstring states the rule ("a join only widens the quorum for ops sequenced after it"); nothing consulted it.
+**CR1 — membership is checkpoint state.** `Summary` adds a `members` field, and `bootstrap` seeds `Core.members` from it rather than from the handshake's `initialClients`. Replayed `join`/`leave` advance it, machinery that already existed and was already right — `handle_join`'s own docstring states the rule ("a join only widens the quorum for ops sequenced after it"); nothing consulted it.
 
 **CR2 — the live-path defences are live-path only.** `quorum_of` unioned self and the op's author into every quorum to cover a join lost or reordered against the op that follows it. That is a live hazard; replay reads a complete ordered log where nothing can be missing, and "we know self is live" is exactly the false premise for an op sequenced before we joined. A new `Core.replaying` gates them.
 

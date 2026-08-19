@@ -253,7 +253,7 @@ fn on_connect_document(
       // the joiner — its only copy is the one in `initial_messages`.
       //
       // The sluice used to send it anyway, and that single extra frame was
-      // load-bearing: a reconnecting runtime ignores `initial_messages`, so the
+      // Essential: a reconnecting runtime ignores `initial_messages`, so the
       // push was the one thing carrying it up to the handshake's checkpoint and
       // out of its holding state. Against a real server nothing supplies it,
       // which is why every sluice reconnect test passed while the live path

@@ -15,7 +15,7 @@ about. A `SharedSequence` converges: two tabs dragging the same track to
 different places land on the *same* order, with every track still present
 exactly once.
 
-That property is pinned by a test rather than left as a claim —
+That property is verified by a test rather than left as a claim —
 `concurrent_sequence_move_preserves_every_element_test` in
 [`test/watershed/sluice/driver_js_test.gleam`](../../test/watershed/sluice/driver_js_test.gleam)
 runs a move racing a replace through the in-memory sluice and asserts length,

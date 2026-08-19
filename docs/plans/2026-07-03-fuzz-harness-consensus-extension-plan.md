@@ -91,7 +91,7 @@ the state the delivery just produced.
 **Termination.** Reaction graphs are shallow DAGs: a `set` → accepts (which
 produce no reactions); an `acquire` → one complete/release (which produce none).
 Depth ≤ 2, bounded fan-out. The interpreter still guards with a round cap (see
-`synchronize` below) so a *model* bug that reacts unboundedly fails loudly
+`synchronize` below) so a *model* bug that reacts unboundedly surfaces immediately
 instead of hanging.
 
 ### Capability 2: membership-leave as a sequenced event

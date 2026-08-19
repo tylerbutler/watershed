@@ -14,7 +14,7 @@ watershed is a Gleam (BEAM) DDS client toolkit for Fluid Framework-compatible se
 
 ## Brand Personality
 
-Hydrological engineering: calm, precise, systems-confidence. The ecosystem naming (watershed, floodgate, spillway, aquamarine, roost) is a literal water-infrastructure family — the brand treats that metaphor as load-bearing, not decorative. Voice like a well-written engineering document about river control: measured, exact, quietly authoritative. Three words: **precise, fluid, grounded**.
+Hydrological engineering: calm, precise, systems-confidence. The ecosystem naming (watershed, floodgate, spillway, aquamarine, roost) is a literal water-infrastructure family — the brand treats that metaphor as foundational, not decorative. Voice like a well-written engineering document about river control: measured, exact, quietly authoritative. Three words: **precise, fluid, grounded**.
 
 ## Anti-references
 
@@ -26,7 +26,7 @@ Hydrological engineering: calm, precise, systems-confidence. The ecosystem namin
 ## Design Principles
 
 1. **Show, don't claim.** Convergence is demonstrated live on the page (two in-browser clients over the JS-compiled core), not asserted in copy.
-2. **The metaphor is load-bearing.** Water-system visuals (flow, contour, sequencing) illustrate the actual architecture — every decorative element maps to a real concept (ops flowing downstream, the server as sequencer, reconnect as rejoining the flow).
+2. **The metaphor is structural.** Water-system visuals (flow, contour, sequencing) illustrate the actual architecture — every decorative element maps to a real concept (ops flowing downstream, the server as sequencer, reconnect as rejoining the flow).
 3. **Rigor is content.** Property-test counts, the convergence guarantee, byte-compatibility with Fluid Framework's wire format — specifics over adjectives.
 4. **Calm surface, deep water.** Composed, unhurried presentation; density lives in the diagrams and code, not in visual noise.
 

@@ -107,7 +107,7 @@ json.object([
 - **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Off unless `auto_summarize` installs a policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
 - **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets. The only live summary failure left is `summary_versions_test`'s 404, which is SB5.
 - **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
-- **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is pinned by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
+- **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is verified by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
 - **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
 
@@ -122,7 +122,7 @@ sequences and broadcasts the summarize op, and `apply_one` records its sequence
 number as the checkpoint. So the window is not just a stagger — it is a
 *cancel*. The first client to summarize advances everyone else's
 `last_summary_sn`, and their wake-ups find nothing to do. A room writes one
-summary per crossing, not one per client. Pinned by
+summary per crossing, not one per client. Verified by
 `a_peers_summary_resets_the_local_threshold_test`.
 
 This is why the arm/fire split matters: the decision is re-taken on wake against
@@ -205,7 +205,7 @@ There is no small fix, because there is nothing to list:
 - Floodgate stores exactly **one** summary pointer per document (`doc_state.Doc.summary: #(String, Int)`, a single overwritten key). No history is retained.
 - The endpoint that *does* exist, `GET /repos/:tenant/commits?sha=&count=`, walks a git commit chain. Watershed's `upload_summary` posts a blob and a tree and never a commit, and `outbound_summarize_op` always sends `parents: []`. So there is no chain to walk.
 
-Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate grows a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
+Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate adds a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
 
 ## Found on the way: reconnect after a server restart — both fixed
 
@@ -239,7 +239,7 @@ Two things the primitive exposed on the way in, both worth knowing:
 
 ## Testing strategy
 
-- **Determinism over a live server.** ~~`sluice` delivers explicitly, so a summarize/bootstrap race is scriptable.~~ The sluice serves no summaries and there is no seam to stub `git_storage`, so summary-path determinism lives at the `runtime_core` level instead — which is where it belongs, since that is the layer the decisions are in. The live suite covers the storage round trip.
+- **Determinism over a live server.** ~~`sluice` delivers explicitly, so a summarize/bootstrap race is scriptable.~~ The sluice serves no summaries and there is no seam to stub `git_storage`, so summary-path determinism belongs at the `runtime_core` level instead — the layer where those decisions occur. The live suite covers the storage round trip.
 - **The assertion that matters** is not "a summary was written" but "a client bootstrapping from a summary reaches the same state as one replaying from zero." Write it as an equivalence: run both, compare `entries` across every channel plus each consensus kernel's pending state.
 - **Membership specifically**, since it is the piece with no coverage today: bootstrap from a checkpoint, replay a proposal sequenced after it, and assert the signoff list names the same clients a present client froze.
 - **A ghost-member test** — done, and it asserts on the `TaskManager` queue rather than a fresh `PactMap` proposal. That distinction was not obvious: a proposal made after bootstrap freezes its signoff list from the *live* roster, which `settle_bootstrap` has already replaced with the handshake's, so ghosts never reach it and such a test passes either way. The queue is rebuilt purely by replaying the log, so an unmatched volunteer stays in it. Confirmed discriminating against floodgate at `63a1996`.

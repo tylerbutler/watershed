@@ -1099,7 +1099,7 @@ fn note_roster(cell: Cell(State), peers: List(String)) -> Nil {
 /// completely known, no peer is still negotiating, and none owes us a
 /// `state` transfer.
 ///
-/// The roster is the load-bearing condition. An adapter that learns its
+/// The roster is the essential condition. An adapter that learns its
 /// room over a network round trip has announced nobody at all when `join`
 /// returns, and a replica that read that as "the room is empty" would
 /// call back ready with an empty document a moment before the room's

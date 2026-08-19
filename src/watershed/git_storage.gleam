@@ -44,7 +44,7 @@ import gleam/fetch
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
 
-/// The tree entry path a watershed summary blob lives at.
+/// The tree entry path that stores a watershed summary blob.
 const summary_blob_path = "header"
 
 /// One stored summary version, as listed by `GET /versions/:tenant_id/:id`
@@ -585,7 +585,7 @@ fn sha_decoder() -> Decoder(String) {
 }
 
 /// Deltas response: `{value: [SequencedDocumentMessage]}` — the same message
-/// shape the document channel pushes, so the channel decoder is reused.
+/// format used by document channel pushes, so the channel decoder is reused.
 fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
   decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
 }

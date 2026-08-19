@@ -166,7 +166,7 @@ acks *produce the answer* (`Accepted`/`Lost`). Generalize the ack path:
   `Resolution = ClaimResolved(key: String, outcome: claims_kernel.ClaimOutcome)`
   (a sum with one variant for now — task-manager and the consensus kernels
   will add theirs).
-- `runtime_core.handle_sequenced`'s `Ingested` grows a
+- `runtime_core.handle_sequenced`'s `Ingested` adds a
   `resolutions: List(#(String, Resolution))` field (address-tagged, like
   events).
 - The **actors** keep a registry `Dict(#(String, String), Subject(ClaimOutcome))`

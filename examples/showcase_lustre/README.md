@@ -52,9 +52,9 @@ happens to *be* the document's root; composed, it is a child of the showcase
 root — and nothing in the panel can tell the difference. Each standalone `main`
 is the showcase with one panel and no switcher.
 
-## Two rules, both load-bearing
+## Two essential rules
 
-**1. Only the showcase schema touches the root map.** A panel that reaches for
+**1. Only the showcase schema touches the root map.** A panel that uses
 `root_typed` shares one key namespace with three others, silently: the text
 panel's `title` and the sudoku panel's `title` would be the same key.
 `Document(Showcase)` makes the tag checkable, and `composition_test` asserts

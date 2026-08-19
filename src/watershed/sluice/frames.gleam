@@ -220,7 +220,7 @@ fn signal_entry_decoder() -> Decoder(#(Json, Option(String))) {
 ///
 /// `initial_clients` is what seeds a client's membership roster, and therefore
 /// the quorum its consensus kernels freeze a signoff list from. An empty roster
-/// here does not fail loudly — it silently makes every pact a one-member pact
+/// here does not report an error — it silently makes every pact a one-member pact
 /// that accepts immediately.
 pub fn encode_connected(
   client_id client_id: String,

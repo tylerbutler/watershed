@@ -82,7 +82,7 @@ What differed was the *shape of the tests*:
   never quiet, so the stall never appeared.
 - Every sluice-level reconnect test passed because **the sluice pushed a frame
   no real server sends**: the joiner's own join op, echoed back to the joiner
-  after the handshake. Its comment called that push "load-bearing on the
+  after the handshake. Its comment called that push "essential on the
   reconnect path", and it was — it was standing in for a catch-up that never
   happened. It also claimed to be "how the real server orders it", which was the
   part that was wrong.

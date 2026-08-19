@@ -12,7 +12,7 @@ as required by their licenses.
 
 - **Package:** [`rich-text@4.1.0`](https://www.npmjs.com/package/rich-text/v/4.1.0)
 - **Repository:** <https://github.com/ottypes/rich-text>
-- **Commit (`gitHead` pinned by the published 4.1.0 package):**
+- **Commit (the published 4.1.0 package's `gitHead`):**
   `b53cd97690804e544370423ce27c6d852abb2c7f`
 - **License:** MIT
 - **Derived modules:** `src/watershed/rich_text.gleam`,
@@ -50,7 +50,7 @@ THE SOFTWARE.
 
 - **Package:** [`quill-delta@4.2.1`](https://www.npmjs.com/package/quill-delta/v/4.2.1)
 - **Repository:** <https://github.com/quilljs/delta>
-- **Commit (`gitHead` pinned by the published 4.2.1 package):**
+- **Commit (the published 4.2.1 package's `gitHead`):**
   `06ca777f67905ea6533272b2f88189ee06bb4197`
 - **License:** MIT
 - **Derived modules:** `src/watershed/rich_text.gleam` (the `Delta` document

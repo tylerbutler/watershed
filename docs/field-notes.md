@@ -12,11 +12,11 @@ The implementation is two files:
 - `website/src/scripts/demo.js` — the demo engine, which calls into the module
   at each point in an op's lifecycle.
 
-## The load-bearing idea
+## The central idea
 
 The marks are hand-drawn on purpose. They read as an **inspector's annotation
 over a precise printed survey sheet** — not as UI chrome. That contrast (sketchy
-mark over exact linework) is the whole effect. Never reach for a hand-drawn
+mark over exact linework) is the whole effect. Never use a hand-drawn
 library for actual controls or layout; it only works as an overlay on top of the
 crisp demo. See `PRODUCT.md` / `DESIGN.md` for the survey-quadrangle aesthetic.
 

@@ -402,7 +402,7 @@ pub fn resolve(
 
 // ── Typed maps ───────────────────────────────────────────────────────────────
 //
-// An opt-in, phantom-typed view over a SharedMap. `schema` is pinned by
+// An opt-in, phantom-typed view over a SharedMap. `schema` is constrained by
 // inference the first time a `Field(schema, _)` is used against the map, so a
 // field from one schema cannot be applied to a map of another. Typing is a
 // decode boundary (remote peers may write anything), so reads return `Result`.

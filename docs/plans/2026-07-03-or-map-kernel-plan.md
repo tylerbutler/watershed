@@ -134,7 +134,7 @@ Fuzz entry `test/watershed/or_map_fuzz_test.gleam` (client_count 3; rollback/sta
 | M3 | rollback skips recompute or `own_tallies` revert | oracle (next increment swallowed) / convergence |
 | M4 | increment built off current-value default instead of `own_tallies` (Finding B bug) | oracle mismatch after remove/re-add |
 | M5 | local state kept from `update_with_delta` instead of `apply_delta` (Finding A bug) | convergence failure after remove/re-add |
-| M6 | drop the oracle's author clause (planted in an oracle test to prove it load-bearing) | oracle mismatch when a client removes with own pending adds |
+| M6 | drop the oracle's author clause (planted in an oracle test to prove it essential) | oracle mismatch when a client removes with own pending adds |
 | M7 | `init` ignores identity (shared replica id) | oracle/convergence — dot + tally collision; keep as a permanent test (pn M5 pattern) |
 
 ## Runtime wiring

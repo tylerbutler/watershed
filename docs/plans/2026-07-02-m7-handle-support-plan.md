@@ -66,7 +66,7 @@ an attach protocol.
 | Handle detection | Full-tree scan of the value at submit time (`json.to_string` → `json.parse` with a recursive collector decoder) — TS-faithful; handles may nest anywhere inside a Plain value |
 | Handle url | `"/" <> address` (single segment; watershed has one envelope level). Multi-segment urls are ignored by the scanner (future Fluid interop concern) |
 | Attach envelope | DocumentMessage stays `type:"op"`; contents `{"type":"attach","address":a,"channelType":"map","snapshot":[{key,value},…]}`. Discriminated from channel ops' `{address, contents}` by the top-level `"type"` key. Zero levee/spillway change — contents are sequenced opaquely |
-| Unknown channelType on decode | Fatal (fail loudly — an old client cannot interpret a future DDS) |
+| Unknown channelType on decode | Fatal (reject immediately — an old client cannot interpret a future DDS) |
 | Op for unknown address | Fatal `UnknownChannel` error (attach always precedes channel ops in sequence order, so this is corruption). Replaces today's silent drop of foreign addresses |
 | Kernel transition at attach | **Freeze-and-rebase at attach-submit**: snapshot = optimistic `entries(kernel)`, kernel replaced by `from_sequenced(snapshot)`. Correct because a detached kernel is 100% local and peers can only learn the address from ops sequenced after our attach. Own-attach ack pops in-flight with no kernel mutation; edits between attach-submit and ack are ordinary pending ops FIFO-behind the `InFlightAttach` |
 | Attach graph | Post-order DFS over detached maps reachable via handles (dependencies first), visited-set for cycles (A↔B fine); all attaches + triggering set in one submit batch |

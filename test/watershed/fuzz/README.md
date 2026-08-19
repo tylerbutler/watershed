@@ -49,7 +49,7 @@ Instead, the harness dumps the shrunk failing script itself:
   recorded — this is the harness's "kill a run, re-run it, get an
   identical failure" guarantee.
 - If a fixture's script stops failing (the underlying bug got fixed), the
-  replay test fails loudly with a pointer to that fixture instead of
+  replay test reports the failure with a pointer to that fixture instead of
   silently starting to pass, so you know to update or delete it.
 
 In short: `test/fixtures/fuzz_failures/` is checked in and every file there

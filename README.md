@@ -248,7 +248,7 @@ a [dice roller](examples/dice_lustre) (Lustre) and its
 [release checklist](examples/release_checklist_lustre) with a first-writer-wins
 captain seat and a quorum-agreed release target, and a
 [showcase](examples/showcase_lustre) composing several into one document.
-Several are live at [watershed.tylerbutler.com](https://watershed.tylerbutler.com).
+Several are available at [watershed.tylerbutler.com](https://watershed.tylerbutler.com).
 
 ## Development
 

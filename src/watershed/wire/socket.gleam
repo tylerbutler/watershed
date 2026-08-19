@@ -623,7 +623,7 @@ pub fn ripple_message_decoder() -> Decoder(SignalMessage) {
   ))
 }
 
-/// Lenient `Client` decoder: the server echoes back whatever shape the
+/// Lenient `Client` decoder: the server echoes back the same structure that
 /// joining client sent, so missing fields fall back to sensible defaults.
 pub fn client_decoder() -> Decoder(Client) {
   use mode <- decode.optional_field("mode", WriteMode, mode_decoder())

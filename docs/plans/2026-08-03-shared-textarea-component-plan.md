@@ -151,7 +151,7 @@ case model.editor {
 
 **TA4 — IME composition guard. ✅ done 2026-08-03.** Freeze/diff/re-map per the design above. Exit gate: manual test with a CJK IME (macOS Pinyin or JS `compositionstart` simulation in `smoke.gleam`) plus a concurrent remote edit during composition.
 
-**TA5 — wrappers and cursors. ✅ done 2026-08-04.** (b) shipped 2026-08-03; (a) shipped 2026-08-04. (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple — the handle-passing story that landed is live-handle-by-property (see the TA5a as-built notes below), not `text_handle_of` Json and not a registry; valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither shapes the core.
+**TA5 — wrappers and cursors. ✅ done 2026-08-04.** (b) shipped 2026-08-03; (a) shipped 2026-08-04. (a) `<watershed-textarea>` custom element via `lustre.component` over the same triple — the handle-passing story that landed is live-handle-by-property (see the TA5a as-built notes below), not `text_handle_of` Json and not a registry; valuable because it opens non-Lustre hosts. (b) Shared cursors: `selection(model)` already exposes the grapheme range and anchors serialize via `anchor_to_json` — broadcast over presence/ripples and render peer selections with a mirror-div overlay (a `<textarea>` cannot render highlights). Both are additive; neither changes the core.
 
 ## As-built notes (TA1–TA2)
 
@@ -230,7 +230,7 @@ Deviations from the plan above, and why:
 Verified in two browser tabs against `docker compose up` (the loop in the
 tooling note), with `🌊🌊ABCDE(ZZZ)FGHIJ`: a remote insert **before** B's caret
 moved it to the same neighbours (`ABCDE|FGHIJ` → `🌊🌊ABCDE|FGHIJ`, offset 5 →
-9, so the UTF-16 conversion is load-bearing); an insert **at** it left the caret
+9, so the UTF-16 conversion is essential); an insert **at** it left the caret
 before the inserted text; inserts at **both edges** of a selected `ZZZ` left the
 selection exactly `ZZZ`; deleting `ZZZ` remotely collapsed B's selection to a
 caret where it had been; a remote edit while focus sat in another field did not
@@ -304,7 +304,7 @@ simulation route the plan allowed). Tab B composes `pin` → 拼 at the end of
 `ABCDEFGHIJ` while tab A inserts `🌊🌊` at the head: B's element keeps the
 provisional text untouched through the remote edit, and the commit lands at
 grapheme 12, not 10 — `🌊🌊ABCDEFGHIJ拼`, with B's caret at UTF-16 offset 15
-(4 + 10 + 1), so both the op shift and the caret shift are load-bearing. The
+(4 + 10 + 1), so both the op shift and the caret shift are essential. The
 Firefox-order trailing `input` was suppressed rather than undoing A's insert.
 Also covered: a plain composition with no peer activity; composing over a
 selection (the `Replace` path, 5 graphemes → 1); and a **negative** shift — a

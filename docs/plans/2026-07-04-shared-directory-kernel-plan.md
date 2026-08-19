@@ -376,7 +376,7 @@ already available from `map_kernel`.
      so a later revive resumes from the cleared identity instead of a stale
      copy. `apply_remote` gained a `self: Int` parameter for this (the harness
      already threads `self_id`). The create re-stamp now carries FF's guard
-     (parent instance live at the message: `parent.create.seq != -1 &&
+     (parent instance active when the message arrived: `parent.create.seq != -1 &&
      parent.create.seq <= msg.seq && child.create.seq == -1`) on both the
      remote and local-ack paths, and a local create ack revives a disposed
      marker node with a full `undispose_tree` rather than a top-level flag
@@ -465,4 +465,3 @@ already available from `map_kernel`.
   the fixes (and were deleted per the replay-fixture contract), the full suite
   (512) is green, and repeated `FUZZ_ITERATIONS=20000` directory sweeps pass
   (final battery: 20 consecutive sweeps).
-
