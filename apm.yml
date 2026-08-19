@@ -9,7 +9,7 @@ targets:
 devDependencies:
   apm:
     - tylerbutler/apm-base
-    - tylerbutler/vestibule/.claude/skills/gleam-review
+    - tylerbutler/agent-marketplace/plugins/gleam
     - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
 
     # - tylerbutler/agent-marketplace/plugins/repo-tools
