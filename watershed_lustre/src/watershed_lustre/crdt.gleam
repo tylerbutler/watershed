@@ -65,6 +65,7 @@
 //// JavaScript target only.
 
 import gleam/json.{type Json}
+import gleam/option.{None, Some}
 
 import lustre/effect.{type Effect}
 
@@ -77,6 +78,8 @@ import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p.{type P2pError}
 import watershed/p2p_transport_js.{type Rtc}
+import watershed/persist_controller_js
+import watershed/persist_js
 import watershed/pn_counter_kernel
 import watershed/schema
 import watershed/sequence_kernel
@@ -87,6 +90,83 @@ import watershed/two_p_set_kernel
 fn queue_microtask(action: fn() -> Nil) -> Nil
 
 // ── Connect & lifecycle ──────────────────────────────────────────────────────
+
+/// What disk-first opening learned before networking was attempted.
+pub type PersistenceStatus {
+  NoLocalSnapshot
+  LocalSnapshotReady
+  PersistenceFailed(error: persist_js.PersistenceError)
+}
+
+/// Open from IndexedDB first, then treat networking as an enhancement.
+///
+/// A valid local snapshot dispatches `ready` before networking can succeed or
+/// fail, so the app is immediately editable offline. With no usable local
+/// value this falls back to ordinary `connect`. Stored bytes that fail to load
+/// are reported and retained.
+pub fn open(
+  storage: persist_js.Storage,
+  config: Config(root),
+  connection connection: fn(CrdtConnection) -> msg,
+  ready ready: fn(Result(CrdtDocument(root), P2pError)) -> msg,
+  status status: fn(Status) -> msg,
+  persistence persistence: fn(PersistenceStatus) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  persist_js.load(storage, config, fn(loaded) {
+    case loaded {
+      Ok(Some(document)) -> {
+        let held =
+          crdt_js.attach(
+            document,
+            on_ready: fn(_network_ready) { Nil },
+            on_status: fn(update) {
+              queue_microtask(fn() {
+                queue_microtask(fn() { dispatch(status(update)) })
+              })
+            },
+          )
+        queue_microtask(fn() {
+          dispatch(persistence(LocalSnapshotReady))
+          dispatch(connection(held))
+          queue_microtask(fn() { dispatch(ready(Ok(document))) })
+        })
+      }
+      Ok(None) -> {
+        queue_microtask(fn() { dispatch(persistence(NoLocalSnapshot)) })
+        let held =
+          crdt_js.connect(
+            config,
+            on_ready: fn(outcome) {
+              queue_microtask(fn() {
+                queue_microtask(fn() { dispatch(ready(outcome)) })
+              })
+            },
+            on_status: fn(update) {
+              queue_microtask(fn() { dispatch(status(update)) })
+            },
+          )
+        queue_microtask(fn() { dispatch(connection(held)) })
+      }
+      Error(error) -> {
+        queue_microtask(fn() { dispatch(persistence(PersistenceFailed(error))) })
+        let held =
+          crdt_js.connect(
+            config,
+            on_ready: fn(outcome) {
+              queue_microtask(fn() {
+                queue_microtask(fn() { dispatch(ready(outcome)) })
+              })
+            },
+            on_status: fn(update) {
+              queue_microtask(fn() { dispatch(status(update)) })
+            },
+          )
+        queue_microtask(fn() { dispatch(connection(held)) })
+      }
+    }
+  })
+}
 
 /// Join a room. Builds the document the `Config` describes and connects it —
 /// `crdt_js.connect` is synchronous, so the document exists before this effect
@@ -189,6 +269,37 @@ fn establish(
 pub fn close(connection: CrdtConnection) -> Effect(msg) {
   use _dispatch <- effect.from
   crdt_js.close(connection)
+}
+
+/// Start digest-gated local persistence for a ready document.
+pub fn start_persistence(
+  storage: persist_js.Storage,
+  document: CrdtDocument(root),
+  started: fn(persist_controller_js.Controller(root)) -> msg,
+  status: fn(persist_controller_js.Status) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let controller =
+    persist_controller_js.start(storage, document, fn(update) {
+      queue_microtask(fn() { dispatch(status(update)) })
+    })
+  queue_microtask(fn() { dispatch(started(controller)) })
+}
+
+/// Tell the save controller that a local mutation may have occurred.
+pub fn persistence_changed(
+  controller: persist_controller_js.Controller(root),
+) -> Effect(msg) {
+  use _dispatch <- effect.from
+  persist_controller_js.changed(controller)
+}
+
+/// Stop local persistence timers and page lifecycle handling.
+pub fn stop_persistence(
+  controller: persist_controller_js.Controller(root),
+) -> Effect(msg) {
+  use _dispatch <- effect.from
+  persist_controller_js.stop(controller)
 }
 
 // ── Subscriptions ────────────────────────────────────────────────────────────

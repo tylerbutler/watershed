@@ -139,10 +139,11 @@ handle passed to the wrong stack.
 
 | Group | Effects |
 | --- | --- |
-| Connect & lifecycle | `connect`, `attach`, `attach_with_rtc` — each delivers the `CrdtConnection` to retain (always before `ready`), the readiness `Result(CrdtDocument, P2pError)`, and every `Status`; `close` tears the connection down |
+| Connect & lifecycle | `open`, `connect`, `attach`, `attach_with_rtc` — `open` tries IndexedDB first and reports `PersistenceStatus`; all four deliver the `CrdtConnection` to retain (always before `ready`), readiness, and every `Status`; `close` tears the connection down |
 | Subscriptions | `subscribe_pn_counter` / `_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_sequence` / `_text` — each delivers its channel's own event type and hands back the `Subscription`; `unsubscribe` drops one while the document stays connected |
 | Mutations | one generic `perform(operation:, outcome:)` — compose it with the typed `crdt_js` edit (`perform(fn() { crdt_js.or_set_add(set, "x") }, Added)`); it runs the edit in the effect phase and delivers the typed `Result(Nil, P2pError)` deferred, passed through untouched — an invalid or unsupported edit stays an `Error`, never a success-shaped `Ok` |
 | Snapshots | `export_snapshot`, `import_snapshot` |
+| Persistence | `start_persistence`, `persistence_changed`, `stop_persistence` — start digest-gated IndexedDB saving, report `Saving` / `Saved` / `SaveFailed`, call `persistence_changed` after local edits, and stop the timers / `pagehide` hook when the document closes |
 
 Every inbound callback — readiness, status, an event, a mutation `Result`, a
 delivered connection or subscription — is deferred to a microtask before
@@ -157,6 +158,26 @@ Pure configuration (`crdt_js.config`, `with_transport_policy`,
 would only duplicate a pure API. The transport policy is chosen with
 `crdt_js.with_transport_policy` (`Auto`, `P2pOnly`, `SequencedOnly`) and read
 back through the delivered `Status` stream and `crdt_js.effective_path`.
+
+### Disk-first open and local durability
+
+`open` is the offline-first entry point. It runs `persist_js.load` first; a
+valid stored snapshot reports `LocalSnapshotReady`, hands back the retained
+`CrdtConnection`, and dispatches `ready(Ok(document))` before networking can
+succeed or fail. That snapshot document is already editable; peers and the
+relay are an enhancement once `attach` finishes in the background.
+
+`persist_js.save` is join-before-save: it reads the latest stored snapshot,
+merges it into the live document with `crdt_js.merge_snapshot`, then exports
+and writes the joined state. Bad JSON, incompatible snapshots, and quota or
+other storage failures surface as `PersistenceFailed` / `SaveFailed`; the
+stored bytes are retained rather than deleted. `persist_controller_js` drives
+the save loop: debounce after local edits, a periodic digest sweep so remote
+merges get saved too, and one final `pagehide` attempt.
+
+This is browser-local durability. A fresh browser profile or another device can
+recover only from another live peer or from a durable relay such as Floodgate;
+signaling alone is never storage.
 
 ### Operational contract
 

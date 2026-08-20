@@ -152,10 +152,13 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed/crdt_js.{type Handle, type Subscription}
+import watershed/schema
 import watershed/text_kernel
-import watershed_js.{type SharedText, type TextAnchor}
+import watershed_js.{type Bias, type SharedText, type TextAnchor}
 
 import watershed_lustre
+import watershed_lustre/crdt
 import watershed_lustre/grapheme_diff.{type Edit}
 import watershed_lustre/grapheme_offset
 
@@ -185,9 +188,21 @@ const unknown_caret = -1
 
 /// The component's state: the channel it is bound to, the optimistic snapshot
 /// the view renders, the anchored selection, and the last rejected edit.
-pub opaque type Model {
+type Backend(channel) {
+  Backend(
+    snapshot: fn(channel) -> Result(#(String, Int), String),
+    insert: fn(channel, Int, String) -> Result(Nil, String),
+    delete_range: fn(channel, Int, Int) -> Result(Nil, String),
+    replace_range: fn(channel, Int, Int, String) -> Result(Nil, String),
+    anchor_at: fn(channel, Int, Bias) -> Option(TextAnchor),
+    resolve_anchor: fn(channel, TextAnchor) -> Option(Int),
+  )
+}
+
+pub opaque type Editor(channel) {
   Model(
-    channel: SharedText,
+    channel: channel,
+    backend: Backend(channel),
     /// Stamped into the DOM so caret restoration can find *this* element among
     /// however many instances an app renders.
     instance: String,
@@ -213,6 +228,14 @@ pub opaque type Model {
     peers: List(Peer),
   )
 }
+
+/// A textarea model bound to a sequenced `SharedText` channel.
+pub type Model =
+  Editor(SharedText)
+
+/// A textarea model bound to a peer-to-peer text handle.
+pub type CrdtModel =
+  Editor(Handle(schema.TextChannel))
 
 /// Another user's selection, ready to draw.
 ///
@@ -296,6 +319,9 @@ pub opaque type Msg {
   /// but the model re-reads the channel anyway so what renders is always
   /// committed optimistic state rather than an event payload.
   KernelEvent(text_kernel.TextEvent)
+  /// The p2p binding's subscription handle. The component keeps no teardown
+  /// path, so this is intentionally ignored.
+  P2pSubscribed(Subscription)
   /// The user typed. Carries the textarea's whole new value and the caret it
   /// left behind, in UTF-16 code units.
   UserInput(value: String, sel_start: Int, sel_end: Int)
@@ -311,6 +337,17 @@ pub opaque type Msg {
   Measured(String)
 }
 
+/// Whether handling this message may write to the bound text channel.
+///
+/// Parents can use this to enforce a read-only mode without dropping remote
+/// channel events, selection updates, or cursor measurements.
+pub fn mutates_document(msg: Msg) -> Bool {
+  case msg {
+    UserInput(..) | CompositionStarted(..) | CompositionEnded(..) -> True
+    KernelEvent(_) | P2pSubscribed(_) | UserSelect(..) | Measured(_) -> False
+  }
+}
+
 /// Bind a resolved text channel. Subscribes to it and takes the first snapshot,
 /// so a tab joining an existing document renders its text immediately rather
 /// than waiting for the first edit.
@@ -320,10 +357,35 @@ pub opaque type Msg {
 /// and the view never renders a disabled ghost. Render whatever placeholder you
 /// like before that moment.
 pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
+  init_with(
+    channel,
+    sequenced_backend(),
+    watershed_lustre.subscribe_text(channel, KernelEvent),
+  )
+}
+
+/// Bind a resolved peer-to-peer text handle. Uses the same component logic as
+/// [`init`](#init), but subscribes through `watershed_lustre/crdt`.
+pub fn init_crdt(
+  channel: Handle(schema.TextChannel),
+) -> #(CrdtModel, Effect(Msg)) {
+  init_with(
+    channel,
+    crdt_backend(),
+    crdt.subscribe_text(channel, P2pSubscribed, KernelEvent),
+  )
+}
+
+fn init_with(
+  channel: channel,
+  backend: Backend(channel),
+  subscription: Effect(Msg),
+) -> #(Editor(channel), Effect(Msg)) {
   let model =
     snapshot(
       Model(
         channel:,
+        backend:,
         instance: new_instance(),
         value: "",
         length: 0,
@@ -335,11 +397,16 @@ pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
       ),
     )
 
-  #(model, watershed_lustre.subscribe_text(channel, KernelEvent))
+  #(model, subscription)
 }
 
-pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+pub fn update(
+  model: Editor(channel),
+  msg: Msg,
+) -> #(Editor(channel), Effect(Msg)) {
   case msg {
+    P2pSubscribed(_) -> #(model, effect.none())
+
     // Any edit, from anywhere: re-read rather than trust the payload.
     KernelEvent(_) -> {
       let rendered = model.value
@@ -374,14 +441,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           Model(..model, committed: None),
           effect.none(),
         )
-
         // Diff against the channel's current optimistic string and send exactly
         // one minimal op.
         None, _ -> {
           let model = Model(..model, committed: None)
-          let current = watershed_js.text_value(model.channel)
-          let edit = grapheme_diff.diff(old: current, new: value)
-          let result = apply(model.channel, edit)
+          let edit = grapheme_diff.diff(old: current(model), new: value)
+          let result = apply(model, edit)
 
           // Snapshot *after* applying: on success this is the text the user
           // just typed, and on a rejected index it snaps the textarea back to
@@ -462,7 +527,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let #(start, end) = site(model, composition)
           let shift = start - composition.region.0
           let edit = commit(composition, value, start, end, shift)
-          let result = apply(model.channel, edit)
+          let result = apply(model, edit)
 
           // Unfreeze: from here the view renders the channel again.
           let model =
@@ -507,7 +572,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// choice — the only question is where it landed. If neither end can be named,
 /// the region stays where it was typed, which is right whenever no peer edited
 /// before it and convergent either way.
-fn site(model: Model, composition: Composition) -> #(Int, Int) {
+fn site(model: Editor(channel), composition: Composition) -> #(Int, Int) {
   let #(origin_start, origin_end) = composition.region
   let width = origin_end - origin_start
 
@@ -515,18 +580,18 @@ fn site(model: Model, composition: Composition) -> #(Int, Int) {
     None -> composition.region
     Some(#(head, tail)) ->
       case
-        watershed_js.text_resolve_anchor(model.channel, head),
-        watershed_js.text_resolve_anchor(model.channel, tail)
+        model.backend.resolve_anchor(model.channel, head),
+        model.backend.resolve_anchor(model.channel, tail)
       {
         // An interior edit is exactly the case where these two disagree by
         // something other than the same amount.
-        Ok(start), Ok(end) -> #(start, int.max(start, end))
+        Some(start), Some(end) -> #(start, int.max(start, end))
         // One end names content this replica cannot place — rare, since an
         // anchor on *deleted* content still resolves to the gap it left. Hang
         // the region off the end that survived.
-        Ok(start), Error(_) -> #(start, start + width)
-        Error(_), Ok(end) -> #(int.max(0, end - width), end)
-        Error(_), Error(_) -> composition.region
+        Some(start), None -> #(start, start + width)
+        None, Some(end) -> #(int.max(0, end - width), end)
+        None, None -> composition.region
       }
   }
 }
@@ -576,7 +641,10 @@ fn commit(
 
 /// Fold a fresh snapshot into the view: restore the caret only when the text
 /// actually moved under the element.
-fn settle(model: Model, rendered: String) -> #(Model, Effect(Msg)) {
+fn settle(
+  model: Editor(channel),
+  rendered: String,
+) -> #(Editor(channel), Effect(Msg)) {
   case model.value == rendered {
     // The ordinary case for a local keystroke: the channel is echoing text the
     // model already rendered, so the vdom write is a no-op and the browser's
@@ -610,7 +678,10 @@ fn settle(model: Model, rendered: String) -> #(Model, Effect(Msg)) {
 /// `pointer-events: none`) and both collapse to nothing when no peer is
 /// present. Layout still behaves, because the wrapper takes its size from the
 /// textarea — but a selector like `.editor + p` now needs to look outside it.
-pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
+pub fn view(
+  model: Editor(channel),
+  attrs: List(Attribute(Msg)),
+) -> Element(Msg) {
   let bindings =
     list.append(attrs, [
       attribute.attribute(instance_attribute, model.instance),
@@ -639,7 +710,10 @@ pub fn view(model: Model, attrs: List(Attribute(Msg))) -> Element(Msg) {
 }
 
 /// The bound element itself.
-fn field_view(model: Model, bindings: List(Attribute(Msg))) -> Element(Msg) {
+fn field_view(
+  model: Editor(channel),
+  bindings: List(Attribute(Msg)),
+) -> Element(Msg) {
   case model.composing {
     None -> html.textarea(bindings, model.value)
 
@@ -683,7 +757,7 @@ fn field_view(model: Model, bindings: List(Attribute(Msg))) -> Element(Msg) {
 /// text node. It stays in the tree with no peers present — an empty mirror
 /// costs one hidden div, and keeping it mounted means the first cursor to
 /// arrive measures against a mirror the browser has already laid out.
-fn mirror_view(model: Model) -> Element(Msg) {
+fn mirror_view(model: Editor(channel)) -> Element(Msg) {
   html.div(
     [
       attribute.attribute(mirror_attribute, model.instance),
@@ -709,7 +783,7 @@ fn mirror_view(model: Model) -> Element(Msg) {
 ///
 /// Inert by construction — this sits *over* the textarea, so anything here that
 /// took a click would take it away from the user typing underneath.
-fn overlay_view(model: Model) -> Element(Msg) {
+fn overlay_view(model: Editor(channel)) -> Element(Msg) {
   html.div(
     [
       attribute.attribute("aria-hidden", "true"),
@@ -794,13 +868,13 @@ const label_height = 18.0
 // ── Accessors ────────────────────────────────────────────────────────────────
 
 /// The optimistic text the component is currently rendering.
-pub fn value(model: Model) -> String {
+pub fn value(model: Editor(channel)) -> String {
   model.value
 }
 
 /// The channel's length in grapheme clusters — not code units, and not what
 /// `string.length` on the rendered value would tell you about surrogate pairs.
-pub fn length(model: Model) -> Int {
+pub fn length(model: Editor(channel)) -> Int {
   model.length
 }
 
@@ -808,7 +882,7 @@ pub fn length(model: Model) -> Int {
 /// rejection means a peer moved the text under an index this client had already
 /// computed; the model has re-snapshotted, so the state is consistent — this is
 /// for telling the user why their keystroke did not land.
-pub fn error(model: Model) -> Option(String) {
+pub fn error(model: Editor(channel)) -> Option(String) {
   model.error
 }
 
@@ -818,7 +892,7 @@ pub fn error(model: Model) -> Option(String) {
 ///
 /// These are CRDT indices, so they are directly broadcastable: this is the
 /// read a shared-cursor overlay wants.
-pub fn selection(model: Model) -> Option(#(Int, Int)) {
+pub fn selection(model: Editor(channel)) -> Option(#(Int, Int)) {
   option.map(model.selection, fn(selection) { selection.range })
 }
 
@@ -829,7 +903,7 @@ pub fn selection(model: Model) -> Option(#(Int, Int)) {
 ///
 /// Send it on every [`selection`](#selection) change — announcing is cheap and
 /// a cursor that only moves when you *type* reads as broken to everyone else.
-pub fn cursor(model: Model) -> Option(Cursor) {
+pub fn cursor(model: Editor(channel)) -> Option(Cursor) {
   option.map(model.selection, fn(selection) {
     Cursor(start: selection.start, end: selection.end)
   })
@@ -886,7 +960,10 @@ pub fn peer(
 /// Call this from your presence roster handler. Peers whose cursor has not
 /// moved keep their existing geometry, so a roster update caused by someone
 /// else does not make every cursor flicker.
-pub fn set_peers(model: Model, peers: List(Peer)) -> #(Model, Effect(Msg)) {
+pub fn set_peers(
+  model: Editor(channel),
+  peers: List(Peer),
+) -> #(Editor(channel), Effect(Msg)) {
   let peers =
     list.map(peers, fn(peer) {
       case list.find(model.peers, fn(old) { old.id == peer.id }) {
@@ -902,14 +979,14 @@ pub fn set_peers(model: Model, peers: List(Peer)) -> #(Model, Effect(Msg)) {
 
 /// Resolve every peer's anchors against this replica and convert to the code
 /// units the DOM measures in. Runs whenever the peers change or the text moves.
-fn locate(model: Model) -> Model {
+fn locate(model: Editor(channel)) -> Editor(channel) {
   let peers =
     list.map(model.peers, fn(peer) {
       let range = case
-        watershed_js.text_resolve_anchor(model.channel, peer.cursor.start),
-        watershed_js.text_resolve_anchor(model.channel, peer.cursor.end)
+        model.backend.resolve_anchor(model.channel, peer.cursor.start),
+        model.backend.resolve_anchor(model.channel, peer.cursor.end)
       {
-        Ok(start), Ok(end) ->
+        Some(start), Some(end) ->
           Some(#(
             grapheme_offset.to_utf16(model.value, int.min(start, end)),
             grapheme_offset.to_utf16(model.value, int.max(start, end)),
@@ -928,7 +1005,7 @@ fn locate(model: Model) -> Model {
 /// The channel the component is bound to, for edits it does not own —
 /// `text_append`, anchors, or anything else on `watershed_js`. Mutating it
 /// directly is safe: the subscription re-snapshots the model.
-pub fn channel(model: Model) -> SharedText {
+pub fn channel(model: Editor(channel)) -> channel {
   model.channel
 }
 
@@ -973,7 +1050,12 @@ fn caret(name: String) -> Decoder(Int) {
 
 /// Re-anchor from the offsets an element reported, read against `text` — the
 /// string those offsets index into, which is not always the one the model holds.
-fn anchor(model: Model, text: String, sel_start: Int, sel_end: Int) -> Model {
+fn anchor(
+  model: Editor(channel),
+  text: String,
+  sel_start: Int,
+  sel_end: Int,
+) -> Editor(channel) {
   case sel_start < 0 || sel_end < 0 {
     // No selection reported. Keep the anchors already held rather than pin one
     // somewhere the user never put a caret.
@@ -996,28 +1078,28 @@ fn anchor(model: Model, text: String, sel_start: Int, sel_end: Int) -> Model {
 
 /// Resolve the held anchors against the channel's current text and re-pin at
 /// wherever they have travelled to.
-fn resolve(model: Model) -> Model {
+fn resolve(model: Editor(channel)) -> Editor(channel) {
   case model.selection {
     None -> model
     Some(selection) ->
       case
-        watershed_js.text_resolve_anchor(model.channel, selection.start),
-        watershed_js.text_resolve_anchor(model.channel, selection.end)
+        model.backend.resolve_anchor(model.channel, selection.start),
+        model.backend.resolve_anchor(model.channel, selection.end)
       {
-        Ok(start), Ok(end) -> pin(model, start, end)
+        Some(start), Some(end) -> pin(model, start, end)
         // One edge's grapheme was deleted out from under it. Collapse onto the
         // edge that survived rather than guess where the range went.
-        Ok(index), Error(_) | Error(_), Ok(index) -> pin(model, index, index)
+        Some(index), None | None, Some(index) -> pin(model, index, index)
         // Both edges gone: there is no honest position left, so drop the
         // selection and leave the browser whatever caret it has.
-        Error(_), Error(_) -> Model(..model, selection: None)
+        None, None -> Model(..model, selection: None)
       }
   }
 }
 
 /// Pin fresh anchors at a grapheme range, clamped into the current text, and
 /// record the range in both coordinate systems.
-fn pin(model: Model, start: Int, end: Int) -> Model {
+fn pin(model: Editor(channel), start: Int, end: Int) -> Editor(channel) {
   let start = int.clamp(start, min: 0, max: model.length)
   let end = int.clamp(end, min: 0, max: model.length)
 
@@ -1049,7 +1131,7 @@ fn pin(model: Model, start: Int, end: Int) -> Model {
 ///
 /// `None` for a position the CRDT will not name.
 fn anchors(
-  model: Model,
+  model: Editor(channel),
   start: Int,
   end: Int,
 ) -> Option(#(TextAnchor, TextAnchor)) {
@@ -1059,10 +1141,10 @@ fn anchors(
   }
 
   case
-    watershed_js.text_anchor_at(model.channel, start, head_bias),
-    watershed_js.text_anchor_at(model.channel, end, watershed_js.bias_after)
+    model.backend.anchor_at(model.channel, start, head_bias),
+    model.backend.anchor_at(model.channel, end, watershed_js.bias_after)
   {
-    Ok(head), Ok(tail) -> Some(#(head, tail))
+    Some(head), Some(tail) -> Some(#(head, tail))
     _, _ -> None
   }
 }
@@ -1070,7 +1152,7 @@ fn anchors(
 /// A UTF-16 offset an element reported, as a grapheme index into the current
 /// document. `text` is the string those offsets index into, which is not always
 /// the one the model holds.
-fn reported(model: Model, text: String, offset: Int) -> Int {
+fn reported(model: Editor(channel), text: String, offset: Int) -> Int {
   int.clamp(
     grapheme_offset.from_utf16(text, int.max(offset, 0)),
     min: 0,
@@ -1087,7 +1169,7 @@ fn reported(model: Model, text: String, offset: Int) -> Int {
 /// The reply comes back as a message rather than being applied here, which is
 /// what keeps this loop finite: `Measured` writes geometry and nothing else, so
 /// it cannot ask for another measurement.
-fn measure(model: Model) -> Effect(Msg) {
+fn measure(model: Editor(channel)) -> Effect(Msg) {
   let drawable =
     list.filter_map(model.peers, fn(peer) {
       case peer.range {
@@ -1116,7 +1198,7 @@ fn measure(model: Model) -> Effect(Msg) {
 
 /// Fold measured geometry back onto the peers it belongs to, matched by id
 /// rather than by position — the roster can change between asking and answering.
-fn place(model: Model, response: String) -> Model {
+fn place(model: Editor(channel), response: String) -> Editor(channel) {
   case json.parse(response, decode.list(measurement_decoder())) {
     Error(_) -> model
     Ok(measurements) -> {
@@ -1151,7 +1233,7 @@ fn rect_decoder() -> Decoder(Rect) {
 
 /// Write the tracked selection back into the element in the window between the
 /// vdom patching its value and the browser painting it.
-fn restore(model: Model) -> Effect(Msg) {
+fn restore(model: Editor(channel)) -> Effect(Msg) {
   case model.selection {
     None -> effect.none()
     Some(selection) -> {
@@ -1174,31 +1256,128 @@ fn new_instance() -> String {
   <> int.to_string(int.random(1_000_000_000))
 }
 
+fn sequenced_backend() -> Backend(SharedText) {
+  Backend(
+    snapshot: fn(channel) {
+      Ok(#(watershed_js.text_value(channel), watershed_js.text_length(channel)))
+    },
+    insert: fn(channel, index, value) {
+      watershed_js.text_insert(channel, index, value)
+    },
+    delete_range: fn(channel, start, end) {
+      watershed_js.text_delete_range(channel, start, end)
+    },
+    replace_range: fn(channel, start, end, value) {
+      watershed_js.text_replace_range(channel, start, end, value)
+    },
+    anchor_at: fn(channel, index, bias) {
+      case watershed_js.text_anchor_at(channel, index, bias) {
+        Ok(anchor) -> Some(anchor)
+        Error(_) -> None
+      }
+    },
+    resolve_anchor: fn(channel, anchor) {
+      case watershed_js.text_resolve_anchor(channel, anchor) {
+        Ok(index) -> Some(index)
+        Error(_) -> None
+      }
+    },
+  )
+}
+
+fn crdt_backend() -> Backend(Handle(schema.TextChannel)) {
+  Backend(
+    snapshot: crdt_snapshot,
+    insert: fn(channel, index, value) {
+      case crdt_js.text_insert(channel, index:, value:) {
+        Ok(Nil) -> Ok(Nil)
+        Error(reason) -> Error(crdt_js.describe_error(reason))
+      }
+    },
+    delete_range: fn(channel, start, end) {
+      case crdt_js.text_delete_range(channel, start:, end:) {
+        Ok(Nil) -> Ok(Nil)
+        Error(reason) -> Error(crdt_js.describe_error(reason))
+      }
+    },
+    replace_range: fn(channel, start, end, value) {
+      case crdt_js.text_replace_range(channel, start:, end:, value:) {
+        Ok(Nil) -> Ok(Nil)
+        Error(reason) -> Error(crdt_js.describe_error(reason))
+      }
+    },
+    anchor_at: crdt_anchor_at,
+    resolve_anchor: crdt_resolve_anchor,
+  )
+}
+
+fn crdt_snapshot(
+  channel: Handle(schema.TextChannel),
+) -> Result(#(String, Int), String) {
+  case crdt_js.text_value(channel), crdt_js.text_length(channel) {
+    Ok(value), Ok(length) -> Ok(#(value, length))
+    Error(reason), _ | _, Error(reason) -> Error(crdt_js.describe_error(reason))
+  }
+}
+
+fn crdt_anchor_at(
+  channel: Handle(schema.TextChannel),
+  index: Int,
+  bias: Bias,
+) -> Option(TextAnchor) {
+  case crdt_js.text_anchor_at(channel, index, bias) {
+    Ok(anchor) -> Some(anchor)
+    Error(_) -> None
+  }
+}
+
+fn crdt_resolve_anchor(
+  channel: Handle(schema.TextChannel),
+  anchor: TextAnchor,
+) -> Option(Int) {
+  case crdt_js.text_resolve_anchor(channel, anchor) {
+    Ok(index) -> Some(index)
+    Error(_) -> None
+  }
+}
+
 /// Run a computed `Edit` against the channel as one minimal op.
-fn apply(channel: SharedText, edit: Edit) -> Result(Nil, String) {
+fn apply(model: Editor(channel), edit: Edit) -> Result(Nil, String) {
   case edit {
     grapheme_diff.NoChange -> Ok(Nil)
     grapheme_diff.Insert(index, value) ->
-      watershed_js.text_insert(channel, index, value)
+      model.backend.insert(model.channel, index, value)
     grapheme_diff.Delete(start, end) ->
-      watershed_js.text_delete_range(channel, start, end)
+      model.backend.delete_range(model.channel, start, end)
     grapheme_diff.Replace(start, end, value) ->
-      watershed_js.text_replace_range(channel, start, end, value)
+      model.backend.replace_range(model.channel, start, end, value)
+  }
+}
+
+/// The current optimistic string, or the last good snapshot if a backend read
+/// failed.
+fn current(model: Editor(channel)) -> String {
+  case model.backend.snapshot(model.channel) {
+    Ok(#(value, _)) -> value
+    Error(_) -> model.value
   }
 }
 
 /// Re-read the channel's optimistic state into the model.
-fn snapshot(model: Model) -> Model {
-  Model(
-    ..model,
-    value: watershed_js.text_value(model.channel),
-    length: watershed_js.text_length(model.channel),
-  )
+fn snapshot(model: Editor(channel)) -> Editor(channel) {
+  case model.backend.snapshot(model.channel) {
+    Ok(#(value, length)) -> Model(..model, value:, length:)
+    Error(_) -> model
+  }
 }
 
 /// Fold an edit result into the model: clear the banner on success, keep the
 /// runtime's own message on failure.
-fn record(model: Model, result: Result(Nil, String), edit: Edit) -> Model {
+fn record(
+  model: Editor(channel),
+  result: Result(Nil, String),
+  edit: Edit,
+) -> Editor(channel) {
   case result {
     Ok(Nil) -> Model(..model, error: None)
     Error(reason) ->

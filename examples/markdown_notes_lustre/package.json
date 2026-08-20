@@ -3,11 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Phoenix JS client dependency for the watershed Lustre markdown notes example",
+  "description": "Peer-to-peer markdown notes with disk-first persistence",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/markdown_notes_lustre/markdown_notes_lustre.mjs --bundle --format=esm --outfile=dist/markdown_notes_lustre.mjs && node scripts/stamp-sw.mjs",
     "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/markdown_notes_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
-    "smoke": "pnpm run build:smoke && node smoke/run.mjs",
+    "smoke:deterministic": "pnpm run build:smoke && node smoke/run.mjs",
+    "smoke:browser": "pnpm run build && node smoke/browser.mjs",
+    "smoke": "pnpm run smoke:browser",
     "serve": "python3 -m http.server 8080"
   },
   "dependencies": {

@@ -1,6 +1,6 @@
 name = "markdown_notes_lustre"
 version = "1.0.0"
-description = "Offline-first markdown notes (Lustre SPA): an OR-map of note names to SharedText handles, OR-set tags, and a SharedSequence sidebar order"
+description = "Peer-to-peer markdown notes (Lustre SPA) with a register-mode OR-map root and disk-first persistence"
 licences = ["MIT"]
 gleam = ">= 1.7.0"
 target = "javascript"

@@ -97,6 +97,8 @@ import gleam/result
 @target(javascript)
 import gleam/string
 @target(javascript)
+import lattice_sequence/sequence.{After, Before}
+@target(javascript)
 import watershed/channel.{type ChannelEvent, type ChannelInit, type ChannelType}
 @target(javascript)
 import watershed/crdt_core
@@ -369,6 +371,18 @@ pub fn with_anti_entropy_interval_ms(
   Config(..config, anti_entropy_interval_ms: interval_ms)
 }
 
+@target(javascript)
+/// The signaling room this config will join.
+pub fn config_room(config: Config(root)) -> String {
+  config.room
+}
+
+@target(javascript)
+/// The application compatibility tag this config will enforce.
+pub fn config_compatibility(config: Config(root)) -> String {
+  config.compatibility
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Documents, handles, connections
 // ─────────────────────────────────────────────────────────────────────────────
@@ -403,6 +417,29 @@ pub opaque type Subscription {
 }
 
 @target(javascript)
+/// A stable position in a text channel's optimistic string that survives
+/// concurrent edits and merges. Opaque — construct one with `text_anchor_at`,
+/// `text_start_anchor`, or `text_end_anchor`, or decode one with
+/// `text_anchor_from_json`.
+pub type TextAnchor =
+  text_kernel.TextAnchor
+
+@target(javascript)
+/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
+/// gap. `Before` binds to the following grapheme (inserts at the gap push it
+/// right); `After` binds to the preceding grapheme (inserts at the gap land
+/// after it). Re-exported so callers don't need a direct `lattice_sequence`
+/// dependency to build one.
+pub type Bias =
+  text_kernel.Bias
+
+@target(javascript)
+pub const bias_before: Bias = Before
+
+@target(javascript)
+pub const bias_after: Bias = After
+
+@target(javascript)
 type State {
   State(
     label: String,
@@ -432,6 +469,10 @@ type State {
     /// they need to answer. Newest first; drained in arrival order the
     /// moment the transport is stored.
     deferred: List(Deferred),
+    /// Loaded from an imported snapshot rather than built only from the
+    /// configured root. A synchronous attach refusal leaves this document
+    /// detached so the restored local state stays usable.
+    imported: Bool,
     attached: Bool,
     closed: Bool,
     policy: TransportPolicy,
@@ -785,6 +826,7 @@ pub fn new_document(
         roster: False,
         bootstrap: Joining,
         deferred: [],
+        imported: False,
         attached: False,
         closed: False,
         policy: config.policy,
@@ -853,8 +895,10 @@ fn contained(work: fn() -> Nil) -> Nil {
 /// online.
 ///
 /// The document keeps its cell, so handles and subscriptions taken before
-/// the attach stay valid, and the snapshot's channels are broadcast to
-/// peers as part of the ordinary `state` exchange.
+/// the attach stay valid, the snapshot's channels are broadcast to peers
+/// as part of the ordinary `state` exchange, and a synchronous startup
+/// refusal leaves a restored snapshot detached so its local state stays
+/// editable and retryable.
 pub fn attach(
   document: CrdtDocument(root),
   on_ready on_ready: fn(Result(CrdtDocument(root), P2pError)) -> Nil,
@@ -926,8 +970,7 @@ pub fn attach_with_rtc(
                 p2p.SequencerUnavailable(
                   "sequencedOnly needs a sequencer, and none was configured",
                 )
-              mark_closed(cell)
-              resolve_ready(cell, Error(error))
+              fail_attach_attempt(cell, error)
               CrdtConnection(cell: None)
             }
             Some(_) -> {
@@ -948,8 +991,7 @@ pub fn attach_with_rtc(
             )
           {
             Error(error) -> {
-              mark_closed(cell)
-              resolve_ready(cell, Error(error))
+              fail_attach_attempt(cell, error)
               CrdtConnection(cell: None)
             }
             Ok(transport) -> {
@@ -1035,6 +1077,69 @@ fn mark_closed(cell: Cell(State)) -> Nil {
       deadline: None,
     ),
   )
+}
+
+@target(javascript)
+/// Forget one attach attempt while keeping the document itself alive.
+///
+/// Local state, handles, and subscriptions survive; only the transport
+/// plumbing and per-attempt callbacks are cleared so a caller may keep
+/// editing offline and try `attach` again later.
+fn mark_detached(cell: Cell(State)) -> Nil {
+  let state = transport_js.get_cell(cell)
+  cancel(state.resync_timer)
+  cancel(state.nudge_timer)
+  cancel(state.sync_timer)
+  cancel(state.deadline)
+  transport_js.set_cell(
+    cell,
+    State(
+      ..state,
+      transport: None,
+      peers: dict.new(),
+      on_status: fn(_) { Nil },
+      on_ready: fn(_) { Nil },
+      readiness: None,
+      roster: False,
+      bootstrap: Joining,
+      deferred: [],
+      attached: False,
+      relay: None,
+      phase: RelayOff,
+      path: PeerToPeer,
+      published: "",
+      resyncs: 0,
+      resync_timer: None,
+      nudge_dirty: False,
+      nudge_armed: False,
+      nudge_timer: None,
+      publish_owed: False,
+      sync_armed: False,
+      sync_timer: None,
+      last_sync_digest: "",
+      last_match: None,
+      deadline: None,
+    ),
+  )
+}
+
+@target(javascript)
+/// A synchronous startup failure ends only that attempt for a restored
+/// snapshot; a freshly built document keeps the older fail-closed
+/// semantics.
+fn fail_attach_attempt(cell: Cell(State), error: P2pError) -> Nil {
+  let state = transport_js.get_cell(cell)
+  case state.imported {
+    True -> {
+      mark_detached(cell)
+      contained(fn() { state.on_status(Failed(error)) })
+      contained(fn() { state.on_ready(Error(error)) })
+    }
+    False -> {
+      mark_closed(cell)
+      resolve_ready(cell, Error(error))
+    }
+  }
 }
 
 @target(javascript)
@@ -3284,6 +3389,130 @@ pub fn text_value(
   }
 }
 
+@target(javascript)
+/// The text's current optimistic grapheme count.
+pub fn text_length(
+  handle: Handle(schema.TextChannel),
+) -> Result(Int, P2pError) {
+  use state <- read(handle, channel.TextChannel)
+  case state {
+    channel.TextState(kernel) -> text_kernel.length(kernel)
+    _ -> 0
+  }
+}
+
+@target(javascript)
+/// Create a stable anchor at the gap before the optimistic grapheme at
+/// `index`, biased with `bias_before`/`bias_after`. A typed error on an
+/// out-of-bounds index.
+pub fn text_anchor_at(
+  handle: Handle(schema.TextChannel),
+  index: Int,
+  bias: Bias,
+) -> Result(TextAnchor, P2pError) {
+  case read(handle, channel.TextChannel, fn(state) { state }) {
+    Ok(channel.TextState(kernel)) ->
+      text_kernel.anchor_at(kernel, index, bias)
+      |> result.map_error(fn(error) {
+        p2p.InvalidEnvelope(
+          address(handle),
+          text_kernel.anchor_error_detail(error),
+        )
+      })
+    Ok(_) ->
+      Error(p2p.InvalidEnvelope(
+        address(handle),
+        "registered text channel stored a non-text state",
+      ))
+    Error(error) -> Error(error)
+  }
+}
+
+@target(javascript)
+/// Resolve an anchor to a current optimistic grapheme index. A typed error on
+/// a stale/unknown anchor target.
+pub fn text_resolve_anchor(
+  handle: Handle(schema.TextChannel),
+  anchor: TextAnchor,
+) -> Result(Int, P2pError) {
+  case read(handle, channel.TextChannel, fn(state) { state }) {
+    Ok(channel.TextState(kernel)) ->
+      text_kernel.resolve_anchor(kernel, anchor)
+      |> result.map_error(fn(error) {
+        p2p.InvalidEnvelope(
+          address(handle),
+          text_kernel.anchor_error_detail(error),
+        )
+      })
+    Ok(_) ->
+      Error(p2p.InvalidEnvelope(
+        address(handle),
+        "registered text channel stored a non-text state",
+      ))
+    Error(error) -> Error(error)
+  }
+}
+
+@target(javascript)
+/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
+/// need a handle since it carries no document state.
+pub fn text_start_anchor() -> TextAnchor {
+  text_kernel.start_anchor()
+}
+
+@target(javascript)
+/// An anchor at the end of the text. Always resolves to the current grapheme
+/// length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> TextAnchor {
+  text_kernel.end_anchor()
+}
+
+@target(javascript)
+/// Encode an anchor as a self-describing JSON value.
+pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
+  text_kernel.anchor_to_json(anchor)
+}
+
+@target(javascript)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`. A
+/// typed error on malformed JSON.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(TextAnchor, P2pError) {
+  case text_kernel.anchor_from_json(json_string) {
+    Ok(anchor) -> Ok(anchor)
+    Error(error) ->
+      Error(p2p.InvalidEnvelope(
+        "textAnchor",
+        "invalid anchor JSON: " <> format_json_decode_error(error),
+      ))
+  }
+}
+
+@target(javascript)
+fn format_json_decode_error(error: json.DecodeError) -> String {
+  case error {
+    json.UnexpectedEndOfInput -> "unexpected end of input"
+    json.UnexpectedByte(byte) -> "unexpected byte: " <> byte
+    json.UnexpectedSequence(seq) -> "unexpected sequence: " <> seq
+    json.UnableToDecode(errors) ->
+      "unable to decode: "
+      <> string.join(
+        list.map(errors, fn(e) {
+          "expected "
+          <> e.expected
+          <> ", found "
+          <> e.found
+          <> case e.path {
+            [] -> ""
+            path -> " at " <> string.join(path, ".")
+          }
+        }),
+        "; ",
+      )
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Snapshots
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3309,6 +3538,40 @@ pub fn export_snapshot(document: CrdtDocument(root)) -> Result(Json, P2pError) {
 }
 
 @target(javascript)
+/// Merge an exported snapshot into a live document.
+///
+/// Like the core import this is a join: local channels and local edits
+/// survive it. Subscriber events fan out exactly once, and a merged state on an
+/// attached document is handed to the existing anti-entropy / relay machinery
+/// rather than taking a new path here.
+pub fn merge_snapshot(
+  document: CrdtDocument(root),
+  snapshot: Json,
+) -> Result(crdt_core.Outcome, P2pError) {
+  let cell = document.cell
+  let state = transport_js.get_cell(cell)
+  use _ <- result.try(usable(cell, state))
+  let durable = state.path == Sequenced && state.phase == RelayPrimaryPhase
+  let before = case durable {
+    True -> document_digest(cell)
+    False -> ""
+  }
+  use #(core, outcome) <- result.try(fail(
+    cell,
+    crdt_core.import_snapshot(state.document, json.to_string(snapshot)),
+  ))
+  transport_js.set_cell(cell, State(..state, document: core))
+  dispatch(cell, outcome.events)
+  refresh_sync(cell)
+  case durable && document_digest(cell) != before, state.transport {
+    True, Some(_) -> owe_publication(cell)
+    True, None -> publish_while_primary(cell)
+    False, _ -> Nil
+  }
+  Ok(outcome)
+}
+
+@target(javascript)
 /// Rebuild a document from an exported snapshot.
 ///
 /// Size, protocol version, room, compatibility tag, root type, and every
@@ -3325,7 +3588,7 @@ pub fn import_snapshot(
     state.document,
     json.to_string(snapshot),
   ))
-  transport_js.set_cell(cell, State(..state, document: core))
+  transport_js.set_cell(cell, State(..state, document: core, imported: True))
   Ok(document)
 }
 
@@ -3336,6 +3599,19 @@ pub fn import_snapshot(
 @target(javascript)
 pub fn room(document: CrdtDocument(root)) -> String {
   crdt_core.room(transport_js.get_cell(document.cell).document)
+}
+
+@target(javascript)
+/// The signaling room this document belongs to. Alias of `room`, named for
+/// persistence storage keys.
+pub fn room_id(document: CrdtDocument(root)) -> String {
+  room(document)
+}
+
+@target(javascript)
+/// The application compatibility tag this document enforces.
+pub fn compatibility_tag(document: CrdtDocument(root)) -> String {
+  crdt_core.compatibility(transport_js.get_cell(document.cell).document)
 }
 
 @target(javascript)

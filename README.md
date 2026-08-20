@@ -131,6 +131,26 @@ Lustre as effects — `connect`, per-kind subscriptions, `ensure_*` bootstrap, a
 presence — so an app declares its wiring instead of hand-bridging callbacks into
 `dispatch`. Every Lustre example here is built on it.
 
+## Durability boundary
+
+`watershed` / `watershed_js` are the **sequenced** line: once an op is accepted
+by Floodgate (or another compatible service), durability lives there, and
+summaries shorten the replay for later joins.
+
+`watershed/crdt_js` is the **peer-to-peer** line. `merge_snapshot` joins an
+exported snapshot into a live document without dropping local channels or local
+edits; `import_snapshot` rebuilds a detached document, and `attach` brings it
+online later. `watershed/persist_js` stores those snapshots in IndexedDB,
+joining the latest stored value before every save and surfacing — never
+deleting — corrupt bytes, import failures, and storage errors.
+`watershed/persist_controller_js` is the save driver: debounce after local
+edits, periodic digest sweep for remote merges, and one final `pagehide` save
+attempt.
+
+That browser durability is local to one profile. Cross-device recovery still
+needs another live peer or a relay (`SequencedOnly`, or `Auto` once relay
+primary). Signaling alone is never storage.
+
 ## Typed documents
 
 `watershed/schema` adds an opt-in typed view over a SharedMap: declare a

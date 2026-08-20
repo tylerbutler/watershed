@@ -1,42 +1,34 @@
-//// Headless smoke test: drive two `watershed_js` clients against a live
-//// floodgate dev server (`just integration-up`) from Node and assert the
-//// app's two headline claims end to end:
-////
-//// 1. The handle-in-register round trip — a note created on A opens on B by
-////    parsing the OR-map register back to a handle and resolving it.
-//// 2. Race 2, the headline offline claim — both clients go offline, edit
-////    different paragraphs of the same note, reconnect, and every edit
-////    survives on both.
-////
-//// The deterministic race timing lives in `test/convergence_test.gleam`
-//// against the in-memory sluice; this test only has wall-clock delays, so it
-//// exercises what a live server actually round-trips through.
-////
-//// Run via `smoke/run.mjs`, which supplies a WebSocket global.
-
-import gleam/int
-import gleam/javascript/promise.{type Promise}
-import gleam/option.{Some}
+@target(javascript)
+import gleam/json
+@target(javascript)
+import gleam/list
+@target(javascript)
+import gleam/option.{type Option, None, Some}
+@target(javascript)
 import gleam/string
 
+@target(javascript)
 import doc_schema
-import markdown_notes_lustre/note_handle
+@target(javascript)
+import markdown_notes_lustre/p2p_fake
+@target(javascript)
+import watershed/crdt_js.{type CrdtConnection, type CrdtDocument, type Handle}
+@target(javascript)
 import watershed/or_map_kernel
-import watershed_js.{
-  type Document, type OrMap, type OrSet, type SharedSequence, type SharedText,
-  WatershedConfig,
+@target(javascript)
+import watershed/persist_js
+@target(javascript)
+import watershed/schema.{
+  type OrMapChannel, type OrSetChannel, type SequenceChannel,
 }
+@target(javascript)
+import watershed/transport_js.{type Cell}
 
-const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
+const room = "mdnotes-smoke"
 
-const tenant = "dev-tenant"
-
-const secret = "levee-dev-secret-change-in-production"
+const compatibility = "markdown-notes/v2"
 
 const note_name = "field notes"
-
-@external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, cb: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -44,209 +36,326 @@ fn log(message: String) -> Nil
 @external(javascript, "./smoke_ffi.mjs", "exit")
 fn exit(code: Int) -> Nil
 
-fn connect_client(
-  document: String,
-  user: String,
-) -> Promise(Document(doc_schema.Notebook)) {
-  use token <- promise.map(watershed_js.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
-  watershed_js.connect(
-    WatershedConfig(
-      url: url,
-      tenant: tenant,
-      document: document,
-      token: token,
-      user_id: user,
-    ),
-    on_ready: fn(result) {
-      case result {
-        Ok(_) -> log("  " <> user <> " ready")
-        Error(reason) -> log("  " <> user <> " FAILED: " <> reason)
-      }
-    },
+type Member {
+  Member(
+    document: CrdtDocument(OrMapChannel),
+    connection: CrdtConnection,
+    replica: String,
   )
+}
+
+type Channels {
+  Channels(
+    root: Handle(OrMapChannel),
+    tags: Handle(OrSetChannel),
+    order: Handle(SequenceChannel),
+  )
+}
+
+type Memory {
+  Memory(value: Cell(Option(String)))
+}
+
+type UpdateDecision {
+  WriteSnapshot(String)
+  AbortUpdate
+  NoDecision
 }
 
 pub fn main() {
-  let document =
-    "mdnotes-smoke-" <> int.to_string(100_000 + int.random(900_000))
-  log("smoke: document " <> document)
+  log("smoke: p2p round trip, reconnect, and persistence attach")
 
-  let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    start(doc_a, doc_b)
+  let world = p2p_fake.new_world()
+  let alpha = spawn(world, "alpha")
+  let beta = spawn(world, "beta")
+  p2p_fake.settle(world)
+
+  let channels_a = bootstrap(alpha.document)
+  p2p_fake.settle(world)
+  let channels_b = channels_of(beta.document)
+
+  let text_a = create_note(alpha.document, channels_a, note_name)
+  p2p_fake.settle(world)
+  let text_b = open_note(beta.document, channels_b, note_name)
+  assert_text_equal(text_a, text_b, "address round trip")
+
+  log("  severing peers and editing both sides")
+  p2p_fake.sever(world, alpha.replica, beta.replica)
+  p2p_fake.settle(world)
+  let assert Ok(Nil) = crdt_js.text_insert(text_a, 29, " (checked)")
+  let assert Ok(Nil) = crdt_js.text_append(text_b, "\nthird, from b\n")
+  p2p_fake.settle(world)
+
+  let assert Ok(alpha_offline) = crdt_js.text_value(text_a)
+  let assert Ok(beta_offline) = crdt_js.text_value(text_b)
+  case alpha_offline == beta_offline {
+    True -> fail("partitioned peers should diverge before reconnect")
+    False -> Nil
   }
-  Nil
+
+  log("  reconnecting peers")
+  p2p_fake.reconnect(world, alpha.replica, beta.replica)
+  p2p_fake.settle(world)
+  assert_text_equal(text_a, text_b, "reconnect convergence")
+  let assert Ok(converged) = crdt_js.text_value(text_a)
+  assert_contains(converged, "(checked)", "A offline edit survived")
+  assert_contains(converged, "third, from b", "B offline edit survived")
+
+  log(
+    "  saving alpha, dropping it, loading from disk, editing, and reattaching",
+  )
+  let store = memory(None)
+  let save_result = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), alpha.document, fn(result) {
+    transport_js.set_cell(save_result, Some(result))
+  })
+  case transport_js.get_cell(save_result) {
+    Some(Ok(_digest)) -> Nil
+    _ -> fail("could not save alpha snapshot")
+  }
+
+  crdt_js.close(alpha.connection)
+  p2p_fake.settle(world)
+
+  let assert Ok(Nil) = crdt_js.text_append(text_b, "fourth, from beta\n")
+  p2p_fake.settle(world)
+
+  let loaded = transport_js.new_cell(None)
+  persist_js.load(memory_storage(store), config(world, "restored"), fn(result) {
+    transport_js.set_cell(loaded, Some(result))
+  })
+  let restored = case transport_js.get_cell(loaded) {
+    Some(Ok(Some(document))) -> document
+    _ -> fail("could not load persisted snapshot")
+  }
+
+  let restored_channels = channels_of(restored)
+  let restored_text = open_note(restored, restored_channels, note_name)
+  let assert Ok(Nil) = crdt_js.text_append(restored_text, "fifth, from disk\n")
+  let _connection =
+    crdt_js.attach_with_rtc(
+      restored,
+      on_ready: fn(_outcome) { Nil },
+      on_status: fn(_status) { Nil },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(restored)),
+    )
+  p2p_fake.settle(world)
+
+  assert_text_equal(restored_text, text_b, "persistence attach convergence")
+  let assert Ok(final_text) = crdt_js.text_value(restored_text)
+  assert_contains(final_text, "fourth, from beta", "live beta edit merged")
+  assert_contains(final_text, "fifth, from disk", "disk edit merged")
+  assert_digest_equal(restored, beta.document, "persistence attach digest")
+
+  log("SMOKE PASS")
+  exit(0)
 }
 
-/// The three resolved channels one client needs, mirroring the app's
-/// `SharedState`.
-type Handles {
-  Handles(notes: OrMap, tags: OrSet, order: SharedSequence)
+fn spawn(world: p2p_fake.World, label: String) -> Member {
+  let assert Ok(document) = crdt_js.new_document(config(world, label))
+  let connection =
+    crdt_js.attach_with_rtc(
+      document,
+      on_ready: fn(_outcome) { Nil },
+      on_status: fn(_status) { Nil },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
+    )
+  Member(document:, connection:, replica: crdt_js.replica_id(document))
 }
 
-/// Ensure (and, for the first caller, seed) all three channels on `doc`, in
-/// the same order `markdown_notes_lustre.bootstrap_effect` does.
-fn bootstrap(
-  doc: Document(doc_schema.Notebook),
-  label: String,
-  on_ready: fn(Handles) -> Nil,
-) -> Nil {
-  let root = watershed_js.root_typed(doc)
-  watershed_js.ensure_or_map(
-    doc,
-    root,
-    doc_schema.notes(),
-    or_map_kernel.RegisterMode,
-    fn(result) {
-      case result {
-        Error(reason) -> fail(label <> " could not ensure notes: " <> reason)
-        Ok(notes) ->
-          watershed_js.ensure_or_set(doc, root, doc_schema.tags(), fn(result) {
-            case result {
-              Error(reason) ->
-                fail(label <> " could not ensure tags: " <> reason)
-              Ok(tags) ->
-                watershed_js.ensure_sequence(
-                  doc,
-                  root,
-                  doc_schema.order(),
-                  fn(result) {
-                    case result {
-                      Error(reason) ->
-                        fail(label <> " could not ensure order: " <> reason)
-                      Ok(order) -> on_ready(Handles(notes:, tags:, order:))
-                    }
-                  },
-                )
-            }
-          })
+fn config(world: p2p_fake.World, label: String) {
+  crdt_js.config(
+    room_id: room,
+    replica_label: label,
+    compatibility_tag: compatibility,
+    root: doc_schema.root(),
+    signaling: p2p_fake.signaling(world),
+  )
+}
+
+fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
+  let root = crdt_js.root(document)
+  let tags = case crdt_js.or_map_value(root, key: doc_schema.tags_key()) {
+    Ok(Some(or_map_kernel.Register(address))) -> {
+      let assert Ok(tags) =
+        crdt_js.resolve_channel(
+          document,
+          doc_schema.tags_kind(),
+          address: address,
+        )
+      tags
+    }
+    _ -> {
+      let assert Ok(tags) =
+        crdt_js.create_channel(document, doc_schema.tags_kind())
+      let assert Ok(Nil) =
+        crdt_js.or_map_set(
+          root,
+          key: doc_schema.tags_key(),
+          value: crdt_js.address(tags),
+        )
+      tags
+    }
+  }
+  let order = case crdt_js.or_map_value(root, key: doc_schema.order_key()) {
+    Ok(Some(or_map_kernel.Register(address))) -> {
+      let assert Ok(order) =
+        crdt_js.resolve_channel(
+          document,
+          doc_schema.order_kind(),
+          address: address,
+        )
+      order
+    }
+    _ -> {
+      let assert Ok(order) =
+        crdt_js.create_channel(document, doc_schema.order_kind())
+      let assert Ok(Nil) =
+        crdt_js.or_map_set(
+          root,
+          key: doc_schema.order_key(),
+          value: crdt_js.address(order),
+        )
+      order
+    }
+  }
+  Channels(root:, tags:, order:)
+}
+
+fn channels_of(document: CrdtDocument(OrMapChannel)) -> Channels {
+  let root = crdt_js.root(document)
+  let assert Ok(Some(or_map_kernel.Register(tags_address))) =
+    crdt_js.or_map_value(root, key: doc_schema.tags_key())
+  let assert Ok(tags) =
+    crdt_js.resolve_channel(
+      document,
+      doc_schema.tags_kind(),
+      address: tags_address,
+    )
+  let assert Ok(Some(or_map_kernel.Register(order_address))) =
+    crdt_js.or_map_value(root, key: doc_schema.order_key())
+  let assert Ok(order) =
+    crdt_js.resolve_channel(
+      document,
+      doc_schema.order_kind(),
+      address: order_address,
+    )
+  Channels(root:, tags:, order:)
+}
+
+fn create_note(
+  document: CrdtDocument(OrMapChannel),
+  channels: Channels,
+  name: String,
+) {
+  let assert Ok(text) = crdt_js.create_channel(document, doc_schema.text_kind())
+  let assert Ok(Nil) =
+    crdt_js.text_append(
+      text,
+      "# " <> name <> "\nfirst paragraph\n\nsecond paragraph\n",
+    )
+  let assert Ok(Nil) =
+    crdt_js.or_map_set(channels.root, key: name, value: crdt_js.address(text))
+  let assert Ok(values) = crdt_js.sequence_values(channels.order)
+  let assert Ok(Nil) =
+    crdt_js.sequence_insert(
+      channels.order,
+      index: list.length(values),
+      value: json.string(name),
+    )
+  text
+}
+
+fn open_note(
+  document: CrdtDocument(OrMapChannel),
+  channels: Channels,
+  name: String,
+) {
+  let assert Ok(Some(or_map_kernel.Register(address))) =
+    crdt_js.or_map_value(channels.root, key: name)
+  let assert Ok(text) =
+    crdt_js.resolve_channel(document, doc_schema.text_kind(), address: address)
+  text
+}
+
+fn memory(initial: Option(String)) -> Memory {
+  Memory(transport_js.new_cell(initial))
+}
+
+fn memory_storage(memory: Memory) -> persist_js.Storage {
+  persist_js.storage(
+    get: fn(_key, done) {
+      let Memory(value:) = memory
+      done(Ok(transport_js.get_cell(value)))
+    },
+    update: fn(_key, transform, on_ok, on_abort, on_error) {
+      let Memory(value:) = memory
+      let current = transport_js.get_cell(value)
+      let decision = transport_js.new_cell(NoDecision)
+      transform(
+        case current {
+          Some(_) -> True
+          None -> False
+        },
+        case current {
+          Some(raw) -> raw
+          None -> ""
+        },
+        fn(snapshot) {
+          case transport_js.get_cell(decision) {
+            NoDecision ->
+              transport_js.set_cell(decision, WriteSnapshot(snapshot))
+            _ -> Nil
+          }
+        },
+        fn() {
+          case transport_js.get_cell(decision) {
+            NoDecision -> transport_js.set_cell(decision, AbortUpdate)
+            _ -> Nil
+          }
+        },
+      )
+      case transport_js.get_cell(decision) {
+        WriteSnapshot(snapshot) -> {
+          transport_js.set_cell(value, Some(snapshot))
+          on_ok()
+        }
+        AbortUpdate -> on_abort()
+        NoDecision -> on_error("memory storage update did not write or abort")
       }
     },
   )
 }
 
-fn fail(reason: String) -> Nil {
+fn assert_text_equal(left, right, label: String) -> Nil {
+  let assert Ok(left_text) = crdt_js.text_value(left)
+  let assert Ok(right_text) = crdt_js.text_value(right)
+  case left_text == right_text {
+    True -> log("  " <> label <> " ok")
+    False -> fail(label <> " diverged")
+  }
+}
+
+fn assert_contains(text: String, needle: String, label: String) -> Nil {
+  case string.contains(text, needle) {
+    True -> log("  " <> label <> " ok")
+    False -> fail(label <> " missing")
+  }
+}
+
+fn assert_digest_equal(
+  left: CrdtDocument(a),
+  right: CrdtDocument(a),
+  label: String,
+) -> Nil {
+  case crdt_js.digest(left) == crdt_js.digest(right) {
+    True -> log("  " <> label <> " ok")
+    False -> fail(label <> " diverged")
+  }
+}
+
+fn fail(reason: String) -> a {
   log("SMOKE FAIL: " <> reason)
   exit(1)
-}
-
-fn start(
-  doc_a: Document(doc_schema.Notebook),
-  doc_b: Document(doc_schema.Notebook),
-) -> Nil {
-  // Let both handshakes land before anyone attaches a channel.
-  use <- delay(2000)
-
-  log("smoke: A seeds notes/tags/order")
-  bootstrap(doc_a, "A", fn(a) {
-    use <- delay(1500)
-    log("smoke: B adopts notes/tags/order")
-    bootstrap(doc_b, "B", fn(b) { create_and_open(doc_a, doc_b, a, b) })
-  })
-}
-
-/// Claim 1: A creates the note; B opens it out of the register.
-fn create_and_open(
-  doc_a: Document(doc_schema.Notebook),
-  doc_b: Document(doc_schema.Notebook),
-  a: Handles,
-  b: Handles,
-) -> Nil {
-  log("smoke: A creates \"" <> note_name <> "\"")
-  let assert Ok(text_a) = watershed_js.create_text(doc_a)
-  let assert Ok(Nil) =
-    watershed_js.text_append(
-      text_a,
-      "# " <> note_name <> "\nfirst paragraph\n\nsecond paragraph\n",
-    )
-  watershed_js.or_map_set_json(
-    a.notes,
-    note_name,
-    watershed_js.text_handle_of(text_a),
-  )
-
-  use <- delay(1500)
-  log("smoke: B opens it out of the register")
-  case open_note(doc_b, b) {
-    Error(reason) -> fail("B could not open the note: " <> reason)
-    Ok(text_b) -> {
-      let round_trip =
-        watershed_js.text_value(text_b) == watershed_js.text_value(text_a)
-      log("  round trip converged: " <> bool_str(round_trip))
-      case round_trip {
-        False -> fail("round trip diverged")
-        True -> offline_race(doc_a, doc_b, text_a, text_b)
-      }
-    }
-  }
-}
-
-fn open_note(
-  doc: Document(doc_schema.Notebook),
-  handles: Handles,
-) -> Result(SharedText, String) {
-  case watershed_js.or_map_value(handles.notes, note_name) {
-    Some(or_map_kernel.Register(register)) ->
-      case note_handle.parse(register) {
-        Ok(handle) -> watershed_js.resolve_text(doc, handle)
-        Error(Nil) -> Error("register is not a handle marker")
-      }
-    _ -> Error("no register for " <> note_name)
-  }
-}
-
-/// Claim 2 — race 2, the headline offline assertion: divergent offline edits
-/// to one note reconverge losslessly on reconnect.
-fn offline_race(
-  doc_a: Document(doc_schema.Notebook),
-  doc_b: Document(doc_schema.Notebook),
-  text_a: SharedText,
-  text_b: SharedText,
-) -> Nil {
-  log("smoke: both clients go offline and edit different paragraphs")
-  watershed_js.go_offline(doc_a)
-  watershed_js.go_offline(doc_b)
-
-  // "# field notes\n" is 14 graphemes; "first paragraph" ends at 29.
-  let assert Ok(Nil) = watershed_js.text_insert(text_a, 29, " (checked)")
-  let assert Ok(Nil) = watershed_js.text_append(text_b, "\nthird, from b\n")
-
-  use <- delay(1000)
-  log("smoke: both reconnect")
-  watershed_js.go_online(doc_a)
-  watershed_js.go_online(doc_b)
-
-  use <- delay(2500)
-  let value_a = watershed_js.text_value(text_a)
-  let value_b = watershed_js.text_value(text_b)
-  let converged = value_a == value_b
-  let a_survived = string.contains(value_a, "(checked)")
-  let b_survived = string.contains(value_a, "third, from b")
-  log("  converged=" <> bool_str(converged))
-  log("  A's offline edit survived=" <> bool_str(a_survived))
-  log("  B's offline edit survived=" <> bool_str(b_survived))
-
-  case converged && a_survived && b_survived {
-    True -> {
-      log("SMOKE PASS: the note round-tripped and offline edits reconverged")
-      exit(0)
-    }
-    False -> {
-      log("SMOKE FAIL: a=" <> value_a <> " b=" <> value_b)
-      exit(1)
-    }
-  }
-}
-
-fn bool_str(b: Bool) -> String {
-  case b {
-    True -> "true"
-    False -> "false"
-  }
+  panic as reason
 }

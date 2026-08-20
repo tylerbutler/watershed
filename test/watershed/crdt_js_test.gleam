@@ -23,7 +23,7 @@ import gleam/json
 @target(javascript)
 import gleam/list
 @target(javascript)
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 @target(javascript)
 import gleam/string
 @target(javascript)
@@ -122,6 +122,22 @@ fn hub_signaling(hub: Hub) -> Signaling {
       transport_js.set_cell(hub.cell, remaining)
       list.each(remaining, fn(member) { member.1(PeerLeft(peer_id)) })
     },
+  )
+}
+
+@target(javascript)
+/// A signaling adapter that can refuse `join` synchronously before
+/// delegating to the live hub.
+fn gated_signaling(base: Signaling, gate: Cell(Option(String))) -> Signaling {
+  Signaling(
+    join: fn(joined_room, peer_id, on_signal) {
+      case transport_js.get_cell(gate) {
+        Some(detail) -> Error(detail)
+        None -> base.join(joined_room, peer_id, on_signal)
+      }
+    },
+    send: base.send,
+    leave: base.leave,
   )
 }
 
@@ -1399,6 +1415,70 @@ pub fn every_eligible_kind_mutates_and_reads_test() {
 }
 
 @target(javascript)
+pub fn text_length_and_anchors_track_positions_test() {
+  let assert Ok(document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "scribe",
+      compatibility_tag: tag,
+      root: p2p.text_root(),
+      signaling: hub_signaling(new_hub()),
+    ))
+  let text = crdt_js.root(document)
+
+  let assert Ok(Nil) = crdt_js.text_append(text, "hello")
+  crdt_js.text_length(text) |> expect.to_equal(Ok(5))
+
+  let assert Ok(anchor) = crdt_js.text_anchor_at(text, 5, crdt_js.bias_after)
+  let assert Ok(decoded) =
+    crdt_js.text_anchor_from_json(
+      json.to_string(crdt_js.text_anchor_to_json(anchor)),
+    )
+  decoded |> expect.to_equal(anchor)
+
+  let assert Ok(Nil) = crdt_js.text_insert(text, 0, "say ")
+  crdt_js.text_resolve_anchor(text, anchor) |> expect.to_equal(Ok(9))
+  crdt_js.text_resolve_anchor(text, decoded) |> expect.to_equal(Ok(9))
+  crdt_js.text_resolve_anchor(text, crdt_js.text_start_anchor())
+  |> expect.to_equal(Ok(0))
+  crdt_js.text_resolve_anchor(text, crdt_js.text_end_anchor())
+  |> expect.to_equal(Ok(9))
+
+  let assert Ok(Nil) = crdt_js.text_append(text, "!")
+  crdt_js.text_length(text) |> expect.to_equal(Ok(10))
+  crdt_js.text_resolve_anchor(text, crdt_js.text_end_anchor())
+  |> expect.to_equal(Ok(10))
+}
+
+@target(javascript)
+pub fn text_anchor_errors_are_typed_p2p_errors_test() {
+  let assert Ok(document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "scribe",
+      compatibility_tag: tag,
+      root: p2p.text_root(),
+      signaling: hub_signaling(new_hub()),
+    ))
+  let text = crdt_js.root(document)
+  let assert Ok(Nil) = crdt_js.text_append(text, "abc")
+
+  case crdt_js.text_anchor_at(text, 4, crdt_js.bias_before) {
+    Error(p2p.InvalidEnvelope(_, detail)) ->
+      detail |> expect.to_equal("anchor index 4 outside 0..3")
+    other ->
+      panic as { "expected InvalidEnvelope, got " <> string.inspect(other) }
+  }
+
+  case crdt_js.text_anchor_from_json("") {
+    Error(p2p.InvalidEnvelope(_, detail)) ->
+      detail |> expect.to_equal("invalid anchor JSON: unexpected end of input")
+    other ->
+      panic as { "expected InvalidEnvelope, got " <> string.inspect(other) }
+  }
+}
+
+@target(javascript)
 /// An ineligible kind has no `CrdtKind` to name it, so this is the only
 /// route left: a snapshot claiming one. It is refused.
 pub fn an_ineligible_channel_cannot_be_imported_test() {
@@ -1629,6 +1709,378 @@ pub fn an_import_validates_room_tag_and_root_test() {
   |> expect.to_equal(
     Error(p2p.RootMismatch(channel.OrSetChannel, channel.PnCounterChannel)),
   )
+}
+
+@target(javascript)
+pub fn merge_snapshot_is_a_join_and_is_idempotent_test() {
+  let signaling = hub_signaling(new_hub())
+  let assert Ok(source) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "source",
+      compatibility_tag: tag,
+      root: p2p.g_set_root(),
+      signaling: signaling,
+    ))
+  let assert Ok(target) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "target",
+      compatibility_tag: tag,
+      root: p2p.g_set_root(),
+      signaling: signaling,
+    ))
+
+  let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(source), "from-source")
+  let assert Ok(basket) = crdt_js.create_channel(source, p2p.or_set_root())
+  let assert Ok(Nil) = crdt_js.or_set_add(basket, "apples")
+  let basket_address = crdt_js.address(basket)
+
+  let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(target), "from-target")
+  let seen = transport_js.new_cell([])
+  let _ =
+    crdt_js.subscribe_g_set(crdt_js.root(target), fn(event) {
+      let g_set_kernel.ElementAdded(element) = event
+      push(seen, element)
+    })
+  let assert Ok(target_before) = crdt_js.export_snapshot(target)
+  let assert Ok(snapshot) = crdt_js.export_snapshot(source)
+
+  let assert Ok(outcome) = crdt_js.merge_snapshot(target, snapshot)
+  let crdt_core.Outcome(created:, events:, ..) = outcome
+  list.length(created) |> expect.to_equal(1)
+  list.length(events) |> expect.to_equal(2)
+  entries(seen) |> expect.to_equal(["from-source"])
+  let assert Ok(target_values) = crdt_js.g_set_values(crdt_js.root(target))
+  target_values
+  |> list.sort(string.compare)
+  |> expect.to_equal(["from-source", "from-target"])
+  let assert Ok(target_basket) =
+    crdt_js.resolve_channel(target, p2p.or_set_root(), basket_address)
+  crdt_js.or_set_values(target_basket) |> expect.to_equal(Ok(["apples"]))
+
+  let assert Ok(_) = crdt_js.merge_snapshot(source, target_before)
+  crdt_js.digest(source) |> expect.to_equal(crdt_js.digest(target))
+  let assert Ok(source_values) = crdt_js.g_set_values(crdt_js.root(source))
+  source_values
+  |> list.sort(string.compare)
+  |> expect.to_equal(["from-source", "from-target"])
+
+  let digest = crdt_js.digest(target)
+  let assert Ok(second) = crdt_js.merge_snapshot(target, snapshot)
+  let crdt_core.Outcome(created: created_again, events: events_again, ..) =
+    second
+  created_again |> expect.to_equal([])
+  events_again |> expect.to_equal([])
+  crdt_js.digest(target) |> expect.to_equal(digest)
+  entries(seen) |> expect.to_equal(["from-source"])
+}
+
+@target(javascript)
+pub fn merge_snapshot_propagates_to_attached_peers_test() {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let signaling = p2p_fake.signaling(world)
+  let alpha =
+    spawn_synced(world, signaling, "alpha", p2p.g_set_root(), tag, clock)
+  let beta =
+    spawn_synced(world, signaling, "beta", p2p.g_set_root(), tag, clock)
+  p2p_fake.settle(world)
+
+  let assert Ok(Nil) =
+    crdt_js.g_set_add(crdt_js.root(beta.document), "from-beta")
+  p2p_fake.settle(world)
+
+  let assert Ok(source) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "source",
+      compatibility_tag: tag,
+      root: p2p.g_set_root(),
+      signaling: signaling,
+    ))
+  let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(source), "from-snapshot")
+  let assert Ok(basket) = crdt_js.create_channel(source, p2p.or_set_root())
+  let assert Ok(Nil) = crdt_js.or_set_add(basket, "apples")
+  let basket_address = crdt_js.address(basket)
+  let assert Ok(snapshot) = crdt_js.export_snapshot(source)
+
+  let assert Ok(_) = crdt_js.merge_snapshot(beta.document, snapshot)
+  crdt_js.g_set_values(crdt_js.root(alpha.document))
+  |> expect.to_equal(Ok(["from-beta"]))
+
+  drive_convergence(
+    world,
+    clock,
+    crdt_js.default_anti_entropy_ms,
+    [alpha.document, beta.document],
+    12,
+  )
+
+  crdt_js.digest(alpha.document)
+  |> expect.to_equal(crdt_js.digest(beta.document))
+  let assert Ok(alpha_values) =
+    crdt_js.g_set_values(crdt_js.root(alpha.document))
+  alpha_values
+  |> list.sort(string.compare)
+  |> expect.to_equal(["from-beta", "from-snapshot"])
+  let assert Ok(alpha_basket) =
+    crdt_js.resolve_channel(alpha.document, p2p.or_set_root(), basket_address)
+  crdt_js.or_set_values(alpha_basket) |> expect.to_equal(Ok(["apples"]))
+}
+
+@target(javascript)
+pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_test() {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let signaling = p2p_fake.signaling(world)
+
+  let assert Ok(source) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "source",
+      compatibility_tag: tag,
+      root: p2p.g_set_root(),
+      signaling: signaling,
+    ))
+  let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(source), "seed")
+  let assert Ok(snapshot) = crdt_js.export_snapshot(source)
+
+  let config =
+    crdt_js.config(
+      room_id: room,
+      replica_label: "beta",
+      compatibility_tag: tag,
+      root: p2p.g_set_root(),
+      signaling: signaling,
+    )
+    |> crdt_js.with_scheduler(relay_fake.scheduler(clock))
+  let assert Ok(imported) = crdt_js.import_snapshot(config, snapshot)
+
+  let seen = transport_js.new_cell([])
+  let _ =
+    crdt_js.subscribe_g_set(crdt_js.root(imported), fn(event) {
+      let g_set_kernel.ElementAdded(element) = event
+      push(seen, element)
+    })
+  let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(imported), "offline")
+  entries(seen) |> expect.to_equal(["offline"])
+
+  let assert Ok(extras) = crdt_js.create_channel(imported, p2p.or_set_root())
+  let extras_address = crdt_js.address(extras)
+  let assert Ok(Nil) = crdt_js.or_set_add(extras, "bananas")
+
+  let assert Ok(detached_snapshot) = crdt_js.export_snapshot(imported)
+  let assert Ok(reloaded) =
+    crdt_js.import_snapshot(
+      crdt_js.config(
+        room_id: room,
+        replica_label: "check",
+        compatibility_tag: tag,
+        root: p2p.g_set_root(),
+        signaling: signaling,
+      ),
+      detached_snapshot,
+    )
+  let assert Ok(reloaded_values) = crdt_js.g_set_values(crdt_js.root(reloaded))
+  reloaded_values
+  |> list.sort(string.compare)
+  |> expect.to_equal(["offline", "seed"])
+  let assert Ok(reloaded_extras) =
+    crdt_js.resolve_channel(reloaded, p2p.or_set_root(), extras_address)
+  crdt_js.or_set_values(reloaded_extras) |> expect.to_equal(Ok(["bananas"]))
+
+  let alpha =
+    spawn_synced(world, signaling, "alpha", p2p.g_set_root(), tag, clock)
+  let readies = transport_js.new_cell([])
+  let _ =
+    crdt_js.attach_with_rtc(
+      imported,
+      on_ready: fn(outcome) {
+        push(readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(_status) { Nil },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(imported)),
+    )
+  p2p_fake.settle(world)
+  drive_convergence(
+    world,
+    clock,
+    crdt_js.default_anti_entropy_ms,
+    [alpha.document, imported],
+    12,
+  )
+
+  entries(readies) |> expect.to_equal(["ok"])
+  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(imported))
+  let assert Ok(alpha_values) =
+    crdt_js.g_set_values(crdt_js.root(alpha.document))
+  alpha_values
+  |> list.sort(string.compare)
+  |> expect.to_equal(["offline", "seed"])
+  let assert Ok(alpha_extras) =
+    crdt_js.resolve_channel(alpha.document, p2p.or_set_root(), extras_address)
+  crdt_js.or_set_values(alpha_extras) |> expect.to_equal(Ok(["bananas"]))
+}
+
+@target(javascript)
+pub fn an_imported_snapshot_stays_detached_after_a_missing_sequencer_test() {
+  let world = p2p_fake.new_world()
+  let hub = hub_signaling(new_hub())
+  let assert Ok(source) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "source",
+      compatibility_tag: tag,
+      root: p2p.pn_counter_root(),
+      signaling: hub,
+    ))
+  let assert Ok(Nil) = crdt_js.pn_counter_update(crdt_js.root(source), 7)
+  let assert Ok(snapshot) = crdt_js.export_snapshot(source)
+
+  let assert Ok(imported) =
+    crdt_js.import_snapshot(
+      crdt_js.config(
+        room_id: room,
+        replica_label: "beta",
+        compatibility_tag: tag,
+        root: p2p.pn_counter_root(),
+        signaling: hub,
+      )
+        |> crdt_js.with_transport_policy(crdt_js.SequencedOnly),
+      snapshot,
+    )
+  let readies = transport_js.new_cell([])
+  let statuses = transport_js.new_cell([])
+  let _ =
+    crdt_js.attach_with_rtc(
+      imported,
+      on_ready: fn(outcome) {
+        push(readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(status) { push(statuses, render(status)) },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(imported)),
+    )
+
+  entries(readies)
+  |> expect.to_equal([
+    "error sequencerUnavailable · sequencedOnly needs a sequencer, and none "
+    <> "was configured",
+  ])
+  entries(statuses)
+  |> expect.to_equal([
+    "joined " <> room,
+    "failed sequencerUnavailable · sequencedOnly needs a sequencer, and none "
+      <> "was configured",
+  ])
+  crdt_js.is_closed(imported) |> expect.to_be_false()
+  crdt_js.readiness(imported) |> expect.to_equal(None)
+  crdt_js.pn_counter_value(crdt_js.root(imported)) |> expect.to_equal(Ok(7))
+  let assert Ok(Nil) = crdt_js.pn_counter_update(crdt_js.root(imported), 2)
+  crdt_js.pn_counter_value(crdt_js.root(imported)) |> expect.to_equal(Ok(9))
+}
+
+@target(javascript)
+pub fn an_imported_snapshot_stays_detached_after_a_synchronous_attach_failure_and_can_retry_test() {
+  let world = p2p_fake.new_world()
+  let hub = hub_signaling(new_hub())
+  let gate = transport_js.new_cell(Some("no signaling service"))
+  let signaling = gated_signaling(hub, gate)
+  let assert Ok(source) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "source",
+      compatibility_tag: tag,
+      root: p2p.pn_counter_root(),
+      signaling: hub,
+    ))
+  let assert Ok(Nil) = crdt_js.pn_counter_update(crdt_js.root(source), 9)
+  let assert Ok(snapshot) = crdt_js.export_snapshot(source)
+
+  let assert Ok(imported) =
+    crdt_js.import_snapshot(
+      crdt_js.config(
+        room_id: room,
+        replica_label: "beta",
+        compatibility_tag: tag,
+        root: p2p.pn_counter_root(),
+        signaling: signaling,
+      ),
+      snapshot,
+    )
+  let first_readies = transport_js.new_cell([])
+  let first_statuses = transport_js.new_cell([])
+  let _ =
+    crdt_js.attach_with_rtc(
+      imported,
+      on_ready: fn(outcome) {
+        push(first_readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(status) { push(first_statuses, render(status)) },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(imported)),
+    )
+
+  entries(first_readies)
+  |> expect.to_equal(["error signalingFailed · no signaling service"])
+  entries(first_statuses)
+  |> expect.to_equal([
+    "joined " <> room,
+    "failed signalingFailed · no signaling service",
+  ])
+  crdt_js.is_closed(imported) |> expect.to_be_false()
+  crdt_js.readiness(imported) |> expect.to_equal(None)
+  crdt_js.pn_counter_value(crdt_js.root(imported)) |> expect.to_equal(Ok(9))
+  let assert Ok(Nil) = crdt_js.pn_counter_update(crdt_js.root(imported), 1)
+  crdt_js.pn_counter_value(crdt_js.root(imported)) |> expect.to_equal(Ok(10))
+
+  transport_js.set_cell(gate, None)
+  let retry_readies = transport_js.new_cell([])
+  let retry_statuses = transport_js.new_cell([])
+  let _ =
+    crdt_js.attach_with_rtc(
+      imported,
+      on_ready: fn(outcome) {
+        push(retry_readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(status) { push(retry_statuses, render(status)) },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(imported)),
+    )
+  let alpha = spawn(world, signaling, "alpha", p2p.pn_counter_root(), tag)
+  p2p_fake.settle(world)
+
+  entries(retry_readies) |> expect.to_equal(["ok"])
+  entries(first_readies)
+  |> expect.to_equal(["error signalingFailed · no signaling service"])
+  entries(first_statuses)
+  |> expect.to_equal([
+    "joined " <> room,
+    "failed signalingFailed · no signaling service",
+  ])
+  entries(retry_statuses)
+  |> list.filter(fn(entry) { !string.starts_with(entry, "transport ") })
+  |> expect.to_equal([
+    "joined " <> room,
+    "rosterKnown []",
+    "ready",
+    "peerReady alpha",
+    "stateMerged alpha 1",
+  ])
+  crdt_js.readiness(imported) |> expect.to_equal(Some(Ok(Nil)))
+  crdt_js.pn_counter_value(crdt_js.root(alpha.document))
+  |> expect.to_equal(Ok(10))
+  crdt_js.digest(alpha.document) |> expect.to_equal(crdt_js.digest(imported))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

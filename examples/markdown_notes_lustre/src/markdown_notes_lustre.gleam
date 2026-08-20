@@ -1,59 +1,54 @@
-//// Offline-first markdown notes — a minimal Obsidian on CRDT-only kinds.
+//// Peer-to-peer markdown notes with disk-first persistence.
 ////
-//// A note list beside a plain-markdown editor, where several people type in
-//// the same note at once. Four kinds, each present because its merge rule is
-//// the honest model for the feature:
-////
-//// - `notes` — an OR-map of note name → serialized `SharedText` handle.
-////   Concurrent set beats concurrent remove, so a note someone is
-////   re-registering survives a delete, and a deleted name can be cleanly
-////   re-created.
-//// - one `SharedText` per note body — markdown formatting is characters in
-////   the document, so the file round-trips as a plain `.md` string.
-//// - `tags` — one document-wide OR-set of `"<note>\t<tag>"` pairs.
-//// - `order` — a SharedSequence of note names, the sidebar order.
+//// The document root is a register-mode OR-map. Note names map directly to
+//// text channel addresses; two tab-prefixed reserved keys store the shared tags
+//// and sidebar-order channel addresses.
 
-import gleam/dynamic/decode.{type Decoder}
+import gleam/dynamic/decode
 import gleam/int
-import gleam/json.{type Json}
+import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
 import doc_schema
-import markdown_notes_lustre/note_handle
 import markdown_notes_lustre/sidebar
 import markdown_notes_lustre/toolbar
 import watershed/browser
+import watershed/crdt_js.{type CrdtDocument, type Handle}
+import watershed/crdt_signaling_js
 import watershed/or_map_kernel
-import watershed/presence
-import watershed/presence_js.{type Handle}
-import watershed_js.{
-  type Document, type OrMap, type OrSet, type SharedSequence, type SharedText,
+import watershed/p2p.{type P2pError}
+import watershed/p2p_transport_js
+import watershed/persist_controller_js
+import watershed/persist_js
+import watershed/schema.{
+  type OrMapChannel, type OrSetChannel, type SequenceChannel, type TextChannel,
 }
 import watershed_lustre
+import watershed_lustre/crdt
 import watershed_lustre/textarea
 
-// ── Dev config for the floodgate dev server (`just integration-up`) ──────────
+const compatibility = "markdown-notes/v2"
 
-const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
+const default_signaling = "ws://localhost:4400/"
 
-const tenant = "dev-tenant"
+const relay_param = "relay"
 
-const tenant_secret = "levee-dev-secret-change-in-production"
+const retry_ms = 50
 
 pub fn main() {
   let app = lustre.application(init, update, view)
-  let document = browser.document_on_navigate("markdown-notes")
-  let assert Ok(_) = lustre.start(app, "#app", document)
+  let room = browser.document_on_navigate("markdown-notes")
+  let assert Ok(_) = lustre.start(app, "#app", room)
   Nil
 }
 
@@ -62,140 +57,103 @@ pub fn seed_body(name: String) -> String {
   "# " <> name <> "\n"
 }
 
-// ── Presence payload: which note everyone is in, and where their caret is ────
-//
-// The cursor is a pair of anchors, not indices — an index means nothing to a
-// peer whose replica has moved on. The note name rides along so a peer's
-// caret is only drawn in the editor it actually belongs to.
-
-type Editing {
-  Editing(note: Option(String), cursor: Option(textarea.Cursor))
-}
-
-fn encode_editing(editing: Editing) -> Json {
-  json.object([
-    #("note", case editing.note {
-      Some(name) -> json.string(name)
-      None -> json.null()
-    }),
-    #("cursor", case editing.cursor {
-      Some(cursor) -> textarea.cursor_to_json(cursor)
-      None -> json.null()
-    }),
-  ])
-}
-
-fn editing_decoder() -> Decoder(Editing) {
-  use note <- decode.field("note", decode.optional(decode.string))
-  use cursor <- decode.field(
-    "cursor",
-    decode.optional(textarea.cursor_decoder()),
-  )
-  decode.success(Editing(note:, cursor:))
-}
-
-/// A stable colour per user, so a peer keeps the same one across a session.
-fn colour_for(user_id: String) -> String {
-  let palette = [
-    "#e5484d", "#0090ff", "#30a46c", "#f76b15", "#8e4ec6", "#e93d82",
-  ]
-  let index =
-    user_id
-    |> string.to_utf_codepoints
-    |> list.fold(0, fn(total, point) {
-      total + string.utf_codepoint_to_int(point)
-    })
-  let count = list.length(palette)
-  case list.drop(palette, index % count) {
-    [colour, ..] -> colour
-    [] -> "#0090ff"
-  }
-}
-
 // ── Model ────────────────────────────────────────────────────────────────────
 
-type Status {
-  Connecting
+type Phase {
+  Opening
   Ready
-  Failed(reason: String)
+  Failed(detail: String)
+}
+
+type LocalSnapshot {
+  OpeningLocalSnapshot
+  NoLocalSnapshot
+  LoadedLocalSnapshot
+  LocalSnapshotFailed(detail: String)
+}
+
+type SaveState {
+  WaitingForDocument
+  Watching
+  Saving
+  Saved
+  SaveFailed(detail: String)
+}
+
+type RecoveryState {
+  NoRecovery
+  RecoveryRequired(detail: String)
+  ReplacingLocalSnapshot
 }
 
 type SharedState {
-  SharedState(notes: OrMap, tags: OrSet, order: SharedSequence)
-}
-
-/// The nested channels as they resolve during bootstrap. Each `ensure_*`
-/// effect fills one slot; when all three are present they assemble into
-/// `SharedState`.
-type PendingShared {
-  PendingShared(
-    notes: Option(OrMap),
-    tags: Option(OrSet),
-    order: Option(SharedSequence),
+  SharedState(
+    root: Handle(OrMapChannel),
+    tags: Handle(OrSetChannel),
+    order: Handle(SequenceChannel),
   )
 }
 
-/// The note currently open in the editor. `deleted` mirrors whether its name
-/// is still a key in the notes map — the channel keeps working either way, so
-/// a peer's delete puts a banner over the editor instead of losing work
-/// mid-keystroke.
-type OpenNote {
-  OpenNote(name: String, editor: textarea.Model, deleted: Bool)
+type PendingShared {
+  PendingShared(
+    tags: Option(Handle(OrSetChannel)),
+    order: Option(Handle(SequenceChannel)),
+  )
 }
 
-type Model {
+type OpenNote {
+  OpenNote(
+    name: String,
+    text: Handle(TextChannel),
+    editor: textarea.CrdtModel,
+    deleted: Bool,
+  )
+}
+
+pub opaque type Model {
   Model(
-    status: Status,
-    doc: Option(Document(doc_schema.Notebook)),
+    room: String,
+    phase: Phase,
+    bootstrap: String,
+    relay: String,
+    document: Option(CrdtDocument(OrMapChannel)),
     shared: Option(SharedState),
     pending: PendingShared,
-    user_id: String,
-    /// Note names, read from the OR-map. Only registers count; a `Tally`
-    /// value in the notes map is corrupt and is dropped rather than guessed
-    /// at.
+    controller: Option(persist_controller_js.Controller(OrMapChannel)),
+    recovery: RecoveryState,
+    local_snapshot: LocalSnapshot,
+    save_state: SaveState,
+    saved_digest: String,
     note_names: List(String),
     open: Option(OpenNote),
-    /// A note we tried to open whose handle did not resolve yet — a remote
-    /// create's attach op can still be in flight, so resolution retries on
-    /// the next notes event instead of failing hard.
     pending_open: Option(String),
     draft_name: String,
-    /// The sidebar order: note names read from the sequence. Entries that
-    /// are not strings are dropped; the display rule absorbs the drift.
     order_entries: List(String),
-    /// The note being dragged, if any.
     drag: Option(String),
-    /// The document-wide `"<note>\t<tag>"` pairs, read from the OR-set.
     tag_pairs: List(String),
-    /// Show only notes carrying this tag, or all of them.
     tag_filter: Option(String),
     draft_tag: String,
-    /// The presence driver, once started, and the last payload announced
-    /// through it — kept so a re-announce only fires when something moved.
-    presence: Option(Handle(Editing)),
-    announced: Editing,
-    /// True while this client is deliberately offline. Edits queue locally
-    /// and the UI keeps working; `go_online` resubmits and catches up.
-    offline: Bool,
-    /// Polled, not evented: the runtime has no pending-ops event stream, so
-    /// the "N changes not yet saved" indicator asks every 250ms.
-    diagnostics: Option(watershed_js.Diagnostics),
+    errors: List(String),
     error: Option(String),
   )
 }
 
-type Msg {
-  GotHandle(Document(doc_schema.Notebook))
-  Connected(Result(Nil, String))
-  EnsuredNotes(Result(OrMap, String))
-  EnsuredTags(Result(OrSet, String))
-  EnsuredOrder(Result(SharedSequence, String))
-  NotesChanged
+pub type Msg {
+  Ignored
+  Connected(Result(CrdtDocument(OrMapChannel), P2pError))
+  StatusChanged(crdt_js.Status)
+  LocalPersistence(crdt.PersistenceStatus)
+  PersistenceStarted(persist_controller_js.Controller(OrMapChannel))
+  PersistenceStatusChanged(persist_controller_js.Status)
+  RecoveryReplaceClicked
+  RecoveryReplaceFinished(Result(String, persist_js.PersistenceError))
+  RootChanged
   TagsChanged
   OrderChanged
+  RetryShared
+  RetryOpen
   DragStarted(String)
   DragEnded
-  /// A drop on a note (insert before it) or on the end zone (`None`).
   DroppedOn(Option(String))
   NoOp
   Editor(textarea.Msg)
@@ -208,24 +166,26 @@ type Msg {
   CreateClicked
   OpenClicked(String)
   DeleteClicked(String)
-  PresenceStarted(Handle(Editing))
-  PresenceEvent(presence.Event(Editing))
-  OfflineToggled
-  DiagnosticsTick
-  ConnectTimedOut
-  ReconnectClicked
 }
 
-fn init(document: String) -> #(Model, Effect(Msg)) {
-  // A distinct user per tab so two tabs are separate connections.
-  let user_id = "web-" <> int.to_string(1000 + int.random(9000))
+pub fn init(room: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
-      status: Connecting,
-      doc: None,
+      room: room,
+      phase: Opening,
+      bootstrap: "joining",
+      relay: case query(relay_param, "") {
+        "" -> ""
+        _ -> "connecting"
+      },
+      document: None,
       shared: None,
-      pending: PendingShared(None, None, None),
-      user_id: user_id,
+      pending: PendingShared(None, None),
+      controller: None,
+      recovery: NoRecovery,
+      local_snapshot: OpeningLocalSnapshot,
+      save_state: WaitingForDocument,
+      saved_digest: "",
       note_names: [],
       open: None,
       pending_open: None,
@@ -235,196 +195,190 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       tag_pairs: [],
       tag_filter: None,
       draft_tag: "",
-      presence: None,
-      announced: Editing(note: None, cursor: None),
-      offline: False,
-      diagnostics: None,
+      errors: [],
       error: None,
     )
-  #(
-    model,
-    effect.batch([
-      watershed_lustre.connect_dev(
-        url: socket_url,
-        tenant: tenant,
-        secret: tenant_secret,
-        document: document,
-        user_id: user_id,
-        got_document: GotHandle,
-        connected: Connected,
-      ),
-      // The Phoenix socket retries forever, so a cold start with no relay
-      // reachable never reports failure on its own. Call it after a grace
-      // period rather than spinning — the honest disconnected state.
-      watershed_lustre.after(5000, ConnectTimedOut),
-    ]),
+  #(model, open_room(room))
+}
+
+fn open_room(room: String) -> Effect(Msg) {
+  let signaling =
+    crdt_signaling_js.websocket_signaling(
+      url: query("signaling", default_signaling),
+      on_failure: fn(_detail) { Nil },
+    )
+  let config =
+    crdt_js.config(
+      room_id: room,
+      replica_label: "tab",
+      compatibility_tag: compatibility,
+      root: doc_schema.root(),
+      signaling: signaling,
+    )
+    |> crdt_js.with_ice_servers(ice_servers())
+    |> with_relay
+
+  crdt.open(
+    persist_js.indexed_db(),
+    config,
+    connection: fn(_connection) { Ignored },
+    ready: Connected,
+    status: StatusChanged,
+    persistence: LocalPersistence,
   )
 }
 
-/// Adopt-or-seed each nested channel as one batch of effects. `ensure_*`
-/// seeds a channel only into an empty slot, so every client runs this
-/// unconditionally without racing to a duplicate — but seeding needs a ready
-/// connection, so this must not run before the handshake completes (the
-/// seed-before-handshake defect bites brand-new documents exactly like this
-/// one). Both the `GotHandle` and `Connected(Ok)` arms call this; whichever
-/// lands second fires it, and the `shared: None` guard keeps a reconnect from
-/// double-bootstrapping.
-fn bootstrap_effect(doc: Document(doc_schema.Notebook)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
-  effect.batch([
-    watershed_lustre.ensure_or_map(
-      doc,
-      root,
-      doc_schema.notes(),
-      or_map_kernel.RegisterMode,
-      EnsuredNotes,
-    ),
-    watershed_lustre.ensure_or_set(doc, root, doc_schema.tags(), EnsuredTags),
-    watershed_lustre.ensure_sequence(
-      doc,
-      root,
-      doc_schema.order(),
-      EnsuredOrder,
-    ),
-  ])
-}
-
-/// Assemble `SharedState` once all three nested channels have resolved, do
-/// the initial reads, and start the per-channel subscriptions. A no-op until
-/// the last channel arrives or once already assembled.
-fn assemble(model: Model) -> #(Model, Effect(Msg)) {
-  case model.shared, model.pending {
-    None, PendingShared(Some(notes), Some(tags), Some(order)) -> {
-      let shared = SharedState(notes:, tags:, order:)
-      let model =
-        Model(..model, shared: Some(shared), error: None)
-        |> read_notes(shared)
-        |> read_tags(shared)
-        |> read_order(shared)
-      #(
-        model,
-        effect.batch([
-          watershed_lustre.subscribe_or_map(shared.notes, fn(_event) {
-            NotesChanged
-          }),
-          watershed_lustre.subscribe_or_set(shared.tags, fn(_event) {
-            TagsChanged
-          }),
-          watershed_lustre.subscribe_sequence(shared.order, fn(_event) {
-            OrderChanged
-          }),
-        ]),
-      )
-    }
-    _, _ -> #(model, effect.none())
+fn with_relay(config) {
+  case query(relay_param, "") {
+    "" -> config
+    url -> crdt_js.with_sequencer(config, crdt_js.sequencer(url))
   }
 }
 
+fn ice_servers() {
+  let urls =
+    string.split(query("ice", ""), ",")
+    |> list.map(string.trim)
+    |> list.filter(fn(url) { url != "" })
+
+  case urls, query("iceUser", ""), query("icePass", "") {
+    [], _, _ -> []
+    urls, "", _ -> [p2p_transport_js.ice_server(urls: urls)]
+    urls, user, password -> [
+      p2p_transport_js.ice_server(urls: urls)
+      |> p2p_transport_js.with_credentials(username: user, credential: password),
+    ]
+  }
+}
+
+@external(javascript, "./app_ffi.mjs", "queryParam")
+fn query(name: String, fallback: String) -> String
+
 // ── Update ───────────────────────────────────────────────────────────────────
 
-fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
+    Ignored -> #(model, effect.none())
+
+    Connected(Ok(document)) -> {
       let model =
-        Model(
-          ..model,
-          doc: Some(doc),
-          diagnostics: Some(watershed_js.diagnostics(doc)),
-        )
-      let tick = watershed_lustre.after(250, DiagnosticsTick)
-      case model.status, model.shared {
-        Ready, None -> #(model, effect.batch([bootstrap_effect(doc), tick]))
-        _, _ -> #(model, tick)
-      }
+        Model(..model, phase: Ready, document: Some(document), error: None)
+      let #(model, refresh) = refresh_from_root(model)
+      let root = crdt_js.root(document)
+      let persist = start_persistence_if_allowed(model, document)
+      #(
+        model,
+        effect.batch([
+          crdt.subscribe_or_map(
+            root,
+            subscribed: fn(_subscription) { Ignored },
+            event: fn(_event) { RootChanged },
+          ),
+          persist,
+          refresh,
+        ]),
+      )
     }
 
-    Connected(Ok(_)) -> {
-      let model = Model(..model, status: Ready)
-      let presence_effect = case model.doc, model.presence {
-        Some(doc), None ->
-          watershed_lustre.presence(
-            document: doc,
-            config: presence.config(encode_editing, editing_decoder()),
-            initial: Editing(note: None, cursor: None),
-            started: PresenceStarted,
-            on_event: PresenceEvent,
+    Connected(Error(error)) -> #(
+      Model(..model, phase: Failed(crdt_js.describe_error(error))),
+      effect.none(),
+    )
+
+    StatusChanged(status) -> #(apply_status(model, status), effect.none())
+
+    LocalPersistence(status) ->
+      case status {
+        crdt.NoLocalSnapshot -> #(
+          Model(..model, local_snapshot: NoLocalSnapshot),
+          effect.none(),
+        )
+
+        crdt.LocalSnapshotReady -> #(
+          Model(..model, local_snapshot: LoadedLocalSnapshot),
+          effect.none(),
+        )
+
+        crdt.PersistenceFailed(error) -> {
+          let detail = persist_js.describe_error(error)
+          enter_recovery(
+            Model(..model, local_snapshot: LocalSnapshotFailed(detail)),
+            detail,
           )
-        _, _ -> effect.none()
+        }
       }
-      case model.doc, model.shared {
-        Some(doc), None -> #(
-          model,
-          effect.batch([bootstrap_effect(doc), presence_effect]),
+
+    PersistenceStarted(controller) -> #(
+      Model(
+        ..model,
+        controller: Some(controller),
+        save_state: case model.save_state {
+          Saved -> Saved
+          _ -> Watching
+        },
+      ),
+      effect.none(),
+    )
+
+    PersistenceStatusChanged(status) ->
+      case status {
+        persist_controller_js.Saving -> #(
+          Model(..model, save_state: Saving),
+          effect.none(),
         )
-        _, _ -> #(model, presence_effect)
+
+        persist_controller_js.Saved(digest) -> #(
+          Model(..model, save_state: Saved, saved_digest: digest),
+          effect.none(),
+        )
+
+        persist_controller_js.SaveFailed(error) -> {
+          let detail = persist_js.describe_error(error)
+          enter_recovery(Model(..model, save_state: SaveFailed(detail)), detail)
+        }
       }
-    }
 
-    Connected(Error(reason)) -> #(
-      Model(..model, status: Failed(reason), error: Some(reason)),
-      effect.none(),
-    )
+    RecoveryReplaceClicked ->
+      case model.recovery, model.document {
+        RecoveryRequired(_), Some(document) -> #(
+          Model(..model, recovery: ReplacingLocalSnapshot, save_state: Saving),
+          replace_local_snapshot(document),
+        )
+        _, _ -> #(model, effect.none())
+      }
 
-    EnsuredNotes(Ok(notes)) ->
-      assemble(
-        Model(
-          ..model,
-          pending: PendingShared(..model.pending, notes: Some(notes)),
-        ),
-      )
-    EnsuredNotes(Error(reason)) -> #(
-      ensure_failed(model, reason),
-      effect.none(),
-    )
-
-    EnsuredTags(Ok(tags)) ->
-      assemble(
-        Model(
-          ..model,
-          pending: PendingShared(..model.pending, tags: Some(tags)),
-        ),
-      )
-    EnsuredTags(Error(reason)) -> #(ensure_failed(model, reason), effect.none())
-
-    EnsuredOrder(Ok(order)) ->
-      assemble(
-        Model(
-          ..model,
-          pending: PendingShared(..model.pending, order: Some(order)),
-        ),
-      )
-    EnsuredOrder(Error(reason)) -> #(
-      ensure_failed(model, reason),
-      effect.none(),
-    )
-
-    // The notes map changed (any client). Re-read the list, retry a pending
-    // open — the attach op we were waiting on may have landed — and keep the
-    // open note's deleted flag honest.
-    NotesChanged ->
-      case model.shared {
-        Some(shared) -> {
-          let model = read_notes(model, shared) |> mark_open_deleted
-          case model.pending_open, model.doc {
-            Some(name), Some(doc) -> try_open(model, shared, doc, name)
-            _, _ -> #(model, effect.none())
+    RecoveryReplaceFinished(result) ->
+      case result {
+        Ok(saved_digest) -> {
+          let model =
+            Model(
+              ..model,
+              recovery: NoRecovery,
+              local_snapshot: LoadedLocalSnapshot,
+              save_state: Saved,
+              saved_digest: saved_digest,
+            )
+          let restart = case model.document {
+            Some(document) -> start_persistence_if_allowed(model, document)
+            None -> effect.none()
           }
+          #(model, restart)
         }
-        None -> #(model, effect.none())
+
+        Error(error) -> {
+          let detail = persist_js.describe_error(error)
+          enter_recovery(Model(..model, save_state: SaveFailed(detail)), detail)
+        }
       }
 
-    // Every editor message routes through here — the textarea owns the diff,
-    // the minimal op, and the rejected-index banner — and this is also where
-    // the app notices the caret may have moved.
-    Editor(inner) ->
-      case model.open {
-        None -> #(model, effect.none())
-        Some(open) -> {
-          let #(editor, editor_effect) = textarea.update(open.editor, inner)
-          let model = Model(..model, open: Some(OpenNote(..open, editor:)))
-          let #(model, announce) = announce_presence(model)
-          #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
-        }
+    RootChanged -> refresh_from_root(model)
+
+    RetryShared -> refresh_from_root(model)
+
+    RetryOpen ->
+      case model.pending_open, model.document {
+        Some(name), Some(_document) -> try_open(model, name)
+        _, _ -> #(model, effect.none())
       }
 
     TagsChanged ->
@@ -439,50 +393,160 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
       }
 
-    DragStarted(name) -> #(Model(..model, drag: Some(name)), effect.none())
+    DragStarted(name) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False -> #(Model(..model, drag: Some(name)), effect.none())
+      }
 
     DragEnded -> #(Model(..model, drag: None), effect.none())
 
     DroppedOn(target) ->
-      case model.shared, model.drag {
-        Some(shared), Some(dragged) -> {
-          apply_drop(shared, dragged, target)
-          #(read_order(Model(..model, drag: None), shared), effect.none())
-        }
-        _, _ -> #(Model(..model, drag: None), effect.none())
+      case mutations_locked(model) {
+        True -> #(Model(..model, drag: None), effect.none())
+        False ->
+          case model.shared, model.drag {
+            Some(shared), Some(dragged) -> {
+              let result = apply_drop(shared, dragged, target)
+              let model = case result {
+                Ok(Nil) ->
+                  read_order(Model(..model, drag: None, error: None), shared)
+                Error(reason) -> Model(..model, drag: None, error: Some(reason))
+              }
+              #(model, mark_dirty(model))
+            }
+            _, _ -> #(Model(..model, drag: None), effect.none())
+          }
       }
 
     NoOp -> #(model, effect.none())
 
-    DraftTagChanged(raw) -> #(Model(..model, draft_tag: raw), effect.none())
-
-    AddTagClicked ->
-      case model.shared, model.open, string.trim(model.draft_tag) {
-        _, _, "" -> #(model, effect.none())
-        Some(shared), Some(open), tag ->
-          case string.contains(tag, "\t") {
-            True -> #(
-              Model(..model, error: Some("Tags cannot contain a tab.")),
-              effect.none(),
-            )
-            False -> {
-              watershed_js.or_set_add(shared.tags, sidebar.pair(open.name, tag))
+    Editor(inner) ->
+      case mutations_locked(model) && textarea.mutates_document(inner) {
+        True -> #(model, effect.none())
+        False ->
+          case model.open {
+            None -> #(model, effect.none())
+            Some(open) -> {
+              let #(editor, editor_effect) = textarea.update(open.editor, inner)
+              let model = Model(..model, open: Some(OpenNote(..open, editor:)))
               #(
-                read_tags(Model(..model, draft_tag: "", error: None), shared),
-                effect.none(),
+                model,
+                effect.batch([
+                  effect.map(editor_effect, Editor),
+                  mark_dirty(model),
+                ]),
               )
             }
           }
-        _, _, _ -> #(model, effect.none())
+      }
+
+    FormatClicked(action) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False ->
+          case model.open {
+            None -> #(model, effect.none())
+            Some(open) -> {
+              let length = textarea.length(open.editor)
+              let selection =
+                option.unwrap(textarea.selection(open.editor), #(length, length))
+              let result =
+                toolbar.edits(action, textarea.value(open.editor), selection)
+                |> list.try_each(fn(edit) {
+                  crdt_js.text_insert(open.text, edit.0, edit.1)
+                })
+              case result {
+                Ok(Nil) -> #(Model(..model, error: None), mark_dirty(model))
+                Error(error) -> #(
+                  Model(
+                    ..model,
+                    error: Some(
+                      toolbar.describe(action)
+                      <> " failed: "
+                      <> crdt_js.describe_error(error),
+                    ),
+                  ),
+                  mark_dirty(model),
+                )
+              }
+            }
+          }
+      }
+
+    DraftTagChanged(raw) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False -> #(Model(..model, draft_tag: raw), effect.none())
+      }
+
+    AddTagClicked ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False ->
+          case model.shared, model.open, string.trim(model.draft_tag) {
+            _, _, "" -> #(model, effect.none())
+            Some(shared), Some(open), tag ->
+              case string.contains(tag, "\t") {
+                True -> #(
+                  Model(..model, error: Some("Tags cannot contain a tab.")),
+                  effect.none(),
+                )
+                False ->
+                  case
+                    crdt_js.or_set_add(
+                      shared.tags,
+                      sidebar.pair(open.name, tag),
+                    )
+                  {
+                    Ok(Nil) -> {
+                      let model =
+                        read_tags(
+                          Model(..model, draft_tag: "", error: None),
+                          shared,
+                        )
+                      #(model, mark_dirty(model))
+                    }
+                    Error(error) -> #(
+                      Model(
+                        ..model,
+                        error: Some(
+                          "tag failed: " <> crdt_js.describe_error(error),
+                        ),
+                      ),
+                      mark_dirty(model),
+                    )
+                  }
+              }
+            _, _, _ -> #(model, effect.none())
+          }
       }
 
     RemoveTagClicked(tag) ->
-      case model.shared, model.open {
-        Some(shared), Some(open) -> {
-          watershed_js.or_set_remove(shared.tags, sidebar.pair(open.name, tag))
-          #(read_tags(model, shared), effect.none())
-        }
-        _, _ -> #(model, effect.none())
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False ->
+          case model.shared, model.open {
+            Some(shared), Some(open) ->
+              case
+                crdt_js.or_set_remove(shared.tags, sidebar.pair(open.name, tag))
+              {
+                Ok(Nil) -> {
+                  let model = read_tags(Model(..model, error: None), shared)
+                  #(model, mark_dirty(model))
+                }
+                Error(error) -> #(
+                  Model(
+                    ..model,
+                    error: Some(
+                      "untag failed: " <> crdt_js.describe_error(error),
+                    ),
+                  ),
+                  mark_dirty(model),
+                )
+              }
+            _, _ -> #(model, effect.none())
+          }
       }
 
     FilterClicked(filter) -> #(
@@ -490,198 +554,473 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    // Selection surgery through the same facade as remote edits: pure
-    // helpers compute the insert list against the textarea's grapheme
-    // selection, and each insert goes down the channel. The component
-    // re-reads on its own subscription, so toolbar edits render through the
-    // same path as a peer's keystrokes with zero new plumbing.
-    FormatClicked(action) ->
-      case model.open {
-        None -> #(model, effect.none())
-        Some(open) -> {
-          let text = textarea.channel(open.editor)
-          let length = textarea.length(open.editor)
-          let selection =
-            option.unwrap(textarea.selection(open.editor), #(length, length))
-          let result =
-            toolbar.edits(action, textarea.value(open.editor), selection)
-            |> list.try_each(fn(edit) {
-              watershed_js.text_insert(text, edit.0, edit.1)
-            })
-          case result {
-            Ok(Nil) -> #(model, effect.none())
-            Error(reason) -> #(
-              Model(
-                ..model,
-                error: Some(toolbar.describe(action) <> " failed: " <> reason),
-              ),
-              effect.none(),
-            )
-          }
-        }
+    DraftNameChanged(raw) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False -> #(Model(..model, draft_name: raw), effect.none())
       }
-
-    PresenceStarted(handle) ->
-      announce_presence(Model(..model, presence: Some(handle)))
-
-    // The roster changed. Rebuild the open editor's peer list from it — only
-    // carets that are in *this* note, keyed by session id so two tabs from
-    // one person are two carets.
-    PresenceEvent(event) ->
-      case event {
-        presence.Failed(_) -> #(model, effect.none())
-        presence.State(entries) | presence.Changed(_, entries) ->
-          case model.open {
-            None -> #(model, effect.none())
-            Some(open) -> {
-              let cursors =
-                remote_entries(model, entries)
-                |> list.filter_map(fn(peer) {
-                  case peer.meta.note == Some(open.name), peer.meta.cursor {
-                    True, Some(cursor) ->
-                      Ok(textarea.peer(
-                        id: peer.session_id,
-                        label: peer.key,
-                        colour: colour_for(peer.key),
-                        cursor: cursor,
-                      ))
-                    _, _ -> Error(Nil)
-                  }
-                })
-              let #(editor, editor_effect) =
-                textarea.set_peers(open.editor, cursors)
-              #(
-                Model(..model, open: Some(OpenNote(..open, editor:))),
-                effect.map(editor_effect, Editor),
-              )
-            }
-          }
-      }
-
-    DraftNameChanged(raw) -> #(Model(..model, draft_name: raw), effect.none())
 
     CreateClicked ->
-      case model.status, model.shared, model.doc {
-        Ready, Some(shared), Some(doc) ->
-          create_note(model, shared, doc, string.trim(model.draft_name))
-        _, _, _ -> #(model, effect.none())
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False ->
+          case model.shared, model.document {
+            Some(shared), Some(document) ->
+              create_note(
+                model,
+                shared,
+                document,
+                string.trim(model.draft_name),
+              )
+            _, _ -> #(model, effect.none())
+          }
       }
 
-    OpenClicked(name) ->
-      case model.shared, model.doc {
-        Some(shared), Some(doc) -> try_open(model, shared, doc, name)
-        _, _ -> #(model, effect.none())
-      }
+    OpenClicked(name) -> try_open(model, name)
 
-    DeleteClicked(name) -> {
-      case model.shared {
-        Some(shared) -> {
-          watershed_js.or_map_remove(shared.notes, name)
-          // Best-effort: drop the name's first sequence entry too. A miss —
-          // or a duplicate left behind — is absorbed by the display rule.
-          case sequence_index_of(shared, name) {
-            Some(index) -> {
-              let _ = watershed_js.sequence_delete(shared.order, index)
-              Nil
+    DeleteClicked(name) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False ->
+          case model.shared {
+            Some(shared) -> {
+              let removed = crdt_js.or_map_remove(shared.root, key: name)
+              let sequence = case sequence_index_of(shared, name) {
+                Some(index) ->
+                  crdt_js.sequence_delete(shared.order, index: index)
+                None -> Ok(Nil)
+              }
+              let model = case removed {
+                Ok(Nil) ->
+                  read_order(
+                    read_notes(Model(..model, error: None), shared.root)
+                      |> mark_open_deleted,
+                    shared,
+                  )
+                Error(error) ->
+                  Model(
+                    ..model,
+                    error: Some(
+                      "delete failed: " <> crdt_js.describe_error(error),
+                    ),
+                  )
+              }
+              let model = case sequence {
+                Ok(Nil) -> model
+                Error(error) ->
+                  note_system(
+                    model,
+                    "order cleanup failed: " <> crdt_js.describe_error(error),
+                  )
+              }
+              #(model, mark_dirty(model))
             }
-            None -> Nil
-          }
-        }
-        None -> Nil
-      }
-      // The subscription's NotesChanged re-reads the list and flips the open
-      // note's banner; nothing else to do here.
-      #(model, effect.none())
-    }
-
-    // The session-scoped document offline story: `go_offline` queues every
-    // edit locally and the UI keeps working; `go_online` resubmits and
-    // catches up. Nothing is lost across any disconnect while the tab is
-    // open.
-    OfflineToggled ->
-      case model.doc {
-        None -> #(model, effect.none())
-        Some(doc) ->
-          case model.offline {
-            False -> #(
-              Model(..model, offline: True),
-              watershed_lustre.go_offline(doc),
-            )
-            True -> #(
-              Model(..model, offline: False),
-              watershed_lustre.go_online(doc),
-            )
+            None -> #(model, effect.none())
           }
       }
+  }
+}
 
-    DiagnosticsTick -> {
-      let model = case model.doc {
-        Some(doc) ->
-          Model(..model, diagnostics: Some(watershed_js.diagnostics(doc)))
-        None -> model
-      }
-      #(model, watershed_lustre.after(250, DiagnosticsTick))
-    }
+// ── Bootstrap & persistence ──────────────────────────────────────────────────
 
-    // Still connecting after the grace period: no relay is reachable. The
-    // socket keeps retrying underneath, and a late `Connected(Ok)` still
-    // flips the app to `Ready`.
-    ConnectTimedOut ->
-      case model.status {
-        Connecting -> #(
-          Model(..model, status: Failed("no relay reachable")),
-          effect.none(),
+fn refresh_from_root(model: Model) -> #(Model, Effect(Msg)) {
+  case model.document {
+    None -> #(model, effect.none())
+    Some(document) -> {
+      let root = crdt_js.root(document)
+      let model = read_notes(model, root) |> mark_open_deleted
+      let #(model, retry_shared) =
+        ensure_shared(
+          model,
+          document,
+          root,
+          create_missing: !mutations_locked(model),
         )
-        _ -> #(model, effect.none())
+      let #(model, shared_effect) = assemble(model, root)
+      let #(model, open_effect) = retry_pending_open(model)
+      let retry_effect = case retry_shared {
+        True -> watershed_lustre.after(retry_ms, RetryShared)
+        False -> effect.none()
       }
+      #(model, effect.batch([shared_effect, open_effect, retry_effect]))
+    }
+  }
+}
 
-    ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
-        None -> #(model, effect.none())
+fn ensure_shared(
+  model: Model,
+  document: CrdtDocument(OrMapChannel),
+  root: Handle(OrMapChannel),
+  create_missing create_missing: Bool,
+) -> #(Model, Bool) {
+  let #(model, retry_tags) = ensure_tags(model, document, root, create_missing:)
+  let #(model, retry_order) =
+    ensure_order(model, document, root, create_missing:)
+  #(model, retry_tags || retry_order)
+}
+
+fn ensure_tags(
+  model: Model,
+  document: CrdtDocument(OrMapChannel),
+  root: Handle(OrMapChannel),
+  create_missing create_missing: Bool,
+) -> #(Model, Bool) {
+  case crdt_js.or_map_value(root, key: doc_schema.tags_key()) {
+    Error(error) -> #(
+      note_system(
+        model,
+        "tags channel failed: " <> crdt_js.describe_error(error),
+      ),
+      False,
+    )
+    Ok(None) if !create_missing -> #(
+      Model(..model, pending: PendingShared(None, model.pending.order)),
+      False,
+    )
+    Ok(None) ->
+      case crdt_js.create_channel(document, doc_schema.tags_kind()) {
+        Error(error) -> #(
+          note_system(
+            model,
+            "tags channel failed: " <> crdt_js.describe_error(error),
+          ),
+          False,
+        )
+        Ok(tags) ->
+          case
+            crdt_js.or_map_set(
+              root,
+              key: doc_schema.tags_key(),
+              value: crdt_js.address(tags),
+            )
+          {
+            Ok(Nil) -> #(
+              Model(
+                ..model,
+                pending: PendingShared(Some(tags), model.pending.order),
+              ),
+              False,
+            )
+            Error(error) -> #(
+              note_system(
+                model,
+                "tags address failed: " <> crdt_js.describe_error(error),
+              ),
+              False,
+            )
+          }
       }
+    Ok(Some(or_map_kernel.Tally(_))) -> #(
+      note_system(model, "The stored tags channel address is corrupt."),
+      False,
+    )
+    Ok(Some(or_map_kernel.Register(address))) ->
+      case
+        crdt_js.resolve_channel(
+          document,
+          doc_schema.tags_kind(),
+          address: address,
+        )
+      {
+        Ok(tags) -> #(
+          Model(
+            ..model,
+            pending: PendingShared(Some(tags), model.pending.order),
+          ),
+          False,
+        )
+        Error(error) ->
+          case retryable_missing_channel(error) {
+            True -> #(
+              Model(..model, pending: PendingShared(None, model.pending.order)),
+              True,
+            )
+            False -> #(
+              note_system(
+                model,
+                "tags channel failed: " <> crdt_js.describe_error(error),
+              ),
+              False,
+            )
+          }
+      }
+  }
+}
+
+fn ensure_order(
+  model: Model,
+  document: CrdtDocument(OrMapChannel),
+  root: Handle(OrMapChannel),
+  create_missing create_missing: Bool,
+) -> #(Model, Bool) {
+  case crdt_js.or_map_value(root, key: doc_schema.order_key()) {
+    Error(error) -> #(
+      note_system(
+        model,
+        "order channel failed: " <> crdt_js.describe_error(error),
+      ),
+      False,
+    )
+    Ok(None) if !create_missing -> #(
+      Model(..model, pending: PendingShared(model.pending.tags, None)),
+      False,
+    )
+    Ok(None) ->
+      case crdt_js.create_channel(document, doc_schema.order_kind()) {
+        Error(error) -> #(
+          note_system(
+            model,
+            "order channel failed: " <> crdt_js.describe_error(error),
+          ),
+          False,
+        )
+        Ok(order) ->
+          case
+            crdt_js.or_map_set(
+              root,
+              key: doc_schema.order_key(),
+              value: crdt_js.address(order),
+            )
+          {
+            Ok(Nil) -> #(
+              Model(
+                ..model,
+                pending: PendingShared(model.pending.tags, Some(order)),
+              ),
+              False,
+            )
+            Error(error) -> #(
+              note_system(
+                model,
+                "order address failed: " <> crdt_js.describe_error(error),
+              ),
+              False,
+            )
+          }
+      }
+    Ok(Some(or_map_kernel.Tally(_))) -> #(
+      note_system(model, "The stored order channel address is corrupt."),
+      False,
+    )
+    Ok(Some(or_map_kernel.Register(address))) ->
+      case
+        crdt_js.resolve_channel(
+          document,
+          doc_schema.order_kind(),
+          address: address,
+        )
+      {
+        Ok(order) -> #(
+          Model(
+            ..model,
+            pending: PendingShared(model.pending.tags, Some(order)),
+          ),
+          False,
+        )
+        Error(error) ->
+          case retryable_missing_channel(error) {
+            True -> #(
+              Model(..model, pending: PendingShared(model.pending.tags, None)),
+              True,
+            )
+            False -> #(
+              note_system(
+                model,
+                "order channel failed: " <> crdt_js.describe_error(error),
+              ),
+              False,
+            )
+          }
+      }
+  }
+}
+
+fn assemble(model: Model, root: Handle(OrMapChannel)) -> #(Model, Effect(Msg)) {
+  case model.pending {
+    PendingShared(Some(tags), Some(order)) -> {
+      let shared = SharedState(root:, tags:, order:)
+      let changed = shared_changed(model.shared, shared)
+      let model =
+        Model(..model, shared: Some(shared))
+        |> read_tags(shared)
+        |> read_order(shared)
+      let subscriptions = case changed {
+        True ->
+          effect.batch([
+            crdt.subscribe_or_set(
+              shared.tags,
+              subscribed: fn(_subscription) { Ignored },
+              event: fn(_event) { TagsChanged },
+            ),
+            crdt.subscribe_sequence(
+              shared.order,
+              subscribed: fn(_subscription) { Ignored },
+              event: fn(_event) { OrderChanged },
+            ),
+          ])
+        False -> effect.none()
+      }
+      #(model, subscriptions)
+    }
+    _ -> #(model, effect.none())
+  }
+}
+
+fn shared_changed(current: Option(SharedState), next: SharedState) -> Bool {
+  case current {
+    None -> True
+    Some(shared) ->
+      crdt_js.address(shared.tags) != crdt_js.address(next.tags)
+      || crdt_js.address(shared.order) != crdt_js.address(next.order)
+  }
+}
+
+fn retry_pending_open(model: Model) -> #(Model, Effect(Msg)) {
+  case model.pending_open {
+    Some(name) -> try_open(model, name)
+    None -> #(model, effect.none())
+  }
+}
+
+fn mutations_locked(model: Model) -> Bool {
+  case model.recovery {
+    NoRecovery -> False
+    RecoveryRequired(_) | ReplacingLocalSnapshot -> True
+  }
+}
+
+fn start_persistence_if_allowed(
+  model: Model,
+  document: CrdtDocument(OrMapChannel),
+) -> Effect(Msg) {
+  case model.controller, model.recovery {
+    Some(_), _ -> effect.none()
+    None, NoRecovery ->
+      crdt.start_persistence(
+        persist_js.indexed_db(),
+        document,
+        PersistenceStarted,
+        PersistenceStatusChanged,
+      )
+    None, RecoveryRequired(_) -> effect.none()
+    None, ReplacingLocalSnapshot -> effect.none()
+  }
+}
+
+fn stop_persistence(model: Model) -> Effect(Msg) {
+  case model.controller {
+    Some(controller) -> crdt.stop_persistence(controller)
+    None -> effect.none()
+  }
+}
+
+fn enter_recovery(model: Model, detail: String) -> #(Model, Effect(Msg)) {
+  #(
+    Model(
+      ..model,
+      controller: None,
+      recovery: RecoveryRequired(detail),
+      drag: None,
+    ),
+    stop_persistence(model),
+  )
+}
+
+fn replace_local_snapshot(document: CrdtDocument(OrMapChannel)) -> Effect(Msg) {
+  use dispatch <- effect.from
+  persist_js.replace(persist_js.indexed_db(), document, fn(outcome) {
+    dispatch(RecoveryReplaceFinished(outcome))
+  })
+}
+
+fn mark_dirty(model: Model) -> Effect(Msg) {
+  case model.controller {
+    Some(controller) -> crdt.persistence_changed(controller)
+    None -> effect.none()
+  }
+}
+
+fn retryable_missing_channel(error: P2pError) -> Bool {
+  case error {
+    p2p.InvalidEnvelope(_, detail) ->
+      string.starts_with(detail, "no channel registered at ")
+    _ -> False
   }
 }
 
 // ── Note lifecycle ───────────────────────────────────────────────────────────
 
-/// Create a note: a fresh detached text channel, the seed line, then the
-/// handle into the notes map — storing the handle is what attaches the
-/// channel, seed line and all. The creator opens it directly; everyone else
-/// resolves it out of the register.
 fn create_note(
   model: Model,
   shared: SharedState,
-  doc: Document(doc_schema.Notebook),
+  document: CrdtDocument(OrMapChannel),
   name: String,
 ) -> #(Model, Effect(Msg)) {
   case validate_name(model, name) {
     Error(reason) -> #(Model(..model, error: Some(reason)), effect.none())
     Ok(Nil) ->
-      case watershed_js.create_text(doc) {
-        Error(reason) -> #(
-          Model(..model, error: Some("create failed: " <> reason)),
+      case crdt_js.create_channel(document, doc_schema.text_kind()) {
+        Error(error) -> #(
+          Model(
+            ..model,
+            error: Some("create failed: " <> crdt_js.describe_error(error)),
+          ),
           effect.none(),
         )
-        Ok(text) -> {
-          let assert Ok(Nil) = watershed_js.text_append(text, seed_body(name))
-          watershed_js.or_map_set_json(
-            shared.notes,
-            name,
-            watershed_js.text_handle_of(text),
-          )
-          // Append to the sidebar order, best-effort: if this fails the
-          // display rule still renders the name, alphabetically at the end.
-          let _ =
-            watershed_js.sequence_insert(
-              shared.order,
-              watershed_js.sequence_length(shared.order),
-              json.string(name),
+        Ok(text) ->
+          case crdt_js.text_append(text, seed_body(name)) {
+            Error(error) -> #(
+              Model(
+                ..model,
+                error: Some("create failed: " <> crdt_js.describe_error(error)),
+              ),
+              mark_dirty(model),
             )
-          let model =
-            Model(..model, draft_name: "", error: None) |> read_order(shared)
-          open_resolved(model, name, text)
-        }
+            Ok(Nil) ->
+              case
+                crdt_js.or_map_set(
+                  shared.root,
+                  key: name,
+                  value: crdt_js.address(text),
+                )
+              {
+                Error(error) -> #(
+                  Model(
+                    ..model,
+                    error: Some(
+                      "create failed: " <> crdt_js.describe_error(error),
+                    ),
+                  ),
+                  mark_dirty(model),
+                )
+                Ok(Nil) -> {
+                  let order_result =
+                    crdt_js.sequence_insert(
+                      shared.order,
+                      index: raw_sequence_length(
+                        shared.order,
+                        model.order_entries,
+                      ),
+                      value: json.string(name),
+                    )
+                  let model =
+                    read_notes(
+                      Model(..model, draft_name: "", error: None),
+                      shared.root,
+                    )
+                  let model = case order_result {
+                    Ok(Nil) -> read_order(model, shared)
+                    Error(error) ->
+                      note_system(
+                        read_order(model, shared),
+                        "order update failed: " <> crdt_js.describe_error(error),
+                      )
+                  }
+                  let #(model, editor_effect) = open_resolved(model, name, text)
+                  #(model, effect.batch([editor_effect, mark_dirty(model)]))
+                }
+              }
+          }
       }
   }
 }
@@ -698,98 +1037,87 @@ fn validate_name(model: Model, name: String) -> Result(Nil, String) {
   }
 }
 
-/// Open a note out of the notes map. A register that is not a handle marker
-/// (or a `Tally` value) is corrupt and reported as such; a handle that does
-/// not resolve is *retryable* — the creator's attach op can still be in
-/// flight — so it parks in `pending_open` and retries on the next notes
-/// event.
-fn try_open(
-  model: Model,
-  shared: SharedState,
-  doc: Document(doc_schema.Notebook),
-  name: String,
-) -> #(Model, Effect(Msg)) {
-  case watershed_js.or_map_value(shared.notes, name) {
-    None -> #(
-      Model(..model, pending_open: None, error: Some("No note named " <> name)),
-      effect.none(),
-    )
-    Some(or_map_kernel.Tally(_)) -> #(corrupt(model, name), effect.none())
-    Some(or_map_kernel.Register(register)) ->
-      case note_handle.parse(register) {
-        Error(Nil) -> #(corrupt(model, name), effect.none())
-        Ok(handle) ->
-          case watershed_js.resolve_text(doc, handle) {
-            Ok(text) -> open_resolved(Model(..model, error: None), name, text)
-            Error(_) -> #(
-              Model(..model, pending_open: Some(name)),
-              effect.none(),
+fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
+  case model.document {
+    None -> #(model, effect.none())
+    Some(document) -> {
+      let root = crdt_js.root(document)
+      case crdt_js.or_map_value(root, key: name) {
+        Error(error) -> #(
+          Model(
+            ..model,
+            pending_open: None,
+            error: Some("open failed: " <> crdt_js.describe_error(error)),
+          ),
+          effect.none(),
+        )
+        Ok(None) -> #(
+          Model(
+            ..model,
+            pending_open: None,
+            error: Some("No note named " <> name),
+          ),
+          effect.none(),
+        )
+        Ok(Some(or_map_kernel.Tally(_))) -> #(
+          Model(
+            ..model,
+            pending_open: None,
+            error: Some("The entry for " <> name <> " is not a note address."),
+          ),
+          effect.none(),
+        )
+        Ok(Some(or_map_kernel.Register(address))) ->
+          case
+            crdt_js.resolve_channel(
+              document,
+              doc_schema.text_kind(),
+              address: address,
             )
+          {
+            Ok(text) -> open_resolved(Model(..model, error: None), name, text)
+            Error(error) ->
+              case retryable_missing_channel(error) {
+                True -> #(
+                  Model(..model, pending_open: Some(name)),
+                  watershed_lustre.after(retry_ms, RetryOpen),
+                )
+                False -> #(
+                  Model(
+                    ..model,
+                    pending_open: None,
+                    error: Some(
+                      "open failed: " <> crdt_js.describe_error(error),
+                    ),
+                  ),
+                  effect.none(),
+                )
+              }
           }
       }
+    }
   }
 }
 
-/// Mount the editor on a live, resolved channel — never an `Option` one —
-/// and tell the room which note this client is now in.
 fn open_resolved(
   model: Model,
   name: String,
-  text: SharedText,
+  text: Handle(TextChannel),
 ) -> #(Model, Effect(Msg)) {
-  let #(editor, editor_effect) = textarea.init(text)
-  let open = OpenNote(name:, editor:, deleted: False)
-  let #(model, announce) =
-    announce_presence(Model(..model, open: Some(open), pending_open: None))
-  #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
-}
-
-/// Broadcast this client's note and caret, but only when they actually
-/// changed. Anchors are value-comparable and re-anchoring after a remote edit
-/// yields the same anchors whenever the caret tracked the same content, so
-/// this stays quiet through a peer's typing.
-fn announce_presence(model: Model) -> #(Model, Effect(Msg)) {
-  let current = case model.open {
-    Some(open) ->
-      Editing(note: Some(open.name), cursor: textarea.cursor(open.editor))
-    None -> Editing(note: None, cursor: None)
-  }
-  case model.presence, current == model.announced {
-    _, True -> #(model, effect.none())
-    None, _ -> #(Model(..model, announced: current), effect.none())
-    Some(handle), False -> #(
-      Model(..model, announced: current),
-      watershed_lustre.update_presence(handle, current),
+  let #(editor, editor_effect) = textarea.init_crdt(text)
+  let open =
+    OpenNote(
+      name: name,
+      text: text,
+      editor: editor,
+      deleted: !list.contains(model.note_names, name),
     )
-  }
-}
-
-/// Everyone but this tab — a client must not draw a caret for itself.
-fn remote_entries(
-  model: Model,
-  entries: List(presence.PresenceEntry(Editing)),
-) -> List(presence.PresenceEntry(Editing)) {
-  case model.presence {
-    Some(handle) ->
-      case presence_js.local_session(handle) {
-        Some(session) -> presence.remote_entries(entries, session)
-        None -> entries
-      }
-    None -> entries
-  }
-}
-
-fn corrupt(model: Model, name: String) -> Model {
-  Model(
-    ..model,
-    pending_open: None,
-    error: Some("The entry for " <> name <> " is not a note handle."),
+  #(
+    Model(..model, open: Some(open), pending_open: None),
+    effect.map(editor_effect, Editor),
   )
 }
 
-/// Keep the open note's banner honest against the note list: gone from the
-/// map means deleted, back in the map (a concurrent re-set beat the remove)
-/// means not.
 fn mark_open_deleted(model: Model) -> Model {
   case model.open {
     Some(open) ->
@@ -803,122 +1131,343 @@ fn mark_open_deleted(model: Model) -> Model {
   }
 }
 
-/// Re-read the note names from the OR-map. A `Tally` value is corrupt in a
-/// register-mode notes map and is dropped rather than guessed at.
-fn read_notes(model: Model, shared: SharedState) -> Model {
-  let names =
-    watershed_js.or_map_entries(shared.notes)
-    |> list.filter_map(fn(entry) {
-      case entry.1 {
-        or_map_kernel.Register(_) -> Ok(entry.0)
-        or_map_kernel.Tally(_) -> Error(Nil)
-      }
-    })
-  Model(..model, note_names: names)
+// ── Reads ────────────────────────────────────────────────────────────────────
+
+fn read_notes(model: Model, root: Handle(OrMapChannel)) -> Model {
+  case crdt_js.or_map_entries(root) {
+    Error(error) -> note_system(model, crdt_js.describe_error(error))
+    Ok(entries) ->
+      Model(
+        ..model,
+        note_names: entries
+          |> list.filter_map(fn(entry) {
+            case doc_schema.is_reserved(entry.0), entry.1 {
+              True, _ -> Error(Nil)
+              False, or_map_kernel.Register(_) -> Ok(entry.0)
+              False, or_map_kernel.Tally(_) -> Error(Nil)
+            }
+          }),
+      )
+  }
 }
 
 fn read_tags(model: Model, shared: SharedState) -> Model {
-  Model(..model, tag_pairs: watershed_js.or_set_values(shared.tags))
+  case crdt_js.or_set_values(shared.tags) {
+    Ok(values) -> Model(..model, tag_pairs: values)
+    Error(error) -> note_system(model, crdt_js.describe_error(error))
+  }
 }
 
-/// Re-read the order sequence as note names, dropping non-string entries.
 fn read_order(model: Model, shared: SharedState) -> Model {
-  let entries =
-    watershed_js.sequence_values(shared.order)
-    |> list.filter_map(fn(value) {
-      json.parse(json.to_string(value), decode.string)
-      |> result.replace_error(Nil)
-    })
-  Model(..model, order_entries: entries)
+  case crdt_js.sequence_values(shared.order) {
+    Ok(values) ->
+      Model(
+        ..model,
+        order_entries: values
+          |> list.filter_map(fn(value) {
+            json.parse(json.to_string(value), decode.string)
+            |> result.replace_error(Nil)
+          }),
+      )
+    Error(error) -> note_system(model, crdt_js.describe_error(error))
+  }
 }
 
-/// The raw sequence index of a name's first entry — raw, because non-string
-/// entries occupy positions too and `sequence_delete`/`sequence_move` take
-/// raw indices.
+fn raw_sequence_length(
+  order: Handle(SequenceChannel),
+  fallback: List(a),
+) -> Int {
+  case crdt_js.sequence_values(order) {
+    Ok(values) -> list.length(values)
+    Error(_) -> list.length(fallback)
+  }
+}
+
 fn sequence_index_of(shared: SharedState, name: String) -> Option(Int) {
   let target = json.to_string(json.string(name))
-  watershed_js.sequence_values(shared.order)
-  |> list.index_fold(None, fn(found, value, index) {
-    case found, json.to_string(value) == target {
-      None, True -> Some(index)
-      _, _ -> found
-    }
-  })
+  case crdt_js.sequence_values(shared.order) {
+    Error(_) -> None
+    Ok(values) ->
+      values
+      |> list.index_fold(None, fn(found, value, index) {
+        case found, json.to_string(value) == target {
+          None, True -> Some(index)
+          _, _ -> found
+        }
+      })
+  }
 }
 
-/// Translate a completed drag into one sequence op. Dropping on a note
-/// inserts the dragged entry before it; dropping on the end zone moves it to
-/// the end. `sequence_move` evaluates the destination *after* removing the
-/// source, hence the adjustment. A dragged name with no sequence entry (a
-/// map-only name) gets inserted rather than moved.
+// ── Reordering ───────────────────────────────────────────────────────────────
+
 fn apply_drop(
   shared: SharedState,
   dragged: String,
   target: Option(String),
-) -> Nil {
-  let length = watershed_js.sequence_length(shared.order)
+) -> Result(Nil, String) {
+  let length = raw_sequence_length(shared.order, [])
   let to = case target {
     Some(name) -> sequence_index_of(shared, name) |> option.unwrap(length)
     None -> length
   }
-  let _ = case sequence_index_of(shared, dragged) {
-    None -> watershed_js.sequence_insert(shared.order, to, json.string(dragged))
+
+  let result = case sequence_index_of(shared, dragged) {
+    None ->
+      crdt_js.sequence_insert(
+        shared.order,
+        index: to,
+        value: json.string(dragged),
+      )
     Some(from) if from == to -> Ok(Nil)
     Some(from) -> {
       let destination = case from < to {
         True -> to - 1
         False -> to
       }
-      watershed_js.sequence_move(shared.order, from, destination)
+      crdt_js.sequence_move(shared.order, from: from, to: destination)
     }
   }
-  Nil
+
+  result |> result.map_error(crdt_js.describe_error)
 }
 
-fn ensure_failed(model: Model, reason: String) -> Model {
-  Model(..model, error: Some(reason))
+// ── Connection status ────────────────────────────────────────────────────────
+
+fn apply_status(model: Model, status: crdt_js.Status) -> Model {
+  case status {
+    crdt_js.Joined(_, _) -> Model(..model, bootstrap: "joined")
+    crdt_js.RosterKnown([]) -> Model(..model, bootstrap: "alone")
+    crdt_js.RosterKnown(_) -> Model(..model, bootstrap: "syncing")
+    crdt_js.AwaitingState(_) -> Model(..model, bootstrap: "syncing")
+    crdt_js.Ready | crdt_js.StateMerged(_, _) ->
+      Model(..model, bootstrap: "ready")
+    crdt_js.PeerRejected(peer, error) ->
+      note_system(
+        model,
+        "peer " <> short(peer) <> " · " <> crdt_js.describe_error(error),
+      )
+    crdt_js.Failed(error) -> note_system(model, crdt_js.describe_error(error))
+    crdt_js.TransportError(error) ->
+      note_system(model, crdt_js.describe_error(error))
+    crdt_js.SubscriberFailed(_, detail) -> note_system(model, detail)
+    crdt_js.RejectedByPeer(peer, reason, detail) ->
+      note_system(
+        model,
+        "peer " <> short(peer) <> " refused us · " <> reason <> " " <> detail,
+      )
+    crdt_js.RelayConnecting(_)
+    | crdt_js.RelaySyncingStatus
+    | crdt_js.RelayRecovering
+    | crdt_js.RelayRetry(_) -> Model(..model, relay: "syncing")
+    crdt_js.RelayPrimary(_)
+    | crdt_js.RelayCheckpointRequested
+    | crdt_js.RelayCheckpointed(_) -> Model(..model, relay: "durable")
+    crdt_js.RelayFallback(_) | crdt_js.RelayUnsupported(_) ->
+      Model(..model, relay: "offline · peer-to-peer")
+    crdt_js.RelayFailed(error) ->
+      note_system(
+        Model(..model, relay: "offline"),
+        crdt_js.describe_error(error),
+      )
+    crdt_js.RelayRejected(who, error) ->
+      note_system(
+        model,
+        "relay peer " <> short(who) <> " · " <> crdt_js.describe_error(error),
+      )
+    crdt_js.PeerReady(_) | crdt_js.PeerGone(_) | crdt_js.Transport(_) -> model
+  }
+}
+
+fn note_system(model: Model, error: String) -> Model {
+  Model(..model, errors: list.take([error, ..model.errors], 5))
+}
+
+fn short(replica: String) -> String {
+  case string.split(replica, "-") {
+    [_label, head, ..] -> head
+    _ -> replica
+  }
 }
 
 // ── View ─────────────────────────────────────────────────────────────────────
 
-fn view(model: Model) -> Element(Msg) {
-  html.div([class("app")], [sidebar_view(model), main_view(model)])
+pub fn view(model: Model) -> Element(Msg) {
+  html.div(
+    [
+      attribute.classes([
+        #("app", True),
+        #("recovery-required", mutations_locked(model)),
+      ]),
+      attribute.data("smoke-phase", phase_token(model)),
+      attribute.data("smoke-shared", shared_token(model)),
+      attribute.data("smoke-storage", storage_token(model)),
+      attribute.data("smoke-save", save_token(model)),
+      attribute.data("smoke-recovery", recovery_token(model)),
+      attribute.data("smoke-saved-digest", model.saved_digest),
+      attribute.data("smoke-peers", peer_count_token(model)),
+      attribute.data(
+        "smoke-note-count",
+        int.to_string(list.length(model.note_names)),
+      ),
+      attribute.data("smoke-open-note", open_note_token(model)),
+    ],
+    [sidebar_view(model), main_view(model)],
+  )
 }
 
 fn sidebar_view(model: Model) -> Element(Msg) {
-  html.nav([class("sidebar")], [
+  html.nav([attribute.class("sidebar")], [
     html.h1([], [html.text("Markdown notes")]),
     status_view(model),
     compose_view(model),
     tag_filter_view(model),
     note_list_view(model),
+    system_errors_view(model.errors),
     error_view(model.error),
   ])
 }
 
 fn status_view(model: Model) -> Element(Msg) {
-  html.p([class("status")], [
-    html.text(case model.status {
-      Connecting -> "Connecting…"
-      Ready -> "Connected as " <> model.user_id
-      Failed(reason) -> "Disconnected: " <> reason
-    }),
+  html.div([attribute.class("status-stack")], [
+    html.p(
+      [attribute.class("status"), attribute.data("smoke", "network-status")],
+      [html.text(network_status(model))],
+    ),
+    html.p(
+      [attribute.class("status"), attribute.data("smoke", "storage-status")],
+      [html.text(storage_status(model))],
+    ),
+    html.p([attribute.class("status"), attribute.data("smoke", "save-status")], [
+      html.text(save_status(model)),
+    ]),
   ])
 }
 
+fn phase_token(model: Model) -> String {
+  case model.phase {
+    Opening -> "opening"
+    Ready -> "ready"
+    Failed(_) -> "failed"
+  }
+}
+
+fn shared_token(model: Model) -> String {
+  case model.shared {
+    Some(_) -> "ready"
+    None -> "pending"
+  }
+}
+
+fn storage_token(model: Model) -> String {
+  case model.local_snapshot {
+    OpeningLocalSnapshot -> "opening"
+    NoLocalSnapshot -> "none"
+    LoadedLocalSnapshot -> "loaded"
+    LocalSnapshotFailed(_) -> "failed"
+  }
+}
+
+fn save_token(model: Model) -> String {
+  case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        WaitingForDocument -> "waiting"
+        Watching -> "watching"
+        Saving -> "saving"
+        Saved -> "saved"
+        SaveFailed(_) -> "failed"
+      }
+    RecoveryRequired(_) -> "recovery"
+    ReplacingLocalSnapshot -> "replacing"
+  }
+}
+
+fn recovery_token(model: Model) -> String {
+  case model.recovery {
+    NoRecovery -> "none"
+    RecoveryRequired(_) -> "required"
+    ReplacingLocalSnapshot -> "replacing"
+  }
+}
+
+fn peer_count_token(model: Model) -> String {
+  case model.document {
+    Some(document) -> int.to_string(crdt_js.peer_count(document))
+    None -> "0"
+  }
+}
+
+fn open_note_token(model: Model) -> String {
+  case model.open {
+    Some(open) -> open.name
+    None -> ""
+  }
+}
+
+fn network_status(model: Model) -> String {
+  let connection = case model.phase {
+    Opening -> "opening…"
+    Ready -> model.bootstrap
+    Failed(detail) -> "offline · " <> detail
+  }
+  let peers = case model.document {
+    Some(document) ->
+      case crdt_js.peer_count(document) {
+        1 -> "1 peer"
+        count -> int.to_string(count) <> " peers"
+      }
+    None -> "0 peers"
+  }
+  let relay = case model.relay {
+    "" -> ""
+    state -> " · relay " <> state
+  }
+  connection <> " · " <> peers <> relay
+}
+
+fn storage_status(model: Model) -> String {
+  case model.local_snapshot {
+    OpeningLocalSnapshot -> "storage · opening local snapshot…"
+    NoLocalSnapshot -> "storage · no local snapshot yet"
+    LoadedLocalSnapshot -> "storage · local snapshot loaded"
+    LocalSnapshotFailed(detail) -> "storage · " <> detail
+  }
+}
+
+fn save_status(model: Model) -> String {
+  case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        WaitingForDocument -> "local save · waiting for document"
+        Watching -> "local save · watching for edits"
+        Saving -> "local save · saving…"
+        Saved -> "local save · saved"
+        SaveFailed(detail) -> "local save · " <> detail
+      }
+    RecoveryRequired(_) -> "local save · recovery required"
+    ReplacingLocalSnapshot ->
+      "local save · replacing the broken local snapshot…"
+  }
+}
+
 fn compose_view(model: Model) -> Element(Msg) {
-  html.div([class("compose")], [
+  html.div([attribute.class("compose")], [
     html.input([
+      attribute.data("smoke", "create-note-input"),
       attribute.placeholder("New note name"),
       attribute.value(model.draft_name),
-      attribute.attribute("aria-label", "new note name"),
+      attribute.aria_label("new note name"),
+      attribute.disabled(mutations_locked(model)),
       event.on_input(DraftNameChanged),
     ]),
     html.button(
       [
+        attribute.data("smoke", "create-note"),
         event.on_click(CreateClicked),
         attribute.disabled(
-          model.shared == None || string.trim(model.draft_name) == "",
+          mutations_locked(model)
+          || model.shared == None
+          || string.trim(model.draft_name) == "",
         ),
       ],
       [html.text("Create")],
@@ -930,7 +1479,7 @@ fn tag_filter_view(model: Model) -> Element(Msg) {
   case sidebar.all_tags(model.tag_pairs, model.note_names) {
     [] -> html.text("")
     tags ->
-      html.div([class("tag-filter"), attribute.role("group")], [
+      html.div([attribute.class("tag-filter"), attribute.role("group")], [
         html.button(
           [
             attribute.classes([#("active", model.tag_filter == None)]),
@@ -951,8 +1500,6 @@ fn tag_filter_view(model: Model) -> Element(Msg) {
   }
 }
 
-/// The names to list: the display rule's reconciled order, then the tag
-/// filter.
 fn visible_names(model: Model) -> List(String) {
   let ordered = sidebar.display_order(model.note_names, model.order_entries)
   case model.tag_filter {
@@ -966,16 +1513,16 @@ fn visible_names(model: Model) -> List(String) {
 
 fn note_list_view(model: Model) -> Element(Msg) {
   case model.shared, visible_names(model) {
-    None, _ -> html.p([class("hint")], [html.text("Loading notes…")])
-    Some(_), [] -> html.p([class("hint")], [html.text("No notes here.")])
+    None, _ -> html.p([attribute.class("hint")], [html.text("Loading notes…")])
+    Some(_), [] ->
+      html.p([attribute.class("hint")], [html.text("No notes here.")])
     Some(_), names ->
       html.ul(
-        [class("note-list")],
+        [attribute.class("note-list"), attribute.data("smoke", "note-list")],
         list.append(list.map(names, fn(name) { note_item_view(model, name) }), [
-          // The end-of-list drop zone: drop here to move a note to the end.
           html.li(
             [
-              class("drop-end"),
+              attribute.class("drop-end"),
               event.on("dragover", decode.success(NoOp))
                 |> event.prevent_default,
               event.on("drop", decode.success(DroppedOn(None)))
@@ -993,13 +1540,14 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
     Some(open) -> open.name == name && !open.deleted
     None -> False
   }
+
   html.li(
     [
       attribute.classes([
         #("note-item", True),
         #("dragging", model.drag == Some(name)),
       ]),
-      attribute.draggable(True),
+      attribute.draggable(!mutations_locked(model)),
       event.on("dragstart", decode.success(DragStarted(name))),
       event.on("dragend", decode.success(DragEnded)),
       event.on("dragover", decode.success(NoOp)) |> event.prevent_default,
@@ -1009,6 +1557,8 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
     [
       html.button(
         [
+          attribute.data("smoke", "note-open"),
+          attribute.data("note-name", name),
           attribute.classes([#("note-open", True), #("open", is_open)]),
           event.on_click(OpenClicked(name)),
         ],
@@ -1016,8 +1566,10 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
       ),
       html.button(
         [
-          class("note-delete"),
-          attribute.attribute("aria-label", "delete " <> name),
+          attribute.data("smoke", "note-delete"),
+          attribute.class("note-delete"),
+          attribute.aria_label("delete " <> name),
+          attribute.disabled(mutations_locked(model)),
           event.on_click(DeleteClicked(name)),
         ],
         [html.text("✕")],
@@ -1027,77 +1579,119 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
 }
 
 fn main_view(model: Model) -> Element(Msg) {
-  html.main([class("main")], [
-    case model.status, model.open, model.pending_open {
-      // The durable-document layer does not exist yet, and the shell says so
-      // instead of spinning: the PWA reopens the UI with no network, but
-      // watershed has no client-side persistence, so a document cannot open
-      // without the relay.
-      Failed(_), None, _ ->
-        html.p([class("banner"), attribute.attribute("role", "status")], [
-          html.text(
-            "Notes need a connection to open — offline documents are coming. "
-            <> "The app shell works offline; a note you already have open "
-            <> "keeps working through a disconnect, but a fresh open needs "
-            <> "the relay.",
-          ),
-        ])
-      _, _, Some(name) ->
-        html.p([class("hint")], [html.text("Opening " <> name <> "…")])
-      _, Some(open), None -> open_note_view(model, open)
-      _, None, None ->
-        html.p([class("hint")], [
-          html.text("Select or create a note to start editing."),
-        ])
-    },
-    offline_bar_view(model),
-  ])
-}
-
-fn offline_bar_view(model: Model) -> Element(Msg) {
-  html.div([class("offline-bar")], [
-    html.button(
-      [event.on_click(OfflineToggled), attribute.disabled(model.doc == None)],
-      [
-        html.text(case model.offline {
-          True -> "Go online"
-          False -> "Go offline"
-        }),
-      ],
-    ),
-    html.button([event.on_click(ReconnectClicked)], [
-      html.text("Force reconnect"),
-    ]),
-    queued_view(model),
-  ])
-}
-
-/// The queue-and-resubmit guarantee, made visible: while offline (or catching
-/// up) `in_flight_count` is the number of edits waiting to reach the server.
-fn queued_view(model: Model) -> Element(Msg) {
-  case model.diagnostics {
-    Some(diagnostics) if model.offline || diagnostics.in_flight_count > 0 ->
-      html.span([class("status"), attribute.role("status")], [
-        html.text(case model.offline {
-          True ->
-            "Offline — "
-            <> int.to_string(diagnostics.in_flight_count)
-            <> " change(s) not yet saved."
-          False ->
-            int.to_string(diagnostics.in_flight_count) <> " change(s) syncing…"
-        }),
+  let panel = case
+    model.pending_open,
+    model.open,
+    model.document,
+    model.shared
+  {
+    Some(name), _, _, _ ->
+      html.p([attribute.class("hint")], [html.text("Opening " <> name <> "…")])
+    _, Some(open), _, _ -> open_note_view(model, open)
+    _, None, None, _ ->
+      case model.phase {
+        Failed(_) ->
+          html.p([attribute.class("banner"), attribute.role("status")], [
+            html.text(
+              "This browser has no usable local snapshot for the room yet. "
+              <> "Bring another peer or a relay online, then reopen the "
+              <> "same URL.",
+            ),
+          ])
+        _ ->
+          html.p([attribute.class("hint")], [
+            html.text("Open this URL in another tab to join the same room."),
+          ])
+      }
+    _, None, Some(_), None ->
+      html.p([attribute.class("hint")], [html.text("Loading note channels…")])
+    _, None, Some(_), Some(_) ->
+      html.p([attribute.class("hint")], [
+        html.text("Select or create a note to start editing."),
       ])
-    _ -> html.text("")
+  }
+
+  html.main(
+    [attribute.class("main")],
+    list.append(recovery_banner(model), [panel]),
+  )
+}
+
+fn recovery_banner(model: Model) -> List(Element(Msg)) {
+  let button_disabled = model.document == None
+  case model.recovery {
+    NoRecovery -> []
+
+    RecoveryRequired(detail) -> [
+      html.section(
+        [
+          attribute.class("recovery"),
+          attribute.role("alert"),
+          attribute.data("smoke", "recovery-banner"),
+        ],
+        [
+          html.h2([], [html.text("Recovery required")]),
+          html.p([attribute.data("smoke", "recovery-status")], [
+            html.text("Local saving is locked: " <> detail),
+          ]),
+          html.p([attribute.class("hint")], [
+            html.text(
+              "Remote updates still render, but this browser stays read-only "
+              <> "until you explicitly replace the broken local snapshot with "
+              <> "the current document.",
+            ),
+          ]),
+          html.button(
+            [
+              attribute.data("smoke", "recovery-replace"),
+              attribute.disabled(button_disabled),
+              event.on_click(RecoveryReplaceClicked),
+            ],
+            [
+              html.text(case button_disabled {
+                True -> "Waiting for the current document…"
+                False -> "Replace local snapshot with current document"
+              }),
+            ],
+          ),
+        ],
+      ),
+    ]
+
+    ReplacingLocalSnapshot -> [
+      html.section(
+        [
+          attribute.class("recovery"),
+          attribute.role("status"),
+          attribute.data("smoke", "recovery-banner"),
+        ],
+        [
+          html.h2([], [html.text("Recovery required")]),
+          html.p([attribute.data("smoke", "recovery-status")], [
+            html.text(
+              "Replacing the broken local snapshot with the current document…",
+            ),
+          ]),
+          html.button(
+            [
+              attribute.data("smoke", "recovery-replace"),
+              attribute.disabled(True),
+            ],
+            [html.text("Replacing local snapshot…")],
+          ),
+        ],
+      ),
+    ]
   }
 }
 
 fn open_note_view(model: Model, open: OpenNote) -> Element(Msg) {
-  html.div([class("editor-wrap")], [
-    html.h2([], [html.text(open.name)]),
+  html.div([attribute.class("editor-wrap")], [
+    html.h2([attribute.data("smoke", "open-note-title")], [html.text(open.name)]),
     tags_view(model, open),
     case open.deleted {
       True ->
-        html.p([class("banner"), attribute.attribute("role", "alert")], [
+        html.p([attribute.class("banner"), attribute.role("alert")], [
           html.text(
             "This note was deleted by another client. Your edits still apply "
             <> "to its text, but it is no longer in the note list.",
@@ -1105,34 +1699,39 @@ fn open_note_view(model: Model, open: OpenNote) -> Element(Msg) {
         ])
       False -> html.text("")
     },
-    toolbar_view(),
+    toolbar_view(model),
     textarea.view(open.editor, [
-      class("editor"),
+      attribute.classes([
+        #("editor", True),
+        #("readonly", mutations_locked(model)),
+      ]),
+      attribute.data("smoke", "editor"),
+      attribute.data("note-name", open.name),
       attribute.rows(20),
       attribute.placeholder("Write markdown…"),
-      attribute.attribute("aria-label", "note body: " <> open.name),
+      attribute.aria_label("note body: " <> open.name),
+      attribute.readonly(mutations_locked(model)),
+      attribute.aria_readonly(mutations_locked(model)),
     ])
       |> element.map(Editor),
     case textarea.error(open.editor) {
-      Some(reason) -> html.p([class("error")], [html.text(reason)])
+      Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
       None -> html.text("")
     },
   ])
 }
 
-/// The open note's tag chips plus the add-tag input. Re-adding a tag someone
-/// concurrently removed sticks — the OR-set's observed-remove rule, and the
-/// reason tags are a set and not a register of tag lists.
 fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
-  html.div([class("tags")], [
+  html.div([attribute.class("tags")], [
     html.div(
-      [class("tags")],
+      [attribute.class("tags")],
       list.map(sidebar.tags_of(model.tag_pairs, open.name), fn(tag) {
-        html.span([class("tag-chip")], [
+        html.span([attribute.class("tag-chip")], [
           html.text(tag),
           html.button(
             [
-              attribute.attribute("aria-label", "remove tag " <> tag),
+              attribute.aria_label("remove tag " <> tag),
+              attribute.disabled(mutations_locked(model)),
               event.on_click(RemoveTagClicked(tag)),
             ],
             [html.text("✕")],
@@ -1141,29 +1740,36 @@ fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
       }),
     ),
     html.input([
+      attribute.data("smoke", "tag-input"),
       attribute.placeholder("Add tag"),
       attribute.value(model.draft_tag),
-      attribute.attribute("aria-label", "add tag to " <> open.name),
+      attribute.aria_label("add tag to " <> open.name),
+      attribute.disabled(mutations_locked(model)),
       event.on_input(DraftTagChanged),
     ]),
     html.button(
       [
+        attribute.data("smoke", "add-tag"),
         event.on_click(AddTagClicked),
-        attribute.disabled(string.trim(model.draft_tag) == ""),
+        attribute.disabled(
+          mutations_locked(model) || string.trim(model.draft_tag) == "",
+        ),
       ],
       [html.text("Tag")],
     ),
   ])
 }
 
-fn toolbar_view() -> Element(Msg) {
+fn toolbar_view(model: Model) -> Element(Msg) {
   html.div(
-    [class("toolbar"), attribute.role("toolbar")],
+    [attribute.class("toolbar"), attribute.role("toolbar")],
     list.map(toolbar.all(), fn(action) {
       html.button(
         [
+          attribute.data("smoke", "format-button"),
           event.on_click(FormatClicked(action)),
-          attribute.attribute("aria-label", toolbar.describe(action)),
+          attribute.aria_label(toolbar.describe(action)),
+          attribute.disabled(mutations_locked(model)),
           attribute.title(toolbar.describe(action)),
         ],
         [html.text(toolbar.label(action))],
@@ -1172,9 +1778,19 @@ fn toolbar_view() -> Element(Msg) {
   )
 }
 
+fn system_errors_view(errors: List(String)) -> Element(Msg) {
+  case errors {
+    [] -> html.text("")
+    errors ->
+      html.section([attribute.class("errors")], [
+        html.pre([], [html.text(string.join(list.reverse(errors), "\n"))]),
+      ])
+  }
+}
+
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("error")], [html.text(reason)])
+    Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
     None -> html.text("")
   }
 }

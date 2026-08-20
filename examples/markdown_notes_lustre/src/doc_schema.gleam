@@ -1,36 +1,50 @@
-//// Schema for the markdown notes document.
+//// Root layout for the peer-to-peer markdown notes document.
 ////
-//// Three root-level channels, every one an ack-free-merge kind so the whole
-//// data model is portable to p2p mode unchanged:
+//// The document root itself is a register-mode OR-map:
 ////
-//// - `notes` — an OR-map of note name → serialized `SharedText` handle.
-////   **RegisterMode** — the mode is not part of the schema; it is fixed at
-////   creation by the `OrMapMode` passed to `ensure_or_map`, and the app's
-////   `bootstrap_effect` is the single place it is named.
-//// - `tags` — one document-wide OR-set of `"<note>\t<tag>"` pairs.
-//// - `order` — a SharedSequence of note names, the sidebar order.
+//// - note names map directly to `TextChannel` addresses.
+//// - `"\ttags"` stores the shared OR-set channel address.
+//// - `"\torder"` stores the shared sequence channel address.
 ////
-//// The tag set and the order sequence hold note *names*, not handles: the
-//// OR-map stays the single source of what a name resolves to, and the other
-//// two channels only annotate it.
+//// Note names reject tabs, so the tab-prefixed reserved keys cannot collide
+//// with user content.
 
+import gleam/string
+
+import watershed/or_map_kernel
+import watershed/p2p
 import watershed/schema.{
-  type ChannelField, type OrMapChannel, type OrSetChannel, type SequenceChannel,
+  type OrMapChannel, type OrSetChannel, type SequenceChannel, type TextChannel,
 }
 
-pub type Notebook
+const tags_address_key = "\ttags"
 
-/// Note name → register holding a serialized `SharedText` handle.
-pub fn notes() -> ChannelField(Notebook, OrMapChannel) {
-  schema.channel_field("notes")
+const order_address_key = "\torder"
+
+pub fn root() -> p2p.CrdtKind(OrMapChannel) {
+  p2p.or_map_root(or_map_kernel.RegisterMode)
 }
 
-/// Document-wide `"<note>\t<tag>"` pairs.
-pub fn tags() -> ChannelField(Notebook, OrSetChannel) {
-  schema.channel_field("tags")
+pub fn tags_key() -> String {
+  tags_address_key
 }
 
-/// Sidebar order: note names, append on create, `sequence_move` to reorder.
-pub fn order() -> ChannelField(Notebook, SequenceChannel) {
-  schema.channel_field("order")
+pub fn order_key() -> String {
+  order_address_key
+}
+
+pub fn tags_kind() -> p2p.CrdtKind(OrSetChannel) {
+  p2p.or_set_root()
+}
+
+pub fn order_kind() -> p2p.CrdtKind(SequenceChannel) {
+  p2p.sequence_root()
+}
+
+pub fn text_kind() -> p2p.CrdtKind(TextChannel) {
+  p2p.text_root()
+}
+
+pub fn is_reserved(name: String) -> Bool {
+  string.starts_with(name, "\t")
 }

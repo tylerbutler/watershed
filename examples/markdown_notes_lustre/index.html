@@ -24,10 +24,12 @@
         flex-direction: column;
         gap: 0.75rem;
       }
+      .status-stack { display: flex; flex-direction: column; gap: 0.15rem; }
       .sidebar h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
       .status, .hint, .error, .banner { font-size: 0.8rem; }
       .status, .hint { opacity: 0.7; }
       .error { color: crimson; }
+      .errors pre { margin: 0; white-space: pre-wrap; }
       .note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
       .note-item { display: flex; align-items: center; gap: 0.25rem; }
       .note-open {
@@ -74,6 +76,17 @@
       .toolbar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
       .toolbar button { font-family: ui-monospace, monospace; }
       .banner { padding: 0.5rem 0.75rem; border-radius: 0.4rem; border: 1px solid currentColor; }
+      .recovery {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        border: 2px solid color-mix(in srgb, crimson 45%, currentColor);
+        background: color-mix(in srgb, crimson 12%, transparent);
+      }
+      .recovery h2 { margin: 0; font-size: 1rem; }
+      .recovery button { align-self: flex-start; }
       .tags { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
       .tag-chip { display: inline-flex; gap: 0.25rem; align-items: center; padding: 0.15rem 0.5rem; border-radius: 1rem; border: 1px solid currentColor; font-size: 0.8rem; }
       .tag-chip button { border: none; padding: 0; font-size: 0.8rem; }
@@ -83,13 +96,22 @@
       .drop-end { min-height: 1rem; }
       .drop-end.drop-target { outline: 2px dashed currentColor; outline-offset: 2px; }
       .offline-bar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      .app.recovery-required .editor[readonly] {
+        background: color-mix(in srgb, currentColor 4%, transparent);
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      window.addEventListener("error", (event) => {
+        window.__watershedLoadError = String(event.message || event.error);
+      });
+    </script>
     <script type="module">
       import { main } from "./dist/markdown_notes_lustre.mjs";
       main();
+      window.__watershedMarkdownNotesLoaded = () => true;
       // App-shell offline layer: cache-first for the built bundle, nothing
       // else intercepted. sw.js is stamped from the bundle hash at build.
       if ("serviceWorker" in navigator) {

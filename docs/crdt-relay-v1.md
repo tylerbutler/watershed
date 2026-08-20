@@ -15,6 +15,13 @@ A relay is optional. A p2p document works with no sequencer at all, `Auto`
 never waits for one to become ready, and `P2pOnly` never opens a socket to
 one.
 
+This lane is the **cross-device durability boundary**. `watershed/persist_js`
+and `watershed_lustre/crdt.open` make one browser profile durable offline with
+IndexedDB snapshots, but those bytes stay local and storage/import failures are
+surfaced to the app rather than hidden. A fresh browser, a second device, or a
+room after the last peer closed can recover only from another live peer or from
+this relay's durable log. Signaling alone is never storage.
+
 ## What a relay is, and is not
 
 A relay is a **durable fan-out point**. It stamps a diagnostic order, keeps a
