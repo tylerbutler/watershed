@@ -112,10 +112,7 @@ fn order_names(channels: Channels) -> List(String) {
 
 /// What the sidebar renders — the display rule fed from the real channels.
 fn rendered_order(channels: Channels) -> List(String) {
-  sidebar.display_order(
-    note_names_unsorted(channels),
-    order_names(channels),
-  )
+  sidebar.display_order(note_names_unsorted(channels), order_names(channels))
 }
 
 fn note_names_unsorted(channels: Channels) -> List(String) {
@@ -206,7 +203,8 @@ pub fn race_one_bold_vs_concurrent_typing_inside_word_test() {
   let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn4-race-one")
 
   let text_a = create_note(doc_a, channels_a, "fmt")
-  let assert Ok(Nil) = watershed_js.text_append(text_a, "meet the deadline now\n")
+  let assert Ok(Nil) =
+    watershed_js.text_append(text_a, "meet the deadline now\n")
   sluice_js.settle(sluice)
   let text_b = open_note(doc_b, channels_b, "fmt")
 
@@ -253,7 +251,9 @@ pub fn race_two_divergent_offline_edits_reconverge_test() {
 
   // The partition held: neither saw the other's edit.
   watershed_js.text_value(text_a)
-  |> should.equal("# field notes\nfirst paragraph (checked)\n\nsecond paragraph\n")
+  |> should.equal(
+    "# field notes\nfirst paragraph (checked)\n\nsecond paragraph\n",
+  )
   watershed_js.text_value(text_b)
   |> should.equal(
     "# field notes\nfirst paragraph\n\nsecond paragraph\n\nthird, from b\n",

@@ -372,11 +372,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           pending: PendingShared(..model.pending, notes: Some(notes)),
         ),
       )
-    EnsuredNotes(Error(reason)) -> #(ensure_failed(model, reason), effect.none())
+    EnsuredNotes(Error(reason)) -> #(
+      ensure_failed(model, reason),
+      effect.none(),
+    )
 
     EnsuredTags(Ok(tags)) ->
       assemble(
-        Model(..model, pending: PendingShared(..model.pending, tags: Some(tags))),
+        Model(
+          ..model,
+          pending: PendingShared(..model.pending, tags: Some(tags)),
+        ),
       )
     EnsuredTags(Error(reason)) -> #(ensure_failed(model, reason), effect.none())
 
@@ -387,7 +393,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           pending: PendingShared(..model.pending, order: Some(order)),
         ),
       )
-    EnsuredOrder(Error(reason)) -> #(ensure_failed(model, reason), effect.none())
+    EnsuredOrder(Error(reason)) -> #(
+      ensure_failed(model, reason),
+      effect.none(),
+    )
 
     // The notes map changed (any client). Re-read the list, retry a pending
     // open — the attach op we were waiting on may have landed — and keep the
@@ -711,8 +720,7 @@ fn try_open(
         Error(Nil) -> #(corrupt(model, name), effect.none())
         Ok(handle) ->
           case watershed_js.resolve_text(doc, handle) {
-            Ok(text) ->
-              open_resolved(Model(..model, error: None), name, text)
+            Ok(text) -> open_resolved(Model(..model, error: None), name, text)
             Error(_) -> #(
               Model(..model, pending_open: Some(name)),
               effect.none(),
@@ -850,8 +858,7 @@ fn apply_drop(
 ) -> Nil {
   let length = watershed_js.sequence_length(shared.order)
   let to = case target {
-    Some(name) ->
-      sequence_index_of(shared, name) |> option.unwrap(length)
+    Some(name) -> sequence_index_of(shared, name) |> option.unwrap(length)
     None -> length
   }
   let _ = case sequence_index_of(shared, dragged) {
@@ -923,27 +930,24 @@ fn tag_filter_view(model: Model) -> Element(Msg) {
   case sidebar.all_tags(model.tag_pairs, model.note_names) {
     [] -> html.text("")
     tags ->
-      html.div(
-        [class("tag-filter"), attribute.role("group")],
-        [
+      html.div([class("tag-filter"), attribute.role("group")], [
+        html.button(
+          [
+            attribute.classes([#("active", model.tag_filter == None)]),
+            event.on_click(FilterClicked(None)),
+          ],
+          [html.text("all")],
+        ),
+        ..list.map(tags, fn(tag) {
           html.button(
             [
-              attribute.classes([#("active", model.tag_filter == None)]),
-              event.on_click(FilterClicked(None)),
+              attribute.classes([#("active", model.tag_filter == Some(tag))]),
+              event.on_click(FilterClicked(Some(tag))),
             ],
-            [html.text("all")],
-          ),
-          ..list.map(tags, fn(tag) {
-            html.button(
-              [
-                attribute.classes([#("active", model.tag_filter == Some(tag))]),
-                event.on_click(FilterClicked(Some(tag))),
-              ],
-              [html.text(tag)],
-            )
-          })
-        ],
-      )
+            [html.text(tag)],
+          )
+        })
+      ])
   }
 }
 
@@ -1003,22 +1007,23 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
         |> event.prevent_default,
     ],
     [
-    html.button(
-      [
-        attribute.classes([#("note-open", True), #("open", is_open)]),
-        event.on_click(OpenClicked(name)),
-      ],
-      [html.text(name)],
-    ),
-    html.button(
-      [
-        class("note-delete"),
-        attribute.attribute("aria-label", "delete " <> name),
-        event.on_click(DeleteClicked(name)),
-      ],
-      [html.text("✕")],
-    ),
-  ])
+      html.button(
+        [
+          attribute.classes([#("note-open", True), #("open", is_open)]),
+          event.on_click(OpenClicked(name)),
+        ],
+        [html.text(name)],
+      ),
+      html.button(
+        [
+          class("note-delete"),
+          attribute.attribute("aria-label", "delete " <> name),
+          event.on_click(DeleteClicked(name)),
+        ],
+        [html.text("✕")],
+      ),
+    ],
+  )
 }
 
 fn main_view(model: Model) -> Element(Msg) {
@@ -1079,8 +1084,7 @@ fn queued_view(model: Model) -> Element(Msg) {
             <> int.to_string(diagnostics.in_flight_count)
             <> " change(s) not yet saved."
           False ->
-            int.to_string(diagnostics.in_flight_count)
-            <> " change(s) syncing…"
+            int.to_string(diagnostics.in_flight_count) <> " change(s) syncing…"
         }),
       ])
     _ -> html.text("")
