@@ -13,7 +13,9 @@
 //// - `tags` — one document-wide OR-set of `"<note>\t<tag>"` pairs.
 //// - `order` — a SharedSequence of note names, the sidebar order.
 
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
+import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
@@ -29,10 +31,13 @@ import doc_schema
 import markdown_notes_lustre/note_handle
 import watershed/browser
 import watershed/or_map_kernel
+import watershed/presence
+import watershed/presence_js.{type Handle}
 import watershed_js.{
   type Document, type OrMap, type OrSet, type SharedSequence, type SharedText,
 }
 import watershed_lustre
+import watershed_lustre/textarea
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
 
@@ -52,6 +57,56 @@ pub fn main() {
 /// The seed line a fresh note starts with, matching its name.
 pub fn seed_body(name: String) -> String {
   "# " <> name <> "\n"
+}
+
+// ── Presence payload: which note everyone is in, and where their caret is ────
+//
+// The cursor is a pair of anchors, not indices — an index means nothing to a
+// peer whose replica has moved on. The note name rides along so a peer's
+// caret is only drawn in the editor it actually belongs to.
+
+type Editing {
+  Editing(note: Option(String), cursor: Option(textarea.Cursor))
+}
+
+fn encode_editing(editing: Editing) -> Json {
+  json.object([
+    #("note", case editing.note {
+      Some(name) -> json.string(name)
+      None -> json.null()
+    }),
+    #("cursor", case editing.cursor {
+      Some(cursor) -> textarea.cursor_to_json(cursor)
+      None -> json.null()
+    }),
+  ])
+}
+
+fn editing_decoder() -> Decoder(Editing) {
+  use note <- decode.field("note", decode.optional(decode.string))
+  use cursor <- decode.field(
+    "cursor",
+    decode.optional(textarea.cursor_decoder()),
+  )
+  decode.success(Editing(note:, cursor:))
+}
+
+/// A stable colour per user, so a peer keeps the same one across a session.
+fn colour_for(user_id: String) -> String {
+  let palette = [
+    "#e5484d", "#0090ff", "#30a46c", "#f76b15", "#8e4ec6", "#e93d82",
+  ]
+  let index =
+    user_id
+    |> string.to_utf_codepoints
+    |> list.fold(0, fn(total, point) {
+      total + string.utf_codepoint_to_int(point)
+    })
+  let count = list.length(palette)
+  case list.drop(palette, index % count) {
+    [colour, ..] -> colour
+    [] -> "#0090ff"
+  }
 }
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -82,7 +137,7 @@ type PendingShared {
 /// a peer's delete puts a banner over the editor instead of losing work
 /// mid-keystroke.
 type OpenNote {
-  OpenNote(name: String, text: SharedText, body: String, deleted: Bool)
+  OpenNote(name: String, editor: textarea.Model, deleted: Bool)
 }
 
 type Model {
@@ -102,6 +157,10 @@ type Model {
     /// the next notes event instead of failing hard.
     pending_open: Option(String),
     draft_name: String,
+    /// The presence driver, once started, and the last payload announced
+    /// through it — kept so a re-announce only fires when something moved.
+    presence: Option(Handle(Editing)),
+    announced: Editing,
     error: Option(String),
   )
 }
@@ -113,11 +172,13 @@ type Msg {
   EnsuredTags(Result(OrSet, String))
   EnsuredOrder(Result(SharedSequence, String))
   NotesChanged
-  BodyChanged
+  Editor(textarea.Msg)
   DraftNameChanged(String)
   CreateClicked
   OpenClicked(String)
   DeleteClicked(String)
+  PresenceStarted(Handle(Editing))
+  PresenceEvent(presence.Event(Editing))
   ReconnectClicked
 }
 
@@ -135,6 +196,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       open: None,
       pending_open: None,
       draft_name: "",
+      presence: None,
+      announced: Editing(note: None, cursor: None),
       error: None,
     )
   #(
@@ -214,9 +277,23 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
+      let presence_effect = case model.doc, model.presence {
+        Some(doc), None ->
+          watershed_lustre.presence(
+            document: doc,
+            config: presence.config(encode_editing, editing_decoder()),
+            initial: Editing(note: None, cursor: None),
+            started: PresenceStarted,
+            on_event: PresenceEvent,
+          )
+        _, _ -> effect.none()
+      }
       case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
-        _, _ -> #(model, effect.none())
+        Some(doc), None -> #(
+          model,
+          effect.batch([bootstrap_effect(doc), presence_effect]),
+        )
+        _, _ -> #(model, presence_effect)
       }
     }
 
@@ -264,7 +341,56 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
       }
 
-    BodyChanged -> #(refresh_body(model), effect.none())
+    // Every editor message routes through here — the textarea owns the diff,
+    // the minimal op, and the rejected-index banner — and this is also where
+    // the app notices the caret may have moved.
+    Editor(inner) ->
+      case model.open {
+        None -> #(model, effect.none())
+        Some(open) -> {
+          let #(editor, editor_effect) = textarea.update(open.editor, inner)
+          let model = Model(..model, open: Some(OpenNote(..open, editor:)))
+          let #(model, announce) = announce_presence(model)
+          #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
+        }
+      }
+
+    PresenceStarted(handle) ->
+      announce_presence(Model(..model, presence: Some(handle)))
+
+    // The roster changed. Rebuild the open editor's peer list from it — only
+    // carets that are in *this* note, keyed by session id so two tabs from
+    // one person are two carets.
+    PresenceEvent(event) ->
+      case event {
+        presence.Failed(_) -> #(model, effect.none())
+        presence.State(entries) | presence.Changed(_, entries) ->
+          case model.open {
+            None -> #(model, effect.none())
+            Some(open) -> {
+              let cursors =
+                remote_entries(model, entries)
+                |> list.filter_map(fn(peer) {
+                  case peer.meta.note == Some(open.name), peer.meta.cursor {
+                    True, Some(cursor) ->
+                      Ok(textarea.peer(
+                        id: peer.session_id,
+                        label: peer.key,
+                        colour: colour_for(peer.key),
+                        cursor: cursor,
+                      ))
+                    _, _ -> Error(Nil)
+                  }
+                })
+              let #(editor, editor_effect) =
+                textarea.set_peers(open.editor, cursors)
+              #(
+                Model(..model, open: Some(OpenNote(..open, editor:))),
+                effect.map(editor_effect, Editor),
+              )
+            }
+          }
+      }
 
     DraftNameChanged(raw) -> #(Model(..model, draft_name: raw), effect.none())
 
@@ -378,17 +504,53 @@ fn try_open(
   }
 }
 
+/// Mount the editor on a live, resolved channel — never an `Option` one —
+/// and tell the room which note this client is now in.
 fn open_resolved(
   model: Model,
   name: String,
   text: SharedText,
 ) -> #(Model, Effect(Msg)) {
-  let open =
-    OpenNote(name:, text:, body: watershed_js.text_value(text), deleted: False)
-  #(
-    Model(..model, open: Some(open), pending_open: None),
-    watershed_lustre.subscribe_text(text, fn(_event) { BodyChanged }),
-  )
+  let #(editor, editor_effect) = textarea.init(text)
+  let open = OpenNote(name:, editor:, deleted: False)
+  let #(model, announce) =
+    announce_presence(Model(..model, open: Some(open), pending_open: None))
+  #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
+}
+
+/// Broadcast this client's note and caret, but only when they actually
+/// changed. Anchors are value-comparable and re-anchoring after a remote edit
+/// yields the same anchors whenever the caret tracked the same content, so
+/// this stays quiet through a peer's typing.
+fn announce_presence(model: Model) -> #(Model, Effect(Msg)) {
+  let current = case model.open {
+    Some(open) ->
+      Editing(note: Some(open.name), cursor: textarea.cursor(open.editor))
+    None -> Editing(note: None, cursor: None)
+  }
+  case model.presence, current == model.announced {
+    _, True -> #(model, effect.none())
+    None, _ -> #(Model(..model, announced: current), effect.none())
+    Some(handle), False -> #(
+      Model(..model, announced: current),
+      watershed_lustre.update_presence(handle, current),
+    )
+  }
+}
+
+/// Everyone but this tab — a client must not draw a caret for itself.
+fn remote_entries(
+  model: Model,
+  entries: List(presence.PresenceEntry(Editing)),
+) -> List(presence.PresenceEntry(Editing)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
+  }
 }
 
 fn corrupt(model: Model, name: String) -> Model {
@@ -397,22 +559,6 @@ fn corrupt(model: Model, name: String) -> Model {
     pending_open: None,
     error: Some("The entry for " <> name <> " is not a note handle."),
   )
-}
-
-/// Re-read the open note's body from its channel. Old channels' subscriptions
-/// keep firing after a switch; re-reading the *current* channel makes those
-/// stale events harmless.
-fn refresh_body(model: Model) -> Model {
-  case model.open {
-    Some(open) ->
-      Model(
-        ..model,
-        open: Some(
-          OpenNote(..open, body: watershed_js.text_value(open.text)),
-        ),
-      )
-    None -> model
-  }
 }
 
 /// Keep the open note's banner honest against the note list: gone from the
@@ -563,7 +709,17 @@ fn open_note_view(open: OpenNote) -> Element(Msg) {
         ])
       False -> html.text("")
     },
-    html.pre([class("editor")], [html.text(open.body)]),
+    textarea.view(open.editor, [
+      class("editor"),
+      attribute.rows(20),
+      attribute.placeholder("Write markdown…"),
+      attribute.attribute("aria-label", "note body: " <> open.name),
+    ])
+      |> element.map(Editor),
+    case textarea.error(open.editor) {
+      Some(reason) -> html.p([class("error")], [html.text(reason)])
+      None -> html.text("")
+    },
   ])
 }
 

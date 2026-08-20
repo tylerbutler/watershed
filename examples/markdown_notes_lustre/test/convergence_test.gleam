@@ -132,6 +132,29 @@ pub fn created_note_opens_identically_on_the_other_client_test() {
   watershed_js.text_value(text_b) |> should.equal("# meeting notes\n")
 }
 
+// ── MN3: concurrent typing in one note ───────────────────────────────────────
+
+/// Two clients type in the same note concurrently — the ops the textarea
+/// component itself would submit — and converge on the same bytes.
+pub fn concurrent_typing_in_one_note_converges_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn3-typing")
+
+  let text_a = create_note(doc_a, channels_a, "draft")
+  sluice_js.settle(sluice)
+  let text_b = open_note(doc_b, channels_b, "draft")
+
+  // Concurrent: both edit before either delivery. A appends a line while B
+  // inserts inside the heading.
+  let assert Ok(Nil) = watershed_js.text_append(text_a, "alpha from a\n")
+  let assert Ok(Nil) = watershed_js.text_insert(text_b, 2, "shared ")
+  sluice_js.settle(sluice)
+
+  watershed_js.text_value(text_a)
+  |> should.equal(watershed_js.text_value(text_b))
+  watershed_js.text_value(text_a)
+  |> should.equal("# shared draft\nalpha from a\n")
+}
+
 /// Race 3: both clients create the same name concurrently. The registers
 /// converge on one handle; both clients open the same channel and see the
 /// same bytes (the survivor's seed). The loser's channel becomes unreachable
