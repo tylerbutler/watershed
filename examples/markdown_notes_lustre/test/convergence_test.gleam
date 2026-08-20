@@ -190,6 +190,103 @@ pub fn race_one_bold_vs_concurrent_typing_inside_word_test() {
   |> should.equal("# fmt\nmeet the **deadLATEline** now\n")
 }
 
+// ── MN5: race 2, divergent offline edits, one note ───────────────────────────
+
+/// The headline offline claim: both clients open the same note, both go
+/// offline, each edits a different paragraph, both reconnect. Every edit
+/// survives on both clients.
+pub fn race_two_divergent_offline_edits_reconverge_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn5-offline")
+
+  let text_a = create_note(doc_a, channels_a, "field notes")
+  let assert Ok(Nil) =
+    watershed_js.text_append(text_a, "first paragraph\n\nsecond paragraph\n")
+  sluice_js.settle(sluice)
+  let text_b = open_note(doc_b, channels_b, "field notes")
+
+  watershed_js.go_offline(doc_a)
+  watershed_js.go_offline(doc_b)
+
+  // "# field notes\n" is 14 graphemes; "first paragraph" ends at 29. A edits
+  // the first paragraph, B the second — while both are partitioned.
+  let assert Ok(Nil) = watershed_js.text_insert(text_a, 29, " (checked)")
+  let assert Ok(Nil) = watershed_js.text_append(text_b, "\nthird, from b\n")
+  sluice_js.settle(sluice)
+
+  // The partition held: neither saw the other's edit.
+  watershed_js.text_value(text_a)
+  |> should.equal("# field notes\nfirst paragraph (checked)\n\nsecond paragraph\n")
+  watershed_js.text_value(text_b)
+  |> should.equal(
+    "# field notes\nfirst paragraph\n\nsecond paragraph\n\nthird, from b\n",
+  )
+
+  watershed_js.go_online(doc_a)
+  watershed_js.go_online(doc_b)
+  sluice_js.settle(sluice)
+
+  // One reconnect, every edit survives, both clients agree.
+  watershed_js.text_value(text_a)
+  |> should.equal(watershed_js.text_value(text_b))
+  watershed_js.text_value(text_a)
+  |> should.equal(
+    "# field notes\nfirst paragraph (checked)\n\nsecond paragraph\n\nthird, from b\n",
+  )
+}
+
+// ── MN5: race 4, delete-while-editing ────────────────────────────────────────
+
+/// A deletes a note B has open. The channel keeps functioning — B's
+/// subsequent keystrokes still apply and still converge — even though the
+/// name is gone from the map on both clients.
+pub fn race_four_delete_while_editing_keeps_the_channel_working_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn5-delete")
+
+  let text_a = create_note(doc_a, channels_a, "doomed")
+  sluice_js.settle(sluice)
+  let text_b = open_note(doc_b, channels_b, "doomed")
+
+  watershed_js.or_map_remove(channels_a.notes, "doomed")
+  sluice_js.settle(sluice)
+  note_names(channels_a) |> should.equal([])
+  note_names(channels_b) |> should.equal([])
+
+  // B types on, behind the banner; the (unreachable but functioning) channel
+  // still converges.
+  let assert Ok(Nil) = watershed_js.text_append(text_b, "still here\n")
+  sluice_js.settle(sluice)
+  watershed_js.text_value(text_a)
+  |> should.equal(watershed_js.text_value(text_b))
+  watershed_js.text_value(text_b) |> should.equal("# doomed\nstill here\n")
+}
+
+/// The other half of race 4, and the behaviour that distinguishes this from
+/// the `SharedMap` version of the same app: a concurrent *re-set* of the key
+/// beats the remove (OR-map's observed-remove rule), so the note survives on
+/// both clients.
+pub fn race_four_concurrent_reset_beats_remove_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn5-reset")
+
+  let text_a = create_note(doc_a, channels_a, "contested")
+  sluice_js.settle(sluice)
+  let text_b = open_note(doc_b, channels_b, "contested")
+
+  // Concurrent: A removes the key while B re-registers the same handle.
+  watershed_js.or_map_remove(channels_a.notes, "contested")
+  watershed_js.or_map_set_json(
+    channels_b.notes,
+    "contested",
+    watershed_js.text_handle_of(text_b),
+  )
+  sluice_js.settle(sluice)
+
+  note_names(channels_a) |> should.equal(["contested"])
+  note_names(channels_b) |> should.equal(["contested"])
+  open_note(doc_a, channels_a, "contested")
+  |> watershed_js.text_value
+  |> should.equal(watershed_js.text_value(text_a))
+}
+
 /// Race 3: both clients create the same name concurrently. The registers
 /// converge on one handle; both clients open the same channel and see the
 /// same bytes (the survivor's seed). The loser's channel becomes unreachable

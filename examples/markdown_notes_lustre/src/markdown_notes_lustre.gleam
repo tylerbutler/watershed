@@ -162,6 +162,12 @@ type Model {
     /// through it — kept so a re-announce only fires when something moved.
     presence: Option(Handle(Editing)),
     announced: Editing,
+    /// True while this client is deliberately offline. Edits queue locally
+    /// and the UI keeps working; `go_online` resubmits and catches up.
+    offline: Bool,
+    /// Polled, not evented: the runtime has no pending-ops event stream, so
+    /// the "N changes not yet saved" indicator asks every 250ms.
+    diagnostics: Option(watershed_js.Diagnostics),
     error: Option(String),
   )
 }
@@ -181,6 +187,8 @@ type Msg {
   DeleteClicked(String)
   PresenceStarted(Handle(Editing))
   PresenceEvent(presence.Event(Editing))
+  OfflineToggled
+  DiagnosticsTick
   ReconnectClicked
 }
 
@@ -200,6 +208,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       draft_name: "",
       presence: None,
       announced: Editing(note: None, cursor: None),
+      offline: False,
+      diagnostics: None,
       error: None,
     )
   #(
@@ -270,10 +280,16 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
+      let model =
+        Model(
+          ..model,
+          doc: Some(doc),
+          diagnostics: Some(watershed_js.diagnostics(doc)),
+        )
+      let tick = watershed_lustre.after(250, DiagnosticsTick)
       case model.status, model.shared {
-        Ready, None -> #(model, bootstrap_effect(doc))
-        _, _ -> #(model, effect.none())
+        Ready, None -> #(model, effect.batch([bootstrap_effect(doc), tick]))
+        _, _ -> #(model, tick)
       }
     }
 
@@ -448,6 +464,35 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       // The subscription's NotesChanged re-reads the list and flips the open
       // note's banner; nothing else to do here.
       #(model, effect.none())
+    }
+
+    // The session-scoped document offline story: `go_offline` queues every
+    // edit locally and the UI keeps working; `go_online` resubmits and
+    // catches up. Nothing is lost across any disconnect while the tab is
+    // open.
+    OfflineToggled ->
+      case model.doc {
+        None -> #(model, effect.none())
+        Some(doc) ->
+          case model.offline {
+            False -> #(
+              Model(..model, offline: True),
+              watershed_lustre.go_offline(doc),
+            )
+            True -> #(
+              Model(..model, offline: False),
+              watershed_lustre.go_online(doc),
+            )
+          }
+      }
+
+    DiagnosticsTick -> {
+      let model = case model.doc {
+        Some(doc) ->
+          Model(..model, diagnostics: Some(watershed_js.diagnostics(doc)))
+        None -> model
+      }
+      #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
     ReconnectClicked ->
@@ -721,12 +766,46 @@ fn main_view(model: Model) -> Element(Msg) {
           html.text("Select or create a note to start editing."),
         ])
     },
-    html.div([class("offline-bar")], [
-      html.button([event.on_click(ReconnectClicked)], [
-        html.text("Force reconnect"),
-      ]),
-    ]),
+    offline_bar_view(model),
   ])
+}
+
+fn offline_bar_view(model: Model) -> Element(Msg) {
+  html.div([class("offline-bar")], [
+    html.button(
+      [event.on_click(OfflineToggled), attribute.disabled(model.doc == None)],
+      [
+        html.text(case model.offline {
+          True -> "Go online"
+          False -> "Go offline"
+        }),
+      ],
+    ),
+    html.button([event.on_click(ReconnectClicked)], [
+      html.text("Force reconnect"),
+    ]),
+    queued_view(model),
+  ])
+}
+
+/// The queue-and-resubmit guarantee, made visible: while offline (or catching
+/// up) `in_flight_count` is the number of edits waiting to reach the server.
+fn queued_view(model: Model) -> Element(Msg) {
+  case model.diagnostics {
+    Some(diagnostics) if model.offline || diagnostics.in_flight_count > 0 ->
+      html.span([class("status"), attribute.role("status")], [
+        html.text(case model.offline {
+          True ->
+            "Offline — "
+            <> int.to_string(diagnostics.in_flight_count)
+            <> " change(s) not yet saved."
+          False ->
+            int.to_string(diagnostics.in_flight_count)
+            <> " change(s) syncing…"
+        }),
+      ])
+    _ -> html.text("")
+  }
 }
 
 fn open_note_view(open: OpenNote) -> Element(Msg) {
