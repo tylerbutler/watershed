@@ -189,6 +189,7 @@ type Msg {
   PresenceEvent(presence.Event(Editing))
   OfflineToggled
   DiagnosticsTick
+  ConnectTimedOut
   ReconnectClicked
 }
 
@@ -214,15 +215,21 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
     )
   #(
     model,
-    watershed_lustre.connect_dev(
-      url: socket_url,
-      tenant: tenant,
-      secret: tenant_secret,
-      document: document,
-      user_id: user_id,
-      got_document: GotHandle,
-      connected: Connected,
-    ),
+    effect.batch([
+      watershed_lustre.connect_dev(
+        url: socket_url,
+        tenant: tenant,
+        secret: tenant_secret,
+        document: document,
+        user_id: user_id,
+        got_document: GotHandle,
+        connected: Connected,
+      ),
+      // The Phoenix socket retries forever, so a cold start with no relay
+      // reachable never reports failure on its own. Call it after a grace
+      // period rather than spinning — the honest disconnected state.
+      watershed_lustre.after(5000, ConnectTimedOut),
+    ]),
   )
 }
 
@@ -495,6 +502,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(model, watershed_lustre.after(250, DiagnosticsTick))
     }
 
+    // Still connecting after the grace period: no relay is reachable. The
+    // socket keeps retrying underneath, and a late `Connected(Ok)` still
+    // flips the app to `Ready`.
+    ConnectTimedOut ->
+      case model.status {
+        Connecting -> #(
+          Model(..model, status: Failed("no relay reachable")),
+          effect.none(),
+        )
+        _ -> #(model, effect.none())
+      }
+
     ReconnectClicked ->
       case model.doc {
         Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
@@ -757,11 +776,24 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
 
 fn main_view(model: Model) -> Element(Msg) {
   html.main([class("main")], [
-    case model.open, model.pending_open {
-      _, Some(name) ->
+    case model.status, model.open, model.pending_open {
+      // The durable-document layer does not exist yet, and the shell says so
+      // instead of spinning: the PWA reopens the UI with no network, but
+      // watershed has no client-side persistence, so a document cannot open
+      // without the relay.
+      Failed(_), None, _ ->
+        html.p([class("banner"), attribute.attribute("role", "status")], [
+          html.text(
+            "Notes need a connection to open — offline documents are coming. "
+            <> "The app shell works offline; a note you already have open "
+            <> "keeps working through a disconnect, but a fresh open needs "
+            <> "the relay.",
+          ),
+        ])
+      _, _, Some(name) ->
         html.p([class("hint")], [html.text("Opening " <> name <> "…")])
-      Some(open), None -> open_note_view(open)
-      None, None ->
+      _, Some(open), None -> open_note_view(open)
+      _, None, None ->
         html.p([class("hint")], [
           html.text("Select or create a note to start editing."),
         ])

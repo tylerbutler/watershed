@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0090ff" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon-192.png" />
     <title>watershed · markdown notes</title>
     <style>
       :root { color-scheme: light dark; }
@@ -87,6 +90,11 @@
     <script type="module">
       import { main } from "./dist/markdown_notes_lustre.mjs";
       main();
+      // App-shell offline layer: cache-first for the built bundle, nothing
+      // else intercepted. sw.js is stamped from the bundle hash at build.
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.register("./sw.js");
+      }
     </script>
   </body>
 </html>
