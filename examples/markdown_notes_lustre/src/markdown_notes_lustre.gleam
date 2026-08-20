@@ -29,6 +29,7 @@ import lustre/event
 
 import doc_schema
 import markdown_notes_lustre/note_handle
+import markdown_notes_lustre/sidebar
 import markdown_notes_lustre/toolbar
 import watershed/browser
 import watershed/or_map_kernel
@@ -158,6 +159,11 @@ type Model {
     /// the next notes event instead of failing hard.
     pending_open: Option(String),
     draft_name: String,
+    /// The document-wide `"<note>\t<tag>"` pairs, read from the OR-set.
+    tag_pairs: List(String),
+    /// Show only notes carrying this tag, or all of them.
+    tag_filter: Option(String),
+    draft_tag: String,
     /// The presence driver, once started, and the last payload announced
     /// through it — kept so a re-announce only fires when something moved.
     presence: Option(Handle(Editing)),
@@ -179,8 +185,13 @@ type Msg {
   EnsuredTags(Result(OrSet, String))
   EnsuredOrder(Result(SharedSequence, String))
   NotesChanged
+  TagsChanged
   Editor(textarea.Msg)
   FormatClicked(toolbar.Action)
+  DraftTagChanged(String)
+  AddTagClicked
+  RemoveTagClicked(String)
+  FilterClicked(Option(String))
   DraftNameChanged(String)
   CreateClicked
   OpenClicked(String)
@@ -207,6 +218,9 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       open: None,
       pending_open: None,
       draft_name: "",
+      tag_pairs: [],
+      tag_filter: None,
+      draft_tag: "",
       presence: None,
       announced: Editing(note: None, cursor: None),
       offline: False,
@@ -271,11 +285,17 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
       let model =
         Model(..model, shared: Some(shared), error: None)
         |> read_notes(shared)
+        |> read_tags(shared)
       #(
         model,
-        watershed_lustre.subscribe_or_map(shared.notes, fn(_event) {
-          NotesChanged
-        }),
+        effect.batch([
+          watershed_lustre.subscribe_or_map(shared.notes, fn(_event) {
+            NotesChanged
+          }),
+          watershed_lustre.subscribe_or_set(shared.tags, fn(_event) {
+            TagsChanged
+          }),
+        ]),
       )
     }
     _, _ -> #(model, effect.none())
@@ -379,6 +399,48 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
         }
       }
+
+    TagsChanged ->
+      case model.shared {
+        Some(shared) -> #(read_tags(model, shared), effect.none())
+        None -> #(model, effect.none())
+      }
+
+    DraftTagChanged(raw) -> #(Model(..model, draft_tag: raw), effect.none())
+
+    AddTagClicked ->
+      case model.shared, model.open, string.trim(model.draft_tag) {
+        _, _, "" -> #(model, effect.none())
+        Some(shared), Some(open), tag ->
+          case string.contains(tag, "\t") {
+            True -> #(
+              Model(..model, error: Some("Tags cannot contain a tab.")),
+              effect.none(),
+            )
+            False -> {
+              watershed_js.or_set_add(shared.tags, sidebar.pair(open.name, tag))
+              #(
+                read_tags(Model(..model, draft_tag: "", error: None), shared),
+                effect.none(),
+              )
+            }
+          }
+        _, _, _ -> #(model, effect.none())
+      }
+
+    RemoveTagClicked(tag) ->
+      case model.shared, model.open {
+        Some(shared), Some(open) -> {
+          watershed_js.or_set_remove(shared.tags, sidebar.pair(open.name, tag))
+          #(read_tags(model, shared), effect.none())
+        }
+        _, _ -> #(model, effect.none())
+      }
+
+    FilterClicked(filter) -> #(
+      Model(..model, tag_filter: filter),
+      effect.none(),
+    )
 
     // Selection surgery through the same facade as remote edits: pure
     // helpers compute the insert list against the textarea's grapheme
@@ -688,6 +750,10 @@ fn read_notes(model: Model, shared: SharedState) -> Model {
   Model(..model, note_names: names)
 }
 
+fn read_tags(model: Model, shared: SharedState) -> Model {
+  Model(..model, tag_pairs: watershed_js.or_set_values(shared.tags))
+}
+
 fn ensure_failed(model: Model, reason: String) -> Model {
   Model(..model, error: Some(reason))
 }
@@ -703,6 +769,7 @@ fn sidebar_view(model: Model) -> Element(Msg) {
     html.h1([], [html.text("Markdown notes")]),
     status_view(model),
     compose_view(model),
+    tag_filter_view(model),
     note_list_view(model),
     error_view(model.error),
   ])
@@ -738,10 +805,49 @@ fn compose_view(model: Model) -> Element(Msg) {
   ])
 }
 
+fn tag_filter_view(model: Model) -> Element(Msg) {
+  case sidebar.all_tags(model.tag_pairs, model.note_names) {
+    [] -> html.text("")
+    tags ->
+      html.div(
+        [class("tag-filter"), attribute.role("group")],
+        [
+          html.button(
+            [
+              attribute.classes([#("active", model.tag_filter == None)]),
+              event.on_click(FilterClicked(None)),
+            ],
+            [html.text("all")],
+          ),
+          ..list.map(tags, fn(tag) {
+            html.button(
+              [
+                attribute.classes([#("active", model.tag_filter == Some(tag))]),
+                event.on_click(FilterClicked(Some(tag))),
+              ],
+              [html.text(tag)],
+            )
+          })
+        ],
+      )
+  }
+}
+
+/// The names to list, after the tag filter.
+fn visible_names(model: Model) -> List(String) {
+  case model.tag_filter {
+    None -> model.note_names
+    Some(tag) -> {
+      let tagged = sidebar.notes_with_tag(model.tag_pairs, tag)
+      list.filter(model.note_names, list.contains(tagged, _))
+    }
+  }
+}
+
 fn note_list_view(model: Model) -> Element(Msg) {
-  case model.shared, model.note_names {
+  case model.shared, visible_names(model) {
     None, _ -> html.p([class("hint")], [html.text("Loading notes…")])
-    Some(_), [] -> html.p([class("hint")], [html.text("No notes yet.")])
+    Some(_), [] -> html.p([class("hint")], [html.text("No notes here.")])
     Some(_), names ->
       html.ul(
         [class("note-list")],
@@ -792,7 +898,7 @@ fn main_view(model: Model) -> Element(Msg) {
         ])
       _, _, Some(name) ->
         html.p([class("hint")], [html.text("Opening " <> name <> "…")])
-      _, Some(open), None -> open_note_view(open)
+      _, Some(open), None -> open_note_view(model, open)
       _, None, None ->
         html.p([class("hint")], [
           html.text("Select or create a note to start editing."),
@@ -840,9 +946,10 @@ fn queued_view(model: Model) -> Element(Msg) {
   }
 }
 
-fn open_note_view(open: OpenNote) -> Element(Msg) {
+fn open_note_view(model: Model, open: OpenNote) -> Element(Msg) {
   html.div([class("editor-wrap")], [
     html.h2([], [html.text(open.name)]),
+    tags_view(model, open),
     case open.deleted {
       True ->
         html.p([class("banner"), attribute.attribute("role", "alert")], [
@@ -865,6 +972,42 @@ fn open_note_view(open: OpenNote) -> Element(Msg) {
       Some(reason) -> html.p([class("error")], [html.text(reason)])
       None -> html.text("")
     },
+  ])
+}
+
+/// The open note's tag chips plus the add-tag input. Re-adding a tag someone
+/// concurrently removed sticks — the OR-set's observed-remove rule, and the
+/// reason tags are a set and not a register of tag lists.
+fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
+  html.div([class("tags")], [
+    html.div(
+      [class("tags")],
+      list.map(sidebar.tags_of(model.tag_pairs, open.name), fn(tag) {
+        html.span([class("tag-chip")], [
+          html.text(tag),
+          html.button(
+            [
+              attribute.attribute("aria-label", "remove tag " <> tag),
+              event.on_click(RemoveTagClicked(tag)),
+            ],
+            [html.text("✕")],
+          ),
+        ])
+      }),
+    ),
+    html.input([
+      attribute.placeholder("Add tag"),
+      attribute.value(model.draft_tag),
+      attribute.attribute("aria-label", "add tag to " <> open.name),
+      event.on_input(DraftTagChanged),
+    ]),
+    html.button(
+      [
+        event.on_click(AddTagClicked),
+        attribute.disabled(string.trim(model.draft_tag) == ""),
+      ],
+      [html.text("Tag")],
+    ),
   ])
 }
 

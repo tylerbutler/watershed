@@ -287,6 +287,32 @@ pub fn race_four_concurrent_reset_beats_remove_test() {
   |> should.equal(watershed_js.text_value(text_a))
 }
 
+// ── MN7: race 5, re-tag vs. untag ────────────────────────────────────────────
+
+/// A removes tag `urgent` from a note while B, having seen it, concurrently
+/// re-adds it. The tag survives — the OR-set's observed-remove rule, and the
+/// one race that makes an OR-set the right kind for tags rather than a
+/// register of tag lists.
+pub fn race_five_readd_beats_concurrent_untag_test() {
+  let #(sluice, doc_a, _doc_b, channels_a, channels_b) = room("mn7-retag")
+
+  let _ = create_note(doc_a, channels_a, "todo")
+  watershed_js.or_set_add(channels_a.tags, "todo\turgent")
+  sluice_js.settle(sluice)
+  watershed_js.or_set_values(channels_b.tags)
+  |> should.equal(["todo\turgent"])
+
+  // Concurrent: A untags while B re-adds the pair it has seen.
+  watershed_js.or_set_remove(channels_a.tags, "todo\turgent")
+  watershed_js.or_set_add(channels_b.tags, "todo\turgent")
+  sluice_js.settle(sluice)
+
+  watershed_js.or_set_values(channels_a.tags)
+  |> should.equal(["todo\turgent"])
+  watershed_js.or_set_values(channels_b.tags)
+  |> should.equal(["todo\turgent"])
+}
+
 /// Race 3: both clients create the same name concurrently. The registers
 /// converge on one handle; both clients open the same channel and see the
 /// same bytes (the survivor's seed). The loser's channel becomes unreachable
