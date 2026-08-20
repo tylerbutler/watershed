@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · markdown notes</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        min-height: 100vh;
+      }
+      .app { display: flex; min-height: 100vh; }
+      .sidebar {
+        width: 16rem;
+        flex-shrink: 0;
+        padding: 1rem;
+        border-right: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .sidebar h1 { font-size: 1.1rem; font-weight: 600; margin: 0; }
+      .status, .hint, .error, .banner { font-size: 0.8rem; }
+      .status, .hint { opacity: 0.7; }
+      .error { color: crimson; }
+      .note-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+      .note-item { display: flex; align-items: center; gap: 0.25rem; }
+      .note-open {
+        flex: 1;
+        text-align: left;
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      .note-open:hover, .note-open:focus-visible { border-color: currentColor; }
+      .note-open.open { background: color-mix(in srgb, currentColor 12%, transparent); }
+      .note-item.dragging { opacity: 0.4; }
+      .note-item.drop-target { outline: 2px dashed currentColor; outline-offset: 2px; }
+      .note-delete { border: none; background: transparent; color: inherit; cursor: pointer; opacity: 0.5; }
+      .note-delete:hover { opacity: 1; color: crimson; }
+      .compose { display: flex; gap: 0.4rem; }
+      .compose input { flex: 1; min-width: 0; }
+      input {
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      button {
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover, button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .main { flex: 1; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+      .editor-wrap { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; }
+      .editor { width: 100%; flex: 1; min-height: 20rem; font-family: ui-monospace, monospace; font-size: 0.95rem; box-sizing: border-box; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+      .toolbar button { font-family: ui-monospace, monospace; }
+      .banner { padding: 0.5rem 0.75rem; border-radius: 0.4rem; border: 1px solid currentColor; }
+      .tags { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+      .tag-chip { display: inline-flex; gap: 0.25rem; align-items: center; padding: 0.15rem 0.5rem; border-radius: 1rem; border: 1px solid currentColor; font-size: 0.8rem; }
+      .tag-chip button { border: none; padding: 0; font-size: 0.8rem; }
+      .tag-filter { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+      .tag-filter button { font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 1rem; }
+      .tag-filter button.active { background: color-mix(in srgb, currentColor 15%, transparent); }
+      .drop-end { min-height: 1rem; }
+      .drop-end.drop-target { outline: 2px dashed currentColor; outline-offset: 2px; }
+      .offline-bar { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/markdown_notes_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>
