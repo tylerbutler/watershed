@@ -29,6 +29,7 @@ import lustre/event
 
 import doc_schema
 import markdown_notes_lustre/note_handle
+import markdown_notes_lustre/toolbar
 import watershed/browser
 import watershed/or_map_kernel
 import watershed/presence
@@ -173,6 +174,7 @@ type Msg {
   EnsuredOrder(Result(SharedSequence, String))
   NotesChanged
   Editor(textarea.Msg)
+  FormatClicked(toolbar.Action)
   DraftNameChanged(String)
   CreateClicked
   OpenClicked(String)
@@ -352,6 +354,37 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let model = Model(..model, open: Some(OpenNote(..open, editor:)))
           let #(model, announce) = announce_presence(model)
           #(model, effect.batch([effect.map(editor_effect, Editor), announce]))
+        }
+      }
+
+    // Selection surgery through the same facade as remote edits: pure
+    // helpers compute the insert list against the textarea's grapheme
+    // selection, and each insert goes down the channel. The component
+    // re-reads on its own subscription, so toolbar edits render through the
+    // same path as a peer's keystrokes with zero new plumbing.
+    FormatClicked(action) ->
+      case model.open {
+        None -> #(model, effect.none())
+        Some(open) -> {
+          let text = textarea.channel(open.editor)
+          let length = textarea.length(open.editor)
+          let selection =
+            option.unwrap(textarea.selection(open.editor), #(length, length))
+          let result =
+            toolbar.edits(action, textarea.value(open.editor), selection)
+            |> list.try_each(fn(edit) {
+              watershed_js.text_insert(text, edit.0, edit.1)
+            })
+          case result {
+            Ok(Nil) -> #(model, effect.none())
+            Error(reason) -> #(
+              Model(
+                ..model,
+                error: Some(toolbar.describe(action) <> " failed: " <> reason),
+              ),
+              effect.none(),
+            )
+          }
         }
       }
 
@@ -709,6 +742,7 @@ fn open_note_view(open: OpenNote) -> Element(Msg) {
         ])
       False -> html.text("")
     },
+    toolbar_view(),
     textarea.view(open.editor, [
       class("editor"),
       attribute.rows(20),
@@ -721,6 +755,22 @@ fn open_note_view(open: OpenNote) -> Element(Msg) {
       None -> html.text("")
     },
   ])
+}
+
+fn toolbar_view() -> Element(Msg) {
+  html.div(
+    [class("toolbar"), attribute.role("toolbar")],
+    list.map(toolbar.all(), fn(action) {
+      html.button(
+        [
+          event.on_click(FormatClicked(action)),
+          attribute.attribute("aria-label", toolbar.describe(action)),
+          attribute.title(toolbar.describe(action)),
+        ],
+        [html.text(toolbar.label(action))],
+      )
+    }),
+  )
 }
 
 fn error_view(error: Option(String)) -> Element(Msg) {

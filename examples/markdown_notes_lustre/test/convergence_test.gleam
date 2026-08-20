@@ -16,6 +16,7 @@ import gleam/string
 import gleeunit/should
 
 import markdown_notes_lustre/note_handle
+import markdown_notes_lustre/toolbar
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed_js.{type Document, type SharedText}
@@ -153,6 +154,40 @@ pub fn concurrent_typing_in_one_note_converges_test() {
   |> should.equal(watershed_js.text_value(text_b))
   watershed_js.text_value(text_a)
   |> should.equal("# shared draft\nalpha from a\n")
+}
+
+// ── MN4: race 1, toolbar vs. keystrokes in the same word ─────────────────────
+
+/// Client A selects "deadline" and presses bold while client B types inside
+/// that word. Both converge, and the delimiters still enclose the word
+/// *including* B's insertion — the closing `**` is anchored by identity next
+/// to its neighbouring character, not at a numeric offset. This test pins
+/// where the delimiters actually land; the README documents the observed
+/// behaviour.
+pub fn race_one_bold_vs_concurrent_typing_inside_word_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn4-race-one")
+
+  let text_a = create_note(doc_a, channels_a, "fmt")
+  let assert Ok(Nil) = watershed_js.text_append(text_a, "meet the deadline now\n")
+  sluice_js.settle(sluice)
+  let text_b = open_note(doc_b, channels_b, "fmt")
+
+  // "# fmt\nmeet the deadline now\n": "deadline" is graphemes 15..23.
+  // Concurrent: A bolds the selection while B types "LATE" after "dead".
+  let assert Ok(Nil) =
+    list.try_each(
+      toolbar.edits(toolbar.Bold, watershed_js.text_value(text_a), #(15, 23)),
+      fn(edit) { watershed_js.text_insert(text_a, edit.0, edit.1) },
+    )
+  let assert Ok(Nil) = watershed_js.text_insert(text_b, 19, "LATE")
+  sluice_js.settle(sluice)
+
+  watershed_js.text_value(text_a)
+  |> should.equal(watershed_js.text_value(text_b))
+  // The observed placement: delimiters enclose the word with B's insertion
+  // inside them.
+  watershed_js.text_value(text_a)
+  |> should.equal("# fmt\nmeet the **deadLATEline** now\n")
 }
 
 /// Race 3: both clients create the same name concurrently. The registers
