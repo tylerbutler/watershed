@@ -58,10 +58,21 @@ an on-disk snapshot for the room, the notes open immediately and networking is
 an enhancement. `persist_controller_js` then watches local edits and saves the
 joined document back to IndexedDB.
 
+The app asks the browser for persistent storage on startup
+(`navigator.storage.persist()`). A grant exempts this origin's IndexedDB from
+eviction under storage pressure; a refusal is not an error — saving still
+works, and the storage line says `evictable` rather than claiming a durability
+the app does not have.
+
+Signaling failures after the document is open — an unreachable service, a
+socket the service closed, a roster that never came — are reported in the
+sidebar's system-error list. A signaling service that has gone away is not
+something this app lets you not notice.
+
 The UI reports three things separately:
 
 - network / peer / relay state
-- whether a local snapshot was opened
+- whether a local snapshot was opened, and whether it is durable or evictable
 - whether local saving is watching, saving, saved, or failed
 
 If opening the local snapshot fails, or if a later save fails, the app stops

@@ -6,6 +6,7 @@
 
 import gleam/dynamic/decode
 import gleam/int
+import gleam/javascript/promise.{type Promise}
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -124,6 +125,7 @@ pub opaque type Model {
     local_snapshot: LocalSnapshot,
     save_state: SaveState,
     saved_digest: String,
+    durable: Option(Bool),
     note_names: List(String),
     open: Option(OpenNote),
     pending_open: Option(String),
@@ -142,6 +144,8 @@ pub type Msg {
   Ignored
   Connected(Result(CrdtDocument(OrMapChannel), P2pError))
   StatusChanged(crdt_js.Status)
+  SignalingFailed(String)
+  StorageDurability(Bool)
   LocalPersistence(crdt.PersistenceStatus)
   PersistenceStarted(persist_controller_js.Controller(OrMapChannel))
   PersistenceStatusChanged(persist_controller_js.Status)
@@ -186,6 +190,7 @@ pub fn init(room: String) -> #(Model, Effect(Msg)) {
       local_snapshot: OpeningLocalSnapshot,
       save_state: WaitingForDocument,
       saved_digest: "",
+      durable: None,
       note_names: [],
       open: None,
       pending_open: None,
@@ -198,14 +203,35 @@ pub fn init(room: String) -> #(Model, Effect(Msg)) {
       errors: [],
       error: None,
     )
-  #(model, open_room(room))
+  #(
+    model,
+    effect.batch([watch_signaling(), request_durable_storage(), open_room(room)]),
+  )
+}
+
+/// The signaling socket fails on its own callback, outside the dispatch loop,
+/// so the sink is installed on an effect that has `dispatch` and read back by
+/// `open_room`'s `on_failure`. Batched before it, so it is in place first.
+fn watch_signaling() -> Effect(Msg) {
+  use dispatch <- effect.from
+  set_signaling_sink(fn(detail) { dispatch(SignalingFailed(detail)) })
+}
+
+/// Ask the browser to exempt this origin's IndexedDB from eviction. A refusal
+/// is not an error — the app still saves, it just says the snapshot is
+/// evictable rather than claiming a durability it does not have.
+fn request_durable_storage() -> Effect(Msg) {
+  use dispatch <- effect.from
+  request_persistent_storage()
+  |> promise.map(fn(granted) { dispatch(StorageDurability(granted)) })
+  Nil
 }
 
 fn open_room(room: String) -> Effect(Msg) {
   let signaling =
     crdt_signaling_js.websocket_signaling(
       url: query("signaling", default_signaling),
-      on_failure: fn(_detail) { Nil },
+      on_failure: report_signaling_failure,
     )
   let config =
     crdt_js.config(
@@ -254,6 +280,15 @@ fn ice_servers() {
 @external(javascript, "./app_ffi.mjs", "queryParam")
 fn query(name: String, fallback: String) -> String
 
+@external(javascript, "./app_ffi.mjs", "setSignalingSink")
+fn set_signaling_sink(sink: fn(String) -> Nil) -> Nil
+
+@external(javascript, "./app_ffi.mjs", "reportSignalingFailure")
+fn report_signaling_failure(detail: String) -> Nil
+
+@external(javascript, "./app_ffi.mjs", "requestPersistentStorage")
+fn request_persistent_storage() -> Promise(Bool)
+
 // ── Update ───────────────────────────────────────────────────────────────────
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -286,6 +321,16 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     StatusChanged(status) -> #(apply_status(model, status), effect.none())
+
+    SignalingFailed(detail) -> #(
+      note_system(model, "signaling · " <> detail),
+      effect.none(),
+    )
+
+    StorageDurability(granted) -> #(
+      Model(..model, durable: Some(granted)),
+      effect.none(),
+    )
 
     LocalPersistence(status) ->
       case status {
@@ -1426,11 +1471,16 @@ fn network_status(model: Model) -> String {
 }
 
 fn storage_status(model: Model) -> String {
-  case model.local_snapshot {
+  let snapshot = case model.local_snapshot {
     OpeningLocalSnapshot -> "storage · opening local snapshot…"
     NoLocalSnapshot -> "storage · no local snapshot yet"
     LoadedLocalSnapshot -> "storage · local snapshot loaded"
     LocalSnapshotFailed(detail) -> "storage · " <> detail
+  }
+  case model.durable {
+    None -> snapshot
+    Some(True) -> snapshot <> " · durable"
+    Some(False) -> snapshot <> " · evictable"
   }
 }
 
@@ -1782,9 +1832,12 @@ fn system_errors_view(errors: List(String)) -> Element(Msg) {
   case errors {
     [] -> html.text("")
     errors ->
-      html.section([attribute.class("errors")], [
-        html.pre([], [html.text(string.join(list.reverse(errors), "\n"))]),
-      ])
+      html.section(
+        [attribute.class("errors"), attribute.data("smoke", "system-errors")],
+        [
+          html.pre([], [html.text(string.join(list.reverse(errors), "\n"))]),
+        ],
+      )
   }
 }
 
