@@ -7,10 +7,10 @@
 # the drop-in parity work.
 #
 # Floodgate has no published image yet (levee had one on GHCR), so this builds
-# from source. The context is a remote git URL pinned to the levee repo's
-# `floodgate` branch, so no local clone is required — Docker fetches the branch
-# and builds `server/floodgate/Dockerfile`. The first build compiles the server
-# and its dependencies and takes a few minutes; after that it is cached.
+# from source. The context is a remote git URL pinned to the standalone
+# floodgate repo's `main` branch, so no local clone is required — Docker
+# fetches the branch and builds its Dockerfile. The first build compiles the
+# server and its dependencies and takes a few minutes; after that it is cached.
 #
 # Usage:
 #   docker compose up -d --wait --build
@@ -30,8 +30,8 @@ services:
   floodgate:
     image: floodgate:watershed
     build:
-      context: "https://github.com/tylerbutler/levee.git#floodgate"
-      dockerfile: server/floodgate/Dockerfile
+      context: "https://github.com/tylerbutler/floodgate.git#main"
+      dockerfile: Dockerfile
     ports:
       # Floodgate listens on 3000, where levee listened on 4000. Remap rather
       # than move the port, so the integration suite and every example README
