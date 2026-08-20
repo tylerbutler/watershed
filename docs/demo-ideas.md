@@ -2,13 +2,15 @@
 
 **Started:** 2026-08-08
 
-Candidate example apps for `examples/`, kept here so they survive between sessions. Five have been promoted to full plans:
+Candidate example apps for `examples/`, kept here so they survive between sessions. Seven have been promoted to full plans:
 
 - `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, zero prerequisites
 - `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, zero prerequisites
 - `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, **shipped, GT1–GT6**, `examples/grocery_triptych_lustre/`
 - `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, **shipped, WQ1–WQ7**, `examples/work_queue_lustre/`
 - `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
+- `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, JW1–JW7, zero prerequisites; retires the "one site only" row's directory/JSON OT entry
+- `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, RR1–RR8, zero prerequisites; retires the "one site only" row's `SharedRichText` entry
 
 And the gaps those plans surfaced have their own plan:
 
@@ -157,6 +159,8 @@ Good filler work, but it makes an existing example more complicated rather than 
 
 ### Collaborative JSON workspace: `SharedDirectory` + `JsonOt` + presence
 
+→ Promoted to `docs/plans/2026-08-19-json-workspace-demo-plan.md` (JW1–JW7).
+
 A project tree whose directories contain named JSON documents. Selecting a
 document opens a structured property editor, and presence shows which path each
 peer has open. Two clients can change nested values while disconnected, then
@@ -174,6 +178,8 @@ reconnecting.
 **Cost:** medium.
 
 ### RFC publishing room: `SharedRichText` + `PactMap` + presence
+
+→ Promoted to `docs/plans/2026-08-19-rfc-room-demo-plan.md` (RR1–RR8).
 
 A shared RFC draft with rich-text formatting and one published-revision slot.
 Authors edit the draft without coordination. Publishing copies the current
