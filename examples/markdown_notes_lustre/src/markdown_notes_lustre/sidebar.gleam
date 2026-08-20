@@ -11,6 +11,27 @@
 import gleam/list
 import gleam/string
 
+/// The sidebar display order: sequence entries that exist in the note map,
+/// in sequence order, deduplicated first-occurrence-wins, then any map names
+/// missing from the sequence appended alphabetically. This one rule absorbs
+/// every inconsistency the two channels can drift into — a doubled entry
+/// from a concurrent create renders once, and a name in only one channel
+/// still renders.
+pub fn display_order(
+  map_names: List(String),
+  sequence_entries: List(String),
+) -> List(String) {
+  let ordered =
+    sequence_entries
+    |> list.filter(list.contains(map_names, _))
+    |> list.unique
+  let missing =
+    map_names
+    |> list.filter(fn(name) { !list.contains(ordered, name) })
+    |> list.sort(string.compare)
+  list.append(ordered, missing)
+}
+
 /// The wire encoding of one tagging: `"<note>\t<tag>"`.
 pub fn pair(note: String, tag: String) -> String {
   note <> "\t" <> tag

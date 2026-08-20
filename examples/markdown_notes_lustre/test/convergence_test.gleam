@@ -10,12 +10,16 @@
 //// asserts *which* handle wins a concurrent create — only that the room
 //// agrees on one.
 
+import gleam/dynamic/decode
 import gleam/list
 import gleam/option.{Some}
+import gleam/result
 import gleam/string
 import gleeunit/should
 
+import gleam/json
 import markdown_notes_lustre/note_handle
+import markdown_notes_lustre/sidebar
 import markdown_notes_lustre/toolbar
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
@@ -74,7 +78,8 @@ fn channels_of(doc: Document(doc_schema.Notebook)) -> Channels {
 }
 
 /// Create a note exactly as the app does: a fresh detached text channel, the
-/// seed line, then the handle into the notes map (which attaches it).
+/// seed line, the handle into the notes map (which attaches it), and the
+/// name appended to the order sequence.
 fn create_note(
   doc: Document(doc_schema.Notebook),
   channels: Channels,
@@ -87,7 +92,40 @@ fn create_note(
     name,
     watershed_js.text_handle_of(text),
   )
+  let assert Ok(Nil) =
+    watershed_js.sequence_insert(
+      channels.order,
+      watershed_js.sequence_length(channels.order),
+      json.string(name),
+    )
   text
+}
+
+/// The order sequence as note names — the app's `read_order`.
+fn order_names(channels: Channels) -> List(String) {
+  watershed_js.sequence_values(channels.order)
+  |> list.filter_map(fn(value) {
+    json.parse(json.to_string(value), decode.string)
+    |> result.replace_error(Nil)
+  })
+}
+
+/// What the sidebar renders — the display rule fed from the real channels.
+fn rendered_order(channels: Channels) -> List(String) {
+  sidebar.display_order(
+    note_names_unsorted(channels),
+    order_names(channels),
+  )
+}
+
+fn note_names_unsorted(channels: Channels) -> List(String) {
+  watershed_js.or_map_entries(channels.notes)
+  |> list.filter_map(fn(entry) {
+    case entry.1 {
+      or_map_kernel.Register(_) -> Ok(entry.0)
+      or_map_kernel.Tally(_) -> Error(Nil)
+    }
+  })
 }
 
 /// Open a note exactly as the app does: register string → handle marker →
@@ -311,6 +349,44 @@ pub fn race_five_readd_beats_concurrent_untag_test() {
   |> should.equal(["todo\turgent"])
   watershed_js.or_set_values(channels_b.tags)
   |> should.equal(["todo\turgent"])
+}
+
+// ── MN8: race 6, create vs. reorder ──────────────────────────────────────────
+
+/// A creates a note (appending to the order sequence) while B drags an
+/// existing note to the end. Both converge on the same raw sequence and the
+/// same rendered order.
+pub fn race_six_create_vs_reorder_converges_test() {
+  let #(sluice, doc_a, _doc_b, channels_a, channels_b) = room("mn8-reorder")
+
+  let _ = create_note(doc_a, channels_a, "one")
+  let _ = create_note(doc_a, channels_a, "two")
+  sluice_js.settle(sluice)
+
+  // Concurrent: A creates "three" (an append) while B moves "one" to the
+  // end — the app's end-zone drop, destination evaluated after removal.
+  let _ = create_note(doc_a, channels_a, "three")
+  let assert Ok(Nil) = watershed_js.sequence_move(channels_b.order, 0, 1)
+  sluice_js.settle(sluice)
+
+  order_names(channels_a) |> should.equal(order_names(channels_b))
+  rendered_order(channels_a) |> should.equal(rendered_order(channels_b))
+}
+
+/// The doubled-entry half of race 6: a concurrent create of the same name
+/// yields two sequence entries, and the renderer collapses them to one —
+/// pinned against the real channels, not just the pure rule.
+pub fn race_six_doubled_create_renders_once_test() {
+  let #(sluice, doc_a, doc_b, channels_a, channels_b) = room("mn8-doubled")
+
+  let _ = create_note(doc_a, channels_a, "dup")
+  let _ = create_note(doc_b, channels_b, "dup")
+  sluice_js.settle(sluice)
+
+  // Two raw entries, one rendered name, same view on both clients.
+  order_names(channels_a) |> should.equal(["dup", "dup"])
+  rendered_order(channels_a) |> should.equal(["dup"])
+  rendered_order(channels_b) |> should.equal(["dup"])
 }
 
 /// Race 3: both clients create the same name concurrently. The registers

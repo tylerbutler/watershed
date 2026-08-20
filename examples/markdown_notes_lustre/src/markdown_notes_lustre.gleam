@@ -18,6 +18,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 import lustre
@@ -159,6 +160,11 @@ type Model {
     /// the next notes event instead of failing hard.
     pending_open: Option(String),
     draft_name: String,
+    /// The sidebar order: note names read from the sequence. Entries that
+    /// are not strings are dropped; the display rule absorbs the drift.
+    order_entries: List(String),
+    /// The note being dragged, if any.
+    drag: Option(String),
     /// The document-wide `"<note>\t<tag>"` pairs, read from the OR-set.
     tag_pairs: List(String),
     /// Show only notes carrying this tag, or all of them.
@@ -186,6 +192,12 @@ type Msg {
   EnsuredOrder(Result(SharedSequence, String))
   NotesChanged
   TagsChanged
+  OrderChanged
+  DragStarted(String)
+  DragEnded
+  /// A drop on a note (insert before it) or on the end zone (`None`).
+  DroppedOn(Option(String))
+  NoOp
   Editor(textarea.Msg)
   FormatClicked(toolbar.Action)
   DraftTagChanged(String)
@@ -218,6 +230,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       open: None,
       pending_open: None,
       draft_name: "",
+      order_entries: [],
+      drag: None,
       tag_pairs: [],
       tag_filter: None,
       draft_tag: "",
@@ -286,6 +300,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
         Model(..model, shared: Some(shared), error: None)
         |> read_notes(shared)
         |> read_tags(shared)
+        |> read_order(shared)
       #(
         model,
         effect.batch([
@@ -294,6 +309,9 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
           }),
           watershed_lustre.subscribe_or_set(shared.tags, fn(_event) {
             TagsChanged
+          }),
+          watershed_lustre.subscribe_sequence(shared.order, fn(_event) {
+            OrderChanged
           }),
         ]),
       )
@@ -405,6 +423,27 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(shared) -> #(read_tags(model, shared), effect.none())
         None -> #(model, effect.none())
       }
+
+    OrderChanged ->
+      case model.shared {
+        Some(shared) -> #(read_order(model, shared), effect.none())
+        None -> #(model, effect.none())
+      }
+
+    DragStarted(name) -> #(Model(..model, drag: Some(name)), effect.none())
+
+    DragEnded -> #(Model(..model, drag: None), effect.none())
+
+    DroppedOn(target) ->
+      case model.shared, model.drag {
+        Some(shared), Some(dragged) -> {
+          apply_drop(shared, dragged, target)
+          #(read_order(Model(..model, drag: None), shared), effect.none())
+        }
+        _, _ -> #(Model(..model, drag: None), effect.none())
+      }
+
+    NoOp -> #(model, effect.none())
 
     DraftTagChanged(raw) -> #(Model(..model, draft_tag: raw), effect.none())
 
@@ -527,7 +566,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     DeleteClicked(name) -> {
       case model.shared {
-        Some(shared) -> watershed_js.or_map_remove(shared.notes, name)
+        Some(shared) -> {
+          watershed_js.or_map_remove(shared.notes, name)
+          // Best-effort: drop the name's first sequence entry too. A miss —
+          // or a duplicate left behind — is absorbed by the display rule.
+          case sequence_index_of(shared, name) {
+            Some(index) -> {
+              let _ = watershed_js.sequence_delete(shared.order, index)
+              Nil
+            }
+            None -> Nil
+          }
+        }
         None -> Nil
       }
       // The subscription's NotesChanged re-reads the list and flips the open
@@ -611,7 +661,16 @@ fn create_note(
             name,
             watershed_js.text_handle_of(text),
           )
-          let model = Model(..model, draft_name: "", error: None)
+          // Append to the sidebar order, best-effort: if this fails the
+          // display rule still renders the name, alphabetically at the end.
+          let _ =
+            watershed_js.sequence_insert(
+              shared.order,
+              watershed_js.sequence_length(shared.order),
+              json.string(name),
+            )
+          let model =
+            Model(..model, draft_name: "", error: None) |> read_order(shared)
           open_resolved(model, name, text)
         }
       }
@@ -754,6 +813,61 @@ fn read_tags(model: Model, shared: SharedState) -> Model {
   Model(..model, tag_pairs: watershed_js.or_set_values(shared.tags))
 }
 
+/// Re-read the order sequence as note names, dropping non-string entries.
+fn read_order(model: Model, shared: SharedState) -> Model {
+  let entries =
+    watershed_js.sequence_values(shared.order)
+    |> list.filter_map(fn(value) {
+      json.parse(json.to_string(value), decode.string)
+      |> result.replace_error(Nil)
+    })
+  Model(..model, order_entries: entries)
+}
+
+/// The raw sequence index of a name's first entry — raw, because non-string
+/// entries occupy positions too and `sequence_delete`/`sequence_move` take
+/// raw indices.
+fn sequence_index_of(shared: SharedState, name: String) -> Option(Int) {
+  let target = json.to_string(json.string(name))
+  watershed_js.sequence_values(shared.order)
+  |> list.index_fold(None, fn(found, value, index) {
+    case found, json.to_string(value) == target {
+      None, True -> Some(index)
+      _, _ -> found
+    }
+  })
+}
+
+/// Translate a completed drag into one sequence op. Dropping on a note
+/// inserts the dragged entry before it; dropping on the end zone moves it to
+/// the end. `sequence_move` evaluates the destination *after* removing the
+/// source, hence the adjustment. A dragged name with no sequence entry (a
+/// map-only name) gets inserted rather than moved.
+fn apply_drop(
+  shared: SharedState,
+  dragged: String,
+  target: Option(String),
+) -> Nil {
+  let length = watershed_js.sequence_length(shared.order)
+  let to = case target {
+    Some(name) ->
+      sequence_index_of(shared, name) |> option.unwrap(length)
+    None -> length
+  }
+  let _ = case sequence_index_of(shared, dragged) {
+    None -> watershed_js.sequence_insert(shared.order, to, json.string(dragged))
+    Some(from) if from == to -> Ok(Nil)
+    Some(from) -> {
+      let destination = case from < to {
+        True -> to - 1
+        False -> to
+      }
+      watershed_js.sequence_move(shared.order, from, destination)
+    }
+  }
+  Nil
+}
+
 fn ensure_failed(model: Model, reason: String) -> Model {
   Model(..model, error: Some(reason))
 }
@@ -833,13 +947,15 @@ fn tag_filter_view(model: Model) -> Element(Msg) {
   }
 }
 
-/// The names to list, after the tag filter.
+/// The names to list: the display rule's reconciled order, then the tag
+/// filter.
 fn visible_names(model: Model) -> List(String) {
+  let ordered = sidebar.display_order(model.note_names, model.order_entries)
   case model.tag_filter {
-    None -> model.note_names
+    None -> ordered
     Some(tag) -> {
       let tagged = sidebar.notes_with_tag(model.tag_pairs, tag)
-      list.filter(model.note_names, list.contains(tagged, _))
+      list.filter(ordered, list.contains(tagged, _))
     }
   }
 }
@@ -851,7 +967,19 @@ fn note_list_view(model: Model) -> Element(Msg) {
     Some(_), names ->
       html.ul(
         [class("note-list")],
-        list.map(names, fn(name) { note_item_view(model, name) }),
+        list.append(list.map(names, fn(name) { note_item_view(model, name) }), [
+          // The end-of-list drop zone: drop here to move a note to the end.
+          html.li(
+            [
+              class("drop-end"),
+              event.on("dragover", decode.success(NoOp))
+                |> event.prevent_default,
+              event.on("drop", decode.success(DroppedOn(None)))
+                |> event.prevent_default,
+            ],
+            [],
+          ),
+        ]),
       )
   }
 }
@@ -861,7 +989,20 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
     Some(open) -> open.name == name && !open.deleted
     None -> False
   }
-  html.li([class("note-item")], [
+  html.li(
+    [
+      attribute.classes([
+        #("note-item", True),
+        #("dragging", model.drag == Some(name)),
+      ]),
+      attribute.draggable(True),
+      event.on("dragstart", decode.success(DragStarted(name))),
+      event.on("dragend", decode.success(DragEnded)),
+      event.on("dragover", decode.success(NoOp)) |> event.prevent_default,
+      event.on("drop", decode.success(DroppedOn(Some(name))))
+        |> event.prevent_default,
+    ],
+    [
     html.button(
       [
         attribute.classes([#("note-open", True), #("open", is_open)]),
