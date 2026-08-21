@@ -17,19 +17,24 @@ user content.
 
 ## Run it
 
-Start the reference signaling service from the repository root:
-
-```sh
-gleam build --target javascript
-node tools/signaling/server.mjs --port 4400
-```
-
-Then, in this directory:
+Nothing to deploy: signaling defaults to public Nostr relays
+(`watershed/nostr_signaling_js`) and NAT traversal to public STUN
+(`p2p_transport_js.public_stun_servers`), so the app is serverless out of
+the box. In this directory:
 
 ```sh
 pnpm install
 pnpm run build
 pnpm run serve
+```
+
+To use the reference signaling service instead, start it from the
+repository root and point the page at it with
+`?signaling=ws://localhost:4400/`:
+
+```sh
+gleam build --target javascript
+node tools/signaling/server.mjs --port 4400
 ```
 
 Open the page in one tab, then reuse the full URL in another tab so both tabs
@@ -43,10 +48,15 @@ This example follows the same query-driven configuration as
 | Parameter | Default | Meaning |
 | --- | --- | --- |
 | `document` | generated | room id shared between tabs |
-| `signaling` | `ws://localhost:4400/` | signaling service |
-| `ice` | none | comma-separated STUN/TURN URLs |
+| `signaling` | `nostr` | `nostr` for public relays, or a `crdt_signaling` service URL |
+| `relays` | adapter defaults | comma-separated Nostr relay URLs, when `signaling` is `nostr` |
+| `ice` | public STUN | comma-separated STUN/TURN URLs |
 | `iceUser` / `icePass` | none | TURN credentials for `ice` |
 | `relay` | none | optional sequencer relay (`crdt_relay_v1`) |
+
+The room name is the room's secret on the Nostr lane: the relays see only
+a hashed topic and encrypted frames, but anyone who knows the name can
+join, exactly as with the reference service.
 
 Without `?relay=` the app is still fully peer-to-peer; with it, the relay
 becomes the durable delta path once digests match.

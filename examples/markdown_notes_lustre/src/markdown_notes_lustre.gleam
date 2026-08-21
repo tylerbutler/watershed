@@ -27,6 +27,7 @@ import markdown_notes_lustre/toolbar
 import watershed/browser
 import watershed/crdt_js.{type CrdtDocument, type Handle}
 import watershed/crdt_signaling_js
+import watershed/nostr_signaling_js
 import watershed/or_map_kernel
 import watershed/p2p.{type P2pError}
 import watershed/p2p_transport_js
@@ -41,7 +42,17 @@ import watershed_lustre/textarea
 
 const compatibility = "markdown-notes/v2"
 
-const default_signaling = "ws://localhost:4400/"
+/// Signaling defaults to public Nostr relays — nothing to deploy, nothing
+/// to start. `?signaling=ws://…` points at a `crdt_signaling` service
+/// instead; this is the address the reference one runs at, and naming it
+/// exactly is what earns the copy-paste command in the offline banner.
+const reference_signaling = "ws://localhost:4400/"
+
+/// The sentinel `?signaling=` value (and default) for the Nostr lane, and
+/// the display name the banner uses for it.
+const nostr_signaling = "nostr"
+
+const nostr_display = "the public Nostr relays"
 
 const relay_param = "relay"
 
@@ -219,7 +230,7 @@ pub fn init(room: String) -> #(Model, Effect(Msg)) {
       draft_tag: "",
       errors: [],
       error: None,
-      signaling: query("signaling", default_signaling),
+      signaling: signaling_display(),
       pending_delete: None,
       invite_copied: False,
     )
@@ -264,11 +275,18 @@ fn request_durable_storage() -> Effect(Msg) {
 }
 
 fn open_room(room: String) -> Effect(Msg) {
-  let signaling =
-    crdt_signaling_js.websocket_signaling(
-      url: query("signaling", default_signaling),
-      on_failure: report_signaling_failure,
-    )
+  let signaling = case query("signaling", nostr_signaling) {
+    "nostr" ->
+      nostr_signaling_js.nostr_signaling(
+        relays: relays(),
+        on_failure: report_signaling_failure,
+      )
+    url ->
+      crdt_signaling_js.websocket_signaling(
+        url: url,
+        on_failure: report_signaling_failure,
+      )
+  }
   let config =
     crdt_js.config(
       room_id: room,
@@ -297,14 +315,34 @@ fn with_relay(config) {
   }
 }
 
-fn ice_servers() {
-  let urls =
-    string.split(query("ice", ""), ",")
-    |> list.map(string.trim)
-    |> list.filter(fn(url) { url != "" })
+/// What the banner and sidebar name when signaling fails: the service URL
+/// this tab was pointed at, or the Nostr lane's display name.
+fn signaling_display() -> String {
+  case query("signaling", nostr_signaling) {
+    "nostr" -> nostr_display
+    url -> url
+  }
+}
 
-  case urls, query("iceUser", ""), query("icePass", "") {
-    [], _, _ -> []
+/// The Nostr relays to meet on: `?relays=wss://a,wss://b`, or the
+/// adapter's public defaults.
+fn relays() -> List(String) {
+  case split_list(query("relays", "")) {
+    [] -> nostr_signaling_js.default_relays
+    urls -> urls
+  }
+}
+
+fn split_list(raw: String) -> List(String) {
+  string.split(raw, ",")
+  |> list.map(string.trim)
+  |> list.filter(fn(entry) { entry != "" })
+}
+
+fn ice_servers() {
+  case split_list(query("ice", "")), query("iceUser", ""), query("icePass", "") {
+    // NAT traversal with nothing deployed, to match the signaling default.
+    [], _, _ -> p2p_transport_js.public_stun_servers()
     urls, "", _ -> [p2p_transport_js.ice_server(urls: urls)]
     urls, user, password -> [
       p2p_transport_js.ice_server(urls: urls)
@@ -2103,8 +2141,11 @@ fn main_view(model: Model) -> Element(Msg) {
             [
               html.p([], [
                 html.text(
-                  "Can't reach the signaling service at "
-                  <> model.signaling
+                  "Can't reach "
+                  <> case model.signaling == nostr_display {
+                    True -> model.signaling
+                    False -> "the signaling service at " <> model.signaling
+                  }
                   <> " — "
                   <> without_variant(detail)
                   <> ".",
@@ -2113,12 +2154,19 @@ fn main_view(model: Model) -> Element(Msg) {
               html.p([attribute.class("hint")], [
                 html.text(
                   "This browser has no saved copy of this room, so there is "
-                  <> "nothing to open offline. Start the service, then reload.",
+                  <> "nothing to open offline. "
+                  <> case model.signaling == nostr_display {
+                    // Public relays are not something the reader can start;
+                    // the network between here and them is what failed.
+                    True -> "Check the connection, then reload."
+                    False -> "Start the service, then reload."
+                  },
                 ),
               ]),
-              // Only offer the exact command when this tab is on the default
-              // address; a custom `?signaling=` makes the port a guess.
-              case model.signaling == default_signaling {
+              // Only offer the exact command when this tab named the
+              // reference address; a custom `?signaling=` makes the port a
+              // guess, and the Nostr default has no service to start.
+              case model.signaling == reference_signaling {
                 True ->
                   html.pre([attribute.class("banner-command")], [
                     html.text("node tools/signaling/server.mjs --port 4400"),
