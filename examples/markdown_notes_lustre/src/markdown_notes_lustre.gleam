@@ -18,6 +18,7 @@ import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
+import lustre/element/svg
 import lustre/event
 
 import doc_schema
@@ -137,6 +138,14 @@ pub opaque type Model {
     draft_tag: String,
     errors: List(String),
     error: Option(String),
+    /// The signaling service this tab was pointed at. Kept on the model so a
+    /// connection failure can name the address that did not answer instead of
+    /// blaming the peers.
+    signaling: String,
+    /// The note whose delete is armed and awaiting confirmation. Deleting is
+    /// replicated and has no compensating op, so it takes two deliberate acts.
+    pending_delete: Option(String),
+    invite_copied: Bool,
   )
 }
 
@@ -169,7 +178,15 @@ pub type Msg {
   DraftNameChanged(String)
   CreateClicked
   OpenClicked(String)
+  RequestDeleteClicked(String)
+  CancelDeleteClicked
   DeleteClicked(String)
+  MoveNote(String, Int)
+  Shortcut(String, String)
+  DownloadCopyClicked
+  SnapshotExported(Result(json.Json, P2pError))
+  CopyInviteClicked
+  InviteCopyReset
 }
 
 pub fn init(room: String) -> #(Model, Effect(Msg)) {
@@ -202,11 +219,30 @@ pub fn init(room: String) -> #(Model, Effect(Msg)) {
       draft_tag: "",
       errors: [],
       error: None,
+      signaling: query("signaling", default_signaling),
+      pending_delete: None,
+      invite_copied: False,
     )
   #(
     model,
-    effect.batch([watch_signaling(), request_durable_storage(), open_room(room)]),
+    effect.batch([
+      watch_signaling(),
+      watch_shortcuts(),
+      request_durable_storage(),
+      open_room(room),
+    ]),
   )
+}
+
+/// One document-level key listener, rather than a handler per control: the
+/// editor is a mapped child element, so it cannot dispatch this module's `Msg`
+/// from its own attributes. The FFI decides what was pressed and over which
+/// note, and calls preventDefault only when it recognised the chord.
+fn watch_shortcuts() -> Effect(Msg) {
+  use dispatch <- effect.from
+  set_shortcut_sink(fn(action, argument) {
+    dispatch(Shortcut(action, argument))
+  })
 }
 
 /// The signaling socket fails on its own callback, outside the dispatch loop,
@@ -289,6 +325,21 @@ fn report_signaling_failure(detail: String) -> Nil
 @external(javascript, "./app_ffi.mjs", "requestPersistentStorage")
 fn request_persistent_storage() -> Promise(Bool)
 
+@external(javascript, "./app_ffi.mjs", "setShortcutSink")
+fn set_shortcut_sink(sink: fn(String, String) -> Nil) -> Nil
+
+@external(javascript, "./app_ffi.mjs", "downloadJson")
+fn download_json(filename: String, contents: String) -> Nil
+
+@external(javascript, "./app_ffi.mjs", "focusNoteButton")
+fn focus_note_button(name: String) -> Nil
+
+@external(javascript, "./app_ffi.mjs", "copyCurrentUrl")
+fn copy_current_url() -> Nil
+
+@external(javascript, "./app_ffi.mjs", "afterMs")
+fn after_ms(delay: Int, run: fn() -> Nil) -> Nil
+
 // ── Update ───────────────────────────────────────────────────────────────────
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
@@ -323,7 +374,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     StatusChanged(status) -> #(apply_status(model, status), effect.none())
 
     SignalingFailed(detail) -> #(
-      note_system(model, "signaling · " <> detail),
+      note_system(model, "signaling · " <> without_variant(detail)),
       effect.none(),
     )
 
@@ -623,12 +674,24 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     OpenClicked(name) -> try_open(model, name)
 
+    RequestDeleteClicked(name) ->
+      case mutations_locked(model) {
+        True -> #(model, effect.none())
+        False -> #(Model(..model, pending_delete: Some(name)), effect.none())
+      }
+
+    CancelDeleteClicked -> #(
+      Model(..model, pending_delete: None),
+      effect.none(),
+    )
+
     DeleteClicked(name) ->
       case mutations_locked(model) {
         True -> #(model, effect.none())
         False ->
           case model.shared {
             Some(shared) -> {
+              let model = Model(..model, pending_delete: None)
               let removed = crdt_js.or_map_remove(shared.root, key: name)
               let sequence = case sequence_index_of(shared, name) {
                 Some(index) ->
@@ -663,7 +726,125 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             None -> #(model, effect.none())
           }
       }
+
+    MoveNote(name, delta) ->
+      case mutations_locked(model), model.shared {
+        False, Some(shared) ->
+          case move_target(visible_names(model), name, delta) {
+            Error(Nil) -> #(model, effect.none())
+            Ok(target) -> {
+              let model = case apply_drop(shared, name, target) {
+                Ok(Nil) -> read_order(Model(..model, error: None), shared)
+                Error(reason) -> Model(..model, error: Some(reason))
+              }
+              #(model, effect.batch([mark_dirty(model), focus_note(name)]))
+            }
+          }
+        _, _ -> #(model, effect.none())
+      }
+
+    Shortcut(action, argument) ->
+      case action {
+        "bold" -> update(model, FormatClicked(toolbar.Bold))
+        "italic" -> update(model, FormatClicked(toolbar.Italic))
+        "code" -> update(model, FormatClicked(toolbar.Code))
+        "move-up" -> update(model, MoveNote(argument, -1))
+        "move-down" -> update(model, MoveNote(argument, 1))
+        _ -> #(model, effect.none())
+      }
+
+    DownloadCopyClicked ->
+      case model.document {
+        Some(document) -> #(
+          model,
+          crdt.export_snapshot(document, exported: SnapshotExported),
+        )
+        None -> #(model, effect.none())
+      }
+
+    SnapshotExported(Ok(snapshot)) -> #(
+      model,
+      download_snapshot(model.room, json.to_string(snapshot)),
+    )
+
+    CopyInviteClicked -> #(
+      Model(..model, invite_copied: True),
+      effect.batch([copy_invite(), reset_invite_label()]),
+    )
+
+    InviteCopyReset -> #(Model(..model, invite_copied: False), effect.none())
+
+    SnapshotExported(Error(error)) -> #(
+      note_system(
+        model,
+        "could not export a copy · " <> crdt_js.describe_error(error),
+      ),
+      effect.none(),
+    )
   }
+}
+
+/// The note this move should land in front of, in the same vocabulary
+/// `apply_drop` already speaks, so a keyboard move and a drag produce
+/// identical ops. `Error(Nil)` means the note is already at that end.
+fn move_target(
+  names: List(String),
+  name: String,
+  delta: Int,
+) -> Result(Option(String), Nil) {
+  let count = list.length(names)
+  use from <- result.try(option.to_result(index_of(names, name), Nil))
+  let to = from + delta
+  case to < 0 || to >= count {
+    True -> Error(Nil)
+    // Moving down means landing in front of whatever follows the neighbour;
+    // past the end that is `None`, which `apply_drop` reads as "append".
+    False ->
+      Ok(case delta < 0 {
+        True -> at(names, to)
+        False -> at(names, to + 1)
+      })
+  }
+}
+
+fn index_of(names: List(String), name: String) -> Option(Int) {
+  list.index_fold(names, None, fn(found, candidate, index) {
+    case found, candidate == name {
+      None, True -> Some(index)
+      _, _ -> found
+    }
+  })
+}
+
+fn at(names: List(String), index: Int) -> Option(String) {
+  case list.drop(names, index) {
+    [name, ..] -> Some(name)
+    [] -> None
+  }
+}
+
+/// Keyboard reordering moves the button the user is standing on, so focus has
+/// to be put back after the list re-renders.
+fn focus_note(name: String) -> Effect(Msg) {
+  use _dispatch <- effect.from
+  focus_note_button(name)
+}
+
+fn copy_invite() -> Effect(Msg) {
+  use _dispatch <- effect.from
+  copy_current_url()
+}
+
+/// The confirmation is the only feedback the copy gives, so it has to expire
+/// on its own or it reads as a permanent state.
+fn reset_invite_label() -> Effect(Msg) {
+  use dispatch <- effect.from
+  after_ms(2000, fn() { dispatch(InviteCopyReset) })
+}
+
+fn download_snapshot(room: String, contents: String) -> Effect(Msg) {
+  use _dispatch <- effect.from
+  download_json("watershed-notes-" <> room <> ".json", contents)
 }
 
 // ── Bootstrap & persistence ──────────────────────────────────────────────────
@@ -1323,8 +1504,50 @@ fn apply_status(model: Model, status: crdt_js.Status) -> Model {
   }
 }
 
+/// Newest first, and never the same line twice in a row: one unreachable
+/// signaling service reports through several channels, and three copies of one
+/// failure crowd out the four other things that went wrong.
 fn note_system(model: Model, error: String) -> Model {
-  Model(..model, errors: list.take([error, ..model.errors], 5))
+  // Stripped here rather than at each call site: one dead signaling service
+  // reports through both `apply_status` and the socket's own callback, and
+  // those two paths used to differ only by the variant prefix — which is
+  // exactly enough to defeat a string comparison and print it twice.
+  let error = without_variant(error)
+  case list.any(model.errors, same_failure(_, error)) {
+    True -> model
+    False -> Model(..model, errors: list.take([error, ..model.errors], 5))
+  }
+}
+
+/// Two reports are the same failure when one ends with the other: a dead
+/// signaling service arrives once from `apply_status` as a bare sentence and
+/// once from the socket callback under a `signaling · ` prefix, and printing
+/// both spends two of five slots saying one thing.
+fn same_failure(seen: String, incoming: String) -> Bool {
+  seen == incoming
+  || string.ends_with(seen, incoming)
+  || string.ends_with(incoming, seen)
+}
+
+/// `describe_error` prefixes some failures with the bare variant name
+/// (`signalingFailed · the service did not answer`). That token is a Gleam
+/// implementation detail; the sentence after it is the part a reader needs.
+fn without_variant(detail: String) -> String {
+  case string.split_once(detail, " · ") {
+    // A variant name is one word carrying an uppercase letter (`signalingFailed`).
+    // A plain lowercase word is one of this app's own labels — `signaling · …` —
+    // and stripping that would be eating our own prefix.
+    Ok(#(head, rest)) ->
+      case
+        head != "",
+        !string.contains(head, " "),
+        head != string.lowercase(head)
+      {
+        True, True, True -> rest
+        _, _, _ -> detail
+      }
+    Error(Nil) -> detail
+  }
 }
 
 fn short(replica: String) -> String {
@@ -1343,6 +1566,7 @@ pub fn view(model: Model) -> Element(Msg) {
         #("app", True),
         #("recovery-required", mutations_locked(model)),
       ]),
+      attribute.data("safety", safety_token(model)),
       attribute.data("smoke-phase", phase_token(model)),
       attribute.data("smoke-shared", shared_token(model)),
       attribute.data("smoke-storage", storage_token(model)),
@@ -1363,6 +1587,7 @@ pub fn view(model: Model) -> Element(Msg) {
 fn sidebar_view(model: Model) -> Element(Msg) {
   html.nav([attribute.class("sidebar")], [
     html.h1([], [html.text("Markdown notes")]),
+    room_view(model),
     status_view(model),
     compose_view(model),
     tag_filter_view(model),
@@ -1372,20 +1597,188 @@ fn sidebar_view(model: Model) -> Element(Msg) {
   ])
 }
 
-fn status_view(model: Model) -> Element(Msg) {
-  html.div([attribute.class("status-stack")], [
-    html.p(
-      [attribute.class("status"), attribute.data("smoke", "network-status")],
-      [html.text(network_status(model))],
-    ),
-    html.p(
-      [attribute.class("status"), attribute.data("smoke", "storage-status")],
-      [html.text(storage_status(model))],
-    ),
-    html.p([attribute.class("status"), attribute.data("smoke", "save-status")], [
-      html.text(save_status(model)),
+/// One authored cross at a single stroke weight, rather than a Unicode glyph
+/// standing in for an icon system. Used for both "delete note" and
+/// "remove tag", so the two crosses are the same drawing at two sizes.
+fn cross_icon() -> Element(Msg) {
+  svg.svg(
+    [
+      attribute.attribute("viewBox", "0 0 16 16"),
+      attribute.attribute("width", "1em"),
+      attribute.attribute("height", "1em"),
+      attribute.attribute("fill", "none"),
+      attribute.attribute("stroke", "currentColor"),
+      attribute.attribute("stroke-width", "1.6"),
+      attribute.attribute("stroke-linecap", "square"),
+      attribute.attribute("aria-hidden", "true"),
+      attribute.attribute("focusable", "false"),
+    ],
+    [
+      svg.line([
+        attribute.attribute("x1", "4"),
+        attribute.attribute("y1", "4"),
+        attribute.attribute("x2", "12"),
+        attribute.attribute("y2", "12"),
+      ]),
+      svg.line([
+        attribute.attribute("x1", "12"),
+        attribute.attribute("y1", "4"),
+        attribute.attribute("x2", "4"),
+        attribute.attribute("y2", "12"),
+      ]),
+    ],
+  )
+}
+
+/// The whole document is keyed on the room id, and collaborating means
+/// somebody else opening this exact URL — which the app used to mention once,
+/// in a hint that disappeared the moment the room opened.
+fn room_view(model: Model) -> Element(Msg) {
+  html.div([attribute.class("room")], [
+    html.span([attribute.class("room-id"), attribute.title(model.room)], [
+      html.text(model.room),
     ]),
+    html.button(
+      [
+        attribute.class("room-copy"),
+        attribute.data("smoke", "copy-invite"),
+        event.on_click(CopyInviteClicked),
+      ],
+      [
+        html.text(case model.invite_copied {
+          True -> "Link copied"
+          False -> "Copy invite link"
+        }),
+      ],
+    ),
   ])
+}
+
+/// Every line here changes without the user acting, so the stack is a live
+/// region. The save line escalates to `alert` when it is reporting a failure —
+/// that is the one status change nobody should have to notice on their own.
+fn status_view(model: Model) -> Element(Msg) {
+  let saving_failed = case model.recovery, model.save_state {
+    NoRecovery, SaveFailed(_) -> True
+    NoRecovery, _ -> False
+    _, _ -> True
+  }
+
+  html.div(
+    [
+      attribute.class("status-stack"),
+      attribute.role("status"),
+      attribute.attribute("aria-live", "polite"),
+    ],
+    [
+      html.p([attribute.class("status headline")], [
+        html.text(safety_headline(model)),
+      ]),
+      html.p(
+        [
+          attribute.class("status " <> network_lamp(model)),
+          attribute.data("smoke", "network-status"),
+        ],
+        [html.text(network_status(model))],
+      ),
+      html.p(
+        [
+          attribute.class("status " <> storage_lamp(model)),
+          attribute.data("smoke", "storage-status"),
+        ],
+        [html.text(storage_status(model))],
+      ),
+      html.p(
+        [
+          attribute.class(
+            "status "
+            <> save_lamp(model)
+            <> case saving_failed {
+              True -> " status-failed"
+              False -> ""
+            },
+          ),
+          attribute.data("smoke", "save-status"),
+          attribute.role(case saving_failed {
+            True -> "alert"
+            False -> "none"
+          }),
+        ],
+        [html.text(save_status(model))],
+      ),
+    ],
+  )
+}
+
+/// Lamp semantics are strict and shared across the panel: amber is local or
+/// in flight, green is on disk or converged, red is at risk. Each lamp only
+/// repeats what its own line already says in words.
+fn network_lamp(model: Model) -> String {
+  case model.phase {
+    Failed(_) -> "lamp-armed"
+    Opening -> "lamp-live"
+    Ready -> "lamp-safe"
+  }
+}
+
+fn storage_lamp(model: Model) -> String {
+  case model.local_snapshot, model.durable {
+    LocalSnapshotFailed(_), _ -> "lamp-armed"
+    LoadedLocalSnapshot, Some(True) -> "lamp-safe"
+    LoadedLocalSnapshot, _ -> "lamp-live"
+    _, _ -> "lamp-live"
+  }
+}
+
+fn save_lamp(model: Model) -> String {
+  case model.recovery, model.save_state {
+    NoRecovery, Saved -> "lamp-safe"
+    NoRecovery, SaveFailed(_) -> "lamp-armed"
+    NoRecovery, _ -> "lamp-live"
+    _, _ -> "lamp-armed"
+  }
+}
+
+/// The three lines below answer three different questions; this one answers
+/// the only question a person writing a note actually has.
+fn safety_headline(model: Model) -> String {
+  let peers = case model.document {
+    Some(document) -> crdt_js.peer_count(document)
+    None -> 0
+  }
+  let elsewhere = case peers {
+    0 -> ""
+    1 -> " and on 1 peer"
+    count -> " and on " <> int.to_string(count) <> " peers"
+  }
+  let notes = case list.length(model.note_names) {
+    1 -> "1 note"
+    count -> int.to_string(count) <> " notes"
+  }
+
+  case model.recovery, model.save_state {
+    NoRecovery, Saved -> "Safe · " <> notes <> " on disk" <> elsewhere
+    NoRecovery, Saving -> "Saving " <> notes <> "…"
+    NoRecovery, SaveFailed(_) -> "At risk · this browser cannot save"
+    NoRecovery, _ ->
+      case peers {
+        0 -> "Not saved yet · " <> notes <> " in this tab only"
+        _ -> "Not saved yet · " <> notes <> elsewhere
+      }
+    _, _ -> "At risk · this browser cannot save"
+  }
+}
+
+/// Drives the master lamp. The headline sentence beside it carries the same
+/// fact in words, so the colour is never the only channel.
+fn safety_token(model: Model) -> String {
+  case model.recovery, model.save_state {
+    NoRecovery, Saved -> "safe"
+    NoRecovery, Saving -> "saving"
+    NoRecovery, SaveFailed(_) -> "at-risk"
+    NoRecovery, _ -> "pending"
+    _, _ -> "at-risk"
+  }
 }
 
 fn phase_token(model: Model) -> String {
@@ -1453,9 +1846,22 @@ fn network_status(model: Model) -> String {
   let connection = case model.phase {
     Opening -> "opening…"
     Ready -> model.bootstrap
-    Failed(detail) -> "offline · " <> detail
+    Failed(detail) -> "offline · " <> without_variant(detail)
   }
-  let peers = case model.document {
+  let relay = case model.relay {
+    "" -> ""
+    state -> " · relay " <> state
+  }
+  // "alone" already says nobody else is here; printing "0 peers" after it is
+  // the same fact twice.
+  case model.bootstrap == "alone" && model.phase == Ready {
+    True -> connection <> relay
+    False -> connection <> " · " <> peer_count(model) <> relay
+  }
+}
+
+fn peer_count(model: Model) -> String {
+  case model.document {
     Some(document) ->
       case crdt_js.peer_count(document) {
         1 -> "1 peer"
@@ -1463,11 +1869,6 @@ fn network_status(model: Model) -> String {
       }
     None -> "0 peers"
   }
-  let relay = case model.relay {
-    "" -> ""
-    state -> " · relay " <> state
-  }
-  connection <> " · " <> peers <> relay
 }
 
 fn storage_status(model: Model) -> String {
@@ -1509,6 +1910,12 @@ fn compose_view(model: Model) -> Element(Msg) {
       attribute.aria_label("new note name"),
       attribute.disabled(mutations_locked(model)),
       event.on_input(DraftNameChanged),
+      event.on_keydown(fn(key) {
+        case key {
+          "Enter" -> CreateClicked
+          _ -> NoOp
+        }
+      }),
     ]),
     html.button(
       [
@@ -1563,7 +1970,14 @@ fn visible_names(model: Model) -> List(String) {
 
 fn note_list_view(model: Model) -> Element(Msg) {
   case model.shared, visible_names(model) {
-    None, _ -> html.p([attribute.class("hint")], [html.text("Loading notes…")])
+    // Saying "Loading notes…" under a line that already says "offline" is two
+    // claims about the same fact. When the room never opened, the main pane
+    // carries the whole story and the list says nothing.
+    None, _ ->
+      case model.phase {
+        Failed(_) -> html.text("")
+        _ -> html.p([attribute.class("hint")], [html.text("Loading notes…")])
+      }
     Some(_), [] ->
       html.p([attribute.class("hint")], [html.text("No notes here.")])
     Some(_), names ->
@@ -1573,6 +1987,9 @@ fn note_list_view(model: Model) -> Element(Msg) {
           html.li(
             [
               attribute.class("drop-end"),
+              // A drop target with no content: keyboard reordering covers the
+              // same move, so hiding it stops a one-note list announcing two.
+              attribute.attribute("aria-hidden", "true"),
               event.on("dragover", decode.success(NoOp))
                 |> event.prevent_default,
               event.on("drop", decode.success(DroppedOn(None)))
@@ -1609,21 +2026,55 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
         [
           attribute.data("smoke", "note-open"),
           attribute.data("note-name", name),
-          attribute.classes([#("note-open", True), #("open", is_open)]),
+          attribute.class(
+            "note-open "
+            <> save_lamp(model)
+            <> case is_open {
+              True -> " open"
+              False -> ""
+            },
+          ),
           event.on_click(OpenClicked(name)),
         ],
-        [html.text(name)],
+        [html.span([attribute.class("note-name")], [html.text(name)])],
       ),
-      html.button(
-        [
-          attribute.data("smoke", "note-delete"),
-          attribute.class("note-delete"),
-          attribute.aria_label("delete " <> name),
-          attribute.disabled(mutations_locked(model)),
-          event.on_click(DeleteClicked(name)),
-        ],
-        [html.text("✕")],
-      ),
+      ..case model.pending_delete == Some(name) {
+        // Deleting replicates to every peer and the OR-map has no undo op, so
+        // the ✕ arms the action and a second, named button commits it.
+        True -> [
+          html.button(
+            [
+              attribute.data("smoke", "note-delete-confirm"),
+              attribute.class("note-confirm"),
+              attribute.aria_label("confirm deleting " <> name),
+              attribute.disabled(mutations_locked(model)),
+              event.on_click(DeleteClicked(name)),
+            ],
+            [html.text("Delete")],
+          ),
+          html.button(
+            [
+              attribute.data("smoke", "note-delete-cancel"),
+              attribute.class("note-cancel"),
+              attribute.aria_label("keep " <> name),
+              event.on_click(CancelDeleteClicked),
+            ],
+            [html.text("Keep")],
+          ),
+        ]
+        False -> [
+          html.button(
+            [
+              attribute.data("smoke", "note-delete"),
+              attribute.class("note-delete"),
+              attribute.aria_label("delete " <> name),
+              attribute.disabled(mutations_locked(model)),
+              event.on_click(RequestDeleteClicked(name)),
+            ],
+            [cross_icon()],
+          ),
+        ]
+      }
     ],
   )
 }
@@ -1640,14 +2091,42 @@ fn main_view(model: Model) -> Element(Msg) {
     _, Some(open), _, _ -> open_note_view(model, open)
     _, None, None, _ ->
       case model.phase {
-        Failed(_) ->
-          html.p([attribute.class("banner"), attribute.role("status")], [
-            html.text(
-              "This browser has no usable local snapshot for the room yet. "
-              <> "Bring another peer or a relay online, then reopen the "
-              <> "same URL.",
-            ),
-          ])
+        // The sidebar knows which address failed; the banner used to blame the
+        // peers instead of naming it.
+        Failed(detail) ->
+          html.div(
+            [
+              attribute.class("banner"),
+              attribute.role("status"),
+              attribute.data("smoke", "offline-banner"),
+            ],
+            [
+              html.p([], [
+                html.text(
+                  "Can't reach the signaling service at "
+                  <> model.signaling
+                  <> " — "
+                  <> without_variant(detail)
+                  <> ".",
+                ),
+              ]),
+              html.p([attribute.class("hint")], [
+                html.text(
+                  "This browser has no saved copy of this room, so there is "
+                  <> "nothing to open offline. Start the service, then reload.",
+                ),
+              ]),
+              // Only offer the exact command when this tab is on the default
+              // address; a custom `?signaling=` makes the port a guess.
+              case model.signaling == default_signaling {
+                True ->
+                  html.pre([attribute.class("banner-command")], [
+                    html.text("node tools/signaling/server.mjs --port 4400"),
+                  ])
+                False -> html.text("")
+              },
+            ],
+          )
         _ ->
           html.p([attribute.class("hint")], [
             html.text("Open this URL in another tab to join the same room."),
@@ -1667,6 +2146,28 @@ fn main_view(model: Model) -> Element(Msg) {
   )
 }
 
+/// Where the user's work actually is right now, in one sentence, before the
+/// banner asks them to press anything.
+fn recovery_reassurance(model: Model) -> String {
+  let notes = case list.length(model.note_names) {
+    1 -> "Your 1 note is"
+    count -> "Your " <> int.to_string(count) <> " notes are"
+  }
+  let peers = case model.document {
+    Some(document) -> crdt_js.peer_count(document)
+    None -> 0
+  }
+  case peers {
+    0 -> notes <> " open in this tab. Nothing has been lost."
+    1 -> notes <> " open here and shared with 1 peer."
+    count ->
+      notes
+      <> " open here and shared with "
+      <> int.to_string(count)
+      <> " peers."
+  }
+}
+
 fn recovery_banner(model: Model) -> List(Element(Msg)) {
   let button_disabled = model.document == None
   case model.recovery {
@@ -1680,30 +2181,55 @@ fn recovery_banner(model: Model) -> List(Element(Msg)) {
           attribute.data("smoke", "recovery-banner"),
         ],
         [
-          html.h2([], [html.text("Recovery required")]),
+          html.h2([], [html.text("This browser can't save to disk")]),
+          // Lead with what is still safe. The old copy opened on the mechanism
+          // and never told the user where their work was.
+          html.p([attribute.class("recovery-safe")], [
+            html.text(recovery_reassurance(model)),
+          ]),
           html.p([attribute.data("smoke", "recovery-status")], [
-            html.text("Local saving is locked: " <> detail),
+            html.text("What failed: " <> detail <> "."),
           ]),
           html.p([attribute.class("hint")], [
             html.text(
-              "Remote updates still render, but this browser stays read-only "
-              <> "until you explicitly replace the broken local snapshot with "
-              <> "the current document.",
+              "Editing is locked here so nothing new is written on top of a "
+              <> "copy this browser can't read. Notes from other peers still "
+              <> "arrive.",
             ),
           ]),
-          html.button(
-            [
-              attribute.data("smoke", "recovery-replace"),
-              attribute.disabled(button_disabled),
-              event.on_click(RecoveryReplaceClicked),
-            ],
-            [
-              html.text(case button_disabled {
-                True -> "Waiting for the current document…"
-                False -> "Replace local snapshot with current document"
-              }),
-            ],
-          ),
+          html.p([attribute.class("hint")], [
+            html.text(
+              "Overwriting discards the unreadable saved copy — including "
+              <> "anything written offline in an earlier session that never "
+              <> "loaded. Download a copy first if this browser has been used "
+              <> "offline.",
+            ),
+          ]),
+          html.div([attribute.class("recovery-actions")], [
+            html.button(
+              [
+                attribute.data("smoke", "recovery-download"),
+                attribute.class("secondary"),
+                attribute.disabled(button_disabled),
+                event.on_click(DownloadCopyClicked),
+              ],
+              [html.text("Download a copy")],
+            ),
+            html.button(
+              [
+                attribute.data("smoke", "recovery-replace"),
+                attribute.class("destructive"),
+                attribute.disabled(button_disabled),
+                event.on_click(RecoveryReplaceClicked),
+              ],
+              [
+                html.text(case button_disabled {
+                  True -> "Waiting for the current document…"
+                  False -> "Overwrite the local snapshot"
+                }),
+              ],
+            ),
+          ]),
         ],
       ),
     ]
@@ -1716,7 +2242,7 @@ fn recovery_banner(model: Model) -> List(Element(Msg)) {
           attribute.data("smoke", "recovery-banner"),
         ],
         [
-          html.h2([], [html.text("Recovery required")]),
+          html.h2([], [html.text("This browser can't save to disk")]),
           html.p([attribute.data("smoke", "recovery-status")], [
             html.text(
               "Replacing the broken local snapshot with the current document…",
@@ -1738,7 +2264,6 @@ fn recovery_banner(model: Model) -> List(Element(Msg)) {
 fn open_note_view(model: Model, open: OpenNote) -> Element(Msg) {
   html.div([attribute.class("editor-wrap")], [
     html.h2([attribute.data("smoke", "open-note-title")], [html.text(open.name)]),
-    tags_view(model, open),
     case open.deleted {
       True ->
         html.p([attribute.class("banner"), attribute.role("alert")], [
@@ -1768,27 +2293,37 @@ fn open_note_view(model: Model, open: OpenNote) -> Element(Msg) {
       Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
       None -> html.text("")
     },
+    // Tagging is filing, not writing: it sat above the editor and interrupted
+    // the writing surface every time a note was opened.
+    tags_view(model, open),
   ])
 }
 
 fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
+  let tags = sidebar.tags_of(model.tag_pairs, open.name)
   html.div([attribute.class("tags")], [
-    html.div(
-      [attribute.class("tags")],
-      list.map(sidebar.tags_of(model.tag_pairs, open.name), fn(tag) {
-        html.span([attribute.class("tag-chip")], [
-          html.text(tag),
-          html.button(
-            [
-              attribute.aria_label("remove tag " <> tag),
-              attribute.disabled(mutations_locked(model)),
-              event.on_click(RemoveTagClicked(tag)),
-            ],
-            [html.text("✕")],
-          ),
-        ])
-      }),
-    ),
+    // An empty chip row used to render as a nested, zero-height `.tags` inside
+    // `.tags` on every untagged note.
+    case tags {
+      [] -> html.text("")
+      tags ->
+        html.div(
+          [attribute.class("tag-chips")],
+          list.map(tags, fn(tag) {
+            html.span([attribute.class("tag-chip")], [
+              html.text(tag),
+              html.button(
+                [
+                  attribute.aria_label("remove tag " <> tag),
+                  attribute.disabled(mutations_locked(model)),
+                  event.on_click(RemoveTagClicked(tag)),
+                ],
+                [html.text("✕")],
+              ),
+            ])
+          }),
+        )
+    },
     html.input([
       attribute.data("smoke", "tag-input"),
       attribute.placeholder("Add tag"),
@@ -1796,6 +2331,12 @@ fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
       attribute.aria_label("add tag to " <> open.name),
       attribute.disabled(mutations_locked(model)),
       event.on_input(DraftTagChanged),
+      event.on_keydown(fn(key) {
+        case key {
+          "Enter" -> AddTagClicked
+          _ -> NoOp
+        }
+      }),
     ]),
     html.button(
       [
@@ -1820,7 +2361,10 @@ fn toolbar_view(model: Model) -> Element(Msg) {
           event.on_click(FormatClicked(action)),
           attribute.aria_label(toolbar.describe(action)),
           attribute.disabled(mutations_locked(model)),
-          attribute.title(toolbar.describe(action)),
+          attribute.title(case toolbar.shortcut(action) {
+            "" -> toolbar.describe(action)
+            chord -> toolbar.describe(action) <> " · " <> chord
+          }),
         ],
         [html.text(toolbar.label(action))],
       )
@@ -1828,14 +2372,30 @@ fn toolbar_view(model: Model) -> Element(Msg) {
   )
 }
 
+/// Newest first and under a real heading. `clap_counter_lustre` heads its
+/// error block; an unlabelled `<pre>` in the corner was a regression against
+/// the incumbent, and this is the thing the README promises you cannot miss.
 fn system_errors_view(errors: List(String)) -> Element(Msg) {
   case errors {
     [] -> html.text("")
     errors ->
       html.section(
-        [attribute.class("errors"), attribute.data("smoke", "system-errors")],
         [
-          html.pre([], [html.text(string.join(list.reverse(errors), "\n"))]),
+          attribute.class("errors"),
+          attribute.aria_label("system errors"),
+          attribute.data("smoke", "system-errors"),
+        ],
+        [
+          html.h2([], [
+            html.text(case list.length(errors) {
+              1 -> "1 system error"
+              count -> int.to_string(count) <> " system errors"
+            }),
+          ]),
+          html.ul(
+            [],
+            list.map(errors, fn(error) { html.li([], [html.text(error)]) }),
+          ),
         ],
       )
   }

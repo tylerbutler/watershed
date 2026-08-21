@@ -79,9 +79,28 @@ If opening the local snapshot fails, or if a later save fails, the app stops
 accepting new local edits silently. It enters a visible recovery-required
 read-only mode: the editor and every mutation control are locked, remote note
 and subscription updates still render, and the only way to overwrite the broken
-local bytes is an explicit **Replace local snapshot with current document**
-button. A successful replace clears the gate, updates the saved digest/status,
-and resumes ordinary editing; a failed replace leaves the gate in place.
+local bytes is an explicit **Overwrite the local snapshot** button. A successful
+replace clears the gate, updates the saved digest/status, and resumes ordinary
+editing; a failed replace leaves the gate in place.
+
+The gate leads with where the work currently is (`Your 3 notes are open here and
+shared with 1 peer`) and names what overwriting costs: entering recovery from a
+snapshot that never loaded means the on-disk bytes were never merged, so
+overwriting discards anything written offline in an earlier session. **Download
+a copy** is offered first and exports the same re-importable snapshot JSON that
+`crdt.import_snapshot` accepts.
+
+## Keyboard
+
+| Chord | Does |
+| --- | --- |
+| `Enter` in the note-name or tag field | create the note / add the tag |
+| `Alt` + `↑` / `↓` on a note | reorder it, through the same op a drag produces |
+| `Ctrl`/`Cmd` + `B` / `I` / `E` in the editor | bold, italic, inline code |
+
+Reordering is not drag-only: the sidebar sequence is reachable from the keyboard,
+and the status stack is a live region, so going offline or failing a save is
+announced rather than only drawn.
 
 ## Tests
 

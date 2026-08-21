@@ -74,12 +74,23 @@ pub fn line_start(text: String, index: Int) -> Int {
 
 pub fn label(action: Action) -> String {
   case action {
-    Bold -> "B"
-    Italic -> "I"
-    Code -> "`"
+    Bold -> "Bold"
+    Italic -> "Italic"
+    Code -> "Code"
     H1 -> "H1"
     H2 -> "H2"
-    Bullet -> "•"
+    Bullet -> "List"
+  }
+}
+
+/// The keyboard chord, for the button's tooltip. Empty where there is none —
+/// inventing a shortcut the app does not listen for is worse than silence.
+pub fn shortcut(action: Action) -> String {
+  case action {
+    Bold -> "Ctrl/Cmd+B"
+    Italic -> "Ctrl/Cmd+I"
+    Code -> "Ctrl/Cmd+E"
+    H1 | H2 | Bullet -> ""
   }
 }
 
