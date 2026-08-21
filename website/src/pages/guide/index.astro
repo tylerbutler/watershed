@@ -6,7 +6,7 @@ import { steps } from "../../data/guide";
 
 <Sheet
   title="watershed — build guide"
-  description="A six-step field procedure for building a multiplayer app on watershed: connect a document, model it with a typed schema, choose your data structures, add ephemeral ripples, wire it to a Lustre UI, and test convergence with the sluice."
+  description="A six-step guide to building a multiplayer app with watershed. Connect a document, define a typed schema, select data structures, add temporary signals, connect a Lustre UI, and test convergence."
 >
   <header class="gi-hero">
     <div class="gi-hero-inner">
@@ -15,10 +15,9 @@ import { steps } from "../../data/guide";
       </p>
       <h1>Build a multiplayer app,<br /><em>step by step.</em></h1>
       <p class="lede">
-        The rest of this site shows <em>what</em> watershed’s structures are and
-        how they converge. This guide is the build procedure: connect a
-        document, give it a schema, pick the right structures, add live
-        presence, wire it to a UI, and test that it converges.
+        This guide shows how to build an application with watershed. You will
+        connect a document, define its schema, select its structures, add live
+        presence, connect the user interface, and test convergence.
       </p>
       <div class="cta-row">
         <a class="cta-primary" href="/guide/connect">Start · 01 Connect →</a>
@@ -33,19 +32,17 @@ import { steps } from "../../data/guide";
         <div class="gi-build-copy">
           <h2 id="gi-build-title">What you’ll build</h2>
           <p>
-            One app runs the whole way through: <strong>Flowboard</strong>,
-            a shared kanban board. Several teammates open the same document and
-            drag cards between columns at once. It stays small on purpose (a
-            title, a map of cards, a tally of WIP-limit breaches), so every
-            step adds one working capability to the same codebase rather than
-            a new toy.
+            You will build <strong>Flowboard</strong>, a shared kanban board.
+            Several teammates can open the same document and move cards at the
+            same time. The application has a title, a card map, and a count of
+            WIP-limit breaches. Each step adds one function to the same codebase.
           </p>
           <p class="gi-prereq">
             You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}
             and a <a href="https://floodgate.tylerbutler.com">floodgate</a> server,
-            though the last step shows how to test convergence with no server
-            at all. Step 05 includes every file for a runnable Flowboard
-            project; the earlier sheets explain the pieces it assembles.
+            but the last step tests convergence without a server. Step 05
+            includes all files for a runnable Flowboard project. The earlier
+            steps explain these files.
           </p>
         </div>
         <figure class="gi-doc" aria-label="The Flowboard document shape">
@@ -63,7 +60,7 @@ import { steps } from "../../data/guide";
     <section class="gi-ledger" aria-labelledby="gi-ledger-title">
       <div class="gi-ledger-head">
         <h2 id="gi-ledger-title">The survey procedure</h2>
-        <p>Six sheets, in order. Each ends where the next begins.</p>
+        <p>Complete these six steps in order.</p>
       </div>
       <ol class="gi-steps">
         {
@@ -86,10 +83,10 @@ import { steps } from "../../data/guide";
 
     <aside class="gi-companion" aria-labelledby="gi-companion-title">
       <div>
-        <h2 id="gi-companion-title">Then compare the working shapes.</h2>
+        <h2 id="gi-companion-title">Compare working applications</h2>
         <p>
-          The procedure builds one application in order. The gallery lets you
-          choose one of thirteen browser apps by conflict rule or interaction.
+          The guide builds one application. The gallery contains thirteen
+          browser applications grouped by conflict rule and interaction type.
         </p>
         <div class="gi-companion-links">
           <a href="/examples">Browse the browser examples &#8594;</a>

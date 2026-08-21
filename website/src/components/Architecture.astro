@@ -15,10 +15,10 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
   <div class="arch-inner">
     <h2 id="arch-title">One pure core, two runtimes</h2>
     <p class="arch-intro">
-      watershed is written once and runs in two places. <code>runtime_core</code>,
-      <code>channel</code>, <code>wire</code>, and the kernels compile for both
-      targets. Erlang and JavaScript keep separate facades, runtimes, and socket
-      bindings only where the platform forces them to differ.
+      watershed uses one core on two targets. <code>runtime_core</code>,
+      <code>channel</code>, <code>wire</code>, and the kernels compile for Erlang
+      and JavaScript. Each target has a separate facade, runtime, and socket
+      binding where the platforms require different code.
     </p>
 
     <div class="strata" role="img" aria-label="Cross-section of the watershed architecture: target-specific public APIs, runtimes, and transports over a shared pure core of runtime_core, channel, wire, and kernel modules.">
@@ -38,8 +38,8 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
         <div>
           <h3>Facade: <code>watershed_js</code></h3>
           <p>
-            JavaScript-only API: immediate document handle, <code>on_ready</code>
-            callback, promises, and the same DDS verbs.
+            JavaScript-only API: an immediate document handle, an
+            <code>on_ready</code> callback, promises, and the same DDS operations.
           </p>
         </div>
       </div>
@@ -59,8 +59,8 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
         <div>
           <h3>Runtime: <code>runtime_js</code></h3>
           <p>
-            Callback-driven shell over a mutable cell; same bootstrap,
-            ordering, catch-up, and resubmit discipline.
+            A callback-based shell over a mutable cell. It uses the same
+            bootstrap, ordering, catch-up, and resubmit rules.
           </p>
         </div>
       </div>
@@ -72,11 +72,11 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
       <div class="stratum span bedrock" data-reveal="settle">
         <h3>Shared pure core</h3>
         <p>
-          <code>runtime_core</code> owns CSN/RSN, ack matching, gap detection,
-          detached attach, and resubmit. <code>channel</code> dispatches the
-          kernels hosted by the document runtime. <code>wire</code> and
-          <code>wire/*</code> encode the same operation and sequencing payloads
-          on both targets.
+          <code>runtime_core</code> manages CSN/RSN, acknowledgment matching,
+          gap detection, detached attachment, and resubmission.
+          <code>channel</code> dispatches operations to the kernels in the
+          document runtime. <code>wire</code> and <code>wire/*</code> encode the
+          same operation and sequence payloads on both targets.
         </p>
         <p class="core-modules">
           <code>map_kernel</code> · <code>counter_kernel</code> ·
@@ -109,11 +109,11 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
     </div>
 
     <p class="arch-note">
-      The boundary is enforced by target gates: <code>watershed</code> and
-      <code>runtime</code> are <code>@target(erlang)</code>;
+      Target gates enforce this boundary. <code>watershed</code> and
+      <code>runtime</code> use <code>@target(erlang)</code>.
       <code>watershed_js</code>, <code>runtime_js</code>, and
-      <code>transport_js</code> are <code>@target(javascript)</code>. The
-      ungated core underneath is the compiled code running in the browser demo.
+      <code>transport_js</code> use <code>@target(javascript)</code>. The browser
+      demo runs the compiled core without a target gate.
     </p>
   </div>
 </section>

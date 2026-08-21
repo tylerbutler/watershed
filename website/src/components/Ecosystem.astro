@@ -74,11 +74,11 @@ const flows = [
   <div class="eco-inner">
     <h2 id="eco-title">Packages and protocol boundaries</h2>
     <p>
-      The shared DDS core stays target-independent. These paths show which
-      packages provide each target’s transport and framing, and which protocol
-      types cross the client/server boundary. floodgate is shown as the
-      reference server; the same protocol also reaches levee and Fluid
-      Framework’s own routerlicious.
+      The shared DDS core is independent of the target. The paths below identify
+      the packages that provide transport and framing for each target. They also
+      identify the protocol types that cross the client/server boundary.
+      floodgate is the reference server. The same protocol works with levee and
+      Fluid Framework’s routerlicious.
     </p>
     <ol class="flow-list" aria-label="Package relationships">
       {

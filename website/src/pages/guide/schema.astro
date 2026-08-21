@@ -75,35 +75,32 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   <div class="g-block">
     <h2>Typing is a decode boundary, not a closed schema</h2>
     <p>
-      Raw key strings scattered through an app rot fast. The typed layer
-      (<code>watershed/schema</code>) lets you declare a document’s shape once
-      and read and write through it. But it is deliberately <em>not</em> a
-      closed schema: a remote peer running an older build, or a stale summary,
-      can still write any JSON to any key.
+      Repeated key strings can become inconsistent. The typed layer
+      (<code>watershed/schema</code>) lets you declare a document’s shape in one
+      place. It is not a closed schema. A remote peer with an older build, or a
+      stale summary, can write any JSON value to any key.
     </p>
     <p>
-      So typing is a <strong>decode boundary</strong>. Writes are encoded
-      through the field; reads are decoded through it and hand back a
-      <code>Result</code>. You confront the “a peer wrote something unexpected”
-      case exactly once, at the read, instead of it corrupting your state
-      silently.
+      Typing provides a <strong>decode boundary</strong>. The field encodes
+      writes and decodes reads. Each read returns a <code>Result</code>. Handle
+      an unexpected remote value at this boundary before it enters application
+      state.
     </p>
     <p>
-      Fluid Framework’s <code>SharedTree</code> puts that guarantee in the other
-      place: a stored schema the service enforces, so its reads need no error
-      arm at all. <a href="/sharedtree">The two, side by side</a> works through
-      what each choice buys and costs.
+      Fluid Framework’s <code>SharedTree</code> stores a schema in the document.
+      The service enforces that schema, so reads do not need a decode error case.
+      <a href="/sharedtree">Compare the two schema models</a>.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Declare the fields once</h2>
     <p>
-      Each slot on the root is a field. A plain value is a <code>Field</code>; a
-      handle to another channel kind is a <code>ChannelField</code>. Flowboard’s
-      root has one of each family: a string title, a cards map, a breach
-      counter. A phantom <code>Board</code> tag scopes every field to this map,
-      so the compiler stops you reading a field against the wrong document.
+      Each root slot is a field. A plain value uses <code>Field</code>. A handle
+      to another channel uses <code>ChannelField</code>. Flowboard has a string
+      title, a cards map, and a breach counter. A phantom <code>Board</code> tag
+      assigns each field to this map. The compiler rejects use of the field with
+      another document type.
     </p>
     <p>
       That tag names the document itself, not just the fields:
@@ -122,12 +119,11 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   <div class="g-block">
     <h2>Seed the channels with <code>ensure_*</code></h2>
     <p>
-      A fresh document is empty. Two clients opening it at once both want to
-      create the <code>cards</code> map and <code>wip_breaches</code> counter;
-      exactly one must win, and the other must adopt the winner.
-      <code>ensure_*</code> collapses that create-race-retry dance into a
-      declaration: from the field alone, it seeds the channel if absent and
-      resolves the existing one otherwise.
+      A new document is empty. Two clients can try to create the
+      <code>cards</code> map and <code>wip_breaches</code> counter at the same
+      time. One channel must win, and both clients must use it.
+      <code>ensure_*</code> creates a missing channel or resolves the existing
+      channel.
     </p>
     <span class="g-file">src/flowboard.gleam</span>
     <figure class="g-code">
@@ -149,10 +145,9 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     </figure>
     <div class="g-note">
       <p>
-        <strong>The boundary is the feature.</strong> That <code>Error(_)</code>
-        arm isn’t defensive boilerplate. It’s the one place a multiplayer app
-        has to decide what to do when a peer disagrees about a value’s type.
-        Handling it here keeps every read past this point total.
+        <strong>Handle type errors at the boundary.</strong> The
+        <code>Error(_)</code> case reports a value that does not match the local
+        type. Handle it here so later code receives a valid value.
       </p>
     </div>
   </div>
@@ -160,11 +155,10 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   <div class="g-block">
     <h3>Deepening: a whole record across keys</h3>
     <p>
-      When a slot holds a record rather than a scalar (a card with a column,
-      an owner, and an optional note), the <code>record1</code>…<code>record9</code>
-      builders derive the decoder <em>and</em> the encoder from a single prop
-      list, so the two can’t drift. Writes stay per-key, so concurrent edits to
-      sibling fields still merge.
+      A slot can contain a record instead of a scalar. The
+      <code>record1</code>…<code>record9</code> builders derive the decoder and
+      encoder from one property list. Writes remain per-key, so concurrent
+      changes to sibling fields can merge.
     </p>
     <figure class="g-code">
       <Code code={record} lang="gleam" theme={watershedCodeTheme} />

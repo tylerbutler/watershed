@@ -17,22 +17,22 @@ const models = [
   {
     kind: "DDS",
     name: "Distributed Data Structure",
-    gloss: "Converges by one server’s total order.",
+    gloss: "Uses one server to order all operations.",
     body: [
-      "A DDS here follows Fluid Framework’s collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
-      "The conflict policy applies on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+      "A DDS in watershed follows Fluid Framework’s collaborative-object model. Each client applies local operations before confirmation and sends them to a central sequencer. The server returns one authoritative order. Each replica applies the same ordered stream and reaches the same state.",
+      "A conflict policy interprets that order. A map uses last-write-wins, a claim uses first-writer-wins, a queue uses FIFO, and a pact uses a quorum. Server order remains authoritative.",
     ],
     tradeoff:
-      "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on.",
+      "A DDS has low metadata cost but requires a sequencer. Its conflict policy determines offline safety.",
     members: dds.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
   },
   {
     kind: "CRDT",
     name: "Conflict-free Replicated Data Type",
-    gloss: "Converges by a merge function, no order required.",
+    gloss: "Uses a merge function and does not require operation order.",
     body: [
-      "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge. No central authority is needed to referee.",
-      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count. The structure carries that safety itself; an order-based DDS relies on the runtime deduping by sequence number.",
+      "A CRDT has a commutative, associative, and idempotent merge. Two replicas converge after they receive the same updates, in any order and with any number of repetitions. A CRDT does not require a central authority.",
+      "watershed can deliver CRDT operations over a sequenced stream, but correctness does not depend on that order. A repeated delta does not change the result. An order-based DDS instead depends on runtime deduplication by sequence number.",
     ],
     tradeoff:
       "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",
@@ -41,13 +41,13 @@ const models = [
   {
     kind: "OT",
     name: "Operational Transform",
-    gloss: "Converges by transforming ops past one another.",
+    gloss: "Transforms concurrent operations against one another.",
     body: [
-      "OT takes the opposite tack from CRDTs. Instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions until any apply order lands in the same place.",
-      "watershed ships two OT kernels on the same single-op-in-flight client protocol. json_ot is a faithful port of the ottypes json0 algebra for structured JSON documents. SharedRichText runs that protocol over quill-delta's rich-text algebra (retain/insert/delete spans, attribute patches, embeds) for collaborative Quill editors. In both, concurrent ops have their positions transformed so every replica converges identically.",
+      "OT transforms each operation against concurrent operations that it did not observe. The transform changes indices and positions so that each client calculates the same result.",
+      "watershed has two OT kernels that use a one-operation-in-flight protocol. json_ot ports the ottypes json0 algebra for JSON documents. SharedRichText applies the protocol to the quill-delta rich-text algebra. Both transform the positions of concurrent operations.",
     ],
     tradeoff:
-      "Minimal per-op metadata and a natural fit for ordered sequences and rich text (SharedSequence now covers similar ground by merge). The cost: transform functions must be correct for every pair of op types.",
+      "OT uses little metadata for each operation and suits ordered sequences and rich text. Each pair of operation types requires a correct transform function.",
     members: ot.map((s) => ({
       name: s.name,
       href: s.demoHref ?? `/structures/${s.slug}#${s.id}`,
@@ -107,10 +107,9 @@ const rows = [
       </p>
       <h1>Three ways to<br /><em>agree on state.</em></h1>
       <p class="lede">
-        Every structure watershed ships has to answer one question: when two
-        clients change the same thing at once, how does everyone end up in the
-        same state? watershed has three answers: order it, merge it, or
-        transform it. Each is the right one somewhere.
+        Each structure must resolve concurrent changes. watershed supports
+        three methods: order operations, merge updates, or transform operations.
+        Select the method that matches your data and delivery requirements.
       </p>
     </div>
   </header>
@@ -153,8 +152,8 @@ const rows = [
     <section class="mod-table-section" aria-labelledby="mod-table-title">
       <h2 id="mod-table-title">Side by side</h2>
       <p class="mod-table-intro">
-        The same axes, three answers. None of these is strictly better; they
-        trade a sequencer, metadata, and offline behavior against one another.
+        Each model has different requirements for sequencing, metadata, and
+        offline operation.
       </p>
       <div class="mod-table-scroll" role="region" aria-labelledby="mod-table-title" tabindex="0">
         <table class="mod-table">

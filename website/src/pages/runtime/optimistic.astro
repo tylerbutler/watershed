@@ -23,29 +23,25 @@ let assert Some(value) = watershed.get(survey, "depth-07")
     <h2>Every edit is a bet on the order</h2>
     <p>
       When you <code>set</code> a value, watershed applies it to your local
-      replica immediately and shows it, before the server has acknowledged
-      anything. On the survey sheet that value is drawn in
-      <strong>magenta</strong>: a revision not yet field-checked. It is a
-      <em>prediction</em> of where the server's total order will place your
-      edit, rendered at once instead of after a round-trip.
+      replica before the server confirms it. On the survey sheet, that value is
+      <strong>magenta</strong>. It is a <em>prediction</em> of where the server
+      will put the edit in its total order.
     </p>
     <p>
-      That is the whole appeal of optimism, and its whole risk: you are showing
-      state that the sequence has not confirmed. watershed's job is to make the
-      confirmation, or the correction, automatic.
+      This reduces response time, but it shows unconfirmed state. watershed
+      confirms or corrects the state after sequencing.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Pending, then sequenced</h2>
     <p>
-      Every local edit moves through one lifecycle. It is <strong>applied</strong>
-      to your replica optimistically, queued <strong>outbound</strong> to the
-      server, and, when the sequencer stamps it with a sequence number,
-      <strong>acked</strong> back to you. That ack is the moment the edit stops
-      being a prediction: <code>ack_local</code> promotes it from pending to
-      sequenced, and on the sheet it re-prints from magenta to ink. Every other
-      replica receives the same edit in the same position and applies it too.
+      Each local edit has one lifecycle. The client <strong>applies</strong> it
+      to the local replica and queues it <strong>outbound</strong> to the server.
+      The sequencer assigns a sequence number and returns an
+      <strong>acknowledgment</strong>. <code>ack_local</code> then changes the
+      edit from pending to sequenced. The sheet changes it from magenta to ink.
+      Each other replica receives and applies the edit in the same position.
     </p>
     <figure class="g-code">
       <Code code={local} lang="gleam" theme={watershedCodeTheme} />
@@ -65,12 +61,11 @@ let assert Some(value) = watershed.get(survey, "depth-07")
   <div class="g-block">
     <h2>When the bet loses</h2>
     <p>
-      Optimism is only safe if losing is graceful. Two clients set the same key
-      at once; only one can be last in the order. When the sequence disagrees
-      with your prediction, the pending value simply resolves to whatever the
-      order says: for a <a href="/structures/maps#map">SharedMap</a> that is
-      last-write-wins, so a concurrent write with a later sequence number
-      supersedes yours and the magenta re-prints as the winning ink value.
+      Two clients can set the same key at the same time. Only one write can be
+      last in server order. For a{" "}
+      <a href="/structures/maps#map">SharedMap</a>, the later write replaces the
+      earlier write. The client removes the pending value and shows the
+      confirmed value.
     </p>
     <p>
       Some structures reject rather than overwrite. A{" "}
@@ -83,11 +78,9 @@ let assert Some(value) = watershed.get(survey, "depth-07")
     </p>
     <div class="g-note">
       <p>
-        <strong>Optimism never touches converged truth.</strong> Your pending
-        value only ever changes what <em>you</em> see before the ack. The
-        converged state is whatever falls out of the shared order, identical on
-        every replica, so a mispredicted edit costs one silent re-print on your
-        screen and nothing at all on anyone else's.
+        <strong>Pending state is local.</strong> Your pending value changes only
+        your local view before the acknowledgment. Shared server order defines
+        converged state on all replicas.
       </p>
     </div>
   </div>

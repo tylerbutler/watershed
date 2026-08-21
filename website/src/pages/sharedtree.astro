@@ -303,29 +303,25 @@ const rows = [
 
   <main class="doc-body">
     <div class="g-block">
-      <h2>The one difference the rest follows from</h2>
+      <h2>Schema location determines behavior</h2>
       <p>
-        SharedTree makes the schema <em>the document</em>. The
-        <code>SchemaFactory</code> id you pick is written into the container as
-        the <strong>stored schema</strong>, and from then on the service
-        enforces it. A client whose view schema disagrees cannot silently write
-        the wrong shape. Because there is one tree under one rebasable
-        changeset algebra, transactions, undo/redo, node identity, cross-parent
-        moves, and a real schema-upgrade path all fall out of the same
-        machinery.
+        SharedTree stores the schema in the document. It writes the selected
+        <code>SchemaFactory</code> ID into the container as the
+        <strong>stored schema</strong>. The service then enforces it. A client
+        with a different view schema cannot write an incompatible shape. One
+        tree and one rebasable changeset algebra support transactions, undo and
+        redo, node identity, cross-parent moves, and schema upgrades.
       </p>
       <p>
-        watershed makes the schema a <strong>decode boundary</strong> that
-        exists only in your build. The tag scoping a set of fields is a phantom
-        type, erased at compile time. Nothing about it reaches the wire, and
-        any Fluid Framework-compatible sequencer (floodgate included) stays
-        content-agnostic by design. In exchange the document is not one
-        structure but a graph of independently converging channels, so the
-        merge policy is named per slot rather than once for everything.
-        Reads hand back a <code>Result</code>, because a peer really
-        can write anything. What you do not get is atomicity, undo, or a
-        schema upgrade. Those are listed{" "}
-        <a href="#gaps">further down</a>, not buried.
+        watershed uses the schema as a <strong>decode boundary</strong> in the
+        application build. A phantom type assigns fields to a document type and
+        disappears at compile time. It does not enter the wire format, so a
+        Fluid Framework-compatible sequencer remains independent of content.
+        The document is a graph of channels, and each channel can have a
+        different merge policy. Reads return a <code>Result</code> because a
+        peer can write any JSON value. watershed does not provide atomic
+        multi-channel writes, undo, or schema upgrades. See the{" "}
+        <a href="#gaps">feature comparison</a>.
       </p>
       <div class="g-note">
         <p>
@@ -341,13 +337,12 @@ const rows = [
     <div class="g-block">
       <h2>1 · Declaring the shape</h2>
       <p>
-        Both declare once and derive the types. The difference is what the
-        declaration <em>is</em>: a <code>SchemaFactory</code> id becomes part of
-        the document, where <code>pub type Board</code> is a phantom tag that
-        exists only to stop you reading a field against the wrong map. Note the
-        counter too: SharedTree’s <code>wipBreaches</code> is a number in the
-        tree; watershed’s is a handle to a whole <code>SharedCounter</code>,
-        with commutative increments of its own.
+        Both systems declare the shape once and derive types.
+        <code>SchemaFactory</code> writes an ID into the document.
+        <code>pub type Board</code> is a phantom tag that prevents use of a field
+        with the wrong map. SharedTree stores <code>wipBreaches</code> as a
+        number in the tree. watershed stores a handle to a
+        <code>SharedCounter</code> with commutative increments.
       </p>
       <div class="st-pair">
         <figure class="g-code">
@@ -395,13 +390,11 @@ const rows = [
     <div class="g-block">
       <h2>3 · Reading and writing a field</h2>
       <p>
-        This is the whole argument in eight lines. <code>board.title</code> is a
-        <code>string</code>, and under a stored schema it cannot be anything
-        else, so the read needs no error arm. watershed cannot promise that, so
-        it does not pretend to: <code>get_field</code> returns
-        <code>Result(Option(a), FieldError)</code>, and you confront the “a peer
-        disagrees about this type” case once, at the read, instead of
-        discovering it later as corrupted state.
+        A stored schema guarantees that <code>board.title</code> is a
+        <code>string</code>, so the read needs no error case. watershed cannot
+        make this guarantee. <code>get_field</code> returns
+        <code>Result(Option(a), FieldError)</code>. Handle a value with an
+        unexpected type at the read boundary.
       </p>
       <div class="st-pair">
         <figure class="g-code">

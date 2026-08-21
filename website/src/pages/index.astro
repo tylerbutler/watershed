@@ -19,37 +19,34 @@ import Ecosystem from "../components/Ecosystem.astro";
     <Demo views={["map"]} initial="map" showPicker={false}>
       <Fragment slot="intro">
         <p>
-          On a photorevised survey sheet, magenta marks updates not yet
-          field-checked. This demo borrows that color code: edits that aren’t
-          confirmed yet are drawn in <strong class="k-pending">magenta</strong>,
-          confirmed state in <strong class="k-seq">ink</strong>. All three
-          clients run watershed’s compiled <code>map_kernel</code> Gleam code
-          and share one ordered list of changes. That is a shared map, the
-          structure most collaborative apps start with.
+          On a revised survey sheet, magenta marks updates that workers have not
+          checked in the field. This demo uses the same color code. Unconfirmed
+          edits are <strong class="k-pending">magenta</strong>, and confirmed
+          state is <strong class="k-seq">ink</strong>. All three clients run
+          watershed’s compiled <code>map_kernel</code> Gleam code. They share
+          one ordered list of changes. This structure is a shared map.
         </p>
         <p class="demo-hint">
-          Nudge a gauge, have two clients write at once, stretch the network
-          delay. The copies agree once queued writes arrive; the most recent
-          write to a key wins.
+          Change a gauge, make two clients write at once, or increase the network
+          delay. The copies agree after all queued writes arrive. The last write
+          to each key wins.
         </p>
         <p class="demo-hint">
-          Try cutting Client B’s link mid-edit: its writes park locally, the
-          others keep converging, and restoring the link catches B up and
-          resubmits what it wrote offline.
+          Disconnect Client B during an edit. Its writes remain local while the
+          other clients continue to synchronize. When you restore the link,
+          Client B receives missing writes and resubmits its offline writes.
         </p>
       </Fragment>
       <Fragment slot="outro">
         <div class="demo-outro">
         <aside class="demo-bug-teaser">
           <p>
-            <strong>Seen enough of “most recent write wins”? It has a famous
-            failure mode.</strong> Store a <em>counter</em> in this map and have
-            two people add to it at once: their increments silently overwrite
-            each other instead of adding up. It’s the classic
-            distributed-systems bug — and the reason the counter is its own
-            structure.
+            <strong>Last-write-wins maps can lose counter updates.</strong>
+            Store a <em>counter</em> in this map and let two people increment it
+            at once. One increment overwrites the other instead of adding to it.
+            Use a counter structure to prevent this error.
           </p>
-          <a href="/counter-bug">Watch a boat vanish, live →</a>
+          <a href="/counter-bug">See the lost update →</a>
         </aside>
         <p class="demo-hint demo-outro-hint">
           Every other structure runs the same way on its own page. Start with the{" "}

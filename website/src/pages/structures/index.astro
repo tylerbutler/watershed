@@ -6,9 +6,9 @@ import { categories } from "../../data/structures";
 
 <Sheet
   title="watershed — data structures"
-  description={`Field guide to watershed's collaborative data structures, grouped into families: ${categories
+  description={`Reference for watershed's collaborative data structures, grouped into families: ${categories
     .map((c) => c.name.toLowerCase())
-    .join(", ")}. How each converges, and what it is best for.`}
+    .join(", ")}. Learn how each structure converges and when to use it.`}
 >
   <header class="hub-hero">
     <div class="hub-hero-inner">
@@ -17,10 +17,10 @@ import { categories } from "../../data/structures";
       </p>
       <h1>Every structure,<br /><em>by family.</em></h1>
       <p class="lede">
-        Every structure watershed ships rides one server-sequenced stream, but
-        each one converges by its own rule. This is the field guide: pick a
-        family to see how each structure works, what it can render
-        optimistically, and what it is best for.
+        All watershed structures use one server-sequenced stream, but each
+        structure has its own convergence rule. Select a family to learn how its
+        structures work, which changes they show before confirmation, and when
+        to use them.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="/guide">Build an app with these →</a>

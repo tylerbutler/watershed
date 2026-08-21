@@ -487,8 +487,8 @@ let selector =
     example: "showcase_lustre",
     rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
     body: [
-      "The showcase mounts four other examples as panels of one document. That works because each of those apps exposes a component whose init takes a TypedMap, never a document root: nothing inside a panel can tell whether its map is the whole document or one child of it. The shell declares one ChildField per panel and ensures all four in one batch.",
-      "Document-scoped effects belong to the shell, and each has a concrete failure mode if a panel ran its own: two presence drivers share a ripple kind and cross-decode silently; go_offline is per-document and cannot be scoped down; the summary policy is one slot per document, so which panel's policy won would depend on click order.",
+      "The showcase mounts four examples as panels in one document. Each panel initializes from a TypedMap instead of a document root. The panel therefore works with either a root map or a child map. The shell declares one ChildField for each panel and ensures all four in one batch.",
+      "The shell owns document-scoped effects. Two panel-level presence drivers could share a ripple type and decode each other’s data. go_offline applies to the full document. The document also has only one summary policy. Keeping these effects in the shell prevents duplicate or conflicting drivers.",
     ],
     snippet: `/// Every tab runs this unconditionally. \`ensure_child\` creates a map only if
 /// the key is absent, so two tabs opening a *cold* document can both create one
