@@ -53,6 +53,12 @@
 //// unlike `crdt_signaling_js`: a public topic can carry strangers'
 //// bytes, and a stranger must not be able to end a room's signaling.
 ////
+//// Signaling is only half of "nothing to deploy": NAT traversal is the
+//// other half. `p2p_transport_js.public_stun_servers` pairs with this
+//// adapter for a fully serverless document — free public STUN covers
+//// most NAT pairs, and its docstring names the one shape (symmetric
+//// NATs on both ends) that still needs a TURN server of your own.
+////
 //// `nostr-tools` must be installed by the application (an optional peer
 //// dependency, as `phoenix` is for the sequenced transport): relays
 //// verify event signatures, so events must be Schnorr-signed. Keys are

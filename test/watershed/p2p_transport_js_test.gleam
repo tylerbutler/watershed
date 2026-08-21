@@ -232,6 +232,21 @@ pub fn ice_configuration_uses_browser_rtc_configuration_shape_test() {
 }
 
 @target(javascript)
+pub fn public_stun_preset_is_stun_only_and_credential_free_test() {
+  // The preset must never grow a TURN url or a credential: it is the
+  // "nothing deployed, nothing secret" option, and a credential in a
+  // shipped library would be everyone's credential.
+  p2p_transport_js.public_stun_servers()
+  |> p2p_transport_js.rtc_configuration_json
+  |> expect.to_equal(
+    "{\"iceServers\":["
+    <> "{\"urls\":[\"stun:stun.l.google.com:19302\"]},"
+    <> "{\"urls\":[\"stun:stun.cloudflare.com:3478\"]}"
+    <> "]}",
+  )
+}
+
+@target(javascript)
 pub fn document_channel_is_unordered_and_reliable_test() {
   p2p_transport_js.document_channel_label
   |> expect.to_equal("watershed-crdt-v1")

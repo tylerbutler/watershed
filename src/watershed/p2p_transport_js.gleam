@@ -216,7 +216,8 @@ pub type Signaling {
 @target(javascript)
 /// One entry of the browser's `RTCConfiguration.iceServers`. Watershed
 /// ships no STUN or TURN defaults and no credentials: a caller that wants
-/// NAT traversal supplies its own servers.
+/// NAT traversal supplies its own servers, or opts into the
+/// `public_stun_servers` preset by naming it.
 pub type IceServer {
   IceServer(
     urls: List(String),
@@ -239,6 +240,30 @@ pub fn with_credentials(
   credential credential: String,
 ) -> IceServer {
   IceServer(..server, username: Some(username), credential: Some(credential))
+}
+
+@target(javascript)
+/// Free public STUN, for callers who want NAT traversal with nothing
+/// deployed: Google's and Cloudflare's servers, two independent
+/// operators that publish these addresses for exactly this use, free,
+/// credential-free, and stable for years. STUN only tells a peer its
+/// own public address — a few request/response packets per connection —
+/// which is why it is free, and it is enough for most NAT pairs.
+///
+/// What this preset cannot cover: two peers behind *symmetric* NATs
+/// have no direct path and need TURN, which carries the whole stream
+/// and therefore has no free public offering. A caller that needs those
+/// pairs appends its own TURN server via `ice_server` +
+/// `with_credentials`.
+///
+/// These are third-party best-effort services on someone else's
+/// infrastructure, which is the trade named on the tin; a deployment
+/// that wants a service level runs its own (e.g. coturn) instead.
+pub fn public_stun_servers() -> List(IceServer) {
+  [
+    ice_server(urls: ["stun:stun.l.google.com:19302"]),
+    ice_server(urls: ["stun:stun.cloudflare.com:3478"]),
+  ]
 }
 
 @target(javascript)
