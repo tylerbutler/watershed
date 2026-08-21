@@ -251,7 +251,10 @@ pub fn server_to_string(frame: ServerFrame) -> String {
 }
 
 @target(javascript)
-fn encode_payload(payload: SignalPayload) -> Json {
+/// The signal payload codec, shared with `watershed/nostr_signaling_js`:
+/// both lanes carry the same three WebRTC blobs, so they spell them the
+/// same way.
+pub fn encode_payload(payload: SignalPayload) -> Json {
   case payload {
     Offer(sdp) ->
       json.object([#("t", json.string("offer")), #("sdp", json.string(sdp))])
@@ -356,7 +359,8 @@ fn server_decoder() -> Decoder(ServerFrame) {
 }
 
 @target(javascript)
-fn payload_decoder() -> Decoder(SignalPayload) {
+/// `encode_payload`'s decoder, public for the same reason.
+pub fn payload_decoder() -> Decoder(SignalPayload) {
   use tag <- decode.field("t", decode.string)
   case tag {
     "offer" -> {

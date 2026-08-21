@@ -110,6 +110,17 @@ signaling-test:
     gleam build --target javascript
     node tools/signaling/test.mjs
 
+# The serverless signaling adapter's own tests: census roster and mutual
+# discovery over gossip, routing and room isolation via derived topics,
+# cross-relay dedupe, failure reporting, and — the point of the encrypted
+# lane — that a relay never holds a legible byte. Driven against an
+# in-process NIP-01 relay stub (`watershed/nostr_signaling_js` needs no
+# deployed service; public Nostr relays play the signaler). Real sockets,
+# so this is a node script rather than a `gleam test` case.
+nostr-test:
+    gleam build --target javascript
+    node tools/nostr/test.mjs
+
 # The reference relay: a durable `crdt_relay_v1` fan-out point for CRDT
 # documents. It stamps a diagnostic order, keeps an append-only log it can
 # replay, and broadcasts what it accepts — it merges nothing and decodes no

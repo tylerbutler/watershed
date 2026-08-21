@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Node dependencies for watershed's live JavaScript integration suite (test/live_js.gleam) and its p2p reference services (tools/signaling and tools/relay). The library itself has no npm dependencies; `phoenix` is an optional peer dep of the real transport, and `ws` supplies the WebSocket global Node lacks as well as the signaling service's server.",
+  "description": "Node dependencies for watershed's live JavaScript integration suite (test/live_js.gleam) and its p2p reference services (tools/signaling and tools/relay). The library itself has no npm dependencies; `phoenix` is an optional peer dep of the real transport, `nostr-tools` is an optional peer dep of the serverless nostr signaling adapter, and `ws` supplies the WebSocket global Node lacks as well as the signaling service's server.",
   "scripts": {
     "live-js": "gleam test --target javascript && node smoke/run.mjs"
   },
   "dependencies": {
+    "nostr-tools": "^2.24.3",
     "phoenix": "^1.8.8",
     "ws": "^8.21.0"
   }
