@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Peer-to-peer markdown notes with disk-first persistence",
   "scripts": {
-    "build": "gleam build --target javascript && esbuild build/dev/javascript/markdown_notes_lustre/markdown_notes_lustre.mjs --bundle --format=esm --outfile=dist/markdown_notes_lustre.mjs && node scripts/stamp-sw.mjs",
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/markdown_notes_lustre/markdown_notes_lustre.mjs --bundle --format=esm --outfile=dist/markdown_notes_lustre.mjs && node scripts/copy-fonts.mjs && node scripts/stamp-sw.mjs",
     "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/markdown_notes_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
     "smoke:deterministic": "pnpm run build:smoke && node smoke/run.mjs",
     "smoke:browser": "pnpm run build && node smoke/browser.mjs",
@@ -13,6 +13,7 @@
     "serve": "python3 -m http.server 8080"
   },
   "dependencies": {
+    "@fontsource-variable/saira": "^5.3.0",
     "esbuild": "^0.28.1",
     "phoenix": "^1.8.8",
     "ws": "^8.21.0"

@@ -10,7 +10,7 @@ erl_crash.dump
 
 # Local tool state
 /.claude/
-/.impeccable/
+.impeccable/
 /.playwright-mcp/
 /.serena/
 /.worktrees/

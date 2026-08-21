@@ -13,6 +13,9 @@ const SHELL = [
   "./",
   "./index.html",
   "./dist/markdown_notes_lustre.mjs",
+  // The label face ships with the shell: a panel whose lettering only arrives
+  // online is not offline-first, it just looks it on a warm cache.
+  "./fonts/saira-latin-wdth-normal.woff2",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
