@@ -41,16 +41,18 @@ import Ecosystem from "../components/Ecosystem.astro";
         <div class="demo-outro">
         <aside class="demo-bug-teaser">
           <p>
-            <strong>Last-write-wins maps can lose counter updates.</strong>
-            Store a <em>counter</em> in this map and let two people increment it
-            at once. One increment overwrites the other instead of adding to it.
-            Use a counter structure to prevent this error.
+            <strong>Seen enough of “most recent write wins”? It has a famous
+            failure mode.</strong> Store a <em>counter</em> in this map and have
+            two people add to it at once: their increments silently overwrite
+            each other instead of adding up. It’s the classic
+            distributed-systems bug — and the reason the counter is its own
+            structure.
           </p>
-          <a href="/counter-bug">See the lost update →</a>
+          <a href="/counter-bug">Watch a boat vanish, live →</a>
         </aside>
         <p class="demo-hint demo-outro-hint">
-          Each structure has a separate page and live demo. Open the{" "}
-          <a href="/structures">structure catalog</a> →
+          Every other structure runs the same way on its own page. Start with the{" "}
+          <a href="/structures">field atlas</a>, the full catalog →
         </p>
         </div>
       </Fragment>

@@ -20,7 +20,7 @@ let assert Some(value) = watershed.get(survey, "depth-07")
   description="How watershed shows a local edit before confirmation, confirms it after server sequencing, and replaces it when a concurrent write wins."
 >
   <div class="g-block">
-    <h2>Local edits predict server order</h2>
+    <h2>Every edit is a bet on the order</h2>
     <p>
       When you <code>set</code> a value, watershed applies it to your local
       replica before the server confirms it. On the survey sheet, that value is
@@ -59,7 +59,7 @@ let assert Some(value) = watershed.get(survey, "depth-07")
   </div>
 
   <div class="g-block">
-    <h2>When the server selects another write</h2>
+    <h2>When the bet loses</h2>
     <p>
       Two clients can set the same key at the same time. Only one write can be
       last in server order. For a{" "}

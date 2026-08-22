@@ -7,7 +7,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   description="How a watershed client rejoins after a dropped connection. The client resubmits pending operations and loads an available summary or retained history."
 >
   <div class="g-block">
-    <h2>Reconnect after a dropped link</h2>
+    <h2>A dropped link is not a lost document</h2>
     <p>
       A laptop can sleep, a tunnel can close, or a phone can lose its signal.
       watershed reconnects the transport and assigns the new client ID. It then
@@ -17,7 +17,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   </div>
 
   <div class="g-block">
-    <h2>Load state from a summary</h2>
+    <h2>Rehydrate from a summary</h2>
     <p>
       A long-lived document can contain thousands of operations. Replaying all
       operations on each connection makes startup time increase with document
@@ -39,7 +39,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   </div>
 
   <div class="g-block">
-    <h2>Choose a summary or retained history</h2>
+    <h2>Summary when available, history when not</h2>
     <p>
       A fresh bootstrap does not require a summary. If the server provides one,
       the runtime seeds channels from it and replays the supplied tail. Without

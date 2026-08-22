@@ -42,14 +42,15 @@ const flow = [
     <div class="dds-copy">
       <h2 id="dds-field-title">One ordered stream, one clear rule per structure</h2>
       <p>
-        watershed does not use one merge rule for all conflicts. Each structure
-        defines when local changes appear, when the server must confirm them,
-        and which data a client saves for later use.
+        watershed doesn’t paper over conflicts with one catch-all merge. Each
+        structure states a small, clear rule: what can show up instantly, what
+        has to wait for the server to confirm it, and what gets saved so a client
+        can reload later.
       </p>
       <p class="dds-atlas-note">
-        This page shows a subset of watershed’s structures. The{" "}
-        <a href="/structures">data structure catalog</a> groups all structures
-        by family and provides a live demo for each one.
+        Only a few of watershed’s structures are shown here. The rest (grouped
+        by family) live in <a href="/structures">the field atlas</a>, our full
+        catalog, each with its own live demo.
       </p>
       <nav class="family-nav" aria-label="Convergence models compared">
         <a class="family-nav-models" href="/models">DDS vs CRDT vs OT →</a>
@@ -72,11 +73,11 @@ const flow = [
                 <dd>{dds.rule}</dd>
               </div>
               <div>
-                <dt>Before confirmation</dt>
+                <dt>Before it’s confirmed</dt>
                 <dd>{dds.optimistic}</dd>
               </div>
               <div>
-                <dt>Saved data</dt>
+                <dt>What gets saved</dt>
                 <dd>{dds.summary}</dd>
               </div>
             </dl>
@@ -84,7 +85,7 @@ const flow = [
               class="field-detail annot"
               href={`/structures/${structureLinks[dds.name].slug}#${structureLinks[dds.name].id}`}
             >
-              Read details →
+              Read in depth →
             </a>
           </article>
         ))
@@ -95,11 +96,12 @@ const flow = [
 
 <section class="dds-flow" aria-labelledby="dds-flow-title">
   <div class="flow-inner">
-    <h2 id="dds-flow-title">All structures use the same change stream</h2>
+    <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Every structure above uses the same ordered change stream as the live
-      SharedMap demo. A document can host several structures as separate
-      channels. All channels share the document’s sequence.
+      Every structure above rides the same ordered stream of changes, the very
+      one the live SharedMap demo runs on. Open any family to switch which
+      structure is on screen; they all stay hosted together as channels sharing
+      one sequenced document.
     </p>
 
     <ol class="flow-steps">

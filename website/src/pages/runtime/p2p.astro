@@ -24,7 +24,7 @@ let config =
   description="How a watershed CRDT document runs on a WebRTC mesh without a sequencer. Signaling introduces peers, CRDT structures merge changes, and an optional relay provides durable storage."
 >
   <div class="g-block">
-    <h2>Run a document without a sequencer</h2>
+    <h2>A document that doesn't need a sequencer</h2>
     <p>
       Most watershed documents use server order to resolve concurrent writes.
       A <strong>CRDT document</strong> does not require this order. Browsers find
@@ -37,7 +37,7 @@ let config =
   </div>
 
   <div class="g-block">
-    <h2>Signaling introduces peers</h2>
+    <h2>Signaling introduces peers; it never sequences</h2>
     <p>
       A signaling service exchanges offers, answers, and ICE candidates so that
       two browsers can connect directly. It can also authenticate room access.
@@ -55,7 +55,7 @@ let config =
   </div>
 
   <div class="g-block">
-    <h2>Use structures with merge rules</h2>
+    <h2>Not every structure is eligible</h2>
     <p>
       Only CRDT channels can run without server order:
       <a href="/structures/counters#pn">PN counter</a>,

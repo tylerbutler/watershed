@@ -315,7 +315,7 @@ async function playBug(rig) {
   // 1 — both read the shared tally
   rig.mark(rig.cells.a, { type: "box", color: blue, strokeWidth: 2, padding: 5 });
   rig.mark(rig.cells.b, { type: "box", color: blue, strokeWidth: 2, padding: 5 });
-  rig.caption.textContent = "One boat passes each gauge house at the same time. Both clients read the tally: 41.";
+  rig.caption.textContent = "A boat locks through each house at the same moment. Both read the tally: 41.";
   rig.logLine("A reads boats-locked → 41");
   rig.logLine("B reads boats-locked → 41");
   await rig.wait(1300);
@@ -338,7 +338,7 @@ async function playBug(rig) {
   rig.seqTick("SN 1 · A set 42");
   await rig.wait(500);
   rig.seqTick("SN 2 · B set 42");
-  rig.caption.textContent = "The sequencer orders A before B. Last write wins, so B's set(42) replaces A's set(42).";
+  rig.caption.textContent = "The sequencer orders the stream: A then B. Last write wins — B's set(42) lands on top of A's.";
   await rig.wait(900);
 
   // 4 — deliver both to both replicas; converge on 42
@@ -363,7 +363,7 @@ async function playBug(rig) {
   rig.mark(recorded, { type: "circle", color: ink, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: boats-locked = 42", "lost");
   rig.caption.textContent =
-    "Two boats passed through. The tally increased by one. LWW overwrote one read-modify-write operation.";
+    "Two boats locked through. The tally moved by one. One boat vanished — LWW overwrote a read-modify-write.";
   rig.root.dataset.state = "done";
 }
 
@@ -374,7 +374,7 @@ async function playFix(rig) {
   rig.reset();
   rig.root.dataset.state = "running";
 
-  rig.caption.textContent = "The total starts at 41. Each house tallies its own column.";
+  rig.caption.textContent = "Same start (20 + 21 = 41), but each house tallies its own column.";
   await rig.wait(650);
 
   rig.logLine("A reads boats-locked/a → 20");
@@ -388,7 +388,7 @@ async function playFix(rig) {
   const b = rig.readModifyWrite("b");
   rig.render();
   rig.logLine("B writes boats-locked/b = 22 · sent", "pending");
-  rig.caption.textContent = "The two writes use different keys, so they cannot overwrite each other.";
+  rig.caption.textContent = "The two writes touch different keys — they can't overwrite each other.";
   await rig.wait(900);
 
   rig.seqTick("SN 1 · A set /a=21");
@@ -412,7 +412,7 @@ async function playFix(rig) {
   rig.mark(recorded, { type: "circle", color: blue, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: 21 + 22 = 43", "seq");
   rig.caption.textContent =
-    "Both boats are counted: 43. Commutative per-replica tallies produce the same total.";
+    "Both boats counted: 43. Commutative, per-replica tallies converge — the accounting watershed's SharedCounter does for you.";
   rig.root.dataset.state = "done";
 }
 
@@ -426,7 +426,7 @@ async function playCounter(rig) {
   rig.root.dataset.state = "running";
 
   rig.caption.textContent =
-    "SharedCounter starts both clients at 41. Neither client reads the tally before it sends an increment.";
+    "Same race, real SharedCounter. Both houses start at 41 — and neither one ever reads the tally.";
   await rig.wait(800);
 
   // 1 — the same concurrent race, but each house ships a delta, not a value
@@ -455,12 +455,12 @@ async function playCounter(rig) {
   }
   rig.render();
   rig.logLine("converged: 41 + 1 + 1 = 43", "seq");
-  rig.caption.textContent = "Each replica applies both deltas: 43. No boat is lost.";
+  rig.caption.textContent = "Both deltas land on both replicas: 43. No boat lost.";
   await rig.wait(1100);
 
   // 2 — deltas are signed: a decrement commutes with an increment the same way
   rig.caption.textContent =
-    "Signed deltas support both directions. Upstream adds a boat (+1) while downstream removes a duplicate entry (−1).";
+    "Deltas go both ways. Upstream logs another boat (+1) while downstream strikes a double-counted entry (−1) — concurrently.";
   const a2 = rig.increment("a", 1);
   rig.render();
   rig.logLine("A sends increment +1 · optimistic 44", "pending");
@@ -473,7 +473,7 @@ async function playCounter(rig) {
   await rig.wait(900);
 
   rig.caption.textContent =
-    "The replicas temporarily show 44 and 42. The sequencer then orders B's decrement first.";
+    "For a moment the replicas read 44 and 42 — then the sequencer orders B's decrement first.";
   rig.seqTick("SN 3 · B inc −1");
   await rig.wait(450);
   rig.seqTick("SN 4 · A inc +1");
@@ -493,7 +493,7 @@ async function playCounter(rig) {
   rig.mark(recorded, { type: "circle", color: ink, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: 43 + 1 − 1 = 43", "seq");
   rig.caption.textContent =
-    "Each replica applies every signed delta in sequencer order. SharedCounter increments and decrements commute.";
+    "Every signed delta counted, in the order the sequencer picked. This is SharedCounter: increments and decrements commute.";
   rig.root.dataset.state = "done";
 }
 

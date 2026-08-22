@@ -46,7 +46,7 @@ watershed.subscribe_ripples(doc, fn(ripple) {
   description="Step four of the watershed build guide: ripples send document-scoped, non-sequenced broadcasts to other connected clients. Use them for live cursors, presence, and reactions that do not belong in durable document state."
 >
   <div class="g-block">
-    <h2>Keep temporary signals outside the document</h2>
+    <h2>Not everything belongs in the document</h2>
     <p>
       Some signals have short validity. Examples include the card that a
       teammate views, a cursor position, a request for attention, or a reaction.
@@ -100,7 +100,7 @@ watershed.subscribe_ripples(doc, fn(ripple) {
   </div>
 
   <div class="g-block">
-    <h2>Track connected clients with presence</h2>
+    <h2>Presence answers "who is here"</h2>
     <p>
       Ripples do not report when a peer disconnects, so its last marker can
       remain on screen. <strong>Presence</strong> manages this lifecycle. A

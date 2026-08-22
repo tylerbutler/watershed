@@ -17,7 +17,7 @@ let config =
   description="Ripples send document-scoped, non-sequenced broadcasts. Presence uses server connection tracking or heartbeat timeouts to maintain a live session roster."
 >
   <div class="g-block">
-    <h2>Keep temporary signals outside the document</h2>
+    <h2>Not everything belongs in the document</h2>
     <p>
       Some signals have short validity. Examples include the station that a
       surveyor views, a cursor position, a request for attention, or a reaction.
@@ -31,7 +31,7 @@ let config =
   </div>
 
   <div class="g-block">
-    <h2>Send non-sequenced broadcasts</h2>
+    <h2>Ripples: broadcast and forget</h2>
     <p>
       A <strong>ripple</strong> is a document-scoped, non-sequenced broadcast
       delivered to each <em>other</em> connected client. The server does not
@@ -73,7 +73,7 @@ let config =
   </div>
 
   <div class="g-block">
-    <h2>Two presence modes</h2>
+    <h2>Two implementations, deliberately different</h2>
     <p>
       <strong>Server presence</strong> tracks each connection. A later client
       receives the complete roster in one snapshot. When a socket closes, the

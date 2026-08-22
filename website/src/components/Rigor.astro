@@ -41,11 +41,12 @@ const ledger = [
 <section class="rigor" aria-labelledby="rigor-title">
   <div class="rigor-inner">
     <div class="guarantees">
-      <h2 id="rigor-title">Implemented and tested features</h2>
+      <h2 id="rigor-title">What is implemented and tested</h2>
       <p>
-        Three test layers cover the runtime: reference models, a live floodgate
-        server, and adverse operation orders. The repository contains 1,392 test
-        functions in 105 test files. The table lists the tested features.
+        The runtime is tested three ways: against reference models, against a
+        live floodgate server, and against deliberately nasty orderings of
+        operations — 1,392 test functions across 105 test files at last count.
+        The ledger is what those checks cover: everything watershed ships.
       </p>
       <dl class="claims">
         <div data-reveal="rise">
@@ -89,8 +90,8 @@ const ledger = [
           <dd>
             Tests cover buffered out-of-order delivery, in-band operation
             requests, and client ID changes during reconnection. Pending edits
-            survive reconnection. The fuzz harness disconnects clients during a
-            trace to verify this behavior.
+            survive the round trip — the fuzz harness disconnects clients
+            mid-trace to prove it.
             <a
               class="claim-source annot"
               href="https://github.com/tylerbutler/watershed/blob/main/test/watershed/fuzz/disconnect_test.gleam"
@@ -104,7 +105,7 @@ const ledger = [
 
     <div class="ledger-wrap">
       <table class="ledger">
-        <caption class="annot">Current test coverage</caption>
+        <caption class="annot">What ships today</caption>
         <tbody>
           {
             ledger.map((row) => (
@@ -120,10 +121,10 @@ const ledger = [
         </tbody>
       </table>
       <p class="ledger-notyet">
-        <span class="annot">Install from source</span> watershed is not available
-        on Hex. Install watershed from a Git commit. watershed uses its own
-        container, attachment, and summary formats. Wire compatibility applies
-        only to operations.
+        <span class="annot">Not yet</span> a Hex release — installs are
+        git-pinned — and container, attach, and summary formats are
+        watershed’s own rather than Fluid’s. Wire compatibility is at the
+        operation layer.
       </p>
     </div>
   </div>

@@ -73,7 +73,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   description="Declare a document's shape with the typed schema layer and initialize its channels with ensure_*. Handle invalid remote JSON at the decode boundary."
 >
   <div class="g-block">
-    <h2>Typing provides a decode boundary</h2>
+    <h2>Typing is a decode boundary, not a closed schema</h2>
     <p>
       Repeated key strings can become inconsistent. The typed layer
       (<code>watershed/schema</code>) declares a document’s shape in one place.

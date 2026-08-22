@@ -99,7 +99,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   description="Step five of the watershed build guide: watershed_lustre provides Lustre effects for connections, ensure_* initialization, channel subscriptions, and presence."
 >
   <div class="g-block">
-    <h2>Declare synchronization with effects</h2>
+    <h2>Declare the wiring, don’t hand-bridge it</h2>
     <p>
       watershed’s browser facade uses callbacks such as <code>on_ready</code>,
       subscription handlers, and presence <code>on_change</code>. A manual
@@ -152,7 +152,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   </div>
 
   <div class="g-block">
-    <h2>Add presence as an effect</h2>
+    <h2>Presence, wired</h2>
     <p>
       The presence driver from step 04 is also one effect. Give it the
       payload encoder and decoder. It manages the heartbeat and TTL and calls
@@ -183,7 +183,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   </div>
 
   <div class="g-block">
-    <h2>Working project files</h2>
+    <h2>Complete working project</h2>
     <p>
       The snippets above isolate each lifecycle step. The following files are
       required to run Flowboard. The guide reads them from the example source,

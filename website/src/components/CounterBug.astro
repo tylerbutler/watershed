@@ -13,8 +13,8 @@
     <div class="cb-head">
       <p class="cb-lede">
         Two gauge houses at one lock keep the day's <code>boats-locked</code>
-        tally in one shared map cell. Run concurrent updates to see the lost
-        count. Then run each correction.
+        tally in one shared map cell. Run the race and watch a boat vanish,
+        then run the fix.
       </p>
     </div>
 
@@ -22,7 +22,7 @@
     <figure
       class="cb-rig"
       data-counter-bug="bug"
-      data-caption-idle="Select “Show the error” to send two concurrent tallies through the compiled map_kernel."
+      data-caption-idle="Press “Demonstrate the bug” to race two concurrent tallies through the compiled map_kernel."
       data-state="idle"
     >
       <figcaption class="cb-rig-label annot">
@@ -57,7 +57,7 @@
 
       <div class="cb-verdict" data-verdict hidden>
         <div class="cb-figure">
-          <span class="annot">boats that passed</span>
+          <span class="annot">boats actually locked</span>
           <span class="cb-fig-num" data-expected>43</span>
         </div>
         <div class="cb-figure">
@@ -65,9 +65,8 @@
           <span class="cb-fig-num cb-fig-loss" data-recorded>42</span>
         </div>
         <p class="cb-verdict-note">
-          One boat is missing. LWW <strong>overwrote</strong> a
-          read-modify-write operation. It did not <strong>add</strong> the
-          values.
+          One boat lost. LWW <strong>overwrote</strong> a read-modify-write; it
+          never <strong>added</strong>.
         </p>
       </div>
 
@@ -83,12 +82,12 @@
               step="0.25"
               value="0.5"
               data-cb-pace
-              title="Controls animation speed. Lower values are slower. Speed does not change the result."
+              title="Playback speed: how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
             />
             <output data-cb-pace-out>0.5×</output>
           </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
-            Show the error
+            Demonstrate the bug
           </button>
           <button type="button" class="cb-btn" data-reset>Reset</button>
         </div>
@@ -97,13 +96,13 @@
 
     <!-- ── the fix ───────────────────────────────────────────────────────── -->
     <div class="cb-fix-copy">
-      <p class="annot">Correction one · use separate keys</p>
+      <p class="annot">Fix one · make the writes commute</p>
       <p>
-        A counter cannot use one mutable map cell. Give each replica a separate
-        key and add the values. The two writes no longer use the same key. The
-        same concurrent updates now produce the correct total through
-        <code>map_kernel</code>. This layout uses one positive-only column per
-        replica, which is the structure of a G-counter. A
+        Nothing is wrong with the map: a counter just is not a single mutable
+        cell. Give each replica its own key and sum them, and the two writes
+        never contend. The <em>same</em> race now converges on the right total,
+        through the <em>same</em> <code>map_kernel</code>. This layout (one
+        positive-only column per replica) is the shape of a G-counter. A true
         G-counter also merges those columns by pairwise maximum, so duplicate
         delivery is idempotent.
       </p>
@@ -112,7 +111,7 @@
     <figure
       class="cb-rig cb-rig-fix"
       data-counter-bug="fix"
-      data-caption-idle="Select “Use separate keys” to send the same updates to separate replica tallies."
+      data-caption-idle="Press “Play the fix” to run the identical race with per-replica tallies."
       data-state="idle"
     >
       <figcaption class="cb-rig-label annot">
@@ -159,7 +158,7 @@
           <span class="cb-fig-num cb-fig-win" data-recorded>43</span>
         </div>
         <p class="cb-verdict-note">
-          Both boats are counted. Separate keys prevent the lost update.
+          Both boats counted. No shared cell, no lost update.
         </p>
       </div>
 
@@ -175,12 +174,12 @@
               step="0.25"
               value="0.5"
               data-cb-pace
-              title="Controls animation speed. Lower values are slower. Speed does not change the result."
+              title="Playback speed: how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
             />
             <output data-cb-pace-out>0.5×</output>
           </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
-            Use separate keys
+            Play the fix
           </button>
           <button type="button" class="cb-btn" data-reset>Reset</button>
         </div>
@@ -189,21 +188,22 @@
 
     <!-- ── the SharedCounter fix ─────────────────────────────────────────── -->
     <div class="cb-fix-copy">
-      <p class="annot">Correction two · send the delta</p>
+      <p class="annot">Fix two · ship the delta</p>
       <p>
-        watershed's <a href="/structures/counters">SharedCounter</a> sends the
-        delta as the operation. A client never reads the tally to
+        watershed's <a href="/structures/counters">SharedCounter</a> goes
+        further: the op <em>is</em> the delta. A client never reads the tally to
         write it back. It sends <code>increment(+1)</code>, or
-        <code>increment(−1)</code> for a correction. Signed deltas produce the
-        same sum in any order. This demo runs the compiled
-        <code>counter_kernel</code> instead of a map.
+        <code>increment(−1)</code> for a correction, and signed deltas sum the
+        same in any order. This rig runs the compiled
+        <code>counter_kernel</code>, the SharedCounter engine itself, not a
+        map at all.
       </p>
     </div>
 
     <figure
       class="cb-rig cb-rig-fix"
       data-counter-bug="counter"
-      data-caption-idle="Select “Use SharedCounter” to send two concurrent increments and a −1 correction through the compiled counter_kernel."
+      data-caption-idle="Press “Play the SharedCounter fix” to run the same race, plus a −1 correction, through the compiled counter_kernel."
       data-state="idle"
     >
       <figcaption class="cb-rig-label annot">
@@ -242,9 +242,8 @@
           <span class="cb-fig-num cb-fig-win" data-recorded>43</span>
         </div>
         <p class="cb-verdict-note">
-          Both replicas apply every delta: two <code>+1</code>s and a
-          <code>−1</code> correction. The sequencer can order them differently
-          without changing the result.
+          Every delta counted: two <code>+1</code>s and a <code>−1</code>
+          correction, in whatever order the sequencer picked.
         </p>
       </div>
 
@@ -260,12 +259,12 @@
               step="0.25"
               value="0.5"
               data-cb-pace
-              title="Controls animation speed. Lower values are slower. Speed does not change the result."
+              title="Playback speed: how fast the race plays on screen. Lower is slower; the outcome is identical at any speed."
             />
             <output data-cb-pace-out>0.5×</output>
           </label>
           <button type="button" class="cb-btn cb-btn-primary" data-play>
-            Use SharedCounter
+            Play the SharedCounter fix
           </button>
           <button type="button" class="cb-btn" data-reset>Reset</button>
         </div>
@@ -273,16 +272,16 @@
     </figure>
 
     <p class="cb-noscript" data-cb-fallback hidden>
-      Enable JavaScript to run the live kernel. A last-write-wins map can
-      lose concurrent counter increments. Use a commutative counter such as
-      watershed's{" "}
-      <a href="/structures/counters">SharedCounter</a>.
+      This demonstration needs JavaScript to run the live kernel. The takeaway:
+      storing a counter in a last-write-wins map loses concurrent increments;
+      use a commutative counter (watershed's{" "}
+      <a href="/structures/counters">SharedCounter</a>) instead.
     </p>
     <noscript>
       <p class="cb-noscript">
-        Enable JavaScript to run the live Gleam kernel. A last-write-wins
-        map can lose concurrent counter increments. Use a commutative
-        <a href="/structures/counters">SharedCounter</a>.
+        This demonstration runs a live Gleam kernel and needs JavaScript. The
+        takeaway: storing a counter in a last-write-wins map loses concurrent
+        increments; use a commutative <a href="/structures/counters">SharedCounter</a>.
       </p>
     </noscript>
   </div>

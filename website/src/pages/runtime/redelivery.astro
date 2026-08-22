@@ -7,7 +7,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   description="How watershed handles duplicate delivery. The runtime drops sequence numbers that it has already processed, and idempotent CRDT merges leave state unchanged."
 >
   <div class="g-block">
-    <h2>Assume at-least-once delivery</h2>
+    <h2>At-least-once is the honest assumption</h2>
     <p>
       Networks can deliver an update more than once. A client can resend after
       a lost acknowledgment. A <a href="/runtime/reconnect">reconnecting</a>
@@ -27,7 +27,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   </div>
 
   <div class="g-block">
-    <h2>Use an idempotent merge</h2>
+    <h2>Merge, don't apply</h2>
     <p>
       watershed's lattice counters also protect the merge layer. A{" "}
       <a href="/models">CRDT</a> is built so its merge is
@@ -49,7 +49,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   </div>
 
   <div class="g-block">
-    <h2>Deliver a duplicate delta</h2>
+    <h2>Watch it absorb, live</h2>
     <p>
       The demo shows this behavior. In PN-counter mode, a
       <strong>Deliver last delta again</strong> button sends the last sequenced

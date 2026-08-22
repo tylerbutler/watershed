@@ -29,7 +29,7 @@ const columns: Column[] = [
     title: "Data structures",
     href: "/structures",
     links: [
-      { label: "Structure catalog", href: "/structures", hub: true },
+      { label: "Field atlas", href: "/structures", hub: true },
       ...categories.map((c) => ({ label: c.name, href: `/structures/${c.slug}` })),
     ],
   },
@@ -74,8 +74,8 @@ const isCurrent = (href: string) => path === href;
 <nav class="adjoining" aria-labelledby="adjoining-title">
   <div class="adjoining-inner">
     <div class="adjoining-head">
-      <h2 id="adjoining-title" class="annot">Site index</h2>
-      <p class="annot">All website pages</p>
+      <h2 id="adjoining-title" class="annot">Adjoining sheets</h2>
+      <p class="annot">The full index: every sheet in the survey</p>
     </div>
     <div class="adjoining-grid">
       {

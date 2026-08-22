@@ -211,7 +211,7 @@ const html = `<!doctype html>
 <body>
   <div class="margin-row top">
     <span class="wordmark">watershed</span>
-    <span class="annot">Local edits apply at once · the server assigns order · clients converge</span>
+    <span class="annot">Edits apply locally — the server sequences — clients converge</span>
   </div>
 
   <div class="sheet">
@@ -224,12 +224,12 @@ const html = `<!doctype html>
     </div>
     <div class="inner">
       <h1>Edit upstream.<br>Converge<br><em>downstream.</em></h1>
-      <p class="tagline"><span class="tick">▸</span> Shared maps, sequences, counters, and sets in pure Gleam</p>
+      <p class="tagline"><span class="tick">▸</span> Shared maps, sequences, counters &amp; sets in pure Gleam</p>
     </div>
   </div>
 
   <div class="margin-row bottom">
-    <span class="annot magenta">Fluid Framework protocol design</span>
+    <span class="annot magenta">Speaks the Fluid Framework wire protocol</span>
     <span class="annot">watershed.tylerbutler.com</span>
   </div>
 </body></html>`;
