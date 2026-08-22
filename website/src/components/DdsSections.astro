@@ -24,9 +24,9 @@ const flow = [
   },
   {
     step: "3",
-    title: "Confirm / apply",
+    title: "Confirm and apply",
     detail:
-      "The source client confirms the change. All other clients apply it with the same code.",
+      "The source client confirms the change. Each other client applies it with the same code.",
   },
   {
     step: "4",
@@ -72,11 +72,11 @@ const flow = [
                 <dd>{dds.rule}</dd>
               </div>
               <div>
-                <dt>Before it’s confirmed</dt>
+                <dt>Before confirmation</dt>
                 <dd>{dds.optimistic}</dd>
               </div>
               <div>
-                <dt>What gets saved</dt>
+                <dt>Saved data</dt>
                 <dd>{dds.summary}</dd>
               </div>
             </dl>
@@ -84,7 +84,7 @@ const flow = [
               class="field-detail annot"
               href={`/structures/${structureLinks[dds.name].slug}#${structureLinks[dds.name].id}`}
             >
-              Read in depth →
+              Read details →
             </a>
           </article>
         ))
@@ -95,7 +95,7 @@ const flow = [
 
 <section class="dds-flow" aria-labelledby="dds-flow-title">
   <div class="flow-inner">
-    <h2 id="dds-flow-title">The same channel carries every structure</h2>
+    <h2 id="dds-flow-title">All structures use the same change stream</h2>
     <p>
       Every structure above uses the same ordered change stream as the live
       SharedMap demo. A document can host several structures as separate

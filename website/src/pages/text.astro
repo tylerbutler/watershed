@@ -6,25 +6,25 @@ import Ecosystem from "../components/Ecosystem.astro";
 ---
 
 <Sheet
-  title="watershed — SharedText demo"
-  description="Three browser clients type into one string through watershed's compiled text_kernel: a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence."
+  title="watershed: SharedText demo"
+  description="Three browser clients edit one string through watershed's compiled text_kernel. Stable grapheme identities let concurrent insertions and overlapping edits merge. The demo shows grapheme indexes, anchors, local edits before confirmation, and server-sequenced convergence."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
       <p class="eyebrow annot">
         <a href="/structures/sequences">← Sequences</a> · SharedText
       </p>
-      <h1>Graphemes keep<br /><em>their place.</em></h1>
+      <h1>Stable identity<br /><em>for every grapheme.</em></h1>
       <p class="lede">
-        A character offset only means something against one version of a
-        string. After two people edit the same word, “index 6” can identify
+        A character offset identifies a position in one version of a string.
+        After two people edit the same word, “index 6” can identify
         different characters on different screens.
         <strong>SharedText</strong> gives every grapheme a stable identity
         in addition to its index. You specify <em>insert at 6</em> or
-        <em>replace 0..5</em>, but the delta identifies graphemes instead of
+        <em>replace 0..5</em>. The delta identifies graphemes instead of
         offsets. Concurrent inserts remain, and overlapping edits merge.
         Indices count <strong>graphemes</strong>, not UTF-16 code units. Thus,
-        an emoji or combining accent remains one character. watershed’s
+        an emoji or combining accent remains one grapheme. watershed’s
         <code>text_kernel</code> gives each replica the same text.
       </p>
       <div class="cta-row">

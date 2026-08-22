@@ -209,7 +209,7 @@ export function initSudokuDemo() {
         "aria-label",
         `${CLIENT_LABEL[client.id]} row ${position.row + 1}, column ${
           position.col + 1
-        }, ${value == null ? "empty" : `digit ${value}`}. Type 1 through 9 to set; Delete clears.`,
+        }, ${value == null ? "empty" : `digit ${value}`}. Type 1 through 9 to set. Press Delete to clear.`,
       );
     }
 

@@ -275,7 +275,7 @@ export function initSequenceDemo() {
         (act === "down" && i === names.length - 1);
     }
     const label = bar.querySelector("[data-selected]");
-    if (label) label.textContent = data.selected ?? "select a station";
+    if (label) label.textContent = data.selected ?? "Select a station";
   }
 
   function renderRoute(client: RigClient) {
@@ -394,7 +394,7 @@ export function initSequenceDemo() {
       toggle: noteToggle,
       note: noteEl,
       caption:
-        "SharedSequence — items keep identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers. Watch a station flash magenta the moment a client edits the route, then ink on every replica as the op is sequenced and applied; the newest log line boxes as each op lands.",
+        "SharedSequence gives each item a stable identity. Concurrent insert, move, and delete operations merge without using stale indexes. A local edit appears in magenta. After sequencing, each replica shows the edit in ink and the operation log marks the latest delivery.",
     });
   }
 

@@ -17,15 +17,15 @@ let assert Some(value) = watershed.get(survey, "depth-07")
 
 <RuntimeLayout
   slug="optimistic"
-  description="How watershed renders a local edit instantly, reconciles it when the server sequences it, and unwinds it cleanly when a concurrent write wins: the pending-to-sequenced lifecycle, with no rollback code to write."
+  description="How watershed shows a local edit before confirmation, confirms it after server sequencing, and replaces it when a concurrent write wins."
 >
   <div class="g-block">
-    <h2>Every edit is a bet on the order</h2>
+    <h2>Local edits predict server order</h2>
     <p>
       When you <code>set</code> a value, watershed applies it to your local
       replica before the server confirms it. On the survey sheet, that value is
-      <strong>magenta</strong>. It is a <em>prediction</em> of where the server
-      will put the edit in its total order.
+      <strong>magenta</strong>. The value shows the expected result before the
+      server assigns the total order.
     </p>
     <p>
       This reduces response time, but it shows unconfirmed state. watershed
@@ -47,10 +47,10 @@ let assert Some(value) = watershed.get(survey, "depth-07")
       <Code code={local} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Because the local apply is synchronous, <code>get</code> is
+      Because the local apply is synchronous, <code>get</code> provides
       read-your-writes: it returns your pending value the instant you set it.
       A map subscription reports visible local and remote changes: the
-      optimistic write emits immediately, and a remote write emits when it is
+      optimistic write emits at once, and a remote write emits when it is
       applied. An acknowledgement emits no event when it only confirms the
       already-visible value. Sequence numbers still determine the converged
       winner; subscriptions are a local view-change stream, not a
@@ -59,7 +59,7 @@ let assert Some(value) = watershed.get(survey, "depth-07")
   </div>
 
   <div class="g-block">
-    <h2>When the bet loses</h2>
+    <h2>When the server selects another write</h2>
     <p>
       Two clients can set the same key at the same time. Only one write can be
       last in server order. For a{" "}
@@ -68,13 +68,12 @@ let assert Some(value) = watershed.get(survey, "depth-07")
       confirmed value.
     </p>
     <p>
-      Some structures reject rather than overwrite. A{" "}
+      Some structures reject a conflicting operation. A{" "}
       <a href="/structures/coordination#claims">claim</a> is first-writer-wins:
-      if your claim files while a peer already holds the slot, the ack carries a
-      refusal, the optimistic marker clears, and a margin note records that you
-      lost it. In every case the correction arrives through the same ack path:
-      there is no rollback branch for you to write, and no torn intermediate
-      state for a user to catch.
+      if you submit a claim after a peer holds the slot, the acknowledgment
+      reports a refusal. The client removes the pending marker and reports the
+      current holder. The same acknowledgment path handles each correction, so
+      the application does not need a separate rollback branch.
     </p>
     <div class="g-note">
       <p>
@@ -88,9 +87,9 @@ let assert Some(value) = watershed.get(survey, "depth-07")
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      Local edits render instantly as pending, promote to sequenced on ack, and
-      resolve to the order's verdict when a concurrent write wins, automatically,
-      with the same guarantee whether your prediction held or not.
+      Local edits render at once as pending, become sequenced on acknowledgment,
+      and match server order when a concurrent write wins. The same
+      lifecycle applies whether the local edit remains visible or is replaced.
     </p>
   </div>
 </RuntimeLayout>

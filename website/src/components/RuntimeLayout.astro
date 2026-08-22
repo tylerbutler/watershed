@@ -13,7 +13,7 @@ const doc = runtimeBySlug[slug];
 const { prev, next } = runtimeNeighbours(slug);
 ---
 
-<Sheet title={`watershed — ${doc.title.toLowerCase()}`} description={description}>
+<Sheet title={`watershed: ${doc.title.toLowerCase()}`} description={description}>
   <header class="r-hero">
     <div class="r-hero-inner">
       <p class="r-crumbs annot">
@@ -30,7 +30,7 @@ const { prev, next } = runtimeNeighbours(slug);
     <slot />
   </main>
 
-  <nav class="r-pager" aria-label="Runtime sheets">
+  <nav class="r-pager" aria-label="Runtime pages">
     {
       prev ? (
         <a class="r-pager-cell r-pager-prev" href={`/runtime/${prev.slug}`}>
@@ -53,7 +53,7 @@ const { prev, next } = runtimeNeighbours(slug);
       ) : (
         <a class="r-pager-cell r-pager-next" href="/guide">
           <span class="annot">Build guide →</span>
-          <span class="r-pager-gloss">Put these behaviors to work</span>
+          <span class="r-pager-gloss">Use these behaviors in an application</span>
         </a>
       )
     }

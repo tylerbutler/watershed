@@ -5,26 +5,26 @@ import Ecosystem from "../components/Ecosystem.astro";
 ---
 
 <Sheet
-  title="watershed — a counter is not a map cell"
-  description="This live example shows why a counter must not use a last-write-wins SharedMap. Concurrent read-modify-write increments overwrite one another. SharedCounter prevents the lost update."
+  title="watershed: prevent lost counter updates"
+  description="This live example shows how a last-write-wins SharedMap loses concurrent counter updates. SharedCounter preserves both increments."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
       <p class="eyebrow annot">
-        <a href="/#demo">← watershed</a> · SharedMap · a common miswiring
+        <a href="/#demo">← watershed</a> · SharedMap · common configuration error
       </p>
-      <h1>A counter is not<br />a <em>map cell.</em></h1>
+      <h1>Store counts in a<br /><em>counter structure.</em></h1>
       <p class="lede">
         SharedMap selects the write with the higher server sequence number for
-        each key. All replicas get the same value, but one read-modify-write
-        operation can overwrite another. If two clients read the same count and
-        each writes <code>count + 1</code>, both submit the same replacement
-        value. The later write adds nothing. This demo runs watershed's compiled
-        <code>map_kernel</code>.
+        each key. All replicas get the same value. One read-modify-write
+        operation can still overwrite another. If two clients read the same
+        count and each writes <code>count + 1</code>, both submit the same
+        replacement value. The later write adds nothing. This demo runs
+        watershed's compiled <code>map_kernel</code>.
       </p>
       <div class="cta-row">
-        <a class="cta-quiet" href="#counter-bug">See the bug ↓</a>
-        <a class="cta-quiet" href="/structures/counters">SharedCounter, the fix →</a>
+        <a class="cta-quiet" href="#counter-bug">View the error ↓</a>
+        <a class="cta-quiet" href="/structures/counters">Use SharedCounter →</a>
       </div>
     </div>
   </header>

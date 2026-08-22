@@ -47,27 +47,27 @@ pub fn main() {
     <div class="code-prose">
       <h2 id="code-title">A map over one sequenced stream</h2>
       <p>
-        <code>SharedMap</code> exposes familiar operations: <code>set</code>,
-        <code>get</code>, <code>subscribe</code>. There is no merge callback to
-        install: local writes apply optimistically, the server assigns their
-        sequence numbers, and the highest-sequenced write wins per key.
+        <code>SharedMap</code> provides <code>set</code>, <code>get</code>, and
+        <code>subscribe</code>. Local writes apply before confirmation. The
+        server assigns sequence numbers, and the last sequenced write wins for
+        each key.
       </p>
       <p>
-        The same API runs on the Erlang target as an OTP actor and on the
-        JavaScript target inside a Lustre single-page app: see{" "}
+        The Erlang target runs the API in an OTP actor. The JavaScript target
+        runs it in a Lustre single-page application. See{" "}
         <a href="https://github.com/tylerbutler/watershed/tree/main/examples"
           >the examples</a
-        > for both, verified converging against a live floodgate sequencer.
+        > for both targets and live floodgate convergence checks.
       </p>
       <p class="code-cta">
         <a href="/guide"
-          >Build an app, step by step: the field guide →</a
+          >Build an application with the guide →</a
         >
       </p>
     </div>
     <figure class="code-figure" data-reveal="rise">
       <Code code={sample} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">examples · erlang + javascript targets</figcaption>
+      <figcaption class="annot">Examples · Erlang and JavaScript targets</figcaption>
     </figure>
   </div>
 </section>

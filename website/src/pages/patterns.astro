@@ -18,16 +18,16 @@ const grouped = practiceGroups.map((group) => ({
 ---
 
 <Sheet
-  title="watershed — patterns from the examples"
-  description="Best practices extracted one per example: relay decorators, quorum UI, presence idioms, ripple protocols, FFI surfaces, authoritative channels, idempotent seeding, anchors, non-optimistic writes, and deterministic death tests, each with the code that proves it."
+  title="watershed: patterns from the examples"
+  description="Each example demonstrates one implementation practice with an explanation, source excerpt, and validation note."
 >
   <header class="p-hero">
     <div class="p-hero-inner">
       <p class="p-crumbs annot"><a href="/">&#8592; watershed</a> / Patterns</p>
-      <h1>Each example exists<br />to prove one thing.</h1>
+      <h1>Each example demonstrates<br />one technique.</h1>
       <p class="p-lede">
         Each section explains one technique and shows code from the application
-        that tests it. Open the complete example if you need more context.
+        that tests it. Open the example if you need more context.
       </p>
       <div class="p-actions">
         <a class="cta-primary" href="#reference">Read the reference &#8595;</a>
@@ -38,7 +38,7 @@ const grouped = practiceGroups.map((group) => ({
 
   <main id="reference" class="p-main">
     <nav class="p-index" aria-label="Practices">
-      <p class="annot">Field index</p>
+      <p class="annot">Practice index</p>
       {
         grouped.map(({ group, items }) => (
           <div class="p-index-group">
@@ -117,7 +117,7 @@ const grouped = practiceGroups.map((group) => ({
 
   <aside class="p-boundary" aria-labelledby="p-boundary-title">
     <div>
-      <h2 id="p-boundary-title">Copy the rule, not all the code</h2>
+      <h2 id="p-boundary-title">Reuse the rule</h2>
       <p>
         Reuse the lifecycle and ownership rules. Keep application-specific state
         and views in the application that uses them.

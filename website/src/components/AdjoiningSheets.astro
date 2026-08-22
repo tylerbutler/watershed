@@ -29,7 +29,7 @@ const columns: Column[] = [
     title: "Data structures",
     href: "/structures",
     links: [
-      { label: "Field atlas", href: "/structures", hub: true },
+      { label: "Structure catalog", href: "/structures", hub: true },
       ...categories.map((c) => ({ label: c.name, href: `/structures/${c.slug}` })),
     ],
   },
@@ -50,7 +50,7 @@ const columns: Column[] = [
     ],
   },
   {
-    title: "Reference & demos",
+    title: "Reference and demos",
     href: "/examples",
     links: [
       { label: "Browser examples", href: "/examples", hub: true },
@@ -62,7 +62,7 @@ const columns: Column[] = [
       { label: "JsonOt", href: "/json-ot" },
       { label: "Rich text", href: "/rich-text" },
       { label: "Sudoku", href: "/sudoku" },
-      { label: "Source ↗", href: "https://github.com/tylerbutler/watershed", external: true },
+      { label: "Source code ↗", href: "https://github.com/tylerbutler/watershed", external: true },
     ],
   },
 ];
@@ -74,8 +74,8 @@ const isCurrent = (href: string) => path === href;
 <nav class="adjoining" aria-labelledby="adjoining-title">
   <div class="adjoining-inner">
     <div class="adjoining-head">
-      <h2 id="adjoining-title" class="annot">Adjoining sheets</h2>
-      <p class="annot">The full index: every sheet in the survey</p>
+      <h2 id="adjoining-title" class="annot">Site index</h2>
+      <p class="annot">All website pages</p>
     </div>
     <div class="adjoining-grid">
       {

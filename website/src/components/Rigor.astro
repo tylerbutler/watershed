@@ -3,17 +3,17 @@ const ledger = [
   {
     n: "01",
     name: "Maps",
-    detail: "SharedMap, OR-map, and SharedDirectory: Fluid-derived op semantics, summaries, nested handles, and folder hierarchies",
+    detail: "SharedMap, OR-map, and SharedDirectory: Fluid-derived operation rules, summaries, nested handles, and folder trees",
   },
   {
     n: "02",
     name: "Counters and sets",
-    detail: "SharedCounter, G-counter, PN counter, G-set, 2P-set, and OR-set: delta merge, duplicate-safe delivery, add-wins and permanent removal",
+    detail: "SharedCounter, G-counter, PN counter, G-set, 2P-set, and OR-set: delta merges, duplicate-safe delivery, add-wins rules, and permanent removal",
   },
   {
     n: "03",
     name: "Sequences and text",
-    detail: "SharedSequence and SharedText: grapheme-indexed edits, convergent move, and anchors that survive concurrent edits",
+    detail: "SharedSequence and SharedText: grapheme-indexed edits, convergent moves, and anchors that survive concurrent edits",
   },
   {
     n: "04",
@@ -23,17 +23,17 @@ const ledger = [
   {
     n: "05",
     name: "Coordination",
-    detail: "Claims, TaskManager, ordered collection, register collection, and pact map: ownership, work queues with failover, and quorum agreement",
+    detail: "Claims, TaskManager, OrderedCollection, RegisterCollection, and PactMap: ownership, work queues with failover, and quorum agreement",
   },
   {
     n: "06",
     name: "Runtime",
-    detail: "Server-sequenced delivery, requestOps catch-up, reconnect with client-id remap, nack policy, heartbeat, resubmit, and automatic summaries",
+    detail: "Server-sequenced delivery, requestOps catch-up, reconnection with client ID changes, nack rules, heartbeats, resubmission, and automatic summaries",
   },
   {
     n: "07",
     name: "App layer",
-    detail: "Typed schema decoding, ensure_* bootstrap, presence ripples, Lustre effect bindings, and the in-memory sluice for tests",
+    detail: "Typed schema decoding, ensure_* bootstrap, presence ripples, Lustre effects, and the in-memory sluice for tests",
   },
 ];
 ---
@@ -41,24 +41,24 @@ const ledger = [
 <section class="rigor" aria-labelledby="rigor-title">
   <div class="rigor-inner">
     <div class="guarantees">
-      <h2 id="rigor-title">What is implemented and tested</h2>
+      <h2 id="rigor-title">Implemented and tested features</h2>
       <p>
-        The runtime is tested three ways: against reference models, against a
-        live floodgate server, and against deliberately nasty orderings of
-        operations — 1,392 test functions across 105 test files at last count.
-        The ledger is what those checks cover: everything watershed ships.
+        Three test layers cover the runtime: reference models, a live floodgate
+        server, and adverse operation orders. The repository contains 1,392 test
+        functions in 105 test files. The table lists the tested features.
       </p>
       <dl class="claims">
         <div data-reveal="rise">
           <dt>Property-tested convergence</dt>
           <dd>
-            Eleven reference models — map, directory, counters, claims,
-            registers, ordered collection, pact, sequence, text — each replay
-            randomized multi-client command traces, 200 per property by default
-            (<code>FUZZ_ITERATIONS</code> raises it), including partial
+            Eleven reference models cover maps, directories, counters, claims,
+            registers, ordered collections, pacts, sequences, and text. Each
+            model replays randomized multi-client command traces, 200 per
+            property by default. <code>FUZZ_ITERATIONS</code> increases the
+            count. The traces include partial
             sequencing and delivery, reconnect, rollback, stashed ops, and
-            summary-loaded joins. Invariants are checked after each command and
-            convergence after a final sync; qcheck shrinks failures and the
+            summary-loaded joins. The harness checks invariants after each
+            command and convergence after a final sync. qcheck shrinks failures, and the
             harness dumps a replayable JSON trace.
             <a
               class="claim-source annot"
@@ -71,9 +71,9 @@ const ledger = [
         <div data-reveal="rise">
           <dt>Reference-checked map ops</dt>
           <dd>
-            SharedMap’s inner <code>set</code>, <code>delete</code>, and
-            <code>clear</code> payloads are checked against 26 oracle scenarios
-            generated from <code>@fluidframework/map</code> itself, including
+            Tests compare SharedMap’s inner <code>set</code>,
+            <code>delete</code>, and <code>clear</code> payloads with 26 oracle
+            scenarios generated from <code>@fluidframework/map</code>, including
             state, events, and convergence. Container, attach, and summary
             formats remain watershed’s own.
             <a
@@ -87,9 +87,10 @@ const ledger = [
         <div data-reveal="rise">
           <dt>Reconnect safety</dt>
           <dd>
-            Buffered out-of-order delivery, in-band op requests, and client-id
-            remapping on reconnect. Pending edits survive the round trip — the
-            fuzz harness disconnects clients mid-trace to prove it.
+            Tests cover buffered out-of-order delivery, in-band operation
+            requests, and client ID changes during reconnection. Pending edits
+            survive reconnection. The fuzz harness disconnects clients during a
+            trace to verify this behavior.
             <a
               class="claim-source annot"
               href="https://github.com/tylerbutler/watershed/blob/main/test/watershed/fuzz/disconnect_test.gleam"
@@ -103,7 +104,7 @@ const ledger = [
 
     <div class="ledger-wrap">
       <table class="ledger">
-        <caption class="annot">What ships today</caption>
+        <caption class="annot">Current test coverage</caption>
         <tbody>
           {
             ledger.map((row) => (
@@ -119,10 +120,10 @@ const ledger = [
         </tbody>
       </table>
       <p class="ledger-notyet">
-        <span class="annot">Not yet</span> a Hex release — installs are
-        git-pinned — and container, attach, and summary formats are
-        watershed’s own rather than Fluid’s. Wire compatibility is at the
-        operation layer.
+        <span class="annot">Install from source</span> watershed is not available
+        on Hex. Install watershed from a Git commit. watershed uses its own
+        container, attachment, and summary formats. Wire compatibility applies
+        only to operations.
       </p>
     </div>
   </div>

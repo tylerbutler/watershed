@@ -22,11 +22,11 @@ export const exampleGroups: {
     id: "foundation",
     title: "Foundation and lifecycle",
     description:
-      "Small applications that show connection, bootstrap, subscription, and one shared structure.",
+      "Small applications that show how to connect, initialize, subscribe, and use one shared structure.",
   },
   {
     id: "conflicts",
-    title: "Conflict semantics",
+    title: "Conflict rules",
     description:
       "Similar interactions that use different merge and arbitration rules.",
   },
@@ -34,11 +34,11 @@ export const exampleGroups: {
     id: "composition",
     title: "Composition and presence",
     description:
-      "Documents with several channels, nested applications, or temporary collaboration data.",
+      "Applications with several channels, nested components, or temporary collaboration data.",
   },
   {
     id: "specialized",
-    title: "Specialized interaction",
+    title: "Specialized interfaces",
     description:
       "Editors and visual interfaces that depend on browser behavior.",
   },
@@ -50,10 +50,10 @@ export const examples: Example[] = [
     name: "Flowboard",
     group: "foundation",
     summary:
-      "The complete build-guide application with typed bootstrap, shared cards, a counter, and presence.",
+      "The build-guide application uses typed initialization, shared cards, a counter, and presence.",
     structures: ["SharedMap", "SharedCounter", "Presence"],
     payoff:
-      "One declared Lustre effect loop handles local and remote card moves.",
+      "One Lustre effect loop handles local and remote card moves.",
   },
   {
     id: "dice_lustre",
@@ -63,7 +63,7 @@ export const examples: Example[] = [
       "A small Gleam browser client that shares one last-write-wins die value.",
     structures: ["SharedMap"],
     payoff:
-      "Two tabs use the same pure core as the BEAM client, converge, and recover after reconnection.",
+      "Two tabs use the same pure core as the BEAM client. They converge and recover after reconnection.",
   },
   {
     id: "clap_counter_lustre",
@@ -73,17 +73,17 @@ export const examples: Example[] = [
       "A one-channel test of concurrent PN-counter increments over WebRTC without server sequencing.",
     structures: ["PnCounter"],
     payoff:
-      "Several tabs add all claps without a lost update or a server connection.",
+      "Several tabs preserve all clap increments without a server connection.",
   },
   {
     id: "grocery_triptych_lustre",
     name: "Grocery triptych",
     group: "conflicts",
     summary:
-      "One add/remove interaction applied to three set types in the same user interface.",
+      "One interface applies the same add and remove interaction to three set types.",
     structures: ["GSet", "TwoPSet", "OrSet"],
     payoff:
-      "Remove and add milk again to compare grow-only, tombstone, and observed-remove behavior.",
+      "Remove milk and add it again to compare grow-only, tombstone, and observed-remove rules.",
   },
   {
     id: "drum_machine_lustre",
@@ -93,7 +93,7 @@ export const examples: Example[] = [
       "A shared step sequencer with independent pattern edits and quorum-controlled tempo.",
     structures: ["OrSet", "PactMap"],
     payoff:
-      "Pattern edits appear at once, but a tempo change waits for all connected signers.",
+      "Pattern edits appear at once. A tempo change waits for all connected clients.",
   },
   {
     id: "tournament_bracket_lustre",
@@ -103,7 +103,7 @@ export const examples: Example[] = [
       "Seven atomic registers retain all submitted match results and select one official winner per match.",
     structures: ["RegisterCollection", "Presence"],
     payoff:
-      "Conflicting reports select one CAS winner and retain the losing submission.",
+      "Conflicting reports select one CAS winner and retain the other submission.",
   },
   {
     id: "work_queue_lustre",
@@ -113,7 +113,7 @@ export const examples: Example[] = [
       "A job-dispatch board that uses consensus queues and locks for its columns.",
     structures: ["OrderedCollection", "TaskManager", "SharedSequence"],
     payoff:
-      "One worker wins each claim. Queued work and dispatcher ownership recover after a client disconnects.",
+      "One worker receives each claim. Queued work and dispatcher ownership recover after disconnection.",
   },
   {
     id: "release_checklist_lustre",
@@ -123,37 +123,37 @@ export const examples: Example[] = [
       "A release room with an OR-set checklist, a first-writer-wins captain, and a quorum-controlled target.",
     structures: ["OrSet", "Claims", "PactMap"],
     payoff:
-      "Checks converge at once. One captain wins concurrent claims and can publish after all gates approve.",
+      "Checks converge at once. One captain receives a concurrent claim and can publish after all gates approve.",
   },
   {
     id: "retro_board_lustre",
     name: "Retro board",
     group: "composition",
     summary:
-      "A five-channel note wall with add-wins notes, conflict-free vote totals, ordered columns, and presence.",
+      "A note wall uses five channels for add-wins notes, conflict-free vote totals, ordered columns, and presence.",
     structures: ["OrMap", "SharedSequence", "Presence"],
     payoff:
-      "Concurrent notes and votes remain. The interface shows cross-channel moves as non-atomic operations.",
+      "Concurrent notes and votes remain. The interface identifies cross-channel moves as non-atomic operations.",
   },
   {
     id: "sudoku_lustre",
     name: "Collaborative Sudoku",
     group: "composition",
     summary:
-      "A typed document combining four durable structures with cursors and typing indicators in the presence tier.",
+      "A typed document uses four durable structures. The presence tier provides cursors and typing indicators.",
     structures: ["SharedMap", "OrSet", "Claims", "SharedCounter", "Presence"],
     payoff:
-      "Each data type uses a suitable conflict model: cells, notes, givens, mistakes, and presence.",
+      "Cells, notes, givens, mistakes, and presence each use a suitable conflict model.",
   },
   {
     id: "showcase_lustre",
     name: "Nested app showcase",
     group: "composition",
     summary:
-      "Four independent applications mounted as typed child maps in one document with one presence roster.",
+      "The page mounts four independent applications as typed child maps in one document with one presence roster.",
     structures: ["Child maps", "SharedText", "SharedSequence", "Claims", "OrMap"],
     payoff:
-      "Panels switch without reconnection, keep separate namespaces, and share document services.",
+      "Panels switch without reconnection. They keep separate namespaces and share document services.",
   },
   {
     id: "playlist_lustre",
@@ -163,17 +163,17 @@ export const examples: Example[] = [
       "A reorderable list that uses SharedSequence move, replace, insert, and delete operations.",
     structures: ["SharedSequence"],
     payoff:
-      "Concurrent moves and replacements converge. The application reports edits that use stale indices.",
+      "Concurrent moves and replacements converge. The application reports stale-index errors.",
   },
   {
     id: "text_lustre",
     name: "Shared text editor",
     group: "specialized",
     summary:
-      "A grapheme-aware text area with anchors, IME handling, shared cursors, and a reusable MVU component.",
+      "A text area uses grapheme indexes, anchors, IME handling, shared cursors, and a reusable MVU component.",
     structures: ["SharedText", "Presence"],
     payoff:
-      "Small text operations converge without replacing the document or losing the local caret.",
+      "Small text operations converge without replacing the document or moving the local caret.",
   },
   {
     id: "pixel_canvas_lustre",
@@ -183,7 +183,7 @@ export const examples: Example[] = [
       "A 64×64 bitmap that shows high-volume offline OR-map convergence.",
     structures: ["OrMap"],
     payoff:
-      "Two disconnected painters reconnect and produce the same image by merging sparse deltas.",
+      "Two disconnected painters reconnect and produce the same image from sparse delta merges.",
   },
 ];
 

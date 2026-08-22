@@ -181,7 +181,7 @@ const PEER_META: Record<string, { name: string; color: string }> = {
 const DOC_KEY = "doc"; // root-map key holding the shared rich-text handle
 
 const BASELINE_OPS: QuillOp[] = [
-  { insert: "Watershed " },
+  { insert: "watershed " },
   { insert: "keeps", attributes: { bold: true } },
   { insert: " every replica in the " },
   { insert: "same state", attributes: { color: "#9d174d" } },
@@ -387,7 +387,7 @@ export function initRichTextDemo() {
     const badge = client.el.querySelector("[data-pending-count]");
     if (badge instanceof HTMLElement) {
       const count = client.pending.length;
-      badge.textContent = count > 0 ? "in flight / buffered" : "synced";
+      badge.textContent = count > 0 ? `${count} pending` : "synchronized";
       badge.classList.toggle("is-pending", count > 0);
     }
     const canonicalEl = client.el.querySelector("[data-canonical]");

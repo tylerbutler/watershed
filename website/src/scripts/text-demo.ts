@@ -295,7 +295,7 @@ export function initTextDemo() {
     const readout = client.el.querySelector("[data-anchor-readout]");
     if (readout instanceof HTMLElement) {
       if (data.anchor == null || data.anchorPinnedAt == null) {
-        readout.textContent = "no anchor pinned";
+        readout.textContent = "No anchor";
         readout.classList.remove("is-pinned");
       } else {
         const resolved = watershed.text_resolve_anchor(
@@ -304,8 +304,8 @@ export function initTextDemo() {
         );
         readout.classList.add("is-pinned");
         readout.textContent = isOk(resolved)
-          ? `anchor pinned @${data.anchorPinnedAt} → now grapheme ${okValue<number>(resolved)}`
-          : `anchor pinned @${data.anchorPinnedAt} → re-anchor needed`;
+          ? `anchor set at ${data.anchorPinnedAt} · now grapheme ${okValue<number>(resolved)}`
+          : `anchor set at ${data.anchorPinnedAt} · new anchor required`;
       }
     }
     const clearBtn = client.el.querySelector("[data-anchor-clear]");

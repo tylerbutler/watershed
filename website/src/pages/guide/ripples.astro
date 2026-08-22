@@ -43,10 +43,10 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
 
 <GuideLayout
   slug="ripples"
-  description="Step four of the watershed build guide: ripples are document-scoped, non-sequenced broadcasts to every other connected client, the escape hatch for live cursors, presence, and reactions that must not become part of the document's converged state."
+  description="Step four of the watershed build guide: ripples send document-scoped, non-sequenced broadcasts to other connected clients. Use them for live cursors, presence, and reactions that do not belong in durable document state."
 >
   <div class="g-block">
-    <h2>Not everything belongs in the document</h2>
+    <h2>Keep temporary signals outside the document</h2>
     <p>
       Some signals have short validity. Examples include the card that a
       teammate views, a cursor position, a request for attention, or a reaction.
@@ -79,7 +79,8 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
       <code>subscribe_ripples</code> hands every inbound ripple to your handler.
       Match on <code>ripple_type</code>, decode <code>ripple_content</code> at
       the boundary, and use <code>ripple_client_id</code> to know which peer it
-      came from. That is enough to render a live roster of who is looking where.
+      came from. Use these fields to render a live roster of each peer's current
+      location.
     </p>
     <figure class="g-code">
       <Code code={recv} lang="gleam" theme={watershedCodeTheme} />
@@ -92,14 +93,14 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
       </p>
       <p>
         On the BEAM, <code>subscribe_ripples(doc)</code> returns a
-        <code>Subject(Ripple)</code> you receive on instead of taking a callback:
-        the same signal, shaped for OTP.
+        <code>Subject(Ripple)</code>. Receive ripples from that subject. The
+        browser facade takes a callback.
       </p>
     </div>
   </div>
 
   <div class="g-block">
-    <h2>Presence answers "who is here"</h2>
+    <h2>Track connected clients with presence</h2>
     <p>
       Ripples do not report when a peer disconnects, so its last marker can
       remain on screen. <strong>Presence</strong> manages this lifecycle. A
@@ -114,19 +115,18 @@ watershed_js.subscribe_ripples(doc, fn(ripple) {
       membership and the slower status that goes with it.
     </p>
     <p>
-      For how this tier behaves at runtime (the two implementations, the
-      heartbeat cadence and TTL of the fallback, and why a ripple never survives
-      a reconnect), see the runtime note on{" "}
-      <a href="/runtime/presence">presence &amp; ripples</a>.
+      For details about both implementations, heartbeat timing, fallback TTL,
+      and reconnection, read the runtime note on{" "}
+      <a href="/runtime/presence">presence and ripples</a>.
     </p>
   </div>
 
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Broadcast live, throwaway signals (cursors, focus, reactions) to every
-      other client without polluting the document’s converged state, and decode
-      them safely on the way in.
+      Broadcast temporary signals such as cursors, focus, and reactions to each
+      other client without changing the document’s converged state. Decode each
+      signal at the input boundary.
     </p>
   </div>
 </GuideLayout>

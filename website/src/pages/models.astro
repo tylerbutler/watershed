@@ -23,7 +23,7 @@ const models = [
       "A conflict policy interprets that order. A map uses last-write-wins, a claim uses first-writer-wins, a queue uses FIFO, and a pact uses a quorum. Server order remains authoritative.",
     ],
     tradeoff:
-      "A DDS has low metadata cost but requires a sequencer. Its conflict policy determines offline safety.",
+      "A DDS stores little merge metadata and requires a sequencer. Its conflict policy determines offline safety.",
     members: dds.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
   },
   {
@@ -32,10 +32,10 @@ const models = [
     gloss: "Uses a merge function and does not require operation order.",
     body: [
       "A CRDT has a commutative, associative, and idempotent merge. Two replicas converge after they receive the same updates, in any order and with any number of repetitions. A CRDT does not require a central authority.",
-      "watershed can deliver CRDT operations over a sequenced stream, but correctness does not depend on that order. A repeated delta does not change the result. An order-based DDS instead depends on runtime deduplication by sequence number.",
+      "watershed can deliver CRDT operations over a sequenced stream. CRDT correctness does not depend on that order. A repeated delta does not change the result. An order-based DDS depends on runtime deduplication by sequence number.",
     ],
     tradeoff:
-      "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",
+      "A CRDT merge accepts duplicate and reordered state or deltas. Offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",
     members: crdt.map((s) => ({ name: s.name, href: `/structures/${s.slug}#${s.id}` })),
   },
   {
@@ -60,44 +60,44 @@ const rows = [
     axis: "Converges via",
     dds: "one server’s total order",
     crdt: "a commutative merge function",
-    ot: "pairwise op transforms",
+    ot: "pairwise operation transforms",
   },
   {
     axis: "Needs a sequencer",
-    dds: "Yes: the order is the truth",
-    crdt: "No (watershed uses one anyway)",
+    dds: "Yes. Server order determines the result.",
+    crdt: "No. watershed can still use a sequencer for transport.",
     ot: "Yes: to assign the order to transform against",
   },
   {
-    axis: "Duplicate / reordered delivery",
+    axis: "Duplicate and reordered delivery",
     dds: "runtime orders and deduplicates by sequence number",
-    crdt: "merge is designed to absorb repeats and reordering",
+    crdt: "merge accepts repeats and reordering",
     ot: "client protocol buffers and transforms the ordered stream",
   },
   {
     axis: "Per-item metadata",
     dds: "structure-dependent; often a value plus sequence data",
     crdt: "type-dependent; may include replica slots, tags, or tombstones",
-    ot: "document state plus in-flight and buffered ops",
+    ot: "document state plus in-flight and buffered operations",
   },
   {
-    axis: "Offline / unreliable links",
+    axis: "Offline and unreliable links",
     dds: "policy and client persistence determine safety",
-    crdt: "merge supports it; storage and transport still required",
-    ot: "requires buffered ops and ordered reconnect",
+    crdt: "merge supports offline and unordered delivery; durable storage is still required",
+    ot: "requires buffered operations and ordered reconnect",
   },
   {
     axis: "Best fit",
-    dds: "clear authority, coordination",
-    crdt: "offline-first, at-least-once delivery",
+    dds: "central authority and coordination",
+    crdt: "offline editing and at-least-once delivery",
     ot: "text and ordered sequences",
   },
 ];
 ---
 
 <Sheet
-  title="watershed — DDS vs CRDT vs OT"
-  description="Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+  title="watershed: DDS vs CRDT vs OT"
+  description="Compare three convergence models: distributed data structures, conflict-free replicated data types, and operational transform. Learn which watershed structures use each model."
 >
   <header class="mod-hero">
     <div class="mod-hero-inner">
@@ -105,7 +105,7 @@ const rows = [
         <a href="/">← watershed</a> · <a href="/structures">Data structures</a> /
         Convergence models
       </p>
-      <h1>Three ways to<br /><em>agree on state.</em></h1>
+      <h1>Three<br /><em>convergence models.</em></h1>
       <p class="lede">
         Each structure must resolve concurrent changes. watershed supports
         three methods: order operations, merge updates, or transform operations.
@@ -183,12 +183,11 @@ const rows = [
 
     <section class="mod-guide" aria-labelledby="mod-guide-title">
       <div class="mod-guide-inner">
-        <h2 id="mod-guide-title">Which model fits?</h2>
+        <h2 id="mod-guide-title">Choose a convergence model</h2>
         <ol class="mod-guide-list">
           <li>
-            <strong>Start with a DDS.</strong> If a central server is already in
-            the loop and last-write-wins or explicit coordination is acceptable,
-            an order-based DDS is the least machinery for the job. Use{" "}
+            <strong>Use a DDS with a central sequencer.</strong> Use this model
+            when last-write-wins or explicit coordination is acceptable. Choose{" "}
             <a href="/structures/maps#map">SharedMap</a>,
             {" "}
             <a href="/structures/coordination#claims">Claims</a>, or
@@ -198,8 +197,8 @@ const rows = [
           <li>
             <strong>Use a CRDT when delivery is unreliable.</strong> Offline
             edits backed by durable local storage, at-least-once delivery, or a
-            counter that must survive a re-sent delta all call for a merge that
-            does not care about order:{" "}
+            counter that must accept a repeated delta require a merge that
+            produces the same result in any order:{" "}
             <a href="/structures/counters#pn">PN counter</a>,
             {" "}
             <a href="/structures/sets#orset">OR-set</a>, or
@@ -208,8 +207,8 @@ const rows = [
           </li>
           <li>
             <strong>Use OT for ordered sequences and rich text.</strong>
-            Collaborative text and lists, where positions shift as others
-            edit, are what transform functions were built for. See the{" "}
+            OT adjusts positions when concurrent edits change collaborative
+            text or lists. See the{" "}
             <a href="/json-ot">json_ot demo</a> for structured JSON or the
             {" "}
             <a href="/rich-text">SharedRichText demo</a> for a
@@ -217,9 +216,9 @@ const rows = [
           </li>
         </ol>
         <div class="mod-cta">
-          <a class="cta-primary" href="/structures">Back to the field guide</a>
+          <a class="cta-primary" href="/structures">Back to the structure catalog</a>
           <a class="cta-quiet" href="/runtime">How the runtime behaves →</a>
-          <a class="cta-quiet" href="/sharedtree">Fluid’s SharedTree, compared →</a>
+          <a class="cta-quiet" href="/sharedtree">Compare Fluid SharedTree →</a>
           <a class="cta-quiet" href="/#demo">Compare live merge policies ↓</a>
         </div>
       </div>

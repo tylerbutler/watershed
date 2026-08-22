@@ -34,13 +34,13 @@ const claimSlots = [
 ];
 const registerSlots = [
   { key: "north-bench", atomic: "Survey", lww: "Survey" },
-  { key: "gate-setpoint", atomic: "—", lww: "—" },
-  { key: "pump-mode", atomic: "—", lww: "—" },
+  { key: "gate-setpoint", atomic: "None", lww: "None" },
+  { key: "pump-mode", atomic: "None", lww: "None" },
 ];
 const pactSlots = [
   { key: "datum-grid", accepted: "Survey datum" },
-  { key: "gate-policy", accepted: "—" },
-  { key: "inspection-window", accepted: "—" },
+  { key: "gate-policy", accepted: "None" },
+  { key: "inspection-window", accepted: "None" },
 ];
 const taskSlots = [
   { key: "sluice-inspection" },
@@ -112,29 +112,30 @@ const PICKER_CELLS = [
     <slot name="intro">
       <p>
         On a photorevised survey sheet, magenta marks updates not yet
-        field-checked. This demo borrows that color code: pending edits are drawn
-        in <strong class="k-pending">magenta</strong> and sequenced state in
-        <strong class="k-seq">ink</strong>. All three clients run watershed’s compiled
-        Gleam code in one ordered stream: map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
-        kernels, TaskManager, plus the runtime counter channel.
+        field-checked. This demo uses that color code. Pending edits appear in
+        <strong class="k-pending">magenta</strong>, and sequenced state appears
+        in <strong class="k-seq">ink</strong>. All three clients run watershed’s
+        compiled Gleam code and use one ordered stream. The demo includes map,
+        counter, G-counter, PN counter, OR-map, OR-set, G-set, 2P-set, claims,
+        registers, TaskManager, OrderedCollection, and PactMap.
       </p>
       <p class="demo-hint">
-        Nudge a gauge, race a concurrent write, stretch the link latency: the
-        replicas settle to the same state after the stream drains, each
-        structure by its own rule.
+        Change a value. Submit concurrent writes. Increase the link latency.
+        Each structure uses its own rule to produce the same state on all
+        replicas after all operations arrive.
       </p>
       <p class="demo-hint">
-        These structures converge by merge rules. The other family is
-        operational transform: concurrent edits to one shared JSON document are
-        <em>transformed</em> past one another. See the{" "}
+        These structures converge by merge rules. The transforms family uses
+        operational transform. It transforms concurrent edits to one shared JSON
+        document against one another. See the{" "}
         <a href="/json-ot">JsonOt demo →</a>
       </p>
     </slot>
     </div>
     <ol class="demo-legend annot" aria-label="How an edit converges">
-      <li><span class="k-pending">1 · local edit</span> prints in magenta</li>
-      <li><span class="k-flow">2 · the sequencer</span> stamps it with an SN</li>
-      <li><span class="k-seq">3 · every client</span> lands the same ink state</li>
+      <li><span class="k-pending">1 · local edit</span> appears in magenta</li>
+      <li><span class="k-flow">2 · the sequencer</span> assigns an SN</li>
+      <li><span class="k-seq">3 · every client</span> shows the same ink state</li>
     </ol>
     </div>
   </div>
@@ -164,80 +165,83 @@ const PICKER_CELLS = [
       </fieldset>
     )}
     <p class="merge-rule" data-merge-rule="map" hidden={initial !== "map"}>
-      <strong>Merge rule: last write wins.</strong> Race two writes to the
-      same key and the op the sequencer stamps later overwrites the earlier
-      one, identically on every replica.
+        <strong>Merge rule: last write wins.</strong> Submit two writes to the
+      same key. The operation with the later sequence number overwrites the
+      earlier operation on every replica.
     </p>
     <p class="merge-rule" data-merge-rule="counter" hidden={initial !== "counter"}>
-      <strong>Merge rule: increments commute.</strong> Race two increments
-      and both apply. The counter converges on the sum; nothing is
-      overwritten.
+        <strong>Merge rule: increments commute.</strong> Submit two increments,
+      and both apply. The counter converges on the sum. Neither increment
+      overwrites the other.
     </p>
     <p class="merge-rule" data-merge-rule="gcounter" hidden={initial !== "gcounter"}>
       <strong>Merge rule: grow-only max per replica.</strong> Each client owns
-      one monotonically increasing tally. Race two inspections or deliver a
+      one tally that can only increase. Submit two inspections or deliver a
       delta twice: replicas converge by keeping the maximum count seen for
       each author.
     </p>
     <p class="merge-rule" data-merge-rule="pn" hidden={initial !== "pn"}>
-      <strong>Merge rule: deltas join a lattice.</strong> Every update
-      travels as a CRDT delta; merging is commutative and idempotent. Race
-      it, resend it, deliver it twice: it counts exactly once, and the
-      balance converges on fill&nbsp;−&nbsp;cut.
+      <strong>Merge rule: deltas join a lattice.</strong> Each client sends every
+      update as a CRDT delta. The merge is commutative and idempotent. Submit
+      concurrent updates, resend one, or deliver one twice. Each delta counts
+      once, and the balance converges on fill&nbsp;−&nbsp;cut.
     </p>
     <p class="merge-rule" data-merge-rule="claims" hidden={initial !== "claims"}>
       <strong>Merge rule: first writer wins.</strong> A claim commits only
       if the slot is still unclaimed when the sequencer stamps it (or its
-      reference SN matches the holder&rsquo;s exactly). Nothing prints
-      optimistically: a filed claim is invisible, even to you, until it
-      round-trips as won or lost.
+      reference SN matches the holder&rsquo;s exactly). The client does not show
+      a submitted claimant until the server reports whether the claim won or
+      lost.
     </p>
     <p class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
       <strong>Merge rule: add-wins, observed-remove.</strong> A strike only
-      removes stockpile entries the striker had seen. Race a strike against a
-      concurrent delivery and the row survives, with every logged yard.
-      Re-opening a struck pile brings its ledger back.
+      removes stockpile entries that the client has seen. Submit a strike and a
+      concurrent delivery. The row remains with each logged yard. Reopening a
+      struck pile restores its ledger.
     </p>
     <p class="merge-rule" data-merge-rule="orset" hidden={initial !== "orset"}>
       <strong>Merge rule: add-wins, observed-remove.</strong> Clearing a marker
-      removes only the add tags this replica had observed. Race a clear against
-      a concurrent re-mark and the marker remains present because the fresh tag
-      was unseen by the clear.
+      removes only the add tags that this replica observed. Submit a clear and a
+      concurrent mark. The marker remains because the clear did not observe the
+      new tag.
     </p>
     <p class="merge-rule" data-merge-rule="gset" hidden={initial !== "gset"}>
       <strong>Merge rule: grow-only union.</strong> Marking a benchmark is a
-      permanent fact. Race two marks or deliver one twice: the registry only
-      grows, and duplicate deltas are absorbed.
+      permanent fact. Submit two marks or deliver one twice. The registry only
+      grows, and the merge absorbs duplicate deltas.
     </p>
     <p class="merge-rule" data-merge-rule="twopset" hidden={initial !== "twopset"}>
       <strong>Merge rule: tombstone wins.</strong> A retired marker can never
-      become active again. Race a re-place against a retire: both replicas keep
-      the tombstone, and duplicate retire deltas are absorbed.
+      become active again. Submit a placement and a concurrent retirement. Both
+      replicas keep the tombstone, and the merge absorbs duplicate retirement
+      deltas.
     </p>
     <p class="merge-rule" data-merge-rule="registers" hidden={initial !== "registers"}>
-      <strong>Merge rule: atomic plus retained versions.</strong> A write that
-      knew the current atomic sequence wins the linearizable slot. Concurrent
-      losers still append a version, so LWW reads can intentionally diverge from
-      atomic reads.
+      <strong>Merge rule: atomic plus retained versions.</strong> A write wins
+      the linearizable slot when its reference sequence number matches the
+      current atomic sequence. Concurrent losing writes still append a version,
+      so LWW reads can differ from atomic reads.
     </p>
     <p class="merge-rule" data-merge-rule="ordered" hidden={initial !== "ordered"}>
       <strong>Merge rule: FIFO by sequence.</strong> Adds enter the queue in
-      server order. Acquires remove the front item when their op sequences; a
-      racing acquire may come back empty because the earlier SN already took it.
+      server order. An acquire removes the front item after the server sequences
+      the operation. A concurrent acquire can return empty because the server
+      applied the earlier operation first.
     </p>
     <p class="merge-rule" data-merge-rule="tasks" hidden={initial !== "tasks"}>
       <strong>Merge rule: one assignee, FIFO waiters.</strong> Volunteers join
       a per-task queue in sequenced order. The first connected volunteer owns the
-      task; abandon promotes the next waiter, and complete clears the queue.
+      task. Abandon promotes the next waiter, and complete clears the queue.
     </p>
     <p class="merge-rule" data-merge-rule="pact" hidden={initial !== "pact"}>
-      <strong>Merge rule: quorum acceptance.</strong> A set first prints as
-      pending with a frozen signoff list. It becomes accepted only after every
-      connected client signs off, or leaves drain the list.
+      <strong>Merge rule: quorum acceptance.</strong> The client first shows a
+      set as pending with a fixed signoff list. The value becomes accepted after
+      each connected client signs off. A client departure removes that client
+      from the list.
     </p>
     <label class="field-notes-toggle">
       <input type="checkbox" data-field-notes disabled />
-      <span class="annot">Field notes</span>
+      <span class="annot">Operation notes</span>
     </label>
   </div>
 
@@ -258,7 +262,7 @@ const PICKER_CELLS = [
                 class="link-btn"
                 data-cut-link
                 aria-pressed="false"
-                title="Sever this replica's link to the sequencer; its edits park locally until the link is restored"
+                title="Disconnect this replica from the sequencer. Its edits remain local until you restore the link."
                 disabled
               >
                 Cut link
@@ -274,7 +278,7 @@ const PICKER_CELLS = [
           </header>
           {c.id === "b" && (
             <p class="annot link-note" data-link-note hidden>
-              link cut — ops park locally until the link is restored
+              Link disconnected · operations remain local until reconnection
             </p>
           )}
           <table class="gauge-table dds-map">
@@ -434,7 +438,7 @@ const PICKER_CELLS = [
                     <code>{s.key}</code>
                   </th>
                   <td class="claim-holder">
-                    <output data-holder>{s.holder ?? "—"}</output>
+                    <output data-holder>{s.holder ?? "None"}</output>
                     <span class="annot claim-note" data-claim-note></span>
                   </td>
                   <td class="gauge-actions claim-actions">
@@ -493,10 +497,10 @@ const PICKER_CELLS = [
                     <button
                       type="button"
                       data-ormap-reopen
-                      aria-label={`Re-open ${s.key} on ${c.name}`}
+                      aria-label={`Reopen ${s.key} on ${c.name}`}
                       disabled
                     >
-                      Re-open
+                      Reopen
                     </button>
                   </td>
                 </tr>
@@ -652,7 +656,7 @@ const PICKER_CELLS = [
               <tr>
                 <th scope="col">sheet</th>
                 <th scope="col">state</th>
-                <th scope="col">op</th>
+                <th scope="col">action</th>
               </tr>
             </thead>
             <tbody>
@@ -690,7 +694,7 @@ const PICKER_CELLS = [
                 <th scope="col">pact</th>
                 <th scope="col">accepted</th>
                 <th scope="col">pending</th>
-                <th scope="col">op</th>
+                <th scope="col">action</th>
               </tr>
             </thead>
             <tbody>
@@ -704,7 +708,7 @@ const PICKER_CELLS = [
                     <output data-pact-accepted>{p.accepted}</output>
                   </td>
                   <td class="pact-value">
-                    <output data-pact-pending>—</output>
+                    <output data-pact-pending>None</output>
                     <span class="annot pact-signoffs" data-pact-signoffs></span>
                   </td>
                   <td class="gauge-actions pact-actions">
@@ -736,7 +740,7 @@ const PICKER_CELLS = [
                 <th scope="col">task</th>
                 <th scope="col">assigned</th>
                 <th scope="col">waiters</th>
-                <th scope="col">op</th>
+                <th scope="col">action</th>
               </tr>
             </thead>
             <tbody>
@@ -747,7 +751,7 @@ const PICKER_CELLS = [
                     <span class="annot task-note" data-task-note></span>
                   </th>
                   <td class="task-value">
-                    <output data-task-assignee>—</output>
+                    <output data-task-assignee>None</output>
                   </td>
                   <td class="task-value">
                     <output data-task-waiters>empty</output>
@@ -815,7 +819,7 @@ const PICKER_CELLS = [
         step="100"
         value="700"
         data-latency
-        title="Simulated network delay: how long an op spends travelling client → sequencer → replicas. This is the demo's physics: it changes ordering and which writes collide."
+        title="Simulated round-trip network delay from client to sequencer to replicas. The delay can change operation order and conflicts."
         disabled
       />
       <output data-latency-out>700 ms</output>
@@ -829,7 +833,7 @@ const PICKER_CELLS = [
         step="0.25"
         value="0.5"
         data-pace
-        title="Playback only; does not affect simulated ordering."
+        title="Changes animation speed only. It does not affect simulated ordering."
         disabled
       />
       <output data-pace-out>0.5×</output>
@@ -844,7 +848,7 @@ const PICKER_CELLS = [
       <span class="annot">Jitter ±50&nbsp;ms</span>
     </label>
     <button type="button" class="race-btn" data-race disabled>
-      Race a concurrent write
+      Submit concurrent writes
     </button>
     <button
       type="button"
@@ -854,29 +858,29 @@ const PICKER_CELLS = [
       hidden
       disabled
     >
-      Re-deliver last delta
+      Deliver last delta again
     </button>
     <button
       type="button"
       class="reset-btn"
       data-reset
-      aria-label="Reset all gauges to their surveyed baseline values"
+      aria-label="Reset all gauges to their initial values"
       disabled
     >
-      Reset survey
+      Reset values
     </button>
     <p class="status" data-status role="status">
       <span class="stamp booting">Loading</span>
-      booting watershed kernels…
+      Loading watershed kernels
     </p>
   </div>
 
   <p class="controls-hint">
     <span>
-      Latency and jitter affect simulated arrival order; animation speed
-      changes playback only. “Ops in flight” counts every hop still
-      travelling: one client&nbsp;→&nbsp;sequencer leg, then one
-      sequencer&nbsp;→&nbsp;replica leg per client.
+      Latency and jitter can change simulated arrival order. Animation speed
+      changes playback only. “Operations in flight” counts each incomplete
+      transfer: one from a client to the sequencer and one from the sequencer to
+      each replica.
     </span>
   </p>
 
@@ -895,14 +899,14 @@ const PICKER_CELLS = [
         ))}
       </div>
       <button type="button" class="race-btn strip-race" data-strip-race disabled>
-        Race a concurrent write
+        Submit concurrent writes
       </button>
     </div>
   )}
 
   <noscript>
     <p class="demo-noscript">
-      The live demo needs JavaScript: it runs watershed’s actual
+      Enable JavaScript for the live demo. The browser runs watershed’s
       <code>runtime_core</code> counter channel plus
       <code>map_kernel</code>, <code>lattice_counters/g_counter</code>,
       <code>pn_counter_kernel</code>,
@@ -910,15 +914,15 @@ const PICKER_CELLS = [
       <code>g_set_kernel</code>, <code>two_p_set_kernel</code>,
       <code>claims_kernel</code>, <code>register_collection_kernel</code>,
       <code>ordered_collection_kernel</code>, <code>task_manager_kernel</code>,
-      and <code>pact_map_kernel</code> in your browser. The rest of the page
-      works fine without it.
+      and <code>pact_map_kernel</code>. The rest of the page works without
+      JavaScript.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-demo-fallback hidden>
-    The live demo couldn’t start: it runs watershed’s runtime counter channel
-    and kernels as compiled JavaScript modules, and this browser didn’t load
-    them. The rest of the page works fine without it.{" "}
+    The live demo could not start because the browser did not load watershed’s
+    compiled runtime counter channel and kernels. The rest of the page works
+    without the demo.{" "}
     <a href="">Reload the page to retry.</a>
   </p>
 </section>
@@ -971,7 +975,7 @@ const PICKER_CELLS = [
     const status = document.querySelector("[data-status]");
     if (status instanceof HTMLElement) {
       status.innerHTML =
-        '<span class="stamp revising">Offline</span> kernels did not load, see below';
+        '<span class="stamp revising">Offline</span> kernels did not load · see the message below';
     }
   }
 </script>
@@ -2226,7 +2230,7 @@ const PICKER_CELLS = [
   }
 
   :global(.field-note)::before {
-    content: "field notes";
+    content: "operation notes";
     display: block;
     font-family: var(--font-mono);
     font-size: 0.72rem;
