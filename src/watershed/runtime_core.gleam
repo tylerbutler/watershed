@@ -1,11 +1,15 @@
 //// Pure per-connection state machine, driven by the runtime actor.
 ////
-//// Owns the client half of spillway's sequencing discipline: CSN strictly
-//// increasing per connection, RSN = last seen sequence number, dedupe by SN,
-//// FIFO ack matching, and optimistic local state for attached and detached
-//// channels. Kernel state, ops, and events (map/counter/OR-map/registers/
-//// claims) flow through the closed sums in `watershed/channel`; the
-//// sequencing discipline itself is kernel-agnostic.
+//// This module owns the client half of the sequencing discipline of spillway.
+//// The CSN increases on each connection and never repeats. The RSN is the last
+//// sequence number that the client saw. The SN removes a duplicate. The acks
+//// match in FIFO order. The local state is optimistic, for an attached channel
+//// and for a detached one.
+////
+//// The kernel state, the ops, and the events of the map, the counter, the
+//// OR-map, the registers, and the claims all pass through the closed sums in
+//// `watershed/channel`. The sequencing discipline itself does not know the
+//// kernels.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -63,58 +67,65 @@ pub type Core {
     last_seen_sn: Int,
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
-    /// The connected roster, as the integer ids the kernels tie-break on.
-    /// Seeded from the handshake's `initialClients` and maintained by the
-    /// sequenced `"join"` / `"leave"` system messages, so every replica derives
-    /// the same membership at the same sequence point.
+    /// The connected roster, as the integer ids that the kernels use to
+    /// tie-break. The `initialClients` field of the handshake fills it, and the
+    /// sequenced `"join"` and `"leave"` system messages maintain it. Every
+    /// replica thus derives the same membership at the same sequence point.
     ///
-    /// This is what a consensus kernel's quorum is drawn from: `pact_map`
-    /// freezes a signoff list from it at sequencing time and only accepts once
-    /// that list drains, so a roster that under-reports the room produces a
-    /// pact that accepts without the missing members ever agreeing.
+    /// The quorum of a consensus kernel comes from this roster. `pact_map`
+    /// freezes a signoff list from it at the sequence point, and it accepts
+    /// only after that list becomes empty. A roster that reports too few
+    /// clients thus produces a pact that accepts, and the missing members never
+    /// agreed.
     members: Set(Int),
-    /// The roster the current handshake reported, adopted into `members` the
-    /// moment replay completes.
+    /// The roster that the current handshake reported. The core moves it into
+    /// `members` when the replay completes.
     ///
-    /// It is held aside rather than applied immediately because it describes
-    /// the room *now*, and replay is about the room *then*. Adopting it at the
-    /// hand-off is still right: once the log is exhausted the client is live,
-    /// and the handshake is the better account of who is in the room than a
-    /// checkpoint plus however much history happened to be served.
+    /// The core keeps it separate, and it does not apply it immediately,
+    /// because that roster describes the room *now*, and a replay is about the
+    /// room at an earlier time. To apply it at the hand-off is still correct.
+    /// After the log ends, the client is live, and the handshake is a better
+    /// record of the room than a checkpoint with whatever history the server
+    /// served.
     live_members: Set(Int),
-    /// True while historical messages are being replayed into this core, false
-    /// once it is live.
+    /// The value is `True` while the core replays the historical messages, and
+    /// `False` after the core is live.
     ///
-    /// It gates the defences in `quorum_of`, which exist for a hazard that is
-    /// live-only: a `join` lost or reordered against the op that follows it.
-    /// Replay reads a complete, ordered log, so nothing can be missing — and
-    /// applying those defences there is actively wrong, because unioning
-    /// *self* into the quorum of an op sequenced before we joined puts this
-    /// client in a room it was not in.
+    /// This flag controls the protections in `quorum_of`. Those protections
+    /// exist for one hazard, and that hazard occurs on the live path only: a
+    /// `join` message that the client loses, or that arrives after the op that
+    /// follows it. A replay reads a complete, ordered log, so nothing can be
+    /// absent. To apply those protections during a replay is incorrect. To add
+    /// *self* to the quorum of an op that sequenced before this client joined
+    /// puts the client in a room that it was not in.
     replaying: Bool,
-    /// The sequence number of the newest checkpoint this client knows about:
-    /// the blob it bootstrapped from, a summarize op it has since observed, or
-    /// one it wrote itself. Zero on a document nothing has ever summarized.
+    /// The sequence number of the newest checkpoint that this client knows
+    /// about. That checkpoint is the blob that the client started from, a
+    /// summarize op that it saw after that, or one that it wrote itself. The
+    /// value is zero on a document that no client has summarized.
     ///
-    /// It is an upper bound rather than an exact capture point. An observed
-    /// summarize op reports the sequence number the *op* was assigned, which
-    /// is at or past the point the blob's contents were captured — the two
-    /// differ by however much the room wrote during the upload. That gap makes
-    /// the policy slightly lazier and never makes it summarize twice, which is
-    /// the direction to be wrong in. `summary_from_blob` is the exception: a
-    /// loading client takes the blob's own number, because there it is the
-    /// state being seeded that matters, not the pointer.
+    /// The value is an upper bound, and not the exact capture point. A
+    /// summarize op that the client sees reports the sequence number of the
+    /// *op*, which is at or after the point at which the writer captured the
+    /// contents of the blob. The two numbers differ by the traffic that the
+    /// room wrote during the upload. That difference makes the policy a little
+    /// slower, and it never makes the policy summarize two times, which is the
+    /// safe direction. `summary_from_blob` is the exception. A client that
+    /// loads a blob takes the number of that blob, because there the seeded
+    /// state matters, and not the pointer to it.
     ///
-    /// Nothing in the document's correctness depends on this. It exists so
-    /// `wants_summary` can answer "how much has drifted since the last
-    /// checkpoint" without asking the server.
+    /// The correctness of the document does not depend on this value. It exists
+    /// so that `wants_summary` can measure the drift after the last checkpoint
+    /// without a request to the server.
     last_summary_sn: Int,
-    /// Per-channel buffer of *owed* follow-up ops a kernel released while
-    /// applying a sequenced op (e.g. a consensus `Accept` reacting to a peer's
-    /// `Set`). Drained after each sequenced batch by `collect_released_ops`,
-    /// which stamps each with a fresh CSN + in-flight entry and hands it to the
-    /// actor loop to submit. Generic across kernels — any `channel.apply_remote`
-    /// arm can enqueue by returning owed ops.
+    /// A buffer for each channel, which holds the *owed* follow-up ops that a
+    /// kernel released while it applied a sequenced op. One example is a
+    /// consensus `Accept` op in reaction to a `Set` op from a peer.
+    /// `collect_released_ops` empties this buffer after each sequenced batch.
+    /// That function gives each op a new CSN and an in-flight entry, and it
+    /// gives the op to the actor loop to submit. The buffer works for every
+    /// kernel: any branch of `channel.apply_remote` can add to it, by returning
+    /// owed ops.
     owed: Dict(String, List(channel.ChannelOp)),
   )
 }
@@ -141,8 +152,9 @@ pub type CoreError {
   HistoryGap(detail: String)
   UnknownChannel(address: String, sequence_number: Int)
   DuplicateAttach(address: String, sequence_number: Int)
-  /// A local edit used a verb for one channel type on a channel of another
-  /// (e.g. `set` on a counter). Retryable API misuse, not document corruption.
+  /// A local edit used an operation of one channel type on a channel of
+  /// another type, for example a `set` on a counter. This is incorrect use of
+  /// the API, and the caller can retry. The document is not corrupt.
   WrongChannelType(
     address: String,
     expected: channel.ChannelType,
@@ -150,14 +162,16 @@ pub type CoreError {
   )
   OrMapModeMismatch(address: String, detail: String)
   TaskNotAssigned(address: String, task_id: String)
-  /// A directory edit was rejected by the kernel (unknown path, invalid
-  /// subdirectory name). Retryable API misuse, not document corruption.
+  /// The kernel refused a directory edit, because the path is unknown or the
+  /// subdirectory name is invalid. This is incorrect use of the API, and the
+  /// caller can retry. The document is not corrupt.
   DirectoryOpFailed(address: String, detail: String)
   SequenceOpFailed(address: String, detail: String)
-  /// A local text edit was rejected by the kernel (out-of-bounds insert
-  /// index, invalid delete/replace range). Retryable API misuse, not
-  /// document corruption. Valid empty edits never reach this path; the
-  /// kernel reports them as successful no-ops (see `text_kernel`).
+  /// The kernel refused a local text edit, because the insert index is out of
+  /// bounds, or the delete range or replace range is invalid. This is
+  /// incorrect use of the API, and the caller can retry. The document is not
+  /// corrupt. A valid empty edit never reaches this path. The kernel reports
+  /// such an edit as a success that changes nothing. See `text_kernel`.
   TextOpFailed(address: String, detail: String)
 }
 
@@ -171,8 +185,9 @@ pub type Ingested {
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
     request_ops_from: Option(Int),
-    /// Ops a single-in-flight kernel (json0) released onto the wire while its
-    /// own op was being acked. The actor loop must submit these.
+    /// The ops that a one-op-in-flight kernel, which is json0, released onto
+    /// the wire while the runtime acked its own op. The actor loop must submit
+    /// them.
     outbound: List(wire.OutboundOp),
   )
 }
@@ -183,17 +198,18 @@ pub type Summary {
     channels: List(#(String, Snapshot)),
     /// The connected roster at `sequence_number`, as kernel-side integer ids.
     ///
-    /// Membership is checkpoint state exactly like a kernel snapshot, because
-    /// consensus kernels read it: a `PactMap` freezes a signoff list from it,
-    /// and `TaskManager` judges a volunteer's authorship against it. Replaying
-    /// an op therefore needs the roster *as it stood at that op's sequence
-    /// point*, which is reconstructible only by starting from the checkpoint's
-    /// roster and advancing it with the replayed `join`/`leave` messages.
+    /// Membership is checkpoint state, the same as a kernel snapshot, because
+    /// the consensus kernels read it. A `PactMap` freezes a signoff list from
+    /// it, and `TaskManager` checks the authorship of a volunteer against it.
+    /// To replay an op thus needs the roster *at the sequence point of that
+    /// op*. The core can rebuild that roster only from the roster of the
+    /// checkpoint, advanced by the replayed `join` and `leave` messages.
     ///
-    /// `[]` is correct when replaying a document from the beginning: nobody
-    /// had joined at sequence number zero. For a real checkpoint it comes from
-    /// the summary blob's `members` (v4), captured alongside the snapshots by
-    /// the client that summarized.
+    /// An empty list is correct for a replay of a document from its start,
+    /// because no client had joined at sequence number zero. For a real
+    /// checkpoint the value comes from the `members` field of the version 4
+    /// summary blob, which the summarizing client captured with the
+    /// snapshots.
     members: List(Int),
   )
 }
@@ -202,22 +218,23 @@ pub type Summary {
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The bootstrap seed described by a fetched summary blob.
+/// The bootstrap seed that a fetched summary blob describes.
 ///
-/// The load point is taken from the blob and *only* from the blob, which is
-/// why this takes no `SummaryContext`. The server's context reports the
-/// summarize op's own sequence number, assigned when that op was sequenced —
-/// after the blob had already been captured and uploaded. Any op a peer got
-/// sequenced in that window falls between the two numbers, so seeding from the
-/// context claims the seeded state is newer than it is and the ops in between
-/// are never replayed: the served history starts after the context's number,
-/// looks perfectly contiguous, and nothing reports a gap.
+/// The load point comes from the blob, and from the blob *only*. This function
+/// thus takes no `SummaryContext` value. The context of the server reports the
+/// sequence number of the summarize op, which the server assigned when it
+/// sequenced that op, after the writer captured and uploaded the blob. Every op
+/// that a peer got sequenced in that interval falls between the two numbers. To
+/// seed from the context thus claims that the seeded state is newer than it is,
+/// and no client replays the ops between the two numbers. The served history
+/// starts after the number of the context, it appears contiguous, and nothing
+/// reports a gap.
 ///
-/// Seeding from the blob's own number cannot lose them. When the two numbers
-/// agree this is identical; when they differ the window shows up as a missing
-/// prefix and `resume_bootstrap` fills it from storage. The context is still
-/// what locates the blob — `handle` is the tree SHA — it just does not get to
-/// say what the blob contains.
+/// To seed from the number of the blob cannot lose those ops. When the two
+/// numbers agree, the result is the same. When they differ, the interval
+/// appears as a missing prefix, and `resume_bootstrap` reads it from storage.
+/// The context still locates the blob, because `handle` is the tree SHA. It
+/// does not describe the contents of that blob.
 pub fn summary_from_blob(blob: SummaryBlob) -> Summary {
   Summary(
     sequence_number: blob.sequence_number,
@@ -292,15 +309,15 @@ pub fn resume_bootstrap(
   }
 }
 
-/// Fold historical messages into the core, with `replaying` set for exactly
-/// the duration of the fold.
+/// Fold the historical messages into the core, with `replaying` set for exactly
+/// the length of the fold.
 ///
-/// Scoped here rather than held across a bootstrap because the flag turns off
-/// safety defences, and the reconnect path reaches `Ready` by a route that
-/// never passes through `settle_bootstrap` — a flag that had to be cleared by
-/// a hand-off would leak on that route and disarm `quorum_of` for the rest of
-/// the session. Setting and clearing it around the fold makes that impossible
-/// to get wrong: nothing that does not replay can observe it.
+/// The flag is set here, and not across a whole bootstrap, because it turns off
+/// the safety protections. The reconnect path reaches `Ready` by a route that
+/// never passes through `settle_bootstrap`. A flag that a hand-off had to clear
+/// would thus stay set on that route, and it would disable `quorum_of` for the
+/// rest of the session. To set and clear the flag around the fold makes that
+/// fault impossible: nothing outside a replay can observe the flag.
 fn replay(
   core: Core,
   messages: List(SequencedDocumentMessage),
@@ -314,19 +331,19 @@ fn replay(
   Core(..core, replaying: False)
 }
 
-/// The hand-off from replay to live.
+/// The hand-off from the replay to the live traffic.
 ///
-/// `Complete` is the only outcome that ends a bootstrap — `MissingPrefix` asks
-/// for another page and comes back through `resume_bootstrap` — so this is the
-/// one place that can adopt the handshake's roster exactly once, however many
-/// pages the history took.
+/// `Complete` is the only outcome that ends a bootstrap. `MissingPrefix` asks
+/// for another page, and it returns through `resume_bootstrap`. This function
+/// is thus the one place that can take the roster of the handshake, exactly one
+/// time, whatever number of pages the history needed.
 ///
-/// The reconstruction that precedes it is exact either way — from sequence
-/// number zero the `join`/`leave` messages rebuild the roster from nothing,
-/// and from a checkpoint they advance the roster the blob recorded — so this
-/// is not a correction. It is the hand-off itself: replay reasons about the
-/// room at each historical sequence point, and from here on the only sequence
-/// point that matters is now.
+/// The reconstruction before this point is exact in both routes. From sequence
+/// number zero, the `join` and `leave` messages build the roster from nothing.
+/// From a checkpoint, they advance the roster that the blob recorded. This
+/// function is thus not a correction. It is the hand-off itself. A replay
+/// reasons about the room at each historical sequence point, and after this
+/// point only the current sequence point matters.
 fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   case core.out_of_order {
     [] ->
@@ -349,10 +366,11 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
 
 /// The roster to record in a summary, as kernel-side integer ids.
 ///
-/// `summarize` only runs on a synced client, so at that moment `core.members`
-/// *is* the roster at `core.last_seen_sn` — the same sequence number the blob
-/// records. That pairing is what makes the checkpoint roster meaningful, and
-/// it is why the two are captured together rather than separately.
+/// `summarize` runs on a synchronized client only. At that moment
+/// `core.members` *is* the roster at `core.last_seen_sn`, which is the sequence
+/// number that the blob records. That pair makes the checkpoint roster
+/// meaningful, and it is the reason that the client captures the two values
+/// together.
 pub fn summary_members(core: Core) -> List(Int) {
   core.members |> set.to_list |> list.sort(by: int.compare)
 }
@@ -370,31 +388,34 @@ pub fn is_synced(core: Core) -> Bool {
   core.in_flight == []
 }
 
-/// How far the document has drifted past the newest checkpoint this client
-/// knows about — the number the automatic policy thresholds on, and the one
-/// worth showing in diagnostics. On a document nothing has summarized it is the
-/// full log length, which is the cost every joining client is paying.
+/// How far the document moved past the newest checkpoint that this client knows
+/// about. The automatic policy compares this number with its threshold, and a
+/// diagnostic view can show it. On a document that no client has summarized,
+/// this number is the full length of the log, which is the cost that every
+/// client that joins pays.
 ///
-/// Counted in **sequenced messages**, not edits: a server sequences a batch of
-/// submitted ops as one message, so a burst of writes moves this by far less
-/// than its length. Messages are the right unit, because messages are what a
-/// joining client replays.
+/// The count is in **sequenced messages**, and not in edits. A server sequences
+/// a batch of submitted ops as one message, so a burst of writes moves this
+/// number much less than the number of writes. Messages are the correct unit,
+/// because a client that joins replays messages.
 pub fn ops_since_summary(core: Core) -> Int {
   int.max(0, core.last_seen_sn - core.last_summary_sn)
 }
 
-/// Whether this client should summarize now, per `policy`.
+/// Whether this client must summarize now, under `policy`.
 ///
-/// Deliberately stricter than `is_synced`, which is only "no un-acked local
-/// edits". A summary is a claim about confirmed state at a sequence point, so
-/// every way of *not* being at that point disqualifies:
+/// This test is stricter than `is_synced`, and that is deliberate. `is_synced`
+/// reports only that there is no local edit without an ack. A summary is a
+/// claim about the confirmed state at one sequence point, so every condition
+/// that puts the core away from that point refuses the summary:
 ///
-///   - `replaying`: the core is a historical position, and the roster it would
-///     record is the room as of the checkpoint rather than now.
-///   - `in_flight`: a local edit the blob would silently omit. `summarize`
-///     refuses in this state anyway; the policy should not ask.
-///   - `out_of_order`: a `requestOps` round is outstanding, so the confirmed
-///     state is a prefix of what the server has already sequenced.
+///   - `replaying`: the core is at a historical position, and the roster that
+///     it would record is the room at the checkpoint, and not the room now.
+///   - `in_flight`: there is a local edit that the blob would omit, and it
+///     would report nothing. `summarize` refuses in this state, so the policy
+///     must not ask.
+///   - `out_of_order`: a `requestOps` round is open, so the confirmed state is
+///     a prefix of the state that the server already sequenced.
 pub fn wants_summary(core: Core, policy: Policy) -> Bool {
   !core.replaying
   && core.in_flight == []
@@ -402,19 +423,21 @@ pub fn wants_summary(core: Core, policy: Policy) -> Bool {
   && ops_since_summary(core) >= summary_policy.policy_threshold(policy)
 }
 
-/// How long this client waits before acting on `wants_summary`.
+/// How long this client waits before it acts on `wants_summary`.
 ///
-/// Derived from the client id rather than drawn at random: every client in the
-/// room crosses the threshold on the same op, and a derived delay spreads them
-/// deterministically — reproducible in a test, and needing no RNG on either
-/// target. The first summary to be sequenced advances everyone else's
-/// `last_summary_sn`, so the rest of the room re-checks and stands down.
+/// The delay comes from the client id, and not from a random source. Every
+/// client in the room crosses the threshold on the same op. A derived delay
+/// thus spreads the clients deterministically. A test can reproduce it, and
+/// neither target needs a random number generator. The first summary that
+/// sequences advances the `last_summary_sn` value of every other client, so the
+/// rest of the room checks again and stops.
 ///
-/// The multiply is doing real work. A server hands out client ids in sequence,
-/// so `id % window` puts a whole room within a few milliseconds of each other
-/// — deterministic, and no spread at all. Scrambling first turns adjacent ids
-/// into distant delays, which is the entire point of the window. The `% 100_003`
-/// keeps the product inside the range JavaScript integers represent exactly.
+/// The multiplication does necessary work. A server gives out the client ids in
+/// sequence, so `id % window` puts a whole room within a few milliseconds of
+/// each other. That result is deterministic, and it spreads nothing. To scramble
+/// the id first turns two adjacent ids into two distant delays, which is the
+/// purpose of the window. The `% 100_003` operation keeps the product inside the
+/// range of integers that JavaScript represents exactly.
 pub fn summary_jitter_ms(core: Core, policy: Policy) -> Int {
   case summary_policy.policy_jitter_ms(policy) {
     window if window <= 0 -> 0
@@ -485,15 +508,18 @@ fn seed_channels(
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Enter reconnect: keep the roster we already hold, and go back to replaying.
+/// Enter the reconnect state. Keep the roster that the core holds, and return
+/// to the replaying state.
 ///
-/// The roster is deliberately **not** replaced with the fresh handshake's yet.
-/// `resume_bootstrap` is about to replay the ops sequenced while we were away,
-/// and those must be judged against the room as it was *then* — the roster we
-/// last knew, advanced by the `join`/`leave` messages in the very gap being
-/// replayed. Adopting `initialClients` here would apply the post-reconnect room
-/// to pre-reconnect ops, which is the same time-shift that breaks a cold join,
-/// just over a shorter window. `settle_bootstrap` adopts it once the gap closes.
+/// The function does **not** replace the roster with the roster of the new
+/// handshake yet, and that is deliberate. `resume_bootstrap` replays the ops
+/// that sequenced while the client was absent, and the core must judge those
+/// ops against the room at *that* time. That room is the last roster that the
+/// client knew, advanced by the `join` and `leave` messages inside the gap that
+/// it replays. To take `initialClients` here would apply the room after the
+/// reconnect to the ops from before the reconnect. That is the same shift in
+/// time that breaks a cold join, over a shorter interval. `settle_bootstrap`
+/// takes the new roster after the gap closes.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   // `members` is left exactly as it was: it is the roster at `last_seen_sn`,
   // which is precisely where the replay about to happen starts. The gap's own
@@ -522,26 +548,27 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   )
 }
 
-/// The sequence number to `requestOps` from on a reconnect, or `None` when the
-/// handshake left nothing to catch up on.
+/// The sequence number that a reconnect must send `requestOps` from. The result
+/// is `None` when the handshake left nothing to catch up on.
 ///
-/// A reconnect must ask for its own gap. `adopt_reconnect` deliberately does not
-/// replay `initial_messages`, so the only thing that can carry `last_seen_sn` up
-/// to the handshake's checkpoint is inbound sequenced ops — and no server sends
-/// any unprompted. Floodgate ignores `lastSeenSequenceNumber` outright, and it
-/// excludes the joiner from the broadcast of the joiner's *own* join op, so a
-/// client that rejoins a room nobody else is writing to receives nothing at all.
-/// Waiting for a peer's next edit is not a catch-up strategy; it is a bet, and a
-/// quiet room loses it forever.
+/// A reconnect must ask for its own gap. `adopt_reconnect` does not replay
+/// `initial_messages`, and that is deliberate. Only an inbound sequenced op can
+/// thus move `last_seen_sn` up to the checkpoint of the handshake, and no server
+/// sends one without a request. floodgate ignores `lastSeenSequenceNumber`
+/// completely, and it removes the joining client from the broadcast of the
+/// *own* join op of that client. A client that rejoins a room where no other
+/// client writes thus receives nothing at all. To wait for the next edit of a
+/// peer is not a catch-up plan. It is a chance, and a quiet room never gives
+/// it.
 ///
-/// The result is `last_seen_sn`, not `last_seen_sn + 1`: `requestOps` is
-/// exclusive of `from` on both servers, and this matches what `handle_sequenced`
-/// already asks for when a live op reveals a gap.
+/// The result is `last_seen_sn`, and not `last_seen_sn + 1`. `requestOps`
+/// excludes `from` on both servers, and this value agrees with what
+/// `handle_sequenced` already asks for when a live op shows a gap.
 ///
-/// Note the checkpoint is essentially always ahead on a write reconnect —
-/// floodgate sequences the rejoining client's own `join` and reports *that* as
-/// the checkpoint — so this returns `Some` even for a reconnect that missed no
-/// application traffic whatsoever.
+/// The checkpoint is almost always ahead on a write reconnect, because floodgate
+/// sequences the `join` op of the rejoining client and reports *that* op as the
+/// checkpoint. This function thus returns `Some` also for a reconnect that
+/// missed no application traffic.
 pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
   case checkpoint > core.last_seen_sn {
     True -> Some(core.last_seen_sn)
@@ -549,37 +576,40 @@ pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
   }
 }
 
-/// The hand-off from a reconnect's catch-up to live traffic.
+/// The hand-off from the catch-up of a reconnect to the live traffic.
 ///
-/// The mirror of `settle_bootstrap` for the route that never passes through it.
-/// It exists so `replaying` is cleared in exactly one place on this path, which
-/// is what keeps the flag from leaking past the gap and disarming `quorum_of`
-/// for the rest of the session.
+/// This function is the equivalent of `settle_bootstrap`, for the route that
+/// never passes through it. It exists so that exactly one place on this path
+/// clears `replaying`. The flag thus cannot stay set past the gap and disable
+/// `quorum_of` for the rest of the session.
 pub fn go_live(core: Core) -> Core {
   Core(..core, replaying: False)
 }
 
-/// The quorum a sequenced op is judged against: the roster at that op's
-/// sequence point, plus — for live ops only — self and the op's author.
+/// The quorum that the core judges a sequenced op against: the roster at the
+/// sequence point of that op, and, for a live op only, this client and the
+/// author of the op.
 ///
-/// Those two are unioned in defensively rather than assumed present. A quorum
-/// that is missing a connected client accepts too early (the bug this replaced,
-/// which hardcoded `[self, author]` and never consulted the room); but a quorum
-/// naming a client that is *not* in the room can never drain, and wedges the
-/// pact forever. Self and the author are the two we know are live, because one
-/// of them is us and the other just had an op sequenced — so including them
-/// cannot wedge anything, and it covers a join message lost or reordered
-/// against the op that follows it.
+/// The function adds those two as a protection. It does not assume that they are
+/// present. A quorum without a connected client accepts too early. That was the
+/// fault that this code replaced, which used a fixed `[self, author]` list and
+/// never read the room. But a quorum that names a client outside the room can
+/// never become empty, and the pact then never completes. This client and the
+/// author are the two clients that the core knows are live: one of them is this
+/// client, and the other one just had an op sequenced. To include them thus
+/// cannot stop a pact, and it covers a join message that the client lost, or
+/// that arrived after the op that follows it.
 ///
-/// **That reasoning holds only while live.** Replay reads a complete, ordered
-/// log in which no join can be missing, and "we know self is live" is exactly
-/// the false premise: for an op sequenced before we joined, we were not in the
-/// room, and unioning self in puts this client into a quorum it was never part
-/// of — a settled consensus proposal then reconstructs as pending on us and
-/// never drains. So the defences are live-path only.
+/// **That reasoning holds on the live path only.** A replay reads a complete,
+/// ordered log, in which no join can be absent. "This client is live" is then a
+/// false premise. For an op that sequenced before this client joined, the client
+/// was not in the room, and to add it to the quorum puts it in a quorum that it
+/// was never part of. A settled consensus proposal then rebuilds as pending on
+/// this client, and it never completes. The protections are thus for the live
+/// path only.
 ///
-/// A `None` author is a system message, not client `0`: the previous code
-/// unwrapped it to `0` and injected a phantom member that never signs off.
+/// An author of `None` is a system message, and not the client `0`. The earlier
+/// code converted it to `0` and added a member that never signs off.
 fn quorum_of(core: Core, author: Option(String)) -> List(Int) {
   case core.replaying {
     True -> core.members |> set.to_list
@@ -599,10 +629,10 @@ fn quorum_with_live_defences(core: Core, author: Option(String)) -> List(Int) {
   |> set.to_list
 }
 
-/// The connected roster carried by a handshake, as kernel-side integer ids.
-/// Self is unioned in because the server builds `initialClients` from the
-/// document's presence map, which need not yet contain the client being
-/// answered.
+/// The connected roster that a handshake carries, as kernel-side integer ids.
+/// The function adds this client, because the server builds `initialClients`
+/// from the presence map of the document, and that map does not have to contain
+/// the client that the server answers.
 fn roster_of(connected: ConnectedMessage) -> Set(Int) {
   connected.initial_clients
   |> list.map(fn(client) { client_id_to_int(client.client_id) })
@@ -741,11 +771,13 @@ fn restamp_task_manager(
   }
 }
 
-/// Re-stamp a directory op on reconnect. `directory_kernel.resubmit` filters
-/// the op against the current live instance of its target path: a `Some` op is
-/// re-sent (possibly rewritten — a create resubmit re-adds this client's
-/// creator id), a `None` means the target instance no longer exists and the op
-/// is dropped, with the kernel stripping its now-orphaned pending entry.
+/// Stamp a directory op again on a reconnect. `directory_kernel.resubmit`
+/// filters the op against the current live instance of its target path. A `Some`
+/// result means that the runtime sends the op again, and the kernel can have
+/// rewritten it, because a resubmit of a create adds the creator id of this
+/// client again. A `None` result means that the target instance no longer
+/// exists. The runtime drops the op, and the kernel removes its pending
+/// entry.
 fn restamp_directory(
   core: Core,
   address: String,
@@ -832,17 +864,19 @@ pub fn handle_sequenced(
   }
 }
 
-/// After a sequenced batch, drain every follow-up op a channel released for the
-/// actor loop to auto-submit, stamping each with a fresh CSN + in-flight entry
-/// so the ordinary ack path reclaims it. Two producers feed this:
+/// After a sequenced batch, take every follow-up op that a channel released for
+/// the actor loop to submit. The function gives each op a new CSN and an
+/// in-flight entry, so that the usual ack path reclaims it. Two sources fill
+/// this list:
 ///
-///   1. the generic per-channel `owed` buffer (any `channel.apply_remote` arm
-///      that returned owed ops — e.g. a consensus `Accept`), and
-///   2. json0 and rich-text single-in-flight kernel buffer promotion, drained
-///      via `channel.take_outbound`.
+///   1. The `owed` buffer of each channel, which any branch of
+///      `channel.apply_remote` can fill by returning owed ops. One example is a
+///      consensus `Accept` op.
+///   2. The buffer promotion of the one-op-in-flight kernels, which are json0
+///      and rich text. `channel.take_outbound` gives those ops.
 ///
-/// Returns the stamped outbound ops in channel order (owed before kernel-buffer
-/// within each channel).
+/// The function returns the stamped outbound ops in channel order. In each
+/// channel, the owed ops come before the ops from the kernel buffer.
 fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
   list.fold(core.channel_order, #(core, []), fn(acc, address) {
     let #(core, outs) = acc
@@ -852,7 +886,7 @@ fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
   })
 }
 
-/// Drain the generic `owed` buffer for one channel, stamping each op.
+/// Take every op from the `owed` buffer of one channel, and stamp each one.
 fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
   case dict.get(core.owed, address) {
     Ok([_, ..] as ops) -> {
@@ -867,8 +901,8 @@ fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
   }
 }
 
-/// Drain a single-in-flight kernel's promoted buffer for one channel, stamping
-/// the op.
+/// Take the promoted buffer of a one-op-in-flight kernel, for one channel, and
+/// stamp the op.
 fn drain_kernel_outbound(
   core: Core,
   address: String,
@@ -888,8 +922,8 @@ fn drain_kernel_outbound(
   }
 }
 
-/// Stamp a released op with a fresh CSN, record an in-flight entry so the
-/// ordinary ack path reclaims it, and build its outbound wire op.
+/// Give a released op a new CSN, record an in-flight entry so that the usual ack
+/// path reclaims it, and build its outbound wire op.
 fn stamp_outbound(
   core: Core,
   address: String,
@@ -953,13 +987,15 @@ fn apply_one(
   }
 }
 
-/// Apply a sequenced membership-join (`"join"` system message) by adding the
-/// arriving client to the roster. Unlike `"leave"`, no kernel needs telling: a
-/// join only widens the quorum for ops sequenced *after* it, and a pact already
-/// pending froze its signoff list when it was sequenced.
+/// Apply a sequenced membership join, which is a `"join"` system message, by
+/// adding the client that arrived to the roster. No kernel needs this message,
+/// and a `"leave"` message differs there. A join only makes the quorum larger,
+/// for the ops that sequence *after* it, and a pact that is already pending
+/// froze its signoff list when it sequenced.
 ///
-/// The join payload is an object (`{"clientId": …, "detail": {…}}`), where a
-/// leave's is a bare string — the two system messages do not share a shape.
+/// The payload of a join is an object, `{"clientId": …, "detail": {…}}`. The
+/// payload of a leave is a bare string. The two system messages do not share one
+/// shape.
 fn handle_join(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -986,13 +1022,14 @@ fn handle_join(
   }
 }
 
-/// Apply a sequenced membership-leave (`"leave"` system message) by fanning the
-/// departing client out over every attached channel. The server stamps the
-/// leave with a sequence number and carries the leaving client's id in `data`,
-/// so every replica settles per-client kernel state (re-released queue jobs,
-/// drained consensus signoffs) deterministically at the same `leave_seq`.
-/// Channels without membership semantics are a no-op. A malformed payload is
-/// ignored rather than failing the whole batch.
+/// Apply a sequenced membership leave, which is a `"leave"` system message, by
+/// sending the client that left to every attached channel. The server gives the
+/// leave a sequence number and carries the id of that client in `data`. Every
+/// replica thus settles the per-client kernel state deterministically at the
+/// same `leave_seq` value. That state is the queue jobs that a kernel releases
+/// again, and the consensus signoffs that it removes. A channel with no
+/// membership behaviour does nothing. The function ignores a malformed payload,
+/// and it does not fail the whole batch.
 fn handle_leave(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -1025,11 +1062,12 @@ fn handle_leave(
   }
 }
 
-/// Decode a system message's payload. The server carries system-message
-/// payloads in `data` as JSON *text* (`contents` is null on these messages), so
-/// this parses the string rather than reading the dynamic — reading `contents`
-/// here is a decode failure against every real server, and a silent one,
-/// because a malformed payload is deliberately a no-op.
+/// Decode the payload of a system message. The server carries such a payload in
+/// `data`, as JSON *text*, and `contents` is null on those messages. This
+/// function thus parses the string, and it does not read the dynamic value. To
+/// read `contents` here fails the decode against every real server, and that
+/// failure reports nothing, because a malformed payload changes nothing on
+/// purpose.
 fn system_payload(
   data: Option(String),
   decoder: decode.Decoder(a),
@@ -1235,10 +1273,10 @@ fn apply_remote_channel(
   }
 }
 
-/// Enqueue owed follow-up ops a kernel released while applying a sequenced op,
-/// keyed by channel address, for `collect_released_ops` to stamp and submit
-/// after the current batch. Exposed so tests can drive the generic buffer
-/// without a producing kernel.
+/// Add the owed follow-up ops that a kernel released while it applied a
+/// sequenced op, keyed by channel address. `collect_released_ops` then stamps
+/// them and submits them after the current batch. This function is public, so
+/// that a test can fill the buffer without a kernel that produces ops.
 pub fn enqueue_owed(
   core: Core,
   address: String,
@@ -1597,8 +1635,9 @@ pub fn increment(
   }
 }
 
-/// Optimistically apply a signed update (increment or decrement) to the
-/// PN-counter at `address`. Same optimistic lifecycle as `increment`.
+/// Apply a signed update to the PN-counter at `address` optimistically. That
+/// update is an increment or a decrement. The optimistic lifecycle is the same
+/// as for `increment`.
 pub fn pn_counter_update(
   core: Core,
   address: String,
@@ -1639,12 +1678,13 @@ pub fn pn_counter_update(
 // PactMap edits
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Propose `value` (a JSON payload, or `None` to delete) for `key` in the
-/// PactMap at `address`. Unlike optimistic kernels, a consensus PactMap does
-/// **not** apply locally: the kernel only yields an `Option(PactMapOp)` to
-/// submit (`None` when a value is already pending for the key, i.e. a no-op).
-/// The value takes effect when the `Set` sequences; the setter's own `Accept`
-/// follow-up is emitted automatically by the released-ops loop.
+/// Propose `value` for `key` in the PactMap at `address`. `value` is a JSON
+/// payload, or `None` for a delete. Unlike an optimistic kernel, a consensus
+/// PactMap does **not** apply the value locally. The kernel returns an
+/// `Option(PactMapOp)` value to submit, and that value is `None` when a value is
+/// already pending for the key, which changes nothing. The value takes effect
+/// when the `Set` op sequences. The released-ops loop emits the `Accept` op of
+/// the setter by itself.
 pub fn pact_map_set(
   core: Core,
   address: String,
@@ -1659,10 +1699,12 @@ pub fn pact_map_set(
   })
 }
 
-/// Propose a delete (tombstone) for `key` in the PactMap at `address`. Like
-/// `pact_map_set`, this only submits an op; the delete takes effect on
-/// sequencing. `None` from the kernel (already pending, absent, or already a
-/// tombstone) is a no-op.
+/// Propose a delete for `key` in the PactMap at `address`. A delete writes a
+/// tombstone. This function submits an op only, the same as `pact_map_set`, and
+/// the delete takes effect when that op sequences. A `None` result from the
+/// kernel changes nothing. The kernel gives that result when a value is already
+/// pending, when the key is absent, and when the key already holds a
+/// tombstone.
 pub fn pact_map_delete(
   core: Core,
   address: String,
@@ -1709,9 +1751,10 @@ fn pact_map_submit(
 // ConsensusOrderedCollection edits
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Append `value` to the queue at `address`. Non-optimistic when attached: the
-/// value takes effect on sequencing (via the own-op ack). A detached channel
-/// applies immediately and carries the add in its attach.
+/// Append `value` to the queue at `address`. An attached channel is not
+/// optimistic, and the value takes effect when the op sequences, through the ack
+/// of that op. A detached channel applies the value immediately, and its attach
+/// carries the add.
 pub fn ordered_add(
   core: Core,
   address: String,
@@ -1751,11 +1794,12 @@ pub fn ordered_add(
   }
 }
 
-/// Acquire the head of the queue at `address` under the caller-supplied
-/// `acquire_id` (mint it at the runtime layer with `ids.uuid_v4`). Non-optimistic
-/// when attached: the item is removed on sequencing and delivered via the
-/// `Acquired` event; the `acquire_id` keys the later `complete`/`release`. A
-/// detached channel acquires immediately.
+/// Acquire the head of the queue at `address`, under the `acquire_id` value that
+/// the caller supplies. Create that id in the runtime layer, with
+/// `ids.uuid_v4`. An attached channel is not optimistic. The kernel removes the
+/// item when the op sequences, and the `Acquired` event delivers it. The
+/// `acquire_id` value is the key of the later `complete` or `release` call. A
+/// detached channel acquires the item immediately.
 pub fn ordered_acquire(
   core: Core,
   address: String,
@@ -1768,10 +1812,11 @@ pub fn ordered_acquire(
   |> result.map(fn(submitted) { #(submitted.0, submitted.1, submitted.2) })
 }
 
-/// Like `ordered_acquire`, but also reports the immediate outcome: `Some` for a
-/// detached channel (the acquire took effect right here), `None` for an
-/// attached one — there the outcome arrives as an `AcquireResolved` resolution
-/// when the op sequences, keyed by `acquire_id`.
+/// The same as `ordered_acquire`, and the function also reports the immediate
+/// outcome. The result is `Some` for a detached channel, where the acquire took
+/// effect in this call. The result is `None` for an attached channel. There the
+/// outcome arrives as an `AcquireResolved` resolution when the op sequences,
+/// keyed by `acquire_id`.
 pub fn ordered_acquire_submit(
   core: Core,
   address: String,
@@ -1817,8 +1862,9 @@ pub fn ordered_acquire_submit(
   }
 }
 
-/// Complete the held job `acquire_id` in the queue at `address` (drops it). A
-/// no-op on a detached channel (nothing to complete without sequencing).
+/// Complete the held job `acquire_id` in the queue at `address`, which removes
+/// it. The function does nothing on a detached channel, because there is nothing
+/// to complete without a sequencer.
 pub fn ordered_complete(
   core: Core,
   address: String,
@@ -1830,8 +1876,8 @@ pub fn ordered_complete(
   ordered_submit(core, address, ordered_collection_kernel.complete(acquire_id))
 }
 
-/// Release the held job `acquire_id` in the queue at `address` back to the tail
-/// of the queue. A no-op on a detached channel.
+/// Release the held job `acquire_id` in the queue at `address` back to the end
+/// of that queue. The function does nothing on a detached channel.
 pub fn ordered_release(
   core: Core,
   address: String,
@@ -1870,8 +1916,9 @@ fn ordered_submit(
 // SharedDirectory edits
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Set `key` to `value` in the directory at `path`. Optimistic: the local
-/// value shows immediately; the op is sequenced and acked like any other.
+/// Set `key` to `value` in the directory at `path`. The write is optimistic. The
+/// local value appears immediately, and the op sequences and receives an ack,
+/// the same as any other op.
 pub fn directory_set(
   core: Core,
   address: String,
@@ -1943,8 +1990,9 @@ pub fn directory_delete_subdirectory(
   })
 }
 
-/// Storage ops (`set`/`delete`/`clear`) always produce an outbound op when
-/// attached; the kernel returns state, events, op, and the message id.
+/// A storage op, which is a `set`, a `delete`, or a `clear`, always produces an
+/// outbound op on an attached channel. The kernel returns the state, the events,
+/// the op, and the message id.
 fn directory_storage_edit(
   core: Core,
   address: String,
@@ -1996,9 +2044,10 @@ fn directory_storage_edit(
   }
 }
 
-/// Subdirectory ops (`create`/`delete`) may produce no outbound op — a
-/// duplicate create or a delete of an optimistically-absent child updates
-/// local state and events but sends nothing.
+/// A subdirectory op, which is a `create` or a `delete`, can produce no outbound
+/// op. A duplicate create, and a delete of a child that the optimistic view does
+/// not contain, both update the local state and emit events, and they send
+/// nothing.
 fn directory_subdir_edit(
   core: Core,
   address: String,
@@ -2072,10 +2121,11 @@ fn directory_detail(err: directory_kernel.KernelError) -> String {
   }
 }
 
-/// Submit a json0 op authored against the channel's current optimistic view.
-/// The single-in-flight kernel sends the op immediately when nothing is in
-/// flight, otherwise it is composed into the buffer and released on the next
-/// ack (`collect_released_ops`), so at most one op is on the wire at a time.
+/// Submit a json0 op that the client wrote against the current optimistic view
+/// of the channel. The one-op-in-flight kernel sends the op immediately when no
+/// op is in flight. If one is in flight, the kernel composes the new op into the
+/// buffer and releases it on the next ack, in `collect_released_ops`. One op is
+/// thus on the wire at a time, at most.
 pub fn submit_json_ot(
   core: Core,
   address: String,
@@ -2122,8 +2172,9 @@ pub fn submit_json_ot(
   }
 }
 
-/// The channel's current optimistic json0 document, or `None` if the address is
-/// not a json0 channel or its view cannot be computed.
+/// The current optimistic json0 document of the channel. The result is `None`
+/// when the address does not name a json0 channel, and when the core cannot
+/// compute the view.
 pub fn json_ot_view(core: Core, address: String) -> Option(json_ot.JsonValue) {
   case find_channel(core, address) {
     Some(channel.JsonOtState(kernel)) ->
@@ -2132,9 +2183,10 @@ pub fn json_ot_view(core: Core, address: String) -> Option(json_ot.JsonValue) {
   }
 }
 
-/// Submit a rich-text delta authored against the channel's current optimistic
-/// document. As with json0, one delta is sent immediately and later deltas are
-/// buffered until `collect_released_ops` drains the kernel's promoted outbound.
+/// Submit a rich-text delta that the client wrote against the current optimistic
+/// document of the channel. The behaviour is the same as for json0. The kernel
+/// sends one delta immediately, and it buffers each later delta until
+/// `collect_released_ops` takes the promoted outbound op of the kernel.
 pub fn submit_rich_text(
   core: Core,
   address: String,
@@ -2181,8 +2233,9 @@ pub fn submit_rich_text(
   }
 }
 
-/// The channel's current optimistic rich-text document, or `None` if the
-/// address is not a rich-text channel or its view cannot be computed.
+/// The current optimistic rich-text document of the channel. The result is
+/// `None` when the address does not name a rich-text channel, and when the core
+/// cannot compute the view.
 pub fn rich_text_view(
   core: Core,
   address: String,
@@ -2556,11 +2609,12 @@ pub fn sequence_replace(
   ))
 }
 
-/// Text mutations route through `Option(text_kernel.Submission)` rather than
-/// always producing an op: valid empty edits (see `text_kernel` module docs)
-/// are true no-ops. `Some` updates state, emits events, and stamps/submits
-/// one channel op when attached; `None` leaves state and runtime submission
-/// counters untouched and produces no event and no outbound op.
+/// A text mutation returns an `Option(text_kernel.Submission)` value, and it
+/// does not always produce an op. A valid empty edit changes nothing. See the
+/// module docs of `text_kernel`. A `Some` result updates the state, emits the
+/// events, and, on an attached channel, stamps and submits one channel op. A
+/// `None` result changes no state and no submission counter of the runtime, and
+/// it produces no event and no outbound op.
 fn mutate_text(
   core: Core,
   address: String,
@@ -3132,7 +3186,8 @@ pub fn task_manager_complete(
   }
 }
 
-/// Where an edit's target channel lives, holding the type-checked kernel.
+/// The position of the target channel of an edit. This type holds the kernel
+/// after the type check.
 type Located(kernel) {
   Detached(kernel)
   Attached(kernel)
@@ -3441,7 +3496,8 @@ fn locate_channel(
   }
 }
 
-/// Verify that `address` resolves to the requested channel type.
+/// Check that `address` resolves to the channel type that the caller
+/// requested.
 pub fn require_channel_type(
   core: Core,
   address: String,
@@ -3752,8 +3808,8 @@ pub fn entries(core: Core, address: String) -> List(#(String, Json)) {
   }
 }
 
-/// The counter's current optimistic value, `None` when the address is
-/// missing or not a counter channel.
+/// The current optimistic value of the counter. The result is `None` when the
+/// address does not exist, and when it does not name a counter channel.
 pub fn counter_value(core: Core, address: String) -> Option(Int) {
   case find_channel(core, address) {
     Some(channel.CounterState(kernel)) -> Some(kernel.value)
@@ -3761,8 +3817,8 @@ pub fn counter_value(core: Core, address: String) -> Option(Int) {
   }
 }
 
-/// The PN-counter's current optimistic value, `None` when the address is
-/// missing or not a pn-counter channel.
+/// The current optimistic value of the PN-counter. The result is `None` when the
+/// address does not exist, and when it does not name a PN-counter channel.
 pub fn pn_counter_value(core: Core, address: String) -> Option(Int) {
   case find_channel(core, address) {
     Some(channel.PnCounterState(kernel)) ->
@@ -3771,9 +3827,9 @@ pub fn pn_counter_value(core: Core, address: String) -> Option(Int) {
   }
 }
 
-/// The accepted value for `key` in the PactMap at `address`, `None` when the
-/// key has no accepted value (still pending or absent) or the address is not a
-/// PactMap channel.
+/// The accepted value for `key` in the PactMap at `address`. The result is
+/// `None` when the key has no accepted value, because it is still pending or it
+/// is absent, and when the address does not name a PactMap channel.
 pub fn pact_map_get(core: Core, address: String, key: String) -> Option(Json) {
   case find_channel(core, address) {
     Some(channel.PactMapState(kernel)) -> pact_map_kernel.get(kernel, key)
@@ -3781,7 +3837,8 @@ pub fn pact_map_get(core: Core, address: String, key: String) -> Option(Json) {
   }
 }
 
-/// The accepted entry (value + sequence number) for `key`, `None` when absent.
+/// The accepted entry for `key`, which is the value with its sequence number.
+/// The result is `None` when the key is absent.
 pub fn pact_map_get_with_details(
   core: Core,
   address: String,
@@ -3794,11 +3851,13 @@ pub fn pact_map_get_with_details(
   }
 }
 
-/// The pending proposal for `key` — its value and the signoff list it is still
-/// waiting on — `None` when nothing is pending or the address is not a PactMap.
+/// The pending proposal for `key`, which is its value with the signoff list that
+/// it still waits on. The result is `None` when nothing is pending, and when the
+/// address does not name a PactMap.
 ///
-/// The signoff list is frozen from the connected roster when the `Set` is
-/// sequenced, so it names the room as it was at that moment, not as it is now.
+/// The kernel freezes the signoff list from the connected roster when the `Set`
+/// op sequences. That list thus names the room at that moment, and not the room
+/// now.
 pub fn pact_map_pending(
   core: Core,
   address: String,
@@ -3810,7 +3869,8 @@ pub fn pact_map_pending(
   }
 }
 
-/// Whether `key` currently has a pending (proposed but not-yet-accepted) value.
+/// Whether `key` has a pending value now, which a client proposed and no room
+/// has accepted yet.
 pub fn pact_map_is_pending(core: Core, address: String, key: String) -> Bool {
   case find_channel(core, address) {
     Some(channel.PactMapState(kernel)) ->
@@ -3819,7 +3879,7 @@ pub fn pact_map_is_pending(core: Core, address: String, key: String) -> Bool {
   }
 }
 
-/// All keys with an accepted or pending pact, sorted.
+/// Every key with an accepted pact or a pending pact, sorted.
 pub fn pact_map_keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
     Some(channel.PactMapState(kernel)) -> pact_map_kernel.keys(kernel)
@@ -3827,8 +3887,9 @@ pub fn pact_map_keys(core: Core, address: String) -> List(String) {
   }
 }
 
-/// The number of items waiting in the queue at `address` (excludes acquired
-/// jobs), `None` when the address is missing or not an ordered-collection.
+/// The number of items that wait in the queue at `address`. The count does not
+/// include an acquired job. The result is `None` when the address does not
+/// exist, and when it does not name an ordered collection.
 pub fn ordered_size(core: Core, address: String) -> Option(Int) {
   case find_channel(core, address) {
     Some(channel.OrderedCollectionState(kernel)) ->
@@ -3837,7 +3898,8 @@ pub fn ordered_size(core: Core, address: String) -> Option(Int) {
   }
 }
 
-/// The queued (not-yet-acquired) values at `address`, front first.
+/// The values in the queue at `address`, which no client acquired yet, front
+/// first.
 pub fn ordered_queue(core: Core, address: String) -> List(Json) {
   case find_channel(core, address) {
     Some(channel.OrderedCollectionState(kernel)) ->
@@ -3846,7 +3908,8 @@ pub fn ordered_queue(core: Core, address: String) -> List(Json) {
   }
 }
 
-/// The currently-held jobs at `address`, keyed by acquire id (sorted).
+/// The jobs that clients hold at `address` now, keyed by acquire id and sorted
+/// by that id.
 pub fn ordered_jobs(
   core: Core,
   address: String,
@@ -3914,8 +3977,9 @@ pub fn sequence_length(core: Core, address: String) -> Int {
   }
 }
 
-/// The text channel's current optimistic visible string, `""` when the
-/// address is missing or not a text channel.
+/// The current visible optimistic string of the text channel. The result is `""`
+/// when the address does not exist, and when it does not name a text
+/// channel.
 pub fn text_value(core: Core, address: String) -> String {
   case find_channel(core, address) {
     Some(channel.TextState(kernel)) -> text_kernel.value(kernel)
@@ -3923,8 +3987,9 @@ pub fn text_value(core: Core, address: String) -> String {
   }
 }
 
-/// The text channel's current optimistic grapheme count, `0` when the
-/// address is missing or not a text channel.
+/// The current optimistic grapheme count of the text channel. The result is `0`
+/// when the address does not exist, and when it does not name a text
+/// channel.
 pub fn text_length(core: Core, address: String) -> Int {
   case find_channel(core, address) {
     Some(channel.TextState(kernel)) -> text_kernel.length(kernel)
@@ -3932,9 +3997,10 @@ pub fn text_length(core: Core, address: String) -> Int {
   }
 }
 
-/// The graphemes in `[start, end)` of the text channel's optimistic string.
-/// An explicit error string when `start..end` is invalid, the address is
-/// missing, or the address is not a text channel.
+/// The graphemes in `[start, end)` of the optimistic string of the text channel.
+/// The result is an error string when the range `start..end` is invalid, when
+/// the address does not exist, and when the address does not name a text
+/// channel.
 pub fn text_substring(
   core: Core,
   address: String,
@@ -3956,11 +4022,12 @@ pub fn text_substring(
   }
 }
 
-/// Create a stable anchor at the gap at `index`; `bias` selects which
-/// adjacent grapheme the anchor binds to (`Before` binds to the following
-/// grapheme, `After` to the preceding one — see `text_kernel.Bias`). An
-/// explicit error string on an out-of-bounds index, a missing address, or a
-/// non-text channel.
+/// Create a stable anchor at the gap at `index`. `bias` selects the adjacent
+/// grapheme that the anchor binds to. `Before` binds it to the grapheme after
+/// the gap, and `After` binds it to the grapheme before the gap. See
+/// `text_kernel.Bias`. The result is an error string when the index is out of
+/// bounds, when the address does not exist, and when the address does not name a
+/// text channel.
 pub fn text_anchor_at(
   core: Core,
   address: String,
@@ -3982,9 +4049,9 @@ pub fn text_anchor_at(
   }
 }
 
-/// Resolve an anchor to a current optimistic grapheme index. An explicit
-/// error string on a stale/unknown anchor target, a missing address, or a
-/// non-text channel.
+/// Resolve an anchor to a current optimistic grapheme index. The result is an
+/// error string when the anchor target is stale or unknown, when the address
+/// does not exist, and when the address does not name a text channel.
 pub fn text_resolve_anchor(
   core: Core,
   address: String,
@@ -4005,26 +4072,28 @@ pub fn text_resolve_anchor(
   }
 }
 
-/// An anchor at the start of the text. Always resolves to 0. Pure —
-/// doesn't need a `Core`/`address` since it carries no document state.
+/// An anchor at the start of the text. It always resolves to 0. The function is
+/// pure. It needs no `Core` value and no address, because the anchor carries no
+/// document state.
 pub fn text_start_anchor() -> text_kernel.TextAnchor {
   text_kernel.start_anchor()
 }
 
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+/// An anchor at the end of the text. It always resolves to the current grapheme
+/// count, and it moves as the text becomes longer. The function is pure, the
+/// same as `text_start_anchor`.
 pub fn text_end_anchor() -> text_kernel.TextAnchor {
   text_kernel.end_anchor()
 }
 
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors.
+/// Encode an anchor as a self-describing JSON value, for example to send it
+/// through presence for a shared cursor.
 pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
   text_kernel.anchor_to_json(anchor)
 }
 
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
-/// An explicit error string on malformed JSON.
+/// Decode an anchor from a JSON string that `text_anchor_to_json` produced. The
+/// result is an error string for malformed JSON.
 pub fn text_anchor_from_json(
   json_string: String,
 ) -> Result(text_kernel.TextAnchor, String) {
@@ -4035,8 +4104,8 @@ pub fn text_anchor_from_json(
   }
 }
 
-/// Format a `json.DecodeError` as a human-readable string.
-/// Follows the variant-pattern convention established in roost/frame.gleam.
+/// Format a `json.DecodeError` value as a string for a person to read. The
+/// function follows the variant pattern of `roost/frame.gleam`.
 fn format_json_decode_error(error: json.DecodeError) -> String {
   case error {
     json.UnexpectedEndOfInput -> "unexpected end of input"
@@ -4093,7 +4162,8 @@ pub fn two_p_set_values(core: Core, address: String) -> List(String) {
   }
 }
 
-/// Optimistic read of a directory key at `path` (pending edits applied).
+/// An optimistic read of a directory key at `path`, with the pending edits
+/// applied.
 pub fn directory_get(
   core: Core,
   address: String,
@@ -4107,7 +4177,8 @@ pub fn directory_get(
   }
 }
 
-/// Ordered optimistic `#(key, value)` entries of the directory at `path`.
+/// The optimistic `#(key, value)` entries of the directory at `path`, in
+/// order.
 pub fn directory_entries(
   core: Core,
   address: String,
@@ -4120,7 +4191,8 @@ pub fn directory_entries(
   }
 }
 
-/// Ordered optimistic child directory names of the directory at `path`.
+/// The names of the optimistic child directories of the directory at `path`, in
+/// order.
 pub fn directory_subdirectories(
   core: Core,
   address: String,

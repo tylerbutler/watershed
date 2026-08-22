@@ -20,19 +20,24 @@
 //// watershed.subscribe(map, fn(event) { ... })
 //// ```
 ////
-//// Reads are optimistic (local pending edits overlay the sequenced state);
-//// convergence is guaranteed by server sequencing. Beyond the root map,
-//// `create_map` makes additional (initially detached) maps whose handles
-//// (`handle_of`) can be stored as values and `resolve`d by peers, enabling
-//// nested collaborative structures.
+//// A read is optimistic: the local pending edits go over the sequenced state.
+//// The server sequencing guarantees that the replicas converge.
 ////
-//// For a schema-typed view, `typed` wraps a map as a `TypedMap(s)` and the
-//// `set_field`/`get_field`/`read`/`write` functions read and write through a
-//// `watershed/schema` declaration. `ensure_*` seeds and adopts nested channels
-//// (maps, counters, OR-sets, claims, …) declaratively, and `subscribe_field` /
-//// `subscribe_counter` / `subscribe_typed` deliver narrowed, decoded events.
-//// See [`examples/sudoku_lustre`](../examples/sudoku_lustre) for the full
-//// pattern. JavaScript target only.
+//// `create_map` makes more maps beside the root map, and each one starts
+//// detached. Store the handle of such a map, from `handle_of`, as a value, and
+//// a peer can then call `resolve` on it. Nested collaborative structures work
+//// that way.
+////
+//// For a view with a schema, `typed` wraps a map as a `TypedMap(s)` value. The
+//// `set_field`, `get_field`, `read`, and `write` functions then read and write
+//// through a `watershed/schema` declaration. The `ensure_*` family creates and
+//// adopts a nested channel declaratively, and those channels are maps,
+//// counters, OR-sets, claims, and the other kinds. `subscribe_field`,
+//// `subscribe_counter`, and `subscribe_typed` deliver decoded events of one
+//// kind only. See [`examples/sudoku_lustre`](../examples/sudoku_lustre) for
+//// the full pattern.
+////
+//// JavaScript target only.
 
 @target(javascript)
 import gleam/dict
@@ -119,12 +124,12 @@ import watershed/two_p_set_kernel
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(javascript)
-/// Connection parameters for `connect`.
+/// The connection parameters of `connect`.
 pub type WatershedConfig {
   WatershedConfig(
-    /// Phoenix socket URL, e.g.
+    /// The URL of the Phoenix socket, for example
     /// `"ws://localhost:4000/socket/websocket?vsn=2.0.0"`. The `vsn=2.0.0`
-    /// query selects the V2 serializer.
+    /// query parameter selects the V2 serializer.
     url: String,
     tenant: String,
     document: String,
@@ -139,7 +144,8 @@ pub opaque type Document(root) {
 }
 
 @target(javascript)
-/// Read-only connection and sequencing state for diagnostics and example UIs.
+/// The connection state and the sequencing state, which you can read but not
+/// change, for diagnostics and for the example interfaces.
 pub type Diagnostics =
   runtime.Diagnostics
 
@@ -204,19 +210,20 @@ pub opaque type SharedText {
 }
 
 @target(javascript)
-/// A stable position in a `SharedText`'s optimistic string that survives
-/// concurrent edits and merges. Opaque — construct one with `text_anchor_at`,
-/// `text_start_anchor`, or `text_end_anchor`, or decode one with
-/// `text_anchor_from_json`.
+/// A stable position in the optimistic string of a `SharedText` value. It stays
+/// correct across concurrent edits and merges. The type is opaque. Construct one
+/// with `text_anchor_at`, `text_start_anchor`, or `text_end_anchor`, or decode
+/// one with `text_anchor_from_json`.
 pub type TextAnchor =
   text_kernel.TextAnchor
 
 @target(javascript)
-/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
-/// gap. `Before` binds to the following grapheme (inserts at the gap push it
-/// right); `After` binds to the preceding grapheme (inserts at the gap land
-/// after it). Re-exported so callers don't need a direct `lattice_sequence`
-/// dependency to build one.
+/// The grapheme that a `TextAnchor` value binds to across a concurrent insert
+/// at its gap. `Before` binds it to the grapheme after the gap, so an insert at
+/// the gap moves the anchor to the right. `After` binds it to the grapheme
+/// before the gap, so an insert at the gap goes after the anchor. This type is
+/// re-exported here, so a caller needs no direct dependency on
+/// `lattice_sequence` to build an anchor.
 pub type Bias =
   text_kernel.Bias
 
@@ -252,9 +259,9 @@ pub opaque type SharedDirectory {
 }
 
 @target(javascript)
-/// Connect to a document. Returns the handle immediately and invokes
-/// `on_ready` once the handshake and history replay complete (`Ok(Nil)`) or
-/// the connection is rejected (`Error(reason)`).
+/// Connect to a document. The function returns the handle immediately. It calls
+/// `on_ready` with `Ok(Nil)` after the handshake and the history replay
+/// complete, or with `Error(reason)` when the server refuses the connection.
 pub fn connect(
   config: WatershedConfig,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
@@ -298,10 +305,10 @@ pub fn connect(
 }
 
 @target(javascript)
-/// Connect through an injected transport — the seam the in-memory `sluice_js`
-/// test driver uses. `on_ready` still fires when the handshake completes, which
-/// the driver triggers by delivering the handshake frame on `settle`. Not for
-/// production use.
+/// Connect through an injected transport. The in-memory `sluice_js` test driver
+/// uses this seam. `on_ready` still runs when the handshake completes, and the
+/// driver causes that completion when it delivers the handshake frame on a
+/// `settle` call. Do not use this function in production.
 pub fn connect_via(
   tenant tenant: String,
   document document: String,
@@ -344,23 +351,25 @@ pub fn connect_via(
 }
 
 @target(javascript)
-/// The runtime behind a document. Exposed for the `sluice_js` test driver, which
-/// keys paused clients by their runtime. Not part of the app-facing API.
+/// The runtime behind a document. This function is public for the `sluice_js`
+/// test driver, which uses the runtime as the key of a paused client. It is not
+/// part of the API for an application.
 pub fn runtime_of(document: Document(root)) -> runtime.Runtime {
   document.runtime
 }
 
 @target(javascript)
-/// The document's root map (channel address `"root"`).
+/// The root map of the document, at the channel address `"root"`.
 pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
 @target(javascript)
-/// Create a new map channel. The map starts *detached* — local-only, its
-/// edits produce no ops — until its handle (`handle_of`) is first stored into
-/// an attached map, at which point the runtime attaches it (snapshot and all)
-/// and starts syncing its edits. Requires a ready connection (`on_ready`).
+/// Create a new map channel. The map starts *detached*, which means that it is
+/// local only and its edits produce no op. It stays detached until a caller
+/// stores its handle, from `handle_of`, into an attached map. The runtime then
+/// attaches it, with its snapshot, and it starts to synchronize the edits of
+/// that map. The connection must be ready, which `on_ready` reports.
 pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   runtime.create_map(document.runtime)
   |> result.map(fn(address) {
@@ -369,23 +378,25 @@ pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `map`, suitable for storing as a value
-/// in another map: `{"type": "__fluid_handle__", "url": "/<address>"}`.
+/// The Fluid handle marker that references `map`. Store it as a value in
+/// another map. Its shape is
+/// `{"type": "__fluid_handle__", "url": "/<address>"}`.
 pub fn handle_of(map: SharedMap) -> Json {
   handle.encode_handle(map.address)
 }
 
 @target(javascript)
-/// Whether a value read from a map is a handle marker (see `resolve`).
+/// Whether a value that you read from a map is a handle marker. See
+/// `resolve`.
 pub fn is_handle(value: Json) -> Bool {
   handle.parse_handle(value) != Error(Nil)
 }
 
 @target(javascript)
-/// Resolve a handle value (from `get`/`entries`) to the SharedMap it
-/// references. Errors are retryable: a handle read from a remote value can be
-/// transiently unresolved while the referenced channel's attach op is still
-/// in flight.
+/// Resolve a handle value, from `get` or from `entries`, to the SharedMap that
+/// it references. A caller can retry after an error. A handle from a remote
+/// value can stay unresolved for a short time, while the attach op of the
+/// channel that it references is still in flight.
 pub fn resolve(
   document: Document(root),
   value: Json,
@@ -409,52 +420,55 @@ pub fn resolve(
 // See `watershed/schema` for defining fields.
 
 @target(javascript)
-/// A SharedMap viewed through a schema `s`.
+/// A SharedMap value, viewed through a schema `s`.
 pub opaque type TypedMap(s) {
   TypedMap(map: SharedMap)
 }
 
 @target(javascript)
-/// View a raw map through a schema. The schema is chosen by how the result is
-/// used (or by annotation): `let players: TypedMap(Roster) = typed(map)`.
+/// View a raw map through a schema. The use of the result selects the schema,
+/// and an annotation can also select it, for example
+/// `let players: TypedMap(Roster) = typed(map)`.
 pub fn typed(map: SharedMap) -> TypedMap(s) {
   TypedMap(map: map)
 }
 
 @target(javascript)
-/// The underlying raw map, for dropping back to the untyped API.
+/// The raw map below the typed view, to return to the untyped API.
 pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
   typed_map.map
 }
 
 @target(javascript)
-/// The document's root map, viewed through the document's own schema.
+/// The root map of the document, viewed through the schema of that document.
 ///
-/// One tag per document. The tag comes from the `Document(root)` you pass, so
-/// it is fixed wherever your app writes the type concretely — the `Msg`
-/// constructor carrying the handle, or the `Model` field holding it:
+/// One document has one tag. The tag comes from the `Document(root)` value that
+/// you pass, so it is fixed at the position where your application writes the
+/// type concretely. That position is the `Msg` constructor that carries the
+/// handle, or the `Model` field that holds it:
 ///
 /// ```gleam
 /// GotHandle(Document(doc_schema.Survey))
 /// ```
 ///
-/// Every `root_typed` on that document then agrees, and a second schema at the
-/// root is a compile error rather than a silently shared key namespace.
+/// Every `root_typed` call on that document then agrees. A second schema at the
+/// root is a compile error, and not a key namespace that two schemas share
+/// quietly.
 ///
-/// A component generic in `root` may still call this, but an abstract tag has
-/// no fields, so it cannot read or write the root — which is what makes a
-/// nested panel structurally unable to reach past its own child map.
+/// A component that is generic in `root` can still call this function. But an
+/// abstract tag has no field, so that component cannot read or write the root.
+/// A nested panel is thus structurally unable to reach past its own child map.
 ///
-/// `typed(root(document))` remains available and remains unchecked; it is the
-/// deliberate way to view the root through a foreign schema, and unlike the
-/// old signature it now has to be written out loud.
+/// `typed(root(document))` is still available, and it is still unchecked. It is
+/// the deliberate way to view the root through a foreign schema. Unlike the old
+/// signature, you must now write it explicitly.
 pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
 @target(javascript)
-/// Create a new (detached) map, viewed through a schema. Same lifecycle as
-/// `create_map`.
+/// Create a new detached map, viewed through a schema. The lifecycle is the
+/// same as for `create_map`.
 pub fn create_typed_map(
   document: Document(root),
 ) -> Result(TypedMap(s), String) {
@@ -474,8 +488,8 @@ pub fn delete_field(typed_map: TypedMap(s), field: Field(s, a)) -> Nil {
 }
 
 @target(javascript)
-/// Read a typed field. `Ok(None)` when the key is absent; `Error(Invalid)`
-/// when the stored value does not decode to `a`.
+/// Read a typed field. The result is `Ok(None)` when the key is absent, and
+/// `Error(Invalid)` when the stored value does not decode to the type `a`.
 pub fn get_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -487,7 +501,8 @@ pub fn get_field(
 }
 
 @target(javascript)
-/// Read a typed field that is expected to exist. `Error(Missing)` when absent.
+/// Read a typed field that must exist. The result is `Error(Missing)` when the
+/// key is absent.
 pub fn get_required(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -500,7 +515,8 @@ pub fn get_required(
 }
 
 @target(javascript)
-/// Whether a typed field is present (does not check that it decodes).
+/// Whether a typed field is present. The function does not check that the
+/// value decodes.
 pub fn has_field(typed_map: TypedMap(s), field: Field(s, a)) -> Bool {
   has(typed_map.map, schema.field_key(field))
 }
@@ -516,9 +532,10 @@ pub fn set_child(
 }
 
 @target(javascript)
-/// Resolve the nested typed map referenced by a child field. `Ok(None)` when
-/// the key is absent; errors from `resolve` (including transient
-/// not-yet-attached ones) are surfaced as-is and are retryable.
+/// Resolve the nested typed map that a child field references. The result is
+/// `Ok(None)` when the key is absent. The function returns an error from
+/// `resolve` without a change, and a caller can retry after it. That includes
+/// the short-lived error for a channel that is not attached yet.
 pub fn resolve_child(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -532,8 +549,9 @@ pub fn resolve_child(
 }
 
 @target(javascript)
-/// Read the whole map as a typed record through a schema: one `Result`, after
-/// the schema's version and seal checks. See `watershed/schema`.
+/// Read the whole map as a typed record, through a schema. The function returns
+/// one `Result` value, after the version check and the seal check of that
+/// schema. See `watershed/schema`.
 pub fn read(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -542,9 +560,10 @@ pub fn read(
 }
 
 @target(javascript)
-/// Write a whole record through a schema, as per-key ops — so concurrent
-/// edits to sibling keys still merge (the record view is never a clobbering
-/// blob). Optional props that are `None` delete their key.
+/// Write a whole record through a schema, as one op for each key. Concurrent
+/// edits to two other keys thus still merge, and the record view never
+/// overwrites the whole map. An optional prop with the value `None` deletes its
+/// key.
 pub fn write(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -559,8 +578,9 @@ pub fn write(
 }
 
 @target(javascript)
-/// Stamp a versioned schema's version marker once (typically right after
-/// creating the map). A no-op for unversioned schemas.
+/// Write the version marker of a schema that has a version, one time. The usual
+/// position for this call is immediately after you create the map. The function
+/// does nothing for a schema with no version.
 pub fn stamp(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -572,10 +592,12 @@ pub fn stamp(
 }
 
 @target(javascript)
-/// Resolve every handle-valued key to a typed child map — the typed view of a
-/// dynamic collection (a map whose keys are not statically known, e.g. a
-/// roster keyed by id). Non-handle keys are skipped; each child's resolution
-/// `Result` is surfaced (transient not-yet-attached errors are retryable).
+/// Resolve every key whose value is a handle to a typed child map. This is the
+/// typed view of a dynamic collection, which is a map whose keys the compiler
+/// does not know, for example a roster keyed by id. The function skips a key
+/// whose value is not a handle. It returns the `Result` value of each child,
+/// and a caller can retry after the short-lived error for a channel that is not
+/// attached yet.
 pub fn typed_children(
   document: Document(root),
   typed_map: TypedMap(parent),
@@ -977,8 +999,8 @@ const resolve_retry_ms = 200
 const resolve_attempts = 25
 
 @target(javascript)
-/// Poll `is_synced` until the confirmed root is stable (bounded by the resolve
-/// budget), then invoke `next`.
+/// Read `is_synced` at intervals until the confirmed root is stable, and then
+/// call `next`. The resolve budget limits the number of reads.
 fn await_synced(
   document: Document(root),
   attempts: Int,
@@ -995,8 +1017,9 @@ fn await_synced(
 }
 
 @target(javascript)
-/// Resolve a field to its channel, retrying on a timer while the handle is
-/// absent or the referenced channel's attach op is still in flight.
+/// Resolve a field to its channel. The function tries again on a timer while the
+/// handle is absent, and while the attach op of the channel that it references
+/// is still in flight.
 fn resolve_with_retry(
   resolve: fn() -> Result(Option(shared), String),
   attempts: Int,
@@ -1016,8 +1039,10 @@ fn resolve_with_retry(
 }
 
 @target(javascript)
-/// Adopt the channel under `key`: resolve the sequenced winner if the key is
-/// set, else `seed` a candidate, wait for sync, and resolve whatever won.
+/// Adopt the channel under `key`. If the key holds a value, the function
+/// resolves the sequenced winner. If the key is empty, the function calls `seed`
+/// to create a candidate, waits for the synchronization, and then resolves the
+/// channel that won.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1040,7 +1065,7 @@ fn ensure_channel(
 }
 
 @target(javascript)
-/// Ensure a nested (untyped) map exists under `field`.
+/// Make sure that a nested (untyped) map exists under `field`.
 pub fn ensure_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1061,7 +1086,8 @@ pub fn ensure_map(
 }
 
 @target(javascript)
-/// Ensure a counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a counter exists under `field`. If the slot is empty, the
+/// function creates one.
 pub fn ensure_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1082,7 +1108,8 @@ pub fn ensure_counter(
 }
 
 @target(javascript)
-/// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
+/// Make sure that an OR-map exists under `field`. If none exists, the function
+/// creates one in `mode`.
 pub fn ensure_or_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1104,7 +1131,7 @@ pub fn ensure_or_map(
 }
 
 @target(javascript)
-/// Ensure an OR-set exists under `field`.
+/// Make sure that an OR-set exists under `field`.
 pub fn ensure_or_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1145,8 +1172,8 @@ pub fn ensure_sequence(
 }
 
 @target(javascript)
-/// Ensure a text channel exists under `field`, seeding one if the slot is
-/// empty.
+/// Make sure that a text channel exists under `field`. If the slot is empty,
+/// the function creates one.
 pub fn ensure_text(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1167,7 +1194,7 @@ pub fn ensure_text(
 }
 
 @target(javascript)
-/// Ensure a register collection exists under `field`.
+/// Make sure that a register collection exists under `field`.
 pub fn ensure_register_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1188,7 +1215,7 @@ pub fn ensure_register_collection(
 }
 
 @target(javascript)
-/// Ensure a claims channel exists under `field`.
+/// Make sure that a claims channel exists under `field`.
 pub fn ensure_claims(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1209,7 +1236,7 @@ pub fn ensure_claims(
 }
 
 @target(javascript)
-/// Ensure a task manager exists under `field`.
+/// Make sure that a task manager exists under `field`.
 pub fn ensure_task_manager(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1230,7 +1257,8 @@ pub fn ensure_task_manager(
 }
 
 @target(javascript)
-/// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a PN-counter exists under `field`. If the slot is empty, the
+/// function creates one.
 pub fn ensure_pn_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1251,7 +1279,7 @@ pub fn ensure_pn_counter(
 }
 
 @target(javascript)
-/// Ensure a PactMap exists under `field`.
+/// Make sure that a PactMap exists under `field`.
 pub fn ensure_pact_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1272,7 +1300,7 @@ pub fn ensure_pact_map(
 }
 
 @target(javascript)
-/// Ensure an ordered collection exists under `field`.
+/// Make sure that an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1293,7 +1321,8 @@ pub fn ensure_ordered_collection(
 }
 
 @target(javascript)
-/// Ensure a json0 channel exists under `field`, seeding one if absent.
+/// Make sure that a json0 channel exists under `field`. If none exists, the
+/// function creates one.
 pub fn ensure_json_ot(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1314,7 +1343,8 @@ pub fn ensure_json_ot(
 }
 
 @target(javascript)
-/// Ensure a rich-text channel exists under `field`, seeding one if absent.
+/// Make sure that a rich-text channel exists under `field`. If none exists,
+/// the function creates one.
 pub fn ensure_rich_text(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1335,7 +1365,8 @@ pub fn ensure_rich_text(
 }
 
 @target(javascript)
-/// Ensure a G-set exists under `field`, seeding one if absent.
+/// Make sure that a G-set exists under `field`. If none exists, the function
+/// creates one.
 pub fn ensure_g_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1356,7 +1387,8 @@ pub fn ensure_g_set(
 }
 
 @target(javascript)
-/// Ensure a 2P-set exists under `field`, seeding one if absent.
+/// Make sure that a 2P-set exists under `field`. If none exists, the function
+/// creates one.
 pub fn ensure_two_p_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1377,7 +1409,8 @@ pub fn ensure_two_p_set(
 }
 
 @target(javascript)
-/// Ensure a directory exists under `field`, seeding one if absent.
+/// Make sure that a directory exists under `field`. If none exists, the
+/// function creates one.
 pub fn ensure_directory(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1398,7 +1431,7 @@ pub fn ensure_directory(
 }
 
 @target(javascript)
-/// Ensure a nested *typed* child map exists under a child field.
+/// Make sure that a nested *typed* child map exists under a child field.
 pub fn ensure_child(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1419,8 +1452,9 @@ pub fn ensure_child(
 }
 
 @target(javascript)
-/// Set a plain typed field to `default` only if its key is currently absent.
-/// Concurrent racers all set; last-writer-wins on the key settles one value.
+/// Set a plain typed field to `default`, and only when its key is absent now.
+/// Every client in a race writes the value, and the last-writer-wins rule on
+/// that key settles one of them.
 pub fn ensure_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -1435,9 +1469,10 @@ pub fn ensure_field(
 // ── Counters ─────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new counter channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`counter_handle_of`) is first stored into an
-/// attached map. Requires a ready connection (`on_ready`).
+/// Create a new counter channel. The detached lifecycle is the same as for
+/// `create_map`. The channel is local only, until a caller stores its handle,
+/// from `counter_handle_of`, into an attached map. The connection must be
+/// ready, which `on_ready` reports.
 pub fn create_counter(
   document: Document(root),
 ) -> Result(SharedCounter, String) {
@@ -1448,16 +1483,17 @@ pub fn create_counter(
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `counter`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `counter`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn counter_handle_of(counter: SharedCounter) -> Json {
   handle.encode_handle(counter.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the SharedCounter it references. Existence is
-/// checked, not channel type: resolving a non-counter yields a counter whose
-/// reads return `None`. Errors are retryable, as with `resolve`.
+/// Resolve a handle value to the SharedCounter that it references. The function
+/// checks that the channel exists, and it does not check the channel type. To
+/// resolve a channel that is not a counter gives a counter whose reads return
+/// `None`. A caller can retry after an error, the same as for `resolve`.
 pub fn resolve_counter(
   document: Document(root),
   value: Json,
@@ -1473,23 +1509,24 @@ pub fn resolve_counter(
 }
 
 @target(javascript)
-/// Optimistically increment the counter (negative amounts decrement).
+/// Increment the counter optimistically. A negative amount decrements it.
 pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
   runtime.increment(counter.runtime, counter.address, amount)
 }
 
 @target(javascript)
-/// The counter's current optimistic value, `None` when the address is not a
-/// counter channel.
+/// The current optimistic value of the counter. The result is `None` when the
+/// address does not name a counter channel.
 pub fn counter_value(counter: SharedCounter) -> Option(Int) {
   runtime.counter_value(counter.runtime, counter.address)
 }
 
 @target(javascript)
-/// Register `handler` for a channel's events, invoking it only for the events
-/// `narrow` accepts — already decoded to the kind's own event type — so a
-/// subscriber never sees the 14-variant union. The per-kind `subscribe_*`
-/// functions wrap this.
+/// Register `handler` for the events of a channel. The function calls that
+/// handler only for the events that `narrow` accepts, and it decodes each one to
+/// the event type of that channel kind. A subscriber thus never sees the union
+/// of 14 variants. The `subscribe_*` function of each kind uses this
+/// function.
 fn subscribe_narrowed(
   runtime: runtime.Runtime,
   address: String,
@@ -1505,9 +1542,9 @@ fn subscribe_narrowed(
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this
-/// counter channel. The handler receives `counter_kernel.CounterEvent` —
-/// counter events only.
+/// Register a callback for every local change and remote change to this counter
+/// channel. The handler receives a `counter_kernel.CounterEvent` value, and it
+/// receives no other kind of event.
 pub fn subscribe_counter(
   counter: SharedCounter,
   handler: fn(counter_kernel.CounterEvent) -> Nil,
@@ -1522,8 +1559,8 @@ pub fn subscribe_counter(
 // ── OR-maps ──────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new OR-map channel in tally or register mode. Same detached
-/// lifecycle as `create_map`.
+/// Create a new OR-map channel, in tally mode or in register mode. The detached
+/// lifecycle is the same as for `create_map`.
 pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
@@ -1602,7 +1639,7 @@ pub fn subscribe_or_map(
 // ── OR-sets ──────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new observed-remove set channel for string elements.
+/// Create a new observed-remove set channel, for string elements.
 pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
   runtime.create_or_set(document.runtime)
   |> result.map(fn(address) {
@@ -1693,7 +1730,8 @@ pub fn resolve_sequence(
 }
 
 @target(javascript)
-/// Insert `value` at zero-based `index`, from `0` through the sequence length.
+/// Insert `value` at `index`, counted from zero, in the range `0` to the length
+/// of the sequence.
 pub fn sequence_insert(
   sequence: SharedSequence,
   index: Int,
@@ -1703,7 +1741,8 @@ pub fn sequence_insert(
 }
 
 @target(javascript)
-/// Delete the value at a zero-based `index`, from `0` through `length - 1`.
+/// Delete the value at `index`, counted from zero, in the range `0` to
+/// `length - 1`.
 pub fn sequence_delete(
   sequence: SharedSequence,
   index: Int,
@@ -1712,8 +1751,8 @@ pub fn sequence_delete(
 }
 
 @target(javascript)
-/// Move a value between zero-based indexes; the destination is evaluated after
-/// removing the source value.
+/// Move a value between two indexes, counted from zero. The function reads the
+/// destination index after it removes the value from the source index.
 pub fn sequence_move(
   sequence: SharedSequence,
   from_index: Int,
@@ -1728,7 +1767,8 @@ pub fn sequence_move(
 }
 
 @target(javascript)
-/// Replace the value at a zero-based `index` as one collaborative operation.
+/// Replace the value at `index`, counted from zero, as one collaborative
+/// operation.
 pub fn sequence_replace(
   sequence: SharedSequence,
   index: Int,
@@ -1790,8 +1830,8 @@ pub fn resolve_text(
 }
 
 @target(javascript)
-/// Insert `value` at the optimistic grapheme `index`, from `0` through the
-/// text length. An empty `value` at a valid index is a no-op.
+/// Insert `value` at the optimistic grapheme `index`, in the range `0` to the
+/// length of the text. An empty `value` at a valid index changes nothing.
 pub fn text_insert(
   text: SharedText,
   index: Int,
@@ -1801,8 +1841,8 @@ pub fn text_insert(
 }
 
 @target(javascript)
-/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
-/// a no-op.
+/// Delete the graphemes in `[start, end)`. An empty range with valid bounds
+/// changes nothing.
 pub fn text_delete_range(
   text: SharedText,
   start: Int,
@@ -1812,8 +1852,9 @@ pub fn text_delete_range(
 }
 
 @target(javascript)
-/// Replace the graphemes in `[start, end)` with `value` as one collaborative
-/// operation. Only an empty range replaced with `""` is a no-op.
+/// Replace the graphemes in `[start, end)` with `value`, as one collaborative
+/// operation. Only an empty range that you replace with `""` changes
+/// nothing.
 pub fn text_replace_range(
   text: SharedText,
   start: Int,
@@ -1824,26 +1865,26 @@ pub fn text_replace_range(
 }
 
 @target(javascript)
-/// Insert `value` at the end of the text. An empty `value` is a no-op.
+/// Insert `value` at the end of the text. An empty `value` changes nothing.
 pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
   runtime.text_append(text.runtime, text.address, value)
 }
 
 @target(javascript)
-/// The text's current optimistic visible string.
+/// The current visible optimistic string of the text.
 pub fn text_value(text: SharedText) -> String {
   runtime.text_value(text.runtime, text.address)
 }
 
 @target(javascript)
-/// The text's current optimistic grapheme count.
+/// The current optimistic grapheme count of the text.
 pub fn text_length(text: SharedText) -> Int {
   runtime.text_length(text.runtime, text.address)
 }
 
 @target(javascript)
-/// The graphemes in `[start, end)` of the text's optimistic string. An
-/// explicit error string when `start..end` is invalid.
+/// The graphemes in `[start, end)` of the optimistic string of the text. The
+/// result is an error string when the range `start..end` is invalid.
 pub fn text_substring(
   text: SharedText,
   start: Int,
@@ -1853,9 +1894,9 @@ pub fn text_substring(
 }
 
 @target(javascript)
-/// Create a stable anchor at the gap before the optimistic grapheme at
-/// `index`, biased with `bias_before`/`bias_after`. An explicit error string
-/// on an out-of-bounds index.
+/// Create a stable anchor at the gap before the optimistic grapheme at `index`.
+/// `bias_before` and `bias_after` set the bias. The result is an error string
+/// when the index is out of bounds.
 pub fn text_anchor_at(
   text: SharedText,
   index: Int,
@@ -1865,8 +1906,8 @@ pub fn text_anchor_at(
 }
 
 @target(javascript)
-/// Resolve an anchor to a current optimistic grapheme index. An explicit
-/// error string on a stale/unknown anchor target.
+/// Resolve an anchor to a current optimistic grapheme index. The result is an
+/// error string when the anchor target is stale or unknown.
 pub fn text_resolve_anchor(
   text: SharedText,
   anchor: TextAnchor,
@@ -1875,29 +1916,31 @@ pub fn text_resolve_anchor(
 }
 
 @target(javascript)
-/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
-/// need a `SharedText` since it carries no document state.
+/// An anchor at the start of the text. It always resolves to 0. The function is
+/// pure. It needs no `SharedText` value, because the anchor carries no document
+/// state.
 pub fn text_start_anchor() -> TextAnchor {
   runtime.text_start_anchor()
 }
 
 @target(javascript)
-/// An anchor at the end of the text. Always resolves to the current grapheme
-/// length, tracking growth. Pure, like `text_start_anchor`.
+/// An anchor at the end of the text. It always resolves to the current grapheme
+/// count, and it moves as the text becomes longer. The function is pure, the
+/// same as `text_start_anchor`.
 pub fn text_end_anchor() -> TextAnchor {
   runtime.text_end_anchor()
 }
 
 @target(javascript)
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors.
+/// Encode an anchor as a self-describing JSON value, for example to send it
+/// through presence for a shared cursor.
 pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
   runtime.text_anchor_to_json(anchor)
 }
 
 @target(javascript)
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`. An
-/// explicit error string on malformed JSON.
+/// Decode an anchor from a JSON string that `text_anchor_to_json` produced. The
+/// result is an error string for malformed JSON.
 pub fn text_anchor_from_json(
   json_string: String,
 ) -> Result(TextAnchor, String) {
@@ -1905,9 +1948,9 @@ pub fn text_anchor_from_json(
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this
-/// text channel. The handler receives `text_kernel.TextEvent` — text events
-/// only.
+/// Register a callback for every local change and remote change to this text
+/// channel. The handler receives a `text_kernel.TextEvent` value, and it
+/// receives no other kind of event.
 pub fn subscribe_text(
   text: SharedText,
   handler: fn(text_kernel.TextEvent) -> Nil,
@@ -2159,7 +2202,8 @@ pub fn subscribe_task_manager(
 // ── PN-counters ──────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new PN-counter channel. Same detached lifecycle as `create_map`.
+/// Create a new PN-counter channel. The detached lifecycle is the same as for
+/// `create_map`.
 pub fn create_pn_counter(
   document: Document(root),
 ) -> Result(PnCounter, String) {
@@ -2190,20 +2234,20 @@ pub fn resolve_pn_counter(
 }
 
 @target(javascript)
-/// Optimistically add `amount` (negative amounts decrement).
+/// Add `amount` optimistically. A negative amount decrements the counter.
 pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
   runtime.pn_counter_update(pn_counter.runtime, pn_counter.address, amount)
 }
 
 @target(javascript)
-/// The counter's current optimistic value, `None` when the address is not a
-/// PN-counter channel.
+/// The current optimistic value of the counter. The result is `None` when the
+/// address does not name a PN-counter channel.
 pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
   runtime.pn_counter_value(pn_counter.runtime, pn_counter.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this
+/// Register a callback for every local change and remote change to this
 /// PN-counter.
 pub fn subscribe_pn_counter(
   pn_counter: PnCounter,
@@ -2223,7 +2267,8 @@ pub fn subscribe_pn_counter(
 // ── PactMaps ─────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new PactMap channel. Same detached lifecycle as `create_map`.
+/// Create a new PactMap channel. The detached lifecycle is the same as for
+/// `create_map`.
 pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
   runtime.create_pact_map(document.runtime)
   |> result.map(fn(address) {
@@ -2252,39 +2297,42 @@ pub fn resolve_pact_map(
 }
 
 @target(javascript)
-/// Propose `value` for `key`. Consensus, not optimistic: the value is `pending`
-/// until server sequencing accepts it.
+/// Propose `value` for `key`. This write is a consensus write, and it is not
+/// optimistic. The value stays pending until the server sequencing accepts
+/// it.
 pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
   runtime.pact_map_set(pact_map.runtime, pact_map.address, key, value)
 }
 
 @target(javascript)
-/// Propose a delete (tombstone) for `key`.
+/// Propose a delete for `key`. A delete writes a tombstone.
 pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
   runtime.pact_map_delete(pact_map.runtime, pact_map.address, key)
 }
 
 @target(javascript)
-/// The accepted value for `key`, `None` when pending, absent, or not a PactMap
-/// channel.
+/// The accepted value for `key`. The result is `None` when the value is
+/// pending, when the key is absent, and when the address does not name a
+/// PactMap channel.
 pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
   runtime.pact_map_get(pact_map.runtime, pact_map.address, key)
 }
 
 @target(javascript)
-/// All keys with an accepted or pending pact.
+/// Every key with an accepted pact or a pending pact.
 pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
   runtime.pact_map_keys(pact_map.runtime, pact_map.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for this PactMap's consensus transitions:
-/// `WentPending` when a proposal is sequenced and `WentAccepted` when its
-/// signoff list drains.
+/// Register a callback for the consensus transitions of this PactMap. Those
+/// transitions are `WentPending`, when a proposal sequences, and
+/// `WentAccepted`, when its signoff list becomes empty.
 ///
-/// Those two transitions *are* the protocol. Without this a PactMap is
-/// write-and-poll: an app can propose and read but cannot learn that a peer's
-/// proposal landed, which is the one thing that distinguishes it from a map.
+/// Those two transitions *are* the protocol. Without this callback a PactMap
+/// only accepts a write and answers a read. An application can then propose a
+/// value and read a value, and it cannot learn that the proposal of a peer
+/// arrived. That one difference separates a PactMap from a map.
 pub fn subscribe_pact_map(
   pact_map: PactMap,
   handler: fn(pact_map_kernel.PactMapEvent) -> Nil,
@@ -2297,20 +2345,22 @@ pub fn subscribe_pact_map(
 }
 
 @target(javascript)
-/// Whether `key` currently has an unsettled (pending) proposal.
+/// Whether `key` has a proposal now that no room has settled, which is a
+/// pending proposal.
 pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
   runtime.pact_map_is_pending(pact_map.runtime, pact_map.address, key)
 }
 
 @target(javascript)
-/// The clients whose agreement `key` is still waiting on, `None` when nothing
-/// is pending.
+/// The clients whose agreement `key` still waits on. The result is `None` when
+/// nothing is pending.
 ///
-/// This is what turns a spinner into an explanation: `pact_map_is_pending`
-/// says *that* a value is unsettled, this says *who* it is unsettled on. The
-/// list is frozen from the connected roster when the proposal was sequenced,
-/// so it names the room at that moment — a client that has since left is
-/// removed as its `"leave"` is sequenced, not retroactively.
+/// This list changes a progress indicator into an explanation.
+/// `pact_map_is_pending` reports *that* a value is unsettled. This function
+/// reports *which clients* it waits on. The kernel freezes the list from the
+/// connected roster when the proposal sequences, so the list names the room at
+/// that moment. A client that left after that moment leaves the list when its
+/// `"leave"` message sequences, and not before.
 pub fn pact_map_pending_signoffs(
   pact_map: PactMap,
   key: String,
@@ -2320,8 +2370,9 @@ pub fn pact_map_pending_signoffs(
 }
 
 @target(javascript)
-/// The full pending proposal for `key` — the value awaiting agreement and the
-/// signoff list it is waiting on — `None` when nothing is pending.
+/// The full pending proposal for `key`, which is the value that waits for
+/// agreement, with the signoff list that it waits on. The result is `None` when
+/// nothing is pending.
 pub fn pact_map_pending(
   pact_map: PactMap,
   key: String,
@@ -2330,8 +2381,9 @@ pub fn pact_map_pending(
 }
 
 @target(javascript)
-/// The accepted entry for `key`: the agreed value and the sequence number it
-/// settled at. `None` when the key is absent or still pending.
+/// The accepted entry for `key`: the agreed value, with the sequence number
+/// that it settled at. The result is `None` when the key is absent, and when
+/// the value is still pending.
 pub fn pact_map_get_with_details(
   pact_map: PactMap,
   key: String,
@@ -2342,8 +2394,8 @@ pub fn pact_map_get_with_details(
 // ── Ordered collections ──────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
-/// `create_map`.
+/// Create a new ConsensusOrderedCollection channel. The detached lifecycle is
+/// the same as for `create_map`.
 pub fn create_ordered_collection(
   document: Document(root),
 ) -> Result(OrderedCollection, String) {
@@ -2374,24 +2426,27 @@ pub fn resolve_ordered_collection(
 }
 
 @target(javascript)
-/// Enqueue `value` at the tail of the collection.
+/// Add `value` at the end of the collection.
 pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
   runtime.ordered_add(collection.runtime, collection.address, value)
 }
 
 @target(javascript)
-/// Acquire (lease) the head item, returning the acquire id used to `complete`
-/// or `release` it.
+/// Acquire the head item, and return the acquire id. A later `complete` call or
+/// `release` call uses that id.
 pub fn ordered_acquire(collection: OrderedCollection) -> String {
   runtime.ordered_acquire(collection.runtime, collection.address)
 }
 
 @target(javascript)
-/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
-/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
-/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
-/// (a losing acquire emits no event, so this is the loser's only signal), or
-/// `Aborted` when the document closes with the acquire still in flight.
+/// The same as `ordered_acquire`, and the function also reports the consensus
+/// outcome of the acquire.
+///
+/// `on_outcome` runs exactly one time. It gives `AcquiredItem` when this client
+/// won the head. It gives `QueueEmpty` when the queue became empty before the
+/// op sequenced. An acquire that loses emits no event, so `QueueEmpty` is the
+/// only signal that a loser receives. It gives `Aborted` when the document
+/// closes while the acquire is still in flight.
 pub fn ordered_acquire_with_outcome(
   collection: OrderedCollection,
   on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
@@ -2404,7 +2459,7 @@ pub fn ordered_acquire_with_outcome(
 }
 
 @target(javascript)
-/// Complete an acquired item, removing it permanently.
+/// Complete an acquired item, and remove it permanently.
 pub fn ordered_complete(
   collection: OrderedCollection,
   acquire_id: String,
@@ -2417,7 +2472,7 @@ pub fn ordered_complete(
 }
 
 @target(javascript)
-/// Release an acquired item back to the collection for another consumer.
+/// Release an acquired item back to the collection, for another consumer.
 pub fn ordered_release(
   collection: OrderedCollection,
   acquire_id: String,
@@ -2426,20 +2481,20 @@ pub fn ordered_release(
 }
 
 @target(javascript)
-/// The number of items currently in the collection, `None` when the address is
-/// not an ordered-collection channel.
+/// The number of items in the collection now. The result is `None` when the
+/// address does not name an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   runtime.ordered_size(collection.runtime, collection.address)
 }
 
 @target(javascript)
-/// The queued (not-yet-acquired) values, front first.
+/// The values in the queue, which no client acquired yet, front first.
 pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
   runtime.ordered_queue(collection.runtime, collection.address)
 }
 
 @target(javascript)
-/// The currently-held jobs, keyed by acquire id (sorted).
+/// The jobs that clients hold now, keyed by acquire id and sorted by that id.
 pub fn ordered_jobs(
   collection: OrderedCollection,
 ) -> List(#(String, ordered_collection_kernel.JobEntry)) {
@@ -2447,8 +2502,9 @@ pub fn ordered_jobs(
 }
 
 @target(javascript)
-/// Register a callback invoked for this ordered collection's queue events —
-/// items added, acquired, completed, and released back on a client's departure.
+/// Register a callback for the queue events of this ordered collection. Those
+/// events report an item that a client added, acquired, or completed, and an
+/// item that the kernel released again after a client left.
 pub fn subscribe_ordered_collection(
   collection: OrderedCollection,
   handler: fn(ordered_collection_kernel.OrderedEvent) -> Nil,
@@ -2467,9 +2523,9 @@ pub fn subscribe_ordered_collection(
 // ── JSON-OT (json0) ──────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new json0 channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`json_ot_handle_of`) is stored into an attached
-/// container.
+/// Create a new json0 channel. The detached lifecycle is the same as for
+/// `create_map`. The channel is local only, until a caller stores its handle,
+/// from `json_ot_handle_of`, into an attached container.
 pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
   runtime.create_json_ot(document.runtime)
   |> result.map(fn(address) {
@@ -2478,15 +2534,15 @@ pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `json_ot`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
   handle.encode_handle(json_ot.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the JsonOt it references. Errors are retryable,
-/// as with `resolve`.
+/// Resolve a handle value to the JsonOt value that it references. A caller can
+/// retry after an error, the same as for `resolve`.
 pub fn resolve_json_ot(
   document: Document(root),
   value: Json,
@@ -2502,20 +2558,21 @@ pub fn resolve_json_ot(
 }
 
 @target(javascript)
-/// Optimistically submit a json0 op (a list of components) to the channel.
+/// Submit a json0 op to the channel, optimistically. An op is a list of
+/// components.
 pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
   runtime.submit_json_ot(json_ot.runtime, json_ot.address, op)
 }
 
 @target(javascript)
-/// The json0 channel's current optimistic document, `None` when the address is
-/// not a json0 channel.
+/// The current optimistic document of the json0 channel. The result is `None`
+/// when the address does not name a json0 channel.
 pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
   runtime.json_ot_view(json_ot.runtime, json_ot.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this json0
+/// Register a callback for every local change and remote change to this json0
 /// channel.
 pub fn subscribe_json_ot(
   json_ot: JsonOt,
@@ -2531,9 +2588,9 @@ pub fn subscribe_json_ot(
 // ── Shared rich text ─────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new rich-text channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`rich_text_handle_of`) is stored into an
-/// attached container.
+/// Create a new rich-text channel. The detached lifecycle is the same as for
+/// `create_map`. The channel is local only, until a caller stores its handle,
+/// from `rich_text_handle_of`, into an attached container.
 pub fn create_rich_text(
   document: Document(root),
 ) -> Result(SharedRichText, String) {
@@ -2544,15 +2601,16 @@ pub fn create_rich_text(
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `rich_text`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
   handle.encode_handle(rich_text.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the SharedRichText it references. Existence is
-/// checked, not channel type. Errors are retryable, as with `resolve`.
+/// Resolve a handle value to the SharedRichText value that it references. The
+/// function checks that the channel exists, and it does not check the channel
+/// type. A caller can retry after an error, the same as for `resolve`.
 pub fn resolve_rich_text(
   document: Document(root),
   value: Json,
@@ -2568,7 +2626,7 @@ pub fn resolve_rich_text(
 }
 
 @target(javascript)
-/// Optimistically submit a rich-text delta to the channel.
+/// Submit a rich-text delta to the channel, optimistically.
 pub fn submit_rich_text(
   rich_text: SharedRichText,
   delta: rich_text.Delta,
@@ -2577,14 +2635,14 @@ pub fn submit_rich_text(
 }
 
 @target(javascript)
-/// The channel's current optimistic rich-text document, `None` when the address
-/// is not a rich-text channel.
+/// The current optimistic rich-text document of the channel. The result is
+/// `None` when the address does not name a rich-text channel.
 pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
   runtime.rich_text_view(rich_text.runtime, rich_text.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this
+/// Register a callback for every local change and remote change to this
 /// rich-text channel.
 pub fn subscribe_rich_text(
   rich_text: SharedRichText,
@@ -2600,9 +2658,9 @@ pub fn subscribe_rich_text(
 // ── Grow-only sets (G-Set) ───────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new grow-only set channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`g_set_handle_of`) is stored into an attached
-/// container.
+/// Create a new grow-only set channel. The detached lifecycle is the same as
+/// for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `g_set_handle_of`, into an attached container.
 pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
   runtime.create_g_set(document.runtime)
   |> result.map(fn(address) {
@@ -2611,15 +2669,15 @@ pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `set`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn g_set_handle_of(set: GSet) -> Json {
   handle.encode_handle(set.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the GSet it references. Errors are retryable, as
-/// with `resolve`.
+/// Resolve a handle value to the GSet value that it references. A caller can
+/// retry after an error, the same as for `resolve`.
 pub fn resolve_g_set(
   document: Document(root),
   value: Json,
@@ -2633,25 +2691,25 @@ pub fn resolve_g_set(
 }
 
 @target(javascript)
-/// Optimistically add `element` to the set.
+/// Add `element` to the set, optimistically.
 pub fn g_set_add(set: GSet, element: String) -> Nil {
   runtime.g_set_add(set.runtime, set.address, element)
 }
 
 @target(javascript)
-/// Whether `element` is present in the set's current optimistic state.
+/// Whether `element` is in the current optimistic state of the set.
 pub fn g_set_contains(set: GSet, element: String) -> Bool {
   runtime.g_set_contains(set.runtime, set.address, element)
 }
 
 @target(javascript)
-/// The set's current optimistic members.
+/// The current optimistic members of the set.
 pub fn g_set_values(set: GSet) -> List(String) {
   runtime.g_set_values(set.runtime, set.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this set.
+/// Register a callback for every local change and remote change to this set.
 pub fn subscribe_g_set(
   set: GSet,
   handler: fn(g_set_kernel.GSetEvent) -> Nil,
@@ -2666,10 +2724,10 @@ pub fn subscribe_g_set(
 // ── Two-phase sets (2P-Set) ──────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new two-phase set channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`two_p_set_handle_of`) is stored into an
-/// attached map. A remove is a permanent tombstone: remove wins over a
-/// concurrent (re-)add.
+/// Create a new two-phase set channel. The detached lifecycle is the same as
+/// for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `two_p_set_handle_of`, into an attached map. A remove writes a
+/// permanent tombstone, and a remove wins against a concurrent add.
 pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
   runtime.create_two_p_set(document.runtime)
   |> result.map(fn(address) {
@@ -2678,15 +2736,15 @@ pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `set`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
   handle.encode_handle(set.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the TwoPSet it references. Errors are retryable,
-/// as with `resolve`.
+/// Resolve a handle value to the TwoPSet value that it references. A caller can
+/// retry after an error, the same as for `resolve`.
 pub fn resolve_two_p_set(
   document: Document(root),
   value: Json,
@@ -2702,33 +2760,34 @@ pub fn resolve_two_p_set(
 }
 
 @target(javascript)
-/// Optimistically add `element` to the set. Adding a previously removed element
-/// records the add but never reactivates it.
+/// Add `element` to the set, optimistically. If you add an element that a client
+/// removed before, the kernel records the add, and the element does not become
+/// active again.
 pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
   runtime.two_p_set_add(set.runtime, set.address, element)
 }
 
 @target(javascript)
-/// Optimistically remove `element` from the set. Removal is a permanent
+/// Remove `element` from the set, optimistically. A remove writes a permanent
 /// tombstone.
 pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
   runtime.two_p_set_remove(set.runtime, set.address, element)
 }
 
 @target(javascript)
-/// Whether `element` is present in the set's current optimistic state.
+/// Whether `element` is in the current optimistic state of the set.
 pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
   runtime.two_p_set_contains(set.runtime, set.address, element)
 }
 
 @target(javascript)
-/// The set's current optimistic members.
+/// The current optimistic members of the set.
 pub fn two_p_set_values(set: TwoPSet) -> List(String) {
   runtime.two_p_set_values(set.runtime, set.address)
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this set.
+/// Register a callback for every local change and remote change to this set.
 pub fn subscribe_two_p_set(
   set: TwoPSet,
   handler: fn(two_p_set_kernel.TwoPSetEvent) -> Nil,
@@ -2743,9 +2802,10 @@ pub fn subscribe_two_p_set(
 // ── Directories (hierarchical maps) ──────────────────────────────────────────
 
 @target(javascript)
-/// Create a new directory channel: a hierarchical map keyed by absolute paths
-/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
-/// until its handle (`directory_handle_of`) is stored into an attached map.
+/// Create a new directory channel, which is a hierarchical map keyed by
+/// absolute paths. The root path is `"/"`. The detached lifecycle is the same
+/// as for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `directory_handle_of`, into an attached map.
 pub fn create_directory(
   document: Document(root),
 ) -> Result(SharedDirectory, String) {
@@ -2756,15 +2816,15 @@ pub fn create_directory(
 }
 
 @target(javascript)
-/// The Fluid handle marker referencing `dir`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `dir`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn directory_handle_of(dir: SharedDirectory) -> Json {
   handle.encode_handle(dir.address)
 }
 
 @target(javascript)
-/// Resolve a handle value to the SharedDirectory it references. Errors are
-/// retryable, as with `resolve`.
+/// Resolve a handle value to the SharedDirectory value that it references. A
+/// caller can retry after an error, the same as for `resolve`.
 pub fn resolve_directory(
   document: Document(root),
   value: Json,
@@ -2780,8 +2840,8 @@ pub fn resolve_directory(
 }
 
 @target(javascript)
-/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
-/// `"/"`).
+/// Set `key` to `value` in the subdirectory at `path`, optimistically. The root
+/// path is `"/"`.
 pub fn directory_set(
   dir: SharedDirectory,
   path: String,
@@ -2792,7 +2852,7 @@ pub fn directory_set(
 }
 
 @target(javascript)
-/// Optimistically remove `key` from the subdirectory at `path`.
+/// Remove `key` from the subdirectory at `path`, optimistically.
 pub fn directory_delete(
   dir: SharedDirectory,
   path: String,
@@ -2802,13 +2862,13 @@ pub fn directory_delete(
 }
 
 @target(javascript)
-/// Optimistically remove every key from the subdirectory at `path`.
+/// Remove every key from the subdirectory at `path`, optimistically.
 pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
   runtime.directory_clear(dir.runtime, dir.address, path)
 }
 
 @target(javascript)
-/// Optimistically create a subdirectory named `name` under `path`.
+/// Create a subdirectory named `name` under `path`, optimistically.
 pub fn directory_create_subdirectory(
   dir: SharedDirectory,
   path: String,
@@ -2818,8 +2878,8 @@ pub fn directory_create_subdirectory(
 }
 
 @target(javascript)
-/// Optimistically delete the subdirectory named `name` under `path` (and all
-/// of its contents).
+/// Delete the subdirectory named `name` under `path`, optimistically. The
+/// delete also removes every value in that subdirectory.
 pub fn directory_delete_subdirectory(
   dir: SharedDirectory,
   path: String,
@@ -2829,8 +2889,8 @@ pub fn directory_delete_subdirectory(
 }
 
 @target(javascript)
-/// The current optimistic value at `key` in the subdirectory at `path`, `None`
-/// when absent.
+/// The current optimistic value at `key`, in the subdirectory at `path`. The
+/// result is `None` when the key is absent.
 pub fn directory_get(
   dir: SharedDirectory,
   path: String,
@@ -2850,7 +2910,7 @@ pub fn directory_entries(
 }
 
 @target(javascript)
-/// The names of the immediate subdirectories under `path`.
+/// The names of the direct subdirectories under `path`.
 pub fn directory_subdirectories(
   dir: SharedDirectory,
   path: String,
@@ -2869,7 +2929,7 @@ pub fn directory_has_subdirectory(
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this
+/// Register a callback for every local change and remote change to this
 /// directory.
 pub fn subscribe_directory(
   dir: SharedDirectory,
@@ -2888,23 +2948,26 @@ pub fn close(document: Document(root)) -> Nil {
 }
 
 @target(javascript)
-/// Fault-injection hook (tests/demos): drop the socket to force the
-/// reconnect/reconcile path. Pending and in-flight edits are preserved.
+/// A hook that injects a fault, for a test or a demo. It closes the socket, so
+/// that the client runs the reconnect and reconcile path. The pending edits and
+/// the in-flight edits all stay.
 pub fn force_reconnect(document: Document(root)) -> Nil {
   runtime.force_reconnect(document.runtime)
 }
 
 @target(javascript)
-/// Go offline and stay offline. The document keeps serving reads and accepting
-/// edits; they queue as pending and flush when `go_online` reconnects.
+/// Go offline and stay offline. The document continues to answer a read and to
+/// accept an edit. The edits queue as pending entries, and they go out when
+/// `go_online` reconnects.
 ///
-/// This is `force_reconnect` with a pause button. `force_reconnect` is away and
-/// back in one step, which leaves no window to edit in, and `close` cannot
-/// stand in for it either — that ends the runtime, so coming back means a fresh
-/// `connect` whose empty core has none of the edits made while away.
+/// This function is `force_reconnect` with a pause. `force_reconnect` goes away
+/// and comes back in one step, which leaves no interval to edit in. `close`
+/// cannot replace it either, because `close` ends the runtime. To come back
+/// after a `close` needs a new `connect` call, and the empty core of that
+/// runtime holds none of the edits from the offline interval.
 ///
-/// A no-op unless the document is connected, so a UI can bind this straight to
-/// a toggle:
+/// The function does nothing unless the document is connected, so an interface
+/// can bind it directly to a toggle:
 ///
 /// ```gleam
 /// case offline {
@@ -2913,29 +2976,31 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 /// }
 /// ```
 ///
-/// While offline `diagnostics(doc).phase` reads `"reconnecting"`, and
-/// `in_flight_count` is the number of edits waiting to reach the server — which
-/// is what a "3 changes not yet saved" indicator wants.
+/// While the document is offline, `diagnostics(doc).phase` is `"reconnecting"`,
+/// and `in_flight_count` is the number of edits that wait to reach the server.
+/// An indicator that reads "3 changes not yet saved" needs that count.
 pub fn go_offline(document: Document(root)) -> Nil {
   runtime.go_offline(document.runtime)
 }
 
 @target(javascript)
-/// Come back from `go_offline`, replaying the gap and flushing what was edited
-/// during it. A no-op unless the document is currently held offline.
+/// Return from `go_offline`. The client replays the interval and sends the edits
+/// from it. The function does nothing unless the document is offline now.
 pub fn go_online(document: Document(root)) -> Nil {
   runtime.go_online(document.runtime)
 }
 
 @target(javascript)
-/// This client's server-assigned id, `None` until the first handshake lands.
+/// The id that the server assigned to this client. The result is `None` until
+/// the first handshake completes.
 ///
-/// The reason to want it is identity in *someone else's* list. Consensus
-/// kernels report membership as the integer ids they tie-break on — a
-/// `PactMap`'s `pact_map_pending_signoffs`, for instance — and without this
-/// there is no way to tell which entry is your own tab. Convert with
-/// `watershed/client_id.to_int`, which is the same derivation the runtime and
-/// the kernels use, so the two are guaranteed to agree.
+/// You need this id to find your own identity in a list from *another*
+/// component. A consensus kernel reports its membership as the integer ids that
+/// it uses to tie-break. `pact_map_pending_signoffs` of a `PactMap` is one
+/// example. Without this id you cannot find the entry of your own tab. Convert
+/// the id with `watershed/client_id.to_int`. That function performs the same
+/// derivation as the runtime and the kernels, so the two results always
+/// agree.
 ///
 /// ```gleam
 /// let mine = watershed.client_id(doc) |> option.map(client_id.to_int)
@@ -2945,23 +3010,26 @@ pub fn go_online(document: Document(root)) -> Nil {
 /// }
 /// ```
 ///
-/// Re-read it after a reconnect rather than caching: the fresh handshake may
-/// assign a different id, and a stale one silently stops matching.
+/// Read this id again after a reconnect. Do not cache it. The new handshake can
+/// assign a different id, and a stale id then matches nothing, and it reports
+/// nothing.
 pub fn client_id(document: Document(root)) -> Option(String) {
   runtime.client_id(document.runtime)
 }
 
 @target(javascript)
-/// An inbound ephemeral ripple. Ripples are document-scoped, non-sequenced,
-/// and non-persisted — ideal for transient presence (cursors, selection,
-/// typing indicators) that must NOT live in a DDS.
+/// An inbound ephemeral ripple. A ripple belongs to one document, it does not
+/// sequence, and no server stores it. Use a ripple for transient presence,
+/// which is a cursor, a selection, or a typing indicator. Such data must
+/// **not** go into a DDS.
 pub type Ripple =
   SignalMessage
 
 @target(javascript)
-/// Broadcast an ephemeral ripple to every other connected client: a `type`
-/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
-/// catch-up. No-op until the first handshake assigns a client id.
+/// Broadcast an ephemeral ripple to every other connected client. A ripple has
+/// a `type` tag and any JSON `content`. It expects no reply, and it has no
+/// order, no ack, and no catch-up. The function does nothing until the first
+/// handshake assigns a client id.
 pub fn submit_ripple(
   document: Document(root),
   ripple_type ripple_type: String,
@@ -2971,7 +3039,7 @@ pub fn submit_ripple(
 }
 
 @target(javascript)
-/// Register a callback invoked for every inbound ripple on the document.
+/// Register a callback for every inbound ripple on the document.
 pub fn subscribe_ripples(
   document: Document(root),
   handler: fn(Ripple) -> Nil,
@@ -2980,62 +3048,65 @@ pub fn subscribe_ripples(
 }
 
 @target(javascript)
-/// The ripple's `type` tag, if present.
+/// The `type` tag of the ripple, if the ripple has one.
 pub fn ripple_type(ripple: Ripple) -> Option(String) {
   ripple.signal_type
 }
 
 @target(javascript)
-/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
+/// The JSON payload of the ripple, as a `Dynamic` value, for the caller to
+/// decode.
 pub fn ripple_content(ripple: Ripple) -> Dynamic {
   ripple.content
 }
 
 @target(javascript)
-/// The sending client's id, if the server stamped one (`None` for
-/// server-originated ripples).
+/// The id of the client that sent the ripple, if the server stamped one. The
+/// result is `None` for a ripple that the server produced.
 pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
   ripple.client_id
 }
 
 @target(javascript)
-/// Whether the document is fully caught up: every local edit has been
-/// acknowledged by the server, so the confirmed state is complete and stable.
-/// Useful to wait for quiescence before summarizing.
+/// Whether the document is caught up, which is true when the server acked every
+/// local edit. The confirmed state is then complete and stable. Use this
+/// function to wait for a quiet document before you summarize it.
 pub fn is_synced(document: Document(root)) -> Bool {
   runtime.is_synced(document.runtime)
 }
 
 @target(javascript)
-/// Snapshot the document runtime's connection and sequencing state.
+/// Take a snapshot of the connection state and the sequencing state of the
+/// document runtime.
 pub fn diagnostics(document: Document(root)) -> Diagnostics {
   runtime.diagnostics(document.runtime)
 }
 
 @target(javascript)
-/// Summarize the document's current confirmed state to floodgate storage so future
-/// clients can bootstrap from the snapshot instead of replaying the full op
-/// history. Resolves with the summary handle (git tree SHA). Requires the
-/// connection to be fully synced and the token to carry `summary:write`.
+/// Summarize the current confirmed state of the document to the storage of
+/// floodgate. A later client can then start from that snapshot, and it does not
+/// replay the full op history. The promise resolves with the summary handle,
+/// which is a git tree SHA. The connection must be synchronized, and the token
+/// must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime.summarize(document.runtime)
 }
 
 @target(javascript)
-/// Let this client summarize the document on its own, per `policy`.
+/// Let this client summarize the document without a request, under `policy`.
 ///
-/// Without this nothing ever summarizes and every joining client replays the
-/// whole log — `summarize` has to be called by hand. With it, the runtime
-/// writes a checkpoint once the document has drifted past the policy's
-/// threshold and this client is settled, so a later join costs recent history
-/// rather than all of it.
+/// Without this function nothing summarizes, and every client that joins
+/// replays the whole log. You must then call `summarize` by hand. With this
+/// function, the runtime writes a checkpoint after the document moves past the
+/// threshold of the policy and this client is settled. A later join thus costs
+/// the recent history, and not all of it.
 ///
-/// Safe to install on every client in a room: the attempts are spread over a
-/// jitter window and the first summary to be sequenced stands the others down.
-/// A lost race costs one redundant upload.
+/// It is safe to install the policy on every client in a room. The attempts
+/// spread across a delay window, and the first summary that sequences stops the
+/// other attempts. A lost race costs one unnecessary upload.
 ///
-/// Requires the token to carry `summary:write`, which `connect` mints by
-/// default. Applies from the next sequenced op onward.
+/// The token must carry the `summary:write` scope, which `connect` includes by
+/// default. The policy applies from the next sequenced op.
 pub fn auto_summarize(
   document: Document(root),
   policy: summary_policy.Policy,
@@ -3044,27 +3115,28 @@ pub fn auto_summarize(
 }
 
 @target(javascript)
-/// Stop summarizing automatically. Any attempt already scheduled still
-/// re-checks before acting, and finds no policy.
+/// Stop the automatic summaries. An attempt that is already scheduled still
+/// checks again before it acts, and it then finds no policy.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime.auto_summarize(document.runtime, None)
 }
 
 @target(javascript)
-/// How many ops have been sequenced past the newest summary this client knows
-/// about — the drift an automatic policy thresholds on, and what a joining
-/// client would have to replay on top of the checkpoint.
+/// The number of ops that sequenced after the newest summary that this client
+/// knows about. An automatic policy compares that number with its threshold,
+/// and a client that joins replays those ops on top of the checkpoint.
 ///
-/// On a document nothing has ever summarized this is the whole log.
+/// On a document that no client has summarized, this number is the whole
+/// log.
 pub fn ops_since_summary(document: Document(root)) -> Int {
   runtime.ops_since_summary(document.runtime)
 }
 
 @target(javascript)
-/// List the document's stored summary versions, newest first — the client
-/// half of Fluid's `getVersions`. Each `summarize` call stores one version;
-/// the newest is what a fresh connection bootstraps from. Requires the token
-/// to carry `doc:read`.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. Each `summarize` call
+/// stores one version, and a new connection starts from the newest one. The
+/// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
   count count: Int,
@@ -3073,11 +3145,12 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the historical confirmed state a summary version captured, by its
-/// handle (from `get_versions` or a `summarize` resolution). Returns the
-/// stored snapshot blob — entries in insertion order plus the sequence number
-/// they were captured at. A point-in-time read: the live document is
-/// unaffected.
+/// Read the confirmed state that a summary version captured, by the handle of
+/// that version. `get_versions` and the resolution of `summarize` both give a
+/// handle. The function returns the stored snapshot blob, which holds the
+/// entries in insertion order with the sequence number that the writer captured
+/// them at. The read is at one point in time, and it does not change the live
+/// document.
 pub fn load_version(
   document: Document(root),
   handle handle: String,
@@ -3132,8 +3205,9 @@ pub fn size(map: SharedMap) -> Int {
 // ── Events ───────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Register a callback invoked for every local and remote change to this map
-/// channel. The handler receives `map_kernel.MapEvent` — map events only.
+/// Register a callback for every local change and remote change to this map
+/// channel. The handler receives a `map_kernel.MapEvent` value, and it receives
+/// no other kind of event.
 pub fn subscribe(
   map: SharedMap,
   handler: fn(map_kernel.MapEvent) -> Nil,
@@ -3146,9 +3220,10 @@ pub fn subscribe(
 }
 
 @target(javascript)
-/// Subscribe to a typed map's whole-map events without dropping to the untyped
-/// API. Like `subscribe`, `handler` receives narrowed `map_kernel.MapEvent`s;
-/// use `subscribe_field` instead to watch a single typed field.
+/// Subscribe to the whole-map events of a typed map, and stay in the typed API.
+/// `handler` receives a `map_kernel.MapEvent` value and no other kind of event,
+/// the same as in `subscribe`. Use `subscribe_field` instead to watch one typed
+/// field.
 pub fn subscribe_typed(
   typed_map: TypedMap(s),
   handler: fn(map_kernel.MapEvent) -> Nil,
@@ -3157,8 +3232,9 @@ pub fn subscribe_typed(
 }
 
 @target(javascript)
-/// Map a fanned-out channel event to a typed change for `field` (under `key`),
-/// or `None` when the event is for another key or channel kind.
+/// Convert a channel event from the fan-out into a typed change for `field`,
+/// which is under `key`. The result is `None` when the event is for another
+/// key, and when it is for another channel kind.
 fn field_change(
   field: Field(s, a),
   key: String,
@@ -3180,12 +3256,13 @@ fn field_change(
 }
 
 @target(javascript)
-/// Subscribe to changes of a single typed field. Each local or remote write to
-/// `field`'s key invokes `handler` with a `FieldChange` carrying the new and
-/// previous values decoded at the boundary — `Error(Invalid)` when a peer wrote
-/// a value that does not match the field type. A `Cleared` on the map fans out
-/// as `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key
-/// previous.
+/// Subscribe to the changes of one typed field. Every local or remote write to
+/// the key of `field` calls `handler` with a `FieldChange` value. That value
+/// carries the new value and the previous value, both decoded at the boundary.
+/// Each one is `Error(Invalid)` when a peer wrote a value that does not match
+/// the field type. A `Cleared` event on the map arrives as
+/// `FieldChange(Ok(None), Ok(None), local)`, because a clear carries no previous
+/// value for each key.
 pub fn subscribe_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -3203,9 +3280,10 @@ pub fn subscribe_field(
 // ── Demo helpers ─────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Mint an HS256 dev JWT for `just server` (dev mode). Signed with Web
-/// Crypto, so the token resolves asynchronously. Do not use in production —
-/// the tenant secret must never reach the browser there.
+/// Mint an HS256 development JWT for `just server`, which runs in development
+/// mode. The function signs with Web Crypto, so the token resolves
+/// asynchronously. Do not use this function in production. The tenant secret
+/// must never reach the browser there.
 pub fn dev_token(
   secret secret: String,
   tenant tenant: String,
