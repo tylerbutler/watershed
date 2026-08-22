@@ -1,5 +1,5 @@
 ---
-description: Two-register copy style for the watershed website — where ASD-STE100 applies and where it must not
+description: House style for the watershed website — voiced copy, ASD-STE100 does not apply here
 applyTo: 'website/**'
 ---
 
@@ -7,37 +7,16 @@ applyTo: 'website/**'
 
 > **Overrides `use-ste.instructions.md` for these paths.** That instruction is
 > vendored from `tylerbutler/apm-base` and applies STE at `applyTo: '**'` with
-> no scoping. It is wrong for the copy listed under Register B below, and this
-> file wins there. Do not edit the vendored file — `apm install` reverts it.
+> no scoping. STE belongs to the docs — reference prose, API docs, doc
+> comments, error messages — not to the site. This file wins under `website/**`.
+> Do not edit the vendored file — `apm install` reverts it.
 
+The site's job is to make a reader care enough to read the technical parts.
+Write it in full voice: em-dashes, contractions, sentence fragments, rhetorical
+questions, second person. Two copy passes have already flattened this site into
+STE (`a99e07f`, `760cb87`); both were reverted. Do not do it a third time.
 
-The site's job is to make a reader care enough to read the technical parts. Two
-registers, and the register is chosen by *where the text sits*, not by how
-technical it is.
-
-## Register A — plain and procedural (ASD-STE100)
-
-Apply STE here. Short sentences, one idea each, active voice, no contractions,
-no idioms, consistent term per concept, spelled-out abbreviations on first use.
-
-- API and structure reference prose
-- The `detail:` / `rule:` / `body:` strings in `website/src/data/*.ts`
-- Comparison tables and definition lists
-- `aria-label`, `alt`, and other assistive text — these must be literal
-- Setup and installation steps
-
-## Register B — voiced (STE does not apply)
-
-These exist to create interest, name stakes, and invite an action. Flattening
-them costs more than the ambiguity it removes.
-
-- `<h1>` and `<h2>` headings
-- Hero ledes and page `description=` meta
-- Demo captions, `data-caption-idle`, button labels, slider `title` tooltips
-- CTA and inline link text
-- The teaser/outro asides that sell the next page
-
-### What Register B is allowed to do
+## What the voice is allowed to do
 
 - **Name stakes.** "It's the classic distributed-systems bug" beats "Use a
   counter structure to prevent this error."
@@ -46,16 +25,24 @@ them costs more than the ambiguity it removes.
   more than asserting the fact.
 - **Address the reader.** "Try cutting Client B's link mid-edit," not
   "Disconnect Client B."
-- **Use em-dashes, contractions, sentence fragments, and rhetorical questions.**
 - **Make a heading name an idea, not a fact.** "Every edit is a bet on the
   order" over "Local edits predict server order." A heading that is only a fact
   is not shorter, just emptier.
 
-### What Register B still may not do
+This covers headings, hero ledes, page `description=` meta, demo captions,
+button labels, tooltips, CTA and link text, teaser asides, and the `rule:` /
+`body:` / `detail:` strings in `website/src/data/*.ts`.
+
+## What it still may not do
 
 Hype, superlatives, or claims the page does not back up. Voice is not looseness:
 "deliberately nasty orderings" is a real claim about test design and the tests
 back it.
+
+## The one literal exception
+
+`aria-label`, `alt`, and other assistive text must be plain and literal. Screen
+reader output is not a place for voice.
 
 ## Protected naming
 
@@ -71,6 +58,6 @@ half-applied rename is worse than either state.
 
 ## When a copy pass is requested
 
-Say which register each file falls in before editing, and report anything you
-moved between registers. A pass that flattens Register B into Register A is a
-regression even when every individual sentence got clearer.
+A pass that flattens voiced copy toward STE is a regression even when every
+individual sentence got clearer. If a string reads flat, the fix is more voice,
+not less.

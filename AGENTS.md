@@ -21,23 +21,19 @@ The repo carries a vendored instruction from `tylerbutler/apm-base` that reads
 whole repo, that instruction is wrong, and it has already caused one regression
 (`a99e07f`, `760cb87`) that flattened the website's voice before being reverted.
 
-Read it as scoped to **technical prose**: reference docs, API docs, doc
-comments, README bodies, error messages, and assistive text (`aria-label`,
-`alt`). STE is a procedure spec — it removes ambiguity, and it also removes
-stakes, contrast, and second person. That trade is right for a maintenance
-manual and wrong for copy whose job is to make someone care.
+Read it as scoped to **the docs**: reference docs, API docs, doc comments,
+README bodies, and error messages. STE is a procedure spec — it removes
+ambiguity, and it also removes stakes, contrast, and second person. That trade
+is right for a maintenance manual and wrong for copy whose job is to make
+someone care.
 
-**STE does not apply to:** headings, hero ledes, page meta descriptions, demo
-captions, button labels, tooltips, CTA and inline link text, teaser copy, or
-established product naming.
+**STE does not apply under `website/**`.** The site is written in full voice.
+`.github/instructions/website-copy.instructions.md` is authoritative there —
+read it before any copy pass. The one exception is assistive text
+(`aria-label`, `alt`), which stays plain and literal everywhere.
 
-Under `website/**`, `.github/instructions/website-copy.instructions.md` is
-authoritative and splits every string into one of the two registers. Read it
-before any copy pass there.
-
-A copy pass that flattens voiced copy into STE is a regression even when every
-individual sentence got clearer. If you cannot tell which register a string is
-in, leave it alone and say so.
+A copy pass that flattens voiced copy toward STE is a regression even when every
+individual sentence got clearer.
 
 ### Protected naming
 
