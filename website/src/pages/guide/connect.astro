@@ -70,26 +70,25 @@ pub fn main() {
   <div class="g-block">
     <h2>A document is a named container of channels</h2>
     <p>
-      watershed synchronizes data in a <strong>document</strong>. The server
-      identifies this container by a <code>tenant</code> and a
-      <code>document</code> ID. Clients that connect to the same pair share the
-      same state. Flowboard’s teammates all open
+      Everything watershed synchronises belongs to a <strong>document</strong>:
+      a server-sequenced container addressed by a <code>tenant</code> and a
+      <code>document</code> id. Every client that connects to the same pair joins
+      the same live state. Flowboard’s teammates all open
       <code>flow-co / flowboard</code>.
     </p>
     <p>
-      During connection, watershed replays the document’s operation history to
-      reproduce current state. It then keeps the connection open and receives
-      all later changes in server order.
+      Connecting replays the document’s op history so you start from the current
+      converged state, then keeps the connection open to stream every subsequent
+      change (yours and everyone else’s) in one server-assigned order.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Connect</h2>
     <p>
-      watershed uses the same pure core on the BEAM and in the browser. Both
-      facades provide the same structure operations. Their connection and
-      subscription APIs differ because the target runtimes differ. Select your
-      target:
+      watershed is BEAM-first, and the same pure core compiles to the browser.
+      The facades share structure operations, but each target still constrains
+      the connection and subscription APIs. Pick your target:
     </p>
 
     <div class="g-tabs">
@@ -117,17 +116,18 @@ pub fn main() {
 
     <div class="g-note">
       <p>
-        <strong>Connection behavior differs by target.</strong> On the BEAM,
+        <strong>The one real difference.</strong> On the BEAM,
         <code>connect</code> blocks and returns <code>Result(Document, _)</code>
-        after history replay. In the browser, it returns at once and calls
-        <code>on_ready</code> after the handshake because the event loop cannot
-        block. Keep the document handle for diagnostics and document services.
-        Attach or ensure channels only after
+        once history has replayed: natural inside an OTP process. In the
+        browser it returns immediately and calls <code>on_ready</code> when the
+        handshake completes, because you cannot block the event loop. Keep the
+        handle when it arrives (it is fine for diagnostics and document-scoped
+        services), but attach or ensure channels only after
         <code>on_ready</code> reports <code>Ok</code>. Treating handle-arrival
-        and readiness as one event causes a first-load race. Map subscriptions
-        also differ. BEAM returns an OTP
+        and readiness as one event is a first-load race. Map
+        subscriptions differ too: BEAM returns an OTP
         <code>Subject(MapEvent)</code>; the browser facade registers a callback
-        directly. Step 05 converts browser callbacks to Lustre effects.
+        directly. Step 05 hands the browser pattern to Lustre as effects.
       </p>
     </div>
   </div>
@@ -135,17 +135,17 @@ pub fn main() {
   <div class="g-block">
     <h2>Read the root, write optimistically</h2>
     <p>
-      Each document has a root <code>SharedMap</code> at address
-      <code>"root"</code>. Get it with <code>root(doc)</code>. Use
-      <code>set</code>, <code>get</code>, and <code>subscribe</code> as you
-      would for an ordinary map. You do not write a merge callback.
+      Every document has a root <code>SharedMap</code> at address
+      <code>"root"</code>; get it with <code>root(doc)</code>. It reads like
+      an ordinary map: <code>set</code>, <code>get</code>, <code>subscribe</code>.
+      There is no merge callback to write and no conflict handler to forget.
     </p>
     <p>
       A <code>set</code> applies to your local replica <em>immediately</em> and
-      emits a local subscription event. Subscribe before you make edits.
+      emits a local subscription event, so subscribe before you make edits.
       Remote writes emit when the runtime applies them to your replica. Both
-      event types must read visible state through the same render path. A server
-      acknowledgment can emit no event when confirmation does not change
+      event origins should re-read the visible state through the same render
+      path. A server acknowledgement may emit nothing when it does not change
       that visible state.
     </p>
     <p>
@@ -155,17 +155,17 @@ pub fn main() {
       key.
     </p>
     <p>
-      You can store a string under <code>"title"</code>, but repeated key
-      literals increase the risk of errors. The next step declares keys and
-      their types in one place.
+      Storing a plain string under <code>"title"</code> works, but you don’t want
+      raw key strings sprinkled through an app. Next we give the document a
+      typed shape, so keys and their types are declared in one place.
     </p>
   </div>
 
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Open a live document from either target. Read and write its root map.
-      Local edits appear at once and converge in server order.
+      Open a live document from either target and read and write its root map,
+      with local edits rendering instantly and converging in server order.
     </p>
   </div>
 </GuideLayout>

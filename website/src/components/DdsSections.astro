@@ -14,25 +14,25 @@ const flow = [
     step: "1",
     title: "Submit",
     detail:
-      "A client makes a change and updates its local copy.",
+      "A client makes a change and updates just its own local copy for now.",
   },
   {
     step: "2",
     title: "Sequence",
     detail:
-      "A server such as floodgate puts all changes in one order and sends them to each client.",
+      "A server like floodgate puts everyone’s changes in one order and sends that order to every client.",
   },
   {
     step: "3",
     title: "Confirm / apply",
     detail:
-      "The source client confirms the change. All other clients apply it with the same code.",
+      "The client that made the change locks it in; everyone else applies it through the exact same code.",
   },
   {
     step: "4",
     title: "Summarize",
     detail:
-      "A saved snapshot lets any client load the current state after a new connection or reconnection.",
+      "A saved snapshot lets any client reload the current state, the same path used after a reconnect.",
   },
 ];
 ---
@@ -42,14 +42,15 @@ const flow = [
     <div class="dds-copy">
       <h2 id="dds-field-title">One ordered stream, one clear rule per structure</h2>
       <p>
-        watershed does not use one merge rule for all conflicts. Each structure
-        defines when local changes appear, when the server must confirm them,
-        and which data a client saves for later use.
+        watershed doesn’t paper over conflicts with one catch-all merge. Each
+        structure states a small, clear rule: what can show up instantly, what
+        has to wait for the server to confirm it, and what gets saved so a client
+        can reload later.
       </p>
       <p class="dds-atlas-note">
-        This page shows a subset of watershed’s structures. The{" "}
-        <a href="/structures">data structure catalog</a> groups all structures
-        by family and provides a live demo for each one.
+        Only a few of watershed’s structures are shown here. The rest (grouped
+        by family) live in <a href="/structures">the field atlas</a>, our full
+        catalog, each with its own live demo.
       </p>
       <nav class="family-nav" aria-label="Convergence models compared">
         <a class="family-nav-models" href="/models">DDS vs CRDT vs OT →</a>
@@ -97,9 +98,10 @@ const flow = [
   <div class="flow-inner">
     <h2 id="dds-flow-title">The same channel carries every structure</h2>
     <p>
-      Every structure above uses the same ordered change stream as the live
-      SharedMap demo. A document can host several structures as separate
-      channels. All channels share the document’s sequence.
+      Every structure above rides the same ordered stream of changes, the very
+      one the live SharedMap demo runs on. Open any family to switch which
+      structure is on screen; they all stay hosted together as channels sharing
+      one sequenced document.
     </p>
 
     <ol class="flow-steps">

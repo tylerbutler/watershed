@@ -6,7 +6,7 @@ import Ecosystem from "../components/Ecosystem.astro";
 
 <Sheet
   title="watershed — a counter is not a map cell"
-  description="This live example shows why a counter must not use a last-write-wins SharedMap. Concurrent read-modify-write increments overwrite one another. SharedCounter prevents the lost update."
+  description="The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
@@ -15,12 +15,12 @@ import Ecosystem from "../components/Ecosystem.astro";
       </p>
       <h1>A counter is not<br />a <em>map cell.</em></h1>
       <p class="lede">
-        SharedMap selects the write with the higher server sequence number for
-        each key. All replicas get the same value, but one read-modify-write
-        operation can overwrite another. If two clients read the same count and
-        each writes <code>count + 1</code>, both submit the same replacement
-        value. The later write adds nothing. This demo runs watershed's compiled
-        <code>map_kernel</code>.
+        SharedMap resolves each key to the write with the higher server sequence
+        number. That gives every replica the same value, but it does not preserve
+        read-modify-write intent. If two clients read the same count and each
+        writes <code>count + 1</code>, both submit the same replacement value,
+        and the later write adds nothing. Here it is, live,
+        through watershed's compiled <code>map_kernel</code>.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="#counter-bug">See the bug ↓</a>

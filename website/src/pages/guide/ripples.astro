@@ -48,15 +48,17 @@ watershed.subscribe_ripples(doc, fn(ripple) {
   <div class="g-block">
     <h2>Not everything belongs in the document</h2>
     <p>
-      Some signals have short validity. Examples include the card that a
-      teammate views, a cursor position, a request for attention, or a reaction.
-      Do not store these signals in a channel. A channel sequences, summarizes,
-      and replays its data to later clients.
+      Some signals are about <em>now</em>, not about state: which card a
+      teammate is looking at, a cursor position, a “take a look” nudge, a
+      thumbs-up. Storing those in a channel would be wrong: they’d be sequenced,
+      summarised, and replayed to everyone who joins an hour later, long after
+      they stopped meaning anything.
     </p>
     <p>
-      A <strong>ripple</strong> is a document-scoped broadcast without
-      sequencing. watershed sends it to each other connected client and does
-      not store it. Ripples do not require ordering or convergence.
+      A <strong>ripple</strong> is watershed’s answer: a document-scoped,
+      non-sequenced broadcast delivered to every <em>other</em> connected client
+      and then gone. No ordering, no storage, no convergence, deliberately. It’s
+      the ephemeral tier that sits alongside your channels.
     </p>
   </div>
 
@@ -64,8 +66,8 @@ watershed.subscribe_ripples(doc, fn(ripple) {
     <h2>Send a ripple</h2>
     <p>
       A ripple is a <code>type</code> tag plus a JSON payload.
-      <code>submit_ripple</code> broadcasts it and returns nothing. There is no
-      state change and no acknowledgment. Flowboard announces the
+      <code>submit_ripple</code> broadcasts it and returns nothing: there’s no
+      ack to await, because there’s no state to change. Flowboard announces the
       card a teammate is focused on:
     </p>
     <figure class="g-code">
@@ -86,9 +88,10 @@ watershed.subscribe_ripples(doc, fn(ripple) {
     </figure>
     <div class="g-note">
       <p>
-        <strong>Use ripples for temporary signals and channels for state.</strong>
-        A summary does not contain ripples, so a later client cannot receive
-        them. Store data in a channel if later clients must receive it.
+        <strong>Ripples for now, channels for state.</strong> A ripple never
+        lands in a summary, so a client that joins later won’t see it. That is
+        right for a cursor and wrong for a card’s column. If a late-joiner must
+        see it, it belongs in a channel, not a ripple.
       </p>
       <p>
         On the BEAM, <code>subscribe_ripples(doc)</code> returns a
@@ -101,13 +104,15 @@ watershed.subscribe_ripples(doc, fn(ripple) {
   <div class="g-block">
     <h2>Presence answers "who is here"</h2>
     <p>
-      Ripples do not report when a peer disconnects, so its last marker can
-      remain on screen. <strong>Presence</strong> manages this lifecycle. A
-      server with connection-backed presence tracks each socket. A later client
-      receives the complete roster, and a dropped connection removes its entry.
-      Other servers use ripple heartbeats and a TTL. One API supports both
-      modes and reports the selected mode. The next step adds the presence driver
-      to the user interface as one effect.
+      Raw ripples are stateless, so a peer who goes quiet leaves their last
+      marker stuck on screen. <strong>Presence</strong> supplies the missing
+      lifecycle. Where the server offers connection-backed presence, it tracks
+      each socket directly: a late joiner gets the whole roster at once, and a
+      dropped connection removes its entry immediately. Where it does not,
+      presence falls back to heartbeating over ripples and expiring peers on a
+      TTL. One API covers both, and it tells you which one it picked. You rarely
+      hand-roll any of it. The next step wires the built-in driver to your UI as
+      a single effect.
     </p>
     <p>
       Keep sending high-frequency cursor motion as raw ripples; presence is for

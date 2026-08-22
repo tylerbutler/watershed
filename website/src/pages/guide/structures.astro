@@ -40,14 +40,16 @@ watershed.increment(wip_breaches, 1)
   <div class="g-block">
     <h2>The channel kind <em>is</em> the conflict policy</h2>
     <p>
-      Each schema slot is a channel. Its channel type defines how watershed
-      resolves concurrent edits. For each slot, select the behavior that your
-      application requires when two people change the same data.
+      Every slot in the schema is a channel, and picking its kind is picking how
+      concurrent edits to that slot resolve. This is the one design decision
+      multiplayer forces on you that single-player never does: <em>what happens
+      when two people change the same thing at once?</em> You answer it once, per
+      slot, by choosing a kind.
     </p>
     <p>
-      Flowboard uses a different rule for each of its three slots. One document
-      can use several merge models because all channels use the same sequenced
-      stream.
+      Flowboard’s three slots each answer it differently, and that’s the point:
+      one document mixes merge models freely, because they all ride the same
+      sequenced stream.
     </p>
   </div>
 
@@ -56,15 +58,15 @@ watershed.increment(wip_breaches, 1)
     <p>
       The cards map defaults to a <a href="/structures/maps#map">SharedMap</a>:
       last-write-wins per card, resolved by server order. Two teammates
-      dragging <code>card-4</code> at once produce two writes. The later
-      sequenced write wins. Use this rule when the card’s column must match its
-      last completed move.
+      dragging <code>card-4</code> at once? The higher-sequenced write holds;
+      the other is dropped. That’s correct when a card’s column is simply the
+      latest place it was dropped.
     </p>
     <p>
-      If one teammate can <em>archive</em> a card while another moves it,
-      last-write-wins can lose the move. An{" "}
-      <a href="/structures/maps#ormap">OR-map</a> keeps the concurrent write
-      through observed-remove rules. For a new slot, declare
+      But if a teammate can <em>archive</em> a card while another is moving it,
+      last-write-wins can silently lose the concurrent move. Swap the kind to
+      an <a href="/structures/maps#ormap">OR-map</a> and observed-remove
+      semantics keep the concurrent write. For a new slot, declare
       <code>OrMapChannel</code> and choose the required value mode when ensuring
       it:
     </p>
@@ -100,10 +102,11 @@ watershed.increment(wip_breaches, 1)
     </figure>
     <div class="g-note">
       <p>
-        <strong>See the lost update.</strong> The{" "}
-        <a href="/counter-bug">counter example</a> stores a boat count in a map.
-        Two concurrent increments lose one update. The example then uses
-        <code>SharedCounter</code> to keep both updates.
+        <strong>This bug is worth seeing.</strong> The{" "}
+        <a href="/counter-bug">counter-bug page</a> stages exactly this:
+        a boat count stored in a map, two concurrent increments, one silently
+        lost, then fixes it with <code>SharedCounter</code>. It’s the sharpest
+        argument for choosing kinds deliberately.
       </p>
     </div>
   </div>
@@ -111,7 +114,7 @@ watershed.increment(wip_breaches, 1)
   <div class="g-block">
     <h2>Choosing, in general</h2>
     <p>
-      Ask these questions for each slot:
+      Three questions cover most slots:
     </p>
     <ul>
       <li>
@@ -120,9 +123,9 @@ watershed.increment(wip_breaches, 1)
         sum instead of clobbering.
       </li>
       <li>
-        <strong>Must it accept offline or repeated delivery?</strong> Use a{" "}
+        <strong>Must it survive offline or duplicate delivery?</strong> Then a{" "}
         <a href="/models">CRDT</a> (OR-map, OR-set, PN counter) whose merge
-        does not depend on order.
+        doesn’t depend on order, over a plain DDS.
       </li>
       <li>
         <strong>Is it a decision, not a value?</strong> Ownership, turn-taking,
@@ -131,9 +134,9 @@ watershed.increment(wip_breaches, 1)
       </li>
     </ul>
     <p>
-      The <a href="/models">DDS · CRDT · OT comparison</a> compares the models.
-      The <a href="/structures">structure catalog</a> gives the merge rule and
-      intended uses for each structure.
+      The <a href="/models">DDS · CRDT · OT comparison</a> lays out the tradeoffs
+      axis by axis, and the <a href="/structures">field atlas</a> has a page per
+      structure with its merge rule and best-fit uses.
     </p>
     <div class="g-note">
       <p>

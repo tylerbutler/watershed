@@ -46,10 +46,10 @@ const contours = Array.from({ length: ROWS }, (_, i) => ({
     </h1>
     <p class="lede">
       watershed lets people edit shared data without losing concurrent changes.
-      Each client applies edits at once. The server then puts the edits in order,
-      and each data structure resolves conflicts with a defined rule. The same
-      Gleam core runs on the BEAM and in the browser. Its distributed data
-      structure (DDS) runtime and sequencer use concepts from Fluid Framework.
+      Clients apply edits at once; the server sequences them; each data structure
+      resolves conflicts under its stated policy. The same Gleam core runs on the
+      BEAM and in the browser, on a distributed-data-structure (DDS) runtime and
+      sequencer drawn from Fluid Framework’s design.
     </p>
     <div class="cta-row">
       <a class="cta-primary" href="https://github.com/tylerbutler/watershed">

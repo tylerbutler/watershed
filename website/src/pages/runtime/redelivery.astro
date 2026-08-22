@@ -9,33 +9,33 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   <div class="g-block">
     <h2>At-least-once is the honest assumption</h2>
     <p>
-      Networks can deliver an update more than once. A client can resend after
-      a lost acknowledgment. A <a href="/runtime/reconnect">reconnecting</a>
-      client can replay data that it already received. The system must process
-      repeated updates safely.
+      Real networks do not deliver exactly once. An ack gets lost and the client
+      resends; a <a href="/runtime/reconnect">reconnecting</a> peer replays a
+      window it already saw; a retry races the original. Sooner or later the same
+      update arrives twice, and the system has to make that a non-event.
     </p>
     <p>
-      The runtime checks each sequenced message first. Each message has a
-      sequence number, and each client records the last sequence number that it
-      applied. The runtime drops a message at or below that number before a
-      structure receives it. This check protects all structure types, including
-      the
+      watershed's first line of defense is the runtime itself. Every sequenced
+      message carries a sequence number, and each client tracks the last one it
+      has applied; anything at or below that mark is dropped before any
+      structure sees it. That check protects every kind, including the
       op-based <a href="/structures/counters">SharedCounter</a>, whose
       "add 5" applied twice really would be <code>+10</code>. The duplicate
-      repeated operation never reaches the kernel.
+      never reaches the kernel, so there is nothing to un-count.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>Use an idempotent merge</h2>
+    <h2>Merge, don't apply</h2>
     <p>
       watershed's lattice counters go one layer deeper. A{" "}
       <a href="/models">CRDT</a> is built so its merge is
       <strong>idempotent</strong>: merging the same value a second time changes
       nothing. A <a href="/structures/counters#pn">PN counter</a> does not ship
-      "add 5". It sends two grow-only totals. The receiver selects the larger
-      value for each total. Repeating the maximum operation with the same value
-      does not change the result.
+      "add 5"; it ships its two grow-only tallies (total fill and total cut)
+      and the receiver merges by taking the pairwise maximum of what it has and
+      what arrived. Take the max of a number with itself and you get the same
+      number. The duplicate lands, the merge runs, and the state does not move.
     </p>
     <p>
       That puts the safety in the structure itself rather than one layer up. An
@@ -51,12 +51,13 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   <div class="g-block">
     <h2>Watch it absorb, live</h2>
     <p>
-      The demo shows this behavior. In PN-counter mode, a
+      The demo makes this witnessable. In PN-counter mode a
       <strong>Re-deliver last delta</strong> button re-sends the last sequenced
-      delta with <em>no new sequence number</em>. It sends the delta directly to
-      each replica’s kernel and skips the runtime sequence-number check. The
-      merge leaves the total unchanged. The operation log records the repeated
-      delivery as a muted line:
+      delta with <em>no new sequence number</em>, and hands it straight to each
+      replica's kernel, deliberately skipping the runtime's sequence-number
+      check so the merge is the only thing standing. It swallows the duplicate
+      anyway: the signed total holds, and the op log records the redelivery as
+      an italic, muted non-event rather than a change:
     </p>
     <figure class="oplog" aria-label="Op-log excerpt: a duplicate delta absorbed">
       <div class="oplog-line">

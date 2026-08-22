@@ -51,8 +51,8 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
   <div class="g-block">
     <h2>Prove convergence without a server</h2>
     <p>
-      A multiplayer application must produce the same state on each client.
-      This test usually requires two browser tabs and a live server. The
+      A multiplayer app’s core claim is that every client ends up in the same
+      state. Testing that used to mean two browser tabs and a live server. The
       <strong>sluice</strong> replaces both with a deterministic,
       single-process sequencer and transport.
     </p>
@@ -68,9 +68,9 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
   <div class="g-block">
     <h2>Delivery is explicit</h2>
     <p>
-      The sluice delivers data only when the test requests it. It processes and
-      sequences client submissions synchronously, then keeps the resulting
-      inbound frames in a queue.
+      The trick that makes convergence testable is that nothing is delivered
+      to clients until you say so. Client submissions are processed and
+      sequenced synchronously; their resulting inbound frames remain queued.
       <code>settle</code> drains those frames to quiescence, while
       <code>step</code> delivers one queued frame. This separates server order
       from the order in which each replica observes it.
@@ -90,10 +90,10 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
       that order in sluice:
     </p>
     <p>
-      Identify the concurrent behavior that the application requires and test
-      that behavior. A general two-client test can pass while a required case
-      fails. Use live smoke tests for network and browser behavior that the
-      sluice does not reproduce.
+      Name the concurrency claim your app’s story depends on and script
+      <em>that</em> race. A generic two-client test can pass while the actual
+      story is broken. Reserve live smoke tests for the network and browser
+      boundaries sluice does not reproduce.
     </p>
     <figure class="g-code">
       <Code code={race} lang="gleam" theme={watershedCodeTheme} />
@@ -112,12 +112,12 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
   </div>
 
   <div class="g-block">
-    <h2>Complete the application</h2>
+    <h2>That’s the loop</h2>
     <p>
-      Connect a document, define a typed schema, select a merge model for each
-      slot, add ripples for temporary signals, connect it to Lustre, and add
-      deterministic convergence tests. Flowboard uses the same structure as a
-      production watershed application.
+      Connect a document, give it a typed schema, choose a merge model per slot,
+      add ripples for the ephemeral tier, wire it to Lustre, and lock the whole
+      thing down with deterministic convergence tests. Flowboard is small, but
+      the structure matches a production watershed app.
     </p>
     <p>
       The <a href="/examples">example gallery</a> maps this loop onto thirteen

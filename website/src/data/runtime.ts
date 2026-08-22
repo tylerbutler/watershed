@@ -23,35 +23,35 @@ export const runtimeDocs: RuntimeDoc[] = [
     slug: "optimistic",
     title: "Optimistic edits",
     gloss:
-      "Show a local edit at once, confirm it after sequencing, and reverse it if the server rejects it.",
+      "Show a local edit the instant it happens, reconcile it when the server sequences it, and unwind it cleanly if it loses.",
     concept: "apply · pending → ack_local → sequenced",
   },
   {
     slug: "reconnect",
     title: "Reconnect & resync",
     gloss:
-      "Restore a dropped connection. A returning client loads state from the same summary path as a new client.",
+      "Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
     concept: "from_summary · replay · catch-up",
   },
   {
     slug: "redelivery",
     title: "Idempotent re-delivery",
     gloss:
-      "A sequence-number check drops a repeated delta, or an idempotent merge leaves the state unchanged.",
+      "Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
     concept: "re-deliver · dedupe · absorb",
   },
   {
     slug: "presence",
     title: "Presence & ripples",
     gloss:
-      "Use temporary broadcasts and a live roster. The server tracks connections when possible; otherwise, clients use heartbeats and a TTL.",
+      "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
     concept: "submit_ripple · sessions · server or heartbeat",
   },
   {
     slug: "p2p",
     title: "Peer-to-peer over WebRTC",
     gloss:
-      "Run a document on a WebRTC mesh without a sequencer. Eligible structures merge changes, and an optional relay adds durable storage.",
+      "A document that runs on a WebRTC mesh with no sequencer at all. Eligible structures merge instead of ordering, and a relay can attach later for durability without changing the document's state or handles.",
     concept: "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1",
   },
 ];

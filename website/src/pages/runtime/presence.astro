@@ -19,14 +19,17 @@ let config =
   <div class="g-block">
     <h2>Not everything belongs in the document</h2>
     <p>
-      Some signals have short validity. Examples include the station that a
-      surveyor views, a cursor position, a request for attention, or a reaction.
-      Do not put these signals in a channel. A channel sequences, summarizes,
-      and replays data to later clients.
+      Some signals are about <em>now</em>, not about state: which station a
+      surveyor is looking at, a cursor position, a "re-check this" nudge, a
+      reaction. Put those in a channel and they get sequenced, summarised, and
+      replayed to whoever joins an hour later, long after they stopped meaning
+      anything. A converged document is the wrong home for a signal whose whole
+      value is that it is fleeting.
     </p>
     <p>
-      watershed sends this traffic through the same connection but does not use
-      convergence processing for it.
+      watershed keeps that traffic in a separate tier that rides the same
+      connection but obeys none of the convergence machinery. It is the
+      deliberate escape hatch from "everything is durable, ordered state."
     </p>
   </div>
 
@@ -44,19 +47,21 @@ let config =
       send and receive code end to end.
     </p>
     <p>
-      Because a summary never contains a ripple, a client that{" "}
+      Because a ripple never lands in a summary, a client that{" "}
       <a href="/runtime/reconnect">reconnects</a> or joins late will not see the
-      ripples that it missed. This behavior is suitable for a cursor but not for
-      a durable reading.
+      ones it missed, which is exactly right for a cursor and exactly wrong for
+      a reading. The tier's forgetfulness is the feature.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Presence: who is here</h2>
     <p>
-      Ripples do not report when a peer closes a tab or loses its connection.
-      The peer’s last marker can remain on screen. <strong>Presence</strong>
-      removes stale markers through one of two modes.
+      Raw ripples are stateless, and that leaves one gap: a peer who simply goes
+      quiet (closes the tab, loses signal) leaves their last marker stranded on
+      everyone's screen, because "gone" was never an event.
+      <strong>Presence</strong> closes it, and offers one API over two ways of
+      doing so.
     </p>
     <figure class="g-code">
       <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
@@ -75,17 +80,19 @@ let config =
   <div class="g-block">
     <h2>Two implementations, deliberately different</h2>
     <p>
-      <strong>Server presence</strong> tracks each connection. A later client
-      receives the complete roster in one snapshot. When a socket closes, the
-      server removes its entry. This mode does not use a heartbeat because the
-      connection is the liveness signal.
+      <strong>Server presence</strong> is connection-backed. The server tracks
+      each connection, so a client that joins late is handed the entire roster in
+      one snapshot, and a socket that drops takes its entry with it. No browser
+      involved, no waiting. There is no heartbeat at all: the connection
+      <em>is</em> the liveness signal.
     </p>
     <p>
-      <strong>Ripple presence</strong> supports servers without presence
-      tracking. Each client sends its metadata on a timer and removes peers after
-      a timeout. By default, the heartbeat interval is two seconds and the
-      timeout is 6.5 seconds. A later client must wait for each peer’s next
-      heartbeat. Browser timer throttling can cause a temporary false timeout.
+      <strong>Ripple presence</strong> is soft presence, for servers that do not
+      offer the lane. Each client re-announces its metadata on a timer and expires
+      peers it stops hearing from, by default beating every two seconds and
+      expiring after six and a half, roughly three missed beats. It is honest but
+      approximate: a late joiner waits for each peer's next beat, and a
+      background tab whose timers get throttled can briefly look gone.
     </p>
     <p>
       <code>Auto</code> chooses between them from what the server advertises in

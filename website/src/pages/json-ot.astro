@@ -15,13 +15,17 @@ import Ecosystem from "../components/Ecosystem.astro";
       </p>
       <h1>One document.<br />Concurrent edits. <em>One order.</em></h1>
       <p class="lede">
-        <code>SharedMap</code> uses server order to resolve each key. JSON OT
-        also uses a sequencer, but it <strong>transforms</strong> concurrent
-        document operations against one another. watershed’s
-        <code>json_ot</code> kernel ports the ottypes <code>json0</code> algebra
-        and uses a one-operation-in-flight protocol. Each client applies edits
-        before confirmation. The server sequences the operations, and clients
-        transform concurrent operations. All replicas then reach the same state.
+        The homepage starts with <code>SharedMap</code>: the server orders its
+        operations, then the map resolves each key by that order. JSON OT also
+        uses a sequencer, but concurrent document operations are
+        <strong>transformed</strong> against one another instead of resolved
+        per key. watershed’s
+        <code>json_ot</code> kernel is a faithful port of the ottypes
+        <code>json0</code> algebra with the single-op-in-flight client protocol.
+        Every client edits a shared JSON document optimistically, a central
+        server sequences each op, and concurrent ops are
+        <em>transformed</em> past one another. All replicas reach the same
+        state, indices and all.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="#jot-demo">Jump to the demo ↓</a>

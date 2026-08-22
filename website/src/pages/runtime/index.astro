@@ -6,7 +6,7 @@ import { runtimeDocs } from "../../data/runtime";
 
 <Sheet
   title="watershed — runtime behavior"
-  description="How watershed handles optimistic edits, rollback, reconnection, summaries, repeated deltas, presence, and peer-to-peer WebRTC documents."
+  description="How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
 >
   <header class="rh-hero">
     <div class="rh-hero-inner">
@@ -15,11 +15,13 @@ import { runtimeDocs } from "../../data/runtime";
       </p>
       <h1>Runtime<br /><em>behavior.</em></h1>
       <p class="lede">
-        The <a href="/structures">catalog</a> explains each structure. The{" "}
-        <a href="/models">models</a> page explains how structures converge.
-        These notes explain common runtime behavior: optimistic edits,
-        reconnection, duplicate handling, temporary signals, and operation
-        without a sequencer.
+        The <a href="/structures">atlas</a> shows <em>what</em> each structure is
+        and the <a href="/models">models</a> page shows <em>how</em> it converges.
+        These are the field notes underneath: how every watershed document
+        behaves at runtime, across every structure. Optimism, reconnection,
+        duplicate safety, the ephemeral tier that never touches converged
+        state, and the mesh that lets a document run with no sequencer joined
+        at all.
       </p>
     </div>
   </header>
@@ -27,7 +29,7 @@ import { runtimeDocs } from "../../data/runtime";
   <main class="rh-ledger" aria-labelledby="rh-ledger-title">
     <div class="rh-ledger-head">
       <h2 id="rh-ledger-title">Runtime behaviors</h2>
-      <p>Read the five notes in order, or select the behavior you need.</p>
+      <p>Five sheets. Read in order, or jump to the one that's biting you.</p>
     </div>
     <ol class="rh-list">
       {
@@ -50,9 +52,9 @@ import { runtimeDocs } from "../../data/runtime";
     </ol>
 
     <p class="rh-aside">
-      The <a href="/guide">build guide</a> applies these behaviors. Its{" "}
-      <a href="/guide/ripples">ripples step</a> adds temporary signals to an
-      application.
+      Ready to build on these? The <a href="/guide">build guide</a> puts them to
+      work, including a hands-on <a href="/guide/ripples">ripples step</a> that
+      wires the ephemeral tier into a production app.
     </p>
   </main>
 
