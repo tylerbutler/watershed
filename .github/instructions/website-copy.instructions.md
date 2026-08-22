@@ -7,9 +7,9 @@ applyTo: 'website/**'
 
 > **Overrides `use-ste.instructions.md` for these paths.** That instruction is
 > vendored from `tylerbutler/apm-base` and applies STE at `applyTo: '**'` with
-> no scoping. STE belongs to the docs — reference prose, API docs, doc
-> comments, error messages — not to the site. This file wins under `website/**`.
-> Do not edit the vendored file — `apm install` reverts it.
+> no scoping. STE belongs to Gleam source — doc comments, inline comments, and
+> error strings in `**/*.gleam` — not to the site. This file wins under
+> `website/**`. Do not edit the vendored file — `apm install` reverts it.
 
 The site's job is to make a reader care enough to read the technical parts.
 Write it in full voice: em-dashes, contractions, sentence fragments, rhetorical

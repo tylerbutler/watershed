@@ -21,19 +21,22 @@ The repo carries a vendored instruction from `tylerbutler/apm-base` that reads
 whole repo, that instruction is wrong, and it has already caused one regression
 (`a99e07f`, `760cb87`) that flattened the website's voice before being reverted.
 
-Read it as scoped to **the docs**: reference docs, API docs, doc comments,
-README bodies, and error messages. STE is a procedure spec — it removes
-ambiguity, and it also removes stakes, contrast, and second person. That trade
-is right for a maintenance manual and wrong for copy whose job is to make
-someone care.
+Read it as scoped to **Gleam source**: `**/*.gleam` only. That means module and
+function doc comments (`////`, `///`), inline `//` comments, and the strings in
+error values. Short sentences, one idea each, active voice, no contractions, no
+idioms, one consistent term per concept. A comment is read by someone debugging
+at speed, and STE is built for exactly that.
 
-**STE does not apply under `website/**`.** The site is written in full voice.
-`.github/instructions/website-copy.instructions.md` is authoritative there —
-read it before any copy pass. The one exception is assistive text
-(`aria-label`, `alt`), which stays plain and literal everywhere.
+**STE does not apply anywhere else.** Markdown under `docs/`, READMEs, design
+notes, changelogs, commit messages, and everything under `website/**` are
+written in normal prose with a voice.
+`.github/instructions/website-copy.instructions.md` is authoritative for the
+site — read it before any copy pass there. The one exception that runs the other
+way is assistive text (`aria-label`, `alt`), which stays plain and literal
+everywhere.
 
-A copy pass that flattens voiced copy toward STE is a regression even when every
-individual sentence got clearer.
+A copy pass that flattens voiced prose toward STE outside `**/*.gleam` is a
+regression even when every individual sentence got clearer.
 
 ### Protected naming
 
