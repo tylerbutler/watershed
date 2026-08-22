@@ -6,27 +6,21 @@
 // built to prove, with the code that proves it. Snippets are copied (and
 // trimmed) from the example source named in `snippetFile` — keep them in
 // sync when an example changes.
+//
+// Each practice is filed under the /guide step whose work it belongs to, and
+// renders as field notes at the foot of that step. /patterns is the index over
+// all of them, not their home.
 // ──────────────────────────────────────────────────────────────────────────
 import { examples, type Example } from "./examples";
-
-/** Section order on /patterns. */
-export const practiceGroups = [
-  "Connection and architecture",
-  "Schema and document shape",
-  "Presence and ripples",
-  "Writes and convergence",
-  "Testing",
-] as const;
-
-export type PracticeGroup = (typeof practiceGroups)[number];
+import { steps, type StepSlug } from "./guide";
 
 export interface Practice {
-  /** Anchor slug on /patterns. */
+  /** Anchor slug, on the guide step this practice is filed under. */
   id: string;
   /** Section title. */
   title: string;
-  /** Grouping section on /patterns. */
-  group: PracticeGroup;
+  /** The build-guide step whose work this practice belongs to. */
+  step: StepSlug;
   /** `Example.id` of the app that demonstrates this practice. */
   example: string;
   /** One-sentence imperative rule. */
@@ -47,7 +41,7 @@ export const practices: Practice[] = [
   {
     id: "relay-decorator",
     title: "Keep the relay optional",
-    group: "Connection and architecture",
+    step: "connect",
     example: "clap_counter_lustre",
     rule: "For peer-to-peer applications, add durability through optional configuration. Do not make readiness depend on the relay.",
     body: [
@@ -83,7 +77,7 @@ fn with_relay(
   {
     id: "shared-core-two-runtimes",
     title: "One shared core, two runtimes",
-    group: "Connection and architecture",
+    step: "connect",
     example: "dice_cli",
     rule: "Join the same document from an OTP actor and a browser tab to verify core portability.",
     body: [
@@ -114,7 +108,7 @@ fn with_relay(
   {
     id: "diagnostics-first",
     title: "Read diagnostics on every event",
-    group: "Connection and architecture",
+    step: "connect",
     example: "dice_lustre",
     rule: "Display runtime diagnostics before you diagnose a synchronization error.",
     body: [
@@ -145,7 +139,7 @@ fn with_relay(
   {
     id: "quorum-pending-roster",
     title: "Submit on release and show pending signoffs",
-    group: "Writes and convergence",
+    step: "structures",
     example: "drum_machine_lustre",
     rule: "Submit one consensus proposal when the gesture ends. Show which clients have not signed off.",
     body: [
@@ -181,7 +175,7 @@ BpmCommitted ->
   {
     id: "realtime-out-of-band",
     title: "Keep real-time loops outside the update path",
-    group: "Presence and ripples",
+    step: "ripples",
     example: "drum_machine_lustre",
     rule: "Send a plain state snapshot to the real-time loop. Do not make the loop call the application.",
     body: [
@@ -219,7 +213,7 @@ BpmCommitted ->
   {
     id: "presence-idiom",
     title: "Declare only required presence data",
-    group: "Presence and ripples",
+    step: "ripples",
     example: "flowboard_lustre",
     rule: "Declare one presence effect with a typed payload. Remove the local session before the roster enters application state.",
     body: [
@@ -260,7 +254,7 @@ fn remote_entries(
   {
     id: "protocol-on-ripples",
     title: "Send temporary coordination through ripples",
-    group: "Presence and ripples",
+    step: "ripples",
     example: "grocery_triptych_lustre",
     rule: "Send session-only coordination in a typed ripple envelope. Do not store it in a document channel.",
     body: [
@@ -294,7 +288,7 @@ pub fn should_acknowledge(
   {
     id: "pure-modules",
     title: "Extract pure modules and test without a server",
-    group: "Testing",
+    step: "testing",
     example: "grocery_triptych_lustre",
     rule: "Move decision logic from update into pure modules. Test most decisions without a document, sluice, or server.",
     body: [
@@ -332,7 +326,7 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
   {
     id: "ffi-surface",
     title: "Let FFI control the canvas and initialize after connection",
-    group: "Connection and architecture",
+    step: "ui",
     example: "pixel_canvas_lustre",
     rule: "Let one FFI module control the canvas pixels. Run ensure_* only after the connection handshake.",
     body: [
@@ -361,7 +355,7 @@ Connected(Error(reason)) -> #(
   {
     id: "fallible-edits",
     title: "Show edit errors and do not assert on mutations",
-    group: "Writes and convergence",
+    step: "ui",
     example: "playlist_lustre",
     rule: "Handle the Result from each index-based edit. A peer can delete the row before the local click.",
     body: [
@@ -402,7 +396,7 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
   {
     id: "authoritative-channel",
     title: "Use one authoritative channel for non-atomic moves",
-    group: "Schema and document shape",
+    step: "schema",
     example: "retro_board_lustre",
     rule: "A cross-channel move cannot be transactional, so pick the channel that wins and reconcile at render time.",
     body: [
@@ -453,7 +447,7 @@ fn render_column(
   {
     id: "stamp-schema",
     title: "Stamp the schema and reject invalid reads",
-    group: "Schema and document shape",
+    step: "schema",
     example: "scoreboard_cli",
     rule: "Initialize a detached typed map in one write. Stamp its schema version before attachment so that reads reject incompatible layouts.",
     body: [
@@ -483,7 +477,7 @@ let selector =
   {
     id: "typedmap-panels",
     title: "Initialize panels with a TypedMap",
-    group: "Schema and document shape",
+    step: "schema",
     example: "showcase_lustre",
     rule: "Initialize a reusable component with a typed map. Keep document-scoped effects in the application shell.",
     body: [
@@ -519,7 +513,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
   {
     id: "claims-seeding",
     title: "Initialize data idempotently with Claims",
-    group: "Schema and document shape",
+    step: "schema",
     example: "sudoku_lustre",
     rule: "When all clients need the same initial data, run the same initialization loop through first-writer-wins claims on each client.",
     body: [
@@ -556,7 +550,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
   {
     id: "anchors-not-offsets",
     title: "Store text positions as anchors",
-    group: "Schema and document shape",
+    step: "structures",
     example: "text_lustre",
     rule: "Store text positions as anchors. Resolve each anchor again after an edit.",
     body: [
@@ -581,7 +575,7 @@ fn refresh_anchor(model: Model) -> Model {
   {
     id: "unsettled-writes",
     title: "Show writes that have not settled",
-    group: "Writes and convergence",
+    step: "ui",
     example: "tournament_bracket_lustre",
     rule: "When a structure does not show local writes before confirmation, display the write as pending until a sequencing event arrives.",
     body: [
@@ -621,7 +615,7 @@ AtomicChanged(key, value, _local) -> {
   {
     id: "deterministic-death",
     title: "Test client disconnection deterministically",
-    group: "Testing",
+    step: "testing",
     example: "work_queue_lustre",
     rule: "Reproduce a client disconnection during a job. Use an in-process disconnect that sequences the same leave event as the server.",
     body: [
@@ -695,4 +689,17 @@ export function practiceSourceUrl(practice: Practice): string {
 export const practicesByExample: Record<string, Practice[]> = {};
 for (const practice of practices) {
   (practicesByExample[practice.example] ??= []).push(practice);
+}
+
+/** guide step slug → the practices filed under it, in catalog order. */
+export const practicesByStep: Record<StepSlug, Practice[]> = Object.fromEntries(
+  steps.map((step) => [
+    step.slug,
+    practices.filter((practice) => practice.step === step.slug),
+  ]),
+);
+
+/** Deep link to a practice, on the guide step that renders it. */
+export function practiceHref(practice: Practice): string {
+  return `/guide/${practice.step}#${practice.id}`;
 }

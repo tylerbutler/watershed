@@ -1,10 +1,11 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "./Ecosystem.astro";
-import { stepBySlug, neighbours } from "../data/guide";
+import FieldNotes from "./FieldNotes.astro";
+import { stepBySlug, neighbours, type StepSlug } from "../data/guide";
 
 interface Props {
-  slug: string;
+  slug: StepSlug;
   description: string;
 }
 
@@ -28,6 +29,7 @@ const { prev, next } = neighbours(slug);
 
   <main class="doc-body">
     <slot />
+    <FieldNotes step={slug} />
   </main>
 
   <nav class="g-step" aria-label="Build guide steps">

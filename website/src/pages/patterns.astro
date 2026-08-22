@@ -1,118 +1,68 @@
 ---
-import { Code } from "astro:components";
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
+import { steps } from "../data/guide";
 import {
-  exampleForPractice,
   practiceExampleName,
-  practiceGroups,
-  practiceSourceUrl,
-  practices,
+  practiceHref,
+  practicesByStep,
 } from "../data/practices";
-import { watershedCodeTheme } from "../styles/code-theme";
 
-const grouped = practiceGroups.map((group) => ({
-  group,
-  items: practices.filter((practice) => practice.group === group),
-}));
+// The practices themselves render as field notes at the foot of each /guide
+// step. This page is only the index across all of them.
+const ledger = steps
+  .map((step) => ({ step, items: practicesByStep[step.slug] }))
+  .filter(({ items }) => items.length > 0);
 ---
 
 <Sheet
   title="watershed: patterns from the examples"
-  description="Each example demonstrates one implementation practice with an explanation, source excerpt, and validation note."
+  description="An index of every implementation practice, filed under the build-guide step where you would need it."
 >
   <header class="p-hero">
     <div class="p-hero-inner">
       <p class="p-crumbs annot"><a href="/">&#8592; watershed</a> / Patterns</p>
       <h1>Each example exists<br />to prove one thing.</h1>
       <p class="p-lede">
-        Each section explains one technique and shows code from the application
-        that tests it. Open the example if you need more context.
+        Every rule below is written up on the build-guide step where you would
+        reach for it — with the code from the application that tests it. This
+        sheet is the index across all six steps.
       </p>
       <div class="p-actions">
-        <a class="cta-primary" href="#reference">Read the reference &#8595;</a>
+        <a class="cta-primary" href="#index">Read the index &#8595;</a>
         <a class="cta-quiet" href="/examples">Browse all examples &#8594;</a>
       </div>
     </div>
   </header>
 
-  <main id="reference" class="p-main">
-    <nav class="p-index" aria-label="Practices">
-      <p class="annot">Practice index</p>
-      {
-        grouped.map(({ group, items }) => (
-          <div class="p-index-group">
-            <p class="annot p-index-label">{group}</p>
-            <ol>
-              {items.map((practice) => (
-                <li>
-                  <a href={`#${practice.id}`}>
-                    <span>{practice.title}</span>
-                    <span aria-hidden="true">&#8595;</span>
-                  </a>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))
-      }
-    </nav>
-
-    <div class="p-reference">
-      {
-        grouped.map(({ group, items }) => (
-          <section class="p-group">
-            <h2 class="p-group-title">{group}</h2>
-            {items.map((practice) => {
-              const example = exampleForPractice(practice);
-              const exampleName = practiceExampleName(practice);
-              return (
-            <section id={practice.id} class="p-pattern">
-              <header>
-                <h3>{practice.title}</h3>
-                <p class="p-rule">{practice.rule}</p>
-              </header>
-              <div class="p-detail">
-                {practice.body.map((paragraph) => <p>{paragraph}</p>)}
-              </div>
-              <figure class="p-figure">
-                <Code
-                  code={practice.snippet}
-                  lang={practice.snippetLang === "js" ? "js" : "gleam"}
-                  theme={watershedCodeTheme}
-                />
-                <figcaption class="annot">
-                  {exampleName} &middot; {practice.snippetFile}
-                </figcaption>
-              </figure>
-              {
-                practice.testNote && (
-                  <p class="p-testnote">
-                    <span class="annot">The check</span>
-                    {practice.testNote}
-                  </p>
-                )
-              }
-              <div class="p-evidence">
-                <span class="annot">Demonstrated by</span>
-                {
-                  example ? (
-                    <a href={`/examples#${example.id}`}>{exampleName}</a>
-                  ) : (
-                    <span>{exampleName}</span>
-                  )
-                }
-                <a class="p-source" href={practiceSourceUrl(practice)}>
-                  Source &#8599;
+  <main id="index" class="p-main">
+    {
+      ledger.map(({ step, items }) => (
+        <section class="p-step">
+          <header class="p-step-head">
+            <p class="annot">Step {step.n}</p>
+            <h2>
+              <a href={`/guide/${step.slug}`}>{step.title}</a>
+            </h2>
+            <p class="p-step-goal">{step.goal}</p>
+          </header>
+          <ol class="p-rules">
+            {items.map((practice) => (
+              <li>
+                <a class="p-rule-link" href={practiceHref(practice)}>
+                  {practice.title}
                 </a>
-              </div>
-            </section>
-              );
-            })}
-          </section>
-        ))
-      }
-    </div>
+                <p class="p-rule">{practice.rule}</p>
+                <p class="annot p-rule-src">
+                  {practiceExampleName(practice)} &middot;{" "}
+                  {practice.snippetFile}
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ))
+    }
   </main>
 
   <aside class="p-boundary" aria-labelledby="p-boundary-title">
@@ -161,126 +111,48 @@ const grouped = practiceGroups.map((group) => ({
   }
 
   .p-lede {
-    margin-top: var(--space-xl);
-    max-width: 60ch;
+    margin-top: var(--space-lg);
+    max-width: 56ch;
     font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
-    line-height: 1.6;
+    line-height: 1.55;
   }
 
   .p-actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-lg);
-    margin-top: var(--space-2xl);
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
   }
 
-  .cta-primary {
-    display: inline-block;
-    padding: 0.8rem 1.6rem;
-    background: var(--overprint);
-    color: var(--bg);
-    text-decoration: none;
-    font-weight: 600;
-    font-stretch: 110%;
-    transition: background var(--dur-feedback) var(--ease-out-quart);
-  }
-
-  .cta-primary:hover {
-    background: var(--overprint-deep);
-    color: var(--bg);
-  }
-
-  .cta-quiet {
-    font-weight: 500;
-    text-decoration: none;
-  }
-
+  /* ── ledger ────────────────────────────────────────────────────────────── */
   .p-main {
-    display: grid;
-    grid-template-columns: minmax(12rem, 0.3fr) minmax(0, 1fr);
-    gap: clamp(var(--space-xl), 6vw, 6rem);
     padding: var(--space-2xl) var(--content-pad) var(--space-section);
   }
 
-  .p-index {
+  .p-step {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.35fr) minmax(0, 1fr);
+    gap: clamp(var(--space-lg), 5vw, 4rem);
+    padding-block: var(--space-2xl);
+    border-top: 1px solid var(--ink);
+  }
+
+  .p-step:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .p-step-head {
     align-self: start;
     position: sticky;
     top: var(--space-lg);
   }
 
-  .p-index > p {
+  .p-step-head .annot {
     color: var(--overprint-deep);
   }
 
-  .p-index ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    border-top: 1px solid var(--ink);
-  }
-
-  .p-index-group {
-    margin-top: var(--space-md);
-  }
-
-  .p-index-label {
-    margin-bottom: var(--space-2xs);
-    color: var(--muted);
-  }
-
-  .p-index li {
-    border-bottom: 1px solid var(--hairline);
-  }
-
-  .p-index a {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-sm);
-    padding: 0.7rem 0;
-    color: var(--muted);
-    text-decoration: none;
-    font-size: var(--text-sm);
-    line-height: 1.35;
-  }
-
-  .p-index a:hover {
-    color: var(--overprint-deep);
-  }
-
-  .p-reference {
-    min-width: 0;
-  }
-
-  .p-group + .p-group {
-    margin-top: var(--space-section);
-  }
-
-  .p-group-title {
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    font-weight: 400;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--overprint-deep);
-    padding-bottom: var(--space-sm);
-    border-bottom: 1px solid var(--ink);
-  }
-
-  .p-pattern {
-    scroll-margin-top: var(--space-lg);
-    padding-bottom: var(--space-2xl);
-    border-bottom: 1px solid var(--ink);
-  }
-
-  .p-pattern + .p-pattern,
-  .p-group-title + .p-pattern {
-    padding-top: var(--space-2xl);
-  }
-
-  .p-pattern h3,
-  .p-boundary h2 {
-    max-width: 26ch;
+  .p-step-head h2 {
+    margin-top: var(--space-2xs);
     font-size: var(--text-h2);
     font-weight: 620;
     font-stretch: 118%;
@@ -288,90 +160,59 @@ const grouped = practiceGroups.map((group) => ({
     letter-spacing: -0.015em;
   }
 
-  .p-rule {
-    margin-top: var(--space-md);
-    max-width: 58ch;
-    font-size: 1.15rem;
-    line-height: 1.55;
+  .p-step-head h2 a {
+    color: var(--ink);
+    text-decoration: none;
   }
 
-  .p-detail {
-    margin-top: var(--space-xl);
-    max-width: 62ch;
+  .p-step-head h2 a:hover {
+    color: var(--overprint-deep);
   }
 
-  .p-detail p {
-    color: var(--muted);
-    font-size: var(--text-sm);
-    line-height: 1.65;
-  }
-
-  .p-detail p + p {
-    margin-top: var(--space-md);
-  }
-
-  .p-figure {
-    margin: var(--space-xl) 0 0;
-    min-width: 0;
-  }
-
-  .p-figure :global(pre) {
-    margin: 0;
-    padding: var(--space-lg);
-    border: 1px solid var(--ink);
-    overflow-x: auto;
-    font-size: 0.82rem;
-    line-height: 1.65;
-  }
-
-  .p-figure figcaption {
+  .p-step-goal {
     margin-top: var(--space-sm);
-    text-align: right;
-  }
-
-  .p-testnote {
-    margin-top: var(--space-lg);
-    max-width: 62ch;
     color: var(--muted);
     font-size: var(--text-sm);
     line-height: 1.6;
   }
 
-  .p-testnote .annot {
-    display: block;
-    color: var(--overprint-deep);
-    margin-bottom: var(--space-xs);
+  .p-rules {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
   }
 
-  .p-evidence {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-xs) var(--space-lg);
+  .p-rules li + li {
     margin-top: var(--space-lg);
-    padding: var(--space-md) var(--space-lg);
-    border: 1px solid var(--hairline);
-    background: var(--surface);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--hairline);
   }
 
-  .p-evidence > .annot {
-    color: var(--ink);
-  }
-
-  .p-evidence a {
-    font-size: var(--text-sm);
-  }
-
-  .p-source {
-    margin-left: auto;
-    color: var(--waterline);
+  .p-rule-link {
+    font-size: 1.15rem;
+    font-weight: 620;
+    font-stretch: 112%;
     text-decoration: none;
   }
 
-  .p-source:hover {
+  .p-rule-link:hover {
     color: var(--overprint-deep);
   }
 
+  .p-rule {
+    margin-top: var(--space-2xs);
+    max-width: 62ch;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .p-rule-src {
+    margin-top: var(--space-xs);
+    color: var(--muted);
+  }
+
+  /* ── closing boundary ──────────────────────────────────────────────────── */
   .p-boundary {
     padding: var(--space-2xl) var(--content-pad);
     border-block: 1px solid var(--ink);
@@ -392,6 +233,15 @@ const grouped = practiceGroups.map((group) => ({
     border: 1px solid var(--ink);
   }
 
+  .p-boundary h2 {
+    max-width: 26ch;
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+
   .p-boundary p {
     margin-top: var(--space-md);
   }
@@ -403,11 +253,11 @@ const grouped = practiceGroups.map((group) => ({
   }
 
   @media (max-width: 48rem) {
-    .p-main {
+    .p-step {
       grid-template-columns: 1fr;
     }
 
-    .p-index {
+    .p-step-head {
       position: static;
     }
   }

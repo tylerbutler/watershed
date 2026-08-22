@@ -2,7 +2,7 @@
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
 import { exampleGroups, exampleSource, examples } from "../data/examples";
-import { practicesByExample } from "../data/practices";
+import { practiceHref, practicesByExample } from "../data/practices";
 import { structureLinks } from "../data/structures";
 ---
 
@@ -81,7 +81,7 @@ import { structureLinks } from "../data/structures";
                               <dd class="e-practices">
                                 {practicesByExample[example.id].map(
                                   (practice) => (
-                                    <a href={`/patterns#${practice.id}`}>
+                                    <a href={practiceHref(practice)}>
                                       {practice.title}
                                     </a>
                                   ),

@@ -18,7 +18,7 @@ export interface GuideStep {
   surface: string;
 }
 
-export const steps: GuideStep[] = [
+export const steps = [
   {
     n: "01",
     slug: "connect",
@@ -61,15 +61,18 @@ export const steps: GuideStep[] = [
     goal: "Prove that two clients converge without a running server.",
     surface: "sluice · connect · settle · step",
   },
-];
+] as const satisfies readonly GuideStep[];
+
+/** Slug of a build-guide step, e.g. `"schema"`. */
+export type StepSlug = (typeof steps)[number]["slug"];
 
 /** name → step, for cross-links. */
-export const stepBySlug: Record<string, GuideStep> = Object.fromEntries(
+export const stepBySlug: Record<StepSlug, GuideStep> = Object.fromEntries(
   steps.map((s) => [s.slug, s]),
 );
 
 /** The step before/after `slug` in build order, or null at the ends. */
-export function neighbours(slug: string): {
+export function neighbours(slug: StepSlug): {
   prev: GuideStep | null;
   next: GuideStep | null;
 } {
