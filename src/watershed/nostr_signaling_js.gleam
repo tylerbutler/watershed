@@ -1,68 +1,74 @@
 //// A serverless signaling adapter for `p2p_transport_js`, over public
 //// Nostr relays.
 ////
-//// The reference signaling service (`tools/signaling`) is something an
-//// operator must deploy. This adapter removes that requirement: peers
-//// meet on already-running public Nostr relays instead, using them as
-//// nothing but a broadcast topic. Like `crdt_signaling_js` it has no
-//// dependency on `crdt_core`, `crdt_js`, or `crdt_wire` — it cannot see
-//// a document, so it cannot leak one, and the only payloads it carries
-//// are the transport's own closed signal sum.
+//// An operator must deploy the reference signaling service
+//// (`tools/signaling`). This adapter removes that requirement. The peers meet
+//// on public Nostr relays that already run, and they use those relays as a
+//// broadcast topic and nothing more. This adapter does not depend on
+//// `crdt_core`, `crdt_js`, or `crdt_wire`, the same as `crdt_signaling_js`. It
+//// cannot see a document, so it cannot send one out. The only payloads that it
+//// carries are the closed signal sum of the transport.
 ////
-//// The relays cannot read the traffic either: the topic is a hash of the
-//// room name and every frame is encrypted with a key derived from it
-//// (see `nostr_signaling_ffi.mjs`). The room name is the room's secret,
-//// exactly as it is for the reference service.
+//// The relays cannot read the traffic. The topic is a hash of the room name,
+//// and a key derived from that name encrypts every frame. See
+//// `nostr_signaling_ffi.mjs`. The room name is the secret of the room, the
+//// same as for the reference service.
 ////
 //// ## The gossip protocol
 ////
-//// A public topic has no server and therefore no membership, so the
-//// members announce each other:
+//// A public topic has no server, and thus no membership. The members must
+//// therefore announce each other:
 ////
-//// - a joining peer broadcasts `hello`;
-//// - every member answers a `hello` with an `ack` naming the newcomer —
-////   and announces the newcomer to its own transport;
-//// - `signal` carries an offer, answer, or candidate, named to one peer;
-//// - a leaving peer broadcasts `bye`, best-effort.
+//// - A peer that joins broadcasts `hello`.
+//// - Every member answers a `hello` with an `ack` that names the new peer. It
+////   also announces the new peer to its own transport.
+//// - A `signal` frame carries an offer, an answer, or a candidate, addressed
+////   to one peer.
+//// - A peer that leaves broadcasts `bye`, on a best-effort basis.
 ////
-//// Frames name their sender, every member hears everything, and each
-//// filters to what concerns it. Duplicates and reordering are free by
-//// the transport's contract, which is what makes gossip this simple
-//// sufficient: for any pair, the newcomer's `hello` reaches the existing
-//// member and the member's `ack` reaches the newcomer, so whichever of
-//// them must offer, learns of the other.
+//// Every frame names its sender. Every member receives everything, and each
+//// member keeps only what concerns it. The contract of the transport permits
+//// a duplicate and a reordering, and that permission is what makes gossip
+//// this simple sufficient. For any pair of peers, the `hello` of the new peer
+//// reaches the existing member, and the `ack` of that member reaches the new
+//// peer. Whichever of the two must send the offer thus learns about the
+//// other.
 ////
 //// ## The roster is a census
 ////
-//// The transport wants exactly one `Roster` per join, complete at
-//// admission. A medium with no membership cannot produce that, so this
-//// adapter takes a census instead: from the first relay's subscription
-//// acknowledgement, `hello` answers are collected for `roster_window_ms`,
-//// and the set heard by the deadline is the roster.
+//// The transport needs exactly one `Roster` for each join, and that roster
+//// must be complete at admission. A medium with no membership cannot produce
+//// one. This adapter thus takes a census instead. It starts at the
+//// subscription acknowledgement of the first relay, collects the `hello`
+//// answers for `roster_window_ms`, and reports the set that it heard by the
+//// deadline as the roster.
 ////
-//// ponytail: a census is not a guarantee. A member whose ack loses the
-//// race is discovered late — via its own traffic, which still satisfies
-//// the pair contract — but a document may briefly believe it is alone in
-//// a room that is not empty. For a CRDT document that is a merge, not a
-//// loss. Rooms that need an exact roster keep the reference service;
-//// lengthening the window buys confidence with latency.
+//// ponytail: a census is not a guarantee. The adapter finds a member whose
+//// ack loses the race late, through the traffic of that member, which still
+//// satisfies the pair contract. But a document can believe for a short time
+//// that it is alone in a room that is not empty. For a CRDT document that
+//// condition causes a merge, and not a loss. A room that needs an exact
+//// roster must use the reference service. A longer window gives more
+//// confidence and more latency.
 ////
-//// A join that cannot even take a census — no relay reachable, none
-//// acknowledging within `roster_timeout_ms` — ends in `Failed`, so the
-//// wait always ends. Undecodable traffic is *dropped*, not failed,
-//// unlike `crdt_signaling_js`: a public topic can carry strangers'
-//// bytes, and a stranger must not be able to end a room's signaling.
+//// A join that cannot take a census at all ends in `Failed`, so the wait
+//// always ends. That occurs when no relay is reachable, or when no relay
+//// acknowledges within `roster_timeout_ms`. The adapter *drops* traffic that
+//// it cannot decode, and it does not fail. `crdt_signaling_js` differs here.
+//// A public topic can carry the bytes of a stranger, and a stranger must not
+//// be able to end the signaling of a room.
 ////
-//// Signaling is only half of "nothing to deploy": NAT traversal is the
-//// other half. `p2p_transport_js.public_stun_servers` pairs with this
-//// adapter for a fully serverless document — free public STUN covers
-//// most NAT pairs, and its docstring names the one shape (symmetric
-//// NATs on both ends) that still needs a TURN server of your own.
+//// Signaling is one half of "nothing to deploy". NAT traversal is the other
+//// half. `p2p_transport_js.public_stun_servers` works with this adapter for a
+//// document with no server at all. Free public STUN covers most NAT pairs,
+//// and its docstring names the one arrangement that still needs a TURN server
+//// of your own: a symmetric NAT at both ends.
 ////
-//// `nostr-tools` must be installed by the application (an optional peer
-//// dependency, as `phoenix` is for the sequenced transport): relays
-//// verify event signatures, so events must be Schnorr-signed. Keys are
-//// throwaway, generated per join; identity lives in watershed peer ids.
+//// The application must install `nostr-tools`. It is an optional peer
+//// dependency, the same as `phoenix` for the sequenced transport. A relay
+//// verifies the signature of an event, so every event must have a Schnorr
+//// signature. The keys are temporary, and the adapter generates them for each
+//// join. The peer ids of watershed carry the identity.
 ////
 //// JavaScript target only.
 
@@ -88,27 +94,28 @@ import watershed/p2p_transport_js.{
 import watershed/transport_js.{type Cell}
 
 @target(javascript)
-/// Public relays with years of uptime, for callers without a preference.
-/// Any NIP-01 relay list works, including a private one.
+/// Public relays with a record of years of uptime, for a caller with no
+/// preference. Any NIP-01 relay list works here, including a private one.
 pub const default_relays = [
   "wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band",
 ]
 
 @target(javascript)
 /// How long the census listens after the first relay acknowledges the
-/// subscription. The window is one relay round trip for every member's
-/// `ack`; public relays sit well under this.
+/// subscription. The window gives one relay round trip for the `ack` of every
+/// member. A public relay needs much less time than this.
 pub const default_roster_window_ms = 1500
 
 @target(javascript)
-/// How long the relays have to acknowledge a subscription before the
-/// join is called a failure — the backstop for relays that accept a
-/// socket and then say nothing.
+/// How long the relays have to acknowledge a subscription before the join
+/// becomes a failure. This is the backstop for a relay that accepts a socket
+/// and then sends nothing.
 pub const default_roster_timeout_ms = 10_000
 
 @target(javascript)
-/// An opaque relay pool, owned by the FFI: the sockets, the throwaway
-/// signing key, the room-derived cipher key, and the cross-relay dedupe.
+/// An opaque relay pool, which the FFI owns. It holds the sockets, the
+/// temporary signing key, the cipher key that comes from the room name, and
+/// the duplicate suppression across the relays.
 pub type Pool
 
 @target(javascript)
@@ -130,8 +137,9 @@ fn native_publish(pool: Pool, plaintext: String) -> Nil
 fn native_close(pool: Pool) -> Nil
 
 @target(javascript)
-/// The gossip vocabulary. `Forward` reuses `crdt_signaling`'s payload
-/// codec: both lanes carry the same three WebRTC blobs.
+/// The gossip vocabulary. `Forward` uses the payload codec of
+/// `crdt_signaling`, because the two lanes carry the same three WebRTC
+/// payloads.
 type Frame {
   Hello(from: String)
   Ack(from: String, to: String)
@@ -143,11 +151,12 @@ type Frame {
 type State {
   State(
     pool: Option(Pool),
-    /// Peers heard from so far; the census when the window closes.
+    /// The peers that the adapter has heard from. This set is the census when
+    /// the window closes.
     seen: Set(String),
-    /// The census window, armed by the first subscription acknowledgement.
+    /// The census window. The first subscription acknowledgement starts it.
     window: Option(transport_js.TimerId),
-    /// The deadline for that acknowledgement ever arriving.
+    /// The deadline for that acknowledgement to arrive.
     backstop: Option(transport_js.TimerId),
     roster: Bool,
     failed: Bool,
@@ -156,13 +165,14 @@ type State {
 }
 
 @target(javascript)
-/// A signaling adapter that meets peers on `relays`, with the default
-/// census window and backstop.
+/// A signaling adapter that meets the peers on `relays`, with the default
+/// census window and the default backstop.
 ///
-/// `on_failure` receives failures that happen after `join` returned —
-/// every relay gone, no relay acknowledging, a broken crypto
-/// environment. Required, not optional: signaling that has gone away is
-/// not something an application should be able to not notice.
+/// `on_failure` receives each failure that occurs after `join` returns. Those
+/// failures are the loss of every relay, no acknowledgement from any relay,
+/// and a crypto environment that does not work. The argument is required, and
+/// not optional. An application must always know that the signaling is no
+/// longer available.
 pub fn nostr_signaling(
   relays relays: List(String),
   on_failure on_failure: fn(String) -> Nil,
@@ -176,10 +186,9 @@ pub fn nostr_signaling(
 }
 
 @target(javascript)
-/// `nostr_signaling` with the census window and backstop chosen
-/// explicitly. A non-positive backstop never expires; a non-positive
-/// window reports the roster the moment a relay acknowledges, which is
-/// only ever right in a test.
+/// `nostr_signaling` with an explicit census window and backstop. A backstop
+/// of zero or less never expires. A window of zero or less reports the roster
+/// when a relay acknowledges, which is correct in a test only.
 pub fn nostr_signaling_with_timing(
   relays relays: List(String),
   on_failure on_failure: fn(String) -> Nil,
@@ -271,7 +280,7 @@ fn with_current(
 }
 
 @target(javascript)
-/// The first relay acknowledged the subscription: the census can start.
+/// The first relay acknowledged the subscription, so the census can start.
 fn open_window(
   cell: Cell(State),
   window_ms: Int,
@@ -292,7 +301,8 @@ fn open_window(
 }
 
 @target(javascript)
-/// Close the census: the set heard so far is this join's one roster.
+/// Close the census. The set that the adapter heard is the one roster of this
+/// join.
 fn report_roster(cell: Cell(State), on_signal: fn(Signal) -> Nil) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.roster || state.failed || state.closed {
@@ -355,8 +365,8 @@ fn disarm(timer: Option(transport_js.TimerId)) -> Nil {
 }
 
 @target(javascript)
-/// Report one failure, to the transport and to the application, once —
-/// the same contract as `crdt_signaling_js.fail`.
+/// Report one failure to the transport and to the application, one time each.
+/// The contract is the same as for `crdt_signaling_js.fail`.
 fn fail(
   cell: Cell(State),
   detail: String,
@@ -391,9 +401,9 @@ fn write(cell: Cell(State), frame: Frame) -> Nil {
 }
 
 @target(javascript)
-/// One decrypted frame off the topic. Undecodable traffic and frames
-/// addressed elsewhere are dropped without ceremony; a member's own
-/// echo likewise.
+/// One decrypted frame from the topic. The function drops traffic that it
+/// cannot decode, a frame addressed to another peer, and the echo of a frame
+/// that this member sent.
 fn receive(
   cell: Cell(State),
   me: String,
@@ -458,8 +468,8 @@ fn note(cell: Cell(State), peer: String) -> Nil {
 }
 
 @target(javascript)
-/// A peer that joined and left inside the census window was a member and
-/// is not one now; the census must not resurrect it.
+/// A peer that joined and then left inside the census window was a member and
+/// is not a member now. The census must not add it again.
 fn forget(cell: Cell(State), peer: String) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, seen: set.delete(state.seen, peer)))

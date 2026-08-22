@@ -1,20 +1,20 @@
 //// [`watershed_lustre/textarea`](./textarea.html) as a `<watershed-textarea>`
 //// custom element, for hosts that are not Lustre apps.
 ////
-//// The nested MVU triple is the component's real shape: fully typed, no
-//// boundary to smuggle a live handle across. This module wraps that same
-//// triple in a custom element via `lustre.component`, because a plain
-//// JavaScript page — or a React, Svelte, or server-rendered host — cannot
-//// hold a child model and route messages, but it *can* set a property and
-//// listen for events. Nothing here reimplements the bridge; every keystroke,
-//// caret, IME session, and peer cursor still goes through
-//// [`textarea.update`](./textarea.html#update).
+//// The nested MVU triple is the real shape of the component. It is fully
+//// typed, and it has no boundary that a live handle must cross. This module
+//// puts that same triple in a custom element, with `lustre.component`. A plain
+//// JavaScript page cannot hold a child model and route the messages, and a
+//// React, Svelte, or server-rendered host cannot either. But every one of them
+//// *can* set a property and listen for an event. This module does not write
+//// the bridge again. Every keystroke, caret, IME session, and peer cursor
+//// still goes through [`textarea.update`](./textarea.html#update).
 ////
 //// ## Passing the channel
 ////
-//// A `SharedText` is a live handle closed over the running client — it cannot
-//// be serialized, so it cannot travel as an attribute. It crosses as a
-//// **property** instead, which carries any JavaScript value:
+//// A `SharedText` value is a live handle that closes over the running client.
+//// Nothing can serialize it, so it cannot travel as an attribute. It crosses
+//// as a **property** instead, and a property carries any JavaScript value:
 ////
 //// ```js
 //// import { register } from "./watershed_lustre/textarea_element.mjs";
@@ -25,33 +25,37 @@
 //// document.body.append(editor);
 //// ```
 ////
-//// From a Lustre host the same property is set declaratively — and typed:
+//// A Lustre host sets the same property declaratively, and with types:
 ////
 //// ```gleam
 //// textarea_element.element(channel: text, attrs: [attribute.rows(10)])
 //// ```
 ////
-//// This is the one place the opaque handle passes through an untyped seam.
-//// The property decoder checks the value has a `SharedText`'s shape (a string
-//// `address` and a `runtime`) before the single contained coercion; garbage
-//// assigned to `.channel` is ignored rather than crashing the component.
+//// This is the one place at which the opaque handle passes through an untyped
+//// seam. The property decoder checks that the value has the shape of a
+//// `SharedText` value, which is a string `address` and a `runtime`. Only then
+//// does it perform the one coercion. It ignores an invalid value that a host
+//// assigns to `.channel`, and the component does not crash.
 ////
-//// Assigning the same handle again is a no-op. Assigning a *different* handle
-//// rebinds the element to the new channel. (The old channel's subscription
-//// cannot be cancelled — `subscribe_text` has no unsubscribe — but its events
-//// only re-snapshot the current channel, so the leak is idle, not wrong.)
+//// To assign the same handle again does nothing. To assign a *different*
+//// handle binds the element to the new channel. The component cannot cancel
+//// the subscription of the old channel, because `subscribe_text` has no
+//// unsubscribe function. But an event from that subscription only takes a new
+//// snapshot of the current channel, so the leak is idle and not incorrect.
 ////
-//// > **Register before you create.** The `channel` and `peers` setters live on
-//// > the registered class's prototype. A property assigned to an element that
-//// > has not been upgraded yet becomes a plain own property that *shadows* the
-//// > setter, and the component never hears about it. Call [`register`](#register)
-//// > at startup, before any `<watershed-textarea>` exists.
+//// > **Register the element before you create one.** The `channel` setter and
+//// > the `peers` setter are on the prototype of the registered class. If a
+//// > host assigns a property to an element that the browser has not upgraded
+//// > yet, that property becomes a plain own property, which *hides* the
+//// > setter, and the component never receives the value. Call
+//// > [`register`](#register) at startup, before any `<watershed-textarea>`
+//// > element exists.
 ////
 //// ## Outbound: events
 ////
-//// The triple's accessors become `CustomEvent`s (bubbling, composed), since an
-//// element cannot be polled for a Gleam model. Each fires only when its value
-//// actually changed:
+//// The accessors of the triple become `CustomEvent` objects, which bubble and
+//// are composed. A host cannot read a Gleam model out of an element. Each
+//// event occurs only when its value changes:
 ////
 //// | event      | `detail`                                  | when                                    |
 //// | ---------- | ----------------------------------------- | --------------------------------------- |
@@ -59,14 +63,14 @@
 //// | `"error"`  | `{ message: string \| null }`             | an edit was rejected; `null` clears it  |
 //// | `"cursor"` | [`cursor_to_json`](./textarea.html#cursor_to_json) shape, or `null` | this user's selection moved |
 ////
-//// `length` is grapheme clusters, not code units. The `"cursor"` payload is
-//// ready to nest in a presence message and hand to peers — announcing it is
-//// the host's job, exactly as it is for the triple.
+//// `length` counts grapheme clusters, and not code units. The `"cursor"`
+//// payload is ready to go into a presence message for the peers. The host must
+//// send that message, exactly as it must for the triple.
 ////
 //// ## Inbound: peer cursors
 ////
-//// The `peers` property takes plain data — the wire shape, not Gleam values —
-//// so a JavaScript host can forward what its transport delivered:
+//// The `peers` property takes plain data in the wire shape, and not Gleam
+//// values. A JavaScript host can thus forward what its transport delivered:
 ////
 //// ```js
 //// editor.peers = [
@@ -74,24 +78,26 @@
 //// ];
 //// ```
 ////
-//// where `cursor` is another element's `"cursor"` event detail, delivered by
-//// whatever presence channel the host runs. A Lustre host builds the same
+//// Here `cursor` is the `"cursor"` event detail of another element, which the
+//// presence channel of the host delivered. A Lustre host builds the same
 //// payload with [`peer`](#peer) and [`peers`](#peers).
 ////
 //// ## Presentation
 ////
-//// `rows`, `cols`, and `placeholder` forward to the inner `<textarea>` as
-//// ordinary attributes; `disabled` disables it when set to exactly `"true"`
-//// (a bare `disabled` attribute is indistinguishable from a removed one by
-//// the time it reaches the component, so presence alone cannot toggle it).
-//// For everything else the inner textarea carries `part="textarea"`:
+//// The component forwards `rows`, `cols`, and `placeholder` to the inner
+//// `<textarea>` element as ordinary attributes. `disabled` disables that
+//// element when its value is exactly `"true"`. A bare `disabled` attribute
+//// looks the same as a removed one when it reaches the component, so its
+//// presence alone cannot control the state. For everything else, the inner
+//// textarea carries `part="textarea"`:
 ////
 //// ```css
 //// watershed-textarea::part(textarea) { font: inherit; min-height: 12rem; }
 //// ```
 ////
-//// The component also adopts the document's stylesheets into its shadow root
-//// (Lustre's default), so plain `textarea { … }` rules reach it too.
+//// The component also adopts the stylesheets of the document into its shadow
+//// root, which is the default in Lustre. A plain `textarea { … }` rule thus
+//// reaches it too.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -111,22 +117,22 @@ import watershed.{type SharedText}
 
 import watershed_lustre/textarea
 
-/// The registered tag. Valid custom-element names must contain a hyphen; this
-/// one is fixed so hosts and stylesheets can rely on it.
+/// The registered tag. The name of a custom element must contain a hyphen.
+/// This name is fixed, so a host and a stylesheet can depend on it.
 pub const name = "watershed-textarea"
 
-/// Define `<watershed-textarea>` in the browser's custom element registry.
-/// Call once at startup, before creating or rendering any instance — see the
-/// module docs for why order matters. Fails with `ComponentAlreadyRegistered`
-/// if called twice, and `NotABrowser` outside one.
+/// Define `<watershed-textarea>` in the custom element registry of the browser.
+/// Call this function one time at startup, before you create or render an
+/// instance. The module docs explain why the order is important. The function
+/// fails with `ComponentAlreadyRegistered` on a second call, and with
+/// `NotABrowser` outside a browser.
 pub fn register() -> Result(Nil, lustre.Error) {
   lustre.register(lustre.component(init, update, view, options()), name)
 }
 
-/// Render the element from a Lustre host, with the channel already attached.
-/// Extra attributes land on the *host* element — presentation for the inner
-/// textarea goes through the `rows`/`cols`/`placeholder` attributes or
-/// `::part(textarea)`.
+/// Render the element from a Lustre host, with the channel attached. Each
+/// other attribute goes on the *host* element. To style the inner textarea, use
+/// the `rows`, `cols`, and `placeholder` attributes, or `::part(textarea)`.
 pub fn element(
   channel channel: SharedText,
   attrs attrs: List(Attribute(msg)),
@@ -134,17 +140,17 @@ pub fn element(
   element.element(name, [channel_property(channel), ..attrs], [])
 }
 
-/// The `channel` property as a typed attribute, for hosts that render the tag
-/// themselves. This is the module's single unsafe seam: the live handle is
-/// passed through as a property value, and validated shape-first on the other
-/// side.
+/// The `channel` property as a typed attribute, for a host that renders the tag
+/// itself. This is the one unsafe seam of the module. The live handle passes
+/// through as a property value, and the other side checks its shape first.
 pub fn channel_property(channel: SharedText) -> Attribute(msg) {
   attribute.property("channel", as_json(channel))
 }
 
-/// One peer cursor in the `peers` property's wire shape. `id` must be stable
-/// per user; `colour` is any CSS colour; `cursor` is what you decoded off your
-/// presence channel — the other side's `"cursor"` event detail.
+/// One peer cursor, in the wire shape of the `peers` property. `id` must be
+/// stable for each user. `colour` is any CSS colour. `cursor` is the value that
+/// you decoded from your presence channel, which is the `"cursor"` event detail
+/// of the other side.
 pub fn peer(
   id id: String,
   label label: String,
@@ -159,9 +165,10 @@ pub fn peer(
   ])
 }
 
-/// The `peers` property as a typed attribute: the full roster to draw, built
-/// with [`peer`](#peer). Replaces the previous roster wholesale, like
-/// [`textarea.set_peers`](./textarea.html#set_peers) — because it is one.
+/// The `peers` property as a typed attribute: the full roster to draw, which
+/// you build with [`peer`](#peer). It replaces the whole previous roster, the
+/// same as [`textarea.set_peers`](./textarea.html#set_peers), because it is
+/// that function.
 pub fn peers(peers: List(Json)) -> Attribute(msg) {
   attribute.property("peers", json.preprocessed_array(peers))
 }
@@ -170,16 +177,18 @@ pub fn peers(peers: List(Json)) -> Attribute(msg) {
 
 type Model {
   Model(
-    /// The wrapped triple. `None` until a channel is assigned; the view
-    /// renders an inert placeholder so the element has its size from the
-    /// start.
+    /// The triple that this element wraps. The value is `None` until a host
+    /// assigns a channel. The view then renders an inactive placeholder, so
+    /// the element has its size from the start.
     editor: Option(textarea.Model),
-    /// The last roster assigned, kept outside the editor so a roster that
-    /// arrives before the channel does is applied when it turns up.
+    /// The most recent roster that a host assigned. It stays outside the
+    /// editor, so the component can apply a roster that arrived before the
+    /// channel when that channel arrives.
     peers: List(textarea.Peer),
-    /// The last cursor emitted, so `"cursor"` fires on movement rather than
-    /// on every keystroke — anchors compare by value, and a caret that
-    /// tracked the same content re-anchors equal.
+    /// The most recent cursor that the element emitted. `"cursor"` thus occurs
+    /// on a movement, and not on every keystroke. Two anchors compare by
+    /// value, and a caret that followed the same content anchors to an equal
+    /// value.
     announced: Option(textarea.Cursor),
     rows: Option(Int),
     cols: Option(Int),
@@ -306,9 +315,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-/// The triple's accessors, turned into events at the element boundary. Each
-/// fires only on an actual transition, so a host repainting on `"change"` is
-/// not repainting on every `keyup`.
+/// The accessors of the triple, as events at the element boundary. Each event
+/// occurs on a real transition only. A host that repaints on `"change"` thus
+/// does not repaint on every `keyup`.
 fn emitted(
   before: textarea.Model,
   after: textarea.Model,
@@ -388,10 +397,12 @@ fn passthrough(model: Model) -> List(Attribute(msg)) {
 
 // ── Property decoding ────────────────────────────────────────────────────────
 
-/// Accept a live `SharedText` off the `channel` property. Shape-checked before
-/// the coercion: a handle carries its channel `address` and the `runtime` it
-/// is bound to. A value without them decodes to nothing and the assignment is
-/// ignored — the contained alternative to crashing on garbage.
+/// Accept a live `SharedText` value from the `channel` property. The decoder
+/// checks the shape before the coercion: a handle carries its channel
+/// `address` and the `runtime` that it is bound to. A value without those two
+/// fields decodes to nothing, and the component ignores the assignment. That
+/// behaviour contains the fault, and the component does not crash on an
+/// invalid value.
 fn channel_decoder() -> Decoder(Msg) {
   use _address <- decode.field("address", decode.string)
   use _runtime <- decode.field("runtime", decode.dynamic)

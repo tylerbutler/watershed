@@ -1,20 +1,20 @@
 //// JavaScript test driver for the in-memory sluice (plan HM4).
 ////
-//// The mirror of `watershed/sluice` for the JS target, and much simpler: JS is
-//// single-threaded, so the runtime processes every inbound frame synchronously
-//// and pushes its own ops back synchronously. There are no actors and no
-//// barriers — `settle` just drains the core's outbox in a loop, and each
-//// delivery's reaction lands in the same cell before the next iteration reads
-//// it.
+//// This module is the equivalent of `watershed/sluice` for the JavaScript
+//// target, and it is much simpler. JavaScript is single-threaded, so the
+//// runtime processes every inbound frame synchronously, and it pushes its own
+//// ops back synchronously. There is no actor and no barrier. `settle` empties
+//// the outbox of the core in a loop, and the reaction to each delivery arrives
+//// in the same cell before the next iteration reads that cell.
 ////
-//// This is what lets app authors — whose apps are JS/Lustre — write gleeunit
-//// convergence tests on `--target javascript`.
+//// An application author whose application is JavaScript and Lustre can thus
+//// write gleeunit convergence tests on `--target javascript`.
 ////
-//// `advance` moves a *logical* clock and fires the timers that came due with
-//// it, so anything on a heartbeat or a TTL — presence's ripple fallback, above
-//// all — is driven by stepping the clock rather than by waiting. Hand
-//// `scheduler` to `presence_js.start_with_scheduler` to put a presence handle
-//// on that clock.
+//// `advance` moves a *logical* clock and runs the timers that became due at
+//// that time. A step of the clock thus drives everything that has a heartbeat
+//// or a time-to-live (TTL), and the ripple fallback of presence above all.
+//// Give `scheduler` to `presence_js.start_with_scheduler` to put a presence
+//// handle on that clock.
 
 @target(javascript)
 import gleam/dynamic.{type Dynamic}
@@ -51,10 +51,11 @@ pub opaque type Sluice {
 }
 
 @target(javascript)
-/// One delivered frame's metadata, returned by `step_info` so a caller (e.g. a
-/// live demo) can animate and log each hop. For `op` events `sequence_number`
-/// and `author` are the sequenced op's SN and authoring client; other events
-/// (handshake, signal) report `0` / `""`.
+/// The metadata of one delivered frame, which `step_info` returns. A caller,
+/// for example a live demo, can thus animate and log each hop. For an `op`
+/// event, `sequence_number` is the sequence number of the op and `author` is
+/// the client that wrote it. Another event, such as a handshake or a signal,
+/// reports `0` and `""`.
 pub type Delivery {
   Delivery(to: String, event: String, sequence_number: Int, author: String)
 }
@@ -77,8 +78,9 @@ pub fn start(tenant tenant: String, document document: String) -> Sluice {
 }
 
 @target(javascript)
-/// Connect a fresh client, returning a real `watershed.Document`. The
-/// handshake completes on the next `settle` (delivery is explicit).
+/// Connect a new client and return a real `watershed.Document` value. The
+/// handshake completes on the next `settle`, because every delivery is
+/// explicit.
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
@@ -126,27 +128,30 @@ pub fn connect(
 }
 
 @target(javascript)
-/// Hold a client's inbound frames until `resume` — its queued frames stay put
-/// while others are delivered, so a race can be scripted.
+/// Hold the inbound frames of a client until a `resume` call. The queued frames
+/// of that client stay in the queue while the sluice delivers the frames of the
+/// other clients, so a test can script a race.
 pub fn pause(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.pause)
 }
 
 @target(javascript)
-/// Release a paused client's held frames back into the deliverable queue.
+/// Return the held frames of a paused client to the deliverable queue.
 pub fn resume(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.resume)
 }
 
 @target(javascript)
-/// Drop a client from the room, sequencing a `"leave"` to the survivors.
+/// Remove a client from the room, and sequence a `"leave"` message to the
+/// clients that remain.
 ///
-/// This is the ungraceful-departure path, and it is the only way to test the
-/// kernel behaviour that hangs off membership: a `TaskManager` role released
-/// because its holder vanished, or a `PactMap` proposal whose signoff list
-/// drains because one of the clients it was waiting on is no longer in the
-/// room. `pause` cannot stand in for it — a paused client is still a member,
-/// so a pact still waits on it, which is exactly the stall being tested.
+/// This is the path for a departure that is not graceful. It is the only way
+/// to test the kernel behaviour that depends on membership: a `TaskManager`
+/// role that the kernel releases because its holder left, or a `PactMap`
+/// proposal whose signoff list becomes empty because one of the clients that
+/// it waited on is no longer in the room. `pause` cannot replace this
+/// function. A paused client is still a member, so a pact still waits on it,
+/// and that stall is the condition under test.
 pub fn disconnect(
   sluice: Sluice,
   document: watershed.Document(root),
@@ -155,44 +160,47 @@ pub fn disconnect(
 }
 
 @target(javascript)
-/// Drop a client's socket and let it come back — the reconnect a real client
-/// survives, rather than a departure it does not.
+/// Close the socket of a client and then let that client return. This is the
+/// reconnect that a real client survives. It is not a departure.
 ///
-/// The distinction from `disconnect` is the whole point. `disconnect` removes a
-/// client from the room for good; this severs the connection underneath a
-/// runtime that keeps its core — kernel state, pending consensus, and the
-/// in-flight queue all survive — and then lets it re-handshake. The server
-/// assigns it a **fresh client id**, exactly as floodgate does, so the returning
-/// client is a different member of the room than the one that left.
+/// The difference from `disconnect` is the purpose of this function.
+/// `disconnect` removes a client from the room permanently. This function
+/// closes the connection below a runtime that keeps its core, which is the
+/// kernel state, the pending consensus, and the in-flight queue. The runtime
+/// then does the handshake again. The server assigns it a **new client id**,
+/// exactly as floodgate does, so the client that returns is a different member
+/// of the room than the client that left.
 ///
-/// That is the window a lot of protocol bugs live in: ops sequenced while the
-/// client was away replay against the room as it was *then*, edits made during
-/// the gap are restamped and resubmitted, and a consensus kernel may owe
-/// signoffs under an identity that no longer exists.
+/// Many protocol faults are in that window. An op that sequenced while the
+/// client was absent replays against the room as it was at that time. An edit
+/// from the interval gets a new stamp and a resubmission. A consensus kernel
+/// can owe signoffs under an identity that no longer exists.
 ///
-/// Unlike the erlang driver this never re-runs `Transport.connect`, because the
-/// JS runtime never does either — its real transport is a Phoenix socket that
-/// auto-rejoins and re-fires `on_join` on the same channel. So the rejoin is
-/// modelled where it actually happens: the connection stays, and the *server*
-/// hands it a new identity.
+/// Unlike the Erlang driver, this function never runs `Transport.connect`
+/// again, because the JavaScript runtime never does that either. Its real
+/// transport is a Phoenix socket, which joins again by itself and runs
+/// `on_join` again on the same channel. This driver thus models the rejoin
+/// where it happens: the connection stays open, and the *server* gives it a
+/// new identity.
 ///
-/// The handshake completes on the next `settle`, like `connect`.
+/// The handshake completes on the next `settle`, the same as for `connect`.
 pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
 
 @target(javascript)
-/// The first half of `reconnect`: take the socket away and leave it away.
+/// The first half of `reconnect`: close the socket and keep it closed.
 ///
-/// Splitting the two matters because the interesting window is *between* them.
-/// A client is out of the room from its `leave` until its rejoin, and anything
-/// sequenced in that gap was sequenced for a room it was not in — which it then
-/// has to replay, under an identity that did not exist when those ops were
-/// made. Scripting that means being able to sequence ops while the client is
-/// away, which an atomic reconnect cannot express.
+/// The two halves are separate because the interesting window is *between*
+/// them. A client is outside the room from its `leave` until its rejoin. Every
+/// op that sequences in that interval sequenced for a room that did not contain
+/// the client. The client must then replay those ops, under an identity that
+/// did not exist when other clients made them. To script that sequence, a test
+/// must sequence ops while the client is absent, and one atomic reconnect
+/// cannot express that.
 ///
-/// The runtime keeps its core and sits in its reconnecting phase until
+/// The runtime keeps its core and stays in its reconnecting phase until
 /// `rejoin`.
 pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
@@ -203,12 +211,12 @@ pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 }
 
 @target(javascript)
-/// `drop` keyed by transport token rather than by document.
+/// `drop`, keyed by transport token instead of by document.
 ///
-/// The transport handle closes over its token and has no `Sluice` or
-/// `Document` to hand, so this is the form its `hold` needs — which is what
-/// makes `watershed.go_offline` work against the sluice and not just against
-/// a real socket.
+/// The transport handle closes over its token, and it has no `Sluice` value or
+/// `Document` value to give. Its `hold` function thus needs this form.
+/// `watershed.go_offline` therefore works against the sluice, and not against
+/// a real socket only.
 fn drop_token(cell: Cell(State), token: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case list.key_find(state.conns, token) {
@@ -229,10 +237,10 @@ fn drop_token(cell: Cell(State), token: String) -> Nil {
 }
 
 @target(javascript)
-/// The second half of `reconnect`: let a dropped client come back, under a
-/// fresh server-assigned client id.
+/// The second half of `reconnect`: let a dropped client return, under a new
+/// client id that the server assigns.
 ///
-/// A no-op for a client that was not `drop`ped.
+/// The function does nothing for a client that `drop` did not remove.
 pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   case conn_for(state, watershed.runtime_of(document)) {
@@ -242,8 +250,8 @@ pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 }
 
 @target(javascript)
-/// `rejoin` keyed by transport token — the form the handle's `resume` needs.
-/// See `drop_token`.
+/// `rejoin`, keyed by transport token. The `resume` function of the handle
+/// needs this form. See `drop_token`.
 fn rejoin_token(cell: Cell(State), token: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case list.key_find(state.conns, token) {
@@ -303,15 +311,16 @@ fn apply_to_client(
 }
 
 @target(javascript)
-/// Deliver queued frames until the system is quiescent. Synchronous: each
-/// delivery's reaction is pushed back into the core before the next iteration.
+/// Deliver the queued frames until the system is quiet. The function is
+/// synchronous: the reaction to each delivery goes back into the core before
+/// the next iteration.
 pub fn settle(sluice: Sluice) -> Nil {
   drain(sluice.cell)
 }
 
 @target(javascript)
-/// Deliver exactly one queued frame (to a non-paused client), returning `False`
-/// when nothing was deliverable.
+/// Deliver exactly one queued frame, to a client that is not paused. The
+/// function returns `False` when it can deliver no frame.
 pub fn step(sluice: Sluice) -> Bool {
   case take_deliver(sluice.cell) {
     Some(_) -> True
@@ -320,9 +329,10 @@ pub fn step(sluice: Sluice) -> Bool {
 }
 
 @target(javascript)
-/// Like `step`, but reports what was delivered (target client, event, and — for
-/// `op` events — the sequence number and author). `None` when nothing was
-/// deliverable. For driving live visualisations that animate each hop.
+/// The same as `step`, but the function reports what it delivered: the target
+/// client, the event, and, for an `op` event, the sequence number and the
+/// author. The result is `None` when the function can deliver no frame. Use it
+/// to drive a live visualization that animates each hop.
 pub fn step_info(sluice: Sluice) -> Option(Delivery) {
   case take_deliver(sluice.cell) {
     None -> None
@@ -339,10 +349,10 @@ pub fn step_info(sluice: Sluice) -> Option(Delivery) {
 }
 
 @target(javascript)
-/// Report the next frame `step`/`step_info` would deliver, without delivering
-/// it. Lets a caller group a whole broadcast wave (every frame sharing an op's
-/// sequence number) into one animation tick, so all replicas receive an op
-/// together instead of one serial hop at a time.
+/// Report the next frame that `step` or `step_info` would deliver, and deliver
+/// nothing. A caller can thus collect a whole broadcast group, which is every
+/// frame that shares the sequence number of one op, into one animation step.
+/// Every replica then receives the op together, and not one hop at a time.
 pub fn peek_info(sluice: Sluice) -> Option(Delivery) {
   case core.peek(transport_js.get_cell(sluice.cell).core) {
     None -> None
@@ -359,14 +369,15 @@ pub fn peek_info(sluice: Sluice) -> Option(Delivery) {
 }
 
 @target(javascript)
-/// Whether any frame is still awaiting delivery to a non-paused client.
+/// Whether a frame still waits for delivery to a client that is not paused.
 pub fn pending(sluice: Sluice) -> Bool {
   core.has_pending(transport_js.get_cell(sluice.cell).core)
 }
 
 @target(javascript)
-/// The sluice-assigned client id for a document (matches the `to`/`author`
-/// fields of `step_info`), or `Error` if it isn't connected here.
+/// The client id that the sluice assigned to a document. It is the same value
+/// as the `to` field and the `author` field of `step_info`. The result is an
+/// `Error` if the document is not connected to this sluice.
 pub fn client_id(
   sluice: Sluice,
   document: watershed.Document(root),
@@ -378,19 +389,21 @@ pub fn client_id(
 }
 
 @target(javascript)
-/// The current server sequence number. Ops sequence synchronously on submit,
-/// so reading this right after an edit yields that op's SN.
+/// The current server sequence number. An op sequences synchronously at submit
+/// time, so a read immediately after an edit gives the sequence number of that
+/// op.
 pub fn sequence_number(sluice: Sluice) -> Int {
   core.sequence_number(transport_js.get_cell(sluice.cell).core)
 }
 
 @target(javascript)
-/// Advance the sluice's logical clock and fire every timer that came due, so
-/// TTL- and heartbeat-based logic is testable without real time passing.
+/// Advance the logical clock of the sluice and run every timer that became
+/// due. A test can thus check the logic that depends on a time-to-live (TTL) or
+/// on a heartbeat, without a wait for the real time.
 ///
-/// Timers fire one at a time, re-reading the cell between each: a heartbeat
-/// re-schedules itself from inside its own callback, and the replacement must
-/// not be fired by this same `advance`.
+/// The timers run one at a time, and the function reads the cell again between
+/// them. A heartbeat schedules itself again from inside its own callback, and
+/// this same `advance` call must not run that replacement.
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   transport_js.set_cell(
@@ -401,8 +414,9 @@ pub fn advance(sluice: Sluice, ms: Int) -> Nil {
 }
 
 @target(javascript)
-/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
-/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+/// Remove `presence_v1` from the handshake. A client in `Auto` mode thus
+/// selects the ripple fallback, and a client that forces `Server` mode fails.
+/// Call this function before `connect`.
 pub fn disable_presence(sluice: Sluice) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   transport_js.set_cell(
@@ -412,9 +426,9 @@ pub fn disable_presence(sluice: Sluice) -> Nil {
 }
 
 @target(javascript)
-/// A scheduler bound to this sluice's logical clock, for driving a presence
-/// handle (or anything else with a heartbeat) from `advance` instead of real
-/// elapsed time.
+/// A scheduler that uses the logical clock of this sluice. Use it to drive a
+/// presence handle, or anything else with a heartbeat, from `advance` instead
+/// of from the real elapsed time.
 pub fn scheduler(sluice: Sluice) -> transport_js.Scheduler {
   transport_js.Scheduler(
     now_ms: fn() { core.now(transport_js.get_cell(sluice.cell).core) },
@@ -450,9 +464,10 @@ fn cancel_timer(sluice: Sluice, id: Int) -> Nil {
 }
 
 @target(javascript)
-/// Fire the earliest due timer, then look again. Recursing rather than folding
-/// is deliberate: each callback may schedule, cancel, or fire further timers,
-/// so the list has to be re-read every round.
+/// Run the earliest timer that is due, then look again. The function recurses,
+/// and it does not fold, and that choice is deliberate. Each callback can
+/// schedule, cancel, or run more timers, so the function must read the list
+/// again in every round.
 fn fire_due(sluice: Sluice) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   let now = core.now(state.core)
@@ -480,9 +495,10 @@ fn drain(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Take the next deliverable frame, deliver it, and return it (or `None`).
-/// Commits the take before delivering: the recipient's reaction pushes back
-/// into the same cell, and we must not clobber it.
+/// Take the next deliverable frame, deliver it, and return it. The result is
+/// `None` when there is no such frame. The function commits the take before the
+/// delivery, because the reaction of the recipient goes back into the same
+/// cell, and the function must not overwrite it.
 fn take_deliver(cell: Cell(State)) -> Option(core.Outbound) {
   let state = transport_js.get_cell(cell)
   case core.take(state.core) {
@@ -502,8 +518,8 @@ fn take_deliver(cell: Cell(State)) -> Option(core.Outbound) {
 }
 
 @target(javascript)
-/// Pull the sequence number and author from an `op` frame's payload (`0`/`""`
-/// for other event kinds), for `step_info`.
+/// Read the sequence number and the author from the payload of an `op` frame,
+/// for `step_info`. The result is `0` and `""` for another kind of event.
 fn op_meta(frame: core.Outbound) -> #(Int, String) {
   case frame.event {
     "op" ->
@@ -609,17 +625,18 @@ fn push(cell: Cell(State), token: String, event: String, payload: Json) -> Nil {
 @target(javascript)
 /// One open connection.
 ///
-/// `current` is the id the *server* has assigned it, which is not fixed: a
-/// rejoin gets a fresh one, exactly as floodgate hands one out per connection.
-/// Everything else keys off the connection's stable token instead, so a
-/// reconnect rotates the identity without the runtime's handle going stale.
+/// `current` is the id that the *server* assigned to the connection, and that
+/// id can change. A rejoin gets a new one, exactly as floodgate gives one to
+/// each connection. Every other part of the driver uses the stable token of
+/// the connection as its key. A reconnect thus changes the identity, and the
+/// handle of the runtime stays valid.
 type Conn {
   Conn(
     on_event: fn(String, Dynamic) -> Nil,
     on_join: fn() -> Nil,
     on_close: fn() -> Nil,
     current: String,
-    /// Socket taken away by `drop`, awaiting `rejoin`.
+    /// `drop` closed the socket, and the connection waits for `rejoin`.
     dropped: Bool,
   )
 }
@@ -628,23 +645,25 @@ type Conn {
 type State {
   State(
     core: core.Sluice,
-    /// Keyed by connection token — the id minted when the link opened, which
-    /// never changes even when the server reassigns `Conn.current`.
+    /// Keyed by connection token, which is the id that the driver created when
+    /// the link opened. That id never changes, also when the server assigns a
+    /// new `Conn.current` value.
     conns: List(#(String, Conn)),
-    /// Runtime → connection token, so `pause`/`resume` can target a document by
-    /// identity (structural equality would deep-compare state cells).
+    /// A map from a runtime to a connection token, so that `pause` and
+    /// `resume` can select a document by its identity. A structural equality
+    /// test would compare the state cells in full.
     bindings: List(#(runtime.Runtime, String)),
     last_registered: Option(String),
-    /// Timers scheduled against the logical clock: `#(due_at_ms, id, action)`.
-    /// `advance` is what fires them, which is how a heartbeat or a TTL becomes
-    /// a scriptable step rather than a wait.
+    /// The timers that the driver scheduled against the logical clock, as
+    /// `#(due_at_ms, id, action)`. `advance` runs them. A heartbeat or a TTL
+    /// thus becomes a step that a test can script, and not a wait.
     timers: List(#(Int, Int, fn() -> Nil)),
     next_timer_id: Int,
   )
 }
 
 @target(javascript)
-/// The connection token bound to a runtime.
+/// The connection token that is bound to a runtime.
 fn token_of(
   bindings: List(#(runtime.Runtime, String)),
   runtime: runtime.Runtime,
@@ -656,7 +675,7 @@ fn token_of(
 }
 
 @target(javascript)
-/// The server-assigned id a runtime is currently known by.
+/// The current id that the server assigned to a runtime.
 fn client_id_of(
   state: State,
   runtime: runtime.Runtime,
@@ -676,9 +695,9 @@ fn client_id_of(
 fn reference_equals(a: runtime.Runtime, b: runtime.Runtime) -> Bool
 
 @target(javascript)
-/// The connection the server currently knows by `client_id`. Frames are
-/// addressed by server-assigned id, so this searches `current` rather than the
-/// token the list is keyed by.
+/// The connection that the server knows by `client_id` now. A frame carries the
+/// id that the server assigned, so this function searches the `current` field,
+/// and not the token that keys the list.
 fn find_conn(
   conns: List(#(String, Conn)),
   client_id: String,
@@ -690,8 +709,9 @@ fn find_conn(
 }
 
 @target(javascript)
-/// Serialize a queued `Json` frame and re-parse it as `Dynamic` — the exact
-/// trip a frame takes over a real socket before the runtime decodes it.
+/// Serialize a queued `Json` frame and parse it again as `Dynamic`. This is the
+/// exact path that a frame takes over a real socket before the runtime decodes
+/// it.
 fn to_dynamic(payload: Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   dynamic

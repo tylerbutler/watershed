@@ -1,25 +1,28 @@
 //// Pure port of FluidFramework's `packages/dds/map/src/directory.ts`
 //// (`SharedDirectory` + `SubDirectory`).
 ////
-//// SharedDirectory is "SharedMap, but recursive": each directory node has a
-//// SharedMap-like key/value store (see `map_kernel`) plus a named set of
-//// child directories. This kernel is a pure *tree* port — no process, no
-//// side effects: every operation returns the new state plus the events and
-//// (for local ops) the outbound op it produced.
+//// SharedDirectory is SharedMap with recursion. Each directory node has a
+//// key-value store, the same as a SharedMap (see `map_kernel`), with a named
+//// set of child directories. This kernel is a pure *tree* port. There is no
+//// process and there are no side effects. Every operation returns the new
+//// state with the events, and, for a local op, with the outbound op that it
+//// produced.
 ////
-//// The new complexity over `map_kernel` is **hierarchical identity**: a
-//// subdirectory can be concurrently created by multiple clients, deleted,
-//// and recreated under the same absolute path. Ops address a directory by
-//// absolute path but must only apply to the *current live instance* of that
-//// path. That filtering (`is_message_for_current_instance`, D12 in the plan)
-//// is the core correctness rule and is modelled explicitly from creator ids,
-//// create sequence data, and the op's reference sequence number.
+//// The new difficulty over `map_kernel` is **hierarchical identity**. Several
+//// clients can create one subdirectory at the same time, delete it, and
+//// create it again under the same absolute path. An op addresses a directory
+//// by its absolute path, but it must apply to the *current live instance* of
+//// that path only. That filter is the central correctness rule. It is
+//// `is_message_for_current_instance`, which is D12 in the plan, and this
+//// kernel models it from the creator ids, the create sequence data, and the
+//// reference sequence number of the op.
 ////
-//// State per node mirrors `map_kernel`: `sequenced` storage (server-confirmed,
-//// plus `insertion_order` because Gleam's `Dict` is unordered) and `pending`
-//// optimistic local edits. Pending entries additionally carry `message_id`s so
-//// rollback (LIFO) and resubmit (filter still-relevant) can target a specific
-//// submission.
+//// The state of each node has the same shape as in `map_kernel`. `sequenced`
+//// holds the storage that the server confirmed, with `insertion_order`,
+//// because the Gleam `Dict` type is unordered. `pending` holds the optimistic
+//// local edits. A pending entry also carries a `message_id` value, so a
+//// rollback, which is LIFO, and a resubmit, which keeps the entries that are
+//// still relevant, can select one submission.
 
 import gleam/dict.{type Dict}
 import gleam/int
@@ -42,33 +45,38 @@ pub type DirectoryNode {
   DirectoryNode(
     path: String,
     create: CreateInfo,
-    /// Immutable local instance identity: the `create` this node was *born*
-    /// with, never re-stamped or cleared. Two nodes at the same path are the
-    /// same instance iff their births match — the kernel's stand-in for FF's
-    /// object identity. Alias bookkeeping (a folded pending-create marker vs
-    /// the sequenced slot) must compare births rather than assume the slot
-    /// holds the marker's instance: an interleaved ack can commit a
-    /// *different* instance into the slot while the marker still retains its
-    /// own.
+    /// The immutable local identity of this instance: the `create` operation
+    /// that this node started with. The kernel never writes it again and never
+    /// clears it. Two nodes at the same path are the same instance if, and
+    /// only if, their birth values are equal. This field replaces the object
+    /// identity of FluidFramework.
+    ///
+    /// The alias bookkeeping compares a folded pending-create marker with the
+    /// sequenced slot. It must compare the birth values. It must not assume
+    /// that the slot holds the instance of the marker: an ack that arrives
+    /// between the two can commit a *different* instance into the slot while
+    /// the marker still holds its own instance.
     birth: CreateInfo,
-    /// Client ids that created this live instance (upstream `clientIds`).
+    /// The client ids that created this live instance. This is the
+    /// `clientIds` field upstream.
     creators: List(Int),
-    /// Whether this instance was created while detached (upstream
-    /// `clientIds.has("detached")`).
+    /// Whether a client created this instance while the directory was
+    /// detached. This is `clientIds.has("detached")` upstream.
     detached_created: Bool,
     disposed: Bool,
     storage: StorageState,
     /// Server-confirmed child directories.
     subdirs: Dict(String, DirectoryNode),
-    /// Insertion order of `subdirs` (Gleam dicts are unordered).
+    /// The insertion order of `subdirs`. A Gleam dict is unordered.
     subdir_order: List(String),
     pending_subdirs: List(PendingSubdir),
   )
 }
 
-/// Sequence data used both to identify a directory instance and to order
+/// The sequence data that identifies a directory instance and that orders the
 /// sibling directories. `seq` is the server sequence number of the create
-/// (`-1` while a local create is unacked, `0` when created detached).
+/// operation. It is `-1` while a local create has no ack, and `0` when a client
+/// created the directory while it was detached.
 pub type CreateInfo {
   CreateInfo(seq: Int, client_seq: Int)
 }
@@ -82,34 +90,40 @@ pub type StorageState {
 }
 
 pub type PendingStorage {
-  /// One or more consecutive local sets to a key, oldest first, each tagged
-  /// with the submission `message_id`. A delete or clear terminates the
-  /// lifetime; a later set starts a new one.
+  /// One or more consecutive local sets to one key, oldest first. Each set
+  /// carries the `message_id` of its submission. A delete or a clear ends the
+  /// lifetime. A later set starts a new lifetime.
   PendingLifetime(key: String, sets: List(Json), message_ids: List(Int))
   PendingDelete(key: String, message_id: Int)
   PendingClear(message_id: Int)
 }
 
 pub type PendingSubdir {
-  /// A local create of `name`. `node` is this create's optimistic instance —
-  /// the single copy of its storage/children while `folded` is `False`. Once a
-  /// concurrent remote create of the same name (or this create's own ack) has
-  /// moved the instance into sequenced children, `folded` becomes `True` and
-  /// `subdirs[name]` becomes the canonical copy; `node` is then only a fallback
-  /// used to re-insert the instance if a later delete removes it before this
-  /// create is acked. Keeping the instance in exactly one canonical place (the
-  /// marker while unfolded, else `subdirs`) is what prevents storage copy-drift;
-  /// it mirrors FF's single-`SubDirectory`-object-per-instance model, where the
-  /// pending-create entry and the sequenced map hold the *same* object.
+  /// A local create of `name`. `node` is the optimistic instance of this
+  /// create, and it is the one copy of the storage and the children while
+  /// `folded` is `False`.
+  ///
+  /// A concurrent remote create of the same name, or the ack of this create,
+  /// moves the instance into the sequenced children. `folded` then becomes
+  /// `True`, and `subdirs[name]` becomes the canonical copy. `node` is then a
+  /// fallback only. The kernel uses it to insert the instance again if a later
+  /// delete removes it before this create receives its ack.
+  ///
+  /// The instance stays in exactly one canonical place: the marker while the
+  /// create is not folded, and `subdirs` after that. That rule prevents a
+  /// drift between two copies of the storage. It follows the model of
+  /// FluidFramework, which keeps one `SubDirectory` object for each instance,
+  /// and where the pending-create entry and the sequenced map hold the *same*
+  /// object.
   PendingCreate(
     name: String,
     node: DirectoryNode,
     message_id: Int,
     folded: Bool,
   )
-  /// A local delete of `name`. The sequenced child is left in place and only
-  /// hidden optimistically, so pending storage on the subtree survives for its
-  /// acks and a rollback simply re-exposes the retained tree (D13).
+  /// A local delete of `name`. The kernel keeps the sequenced child and hides
+  /// it in the optimistic view only. The pending storage on that subtree thus
+  /// stays for its acks, and a rollback shows the tree again. This is D13.
   PendingRemove(name: String, message_id: Int)
 }
 
@@ -135,10 +149,11 @@ pub type DirectoryEvent {
   Undisposed(path: String)
 }
 
-/// Metadata carried by a sequenced op: who authored it, its server sequence
-/// number, the author's reference sequence number (what they had seen when
-/// they submitted — drives the stale-instance filter), and its client
-/// sequence number (tie-breaker for sibling ordering).
+/// The metadata that a sequenced op carries: the client that wrote it, its
+/// server sequence number, the reference sequence number of the author, and its
+/// client sequence number. The reference sequence number is what the author had
+/// seen at submit time, and the stale-instance filter uses it. The client
+/// sequence number breaks a tie in the sibling order.
 pub type SequencedMeta {
   SequencedMeta(
     author: Int,
@@ -195,7 +210,8 @@ fn new_node(
 // Path helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Split an absolute path into its non-empty segments. `"/"` → `[]`.
+/// Split an absolute path into its segments, and remove the empty ones. `"/"`
+/// gives `[]`.
 pub fn segments(path: String) -> List(String) {
   string.split(path, "/") |> list.filter(fn(s) { s != "" })
 }
@@ -211,7 +227,7 @@ fn join(path: String, name: String) -> String {
 // Optimistic vs sequenced child lookup
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The latest pending subdir entry for `name`, if any.
+/// The most recent pending subdir entry for `name`, if one exists.
 fn latest_pending_subdir(
   node: DirectoryNode,
   name: String,
@@ -228,8 +244,9 @@ fn pending_subdir_name(entry: PendingSubdir) -> String {
   }
 }
 
-/// Optimistic child by name: overlays pending creates/deletes on sequenced
-/// children. Disposed nodes are treated as absent unless `include_disposed`.
+/// The optimistic child with this name. The function puts the pending creates
+/// and the pending deletes over the sequenced children. It treats a disposed
+/// node as absent, unless `include_disposed` is true.
 fn optimistic_child(
   node: DirectoryNode,
   name: String,
@@ -273,8 +290,9 @@ fn sequenced_child(node: DirectoryNode, name: String) -> Option(DirectoryNode) {
   dict.get(node.subdirs, name) |> option.from_result
 }
 
-/// Write `child` back to wherever `name`'s live instance canonically lives: into
-/// the latest not-yet-folded pending create marker, else into sequenced children.
+/// Write `child` back to the canonical position of the live instance of `name`.
+/// That position is the most recent pending create marker that is not folded
+/// yet, or, if there is none, the sequenced children.
 fn put_optimistic_child(
   node: DirectoryNode,
   name: String,
@@ -349,9 +367,10 @@ fn do_replace_first_create(
   }
 }
 
-/// Mark the latest pending create for `name` as folded — its instance has been
-/// moved into sequenced children (the canonical copy) by a concurrent remote
-/// create. The marker's `node` is kept as a re-insert fallback.
+/// Mark the most recent pending create for `name` as folded. A concurrent
+/// remote create moved its instance into the sequenced children, which are now
+/// the canonical copy. The kernel keeps the `node` field of the marker, as a
+/// fallback for a later insert.
 fn mark_latest_pending_create_folded(
   pending: List(PendingSubdir),
   name: String,
@@ -410,7 +429,7 @@ fn remove_sequenced_child(node: DirectoryNode, name: String) -> DirectoryNode {
 // Recursive node traversal / update
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Look up the optimistic node at `path` from the root.
+/// Find the optimistic node at `path`, from the root.
 pub fn get_working_directory(
   state: DirectoryState,
   path: String,
@@ -418,7 +437,7 @@ pub fn get_working_directory(
   do_get(state.root, segments(path), optimistic_child_reachable)
 }
 
-/// Look up the sequenced-only node at `path`.
+/// Find the node at `path` in the sequenced data only.
 pub fn get_sequenced_directory(
   state: DirectoryState,
   path: String,
@@ -448,7 +467,8 @@ fn do_get(
   }
 }
 
-/// Update the optimistic node at `segs`, threading a result value out.
+/// Update the optimistic node at `segs`, and return a result value with the
+/// new state.
 fn update_optimistic(
   node: DirectoryNode,
   segs: List(String),
@@ -469,7 +489,8 @@ fn update_optimistic(
   }
 }
 
-/// Update the sequenced node at `segs`, threading a result value out.
+/// Update the sequenced node at `segs`, and return a result value with the new
+/// state.
 fn update_sequenced(
   node: DirectoryNode,
   segs: List(String),
@@ -565,9 +586,10 @@ pub fn size(state: DirectoryState, path: String) -> Int {
   list.length(entries(state, path))
 }
 
-/// Optimistically visible child directory names at `path`, ordered by
-/// `seqDataComparator` (acknowledged/detached before unacked-local; lower
-/// seq/client_seq first).
+/// The names of the child directories that are visible optimistically at
+/// `path`. The function orders them with `seqDataComparator`. An acked
+/// directory and a detached directory come before a local one with no ack, and
+/// a lower `seq` or `client_seq` value comes first.
 pub fn subdirectories(state: DirectoryState, path: String) -> List(String) {
   case get_working_directory(state, path) {
     None -> []
@@ -882,7 +904,8 @@ fn add_creator(creators: List(Int), client: Int) -> List(Int) {
 // Dispose / undispose event generation (walks a subtree, no mutation)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Dispose events for a subtree, children first (bottom-up), then this node.
+/// The dispose events for a subtree. The children come first, from the bottom
+/// up, and this node comes last.
 fn dispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
   let child_events =
     list.flat_map(node.subdir_order, fn(name) {
@@ -894,7 +917,8 @@ fn dispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
   list.append(child_events, [Disposed(node.path)])
 }
 
-/// Undispose events for a subtree, this node first (top-down), then children.
+/// The undispose events for a subtree. This node comes first, from the top
+/// down, and the children come after it.
 fn undispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
   let child_events =
     list.flat_map(node.subdir_order, fn(name) {
@@ -906,10 +930,12 @@ fn undispose_events_only(node: DirectoryNode) -> List(DirectoryEvent) {
   [Undisposed(node.path), ..child_events]
 }
 
-/// Names that may alias a child instance from this node: sequenced children
-/// plus pending-create markers (FF `getSubdirectoriesEvenIfDisposed` reaches
-/// both). Pending-remove-hidden names resolve to `None` via `optimistic_child`
-/// and get skipped by callers, exactly as FF's iterators skip them.
+/// The names that can alias a child instance from this node. Those names are
+/// the sequenced children and the pending-create markers. The
+/// `getSubdirectoriesEvenIfDisposed` function of FluidFramework reaches both.
+/// A name that a pending remove hides resolves to `None` in
+/// `optimistic_child`, and a caller thus skips it, exactly as the iterators of
+/// FluidFramework skip it.
 fn aliased_child_names(node: DirectoryNode) -> List(String) {
   let marker_names =
     list.filter_map(node.pending_subdirs, fn(entry) {
@@ -926,9 +952,10 @@ fn aliased_child_names(node: DirectoryNode) -> List(String) {
   list.append(node.subdir_order, marker_names)
 }
 
-/// FF `undisposeSubdirectoryTree`: clear the disposed flag on this node and
-/// every reachable aliased child (including disposed ones — a revive must
-/// reach the retained marker copies), bottom-up.
+/// The `undisposeSubdirectoryTree` function of FluidFramework. Clear the
+/// disposed flag on this node and on every aliased child that the function
+/// reaches, from the bottom up. The function includes a disposed child, because
+/// a revive must reach the marker copies that the kernel retained.
 fn undispose_tree(
   node: DirectoryNode,
 ) -> #(DirectoryNode, List(DirectoryEvent)) {
@@ -949,16 +976,24 @@ fn undispose_tree(
   ])
 }
 
-/// FF `disposeSubDirectoryTree` + `clearSubDirectorySequencedData` + `dispose`:
-/// walk the *optimistic* children bottom-up (pending-remove-hidden and already
-/// disposed children are skipped, as in FF's `subdirectories()` iterator), then
-/// reset this node's instance identity — create seq back to unknown (-1),
-/// creators to just the local client (standing in for the create op this client
-/// has pending or may later send) — and drop sequenced storage and children
-/// while retaining all pending data, so a marker-retained node revived by a
-/// later create carries a fresh identity instead of leaking the deleted
-/// instance's. Cleared copies are written back into their marker slots first,
-/// so the retained aliases stay in sync (FF mutates the shared objects).
+/// The `disposeSubDirectoryTree`, `clearSubDirectorySequencedData`, and
+/// `dispose` functions of FluidFramework, together.
+///
+/// Walk the *optimistic* children from the bottom up. The walk skips a child
+/// that a pending remove hides, and a child that is already disposed, the same
+/// as the `subdirectories()` iterator of FluidFramework.
+///
+/// Then reset the instance identity of this node. Set the create seq back to
+/// unknown, which is `-1`, and set the creators to the local client only. That
+/// client stands for the create op that it has pending, or that it can send
+/// later. Then drop the sequenced storage and the sequenced children, and keep
+/// every pending value. A node that a marker retained thus carries a new
+/// identity when a later create revives it, and it does not keep the identity
+/// of the deleted instance.
+///
+/// The function writes each cleared copy back into its marker slot first, so
+/// the retained aliases stay in agreement. FluidFramework changes the shared
+/// objects instead.
 fn dispose_subdir_tree(node: DirectoryNode, self: Int) -> DirectoryNode {
   let node =
     list.fold(aliased_child_names(node), node, fn(node, name) {
@@ -984,13 +1019,15 @@ fn dispose_subdir_tree(node: DirectoryNode, self: Int) -> DirectoryNode {
   )
 }
 
-/// After a sequenced delete removed `name`'s instance from `subdirs`, keep a
-/// folded pending-create marker pointing at the cleared node — but only when
-/// the marker actually aliases *that* instance (matching births; FF's pending
-/// entry holds the same object). A marker for a different instance — unfolded,
-/// or folded but superseded in the slot by an interleaved ack — retains its
-/// own node untouched; overwriting it would destroy that instance's retained
-/// pending data.
+/// After a sequenced delete removes the instance of `name` from `subdirs`, keep
+/// a folded pending-create marker that points at the cleared node. Do that only
+/// when the marker aliases *that* instance, which is true when the birth values
+/// are equal. The pending entry of FluidFramework holds the same object.
+///
+/// A marker for a different instance keeps its own node, and the function does
+/// not change it. Such a marker is not folded, or it is folded and an ack that
+/// arrived between the two replaced the instance in the slot. To overwrite that
+/// marker would destroy the pending data that its instance retained.
 fn sync_folded_marker(
   node: DirectoryNode,
   name: String,
@@ -1048,7 +1085,7 @@ pub fn apply_remote(
   }
 }
 
-/// Route a remote storage op to the sequenced directory at `path`, applying
+/// Route a remote storage op to the sequenced directory at `path`, and apply
 /// the stale-instance filter to that target node.
 fn apply_remote_storage(
   state: DirectoryState,
@@ -1087,10 +1124,12 @@ fn apply_remote_subdir(
   }
 }
 
-/// D12: is this sequenced message for the current live instance of `node`?
-/// For remote ops (`target` is `None`): the author must be a creator, or the
-/// instance was detached-created, or its create seq is known to others
-/// (`!= -1`) and predates the op's reference sequence number.
+/// D12: whether this sequenced message is for the current live instance of
+/// `node`. For a remote op, where `target` is `None`, one of three conditions
+/// must hold. The author is a creator. Or a client created the instance while
+/// the directory was detached. Or the create seq of the instance is known to
+/// the other clients, which means it is not `-1`, and it is before the
+/// reference sequence number of the op.
 fn is_message_for_current_instance(
   node: DirectoryNode,
   meta: SequencedMeta,
@@ -1300,9 +1339,10 @@ fn has_pending_remove_named(node: DirectoryNode, name: String) -> Bool {
 // Acks (own ops coming back sequenced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Commit an acked local op: pending → sequenced. Acks arrive in submission
-/// order (FIFO); a mismatch is fatal. Acking emits no events (the optimistic
-/// view already reflected the op at submit).
+/// Commit an acked local op, which moves it from `pending` to `sequenced`. The
+/// acks arrive in submission order, which is FIFO. A mismatch is fatal. An ack
+/// emits no event, because the optimistic view already showed the op at submit
+/// time.
 pub fn ack_local(
   state: DirectoryState,
   op: DirectoryOp,
@@ -1353,15 +1393,20 @@ fn ack_storage(
   }
 }
 
-/// Commit one acked storage op against a node's storage. The pending entry is
-/// matched by the ack's message id — the kernel's stand-in for FF's
-/// `localOpMetadata` object-identity check (`pendingEntry === localOpMetadata`,
-/// guarded by `targetSubdir === this`): an id that is no longer present means
-/// this op's pending died with a superseded instance of this path (dropped at
-/// create-dedup or delete time), so the ack is stale and a no-op (`Ok(None)`)
-/// — matching by key alone would wrongly consume a *later* op's pending on the
-/// current instance. An id that is present but out of FIFO position is a
-/// genuine protocol violation.
+/// Commit one acked storage op against the storage of a node.
+///
+/// The message id of the ack selects the pending entry. That id replaces the
+/// object-identity check of FluidFramework on `localOpMetadata`, which is
+/// `pendingEntry === localOpMetadata` with the guard `targetSubdir === this`.
+///
+/// An id that is no longer present means that the pending entry of this op
+/// went away with a replaced instance of this path, at a create dedup or at a
+/// delete. The ack is thus stale, and the function does nothing and returns
+/// `Ok(None)`. To match by key alone would incorrectly consume the pending
+/// entry of a *later* op on the current instance.
+///
+/// An id that is present but out of FIFO position is a true protocol
+/// violation.
 fn ack_storage_node(
   storage: StorageState,
   op: DirectoryOp,
@@ -1568,8 +1613,9 @@ fn ack_subdir_apply(
   }
 }
 
-/// Remove the pending create for `name` with `message_id`, returning its node
-/// and whether it had been folded into sequenced children.
+/// Remove the pending create for `name` that carries `message_id`. Return its
+/// node, and whether the kernel had folded that node into the sequenced
+/// children.
 fn take_pending_create_by_id(
   pending: List(PendingSubdir),
   name: String,
@@ -1603,8 +1649,9 @@ fn do_take_pending(
 // Rollback (undo an unacked local op; LIFO-compatible per key/subdir)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The highest pending message id anywhere in the tree — the last submitted
-/// op, i.e. the one a LIFO rollback targets.
+/// The highest pending message id in the whole tree. That id belongs to the op
+/// that the client submitted last, which is the op that a LIFO rollback
+/// removes.
 pub fn last_pending_message_id(state: DirectoryState) -> Option(Int) {
   case node_pending_ids(state.root) {
     [] -> None
@@ -1612,7 +1659,8 @@ pub fn last_pending_message_id(state: DirectoryState) -> Option(Int) {
   }
 }
 
-/// The pending storage message ids held directly on one node (non-recursive).
+/// The pending storage message ids on one node. The function does not
+/// recurse.
 fn storage_pending_ids(storage: StorageState) -> List(Int) {
   list.flat_map(storage.pending, fn(entry) {
     case entry {
@@ -1794,24 +1842,31 @@ fn rollback_subdir_apply(
 // Resubmit (re-send still-relevant pending ops after reconnect)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// FF `reSubmitCore` routing (D14): decide whether the pending op behind
-/// `op`/`message_id` is still worth resubmitting, applying FF's resubmit-time
-/// state effects. Targets are located on the *retained instance* — traversal
-/// includes disposed marker aliases, because FF's `localOpMetadata` holds the
-/// object itself, not a path — then gated on `!targetSubdir.disposed` plus the
-/// per-entry pending check (`resubmitKeyMessage`/`resubmitSubDirectoryMessage`).
-/// A create resubmit records the current client id as a creator and undisposes
-/// the retained pending tree, which is what lets storage ops queued *behind*
-/// it in the same reconnect batch see their target alive and resubmit too —
-/// dropping them while their pending survives on the retained node would leak
-/// a never-acked pending that only this client can see.
+/// The routing of the `reSubmitCore` function of FluidFramework, which is D14.
+/// Decide whether the pending op behind `op` and `message_id` is still worth a
+/// resubmit, and apply the state effects that FluidFramework applies at
+/// resubmit time.
 ///
-/// When an op IS dropped, its pending entry is stripped from the retained
-/// instance (see `strip_dropped_pending`) — one deliberate divergence from FF,
-/// which leaves the entry on the disposed object. That op will never be
-/// sequenced, so if a later create ack revives the retained instance the
-/// leftover entry resurfaces as a phantom optimistic edit no other client ever
-/// sees; dropping the op and its pending together keeps the revive convergent.
+/// The function finds each target on the *retained instance*. The traversal
+/// includes a disposed marker alias, because the `localOpMetadata` value of
+/// FluidFramework holds the object itself, and not a path. The function then
+/// checks `!targetSubdir.disposed`, and it checks the pending entry, the same
+/// as `resubmitKeyMessage` and `resubmitSubDirectoryMessage`.
+///
+/// A resubmit of a create records the current client id as a creator, and it
+/// undisposes the retained pending tree. A storage op that is *after* that
+/// create in the same reconnect batch thus finds its target alive, and it
+/// resubmits too. To drop such an op while its pending entry stays on the
+/// retained node would leave a pending entry that never receives an ack, and
+/// that only this client can see.
+///
+/// When the function DOES drop an op, it also removes the pending entry of
+/// that op from the retained instance. See `strip_dropped_pending`. This is one
+/// deliberate difference from FluidFramework, which keeps the entry on the
+/// disposed object. That op will never sequence. If a later create ack revives
+/// the retained instance, the entry that remains appears as an optimistic edit
+/// that no other client sees. To drop the op and its pending entry together
+/// thus keeps the revive convergent.
 pub fn resubmit(
   state: DirectoryState,
   op: DirectoryOp,
@@ -1924,11 +1979,12 @@ pub fn resubmit(
   }
 }
 
-/// Remove the pending entry behind a dropped resubmit from wherever it still
-/// lives — searching *all* retained instances, disposed ones included (the
-/// drop usually happened precisely because the instance is disposed). The
-/// entry's op will never be sequenced, so leaving it behind would let a later
-/// revive of the retained instance surface a phantom optimistic edit.
+/// Remove the pending entry behind a dropped resubmit, from the position at
+/// which it still exists. The function searches *every* retained instance, and
+/// it includes the disposed ones, because the drop usually happened because
+/// the instance is disposed. The op of that entry will never sequence. To keep
+/// the entry would let a later revive of the retained instance show an
+/// optimistic edit that no other client sees.
 fn strip_dropped_pending(
   state: DirectoryState,
   op: DirectoryOp,
@@ -1978,9 +2034,9 @@ fn strip_dropped_pending(
   }
 }
 
-/// Remove the single pending storage entry tagged `message_id`: the one set
-/// inside a lifetime (dropping the lifetime when it empties), or the matching
-/// delete/clear entry.
+/// Remove the one pending storage entry that carries `message_id`. That entry
+/// is one set inside a lifetime, and the function removes the lifetime when it
+/// becomes empty. Or that entry is the matching delete or clear.
 fn strip_storage_pending(
   pending: List(PendingStorage),
   message_id: Int,
@@ -2012,8 +2068,9 @@ fn strip_storage_pending(
   })
 }
 
-/// The latest pending create entry for `name` (FF `findLast` in
-/// `resubmitSubDirectoryMessage`), skipping any later pending remove.
+/// The most recent pending create entry for `name`, and the function skips a
+/// later pending remove. FluidFramework uses `findLast` in
+/// `resubmitSubDirectoryMessage`.
 fn find_latest_pending_create(
   pending: List(PendingSubdir),
   name: String,
@@ -2028,10 +2085,11 @@ fn find_latest_pending_create(
   |> option.from_result
 }
 
-/// Whether this node's pending storage still holds `op`'s pending entry — FF
-/// `resubmitKeyMessage`/`resubmitClearMessage`'s check. Only sets verify the
-/// submission identity (FF `keySets.includes(localOpMetadata)`, here the
-/// message id); deletes and clears match by kind (and key) alone.
+/// Whether the pending storage of this node still holds the pending entry of
+/// `op`. This is the check in `resubmitKeyMessage` and `resubmitClearMessage`
+/// of FluidFramework. A set checks the identity of the submission, which is
+/// `keySets.includes(localOpMetadata)` in FluidFramework and the message id
+/// here. A delete and a clear match by their kind, and by their key, only.
 fn storage_pending_matches(
   pending: List(PendingStorage),
   op: DirectoryOp,
@@ -2048,13 +2106,14 @@ fn storage_pending_matches(
   })
 }
 
-/// Every retained instance that may answer to `name` under `node`, newest
-/// lifecycle first, tagged with the slot it canonically lives in. Unlike
-/// `optimistic_child`, this surfaces instances *shadowed* by later pending
-/// entries — e.g. the old sequenced instance hidden under a pending remove +
-/// pending recreate — because FF's `localOpMetadata` holds a direct object
-/// reference that a path lookup cannot reproduce; resubmit must be able to
-/// find the specific instance whose pending it is deciding about.
+/// Every retained instance that can answer to `name` under `node`, newest
+/// lifecycle first, with the slot that it canonically lives in. Unlike
+/// `optimistic_child`, this function also returns an instance that a later
+/// pending entry *hides*, for example an old sequenced instance under a pending
+/// remove and a pending create. The `localOpMetadata` value of FluidFramework
+/// holds a direct object reference, and a lookup by path cannot reproduce that
+/// reference. A resubmit must find the exact instance whose pending entry it is
+/// deciding about.
 fn candidate_children(
   node: DirectoryNode,
   name: String,
@@ -2092,9 +2151,10 @@ type ChildSlot {
   MarkerSlot(message_id: Int)
 }
 
-/// Write `child` back into the slot a candidate came from. A sequenced-slot
-/// write also refreshes a folded marker aliasing that instance (mirroring
-/// FF's shared object) — the counterpart of `put_optimistic_child`.
+/// Write `child` back into the slot that the candidate came from. A write to a
+/// sequenced slot also updates a folded marker that aliases that instance,
+/// which follows the shared object of FluidFramework. This function is the
+/// counterpart of `put_optimistic_child`.
 fn put_candidate_child(
   node: DirectoryNode,
   name: String,
@@ -2121,12 +2181,13 @@ fn put_candidate_child(
   }
 }
 
-/// Depth-first search-and-update over retained instances: at each path
-/// segment try every candidate instance (see `candidate_children`) until one
-/// subtree's target satisfies `f`, then write the updated nodes back along
-/// that branch. `f` returns `Error(Nil)` for "not this instance", making the
-/// whole traversal the kernel's stand-in for following FF's metadata object
-/// reference to wherever the pending actually lives.
+/// A depth-first search and update over the retained instances. At each path
+/// segment the function tries every candidate instance (see
+/// `candidate_children`), until the target of one subtree satisfies `f`. It
+/// then writes the new nodes back along that branch. `f` returns `Error(Nil)`
+/// to say "this is not the instance". The whole traversal thus replaces the
+/// step in FluidFramework that follows the metadata object reference to the
+/// position of the pending entry.
 fn update_retained_instance(
   node: DirectoryNode,
   segs: List(String),
@@ -2425,7 +2486,8 @@ fn do_split_storage(
   }
 }
 
-/// Remove the most recent set in `key`'s latest lifetime tagged `message_id`.
+/// Remove the most recent set that carries `message_id`, from the newest
+/// lifetime of `key`.
 fn remove_last_lifetime_set(
   pending: List(PendingStorage),
   key: String,

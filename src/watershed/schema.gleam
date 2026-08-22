@@ -1,22 +1,23 @@
 //// Typed field vocabulary for SharedMaps.
 ////
-//// Every field is tagged with a phantom `schema` type, so it can only be used
-//// against a `TypedMap(schema)` of the matching shape (see
-//// `watershed`/`watershed`). Three kinds of key cover every value a map
-//// can hold:
+//// Every field carries a phantom `schema` type, so you can use it only against
+//// a `TypedMap(schema)` value of the same shape. See `watershed` and
+//// `watershed_beam`. Three kinds of key cover every value that a map can
+//// hold:
 ////
-//// - `Field(schema, a)` — a plain value: a key with a JSON encoder and a
+//// - `Field(schema, a)` is a plain value: a key with a JSON encoder and a
 ////   decoder.
-//// - `ChildField(schema, child)` — a handle to a nested *typed map* of shape
-////   `child`, giving typed nested collaborative structures.
-//// - `ChannelField(schema, kind)` — a handle to any *other* channel kind
-////   (counter, OR-set, claims, …). The `kind` tag routes it to the matching
-////   per-kind facade functions at compile time (`resolve_counter_field`,
-////   `ensure_or_set`, …); the typed layer is no longer maps-only.
+//// - `ChildField(schema, child)` is a handle to a nested *typed map* of the
+////   shape `child`. It gives typed nested collaborative structures.
+//// - `ChannelField(schema, kind)` is a handle to a channel of any *other*
+////   kind, for example a counter, an OR-set, or a claims channel. The `kind`
+////   tag selects the facade functions of that kind at compile time, for
+////   example `resolve_counter_field` and `ensure_or_set`. The typed layer thus
+////   covers more than maps.
 ////
-//// A schema is a bare phantom tag (never constructed) plus a set of field
-//// definitions. Gleam constants cannot hold function calls, so expose each
-//// field as a zero-argument function:
+//// A schema is a bare phantom tag, which nothing constructs, with a set of
+//// field definitions. A Gleam constant cannot hold a function call, so declare
+//// each field as a function with no argument:
 ////
 //// ```gleam
 //// pub type Player
@@ -28,17 +29,17 @@
 //// }
 //// ```
 ////
-//// The root map is tagged like any other. Its tag lives on the document —
-//// `Document(root)` — so `root_typed` hands back a `TypedMap(root)` and one
-//// document admits exactly one root schema. An app whose root holds only
-//// untyped keys still declares a bare tag; that tag is the document's
-//// identity, not a promise about its contents.
+//// The root map carries a tag, the same as any other map. Its tag is on the
+//// document, in `Document(root)`, so `root_typed` returns a `TypedMap(root)`
+//// value and one document permits exactly one root schema. An application
+//// whose root holds untyped keys only still declares a bare tag. That tag is
+//// the identity of the document. It is not a promise about the contents.
 ////
-//// For a *whole record* stored across several keys, build a `Schema` with the
-//// `record1`..`record9` codecs: each `prop` declares a field once and both the
-//// decoder and the per-key encoder derive from it, so they cannot drift.
-//// `sealed_known` then seals the schema to exactly the declared keys with no
-//// hand-repeated list:
+//// For a *whole record* that several keys hold, build a `Schema` value with
+//// the `record1` to `record9` codecs. Each `prop` declares a field one time,
+//// and both the decoder and the per-key encoder come from that declaration, so
+//// the two cannot drift apart. `sealed_known` then seals the schema to exactly
+//// the declared keys, and you repeat no list by hand:
 ////
 //// ```gleam
 //// fn player_schema() -> Schema(Player, PlayerState) {
@@ -51,9 +52,10 @@
 //// }
 //// ```
 ////
-//// Typing is a *decode boundary*, not a closed schema: remote peers (or old
-//// summaries) can write any JSON to any key, so reads decode and can fail
-//// with `FieldError`. This module is target-agnostic (BEAM and JavaScript).
+//// The types are a *decode boundary*, and not a closed schema. A remote peer
+//// or an old summary can write any JSON to any key. A read thus decodes the
+//// value, and it can fail with a `FieldError` value. This module is
+//// target-agnostic: it runs on the BEAM and on JavaScript.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
@@ -61,26 +63,28 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 
-/// A typed key: its name, how to encode its value to Json, and how to decode
-/// it back. `schema` is a phantom tag scoping the field to one map shape; `a`
-/// is the value type. Opaque so the codec cannot be tampered with.
+/// A typed key: its name, the encoder from its value to `Json`, and the decoder
+/// back. `schema` is a phantom tag that limits the field to one map shape. `a`
+/// is the value type. The type is opaque, so nothing can change the codec.
 pub opaque type Field(schema, a) {
   Field(key: String, encode: fn(a) -> Json, decode: Decoder(a))
 }
 
-/// A typed key whose stored value is a handle to a nested map of shape
-/// `child`. Carries only the key; encoding/resolution of the handle is done
-/// by the backend using the existing `handle_of`/`resolve` machinery.
+/// A typed key whose stored value is a handle to a nested map of the shape
+/// `child`. It carries the key only. The backend encodes and resolves the
+/// handle, with the `handle_of` and `resolve` functions.
 pub opaque type ChildField(schema, child) {
   ChildField(key: String)
 }
 
-/// Why a typed read failed.
+/// The reason that a typed read failed.
 ///
-/// - `Missing` — a required single field was absent (`get_required`).
-/// - `Invalid` — a present value did not decode to the expected type.
-/// - `UnknownKeys` — a `sealed` schema found keys it does not declare.
-/// - `SchemaMismatch` — a `versioned` schema found a different stored version.
+/// - `Missing`: a required single field was absent. See `get_required`.
+/// - `Invalid`: a value was present, and it did not decode to the expected
+///   type.
+/// - `UnknownKeys`: a `sealed` schema found keys that it does not declare.
+/// - `SchemaMismatch`: a `versioned` schema found a different stored
+///   version.
 pub type FieldError {
   Missing(key: String)
   Invalid(reason: json.DecodeError)
@@ -111,7 +115,7 @@ pub fn child_field(key: String) -> ChildField(schema, child) {
 // wrong kind's resolver is a type error. `ChildField` remains the special
 // case for nested *typed* maps (it carries the child schema tag).
 
-/// An untyped nested `SharedMap` (use `ChildField` for a typed one).
+/// An untyped nested `SharedMap`. Use `ChildField` for a typed one.
 pub type MapChannel
 
 pub type CounterChannel
@@ -132,22 +136,24 @@ pub type JsonOtChannel
 /// A rich-text document edited by Quill-style deltas.
 pub type RichTextChannel
 
-/// A grow-only set: adds converge, removes are not expressible.
+/// A grow-only set. The adds converge, and the set has no remove operation.
 pub type GSetChannel
 
-/// A two-phase set: an element can be removed once, and never re-added.
+/// A two-phase set. You can remove an element one time, and you cannot add it
+/// again.
 pub type TwoPSetChannel
 
 /// A hierarchical directory of nested maps and subdirectories.
 pub type DirectoryChannel
 
-/// A positive/negative counter (increment and decrement).
+/// A counter that supports an increment and a decrement.
 pub type PnCounterChannel
 
-/// A consensus map: writes are proposals settled by server sequencing.
+/// A consensus map. Each write is a proposal, and the server sequencing
+/// settles it.
 pub type PactMapChannel
 
-/// A consensus ordered collection (a sequenced work queue).
+/// A consensus ordered collection, which is a sequenced work queue.
 pub type OrderedCollectionChannel
 
 /// A collaborative ordered sequence of arbitrary JSON values.
@@ -161,25 +167,26 @@ pub opaque type ChannelField(schema, kind) {
   ChannelField(key: String)
 }
 
-/// Define a typed channel field. Annotate (or let inference pin) the kind:
+/// Define a typed channel field. Write the kind in an annotation, or let the
+/// inference find it:
 /// `let notes: ChannelField(Doc, OrSetChannel) = channel_field("notes")`.
 pub fn channel_field(key: String) -> ChannelField(schema, kind) {
   ChannelField(key: key)
 }
 
-/// The channel field's key.
+/// The key of the channel field.
 pub fn channel_field_key(field: ChannelField(schema, kind)) -> String {
   field.key
 }
 
 // ── Accessors used by the backends (fields are opaque) ───────────────────────
 
-/// The field's key.
+/// The key of the field.
 pub fn field_key(field: Field(schema, a)) -> String {
   field.key
 }
 
-/// The child field's key.
+/// The key of the child field.
 pub fn child_key(field: ChildField(schema, child)) -> String {
   field.key
 }
@@ -189,9 +196,9 @@ pub fn encode_value(field: Field(schema, a), value: a) -> Json {
   field.encode(value)
 }
 
-/// Decode a stored Json value read for `field`. Round-trips through the JSON
-/// string form, matching the decode idiom used elsewhere in watershed
-/// (`channel.gleam`).
+/// Decode a stored `Json` value that a read gave for `field`. The function goes
+/// through the JSON string form and back, the same as the decode pattern in
+/// the rest of watershed. See `channel.gleam`.
 pub fn decode_value(
   field: Field(schema, a),
   stored: Json,
@@ -202,9 +209,10 @@ pub fn decode_value(
   }
 }
 
-/// Decode an optional stored value for `field`, as event fan-out delivers it:
-/// an absent value (`None`) decodes to `Ok(None)`; a present value decodes to
-/// `Ok(Some(_))` or `Error(Invalid)` when it does not match the field type.
+/// Decode an optional stored value for `field`, in the form that the event
+/// fan-out delivers. An absent value, which is `None`, decodes to `Ok(None)`. A
+/// present value decodes to `Ok(Some(_))`, or to `Error(Invalid)` when it does
+/// not match the field type.
 pub fn decode_optional(
   field: Field(schema, a),
   stored: Option(Json),
@@ -215,11 +223,12 @@ pub fn decode_optional(
   }
 }
 
-/// A typed, per-field change delivered by `subscribe_field`. `value` is the new
-/// value (decoded), `previous` the value before the change; both are `Ok(None)`
-/// for an absent key and `Error(Invalid)` when a peer wrote a value that does
-/// not decode to the field type. A `Cleared` fans out as
-/// `FieldChange(Ok(None), Ok(None), local)` — clears report no per-key previous.
+/// A typed change to one field, which `subscribe_field` delivers. `value` is
+/// the new decoded value, and `previous` is the value before the change. Both
+/// are `Ok(None)` for an absent key, and both are `Error(Invalid)` when a peer
+/// wrote a value that does not decode to the field type. A `Cleared` event fans
+/// out as `FieldChange(Ok(None), Ok(None), local)`, because a clear reports no
+/// previous value for each key.
 pub type FieldChange(a) {
   FieldChange(
     value: Result(Option(a), FieldError),
@@ -243,21 +252,23 @@ pub type FieldChange(a) {
 //   reads fail with `SchemaMismatch` when it differs. The version is written
 //   by the backend's `stamp`, not on every `write`.
 
-/// The reserved key a `versioned` schema stores its version under. Excluded
-/// from `sealed` unknown-key checks and ignored by record decoders.
+/// The reserved key that a `versioned` schema stores its version under. The
+/// `sealed` unknown-key check permits it, and a record decoder ignores it.
 pub const version_key = "__schema"
 
-/// One per-key write produced by encoding a record: `Put` sets a key, `Delete`
-/// removes it. An optional prop that is `None` encodes as a `Delete` so the
-/// whole-record round-trip law holds (a skipped key would leave a stale value
-/// that reads back as `Some`).
+/// One write to one key, from the encoding of a record. `Put` sets a key, and
+/// `Delete` removes it. An optional prop with the value `None` encodes as a
+/// `Delete`, so that the whole-record round-trip law holds. A key that the
+/// encoder skipped would keep a stale value, and a read would then give
+/// `Some`.
 pub type WriteOp {
   Put(key: String, value: Json)
   Delete(key: String)
 }
 
-/// A whole-map codec: read all keys into `record`, write `record` back as
-/// per-key write ops. Tagged with the same phantom `tag` as its `TypedMap`.
+/// A codec for a whole map. It reads every key into a `record` value, and it
+/// writes a `record` value back as one write op for each key. It carries the
+/// same phantom `tag` as its `TypedMap` type.
 pub opaque type Schema(tag, record) {
   Schema(
     decode: Decoder(record),
@@ -269,10 +280,11 @@ pub opaque type Schema(tag, record) {
   )
 }
 
-/// Define a whole-map schema from a record decoder and a record encoder. Open
-/// (unknown keys allowed) and unversioned by default; add `sealed`/`versioned`.
-/// Entries are written as `Put`s; prefer the `record1`..`record9` builders,
-/// which derive both directions from a single prop list.
+/// Define a whole-map schema from a record decoder and a record encoder. The
+/// schema is open, so it permits unknown keys, and it has no version. Add
+/// `sealed` or `versioned` to change that. The function writes each entry as a
+/// `Put` op. Prefer the `record1` to `record9` builders, which derive both
+/// directions from one list of props.
 pub fn schema(
   decode: Decoder(record),
   to_entries: fn(record) -> List(#(String, Json)),
@@ -288,8 +300,9 @@ pub fn schema(
   )
 }
 
-/// Reject reads whose map carries keys not in `keys` (the reserved version key
-/// is always allowed). Makes the schema a closed set.
+/// Refuse a read whose map holds a key that is not in `keys`. The reserved
+/// version key is always permitted. This function makes the schema a closed
+/// set.
 pub fn sealed(
   schema: Schema(tag, record),
   keys: List(String),
@@ -297,10 +310,11 @@ pub fn sealed(
   Schema(..schema, known_keys: Some(keys))
 }
 
-/// Seal a record-builder schema to exactly the keys its props declare (the
-/// reserved version key is always allowed). No hand-repeated key list to
-/// drift out of sync. Panics when called on a hand-rolled `schema(...)` —
-/// those don't declare their keys, so use `sealed(keys)` there instead.
+/// Seal a record-builder schema to exactly the keys that its props declare.
+/// The reserved version key is always permitted. You repeat no key list by
+/// hand, so no list can drift out of agreement. The function panics for a
+/// schema that you built with `schema(...)`, because such a schema does not
+/// declare its keys. Use `sealed(keys)` for that schema instead.
 pub fn sealed_known(schema: Schema(tag, record)) -> Schema(tag, record) {
   case schema.declared_keys {
     Some(keys) -> sealed(schema, keys)
@@ -309,8 +323,8 @@ pub fn sealed_known(schema: Schema(tag, record)) -> Schema(tag, record) {
   }
 }
 
-/// Stamp and check an integer schema version. `stamp` writes it; `read` fails
-/// with `SchemaMismatch` when the stored version differs.
+/// Stamp and check an integer schema version. `stamp` writes the version.
+/// `read` fails with `SchemaMismatch` when the stored version differs.
 pub fn versioned(
   schema: Schema(tag, record),
   version: Int,
@@ -318,8 +332,9 @@ pub fn versioned(
   Schema(..schema, version: Some(version))
 }
 
-/// Decode a record from a map's `entries`, after the version and seal checks.
-/// The backend `read` calls this with the map's current entries.
+/// Decode a record from the `entries` of a map, after the version check and
+/// the seal check. The `read` function of the backend calls this function with
+/// the current entries of the map.
 pub fn decode_entries(
   schema: Schema(tag, record),
   entries: List(#(String, Json)),
@@ -332,15 +347,16 @@ pub fn decode_entries(
   |> result.map_error(Invalid)
 }
 
-/// The per-key write ops for `value`. The backend `write` applies each
-/// individually — `Put` as a set, `Delete` as a delete — preserving per-key
-/// merge.
+/// The write op for each key of `value`. The `write` function of the backend
+/// applies each op separately: a `Put` as a set, and a `Delete` as a delete.
+/// The per-key merge thus stays correct.
 pub fn encode_ops(schema: Schema(tag, record), value: record) -> List(WriteOp) {
   schema.to_ops(value)
 }
 
-/// The version key/value to stamp, if the schema is versioned. The backend
-/// `stamp` writes it once at creation rather than on every `write`.
+/// The version key and value to stamp, if the schema has a version. The `stamp`
+/// function of the backend writes it one time, at creation, and not on every
+/// `write`.
 pub fn stamp_entry(schema: Schema(tag, record)) -> Option(#(String, Json)) {
   case schema.version {
     None -> None
@@ -377,11 +393,13 @@ fn check_version(
 // precedent; wider records nest a child map or fall back to the raw
 // `schema(decoder, to_entries)` constructor.
 
-/// One record property: a typed field plus how to get its value out of the
-/// record. Built with `prop` (required) or `optional_prop` (absent when
-/// `None`; writes a `Delete`). The last type parameter is the value as the
-/// record constructor receives it — `a` for required, `Option(a)` for
-/// optional.
+/// One property of a record: a typed field with the function that reads its
+/// value out of the record. Build one with `prop` for a required property, or
+/// with `optional_prop` for an optional property. An optional property is
+/// absent when the value is `None`, and it then writes a `Delete` op. The last
+/// type parameter is the value in the form that the record constructor
+/// receives: `a` for a required property, and `Option(a)` for an optional
+/// one.
 pub opaque type Prop(s, record, a) {
   Prop(
     key: String,
@@ -392,16 +410,18 @@ pub opaque type Prop(s, record, a) {
   )
 }
 
-/// A required property: decode fails when the key is absent; writes a `Put`.
+/// A required property. The decode fails when the key is absent, and the
+/// encode writes a `Put` op.
 pub fn prop(field: Field(s, a), get: fn(record) -> a) -> Prop(s, record, a) {
   Prop(key: field.key, decoder: field.decode, fallback: None, write: fn(value) {
     Put(field.key, field.encode(get(value)))
   })
 }
 
-/// An optional property: an absent key (or a stored JSON null, from legacy or
-/// foreign writers) decodes as `None`; a `None` value writes a `Delete` so it
-/// never reads back as stale `Some` (see `WriteOp`).
+/// An optional property. An absent key decodes as `None`, and so does a stored
+/// JSON null, which an old writer or a foreign writer can produce. A value of
+/// `None` writes a `Delete` op, so a read never gives a stale `Some`. See
+/// `WriteOp`.
 pub fn optional_prop(
   field: Field(s, a),
   get: fn(record) -> Option(a),
@@ -419,7 +439,8 @@ pub fn optional_prop(
   )
 }
 
-/// Decode one prop then continue — the `use`-style step the builders chain.
+/// Decode one prop and then continue. The builders chain this step with
+/// `use`.
 fn prop_step(
   prop: Prop(s, record, a),
   next: fn(a) -> Decoder(final),

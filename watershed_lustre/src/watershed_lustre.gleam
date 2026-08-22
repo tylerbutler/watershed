@@ -1,17 +1,18 @@
 //// Lustre effect bindings for [watershed](https://github.com/tylerbutler/watershed).
 ////
-//// watershed's JS facade (`watershed`) is callback-shaped: `connect` takes
-//// an `on_ready`, `subscribe` takes a handler, timers are hand-rolled FFI. A
-//// Lustre app has to bridge each of those into `dispatch`, and — because
-//// watershed delivers events synchronously, sometimes from inside a running
-//// `update` — every app independently rediscovers that a nested `dispatch` is
-//// clobbered and patches it with a microtask. This package owns that bridging.
+//// The JavaScript facade of watershed, which is the `watershed` module, uses
+//// callbacks. `connect` takes an `on_ready` function, `subscribe` takes a
+//// handler, and the timers are FFI that the caller writes. A Lustre
+//// application must bridge each of those into `dispatch`. watershed delivers
+//// its events synchronously, and sometimes from inside a running `update`
+//// call, so a nested `dispatch` call is lost. Every application finds that
+//// fault and fixes it with a microtask. This package owns that bridge.
 ////
-//// Every effect here takes a caller-supplied `fn(...) -> msg` constructor, the
-//// way `lustre/event` handlers do: the package owns *scheduling*, the app owns
-//// its message vocabulary. Every inbound callback is unconditionally deferred
-//// to a microtask, so the mid-`update` dispatch bug is designed out rather than
-//// documented — the semantics of every binding are identical.
+//// Every effect here takes a `fn(...) -> msg` constructor from the caller, the
+//// same as a `lustre/event` handler. The package owns the *scheduling*, and
+//// the application owns its message vocabulary. Every inbound callback goes to
+//// a microtask, always. The dispatch fault inside `update` is thus removed by
+//// design, and not only documented. Every binding behaves in the same way.
 ////
 //// ```gleam
 //// fn init(_) {
@@ -26,8 +27,9 @@
 //// watershed_lustre.subscribe(watershed.root(doc), fn(_) { MapChanged })
 //// ```
 ////
-//// Edits and reads stay on `watershed` (`set`, `get`, `entries`, …); this
-//// package only wraps the callback-shaped surface. JavaScript target only.
+//// The edits and the reads stay on `watershed`, which has `set`, `get`,
+//// `entries`, and the other functions. This package wraps the callback-shaped
+//// surface only. JavaScript target only.
 
 import gleam/javascript/promise
 import gleam/json.{type Json}
@@ -76,11 +78,12 @@ fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
 
 // ── Connect ────────────────────────────────────────────────────────────────
 
-/// Connect to a document. `got_document` fires with the handle immediately.
-/// Root subscriptions and optimistic edits can start then, but creating nested
-/// channels must wait for `connected`, which fires once the handshake and
-/// history replay complete (`Ok(Nil)`) or the connection is rejected
-/// (`Error(reason)`). Owns the deferral of both.
+/// Connect to a document. `got_document` runs with the handle immediately. You
+/// can start a root subscription and an optimistic edit at that point. To
+/// create a nested channel, wait for `connected`. That callback runs with
+/// `Ok(Nil)` after the handshake and the history replay complete, or with
+/// `Error(reason)` when the server refuses the connection. This effect owns the
+/// microtask for both callbacks.
 pub fn connect(
   config: WatershedConfig,
   got_document got_document: fn(Document(root)) -> msg,
@@ -94,10 +97,11 @@ pub fn connect(
   queue_microtask(fn() { dispatch(got_document(doc)) })
 }
 
-/// Dev-mode variant of `connect`: mints the HS256 dev token (async, via Web
-/// Crypto) from the tenant secret before connecting, absorbing the promise
-/// dance. Do not use in production — the tenant secret must never reach the
-/// browser there; issue tokens from a backend and call `connect` instead.
+/// The development form of `connect`. It creates the HS256 development token
+/// from the tenant secret before it connects. That step is asynchronous,
+/// through Web Crypto, and this effect handles the promise. Do not use this
+/// function in production. The tenant secret must never reach the browser
+/// there. Issue the tokens from a backend, and call `connect` instead.
 pub fn connect_dev(
   url url: String,
   tenant tenant: String,
@@ -138,8 +142,8 @@ pub fn connect_dev(
 // delivers the kind's own event type (never the 14-variant union), deferred to a
 // microtask before dispatch.
 
-/// Subscribe to a map channel. `to_msg` receives each local and remote
-/// `map_kernel.MapEvent`.
+/// Subscribe to a map channel. `to_msg` receives every local and remote
+/// `map_kernel.MapEvent` value.
 pub fn subscribe(
   map: SharedMap,
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
@@ -151,8 +155,9 @@ pub fn subscribe(
 }
 
 /// Subscribe to a directory channel. Every event carries the `path` of the
-/// sub-directory it happened in, so one subscription covers the whole tree —
-/// value writes, clears, and sub-directory creation and deletion.
+/// subdirectory that it happened in, so one subscription covers the whole
+/// tree: the value writes, the clears, and the creation and deletion of a
+/// subdirectory.
 pub fn subscribe_directory(
   directory: SharedDirectory,
   to_msg to_msg: fn(directory_kernel.DirectoryEvent) -> msg,
@@ -196,8 +201,8 @@ pub fn subscribe_or_set(
   })
 }
 
-/// Subscribe to a grow-only set. `ElementAdded` is the only event it can
-/// produce — a G-set has no removal.
+/// Subscribe to a grow-only set. `ElementAdded` is the only event that this
+/// channel produces, because a G-set has no remove operation.
 pub fn subscribe_g_set(
   g_set: GSet,
   to_msg to_msg: fn(g_set_kernel.GSetEvent) -> msg,
@@ -208,8 +213,9 @@ pub fn subscribe_g_set(
   })
 }
 
-/// Subscribe to a two-phase set (`ElementAdded` / `ElementRemoved`). A removal
-/// is final: an element removed once can never be re-added.
+/// Subscribe to a two-phase set, which produces `ElementAdded` and
+/// `ElementRemoved`. A removal is permanent. You cannot add an element again
+/// after you remove it.
 pub fn subscribe_two_p_set(
   two_p_set: TwoPSet,
   to_msg to_msg: fn(two_p_set_kernel.TwoPSetEvent) -> msg,
@@ -231,8 +237,8 @@ pub fn subscribe_pn_counter(
   })
 }
 
-/// Subscribe to a PactMap's consensus transitions (`WentPending` /
-/// `WentAccepted`).
+/// Subscribe to the consensus transitions of a PactMap, which are `WentPending`
+/// and `WentAccepted`.
 pub fn subscribe_pact_map(
   pact_map: PactMap,
   to_msg to_msg: fn(pact_map_kernel.PactMapEvent) -> msg,
@@ -243,7 +249,7 @@ pub fn subscribe_pact_map(
   })
 }
 
-/// Subscribe to an ordered collection's queue events.
+/// Subscribe to the queue events of an ordered collection.
 pub fn subscribe_ordered_collection(
   collection: OrderedCollection,
   to_msg to_msg: fn(ordered_collection_kernel.OrderedEvent) -> msg,
@@ -254,13 +260,18 @@ pub fn subscribe_ordered_collection(
   })
 }
 
-/// Acquire the head of an ordered collection, delivering the consensus outcome
-/// as a message: `AcquiredItem` (carrying the acquire id for the later
-/// complete/release) when this client won the head, `QueueEmpty` when the
-/// queue had drained by the time the op sequenced — a losing acquire emits no
-/// event, so this is the loser's only signal — or `Aborted` when the document
-/// closes with the acquire still in flight. The queue is non-optimistic:
-/// nothing changes until the op sequences, so render the interval as pending.
+/// Acquire the head of an ordered collection, and deliver the consensus outcome
+/// as a message.
+///
+/// The outcome is `AcquiredItem` when this client won the head. That message
+/// carries the acquire id for the later complete or release. The outcome is
+/// `QueueEmpty` when the queue became empty before the op sequenced. An acquire
+/// that loses emits no event, so `QueueEmpty` is the only signal that a loser
+/// receives. The outcome is `Aborted` when the document closes while the
+/// acquire is still in flight.
+///
+/// The queue is not optimistic. Nothing changes until the op sequences, so
+/// render the interval as pending.
 pub fn ordered_acquire(
   collection: OrderedCollection,
   to_msg to_msg: fn(ordered_collection_kernel.AcquireOutcome) -> msg,
@@ -295,19 +306,19 @@ pub fn subscribe_claims(
   })
 }
 
-/// Attempt a first-writer-wins claim on `key`, delivering the outcome as a
-/// message. Claims reads are not optimistic — nothing about this client's
-/// view of `key` changes until the outcome arrives — so render the interval
-/// between calling this and the message it produces as pending.
+/// Attempt a first-writer-wins claim on `key`, and deliver the outcome as a
+/// message. A claims read is not optimistic. Nothing in the view that this
+/// client has of `key` changes until the outcome arrives. Render the interval
+/// between this call and its message as pending.
 ///
-/// `to_msg` receives exactly one `claims_kernel.ClaimOutcome`: `Accepted` when
-/// this client's value won, `Lost` when the key was already claimed —
-/// synchronously if a committed claim already existed when this was called,
-/// or after the op sequences if a concurrent attempt won the race first — or
-/// `Aborted` if the client was not in a state that could submit the claim at
-/// all (still connecting, or permanently failed). A caller should not treat
-/// `Aborted` as "nothing happened" — surface it, the same as any other
-/// connection failure.
+/// `to_msg` receives exactly one `claims_kernel.ClaimOutcome` value. It is
+/// `Accepted` when the value of this client won. It is `Lost` when another
+/// client already claimed the key, either synchronously, because a committed
+/// claim existed at the time of this call, or after the op sequences, because a
+/// concurrent attempt won the race. It is `Aborted` when the client could not
+/// submit the claim at all, because it is still connecting or it failed
+/// permanently. A caller must not treat `Aborted` as "nothing happened". Report
+/// it, the same as any other connection failure.
 pub fn try_set_claim(
   claims: Claims,
   key: String,
@@ -321,11 +332,12 @@ pub fn try_set_claim(
   )
 }
 
-/// Compare-and-set claim on `key`: takes it regardless of who currently holds
-/// it, so long as nobody's write has landed since the committed entry this
-/// call captures its `ref_seq` from. Delivers its outcome the same way
-/// `try_set_claim` does — `Lost` here means a concurrent take-over attempt won
-/// the race, not that the key was already claimed.
+/// A compare-and-set claim on `key`. It takes the key from the client that
+/// holds it now, if no write has sequenced after the committed entry that this
+/// call reads its `ref_seq` from. It delivers its outcome in the same way as
+/// `try_set_claim`. Here `Lost` means that a concurrent attempt to take the key
+/// won the race. It does not mean that another client already claimed the
+/// key.
 pub fn compare_and_set_claim(
   claims: Claims,
   key: String,
@@ -339,19 +351,23 @@ pub fn compare_and_set_claim(
   )
 }
 
-/// Shared plumbing for `try_set_claim`/`compare_and_set_claim`: the two
-/// synchronous replies that never touch the wire (`AlreadyClaimed`,
-/// `AlreadyPendingLocally`) resolve to an immediate outcome; the asynchronous
-/// one (`Pending`) resolves once its promise settles. Both paths go through the
-/// same microtask deferral every other binding in this module uses.
-/// `WrongChannelType` covers two distinct runtime replies folded into one:
-/// the address genuinely not naming a claims channel (unreachable through a
-/// typed `ClaimsChannel` field, which only ever resolves a real one), and the
-/// runtime not being `Ready`/`Reconnecting` at all — still connecting, or
-/// permanently `Failed` — which *is* reachable, e.g. a claim click racing a
-/// disconnect. Both fold into `Aborted` rather than adding a fifth outcome a
-/// caller would act on identically either way: something kept this attempt
-/// from ever reaching the wire.
+/// The shared code of `try_set_claim` and `compare_and_set_claim`.
+///
+/// Two synchronous replies never reach the wire: `AlreadyClaimed` and
+/// `AlreadyPendingLocally`. Each one resolves to an immediate outcome. The
+/// asynchronous reply, which is `Pending`, resolves when its promise settles.
+/// Both paths use the same microtask as every other binding in this module.
+///
+/// `WrongChannelType` covers two different runtime replies. In the first, the
+/// address does not name a claims channel. A typed `ClaimsChannel` field always
+/// resolves a real channel, so that reply is unreachable through one. In the
+/// second, the runtime is neither `Ready` nor `Reconnecting`, because it is
+/// still connecting or it is permanently `Failed`. That reply *is* reachable,
+/// for example when a click on a claim races a disconnect.
+///
+/// Both replies become `Aborted`. A fifth outcome would add nothing, because a
+/// caller would act on the two in the same way: something prevented this
+/// attempt from reaching the wire.
 fn deliver_claim_outcome(
   reply: runtime.ClaimSubmitReply,
   resolve: fn(claims_kernel.ClaimOutcome) -> Nil,
@@ -384,9 +400,10 @@ pub fn subscribe_task_manager(
   })
 }
 
-/// Subscribe to a sequence channel. `to_msg` receives each local and remote
-/// `sequence_kernel.SequenceEvent`, which carries the full post-edit value
-/// list — insert, delete, move, and replace all surface the same way.
+/// Subscribe to a sequence channel. `to_msg` receives every local and remote
+/// `sequence_kernel.SequenceEvent` value, which carries the full list of values
+/// after the edit. An insert, a delete, a move, and a replace all arrive in the
+/// same form.
 pub fn subscribe_sequence(
   sequence: SharedSequence,
   to_msg to_msg: fn(sequence_kernel.SequenceEvent) -> msg,
@@ -397,11 +414,12 @@ pub fn subscribe_sequence(
   })
 }
 
-/// Subscribe to a text channel. `to_msg` receives each local and remote
-/// `text_kernel.TextEvent` — a `TextChanged` carrying the full post-edit
-/// optimistic string, so insert, delete, replace, and append all surface the
-/// same way (never a stale author index). Re-read the channel on it to render
-/// committed optimistic state.
+/// Subscribe to a text channel. `to_msg` receives every local and remote
+/// `text_kernel.TextEvent` value, which is a `TextChanged` event that carries
+/// the full optimistic string after the edit. An insert, a delete, a replace,
+/// and an append all arrive in the same form, and none of them carries a stale
+/// author index. Read the channel again on that event, to render the committed
+/// optimistic state.
 pub fn subscribe_text(
   text: SharedText,
   to_msg to_msg: fn(text_kernel.TextEvent) -> msg,
@@ -412,9 +430,10 @@ pub fn subscribe_text(
   })
 }
 
-/// Subscribe to a rich text channel. `to_msg` receives each local and remote
-/// `rich_text_kernel.RichTextChanged`, carrying the `Delta` that was applied —
-/// re-read the channel with `watershed.rich_text_view` to render.
+/// Subscribe to a rich text channel. `to_msg` receives every local and remote
+/// `rich_text_kernel.RichTextChanged` value, which carries the `Delta` that the
+/// kernel applied. Read the channel again with `watershed.rich_text_view` to
+/// render it.
 pub fn subscribe_rich_text(
   rich_text: SharedRichText,
   to_msg to_msg: fn(rich_text_kernel.RichTextEvent) -> msg,
@@ -425,8 +444,8 @@ pub fn subscribe_rich_text(
   })
 }
 
-/// Subscribe to a JSON-OT document. `DocChanged` carries the path that changed
-/// rather than the new value, so re-read the channel to render.
+/// Subscribe to a JSON-OT document. `DocChanged` carries the path that changed,
+/// and not the new value, so read the channel again to render it.
 pub fn subscribe_json_ot(
   json_ot: JsonOt,
   to_msg to_msg: fn(json_ot_kernel.JsonOtEvent) -> msg,
@@ -437,8 +456,9 @@ pub fn subscribe_json_ot(
   })
 }
 
-/// Subscribe to the document's inbound ephemeral ripples (presence-style
-/// transient messages — cursors, selection, typing indicators).
+/// Subscribe to the inbound ephemeral ripples of the document. Those are the
+/// transient messages of presence: a cursor, a selection, and a typing
+/// indicator.
 pub fn subscribe_ripples(
   document: Document(root),
   to_msg to_msg: fn(Ripple) -> msg,
@@ -451,9 +471,10 @@ pub fn subscribe_ripples(
 
 // ── Typed subscriptions ──────────────────────────────────────────────────────
 
-/// Subscribe to a single typed field: each local or remote write to the field's
-/// key dispatches a `FieldChange` with the new and previous values decoded at
-/// the boundary (`Error(Invalid)` when a peer wrote a mismatching value).
+/// Subscribe to one typed field. Every local or remote write to the key of that
+/// field dispatches a `FieldChange` value. It carries the new value and the
+/// previous value, both decoded at the boundary. Each one is `Error(Invalid)`
+/// when a peer wrote a value that does not match the field type.
 pub fn subscribe_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -465,8 +486,8 @@ pub fn subscribe_field(
   })
 }
 
-/// Subscribe to a typed map's whole-map events without dropping to the untyped
-/// API. Use `subscribe_field` to watch a single field instead.
+/// Subscribe to the whole-map events of a typed map, and stay in the typed API.
+/// Use `subscribe_field` to watch one field instead.
 pub fn subscribe_typed(
   typed_map: TypedMap(s),
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
@@ -484,7 +505,7 @@ pub fn subscribe_typed(
 // the resolved channel (or an error) once it settles. Batched in `init`, they
 // make a document's nested structure declarative.
 
-/// Ensure a nested (untyped) map exists under `field`.
+/// Make sure that a nested (untyped) map exists under `field`.
 pub fn ensure_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -497,7 +518,8 @@ pub fn ensure_map(
   })
 }
 
-/// Ensure a directory exists under `field`, seeding an empty root if absent.
+/// Make sure that a directory exists under `field`. If none exists, the effect
+/// creates one with an empty root.
 pub fn ensure_directory(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -510,7 +532,8 @@ pub fn ensure_directory(
   })
 }
 
-/// Ensure a counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a counter exists under `field`. If the slot is empty, the
+/// effect creates one.
 pub fn ensure_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -523,7 +546,8 @@ pub fn ensure_counter(
   })
 }
 
-/// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
+/// Make sure that an OR-map exists under `field`. If none exists, the effect
+/// creates one in `mode`.
 pub fn ensure_or_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -537,7 +561,7 @@ pub fn ensure_or_map(
   })
 }
 
-/// Ensure an OR-set exists under `field`.
+/// Make sure that an OR-set exists under `field`.
 pub fn ensure_or_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -550,7 +574,7 @@ pub fn ensure_or_set(
   })
 }
 
-/// Ensure a grow-only set exists under `field`.
+/// Make sure that a grow-only set exists under `field`.
 pub fn ensure_g_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -563,7 +587,7 @@ pub fn ensure_g_set(
   })
 }
 
-/// Ensure a two-phase set exists under `field`.
+/// Make sure that a two-phase set exists under `field`.
 pub fn ensure_two_p_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -576,7 +600,7 @@ pub fn ensure_two_p_set(
   })
 }
 
-/// Ensure a register collection exists under `field`.
+/// Make sure that a register collection exists under `field`.
 pub fn ensure_register_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -592,7 +616,7 @@ pub fn ensure_register_collection(
   )
 }
 
-/// Ensure a claims channel exists under `field`.
+/// Make sure that a claims channel exists under `field`.
 pub fn ensure_claims(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -605,7 +629,7 @@ pub fn ensure_claims(
   })
 }
 
-/// Ensure a task manager exists under `field`.
+/// Make sure that a task manager exists under `field`.
 pub fn ensure_task_manager(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -618,7 +642,8 @@ pub fn ensure_task_manager(
   })
 }
 
-/// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a PN-counter exists under `field`. If the slot is empty, the
+/// effect creates one.
 pub fn ensure_pn_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -631,7 +656,7 @@ pub fn ensure_pn_counter(
   })
 }
 
-/// Ensure a PactMap exists under `field`.
+/// Make sure that a PactMap exists under `field`.
 pub fn ensure_pact_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -644,7 +669,7 @@ pub fn ensure_pact_map(
   })
 }
 
-/// Ensure an ordered collection exists under `field`.
+/// Make sure that an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -657,7 +682,8 @@ pub fn ensure_ordered_collection(
   })
 }
 
-/// Ensure a sequence exists under `field`, seeding an empty one if absent.
+/// Make sure that a sequence exists under `field`. If none exists, the effect
+/// creates an empty one.
 pub fn ensure_sequence(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -670,7 +696,8 @@ pub fn ensure_sequence(
   })
 }
 
-/// Ensure a text channel exists under `field`, seeding an empty one if absent.
+/// Make sure that a text channel exists under `field`. If none exists, the
+/// effect creates an empty one.
 pub fn ensure_text(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -683,8 +710,8 @@ pub fn ensure_text(
   })
 }
 
-/// Ensure a rich text channel exists under `field`, seeding an empty document
-/// if absent.
+/// Make sure that a rich text channel exists under `field`. If none exists, the
+/// effect creates one with an empty document.
 pub fn ensure_rich_text(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -697,7 +724,7 @@ pub fn ensure_rich_text(
   })
 }
 
-/// Ensure a JSON-OT document exists under `field`.
+/// Make sure that a JSON-OT document exists under `field`.
 pub fn ensure_json_ot(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -710,7 +737,7 @@ pub fn ensure_json_ot(
   })
 }
 
-/// Ensure a nested *typed* child map exists under a child field.
+/// Make sure that a nested *typed* child map exists under a child field.
 pub fn ensure_child(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -723,9 +750,9 @@ pub fn ensure_child(
   })
 }
 
-/// Set a plain typed field to `default` only if its key is currently absent.
-/// Synchronous seed (no dispatch) — batch it alongside the channel ensures to
-/// make bootstrap declarative in `init`.
+/// Set a plain typed field to `default`, and only when its key is absent now.
+/// The write is synchronous and dispatches no message. Put it in a batch with
+/// the channel effects above, to make the bootstrap declarative in `init`.
 pub fn ensure_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -737,16 +764,17 @@ pub fn ensure_field(
 
 // ── Timers & misc effects ──────────────────────────────────────────────────
 
-/// Dispatch `msg` after `ms` milliseconds — the timer effect apps reach for to
-/// drive heartbeats, debounces, and retries without hand-rolling `setTimeout`
-/// FFI. The timer fires outside any `update`, so no deferral is needed.
+/// Dispatch `msg` after `ms` milliseconds. This is the timer effect that an
+/// application uses for a heartbeat, a debounce, and a retry, and the
+/// application thus writes no `setTimeout` FFI. The timer runs outside every
+/// `update` call, so this effect needs no microtask.
 pub fn after(ms: Int, msg: msg) -> Effect(msg) {
   use dispatch <- effect.from
   set_timeout(fn() { dispatch(msg) }, ms)
 }
 
-/// Broadcast an ephemeral ripple to every other connected client. Fire-and-
-/// forget: no message is dispatched back.
+/// Broadcast an ephemeral ripple to every other connected client. The effect
+/// dispatches no message back.
 pub fn submit_ripple(
   document: Document(root),
   ripple_type ripple_type: String,
@@ -760,17 +788,19 @@ pub fn submit_ripple(
   )
 }
 
-/// Fault-injection hook (tests/demos): drop the socket to force the
-/// reconnect/reconcile path. Pending and in-flight edits are preserved.
+/// A hook that injects a fault, for a test or a demo. It closes the socket, so
+/// that the client runs the reconnect and reconcile path. The pending edits and
+/// the in-flight edits all stay.
 pub fn force_reconnect(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed.force_reconnect(document)
 }
 
-/// Go offline and stay there. Reads and edits keep working; the edits queue and
-/// flush when `go_online` reconnects. A no-op unless the document is connected.
+/// Go offline and stay offline. A read and an edit both continue to work. The
+/// edits queue, and they go out when `go_online` reconnects. The effect does
+/// nothing unless the document is connected.
 ///
-/// The pair is meant to be bound straight to a toggle:
+/// Bind this function and `go_online` directly to a toggle:
 ///
 /// ```gleam
 /// ToggledOffline(offline) -> #(
@@ -786,8 +816,8 @@ pub fn go_offline(document: Document(root)) -> Effect(msg) {
   watershed.go_offline(document)
 }
 
-/// Come back from `go_offline`, replaying the gap and flushing what was edited
-/// during it. A no-op unless the document is currently held offline.
+/// Return from `go_offline`. The client replays the interval and sends the
+/// edits from it. The effect does nothing unless the document is offline now.
 pub fn go_online(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed.go_online(document)
@@ -802,14 +832,15 @@ pub fn go_online(document: Document(root)) -> Effect(msg) {
 // never dispatch during `update`, and hands the `Handle` back so
 // `update_presence` and `stop_presence` can be effects too.
 
-/// Start tracking presence on `document` with `initial` as this client's
-/// metadata.
+/// Start to track presence on `document`, with `initial` as the metadata of
+/// this client.
 ///
-/// `started` fires with the driver `Handle` — keep it in your model to update
-/// later. `on_event` fires with each `presence.Event`: a `State` replacing the
-/// roster wholesale, a `Changed` carrying both a delta and the resulting
-/// roster, or a `Failed`. Render on whichever suits; the roster in `Changed` is
-/// always complete.
+/// `started` runs with the `Handle` value of the driver. Keep that value in
+/// your model, so that you can update it later. `on_event` runs with every
+/// `presence.Event` value. A `State` event replaces the whole roster. A
+/// `Changed` event carries a change and the roster that results. A `Failed`
+/// event reports a failure. Render on whichever event suits your application.
+/// The roster in a `Changed` event is always complete.
 pub fn presence(
   document document: Document(root),
   config config: presence.Config(a),
@@ -830,15 +861,15 @@ pub fn presence(
   queue_microtask(fn() { dispatch(started(handle)) })
 }
 
-/// Replace this client's presence metadata. Fire-and-forget — no message is
-/// dispatched back.
+/// Replace the presence metadata of this client. The effect dispatches no
+/// message back.
 pub fn update_presence(handle: presence_js.Handle(a), meta: a) -> Effect(msg) {
   use _dispatch <- effect.from
   presence_js.update(handle, meta)
 }
 
-/// Stop tracking presence. In server mode peers see the departure at once; in
-/// ripple mode they see it when the TTL expires.
+/// Stop the presence tracking. In server mode the peers see the departure
+/// immediately. In ripple mode they see it when the TTL expires.
 pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
   use _dispatch <- effect.from
   presence_js.stop(handle)
@@ -848,12 +879,12 @@ pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
 // Summaries
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Let this client summarize the document on its own, per `policy`.
+/// Let this client summarize the document without a request, under `policy`.
 ///
-/// Without it nothing ever summarizes and every joining client replays the
-/// whole log. Fire-and-forget: no message comes back, and the policy takes
-/// effect from the next sequenced op. Batch it beside `connect_dev` in the
-/// effect that receives the `Document`.
+/// Without this effect nothing summarizes, and every client that joins replays
+/// the whole log. The effect dispatches no message back, and the policy applies
+/// from the next sequenced op. Put it in a batch beside `connect_dev`, in the
+/// effect that receives the `Document` value.
 pub fn auto_summarize(
   document document: Document(root),
   policy policy: summary_policy.Policy,
@@ -862,7 +893,7 @@ pub fn auto_summarize(
   watershed.auto_summarize(document, policy)
 }
 
-/// Stop summarizing automatically.
+/// Stop the automatic summaries.
 pub fn stop_auto_summarize(document document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed.stop_auto_summarize(document)

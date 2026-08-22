@@ -1,42 +1,45 @@
-//// One byte sequence per logical JSON value, identical on every compile
-//// target. Used by the CRDT document digest, which two peers compare
-//// across a mesh that may mix a browser replica with a BEAM one.
+//// One byte sequence for each logical JSON value, the same on every compile
+//// target. The CRDT document digest uses this module. Two peers compare that
+//// digest across a mesh that can contain a browser replica and a BEAM
+//// replica.
 ////
-//// `gleam/json` and `gleam/string` cannot supply that on their own:
+//// `gleam/json` and `gleam/string` alone cannot give that result:
 ////
-//// - `string.compare` orders by UTF-8 bytes on Erlang and by UTF-16 code
-////   units on JavaScript, so any sort keyed on it puts an astral
-////   character on a different side of `U+FFFD` depending on the target;
-//// - `json.float(1.0)` encodes `1.0` on Erlang and `1` on JavaScript,
-////   `1.0e16` prints as `1.0e16` on one and `10000000000000000.0` on the
-////   other, and `1.0e-5` prints as `1.0e-5` on one and `0.00001` on the
-////   other;
-//// - `json.string` escapes a control character as `\u000B` on Erlang and
+//// - `string.compare` orders by UTF-8 bytes on Erlang, and by UTF-16 code
+////   units on JavaScript. A sort that uses it thus puts an astral character
+////   on a different side of `U+FFFD` on each target.
+//// - `json.float(1.0)` encodes `1.0` on Erlang and `1` on JavaScript.
+////   `1.0e16` prints as `1.0e16` on one target and as `10000000000000000.0`
+////   on the other. `1.0e-5` prints as `1.0e-5` on one target and as
+////   `0.00001` on the other.
+//// - `json.string` escapes a control character as `\u000B` on Erlang and as
 ////   `\u000b` on JavaScript.
 ////
-//// Any of those makes two replicas holding identical state hash
-//// differently, and a digest mismatch is a repair request — so a mixed
-//// mesh would trade state forever without ever agreeing. This module owns
-//// the encoding end to end instead: object members are emitted in UTF-8
-//// byte order of their keys, strings are escaped by one fixed policy, and
-//// numbers are rendered by one rule that gives `1` and `1.0` the same
-//// text without ever merging two numbers that differ.
+//// Each of those differences makes two replicas with identical state produce
+//// different hashes. A digest mismatch is a repair request, so a mixed mesh
+//// would exchange state without an end and never agree. This module thus owns
+//// the whole encoding. It emits the members of an object in the UTF-8 byte
+//// order of their keys. It escapes a string by one fixed policy. It renders a
+//// number by one rule, which gives `1` and `1.0` the same text and never
+//// gives two different numbers the same text.
 ////
-//// Numbers get that rule in two halves. An integer both targets hold
-//// exactly — magnitude at most 2^53 - 1 — is written as its digits.
-//// Everything else is a double, and no target's own printing is trusted
-//// to lay one out: the shortest digits that read back as the same double
-//// are the same on both targets, but Erlang and JavaScript place the
-//// decimal point differently, so the digits are extracted and placed here
-//// instead. Distinct doubles keep distinct text, because shortest
-//// round-trip digits are unique per double.
+//// That number rule has two halves. An integer that both targets hold
+//// exactly, which is a magnitude of 2^53 - 1 or less, is written as its
+//// digits. Every other number is a double, and this module does not trust the
+//// printing of either target to lay one out. The shortest digits that read
+//// back as the same double are the same on both targets, but Erlang and
+//// JavaScript put the decimal point in different positions. This module thus
+//// extracts the digits and places the point itself. Two different doubles
+//// keep two different texts, because the shortest round-trip digits are
+//// unique for each double.
 ////
-//// Two limits are inherent rather than chosen. A JSON integer past 2^53
-//// has already become the nearest double by the time JavaScript's parser
-//// hands it over, so two such integers that share a double are one value
-//// on that target and are encoded as one here; the difference is not lost
-//// by this module, it is gone before this module is reached. And an
-//// infinity or a NaN has no JSON spelling at all — see `non_finite`.
+//// Two limits are inherent, and this module did not choose them. The parser
+//// of JavaScript replaces a JSON integer above 2^53 with the nearest double
+//// before this module receives it. Two such integers that share a double are
+//// one value on that target, and this module encodes them as one. This module
+//// does not lose that difference; the difference is gone before the value
+//// arrives here. An infinity and a NaN also have no JSON form at all. See
+//// `non_finite`.
 
 import gleam/bit_array
 import gleam/float
@@ -47,37 +50,38 @@ import gleam/string
 
 import watershed/json_ot.{type JsonValue, type Num}
 
-/// The largest integer a JavaScript number holds exactly, 2^53 - 1. Above
-/// it the two targets no longer hold the same value, only the same double.
+/// The largest integer that a JavaScript number holds exactly, which is
+/// 2^53 - 1. Above that value the two targets no longer hold the same value.
+/// They hold the same double only.
 const exact_int_ceiling = 9_007_199_254_740_991
 
-/// The largest finite double. An infinity is above it and a NaN compares
-/// false against everything, so one comparison sorts out both.
+/// The largest finite double. An infinity is above it, and a NaN is false in
+/// every comparison. One comparison thus finds both.
 const largest_finite = 1.7976931348623157e308
 
-/// How far the decimal point may sit from the first significant digit
-/// before the layout switches to an exponent: 21 digits to its right, 6
-/// zeros to its left. Both come from ECMAScript's `Number::toString`,
-/// which is one target's rule and now the rule here — the choice is
-/// arbitrary, owning it is not.
+/// How far the decimal point can be from the first significant digit before
+/// the layout changes to an exponent: 21 digits to the right of it, and 6
+/// zeros to the left of it. Both limits come from `Number::toString` of
+/// ECMAScript. That is the rule of one target, and it is now the rule here.
+/// The choice of rule is arbitrary. To own the rule is not.
 const plain_point_ceiling = 21
 
 const plain_point_floor = -6
 
-/// What a non-finite number encodes as. JSON has no spelling for an
-/// infinity or a NaN, and `to_string` has to stay total and keep emitting
-/// parseable JSON, so it writes what `JSON.stringify` writes: `null`.
+/// The encoding of a number that is not finite. JSON has no form for an
+/// infinity or a NaN. `to_string` must stay total and must emit JSON that a
+/// parser accepts, so it writes what `JSON.stringify` writes: `null`.
 ///
-/// Nothing decoded from JSON can carry one — a parser has no syntax to
-/// produce it — so this is reachable only from locally built state, and
-/// only on JavaScript, where float arithmetic overflows to an infinity
-/// instead of raising as it does on Erlang. The cost is that such a value
-/// hashes like a null.
+/// A value decoded from JSON can never carry such a number, because a parser
+/// has no syntax for one. This case is thus reachable only from locally built
+/// state, and only on JavaScript, where float arithmetic overflows to an
+/// infinity. On Erlang it raises instead. The cost is that such a value hashes
+/// as a null.
 const non_finite = "null"
 
-/// Encode a value canonically: sorted object keys, one escaping policy,
-/// one number rendering. Array order is preserved — a caller that holds a
-/// set in an array must order it first, with `sorted`.
+/// Encode a value in canonical form: sorted object keys, one escaping policy,
+/// and one number rendering. The function keeps the array order. A caller that
+/// holds a set in an array must sort that array first, with `sorted`.
 pub fn to_string(value: JsonValue) -> String {
   case value {
     json_ot.VNull -> "null"
@@ -102,14 +106,15 @@ pub fn to_string(value: JsonValue) -> String {
   }
 }
 
-/// Order two strings by their UTF-8 bytes on every target, which
-/// `string.compare` does not do.
+/// Order two strings by their UTF-8 bytes, on every target. `string.compare`
+/// does not do that.
 pub fn compare(left: String, right: String) -> Order {
   bit_array.compare(<<left:utf8>>, <<right:utf8>>)
 }
 
-/// Order an array that encodes a set, by each element's canonical bytes.
-/// Each element is encoded once, not once per comparison.
+/// Order an array that encodes a set, by the canonical bytes of each element.
+/// The function encodes each element one time, and not one time for each
+/// comparison.
 pub fn sorted(items: List(JsonValue)) -> List(JsonValue) {
   items
   |> list.map(fn(item) { #(to_string(item), item) })
@@ -117,9 +122,8 @@ pub fn sorted(items: List(JsonValue)) -> List(JsonValue) {
   |> list.map(fn(pair) { pair.1 })
 }
 
-/// Render a number so that every JSON spelling of one value gives one
-/// text — `1`, `1.0`, and `1e0` all become `1` — while two values that
-/// differ keep two texts.
+/// Render a number, so that every JSON form of one value gives one text. `1`,
+/// `1.0`, and `1e0` all become `1`. Two values that differ keep two texts.
 fn number_to_string(value: Num) -> String {
   case value {
     json_ot.NInt(int) ->
@@ -131,9 +135,9 @@ fn number_to_string(value: Num) -> String {
   }
 }
 
-/// An integer past JavaScript's exact range. JavaScript's parser replaced
-/// it with the nearest double before any of this ran, so the double is
-/// what gets rendered — on both targets, so both agree.
+/// An integer above the exact range of JavaScript. The parser of JavaScript
+/// replaced it with the nearest double before this code ran. The function thus
+/// renders that double, on both targets, and the two targets agree.
 fn wide_int_to_string(value: Int) -> String {
   case as_double(value) {
     Ok(double) -> float_to_string(double)
@@ -141,19 +145,19 @@ fn wide_int_to_string(value: Int) -> String {
   }
 }
 
-/// The conversion goes through the integer's own decimal text rather than
-/// `int.to_float`, which raises `badarg` on Erlang for an integer outside
-/// the double range — and a remote snapshot can carry one, where nothing
-/// is allowed to crash. `float.parse` reports that as an error instead.
-/// On JavaScript the integer is already a double and prints as one,
-/// exponent and all, which `parse` reads back unchanged; one that
-/// overflowed prints as `Infinity`, which it refuses.
+/// The conversion goes through the decimal text of the integer, and not
+/// through `int.to_float`. On Erlang, `int.to_float` raises `badarg` for an
+/// integer outside the double range. A remote snapshot can carry such an
+/// integer, and nothing on that path can crash. `float.parse` returns an error
+/// instead. On JavaScript the integer is already a double, and it prints as
+/// one, with its exponent. `parse` reads that text back without a change. An
+/// integer that overflowed prints as `Infinity`, and `parse` refuses it.
 fn as_double(value: Int) -> Result(Float, Nil) {
   float.parse(with_point(int.to_string(value)))
 }
 
-/// `float.parse` insists on a decimal point in the mantissa, and no
-/// integer printing puts one there.
+/// `float.parse` needs a decimal point in the mantissa, and no integer
+/// printing puts one there.
 fn with_point(text: String) -> String {
   case string.split_once(text, "e") {
     Ok(#(mantissa, exponent)) -> pointed(mantissa) <> "e" <> exponent
@@ -168,10 +172,11 @@ fn pointed(mantissa: String) -> String {
   }
 }
 
-/// One spelling per finite double, on every target. Both targets print the
-/// shortest digits that read back as the same double — that much they
-/// agree on — and then lay them out by their own rule, which they do not
-/// agree on. So the digits are taken and the layout is redone here.
+/// One form for each finite double, on every target. Both targets print the
+/// shortest digits that read back as the same double, and they agree on those
+/// digits. They then lay the digits out by their own rule, and they do not
+/// agree on that rule. This function thus takes the digits and lays them out
+/// again.
 fn float_to_string(value: Float) -> String {
   case float.absolute_value(value) <=. largest_finite {
     False -> non_finite
@@ -183,21 +188,21 @@ fn float_to_string(value: Float) -> String {
   }
 }
 
-/// A finite double as the layout needs it: `digits` are its shortest
-/// round-trip significant digits, with no leading or trailing zero, and
-/// the value is `0.<digits> × 10^point`. Every spelling of zero, signed or
-/// not, is `Zero` — JSON has one zero.
+/// A finite double in the form that the layout needs. `digits` holds the
+/// shortest round-trip significant digits, with no leading zero and no
+/// trailing zero. The value is `0.<digits> × 10^point`. Every form of zero is
+/// `Zero`, with a sign or without one, because JSON has one zero.
 type Decimal {
   Decimal(negative: Bool, digits: String, point: Int)
   Zero
 }
 
-/// Read one target's float printing — `1.0e-5` on Erlang, `0.00001` on
-/// JavaScript for the same double — as digits and a decimal point
-/// position, discarding the layout the target chose.
+/// Read the float printing of one target as digits and a decimal point
+/// position, and discard the layout that the target chose. For one double,
+/// Erlang prints `1.0e-5` and JavaScript prints `0.00001`.
 ///
-/// An `Error` means text no float printing produces; the caller encodes
-/// that as `non_finite` rather than guessing at a number.
+/// An `Error` result means text that no float printing produces. The caller
+/// then encodes the value as `non_finite`. It does not guess at a number.
 fn significant(text: String) -> Result(Decimal, Nil) {
   let #(negative, unsigned) = case string.starts_with(text, "-") {
     True -> #(True, string.drop_start(text, 1))
@@ -231,8 +236,8 @@ fn significant(text: String) -> Result(Decimal, Nil) {
   }
 }
 
-/// JavaScript writes `e+21` and Erlang writes `e21`; the sign of a
-/// positive exponent is layout too.
+/// JavaScript writes `e+21` and Erlang writes `e21`. The sign of a positive
+/// exponent is also part of the layout.
 fn exponent_value(text: String) -> Result(Int, Nil) {
   case string.starts_with(text, "+") {
     True -> int.parse(string.drop_start(text, 1))
@@ -267,10 +272,11 @@ fn laid_out(value: Decimal) -> String {
   }
 }
 
-/// Place the decimal point: digits padded with zeros while it sits past
-/// them, a point among them while it sits inside, `0.` and zeros while it
-/// sits just left of them, and an exponent once it is further out than
-/// that.
+/// Place the decimal point. The function pads the digits with zeros while the
+/// point is after them. It puts a point between the digits while the point is
+/// inside them. It writes `0.` and zeros while the point is a short distance
+/// to the left of them. It writes an exponent when the point is further out
+/// than that.
 fn placed(digits: String, count: Int, point: Int) -> String {
   let plain = point <= plain_point_ceiling && point > plain_point_floor
   case plain, point >= count, point > 0 {

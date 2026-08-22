@@ -1,10 +1,10 @@
 //// Version-1 JSON envelopes for the ack-free CRDT p2p protocol.
 ////
-//// This is the vocabulary WebRTC peers (P2P4) and an optional sequencer
-//// relay (P2P6) both speak. It is deliberately separate from the Fluid DDS
-//// wire in `watershed/wire`: nothing here carries client or server sequence
-//// numbers, reference sequence numbers, or acknowledgements, because the
-//// CRDT lifecycle has none.
+//// This is the vocabulary that the WebRTC peers (P2P4) and an optional
+//// sequencer relay (P2P6) both use. It is separate from the Fluid DDS wire in
+//// `watershed/wire` on purpose. Nothing here carries a client sequence number,
+//// a server sequence number, a reference sequence number, or an
+//// acknowledgement, because the CRDT lifecycle has none of those.
 ////
 //// Every envelope looks like:
 ////
@@ -13,17 +13,17 @@
 ////  "message":{"type":"delta", …}}
 //// ```
 ////
-//// Encoding is deterministic: fields are emitted in a fixed order and
-//// `state` channel entries are sorted by address, so two peers holding the
-//// same logical value produce byte-identical JSON and therefore identical
-//// digests.
+//// The encoding is deterministic. The fields go out in a fixed order, and the
+//// channel entries of a `state` message are sorted by address. Two peers that
+//// hold the same logical value thus produce the same JSON bytes, and thus the
+//// same digest.
 ////
-//// Decoding is a trust boundary. `decode_envelope` is total: it returns a
-//// typed `p2p.P2pError` for oversize payloads, malformed JSON, unknown
-//// message types, unsupported or unknown channel types, malformed
-//// addresses, forged descriptors, non-positive message counters, and
-//// payload/type mismatches. It never panics and never silently drops a
-//// field.
+//// The decoding is a trust boundary. `decode_envelope` is total. It returns a
+//// typed `p2p.P2pError` value for an oversize payload, malformed JSON, an
+//// unknown message type, an unsupported or unknown channel type, a malformed
+//// address, a forged descriptor, a message counter of zero or less, and a
+//// payload that does not agree with its type. It never panics, and it never
+//// drops a field quietly.
 
 import gleam/bit_array
 import gleam/dynamic/decode.{type Decoder}
@@ -40,13 +40,13 @@ import watershed/p2p.{type P2pError}
 import watershed/wire
 import watershed/wire/ops
 
-/// The only protocol version this module speaks. A peer announcing anything
-/// else is rejected with `ProtocolMismatch` before its message is read.
+/// The only protocol version that this module uses. A peer that announces any
+/// other version gets a `ProtocolMismatch` error, before this module reads its
+/// message.
 pub const protocol_version = 1
 
-/// The reserved root channel address. Every peer derives the root from its
-/// own `Config` rather than learning it from a peer, so no replica ever
-/// owns it.
+/// The reserved root channel address. Every peer derives the root from its own
+/// `Config` value, and never from a peer, so no replica owns the root.
 pub const root_address = "root"
 
 const type_hello = "hello"
@@ -63,28 +63,32 @@ const type_digest = "digest"
 
 const type_error = "error"
 
-/// Protocol limits enforced at the trust boundary. Version-one defaults
-/// come from `default_limits`; every peer derives its limits from
-/// configuration rather than learning them from a `hello`.
+/// The protocol limits that the trust boundary applies. `default_limits` gives
+/// the version-1 defaults. Every peer derives its limits from its
+/// configuration, and never from a `hello` message.
 pub type Limits {
   Limits(
-    /// Peers allowed in one room. Stored here; enforcing it is the
-    /// transport's job, since only the transport counts connections.
+    /// The number of peers that one room permits. This module stores the
+    /// value. The transport applies it, because only the transport counts the
+    /// connections.
     room_peers: Int,
-    /// Largest accepted encoded envelope, in bytes.
+    /// The largest encoded envelope that the module accepts, in bytes.
     envelope_bytes: Int,
-    /// Largest accepted encoded channel snapshot, in bytes.
+    /// The largest encoded channel snapshot that the module accepts, in
+    /// bytes.
     snapshot_bytes: Int,
-    /// Most channels one document may register.
+    /// The largest number of channels that one document can register.
     channels: Int,
-    /// Most deltas buffered while waiting for their channel descriptor.
+    /// The largest number of deltas that the module buffers while it waits
+    /// for their channel descriptor.
     buffered_deltas: Int,
-    /// Most recently seen message IDs kept for duplicate suppression.
+    /// The largest number of recent message ids that the module keeps for
+    /// duplicate suppression.
     recent_message_ids: Int,
   )
 }
 
-/// The version-1 defaults.
+/// The version-1 default limits.
 pub fn default_limits() -> Limits {
   Limits(
     room_peers: 8,
@@ -96,17 +100,18 @@ pub fn default_limits() -> Limits {
   )
 }
 
-/// A message's stable identity: who authored it and their local counter at
-/// the time. Used for duplicate suppression and diagnostics only —
-/// correctness comes from idempotent CRDT merge.
+/// The stable identity of a message: the replica that wrote it, and the local
+/// counter of that replica at the time. The module uses this identity for
+/// duplicate suppression and for diagnostics only. Correctness comes from the
+/// idempotent CRDT merge.
 pub type MessageId {
   MessageId(replica: String, counter: Int)
 }
 
-/// An immutable fact about one channel. `address` is `root` or
-/// `<replica-id>:<positive-local-counter>`, and for a non-root channel
-/// `created_by` must equal the address's replica prefix — the address
-/// carries its creator, so a mismatch is forgery, not a race.
+/// An immutable fact about one channel. `address` is `root`, or it is
+/// `<replica-id>:<positive-local-counter>`. For a channel that is not the
+/// root, `created_by` must equal the replica prefix of the address. The
+/// address carries its creator, so a mismatch is a forgery, and not a race.
 pub type ChannelDescriptor {
   ChannelDescriptor(
     address: String,
@@ -115,17 +120,17 @@ pub type ChannelDescriptor {
   )
 }
 
-/// A descriptor paired with a channel snapshot, as `channel` and `state`
-/// messages and canonical document snapshots all carry it.
+/// A descriptor with a channel snapshot. A `channel` message, a `state`
+/// message, and a canonical document snapshot all carry this pair.
 pub type ChannelEntry {
   ChannelEntry(descriptor: ChannelDescriptor, snapshot: Snapshot)
 }
 
 pub type Message {
-  /// Compatibility handshake: the two facts a peer cannot merge its way
-  /// out of disagreeing about.
+  /// The compatibility handshake: the two facts that a merge cannot
+  /// reconcile if two peers disagree about them.
   Hello(compatibility: String, root: ChannelType)
-  /// Announce an immutable channel descriptor and its initial snapshot.
+  /// Announce an immutable channel descriptor with its initial snapshot.
   ChannelAnnounce(entry: ChannelEntry)
   /// Merge one channel delta.
   Delta(
@@ -134,14 +139,15 @@ pub type Message {
     channel_type: ChannelType,
     op: ChannelOp,
   )
-  /// Ask a peer for its whole registry and current snapshots.
+  /// Ask a peer for its complete registry and its current snapshots.
   StateRequest
-  /// A complete mergeable document: every descriptor with its snapshot.
+  /// A complete document that a peer can merge: every descriptor with its
+  /// snapshot.
   State(entries: List(ChannelEntry))
   /// The canonical document digest, for anti-entropy.
   Digest(digest: String)
-  /// Report a rejection to the peer that caused it. Named `Rejected` here
-  /// because the wire tag `error` collides with `Result`'s constructor.
+  /// Report a rejection to the peer that caused it. The name is `Rejected`
+  /// here, because the wire tag `error` is also a constructor of `Result`.
   Rejected(reason: String, detail: String)
 }
 
@@ -149,7 +155,7 @@ pub type Envelope {
   Envelope(room: String, from: String, session: String, message: Message)
 }
 
-/// The wire tag for a message, for diagnostics and status reporting.
+/// The wire tag of a message, for diagnostics and for status reports.
 pub fn message_type(message: Message) -> String {
   case message {
     Hello(..) -> type_hello
@@ -162,14 +168,15 @@ pub fn message_type(message: Message) -> String {
   }
 }
 
-/// The address a replica's nth channel gets. Collision-free without
-/// coordination because the replica ID is part of it.
+/// The address of the nth channel of a replica. The address contains the
+/// replica id, so two replicas cannot produce the same address, and they need
+/// no coordination.
 pub fn channel_address(replica: String, counter: Int) -> String {
   replica <> ":" <> int.to_string(counter)
 }
 
-/// The replica that created a channel, read back out of its address. The
-/// root address yields `""` — no replica creates the root.
+/// The replica that created a channel, read from the address of that channel.
+/// The root address gives `""`, because no replica creates the root.
 pub fn address_creator(address: String) -> Result(String, Nil) {
   case address == root_address {
     True -> Ok("")
@@ -185,8 +192,9 @@ pub fn address_creator(address: String) -> Result(String, Nil) {
   }
 }
 
-/// Whether a string can identify a replica: non-empty, and free of the `:`
-/// that separates an address's two halves.
+/// Whether a string can identify a replica. Such a string is not empty, and it
+/// contains no `:` character, because `:` separates the two halves of an
+/// address.
 pub fn valid_replica_id(replica: String) -> Bool {
   replica != "" && !string.contains(replica, ":")
 }
@@ -202,8 +210,8 @@ fn positive_counter(raw: String) -> Bool {
 
 // --- encoding -------------------------------------------------------------
 
-/// Encode an envelope. Field order is fixed, so equal envelopes encode to
-/// equal strings on both targets.
+/// Encode an envelope. The field order is fixed, so two equal envelopes encode
+/// to two equal strings on both targets.
 pub fn encode_envelope(envelope: Envelope) -> Json {
   json.object([
     #("v", json.int(protocol_version)),
@@ -260,15 +268,15 @@ pub fn encode_message(message: Message) -> Json {
   }
 }
 
-/// Channel entries in canonical order: sorted by address, so registry
-/// insertion order cannot change the encoded bytes.
+/// The channel entries in canonical order, sorted by address. The insertion
+/// order of the registry thus cannot change the encoded bytes.
 ///
-/// The comparison is `canonical_json.compare`, not `string.compare`, for
-/// the same reason the digest uses it — `string.compare` orders by UTF-8
-/// bytes on Erlang and by UTF-16 code units on JavaScript, so a replica id
-/// outside the basic plane puts two peers' `state` messages in different
-/// orders. Nothing about the message's meaning changes either way; the
-/// point is that one logical state has one encoding on both targets.
+/// The comparison is `canonical_json.compare`, and not `string.compare`. The
+/// digest uses that comparison for the same reason. `string.compare` orders by
+/// UTF-8 bytes on Erlang and by UTF-16 code units on JavaScript. A replica id
+/// outside the basic plane would thus put the `state` messages of two peers in
+/// different orders. The meaning of the message is the same in both orders.
+/// The purpose is that one logical state has one encoding on both targets.
 pub fn sort_entries(entries: List(ChannelEntry)) -> List(ChannelEntry) {
   list.sort(entries, fn(left, right) {
     canonical_json.compare(left.descriptor.address, right.descriptor.address)
@@ -299,10 +307,10 @@ fn encode_message_id(id: MessageId) -> Json {
 
 // --- decoding -------------------------------------------------------------
 
-/// Decode one encoded envelope, rejecting anything malformed with a typed
-/// error. Size is checked first, then the protocol version, then the
-/// message body — so an oversize or wrong-version payload is never parsed
-/// as a message at all.
+/// Decode one encoded envelope. The function returns a typed error for
+/// anything malformed. It checks the size first, then the protocol version,
+/// and then the message body. It thus never parses an oversize payload or a
+/// wrong-version payload as a message.
 pub fn decode_envelope(
   raw: String,
   limits: Limits,
@@ -340,10 +348,10 @@ pub fn decode_envelope(
   Ok(Envelope(room: room, from: from, session: session, message: message))
 }
 
-/// Validate one encoded channel entry — a `state` message's element, a
-/// `channel` announcement, or a canonical snapshot's channel. Shared so a
-/// snapshot loaded from disk faces exactly the same checks as one that
-/// arrived from a peer.
+/// Check one encoded channel entry, which is an element of a `state` message,
+/// a `channel` announcement, or a channel of a canonical snapshot. Every
+/// caller shares this function, so a snapshot from storage gets the same
+/// checks as a snapshot from a peer.
 pub fn decode_channel_entry(
   value: Json,
   from: String,
@@ -375,9 +383,9 @@ fn preamble_decoder() -> Decoder(Preamble) {
   decode.success(Preamble(version, room, from, session, message))
 }
 
-/// The message shapes as they arrive: channel types are still strings and
-/// payloads are still opaque JSON, because turning either into a typed
-/// value can fail in ways a `Decoder` cannot report as a `P2pError`.
+/// The message shapes as they arrive. A channel type is still a string, and a
+/// payload is still opaque JSON. To convert either one into a typed value can
+/// fail in ways that a `Decoder` cannot report as a `P2pError` value.
 type RawMessage {
   RawHello(compatibility: String, root: String)
   RawChannel(entry: RawEntry)
@@ -577,9 +585,10 @@ fn validate_entry(
   ))
 }
 
-/// A `state` message naming one address twice cannot be merged
-/// unambiguously — the two entries could disagree on type or creator — so
-/// it is rejected whole rather than merged in list order.
+/// A `state` message that names one address two times has no unambiguous
+/// merge, because the two entries can disagree on the type or on the creator.
+/// The module thus refuses the whole message. It does not merge the entries in
+/// list order.
 fn check_unique_addresses(
   entries: List(ChannelEntry),
   from: String,

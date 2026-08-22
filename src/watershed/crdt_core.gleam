@@ -2,40 +2,41 @@
 //// channel registry, ack-free local edits, remote merges, canonical
 //// snapshots, and digests.
 ////
-//// Nothing here performs an effect. Every transition takes a `Document`
-//// and returns a new one plus an `Outcome` describing the protocol
-//// messages a transport should send and the channel events a subscriber
-//// should see. No sockets, timers, browser APIs, or actors — and none of
-//// the server-backed lifecycle either: this module never calls
-//// `runtime_core.handle_sequenced`, any `ack_local`, summary upload, or
-//// membership path, because a CRDT document has no sequencer.
+//// Nothing here performs an effect. Every transition takes a `Document` value
+//// and returns a new one, with an `Outcome` value. That outcome describes the
+//// protocol messages that a transport must send, and the channel events that a
+//// subscriber must see. There is no socket, no timer, no browser API, and no
+//// actor. There is also no server-backed lifecycle. This module never calls
+//// `runtime_core.handle_sequenced`, an `ack_local` function, a summary upload,
+//// or a membership path, because a CRDT document has no sequencer.
 ////
-//// Every entry point that consumes remote data is a trust boundary.
-//// Malformed input returns a typed `p2p.P2pError` and leaves the document
-//// exactly as it was; there is no partial application and no panic. A
-//// rejected `state` message mutates nothing, not even the channels that
-//// decoded cleanly before the bad one.
+//// Every entry point that reads remote data is a trust boundary. Malformed
+//// input returns a typed `p2p.P2pError` value and leaves the document exactly
+//// as it was. There is no partial application, and there is no panic. A `state`
+//// message that this module refuses changes nothing, not even the channels
+//// that decoded correctly before the bad one.
 ////
-//// Snapshots come in two shapes on purpose. `canonical_json` is the full
-//// CRDT state — that is what an import has to reconstruct — and the
-//// lattice encodings embed each replica's own authoring cursor (the id it
-//// stamps writes with and the counter it stamps them from) alongside the
-//// shared causal state. Hashing that directly would make the digest
-//// replica-local, so `digest` hashes `digest_canonical_json` instead: the
-//// same document with those authoring cursors projected out and every
-//// merge-relevant field — causal tags, tombstones, version vectors, LWW
-//// timestamps and their replica-id tie-break — left intact. Two replicas
-//// that hold the same logical and causal state therefore share a digest,
-//// and two that differ by so much as one tombstone do not.
+//// There are two snapshot shapes, and that is deliberate. `canonical_json` is
+//// the full CRDT state, which is what an import must rebuild. The lattice
+//// encodings contain the authoring cursor of each replica, which is the id
+//// that the replica stamps its writes with and the counter that it stamps them
+//// from, beside the shared causal state. To hash that state directly would
+//// make the digest local to the replica. `digest` thus hashes
+//// `digest_canonical_json` instead. That function gives the same document
+//// without those authoring cursors, and with every merge-relevant field:
+//// causal tags, tombstones, version vectors, and LWW timestamps with their
+//// replica-id tie-break. Two replicas that hold the same logical state and the
+//// same causal state thus share a digest, and two replicas that differ by one
+//// tombstone do not.
 ////
-//// The projection is also written out by `canonical_json`, not by
-//// `gleam/json`, because a digest is compared between peers that may not
-//// share a compile target: `gleam/json` and `gleam/string` order and
-//// spell JSON differently on Erlang and JavaScript, and a browser replica
-//// that hashes the same state differently from a BEAM one would ask it
-//// for repair forever. Every ordering the lattice encodings leave to a
-//// dictionary — object keys, set-shaped arrays, sequence `forwardings` —
-//// is settled here in UTF-8 byte order before hashing.
+//// `canonical_json` also writes that projection out, and `gleam/json` does
+//// not, because two peers that compare a digest can run on different compile
+//// targets. `gleam/json` and `gleam/string` order and encode JSON differently
+//// on Erlang and on JavaScript. A browser replica that hashes the same state
+//// differently from a BEAM replica would ask that replica for a repair without
+//// an end. Every order that the lattice encodings leave to a dictionary, which
+//// is the object keys, the set-shaped arrays, and the `forwardings` of a
+//// sequence, is thus settled here in UTF-8 byte order before the hash.
 
 import gleam/bit_array
 import gleam/dict.{type Dict}
@@ -60,11 +61,11 @@ import watershed/p2p.{type P2pError}
 import watershed/sha256
 import watershed/wire
 
-/// Everything a replica needs to agree with its peers about what document
-/// it is in. `replica` is the collision-resistant CRDT authorship identity
-/// and `session` distinguishes two connections of the same installation —
-/// a peer claiming our `replica` under a different `session` is a
-/// `ReplicaCollision`, not a peer.
+/// Everything that a replica needs to agree with its peers about the document
+/// that it is in. `replica` is the CRDT authorship identity, and a collision
+/// between two of them is very unlikely. `session` separates two connections of
+/// one installation. A peer that claims the local `replica` value under a
+/// different `session` value is a `ReplicaCollision`, and not a peer.
 pub type Config {
   Config(
     room: String,
@@ -97,17 +98,19 @@ pub fn config(
 pub opaque type Document {
   Document(
     config: Config,
-    /// Stamps both channel addresses and outbound message IDs, so no local
-    /// message or channel can ever reuse another's identity.
+    /// The source of the channel addresses and of the outbound message ids. No
+    /// local message and no local channel can thus use the identity of
+    /// another.
     counter: Int,
     registry: Dict(String, ChannelDescriptor),
     states: Dict(String, ChannelState),
-    /// Deltas that named an address before its descriptor arrived, oldest
-    /// first, bounded by `limits.buffered_deltas`.
+    /// The deltas that named an address before its descriptor arrived, oldest
+    /// first. `limits.buffered_deltas` is the maximum count.
     buffered: Fifo(BufferedDelta),
-    /// Recently accepted message IDs, bounded by
-    /// `limits.recent_message_ids`. Suppression is an optimization only:
-    /// re-merging a delta is a no-op by CRDT law.
+    /// The message ids that this document accepted recently.
+    /// `limits.recent_message_ids` is the maximum count. The suppression is an
+    /// optimization only. To merge a delta again changes nothing, by the CRDT
+    /// laws.
     recent: Recent,
   )
 }
@@ -121,22 +124,24 @@ type BufferedDelta {
   )
 }
 
-/// The bounded duplicate-suppression window: a `Dict` for membership and a
-/// `Fifo` for oldest-first eviction.
+/// The bounded window for duplicate suppression: a `Dict` for the membership,
+/// and a `Fifo` to remove the oldest id first.
 ///
-/// A plain list cost a linear scan per lookup *and* a linear copy per
-/// insert at the 4,096 default, on the hot path of every accepted message.
-/// The dict answers `seen` without walking, and the dict and the queue
-/// hold exactly the same ids — an id already in the dict is never queued
-/// twice — so eviction can never drop membership a live entry still needs.
+/// A plain list cost one linear scan for each lookup *and* one linear copy for
+/// each insert, at the default size of 4,096, on the path of every accepted
+/// message. The dict answers `seen` without a walk. The dict and the queue hold
+/// exactly the same ids, because an id that is already in the dict never enters
+/// the queue a second time. An eviction thus can never remove membership that a
+/// live entry still needs.
 type Recent {
   Recent(seen: Dict(MessageId, Nil), queue: Fifo(MessageId))
 }
 
-/// The standard two-list amortized-constant queue with a size counter,
-/// living here because `gleam/deque` is no longer in the stdlib and this
-/// module is its only user. Pushes land on `back`; pops take from `front`,
-/// refilled by reversing `back` when it runs out.
+/// The usual two-list queue with a size counter, which has an amortized
+/// constant cost. It is in this module because `gleam/deque` is no longer in
+/// the standard library, and this module is its only user. A push goes on
+/// `back`. A pop takes from `front`, and the queue fills `front` again by
+/// reversing `back` when `front` becomes empty.
 type Fifo(element) {
   Fifo(front: List(element), back: List(element), size: Int)
 }
@@ -167,10 +172,10 @@ fn fifo_pop(fifo: Fifo(element)) -> Result(#(element, Fifo(element)), Nil) {
   }
 }
 
-/// What a transition asks its transport to do next, plus what changed.
-/// `broadcast` goes to every peer, `reply` goes only to the peer whose
-/// message produced it. Fan-out of a received message is the transport's
-/// decision, so a received message never populates `broadcast`.
+/// What a transition asks its transport to do next, with what changed.
+/// `broadcast` goes to every peer. `reply` goes only to the peer whose message
+/// produced it. The transport decides whether to forward a received message, so
+/// a received message never fills `broadcast`.
 pub type Outcome {
   Outcome(
     broadcast: List(Message),
@@ -186,10 +191,10 @@ pub fn empty_outcome() -> Outcome {
 
 // --- construction ---------------------------------------------------------
 
-/// Start a document at the configured empty root. Every peer runs this,
-/// including the first one in an empty room: the root is derived from
-/// `Config`, never learned from a peer, so two replicas that agree on the
-/// config agree on the root without exchanging a message.
+/// Start a document at the empty root that the config names. Every peer runs
+/// this function, and so does the first peer in an empty room. The root comes
+/// from `Config`, and never from a peer. Two replicas that agree on the config
+/// thus agree on the root, and they exchange no message.
 pub fn new(config: Config) -> Result(Document, P2pError) {
   use _ <- result.try(validate_config(config))
   use root_type <- result.try(p2p.validate(channel.init_type(config.root)))
@@ -269,8 +274,9 @@ pub fn root_type(document: Document) -> ChannelType {
   channel.init_type(document.config.root)
 }
 
-/// Every registered descriptor, in canonical address order — UTF-8 byte
-/// order, which is the same on both targets, unlike `string.compare`.
+/// Every registered descriptor, in canonical address order, which is UTF-8 byte
+/// order. That order is the same on both targets, and the order of
+/// `string.compare` is not.
 pub fn descriptors(document: Document) -> List(ChannelDescriptor) {
   dict.values(document.registry)
   |> list.sort(fn(left, right) {
@@ -286,8 +292,8 @@ pub fn buffered_count(document: Document) -> Int {
   document.buffered.size
 }
 
-/// How many message IDs the duplicate-suppression window is holding, never
-/// above `limits.recent_message_ids`.
+/// The number of message ids in the duplicate-suppression window. The value is
+/// never more than `limits.recent_message_ids`.
 pub fn recent_count(document: Document) -> Int {
   dict.size(document.recent.seen)
 }
@@ -313,8 +319,8 @@ pub fn descriptor(
   }
 }
 
-/// The channel type at an address, refusing to name a channel whose kernel
-/// cannot run without a sequencer.
+/// The channel type at an address. The function refuses to name a channel whose
+/// kernel cannot run without a sequencer.
 pub fn channel_type(
   document: Document,
   address: String,
@@ -323,7 +329,8 @@ pub fn channel_type(
   Ok(descriptor.channel_type)
 }
 
-/// The kernel state at an address, eligibility-checked first.
+/// The kernel state at an address. The function checks the eligibility of the
+/// channel first.
 pub fn channel_state(
   document: Document,
   address: String,
@@ -349,8 +356,8 @@ pub fn state_request_message() -> Message {
   crdt_wire.StateRequest
 }
 
-/// This document's whole registry and current snapshots, in canonical
-/// address order.
+/// The whole registry of this document, with its current snapshots, in
+/// canonical address order.
 pub fn state_message(document: Document) -> Message {
   crdt_wire.State(entries(document))
 }
@@ -363,7 +370,7 @@ pub fn rejection_message(reason: String, detail: String) -> Message {
   crdt_wire.Rejected(reason, detail)
 }
 
-/// Wrap an outbound message in this document's addressing.
+/// Put an outbound message in the addressing of this document.
 pub fn envelope(document: Document, message: Message) -> Envelope {
   crdt_wire.Envelope(
     room: document.config.room,
@@ -379,8 +386,8 @@ pub fn encode(document: Document, message: Message) -> String {
 
 // --- local transitions ----------------------------------------------------
 
-/// Register a new channel under a collision-free address derived from this
-/// replica's identity, and announce it.
+/// Register a new channel under an address that comes from the identity of
+/// this replica, and thus cannot collide. Then announce that channel.
 pub fn create_channel(
   document: Document,
   init: ChannelInit,
@@ -411,8 +418,9 @@ pub fn create_channel(
   ))
 }
 
-/// Author a local edit: merge it into confirmed and visible state in one
-/// ack-free transition and hand back the delta to broadcast.
+/// Write a local edit. The function merges it into the confirmed state and the
+/// visible state in one ack-free transition, and it returns the delta to
+/// broadcast.
 pub fn edit(
   document: Document,
   address: String,
@@ -450,8 +458,8 @@ pub fn edit(
 
 // --- remote transitions ---------------------------------------------------
 
-/// Decode and apply one encoded envelope. The size, protocol, and shape
-/// checks all run before any state is touched.
+/// Decode and apply one encoded envelope. The size check, the protocol check,
+/// and the shape check all run before the function changes any state.
 pub fn receive_encoded(
   document: Document,
   raw: String,
@@ -463,15 +471,15 @@ pub fn receive_encoded(
   receive(document, envelope)
 }
 
-/// Apply one envelope. Callers that build an `Envelope` directly (a relay
-/// replaying its own log, a test) get the same validation as one that
-/// arrived over the wire: this re-checks descriptors and channel types
-/// rather than trusting the decoder to have run.
+/// Apply one envelope. A caller that builds an `Envelope` value directly, such
+/// as a relay that replays its own log, or a test, gets the same checks as an
+/// envelope from the wire. This function checks the descriptors and the channel
+/// types again. It does not assume that the decoder ran.
 ///
-/// A delta's message ID is deliberately not required to name the sender:
-/// a mesh peer and a relay both forward deltas they did not author, and
-/// the ID identifies the *author's* message so duplicate suppression
-/// still works after a message takes two routes.
+/// The message id of a delta does not have to name the sender, and that is
+/// deliberate. A mesh peer and a relay both forward a delta that they did not
+/// write. The id identifies the message of the *author*, so the duplicate
+/// suppression still works after a message takes two routes.
 pub fn receive(
   document: Document,
   envelope: Envelope,
@@ -479,20 +487,22 @@ pub fn receive(
   received(document, envelope, None)
 }
 
-/// `receive`, told the canonical digest this document already has.
+/// `receive`, with the canonical digest that this document already has.
 ///
-/// `Digest` is the one message whose handling reads the local digest, and
-/// computing it canonicalizes and hashes the whole document. A transport
-/// that heartbeats — every 250ms, to every peer, in both directions —
-/// pays that per message for a document that has not moved since the last
-/// one. A caller holding a digest cache passes it here; every other
-/// message is `receive` exactly, and the digest is not computed at all.
+/// `Digest` is the one message whose handler reads the local digest. To compute
+/// that digest, the module canonicalizes and hashes the whole document. A
+/// transport with a heartbeat sends a message every 250 ms, to every peer, in
+/// both directions. It thus pays that cost for each message, also for a
+/// document that did not change. A caller that holds a digest cache gives it to
+/// this function. Every other message goes to `receive`, and no code computes
+/// the digest at all.
 ///
-/// `local` must be `digest(document)` for *this* document. A stale one
-/// would answer an anti-entropy comparison against a state this replica
-/// no longer holds — suppressing a repair it owes, or asking for one it
-/// does not — so a cache that feeds this has to be keyed on the document
-/// itself rather than invalidated by hand.
+/// `local` must be `digest(document)` for *this* document. A stale value would
+/// answer an anti-entropy comparison against a state that this replica no
+/// longer holds. It would thus suppress a repair that the replica owes, or ask
+/// for a repair that it does not need. A cache that supplies this value must
+/// thus use the document itself as its key. Do not invalidate that cache by
+/// hand.
 pub fn receive_with_digest(
   document: Document,
   envelope: Envelope,
@@ -642,22 +652,23 @@ fn merge_op(
   }
 }
 
-/// Queue a delta whose channel has not been announced yet.
+/// Queue a delta whose channel has no announcement yet.
 ///
-/// The buffer is a bounded FIFO that evicts its *oldest* entry when full,
-/// rather than rejecting the newest arrival. Rejecting was a wedge: an
-/// orphan delta for a channel that is never announced — a forged address,
-/// a peer that left before it announced — occupies its slot forever, so a
-/// full buffer would refuse every legitimate later delta for the rest of
-/// the document's life. Dropping the oldest bounds the same memory without
-/// that failure mode, and costs nothing in correctness: a dropped delta is
-/// one whose descriptor never arrived, and any peer still holding that
-/// channel carries the same edit in its next `state` transfer.
+/// The buffer is a bounded FIFO. When it is full it removes its *oldest*
+/// entry, and it does not refuse the newest one. To refuse the newest entry
+/// caused a permanent failure. An orphan delta names a channel that no peer
+/// ever announces, because the address is forged, or because the peer left
+/// before it announced. Such a delta holds its slot forever, so a full buffer
+/// would refuse every valid later delta for the rest of the life of the
+/// document. To remove the oldest entry limits the same memory without that
+/// failure, and it costs nothing in correctness. A delta that the buffer
+/// removes is one whose descriptor never arrived, and every peer that still
+/// holds that channel carries the same edit in its next `state` transfer.
 ///
-/// The message ID is deliberately *not* remembered here. It is remembered
-/// when the delta is actually applied, so a delta that was evicted, or
-/// discarded at flush time, is not suppressed as a duplicate when the
-/// sender re-sends it after announcing the channel.
+/// This function does *not* record the message id, and that is deliberate. The
+/// module records the id when it applies the delta. A delta that the buffer
+/// removed, or that the flush discarded, is thus not suppressed as a duplicate
+/// when the sender sends it again after it announces the channel.
 fn buffer_delta(
   document: Document,
   id: MessageId,
@@ -687,9 +698,10 @@ fn buffer_delta(
   }
 }
 
-/// Merge announced or transferred channels. All-or-nothing: a bad entry
-/// rejects the whole message, and because every intermediate document is a
-/// fresh value the caller keeps the one it started with.
+/// Merge the channels of an announcement or a transfer. The function accepts
+/// all of them or none of them. One bad entry refuses the whole message. Every
+/// intermediate document is a new value, so the caller keeps the document that
+/// it started with.
 fn merge_entries(
   document: Document,
   from: String,
@@ -828,21 +840,23 @@ fn merge_snapshot(
   }
 }
 
-/// Apply the deltas that were waiting on this address, oldest first,
-/// keeping only the ones that can possibly belong to the channel that just
-/// arrived.
+/// Apply the deltas that waited on this address, oldest first, and keep only
+/// the deltas that can belong to the channel that arrived.
 ///
-/// Partitioning on the address alone was a denial of service. A forged or
-/// stale delta can name an unannounced address under the wrong channel
-/// type; merging it into the announced kernel fails, and because an
-/// announcement is all-or-nothing that failure rejected the genuine
-/// `channel` message *and* left the poison in the buffer, so every later
-/// announcement and every later `state` transfer touching that address
-/// failed the same way, forever. A buffered delta whose declared type
-/// disagrees with the descriptor can never be applied to it, so it is
-/// discarded, and one that still fails to merge is dropped rather than
-/// propagated: it was accepted speculatively from a peer that is not the
-/// announcer, and it must not be able to invalidate the announcement.
+/// To partition on the address alone permitted a denial of service. A forged
+/// delta or a stale delta can name an address with no announcement, under the
+/// wrong channel type. To merge such a delta into the announced kernel fails.
+/// An announcement accepts all of its entries or none of them, so that failure
+/// refused the correct `channel` message *and* kept the bad delta in the
+/// buffer. Every later announcement and every later `state` transfer that
+/// touched that address then failed in the same way, without an end.
+///
+/// The module can never apply a buffered delta whose declared type disagrees
+/// with the descriptor, so it discards that delta. It also drops a delta that
+/// still fails to merge, and it does not forward that delta. The module
+/// accepted the delta from a peer that is not the announcer, before it knew the
+/// channel, and such a delta must not be able to invalidate the
+/// announcement.
 fn flush_buffered(
   document: Document,
   from: String,
@@ -869,10 +883,10 @@ fn flush_buffered(
 
 // --- canonical snapshots and digests --------------------------------------
 
-/// The document as canonical JSON: fixed field order, channels sorted by
-/// address, each channel encoded by its own snapshot codec. Two replicas
-/// that reached the same value by different delivery orders produce the
-/// same bytes.
+/// The document as canonical JSON. The field order is fixed, the channels are
+/// sorted by address, and the snapshot codec of each channel encodes that
+/// channel. Two replicas that reached the same value through different delivery
+/// orders produce the same bytes.
 pub fn canonical_json(document: Document) -> String {
   json.to_string(
     json.object([
@@ -888,21 +902,23 @@ pub fn canonical_json(document: Document) -> String {
   )
 }
 
-/// The digest projection: `canonical_json` with every channel state reduced
-/// to the part two replicas holding the same logical *and* causal state
-/// must agree on.
+/// The digest projection: `canonical_json`, with the state of each channel
+/// reduced to the part that two replicas with the same logical state *and* the
+/// same causal state must agree on.
 ///
-/// The only things removed are each replica's authoring cursors — the id it
-/// stamps its own writes with and the counter it stamps them from. Causal
-/// metadata, tombstones, pruning and version vectors, remove bounds, and
-/// LWW timestamps with their replica-id tie-break all survive, so this is
-/// a comparison of state, not of values: a peer that has seen a removal
-/// its neighbour has not still fails the comparison and gets repaired.
+/// The function removes the authoring cursors of each replica only. Those are
+/// the id that the replica stamps its own writes with, and the counter that it
+/// stamps them from. The causal metadata, the tombstones, the pruning vectors,
+/// the version vectors, the remove bounds, and the LWW timestamps with their
+/// replica-id tie-break all stay. This is thus a comparison of state, and not
+/// of values. A peer that has seen a removal that its neighbour has not seen
+/// fails the comparison, and it receives a repair.
 ///
-/// The bytes come from `canonical_json`, not from `gleam/json`: object
-/// keys are emitted in UTF-8 byte order, set-shaped arrays are ordered by
-/// their canonical bytes, and every number has one spelling — so neither a
-/// dictionary's iteration order nor the compile target can move a byte.
+/// The bytes come from `canonical_json`, and not from `gleam/json`. The object
+/// keys go out in UTF-8 byte order, a set-shaped array is ordered by the
+/// canonical bytes of its elements, and every number has one form. Neither the
+/// iteration order of a dictionary nor the compile target can thus move one
+/// byte.
 pub fn digest_canonical_json(document: Document) -> String {
   canonical_json.to_string(
     json_ot.VObject([
@@ -915,16 +931,16 @@ pub fn digest_canonical_json(document: Document) -> String {
   )
 }
 
-/// SHA-256 of `digest_canonical_json`, lowercase hex. Equal for two
-/// replicas that reached the same state by any delivery order, on either
-/// compile target.
+/// The SHA-256 of `digest_canonical_json`, as lowercase hex. Two replicas that
+/// reached the same state, through any delivery order and on either compile
+/// target, get the same value.
 pub fn digest(document: Document) -> String {
   sha256.hex(digest_canonical_json(document))
 }
 
-/// Built here rather than through `crdt_wire.encode_descriptor`: the
-/// digest is a projection of state, not a wire message, and it should not
-/// move because an envelope field was renamed.
+/// This function builds the entry, and `crdt_wire.encode_descriptor` does not.
+/// The digest is a projection of the state, and not a wire message. A new name
+/// for an envelope field must not change it.
 fn digest_entry(entry: ChannelEntry) -> JsonValue {
   let ChannelDescriptor(address, channel_type, created_by) = entry.descriptor
   json_ot.VObject([
@@ -947,17 +963,17 @@ fn projected(snapshot: Snapshot) -> JsonValue {
   |> merge_relevant
 }
 
-/// Strip the replica-local authoring cursors from one self-describing
-/// lattice envelope.
+/// Remove the replica-local authoring cursors from one self-describing lattice
+/// envelope.
 ///
-/// Dispatch is on the envelope's own `type` tag rather than on a field
-/// path, so the same function handles a channel snapshot and the CRDTs an
-/// OR-map nests inside it as *stringified* JSON. Anything unrecognised is
-/// returned untouched: an unknown encoding is compared in full rather than
-/// silently weakened. `lww_register` is deliberately in that group — its
-/// `replica_id` is the tie-break half of a timestamp, not an authoring
-/// cursor, and dropping it would let two genuinely different winners hash
-/// alike.
+/// The function dispatches on the `type` tag of the envelope, and not on a
+/// field path. One function thus handles a channel snapshot and the CRDTs that
+/// an OR-map holds inside that snapshot as *stringified* JSON. The function
+/// returns a value that it does not recognize without a change, so it compares
+/// an unknown encoding in full. It does not weaken that comparison quietly.
+/// `lww_register` is in that group on purpose. Its `replica_id` field is the
+/// tie-break half of a timestamp, and not an authoring cursor. To remove it
+/// would let two different winners produce the same hash.
 fn merge_relevant(value: JsonValue) -> JsonValue {
   case type_tag(value) {
     "pn_counter" ->
@@ -998,10 +1014,10 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
   }
 }
 
-/// An OR-map's values: an array of `{key, crdt}` pairs whose `crdt` is a
-/// nested CRDT envelope carried as a string. Project each one, then order
-/// the array, because it comes from a dictionary and a dictionary's order
-/// is not part of the state.
+/// The values of an OR-map: an array of `{key, crdt}` pairs. The `crdt` field
+/// of a pair is a nested CRDT envelope, as a string. The function projects each
+/// pair, and then it orders the array, because that array comes from a
+/// dictionary and the order of a dictionary is not part of the state.
 fn or_map_values(value: JsonValue) -> JsonValue {
   case value {
     json_ot.VArray(items) ->
@@ -1011,9 +1027,9 @@ fn or_map_values(value: JsonValue) -> JsonValue {
   }
 }
 
-/// Project a CRDT envelope that is carried as a JSON string inside another
-/// one, re-stringifying it canonically so the shape is preserved. A string
-/// that does not parse as JSON is left exactly as it is.
+/// Project a CRDT envelope that another envelope carries as a JSON string, and
+/// write it back as a canonical string, so that the shape stays the same. The
+/// function does not change a string that is not valid JSON.
 fn inner(value: JsonValue) -> JsonValue {
   case value {
     json_ot.VString(raw) ->
@@ -1084,9 +1100,9 @@ fn without(value: JsonValue, names: List(String)) -> JsonValue {
   }
 }
 
-/// Order a set-shaped array by its canonical bytes. Only used on fields
-/// the CRDT itself defines as a set or a map, never on a sequence's
-/// segments, where order *is* the state.
+/// Order a set-shaped array by the canonical bytes of its elements. Use this
+/// function on a field that the CRDT defines as a set or as a map only. Never
+/// use it on the segments of a sequence, where the order *is* the state.
 fn ordered(value: JsonValue) -> JsonValue {
   case value {
     json_ot.VArray(items) -> json_ot.VArray(canonical_json.sorted(items))
@@ -1094,9 +1110,10 @@ fn ordered(value: JsonValue) -> JsonValue {
   }
 }
 
-/// Merge an exported snapshot back in. Size, room, protocol, compatibility,
-/// and root are checked before a single channel is touched, and the merge
-/// is a join: local channels and local edits survive it.
+/// Merge an exported snapshot back into the document. The function checks the
+/// size, the room, the protocol, the compatibility, and the root, before it
+/// touches one channel. The merge is a join, so the local channels and the
+/// local edits all stay.
 pub fn import_snapshot(
   document: Document,
   raw: String,
@@ -1171,9 +1188,9 @@ fn entries(document: Document) -> List(ChannelEntry) {
   })
 }
 
-/// The initializer that reconstructs an empty channel able to receive this
-/// snapshot. OR-map carries its value mode in the snapshot, so a merge can
-/// reject a mode mismatch instead of loading into the wrong kernel.
+/// The initializer that builds an empty channel that can receive this snapshot.
+/// An OR-map carries its value mode in the snapshot, so a merge can refuse a
+/// mode mismatch, and it does not load the data into the wrong kernel.
 fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
   case snapshot {
     channel.PnCounterSnapshot(_) -> Ok(channel.InitPnCounter)
@@ -1212,10 +1229,10 @@ fn check_capacity(document: Document) -> Result(Nil, P2pError) {
   }
 }
 
-/// Refuse an oversize snapshot on its byte length, before it is parsed.
-/// A caller that hands us a hostile file must not be able to spend our
-/// parser on it first; this is the same guard `decode_envelope` puts in
-/// front of an envelope.
+/// Refuse an oversize snapshot by its byte length, before the module parses it.
+/// A caller that gives the module a hostile file must not be able to run the
+/// parser on that file first. `decode_envelope` puts the same check in front of
+/// an envelope.
 fn check_snapshot_size(
   document: Document,
   raw: String,
@@ -1232,9 +1249,9 @@ fn empty_recent() -> Recent {
   Recent(seen: dict.new(), queue: fifo_new())
 }
 
-/// Record an accepted message ID, evicting the oldest once the window is
-/// full. An ID already in the window is not queued a second time, which is
-/// what keeps the dictionary and the FIFO holding exactly the same set.
+/// Record an accepted message id, and remove the oldest id when the window is
+/// full. An id that is already in the window does not enter the queue a second
+/// time. The dictionary and the FIFO thus hold exactly the same set.
 fn remember(document: Document, id: MessageId) -> Recent {
   let limit = document.config.limits.recent_message_ids
   let recent = document.recent

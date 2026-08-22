@@ -1,17 +1,19 @@
-//// The in-memory sluice's pure, target-agnostic core: a floodgate-shaped sequencer
-//// over parsed wire frames.
+//// The pure, target-agnostic core of the in-memory sluice: a floodgate-shaped
+//// sequencer over parsed wire frames.
 ////
-//// It reuses spillway's *real* `sequencing` module (the same SN/MSN/CSN logic
-//// the production server runs) and the inverse codecs in `sluice/frames`, so a
-//// runtime under test exercises byte-identical client code paths against a
-//// faithful server. Everything here is a pure function of state — no actors,
-//// no clock, no I/O. The erlang and JavaScript drivers (`watershed/sluice`,
-//// `watershed/sluice_js`) wrap this with a mailbox and delivery controls.
+//// It uses the *real* `sequencing` module of spillway, which is the same SN,
+//// MSN, and CSN logic that the production server runs. It also uses the
+//// inverse codecs in `sluice/frames`. A runtime under test thus runs
+//// byte-identical client code paths against an accurate server. Everything
+//// here is a pure function of the state. There is no actor, no clock, and no
+//// input or output. The Erlang driver (`watershed/sluice`) and the JavaScript
+//// driver (`watershed/sluice_js`) add a mailbox and the delivery controls.
 ////
-//// Delivery is explicit (plan decision 3): ops sequence on `handle` but land
-//// in the `outbox`, delivered only when a driver calls `take`. That is what
-//// makes races scriptable — "A and B both claim the cell, deliver B first" is
-//// a sequence of `take` calls, not a timing accident.
+//// Every delivery is explicit, which is plan decision 3. An op sequences in
+//// `handle`, but it goes into the `outbox`, and the core delivers it only when
+//// a driver calls `take`. That behaviour makes a race scriptable. "Client A
+//// and client B both claim the cell, deliver B first" is a sequence of `take`
+//// calls, and not an accident of timing.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
@@ -32,7 +34,8 @@ import watershed/sluice/frames.{type Sequenced, Sequenced}
 // State
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A frame the sluice owes one client, awaiting an explicit `take`.
+/// A frame that the sluice owes to one client, which waits for an explicit
+/// `take`.
 pub type Outbound {
   Outbound(client_id: String, event: String, payload: Json)
 }
@@ -41,40 +44,45 @@ type ClientEntry {
   ClientEntry(client: Client, scopes: List(String))
 }
 
-/// One document's worth of sluice state. Pure; a driver owns the mutable cell.
+/// The sluice state for one document. The type is pure, and a driver owns the
+/// mutable cell.
 pub opaque type Sluice {
   Sluice(
     document_id: String,
     tenant_id: String,
     seq: SequenceState,
-    /// Full op history in ascending sequence-number order. Late joiners and
-    /// reconnects replay from here (plan decision 5: no summary store in v1).
+    /// The full op history, in ascending order of sequence number. A late
+    /// joiner and a reconnect both replay from this list. Plan decision 5 says
+    /// that version 1 has no summary store.
     log: List(Sequenced),
     clients: Dict(String, ClientEntry),
-    /// Presence tracked per *connection*, keyed by client id. Version one
-    /// supports one registration per document connection, so an app puts panel,
-    /// cursor, and activity into one metadata value.
+    /// The presence of each *connection*, keyed by client id. Version 1
+    /// supports one registration for each document connection, so an
+    /// application puts its panel, cursor, and activity into one metadata
+    /// value.
     presence: Dict(String, frames.PresenceMeta),
-    /// Deterministic `phx_ref` source. Phoenix mints random refs; the sluice
-    /// mints `ref-1`, `ref-2`, … for the same reason it mints
-    /// `sluice-client-N` — a test asserts on frames, so frames must be
-    /// reproducible.
+    /// A deterministic source of `phx_ref` values. Phoenix creates a random
+    /// ref. The sluice creates `ref-1`, `ref-2`, and so on, for the same
+    /// reason that it creates `sluice-client-N`. A test asserts on the frames,
+    /// so the frames must be reproducible.
     next_presence_ref: Int,
-    /// Whether the handshake advertises `presence_v1`. Tests turn it off to
-    /// drive the capability-absent paths: `Auto` falling back to ripples, and a
-    /// forced `Server` failing loudly.
+    /// Whether the handshake announces `presence_v1`. A test sets this field
+    /// to false to run the paths for an absent capability: `Auto` mode changes
+    /// to ripples, and a forced `Server` mode fails with a report.
     presence_supported: Bool,
-    /// Clients whose inbound frames are held (the `pause`/`resume` control).
+    /// The clients whose inbound frames the core holds. `pause` and `resume`
+    /// control this set.
     paused: Set(String),
     next_client_number: Int,
     now_ms: Int,
-    /// Frames awaiting delivery, oldest first.
+    /// The frames that wait for delivery, oldest first.
     outbox: List(Outbound),
   )
 }
 
-/// A fresh sluice for one document. `now_ms` starts at 0 and only moves via
-/// `advance`, keeping protocol frame timestamps deterministic in tests.
+/// A new sluice for one document. `now_ms` starts at 0, and only `advance`
+/// moves it. The timestamps on the protocol frames thus stay deterministic in
+/// a test.
 pub fn new(
   tenant_id tenant_id: String,
   document_id document_id: String,
@@ -95,8 +103,9 @@ pub fn new(
   )
 }
 
-/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
-/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+/// Remove `presence_v1` from the handshake. A client in `Auto` mode thus
+/// selects the ripple fallback, and a client that forces `Server` mode fails.
+/// Call this function before `connect`.
 pub fn set_presence_supported(sluice: Sluice, supported: Bool) -> Sluice {
   Sluice(..sluice, presence_supported: supported)
 }
@@ -105,7 +114,8 @@ pub fn set_presence_supported(sluice: Sluice, supported: Bool) -> Sluice {
 // Clock
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The sluice's logical wall clock (ms). Only `advance` moves it.
+/// The logical wall clock of the sluice, in milliseconds. Only `advance` moves
+/// it.
 pub fn now(sluice: Sluice) -> Int {
   sluice.now_ms
 }
@@ -119,9 +129,10 @@ pub fn advance(sluice: Sluice, ms: Int) -> Sluice {
 // Connection lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Reserve a client id for a newly opened connection. The client only becomes
-/// known to the sequencer once its `connect_document` arrives (`handle`), so
-/// this just mints the id the driver keys the link by.
+/// Reserve a client id for a connection that just opened. The sequencer learns
+/// about the client only when its `connect_document` message arrives, in
+/// `handle`. This function thus creates the id that the driver uses as the key
+/// of the link, and it does nothing else.
 pub fn register(sluice: Sluice) -> #(Sluice, String) {
   let client_id = "sluice-client-" <> int.to_string(sluice.next_client_number)
   #(
@@ -130,14 +141,16 @@ pub fn register(sluice: Sluice) -> #(Sluice, String) {
   )
 }
 
-/// Drop a client: sequence a `"leave"` for the remaining clients, remove it
-/// from the sequencer's MSN calculation and from the paused set. Queued frames
-/// it never received are discarded on `take`.
+/// Remove a client. The function sequences a `"leave"` message for the clients
+/// that remain, and it removes the client from the MSN calculation of the
+/// sequencer and from the paused set. `take` discards each queued frame that
+/// the client did not receive.
 ///
-/// The leave is what settles per-client kernel state on every surviving replica
-/// — re-released queue jobs, drained consensus signoffs — at one agreed
-/// sequence point. A client that never completed `connect_document` is not in
-/// the roster, so its disconnect sequences nothing.
+/// The leave settles the per-client kernel state on every replica that
+/// remains, at one agreed sequence point. It releases the queue jobs of that
+/// client and removes it from the consensus signoffs. A client that did not
+/// complete `connect_document` is not in the roster, so its disconnect
+/// sequences nothing.
 pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
   let known = dict.has_key(sluice.clients, client_id)
   let sluice =
@@ -163,13 +176,14 @@ pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
   }
 }
 
-/// Hold a client's inbound frames (they stay queued until `resume`). Lets a
-/// test deliver one peer's op before another's.
+/// Hold the inbound frames of a client. They stay in the queue until a
+/// `resume` call. A test can thus deliver the op of one peer before the op of
+/// another peer.
 pub fn pause(sluice: Sluice, client_id: String) -> Sluice {
   Sluice(..sluice, paused: set.insert(sluice.paused, client_id))
 }
 
-/// Release a paused client's held frames back into the deliverable queue.
+/// Return the held frames of a paused client to the deliverable queue.
 pub fn resume(sluice: Sluice, client_id: String) -> Sluice {
   Sluice(..sluice, paused: set.delete(sluice.paused, client_id))
 }
@@ -178,10 +192,11 @@ pub fn resume(sluice: Sluice, client_id: String) -> Sluice {
 // Inbound frame handling
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Process one client→server push, keyed by the connection's assigned client
-/// id. Sequences ops, appends to the log, and enqueues resulting frames.
-/// Malformed or out-of-protocol frames are ignored (a well-behaved runtime
-/// never sends them).
+/// Process one push from a client to the server, keyed by the client id that
+/// the connection received. The function sequences the ops, appends them to
+/// the log, and queues the frames that result. It ignores a malformed frame
+/// and a frame that the protocol does not permit, because a correct runtime
+/// never sends one.
 pub fn handle(
   sluice: Sluice,
   client_id: String,
@@ -275,8 +290,9 @@ fn on_submit_op(sluice: Sluice, payload: Dynamic) -> Sluice {
   }
 }
 
-/// Assign a sequence number to one op and broadcast it to every connected
-/// client — including the author, whose echo is the ack its kernel awaits.
+/// Give a sequence number to one op and broadcast that op to every connected
+/// client. The broadcast includes the author, because that echo is the ack
+/// that the kernel of the author waits for.
 fn sequence_op(
   sluice: Sluice,
   client_id: String,
@@ -365,13 +381,14 @@ fn on_signal(sluice: Sluice, payload: Dynamic) -> Sluice {
 // Presence
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Register this connection's presence.
+/// Register the presence of this connection.
 ///
-/// The ordering here is Phoenix's state-plus-diff synchronization, and it is
-/// what lets a joiner converge without locking the topic: snapshot the roster,
-/// send it to the joiner alone, *then* track and broadcast the join. The joiner
-/// therefore learns of its own session from the diff, not the snapshot, and a
-/// remote change racing the snapshot is simply a diff the client queues.
+/// The order here is the state-plus-diff synchronization of Phoenix, and it
+/// lets a joiner converge without a lock on the topic. Take a snapshot of the
+/// roster, send that snapshot to the joiner alone, and *then* track the join
+/// and broadcast it. The joiner thus learns about its own session from the
+/// diff, and not from the snapshot. A remote change that races the snapshot is
+/// a diff that the client queues.
 fn on_join_presence(
   sluice: Sluice,
   client_id: String,
@@ -403,11 +420,12 @@ fn on_join_presence(
   }
 }
 
-/// Replace this connection's metadata.
+/// Replace the metadata of this connection.
 ///
-/// Emitted as one diff carrying a leave of the old `phx_ref` and a join of the
-/// new one — both what Phoenix emits and what an untrack-then-track on the
-/// server produces, so a Phoenix client already understands the sequence.
+/// The core emits one diff, which carries a leave of the old `phx_ref` and a
+/// join of the new one. Phoenix emits the same pair, and an untrack followed
+/// by a track on the server produces it too. A Phoenix client thus already
+/// understands the sequence.
 fn on_update_presence(
   sluice: Sluice,
   client_id: String,
@@ -441,8 +459,9 @@ fn on_update_presence(
   }
 }
 
-/// Drop this connection's presence. A connection with none is a silent no-op:
-/// a duplicate leave, or one racing the socket's own cleanup, must not error.
+/// Remove the presence of this connection. If the connection has no presence,
+/// the function does nothing and reports nothing. A duplicate leave, or a
+/// leave that races the cleanup of the socket, must not give an error.
 fn on_leave_presence(sluice: Sluice, client_id: String) -> Sluice {
   case dict.get(sluice.presence, client_id) {
     Error(Nil) -> sluice
@@ -452,7 +471,7 @@ fn on_leave_presence(sluice: Sluice, client_id: String) -> Sluice {
   }
 }
 
-/// Mint a `phx_ref` and pair it with the metadata it stamps.
+/// Create a `phx_ref` value and pair it with the metadata that it stamps.
 fn track(
   sluice: Sluice,
   key: String,
@@ -465,10 +484,11 @@ fn track(
   )
 }
 
-/// Broadcast a presence change to **every** connected client, the joiner
-/// included. That is deliberately unlike `on_signal`, which excludes the
-/// author: Phoenix presence is topic-wide, and a joiner that never heard its
-/// own join would hold a roster missing itself.
+/// Broadcast a presence change to **every** connected client, and to the
+/// joiner too. This differs from `on_signal`, which excludes the author, and
+/// the difference is deliberate. Phoenix presence covers the whole topic, and
+/// a joiner that never received its own join would hold a roster without
+/// itself in it.
 fn broadcast_presence(
   sluice: Sluice,
   joins joins: List(#(String, frames.PresenceMeta)),
@@ -481,11 +501,12 @@ fn broadcast_presence(
   )
 }
 
-/// The presence key for a connection: its authenticated user id.
+/// The presence key of a connection, which is its authenticated user id.
 ///
-/// A connection that has not completed `connect_document` is not in `clients`
-/// and has no authenticated identity to derive a key from, so it is rejected —
-/// presence must never be attributable to an unauthenticated socket.
+/// A connection that did not complete `connect_document` is not in `clients`,
+/// and it has no authenticated identity to derive a key from. The function
+/// thus refuses it. A presence must never come from a socket that no server
+/// authenticated.
 fn authenticated_key(
   sluice: Sluice,
   client_id: String,
@@ -500,10 +521,11 @@ fn authenticated_key(
   }
 }
 
-/// Read a presence command's metadata, rejecting an attempt to claim a
-/// server-owned field. Reserved keys nested *inside* `meta` are stripped rather
-/// than rejected (see `frames.decode_presence_meta`); naming one at the top
-/// level is an identity claim, and worth an explicit error.
+/// Read the metadata of a presence command, and refuse an attempt to claim a
+/// field that the server owns. The function removes a reserved key *inside*
+/// `meta`, and it does not refuse the command. See
+/// `frames.decode_presence_meta`. A reserved key at the top level is a claim
+/// of identity, and it deserves an explicit error.
 fn read_meta(payload: Dynamic) -> Result(List(#(String, Json)), Json) {
   case frames.names_reserved_field(payload) {
     True ->
@@ -526,9 +548,10 @@ fn read_meta(payload: Dynamic) -> Result(List(#(String, Json)), Json) {
 // Delivery
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Deliver the oldest frame owed to a non-paused client, removing it from the
-/// queue. Returns `None` when nothing is deliverable (empty, or every pending
-/// frame belongs to a paused client).
+/// Deliver the oldest frame that the core owes to a client that is not paused,
+/// and remove that frame from the queue. The result is `None` when the core can
+/// deliver no frame, which occurs when the queue is empty and when every
+/// pending frame belongs to a paused client.
 pub fn take(sluice: Sluice) -> #(Sluice, Option(Outbound)) {
   case pop_deliverable(sluice.outbox, sluice.paused, []) {
     Error(Nil) -> #(sluice, None)
@@ -536,9 +559,10 @@ pub fn take(sluice: Sluice) -> #(Sluice, Option(Outbound)) {
   }
 }
 
-/// The next frame `take` would deliver, without removing it. `None` when
-/// nothing is deliverable. Lets a caller group a whole broadcast wave (frames
-/// sharing an op's sequence number) before committing to deliver it.
+/// The next frame that `take` would deliver, without a removal. The result is
+/// `None` when the core can deliver no frame. A caller can thus collect a whole
+/// broadcast group, which is the set of frames that share the sequence number
+/// of one op, before it delivers that group.
 pub fn peek(sluice: Sluice) -> Option(Outbound) {
   case pop_deliverable(sluice.outbox, sluice.paused, []) {
     Error(Nil) -> None
@@ -546,20 +570,22 @@ pub fn peek(sluice: Sluice) -> Option(Outbound) {
   }
 }
 
-/// Whether any frame is deliverable right now (a non-paused client is owed one).
+/// Whether the core can deliver a frame now, which is true when it owes a
+/// frame to a client that is not paused.
 pub fn has_pending(sluice: Sluice) -> Bool {
   list.any(sluice.outbox, fn(frame) {
     !set.contains(sluice.paused, frame.client_id)
   })
 }
 
-/// Every frame currently queued, oldest first (paused or not). For assertions
-/// and diagnostics.
+/// Every frame in the queue now, oldest first, for a paused client and for a
+/// client that is not paused. Use this function for assertions and for
+/// diagnostics.
 pub fn outbox(sluice: Sluice) -> List(Outbound) {
   sluice.outbox
 }
 
-/// The connected clients, in a stable (sorted) order.
+/// The connected clients, in a stable order, sorted by id.
 pub fn connected_ids(sluice: Sluice) -> List(String) {
   sluice.clients |> dict.keys() |> list.sort(string.compare)
 }
@@ -585,20 +611,22 @@ fn enqueue(
   )
 }
 
-/// Enqueue one frame to every connected client (used for op echoes/broadcasts).
+/// Queue one frame for every connected client. The op echoes and the
+/// broadcasts use this function.
 fn broadcast(sluice: Sluice, event: String, payload: Json) -> Sluice {
   connected_ids(sluice)
   |> list.fold(sluice, fn(sluice, id) { enqueue(sluice, id, event, payload) })
 }
 
-/// Stamp a system message (`"join"` / `"leave"`) with the next sequence number
-/// and append it to the log, returning it for the caller to route.
+/// Give the next sequence number to a system message, which is a `"join"` or a
+/// `"leave"`, and append that message to the log. The function returns the
+/// message, for the caller to route.
 ///
-/// System messages consume a sequence number like any op, so every replica
-/// agrees on *where* in the stream membership changed — that ordering is the
-/// whole point, since a consensus kernel settles its pending state at exactly
-/// this sequence point. `client_id` is null and `contents` is null; the payload
-/// rides in `data`.
+/// A system message uses a sequence number, the same as an op. Every replica
+/// thus agrees on the position in the stream at which the membership changed.
+/// That order is the purpose of the message, because a consensus kernel
+/// settles its pending state at exactly that sequence point. `client_id` is
+/// null and `contents` is null. The payload is in `data`.
 fn sequence_system(
   sluice: Sluice,
   message_type: String,
@@ -622,16 +650,17 @@ fn sequence_system(
   #(Sluice(..sluice, seq: seq, log: [message, ..sluice.log]), message)
 }
 
-/// Ops with sequence number strictly greater than `after`, ascending.
+/// The ops whose sequence number is more than `after`, in ascending order.
 fn log_since(log: List(Sequenced), after: Int) -> List(Sequenced) {
   log
   |> list.reverse()
   |> list.filter(fn(op) { op.sequence_number > after })
 }
 
-/// Pop the first frame whose client is not paused, preserving queue order
-/// among the frames left behind. `skipped` accumulates the paused frames we
-/// stepped over so they can be spliced back ahead of `rest`.
+/// Take the first frame whose client is not paused, and keep the queue order of
+/// the frames that remain. `skipped` collects the frames of the paused clients
+/// that the function passed over, so that the caller can put them back before
+/// `rest`.
 fn pop_deliverable(
   remaining: List(Outbound),
   paused: Set(String),

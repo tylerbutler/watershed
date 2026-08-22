@@ -1,26 +1,29 @@
 //// Pure port of FluidFramework's `packages/dds/claims/src/claims.ts`.
 ////
-//// Claims is a first-writer-wins key/value DDS with per-key sequence-number
-//// compare-and-set. Two properties make it a distinct kernel from counter/map,
-//// and both simplify it:
+//// Claims is a first-writer-wins key-value DDS, with a compare-and-set on the
+//// sequence number of each key. Two properties separate it from the counter
+//// kernel and the map kernel, and both properties make it simpler:
 ////
-//// 1. **Reads are NOT optimistic.** `get`/`has` return only committed state. A
-////    pending local claim is invisible until it wins — there is no
-////    pending-overlay/rebase machinery, the inverse of `map_kernel`.
-//// 2. **Acceptance is decided at sequencing time, identically for local and
-////    remote ops** (`apply_sequenced`): the key is unclaimed, or the op's
-////    `ref_seq` exactly equals the committed entry's sequence number. Every
-////    client evaluates the same rule against the same committed state, so
-////    convergence is by construction; the local path only additionally
-////    resolves the caller's pending outcome.
+//// 1. **A read is not optimistic.** `get` and `has` return the committed state
+////    only. A pending local claim is not visible until it wins. There is no
+////    pending overlay and no rebase machinery, which is the opposite of
+////    `map_kernel`.
+//// 2. **The sequencing decides acceptance, in the same way for a local op and
+////    a remote op** (`apply_sequenced`). The kernel accepts the op when the
+////    key is unclaimed, or when the `ref_seq` of the op equals the sequence
+////    number of the committed entry exactly. Every client applies the same
+////    rule to the same committed state, so the replicas converge by
+////    construction. The local path does one more thing only: it resolves the
+////    pending outcome for the caller.
 ////
-//// The genuinely new pattern is the **deferred outcome**: a local claim's
-//// result ("did I win?") is unknowable until the op round-trips. The TS class
-//// hands back a `Promise`; this pure kernel returns a `ClaimOutcome` from
-//// `ack_local`/`rollback`/`abort_all` and lets the runtime own the async
-//// surface. `last_seen_seq` is a parameter, not kernel state: the runtime
-//// actor owns sequencing concerns (as it does for map), and it already tracks
-//// the container's last sequence number.
+//// The new pattern here is the **deferred outcome**. The result of a local
+//// claim, which is whether that claim won, is unknowable until the op returns
+//// from the server. The TypeScript class returns a `Promise`. This pure kernel
+//// returns a `ClaimOutcome` value from `ack_local`, `rollback`, and
+//// `abort_all`, and the runtime owns the asynchronous surface.
+//// `last_seen_seq` is a parameter, and not kernel state. The runtime actor
+//// owns the sequencing work, the same as for the map kernel, and it already
+//// tracks the last sequence number of the container.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -30,12 +33,14 @@ import gleam/string
 
 pub type ClaimsState {
   ClaimsState(
-    /// Committed claims: value + the sequence number of the op that set it.
+    /// The committed claims: a value with the sequence number of the op that
+    /// set it.
     claims: Dict(String, ClaimEntry),
-    /// Pending local claims keyed by claim key — at most one per key. The
-    /// value is the submitted value, needed to build the `Accepted` outcome
-    /// and for handle scanning. No queue: acceptance is decided by the
-    /// sequenced op itself, not by pending-queue position.
+    /// The pending local claims, keyed by claim key, with one claim for each
+    /// key at most. The value is the submitted value. The kernel needs it to
+    /// build the `Accepted` outcome, and the handle scan needs it. There is no
+    /// queue, because the sequenced op decides the acceptance, and not the
+    /// position in a pending queue.
     pending: Dict(String, Json),
   )
 }
@@ -44,47 +49,53 @@ pub type ClaimEntry {
   ClaimEntry(value: Json, sequence_number: Int)
 }
 
-/// The one claim op as it travels over the wire. Both write-once
-/// (`try_set_claim`) and CAS (`compare_and_set_claim`) share this shape.
+/// The one claim op, in its wire form. The write-once path (`try_set_claim`)
+/// and the compare-and-set path (`compare_and_set_claim`) both use this
+/// shape.
 pub type ClaimOp {
   Claim(key: String, value: Json, ref_seq: Int)
 }
 
 pub type ClaimEvent {
-  /// Emitted whenever a sequenced op is accepted. `local` follows the
-  /// watershed convention (map/counter events carry it; the TS event doesn't).
+  /// The kernel emits this event when it accepts a sequenced op. `local`
+  /// follows the watershed convention. The map events and the counter events
+  /// carry that field, and the TypeScript event does not.
   Claimed(key: String, local: Bool)
 }
 
-/// Synchronous result of `try_set_claim` / `compare_and_set_claim`.
+/// The synchronous result of `try_set_claim` or `compare_and_set_claim`.
 pub type SubmitResult {
-  /// The op must be sent; its outcome arrives later via `ack_local`
-  /// (the TS "Pending" status).
+  /// The caller must send the op. Its outcome arrives later, from
+  /// `ack_local`. This is the "Pending" status in TypeScript.
   Submitted(state: ClaimsState, op: ClaimOp)
-  /// `try_set_claim` found a committed entry — nothing is sent. Carries the
-  /// committed value (which may be JSON null).
+  /// `try_set_claim` found a committed entry, so the caller sends nothing.
+  /// This value carries the committed value, which can be a JSON null.
   AlreadyClaimed(current_value: Json)
 }
 
-/// The resolved outcome of a pending claim, returned once its op sequences (or
-/// is rolled back / aborted) for the runtime to deliver to whoever is waiting.
-/// Replaces the TS promise.
+/// The resolved outcome of a pending claim. The kernel returns it after the op
+/// sequences, or after a rollback or an abort. The runtime then delivers it to
+/// the caller that waits. It replaces the promise of the TypeScript code.
 pub type ClaimOutcome {
   Accepted(value: Json)
-  /// Lost the race. Carries the current committed value; `None` only if the
-  /// key ended up genuinely unclaimed (the TS `T | undefined`). In practice a
-  /// loss implies a committed winner, so this is `Some` — the `Option` mirrors
-  /// the upstream type rather than a reachable-in-isolation state.
+  /// The claim lost the race. This value carries the current committed value.
+  /// It is `None` only if the key is truly unclaimed, which is the
+  /// `T | undefined` type in TypeScript. In practice a loss means that another
+  /// claim won, so the value is `Some`. The `Option` type follows the upstream
+  /// type. It does not represent a state that this kernel can reach on its
+  /// own.
   Lost(current_value: Option(Json))
   Aborted
 }
 
 pub type KernelError {
-  /// Submit-side usage error — the TS `UsageError`, surfaced as data.
+  /// A usage error on the submit side. This is the `UsageError` of the
+  /// TypeScript code, as data.
   AlreadyPendingLocally(key: String)
-  /// A local ack arrived with no matching pending entry. The TS code tolerates
-  /// this silently; the kernel is strict, matching counter/map's philosophy
-  /// that a routing mismatch is fatal divergence.
+  /// A local ack arrived, and no pending entry matches it. The TypeScript code
+  /// accepts that condition quietly. This kernel is strict, the same as the
+  /// counter kernel and the map kernel: a routing mismatch is fatal
+  /// divergence.
   UnexpectedAck(op: ClaimOp, detail: String)
   UnexpectedRollback(op: ClaimOp, detail: String)
 }
@@ -93,9 +104,10 @@ pub fn new() -> ClaimsState {
   ClaimsState(claims: dict.new(), pending: dict.new())
 }
 
-/// Build a committed-only state from stored summary triples `(key, value,
-/// sequence_number)`. Sequence numbers are persisted so CAS `ref_seq` matching
-/// keeps working after load. A freshly loaded state has no pending entries.
+/// Build a state that contains committed data only, from the stored summary
+/// triples `(key, value, sequence_number)`. The summary keeps the sequence
+/// numbers, so the `ref_seq` comparison of a compare-and-set continues to work
+/// after a load. A state that you load has no pending entry.
 pub fn from_summary(entries: List(#(String, Json, Int))) -> ClaimsState {
   let claims =
     list.fold(entries, dict.new(), fn(acc, entry) {
@@ -106,7 +118,8 @@ pub fn from_summary(entries: List(#(String, Json, Int))) -> ClaimsState {
 }
 
 /// The committed claims to store in a summary, as `(key, value,
-/// sequence_number)` triples sorted by key for stable snapshots.
+/// sequence_number)` triples. The function sorts them by key, so a snapshot is
+/// stable.
 pub fn summary_entries(state: ClaimsState) -> List(#(String, Json, Int)) {
   dict.to_list(state.claims)
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
@@ -116,8 +129,9 @@ pub fn summary_entries(state: ClaimsState) -> List(#(String, Json, Int)) {
   })
 }
 
-/// The committed value for a key, or `None` if unclaimed. Committed-only by
-/// design: a pending local claim is invisible until it wins.
+/// The committed value for a key. The result is `None` if the key is
+/// unclaimed. The read gives committed data only, by design: a pending local
+/// claim is not visible until it wins.
 pub fn get(state: ClaimsState, key: String) -> Option(Json) {
   case dict.get(state.claims, key) {
     Ok(ClaimEntry(value, _)) -> Some(value)
@@ -125,19 +139,21 @@ pub fn get(state: ClaimsState, key: String) -> Option(Json) {
   }
 }
 
-/// Whether a committed claim exists for a key. Distinguishes "never set" from
-/// "set to JSON null". Committed-only, like `get`.
+/// Whether a committed claim exists for a key. This function separates a key
+/// that no client set from a key that a client set to a JSON null. It reads
+/// committed data only, the same as `get`.
 pub fn has(state: ClaimsState, key: String) -> Bool {
   dict.has_key(state.claims, key)
 }
 
-/// Write-once submit. If a committed entry exists, returns `AlreadyClaimed`
-/// synchronously with no op sent. Otherwise behaves as a CAS against the
-/// unclaimed key, capturing `ref_seq = last_seen_seq`.
+/// The write-once submit. If a committed entry exists, the function returns
+/// `AlreadyClaimed` at once and sends no op. If none exists, the function
+/// behaves as a compare-and-set against the unclaimed key, and it records
+/// `ref_seq = last_seen_seq`.
 ///
-/// The committed check runs *before* the pending guard, so a try-set on a
-/// committed key returns `AlreadyClaimed` even when a CAS for that key is
-/// pending locally.
+/// The check of the committed state runs *before* the pending guard. A try-set
+/// on a committed key thus returns `AlreadyClaimed`, also when a
+/// compare-and-set for that key is pending locally.
 pub fn try_set_claim(
   state: ClaimsState,
   key: String,
@@ -150,10 +166,11 @@ pub fn try_set_claim(
   }
 }
 
-/// CAS submit. Captures `ref_seq` from the committed entry's sequence number
-/// if the key is claimed, else `last_seen_seq`. Always submits (never returns
-/// `AlreadyClaimed` synchronously); acceptance is decided when the op
-/// sequences.
+/// The compare-and-set submit. If the key is claimed, the function records
+/// `ref_seq` from the sequence number of the committed entry. If the key is
+/// unclaimed, it records `last_seen_seq`. The function always submits, and it
+/// never returns `AlreadyClaimed` at once. The sequencing of the op decides the
+/// acceptance.
 pub fn compare_and_set_claim(
   state: ClaimsState,
   key: String,
@@ -183,9 +200,11 @@ fn submit_claim(
   }
 }
 
-/// Detached apply: no other clients exist, so apply the claim directly with
-/// sequence number 0. The runtime decides when the channel is detached (as it
-/// does for map). Unconditional insert, mirroring the TS CAS detached path.
+/// The detached apply path. No other client exists, so the function applies
+/// the claim directly with the sequence number 0. The runtime decides when a
+/// channel is detached, the same as for the map kernel. The insert is
+/// unconditional, the same as the detached compare-and-set path in
+/// TypeScript.
 pub fn set_detached(
   state: ClaimsState,
   key: String,
@@ -197,11 +216,13 @@ pub fn set_detached(
   )
 }
 
-/// The acceptance rule (S3/S4), applied identically for local and remote ops:
-/// accept iff the key is unclaimed or the op's `ref_seq` *exactly* equals the
-/// committed entry's sequence number. On accept, overwrite the entry with the
-/// op's value and the op's own sequence number. Returns whether it was
-/// accepted so callers can emit events / resolve outcomes.
+/// The acceptance rule, which is S3 and S4. The function applies it in the
+/// same way to a local op and to a remote op. It accepts the op if the key is
+/// unclaimed, or if the `ref_seq` of the op equals the sequence number of the
+/// committed entry *exactly*. On an accept, it replaces the entry with the
+/// value of the op and the sequence number of the op. It returns whether it
+/// accepted the op, so that a caller can emit an event or resolve an
+/// outcome.
 fn apply_sequenced(
   state: ClaimsState,
   op: ClaimOp,
@@ -224,11 +245,11 @@ fn apply_sequenced(
   }
 }
 
-/// Apply a sequenced op from another client. Accepted ops overwrite the entry
-/// and emit `Claimed(key, False)`; rejected ops leave state unchanged and emit
-/// nothing. A remote op winning a key we have a pending claim on does not
-/// disturb our pending entry (S10) — it resolves only when our own op
-/// sequences.
+/// Apply a sequenced op from another client. An accepted op replaces the entry
+/// and emits `Claimed(key, False)`. A refused op changes no state and emits
+/// nothing. A remote op that wins a key with a local pending claim does not
+/// change that pending entry, which is rule S10. That entry resolves only when
+/// the local op sequences.
 pub fn apply_remote(
   state: ClaimsState,
   op: ClaimOp,
@@ -241,15 +262,16 @@ pub fn apply_remote(
   }
 }
 
-/// Our own local op comes back sequenced. Acceptance is identical to
-/// `apply_remote`; additionally the pending entry for the key is removed and
-/// its outcome resolved: `Accepted` (with the submitted value) if it won, else
-/// `Lost` (with the current committed value, which may be absent). Unlike
-/// map/counter, acks emit `Claimed(key, True)` here, because nothing was shown
+/// The local op returns sequenced. The acceptance rule is the same as in
+/// `apply_remote`. The function also removes the pending entry for the key and
+/// resolves its outcome. The outcome is `Accepted`, with the submitted value,
+/// if the claim won. Otherwise it is `Lost`, with the current committed value,
+/// which can be absent. Unlike the map kernel and the counter kernel, an ack
+/// here emits `Claimed(key, True)`, because the kernel showed nothing
 /// optimistically at submit time.
 ///
-/// Strict: an ack with no matching pending entry is a routing bug, not a
-/// tolerated edge case.
+/// The function is strict. An ack with no matching pending entry is a routing
+/// fault, and not an acceptable condition.
 pub fn ack_local(
   state: ClaimsState,
   op: ClaimOp,
@@ -270,8 +292,9 @@ pub fn ack_local(
   }
 }
 
-/// Roll back a pending local op: remove its pending entry and resolve
-/// `Aborted`. Strict on a missing pending entry (the TS code tolerates it).
+/// Roll back a pending local op. The function removes its pending entry and
+/// resolves the outcome as `Aborted`. It is strict about a missing pending
+/// entry. The TypeScript code accepts that condition.
 pub fn rollback(
   state: ClaimsState,
   op: ClaimOp,
@@ -290,9 +313,10 @@ pub fn rollback(
   }
 }
 
-/// Re-register a stashed op as pending (guarding the key; no caller awaits) and
-/// return the op verbatim for resubmission — the original `ref_seq` is
-/// preserved. Errors if the key is already pending.
+/// Register a stashed op as pending again, which guards the key. No caller
+/// waits on it. The function returns the op without a change, for the
+/// resubmission, and it keeps the original `ref_seq`. It returns an error if
+/// the key is already pending.
 pub fn apply_stashed_op(
   state: ClaimsState,
   op: ClaimOp,
@@ -310,16 +334,17 @@ pub fn apply_stashed_op(
   }
 }
 
-/// Abort every pending claim (e.g. on dispose): clear pending and return the
-/// aborted keys (sorted, for determinism) so the runtime can resolve each
-/// waiter `Aborted`.
+/// Abort every pending claim, for example when the caller disposes the
+/// channel. The function clears the pending claims and returns the aborted
+/// keys, sorted, so that the result is deterministic. The runtime can then
+/// resolve each waiting caller with `Aborted`.
 pub fn abort_all(state: ClaimsState) -> #(ClaimsState, List(String)) {
   let keys = dict.keys(state.pending) |> list.sort(string.compare)
   #(ClaimsState(..state, pending: dict.new()), keys)
 }
 
-/// Pending claim values, for handle scanning during GC. Committed values come
-/// via `summary_entries`.
+/// The values of the pending claims, for the handle scan during a garbage
+/// collection. `summary_entries` gives the committed values.
 pub fn pending_values(state: ClaimsState) -> List(Json) {
   dict.values(state.pending)
 }

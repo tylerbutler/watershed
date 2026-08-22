@@ -1,27 +1,31 @@
 //// Erlang test driver for the in-memory sluice (plan HM3).
 ////
-//// Wraps the pure `sluice/core` in an actor and drives real `watershed`
-//// documents through the runtime's injectable transport — so an app author
-//// writes deterministic multi-client convergence tests with no floodgate server.
+//// This module puts the pure `sluice/core` in an actor, and it drives real
+//// `watershed` documents through the injectable transport of the runtime. An
+//// application author can thus write deterministic multi-client convergence
+//// tests with no floodgate server.
 ////
 //// ## Determinism without a clock
 ////
-//// Ops sequence when submitted but are delivered only on `settle`/`step`, so
-//// races are scriptable rather than timing-dependent. Coordination is
-//// deadlock-free by construction:
+//// An op sequences when a client submits it, but the sluice delivers it only
+//// on a `settle` or a `step`. A test can thus script a race, and the result
+//// does not depend on timing. The coordination cannot deadlock, by
+//// construction:
 ////
-//// - **runtime → sluice** pushes are *synchronous* (`process.call`). So once a
-////   runtime's mailbox is flushed, its ops have already reached the core.
-//// - **sluice → runtime** delivery is an *async send* (the runtime's
-////   `on_event` enqueues an `Inbound`). The sluice never calls a runtime, so a
-////   runtime blocked mid-push can't deadlock it.
-//// - **barriers** are `process.call`s issued from the *test* process. A call
-////   returns only after the actor has drained its mailbox, so barriering every
-////   runtime flushes all pending edits into the core before delivery.
+//// - A push from a runtime to the sluice is *synchronous*, through
+////   `process.call`. After a runtime empties its mailbox, its ops have thus
+////   already reached the core.
+//// - A delivery from the sluice to a runtime is an *asynchronous* send. The
+////   `on_event` function of the runtime puts an `Inbound` message in the
+////   mailbox. The sluice never calls a runtime, so a runtime that blocks in
+////   the middle of a push cannot deadlock the sluice.
+//// - A barrier is a `process.call` from the *test* process. A call returns
+////   only after the actor processes every earlier message. A barrier on every
+////   runtime thus moves every pending edit into the core before the delivery.
 ////
-//// `settle` therefore is: barrier all runtimes, then repeatedly deliver one
-//// frame and re-barrier (to flush the recipient's reaction) until the core has
-//// nothing left to hand out.
+//// `settle` is thus this procedure: apply a barrier to every runtime, then
+//// deliver one frame and apply the barriers again, which flushes the reaction
+//// of the recipient. Repeat until the core has no frame left to deliver.
 
 @target(erlang)
 import gleam/dynamic.{type Dynamic}
@@ -59,8 +63,8 @@ pub opaque type Sluice {
 }
 
 @target(erlang)
-/// Start a sluice for one document. `tenant`/`document` name the logical
-/// document the way `watershed_beam.connect` would.
+/// Start a sluice for one document. `tenant` and `document` name the logical
+/// document in the same way as `watershed_beam.connect`.
 pub fn start(
   tenant tenant: String,
   document document: String,
@@ -80,9 +84,10 @@ pub fn start(
 }
 
 @target(erlang)
-/// Connect a fresh client, returning a real `watershed_beam.Document`. The handshake
-/// completes on the next `settle` (delivery is explicit), so callers connect
-/// every client, then `settle` once before editing.
+/// Connect a new client and return a real `watershed_beam.Document` value. The
+/// handshake completes on the next `settle`, because every delivery is
+/// explicit. A caller thus connects every client, and then calls `settle` one
+/// time before it edits.
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
@@ -111,46 +116,49 @@ pub fn connect(
 }
 
 @target(erlang)
-/// Drop a client's socket and let it come back — the reconnect a real client
-/// survives, rather than a departure it does not.
+/// Close the socket of a client and then let that client return. This is the
+/// reconnect that a real client survives. It is not a departure.
 ///
-/// The distinction from `disconnect` is the whole point. `disconnect` removes a
-/// client from the room for good; this severs the connection underneath a
-/// runtime that keeps its core — kernel state, pending consensus, and the
-/// in-flight queue all survive — and then lets it re-handshake. The server
-/// assigns it a **fresh client id**, exactly as floodgate does, so the returning
-/// client is a different member of the room than the one that left.
+/// The difference from `disconnect` is the purpose of this function.
+/// `disconnect` removes a client from the room permanently. This function
+/// closes the connection below a runtime that keeps its core, which is the
+/// kernel state, the pending consensus, and the in-flight queue. The runtime
+/// then does the handshake again. The server assigns it a **new client id**,
+/// exactly as floodgate does, so the client that returns is a different member
+/// of the room than the client that left.
 ///
-/// That is the window a lot of protocol bugs live in: ops sequenced while the
-/// client was away replay against the room as it was *then*, edits made during
-/// the gap are restamped and resubmitted, and a consensus kernel may owe
-/// signoffs under an identity that no longer exists. None of it is reachable
-/// without being able to script this.
+/// Many protocol faults are in that window. An op that sequenced while the
+/// client was absent replays against the room as it was at that time. An edit
+/// from the interval gets a new stamp and a resubmission. A consensus kernel
+/// can owe signoffs under an identity that no longer exists. A test can reach
+/// none of those conditions unless it can script this sequence.
 ///
-/// The handshake completes on the next `settle`, like `connect`.
+/// The handshake completes on the next `settle`, the same as for `connect`.
 ///
-/// The dance below is dictated by the driver's lock order (see the module
-/// docs): the sluice never calls into a runtime, so `DropConn` hands the
-/// `on_close` back and *this* process fires it. The barrier that follows lets
-/// the runtime run its whole reconnect — `ChannelClosed` → re-`connect` →
-/// `ChannelReady` → `connect_document` carrying `last_seen` — before `Bind`
-/// re-points the binding at the connection it just opened.
+/// The lock order of the driver sets the steps below. See the module docs. The
+/// sluice never calls into a runtime, so `DropConn` returns the `on_close`
+/// function and *this* process calls it. The barrier that follows lets the
+/// runtime complete its whole reconnect: `ChannelClosed`, then a new
+/// `connect`, then `ChannelReady`, then a `connect_document` that carries
+/// `last_seen`. Only then does `Bind` point the binding at the connection that
+/// the runtime opened.
 pub fn reconnect(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
 
 @target(erlang)
-/// The first half of `reconnect`: take the socket away and leave it away.
+/// The first half of `reconnect`: close the socket and keep it closed.
 ///
-/// Splitting the two matters because the interesting window is *between* them.
-/// A client is out of the room from its `leave` until its rejoin, and anything
-/// sequenced in that gap was sequenced for a room it was not in — which it then
-/// has to replay, under an identity that did not exist when those ops were
-/// made. Scripting that means being able to sequence ops while the client is
-/// away, which an atomic reconnect cannot express.
+/// The two halves are separate because the interesting window is *between*
+/// them. A client is outside the room from its `leave` until its rejoin. Every
+/// op that sequences in that interval sequenced for a room that did not
+/// contain the client. The client must then replay those ops, under an
+/// identity that did not exist when other clients made them. To script that
+/// sequence, a test must sequence ops while the client is absent, and one
+/// atomic reconnect cannot express that.
 ///
-/// The runtime keeps its core and sits in its reconnecting phase until
+/// The runtime keeps its core and stays in its reconnecting phase until
 /// `rejoin`.
 pub fn drop(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
@@ -162,10 +170,10 @@ pub fn drop(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 }
 
 @target(erlang)
-/// The second half of `reconnect`: let a dropped client come back, under a
-/// fresh server-assigned client id.
+/// The second half of `reconnect`: let a dropped client return, under a new
+/// client id that the server assigns.
 ///
-/// A no-op for a client that was not `drop`ped.
+/// The function does nothing for a client that `drop` did not remove.
 pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
   case
@@ -189,17 +197,19 @@ pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 }
 
 @target(erlang)
-/// Deliver queued frames until the system is quiescent: every pending op has
-/// reached every client and no client has produced new ops in response.
+/// Deliver the queued frames until the system is quiet. At that point every
+/// pending op has reached every client, and no client has produced a new op in
+/// response.
 pub fn settle(sluice: Sluice) -> Nil {
   barrier_all(sluice)
   drain(sluice)
 }
 
 @target(erlang)
-/// Deliver exactly one queued frame (to a non-paused client), returning `False`
-/// when nothing was deliverable. The building block for scripted races:
-/// `pause` one client, then `step` to release another's op first.
+/// Deliver exactly one queued frame, to a client that is not paused. The
+/// function returns `False` when it can deliver no frame. This is the basic
+/// operation for a scripted race: call `pause` on one client, then call `step`
+/// to release the op of another client first.
 pub fn step(sluice: Sluice) -> Bool {
   barrier_all(sluice)
   case take_and_deliver(sluice) {
@@ -212,8 +222,9 @@ pub fn step(sluice: Sluice) -> Bool {
 }
 
 @target(erlang)
-/// Hold a client's inbound frames until `resume` — its queued frames stay put
-/// while others are delivered.
+/// Hold the inbound frames of a client until a `resume` call. The queued
+/// frames of that client stay in the queue while the sluice delivers the
+/// frames of the other clients.
 pub fn pause(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -222,7 +233,7 @@ pub fn pause(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 }
 
 @target(erlang)
-/// Release a paused client's held frames back into the deliverable queue.
+/// Return the held frames of a paused client to the deliverable queue.
 pub fn resume(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
@@ -231,8 +242,9 @@ pub fn resume(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 }
 
 @target(erlang)
-/// Advance the sluice's logical clock, so TTL-based logic (presence prune) is
-/// testable without real time passing.
+/// Advance the logical clock of the sluice. A test can thus check the logic
+/// that depends on a time-to-live (TTL), for example the presence prune,
+/// without a wait for the real time.
 pub fn advance(sluice: Sluice, ms: Int) -> Nil {
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Advance(ms, reply)
@@ -240,8 +252,9 @@ pub fn advance(sluice: Sluice, ms: Int) -> Nil {
 }
 
 @target(erlang)
-/// Withhold `presence_v1` from the handshake, so a client under `Auto` picks the
-/// ripple fallback and a client forcing `Server` fails. Call before `connect`.
+/// Remove `presence_v1` from the handshake. A client in `Auto` mode thus
+/// selects the ripple fallback, and a client that forces `Server` mode fails.
+/// Call this function before `connect`.
 pub fn disable_presence(sluice: Sluice) -> Nil {
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     SetPresenceSupported(False, reply)
@@ -271,9 +284,9 @@ fn take_and_deliver(sluice: Sluice) -> Bool {
 }
 
 @target(erlang)
-/// Flush every connected runtime's mailbox. A synchronous call returns only
-/// after the actor has processed all prior messages, so any pending edit has
-/// synchronously pushed its op into the core by the time this returns.
+/// Empty the mailbox of every connected runtime. A synchronous call returns
+/// only after the actor processes every earlier message. Every pending edit has
+/// thus pushed its op into the core before this function returns.
 fn barrier_all(sluice: Sluice) -> Nil {
   let subjects =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: Subjects)
@@ -314,35 +327,39 @@ fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
 
 @target(erlang)
 type Message {
-  /// A new connection: store its delivery callbacks, mint a client id.
+  /// A new connection. Store its delivery callbacks and create a client id.
   Register(
     on_event: fn(String, Dynamic) -> Nil,
     on_close: fn(String) -> Nil,
     reply: Subject(String),
   )
-  /// Sever a bound runtime's connection the way a dropped socket would:
-  /// sequence its `leave`, forget the connection, and hand its `on_close` back
-  /// so the *caller* can fire it (calling into a runtime from inside this actor
-  /// would invert the lock order this driver is built on).
+  /// Close the connection of a bound runtime, in the same way as a dropped
+  /// socket. Sequence its `leave`, remove the connection, and return its
+  /// `on_close` function, so that the *caller* can call it. A call into a
+  /// runtime from inside this actor would reverse the lock order that this
+  /// driver depends on.
   DropConn(subject: Subject(runtime_beam.Msg), reply: Subject(Result(Nil, Nil)))
-  /// Hand back a dropped runtime's `on_close` so the caller can fire it, which
-  /// is what starts the rejoin. Kept out of `DropConn` so a test can sequence
-  /// ops while the client is away.
+  /// Return the `on_close` function of a dropped runtime, so that the caller
+  /// can call it. That call starts the rejoin. This message is separate from
+  /// `DropConn`, so a test can sequence ops while the client is absent.
   TakeDropped(
     subject: Subject(runtime_beam.Msg),
     reply: Subject(Result(fn(String) -> Nil, Nil)),
   )
   /// Associate a runtime subject with the just-registered connection.
   Bind(subject: Subject(runtime_beam.Msg), reply: Subject(String))
-  /// A client→server push (synchronous; the reply is the flush barrier).
+  /// A push from a client to the server. It is synchronous, and the reply is
+  /// the flush barrier.
   Push(client_id: String, event: String, payload: Json, reply: Subject(Nil))
-  /// Pop one deliverable frame and deliver it; reply whether one was sent.
+  /// Take one deliverable frame and deliver it. The reply says whether the
+  /// actor sent a frame.
   TakeAndDeliver(reply: Subject(Bool))
   Pause(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
   Resume(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
   Advance(ms: Int, reply: Subject(Nil))
   SetPresenceSupported(supported: Bool, reply: Subject(Nil))
-  /// The connected runtime subjects, for the caller's barrier sweep.
+  /// The subjects of the connected runtimes, for the barrier sweep of the
+  /// caller.
   Subjects(reply: Subject(List(Subject(runtime_beam.Msg))))
 }
 
@@ -352,19 +369,20 @@ type State {
     core: core.Sluice,
     conns: List(#(String, Conn)),
     subjects: List(#(Subject(runtime_beam.Msg), String)),
-    /// Runtimes whose socket has been taken away but which have not been let
-    /// back yet, holding the `on_close` that starts their rejoin.
+    /// The runtimes whose socket the driver closed and did not open again.
+    /// Each entry holds the `on_close` function that starts the rejoin of that
+    /// runtime.
     dropped: List(#(Subject(runtime_beam.Msg), fn(String) -> Nil)),
     last_registered: Option(String),
   )
 }
 
 @target(erlang)
-/// One open connection's callbacks into the runtime that owns it.
+/// The callbacks of one open connection into the runtime that owns it.
 ///
-/// `on_close` is held rather than dropped because it is the only way to tell a
-/// runtime its socket went away — which `reconnect` needs, and which nothing
-/// else in the driver can synthesise.
+/// The record keeps `on_close`, and does not discard it, because that function
+/// is the only way to tell a runtime that its socket closed. `reconnect` needs
+/// that message, and no other part of the driver can produce it.
 type Conn {
   Conn(on_event: fn(String, Dynamic) -> Nil, on_close: fn(String) -> Nil)
 }
@@ -515,8 +533,9 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Serialize a queued `Json` frame and re-parse it as `Dynamic` — the exact
-/// trip a frame takes over a real socket before the runtime decodes it.
+/// Serialize a queued `Json` frame and parse it again as `Dynamic`. This is the
+/// exact path that a frame takes over a real socket before the runtime decodes
+/// it.
 fn to_dynamic(payload: Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   dynamic

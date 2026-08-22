@@ -1,18 +1,22 @@
-//// The closed sum of channel kernels the runtime can host, dispatched in
-//// one module: parallel sums for state, ops, events, and snapshots, plus
-//// one dispatch function per operation `runtime_core` needs.
+//// The closed sum of the channel kernels that the runtime can host, with the
+//// dispatch in one module. There are parallel sums for the state, the ops, the
+//// events, and the snapshots, with one dispatch function for each operation
+//// that `runtime_core` needs.
 ////
-//// The runtime routes everything through these sums instead of naming a
-//// kernel directly, so onboarding a kernel is: add a variant to each sum
-//// here, then follow the compiler to every dispatch site. The compiler
-//// can't point at the non-type sites. Adding a kernel checklist:
-//// - `wire/ops`: add the channel-op wire codec.
-//// - `channel`: extend summary payload encode/decode
-////   (`encode_snapshot`/`snapshot_decoder`).
-//// - `runtime_beam` and `runtime`: add actor/runtime verbs for edits + reads.
-//// - fuzz model: extend generators/oracles for the new channel behavior.
+//// The runtime routes everything through these sums, and it never names a
+//// kernel directly. To add a kernel, add a variant to each sum here, and then
+//// follow the compiler to every dispatch site. The compiler cannot point at
+//// the sites that are not type-driven. Use this checklist for those:
+//// - `wire/ops`: add the wire codec for the channel op.
+//// - `channel`: extend the encode and decode of the summary payload, in
+////   `encode_snapshot` and `snapshot_decoder`.
+//// - `runtime_beam` and `runtime`: add the actor and runtime functions for the
+////   edits and the reads.
+//// - The fuzz model: extend the generators and the oracles for the behaviour of
+////   the new channel.
 ////
-//// Kernels stay pure and runtime-unaware; this module only wraps them.
+//// A kernel stays pure and knows nothing about the runtime. This module wraps
+//// the kernels only.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
@@ -51,8 +55,9 @@ import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 
-/// The kinds of channel a document can host. Maps to/from the wire's
-/// `channelType` strings via `type_to_string`/`type_from_string`.
+/// The kinds of channel that a document can host. `type_to_string` and
+/// `type_from_string` convert between this type and the `channelType` strings
+/// of the wire.
 pub type ChannelType {
   MapChannel
   CounterChannel
@@ -73,8 +78,8 @@ pub type ChannelType {
   TextChannel
 }
 
-/// Creation parameters for a channel. Most channel types need only their
-/// channel type; OR-map also needs its value mode.
+/// The parameters that create a channel. Most channel types need their channel
+/// type only. An OR-map also needs its value mode.
 pub type ChannelInit {
   InitMap
   InitCounter
@@ -164,7 +169,8 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
   }
 }
 
-/// Whether a channel's merge semantics are safe without server sequencing.
+/// Whether the merge behaviour of a channel is correct without a server
+/// sequencer.
 pub fn supports_p2p(channel_type: ChannelType) -> Bool {
   case channel_type {
     PnCounterChannel
@@ -187,7 +193,7 @@ pub fn supports_p2p(channel_type: ChannelType) -> Bool {
   }
 }
 
-/// One channel's kernel state.
+/// The kernel state of one channel.
 pub type ChannelState {
   MapState(map_kernel.MapState)
   CounterState(counter_kernel.CounterState)
@@ -208,8 +214,8 @@ pub type ChannelState {
   TextState(text_kernel.TextState)
 }
 
-/// A kernel op as it travels through the runtime (in-flight queue, ack
-/// matching) and, via `wire/ops`, over the wire.
+/// A kernel op as it goes through the runtime, in the in-flight queue and in
+/// the ack matching, and over the wire, through `wire/ops`.
 pub type ChannelOp {
   MapOp(map_kernel.MapOp)
   CounterOp(counter_kernel.CounterOp)
@@ -223,12 +229,12 @@ pub type ChannelOp {
   TaskManagerOp(task_manager_kernel.TaskManagerOp)
   PactMapOp(pact_map_kernel.PactMapOp)
   JsonOtOp(json_ot_kernel.JsonOtWireOp)
-  /// A directory op plus the kernel `message_id` that identifies this
-  /// submission. Unlike other kernels the id travels *in the op* because a
-  /// remote client needs the author's client-sequence identity to run the
-  /// stale-instance filter (D12) and sibling ordering (D9); the runtime's own
-  /// csn counts every channel's ops together and would not match the kernel's
-  /// per-directory counter.
+  /// A directory op with the kernel `message_id` value that identifies this
+  /// submission. Unlike the other kernels, the id travels *in the op*. A remote
+  /// client needs the client-sequence identity of the author to run the
+  /// stale-instance filter (D12) and the sibling order (D9). The csn of the
+  /// runtime counts the ops of every channel together, and it would thus not
+  /// equal the counter that the kernel keeps for each directory.
   DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
   OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
   SequenceOp(sequence_kernel.SequenceOp)
@@ -236,11 +242,12 @@ pub type ChannelOp {
   TextOp(text_kernel.TextOp)
 }
 
-/// A local mutation for the ack-free p2p lifecycle (`apply_p2p_local`).
-/// One variant per public mutation of every `supports_p2p` kernel — the
-/// smallest closed sum that can express them, carrying the same parameters
-/// their kernel functions already take. Only these seven kernels ever admit
-/// a `P2pEdit`; every other channel rejects one with `UnsupportedP2p`.
+/// A local mutation for the ack-free p2p lifecycle. See `apply_p2p_local`.
+/// There is one variant for each public mutation of every kernel that
+/// `supports_p2p` accepts. This is the smallest closed sum that can express
+/// them, and each variant carries the same parameters as the kernel function.
+/// Only those seven kernels accept a `P2pEdit` value. Every other channel
+/// refuses one with `UnsupportedP2p`.
 pub type P2pEdit {
   PnCounterEdit(amount: Int)
   OrMapIncrementEdit(key: String, amount: Int)
@@ -261,7 +268,7 @@ pub type P2pEdit {
   TextAppendEdit(value: String)
 }
 
-/// A kernel event, address-tagged by the runtime before fan-out.
+/// A kernel event. The runtime adds the address to it before the fan-out.
 pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
   CounterEvent(counter_kernel.CounterEvent)
@@ -282,8 +289,9 @@ pub type ChannelEvent {
   TextEvent(text_kernel.TextEvent)
 }
 
-/// A channel's state as the persisted formats carry it: the attach op's
-/// `snapshot` payload and the summary blob's per-channel `data` payload.
+/// The state of a channel, in the form that the stored formats carry. Those
+/// forms are the `snapshot` payload of the attach op, and the `data` payload of
+/// each channel in the summary blob.
 pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
@@ -317,9 +325,9 @@ pub type Resolution {
   )
 }
 
-/// Per-kernel *local* metadata an in-flight op carries alongside the wire
-/// op (never serialized). Map ops carry none; counters validate the local
-/// message id Fluid pairs with each pending increment.
+/// The *local* metadata of one kernel, which an in-flight op carries with the
+/// wire op. Nothing serializes this metadata. A map op carries none. A counter
+/// checks the local message id that Fluid gives to each pending increment.
 pub type LocalOpMeta {
   NoMeta
   CounterMeta(message_id: Int)
@@ -334,9 +342,10 @@ pub type LocalOpMeta {
   TextMeta(message_id: Int)
 }
 
-/// Sequencer-assigned metadata for a sequenced op. Map and counter ignore
-/// it; kernels that persist sequence numbers consume `seq`.
-/// Threaded from day one so adding such a kernel is additive.
+/// The metadata that the sequencer assigns to a sequenced op. The map kernel
+/// and the counter kernel ignore it. A kernel that stores sequence numbers
+/// reads `seq`. Every path passes this value, so a new kernel of that kind
+/// needs no other change.
 pub type SequencedMeta {
   SequencedMeta(
     seq: Int,
@@ -344,43 +353,50 @@ pub type SequencedMeta {
     min_seq: Int,
     author: Int,
     self: Int,
-    /// The set a consensus proposal freezes its signoff list from: the roster,
-    /// plus — on the live path — self and the op's author, unioned in
-    /// defensively. Over-including is the safe direction here, because a
-    /// signoff list that is missing a connected client accepts too early.
+    /// The set that a consensus proposal freezes its signoff list from. That
+    /// set is the roster. On the live path it also contains this client and
+    /// the author of the op, which the runtime adds as a protection. To
+    /// include too many clients is the safe direction here, because a signoff
+    /// list without a connected client accepts too early.
     quorum: List(Int),
-    /// Who is in the room at this op's sequence point. The roster itself, with
-    /// no defensive additions.
+    /// The clients that are in the room at the sequence point of this op. This
+    /// is the roster itself, with no added clients.
     ///
-    /// Separate from `quorum` because the safe direction is opposite: a
-    /// membership *test* that over-includes silently passes for a client that
-    /// is not there. `TaskManager` uses this to refuse a volunteer from a
-    /// non-member, which is what keeps a lock queue a subset of the room — and
-    /// therefore what makes leave-driven release complete.
+    /// This field is separate from `quorum`, because the safe direction is the
+    /// opposite one. A membership *test* that includes too many clients passes
+    /// for a client that is not in the room, and it reports nothing.
+    /// `TaskManager` uses this field to refuse a volunteer that is not a
+    /// member. A lock queue thus stays a subset of the room, and the
+    /// leave-driven release is thus complete.
     roster: List(Int),
-    /// The op author's reference sequence number — what they had seen when
-    /// they submitted. The directory kernel's stale-instance filter (D12)
-    /// consumes it; other kernels ignore it. `last_seen_sn` is the *local*
-    /// client's watermark and is not a substitute.
+    /// The reference sequence number of the author of the op, which is what
+    /// that client had seen at submit time. The stale-instance filter of the
+    /// directory kernel (D12) reads it. The other kernels ignore it.
+    /// `last_seen_sn` is the watermark of the *local* client, and you cannot
+    /// use it in place of this field.
     reference_sequence_number: Int,
   )
 }
 
 pub type ChannelError {
-  /// An ack did not line up with the kernel's pending queue. Fatal: the
-  /// runtime routed an ack the kernel never submitted (or out of order).
+  /// An ack did not agree with the pending queue of the kernel. This error is
+  /// fatal. The runtime routed an ack for an op that the kernel never
+  /// submitted, or it routed the acks out of order.
   UnexpectedAck(detail: String)
   /// The runtime dispatched an op to a channel of a different kernel type.
-  /// Fatal: ops are decoded against the registry's type for their address,
-  /// so a mismatch here is a routing bug, not bad input.
+  /// This error is fatal. The decoder reads an op against the registry type
+  /// for its address, so a mismatch here is a routing fault, and not bad
+  /// input.
   WrongChannelType(detail: String)
   CorruptRemoteOp(detail: String)
-  /// A `P2pEdit`/op does not match the channel's kernel, or the channel's
-  /// kernel does not support ack-free p2p at all (see `supports_p2p`).
-  /// Also covers a p2p-eligible kernel's own edit-level rejection (an
-  /// OR-map mode mismatch, an out-of-bounds sequence/text edit) — p2p has
-  /// no pending queue to leave untouched, so these surface here instead of
-  /// a kernel-specific error type.
+  /// A `P2pEdit` value or an op does not match the kernel of the channel, or
+  /// that kernel does not support ack-free p2p at all. See `supports_p2p`.
+  ///
+  /// This error also covers a refusal at the edit level from a kernel that
+  /// does support p2p, for example an OR-map mode mismatch, or a sequence or
+  /// text edit that is out of bounds. The p2p path has no pending queue to
+  /// protect, so those refusals arrive here, and not in an error type of that
+  /// kernel.
   UnsupportedP2p(detail: String)
 }
 
@@ -428,11 +444,12 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
   }
 }
 
-/// Build an empty channel for a client identity. Map/counter ignore
-/// `replica`; replica-identified kernels use it for their local CRDT author.
-/// Reconnect keeps existing channel states under their original identities,
-/// while summary/attach loads call `from_snapshot` with the joining client's
-/// current id so future deltas are authored by the loader.
+/// Build an empty channel for one client identity. The map kernel and the
+/// counter kernel ignore `replica`. A kernel that is identified by replica uses
+/// it as the local CRDT author. A reconnect keeps each existing channel state
+/// under its original identity. A load from a summary or an attach calls
+/// `from_snapshot` with the current id of the joining client, so that client
+/// writes the future deltas.
 pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
   case init {
     InitMap -> MapState(map_kernel.new())
@@ -460,8 +477,9 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
   }
 }
 
-/// Rebuild a channel from a persisted snapshot, `from_sequenced` semantics:
-/// the snapshot's contents become confirmed state with nothing pending.
+/// Build a channel again from a stored snapshot, with the behaviour of
+/// `from_sequenced`. The contents of the snapshot become the confirmed state,
+/// and nothing is pending.
 pub fn from_snapshot(
   snapshot: Snapshot,
   replica replica: String,
@@ -512,7 +530,8 @@ pub fn from_snapshot(
   }
 }
 
-/// The confirmed (sequenced-only) state, as a summary captures it.
+/// The confirmed state, which contains the sequenced data only, as a summary
+/// captures it.
 pub fn snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
@@ -545,17 +564,18 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
   }
 }
 
-/// The counter kernel's value is optimistic (pending increments applied);
-/// back the un-acked amounts out for the sequenced-only view.
+/// The value of the counter kernel is optimistic, because it contains the
+/// pending increments. Subtract the amounts that have no ack, for the view of
+/// the sequenced data only.
 fn counter_sequenced_value(kernel: counter_kernel.CounterState) -> Int {
   list.fold(kernel.pending, kernel.value, fn(value, pending) {
     value - pending.increment_amount
   })
 }
 
-/// The current optimistic view, as an attach op captures it. A detached
-/// channel's local edits are all pending, so unlike `snapshot` this must
-/// include them.
+/// The current optimistic view, as an attach op captures it. Every local edit
+/// of a detached channel is pending, so this function must include them, and
+/// `snapshot` does not.
 pub fn attach_snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
@@ -625,12 +645,13 @@ pub fn attach_state(
 
 /// Apply a sequenced op from another client.
 ///
-/// Returns the updated state, the events it produced, and any *owed* follow-up
-/// ops the kernel wants the runtime to auto-submit (a fresh CSN + in-flight
-/// entry) in reaction to this op — e.g. a consensus kernel emitting its own
-/// `Accept` after seeing a peer's `Set`. Most kernels owe nothing and return
-/// an empty list; the runtime buffers owed ops per channel and drains them
-/// after the current sequenced batch (see `runtime_core.collect_released_ops`).
+/// The function returns the new state, the events that it produced, and the
+/// follow-up ops that the kernel *owes*. The runtime submits an owed op by
+/// itself, with a new CSN and a new in-flight entry, in reaction to this op.
+/// For example, a consensus kernel emits its own `Accept` op after it reads a
+/// `Set` op from a peer. Most kernels owe nothing and return an empty list.
+/// The runtime buffers the owed ops of each channel, and it sends them after
+/// the current sequenced batch. See `runtime_core.collect_released_ops`.
 pub fn apply_remote(
   state: ChannelState,
   op: ChannelOp,
@@ -760,11 +781,11 @@ pub fn apply_remote(
   }
 }
 
-/// Apply a sequenced PactMap op — `Set` via `apply_set` (which may owe an
-/// `Accept` when this client is a signoff), `Accept` via `apply_accept`.
-/// Own and remote ops route through here identically (the runtime uses
-/// `is_own_op` only to reclaim the in-flight entry); FluidFramework's PactMap
-/// applies on sequencing regardless of author.
+/// Apply a sequenced PactMap op. A `Set` op goes to `apply_set`, which can owe
+/// an `Accept` op when this client is a signoff. An `Accept` op goes to
+/// `apply_accept`. A local op and a remote op both take this path, and the
+/// runtime uses `is_own_op` only to reclaim the in-flight entry. The PactMap of
+/// FluidFramework applies an op at its sequence point, whoever wrote it.
 fn apply_pact_map(
   kernel: pact_map_kernel.PactMapState,
   op: pact_map_kernel.PactMapOp,
@@ -790,7 +811,8 @@ fn apply_pact_map(
   }
 }
 
-/// A PactMap `Set` reaction as a channel-level owed op the runtime auto-submits.
+/// The reaction to a PactMap `Set` op, as an owed op at the channel level. The
+/// runtime submits it by itself.
 fn pact_map_reaction_ops(
   reaction: pact_map_kernel.SetReaction,
 ) -> List(ChannelOp) {
@@ -800,11 +822,12 @@ fn pact_map_reaction_ops(
   }
 }
 
-/// Whether a channel applies its *own* sequenced ops through `apply_remote`
-/// (the same path as remote ops) rather than an optimistic `ack_local`.
-/// Consensus kernels (PactMap) take effect only on sequencing regardless of
-/// author, so the runtime reclaims the in-flight entry and then applies via
-/// `apply_remote`; every optimistic kernel returns `False` and acks locally.
+/// Whether a channel applies its *own* sequenced ops through `apply_remote`,
+/// which is the path of a remote op, and not through the optimistic
+/// `ack_local`. A consensus kernel, such as PactMap, takes effect at the
+/// sequence point only, whoever wrote the op. The runtime thus reclaims the
+/// in-flight entry and then applies the op with `apply_remote`. Every
+/// optimistic kernel returns `False` and acks the op locally.
 pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
   case state {
     PactMapState(_) -> True
@@ -812,14 +835,16 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
   }
 }
 
-/// Apply a sequenced membership-leave to a channel: the addressed client has
-/// left the collaboration session at `leave_seq`. Consensus/queue kernels that
-/// track per-client state settle it deterministically (PactMap drains the
-/// leaver's outstanding signoffs so stuck pending values can settle;
-/// ConsensusOrderedCollection re-releases the leaver's held jobs to the queue;
-/// TaskManager drops the leaver from every task queue). Kernels with no
-/// membership semantics are a no-op. Fanned out over every attached channel by
-/// the runtime on a `"leave"` system message.
+/// Apply a sequenced membership leave to a channel. The named client left the
+/// collaboration session at `leave_seq`.
+///
+/// A consensus kernel or a queue kernel that tracks state for each client
+/// settles that state deterministically. PactMap removes the outstanding
+/// signoffs of that client, so a pending value that waits on it can settle.
+/// ConsensusOrderedCollection returns the jobs of that client to the queue.
+/// TaskManager removes that client from every task queue. A kernel with no
+/// membership behaviour does nothing. The runtime calls this function on every
+/// attached channel when it receives a `"leave"` system message.
 pub fn on_leave(
   state: ChannelState,
   client_id: Int,
@@ -848,8 +873,9 @@ pub fn on_leave(
   }
 }
 
-/// Build the directory kernel's `SequencedMeta` from the channel-level meta
-/// plus the op's kernel `message_id` (its client-sequence identity).
+/// Build the `SequencedMeta` value of the directory kernel, from the metadata
+/// at the channel level and the kernel `message_id` of the op, which is its
+/// client-sequence identity.
 fn directory_sequenced_meta(
   meta: SequencedMeta,
   message_id: Int,
@@ -874,7 +900,7 @@ fn directory_error_detail(err: directory_kernel.KernelError) -> String {
   }
 }
 
-/// Commit an acked local op: pending → sequenced.
+/// Commit an acked local op, which moves it from `pending` to `sequenced`.
 pub fn ack_local(
   state: ChannelState,
   op: ChannelOp,
@@ -1171,8 +1197,8 @@ pub fn ack_local(
   }
 }
 
-/// A human-readable detail string for a json0 pure-algebra failure, for
-/// wrapping in a `ChannelError`.
+/// A detail string for a person to read, for a failure in the pure json0
+/// algebra. The caller puts it in a `ChannelError` value.
 fn json_ot_error_detail(err: json_ot.OtError) -> String {
   case err {
     json_ot.BadPath(detail) -> "json0 bad path: " <> detail
@@ -1181,8 +1207,8 @@ fn json_ot_error_detail(err: json_ot.OtError) -> String {
   }
 }
 
-/// A human-readable detail string for a rich-text pure-algebra failure, for
-/// wrapping in a `ChannelError`.
+/// A detail string for a person to read, for a failure in the pure rich-text
+/// algebra. The caller puts it in a `ChannelError` value.
 fn rich_text_error_detail(err: rich_text.Error) -> String {
   case err {
     rich_text.Malformed(component, reason) ->
@@ -1193,15 +1219,19 @@ fn rich_text_error_detail(err: rich_text.Error) -> String {
   }
 }
 
-/// Author a local p2p edit and merge its delta into both confirmed and
-/// visible state in one transition — no pending entry, no acknowledgement.
-/// Only a `supports_p2p` channel paired with its own `P2pEdit` variant is
-/// accepted; every other combination (an ineligible channel, or an edit
-/// meant for a different kernel) returns `UnsupportedP2p`, never a silent
-/// no-op. Every eligible kernel exposes a dedicated `p2p_*` function that
-/// authors its delta and merges it into `sequenced` and `optimistic`
-/// directly (see e.g. `text_kernel.commit_p2p`); none of these paths touch
-/// `pending` or call any `ack_local` function.
+/// Write a local p2p edit and merge its delta into the confirmed state and the
+/// visible state, in one transition. There is no pending entry and no
+/// acknowledgement.
+///
+/// The function accepts a channel that `supports_p2p` permits, with the
+/// `P2pEdit` variant of that channel. Every other combination returns
+/// `UnsupportedP2p`, and it never does nothing quietly. Those combinations are
+/// a channel that p2p does not support, and an edit for a different kernel.
+///
+/// Every kernel that p2p supports has its own `p2p_*` function, which writes
+/// its delta and merges that delta into `sequenced` and `optimistic` directly.
+/// See `text_kernel.commit_p2p` for an example. No such path touches `pending`
+/// or calls an `ack_local` function.
 pub fn apply_p2p_local(
   state: ChannelState,
   edit: P2pEdit,
@@ -1317,12 +1347,14 @@ pub fn apply_p2p_local(
   }
 }
 
-/// Merge a remote p2p op straight into confirmed and visible state, with no
-/// sequence metadata and no pending entry to reclaim — the ack-free
-/// counterpart to `apply_remote`. None of the seven eligible kernels
-/// consults `SequencedMeta` or owes follow-up ops, so this delegates to
-/// `apply_remote` with a zeroed meta and drops the owed-ops list. Any other
-/// channel, or an op that does not match the channel's kernel, returns
+/// Merge a remote p2p op directly into the confirmed state and the visible
+/// state. There is no sequence metadata, and there is no pending entry to
+/// reclaim. This is the ack-free equivalent of `apply_remote`.
+///
+/// None of the seven kernels that p2p supports reads `SequencedMeta`, and none
+/// of them owes a follow-up op. This function thus calls `apply_remote` with a
+/// zeroed metadata value, and it discards the list of owed ops. Any other
+/// channel, and an op that does not match the kernel of the channel, returns
 /// `UnsupportedP2p`.
 pub fn apply_p2p_remote(
   state: ChannelState,
@@ -1341,8 +1373,9 @@ pub fn apply_p2p_remote(
   }
 }
 
-/// The metadata `apply_remote` demands, for the p2p path that has none.
-/// Safe because every `supports_p2p` kernel ignores it.
+/// The metadata that `apply_remote` requires, for the p2p path, which has no
+/// metadata. This value is safe, because every kernel that `supports_p2p`
+/// permits ignores it.
 fn zeroed_meta() -> SequencedMeta {
   SequencedMeta(
     seq: 0,
@@ -1356,13 +1389,14 @@ fn zeroed_meta() -> SequencedMeta {
   )
 }
 
-/// Merge a peer's whole channel snapshot into this channel's state — the
-/// full-state counterpart of `apply_p2p_remote`. Every eligible kernel
-/// merges the incoming CRDT state as a lattice join into confirmed and
-/// visible state, so a merge is idempotent and never replaces a winner or
-/// discards local edits. A snapshot for a different kernel, or for a
-/// channel that does not support ack-free p2p at all, returns
-/// `UnsupportedP2p`.
+/// Merge the whole channel snapshot of a peer into the state of this channel.
+/// This is the full-state equivalent of `apply_p2p_remote`.
+///
+/// Every kernel that p2p supports merges the incoming CRDT state as a lattice
+/// join, into the confirmed state and the visible state. A merge is thus
+/// idempotent, and it never discards a winner or a local edit. A snapshot for
+/// a different kernel, and a snapshot for a channel that does not support
+/// ack-free p2p at all, both return `UnsupportedP2p`.
 pub fn merge_p2p_snapshot(
   state: ChannelState,
   snapshot: Snapshot,
@@ -1402,10 +1436,10 @@ pub fn merge_p2p_snapshot(
   }
 }
 
-/// Map an or-map kernel error onto `ChannelError` for the p2p paths: a mode
-/// mismatch is a p2p-level rejection (no pending queue to leave untouched),
-/// everything else mirrors the server-backed `apply_remote`/`ack_local`
-/// mapping.
+/// Convert an error of the or-map kernel into a `ChannelError` value, for the
+/// p2p paths. A mode mismatch is a refusal at the p2p level, because there is
+/// no pending queue to protect. Every other error uses the same conversion as
+/// the server-backed `apply_remote` and `ack_local` paths.
 fn or_map_p2p_error(error: or_map_kernel.KernelError) -> ChannelError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> UnsupportedP2p(detail)
@@ -1432,9 +1466,9 @@ fn unsupported_p2p(state: ChannelState, context: String) -> ChannelError {
   )
 }
 
-/// Drain an op the kernel released onto the wire while an ack was ingested
-/// (json0's single-in-flight buffer promotion). Only json0 channels produce
-/// one; every other channel returns `None`.
+/// Take an op that the kernel released onto the wire while it processed an
+/// ack. That op comes from the one-op-in-flight buffer promotion of json0. A
+/// json0 channel produces such an op. Every other channel returns `None`.
 pub fn take_outbound(
   state: ChannelState,
 ) -> #(ChannelState, Option(ChannelOp)) {
@@ -1460,8 +1494,8 @@ fn wrong_channel_type(state: ChannelState, context: String) -> ChannelError {
   )
 }
 
-/// Whether a sequenced echo of our own op has the shape we submitted
-/// (the FIFO ack-matching sanity check).
+/// Whether the sequenced echo of a local op has the shape that this client
+/// submitted. This is the check on the FIFO ack matching.
 pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
   case ours, echoed {
     MapOp(ours), MapOp(echoed) -> same_map_shape(ours, echoed)
@@ -1533,13 +1567,14 @@ fn same_sequence_delta(ours: Sequence(Json), echoed: Sequence(Json)) -> Bool {
   )
 }
 
-/// Whether two text ops carry the same diagnostic shape (index/value
-/// intent) *and* the same authoritative CRDT delta, mirroring
-/// `same_sequence_shape`. The diagnostic fields alone would let a corrupted
-/// or tampered delta slip past the FIFO ack-matching sanity check; comparing
-/// the delta too preserves that tamper/corruption detection while still
-/// treating a delta produced by honest reconnect/resubmit (which encodes to
-/// the same canonical JSON) as equal.
+/// Whether two text ops carry the same diagnostic shape, which is the index
+/// intent and the value intent, *and* the same authoritative CRDT delta. The
+/// behaviour is the same as in `same_sequence_shape`.
+///
+/// The diagnostic fields alone would let a corrupt or changed delta pass the
+/// check on the FIFO ack matching. The comparison of the delta keeps that
+/// detection. It also treats a delta from a correct reconnect and resubmit as
+/// equal, because that delta encodes to the same canonical JSON.
 fn same_text_shape(
   ours: text_kernel.TextOp,
   echoed: text_kernel.TextOp,
@@ -1668,8 +1703,9 @@ fn same_task_manager_shape(
   }
 }
 
-/// Whether a sequenced echo of our own attach carries the snapshot we
-/// submitted (values compared structurally, not byte-wise).
+/// Whether the sequenced echo of a local attach carries the snapshot that this
+/// client submitted. The function compares the values by structure, and not by
+/// their bytes.
 pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
   case ours, echoed {
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
@@ -1726,8 +1762,8 @@ fn same_json_value(ours: Json, echoed: Json) -> Bool {
   wire.json_semantically_equal(ours, echoed)
 }
 
-/// Handle addresses reachable from the channel's current values, for
-/// attach-dependency ordering. Counters hold no handles.
+/// The handle addresses that the current values of the channel reach, for the
+/// order of the attach dependencies. A counter holds no handle.
 pub fn handle_addresses(state: ChannelState) -> List(String) {
   case state {
     MapState(kernel) ->
@@ -1811,8 +1847,9 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
   }
 }
 
-/// Encode a snapshot's type-dependent payload (the attach op's `snapshot`
-/// field, the summary blob channel's `data` field).
+/// Encode the payload of a snapshot, whose shape depends on the channel type.
+/// That payload is the `snapshot` field of the attach op, and the `data` field
+/// of the channel in the summary blob.
 pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   case snapshot {
     MapSnapshot(entries) -> wire.encode_entries(entries)
@@ -1836,9 +1873,9 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   }
 }
 
-/// Recursive JSON for a directory summary: each node carries its ordered
-/// storage entries, create info, creator ids, detached flag, and named child
-/// directories (in directory order).
+/// The recursive JSON of a directory summary. Each node carries its ordered
+/// storage entries, its create info, its creator ids, its detached flag, and
+/// its named child directories, in directory order.
 fn encode_directory_summary(
   summary: directory_kernel.DirectorySummary,
 ) -> Json {
@@ -1866,8 +1903,8 @@ fn encode_create_info(create: directory_kernel.CreateInfo) -> Json {
   ])
 }
 
-/// Decoder for a snapshot payload, selected by channel type (the field the
-/// carrying envelope names the type in).
+/// The decoder for a snapshot payload. The channel type selects it, and the
+/// envelope that carries the payload names that type in a field.
 pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
   case channel_type {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
@@ -2042,9 +2079,9 @@ fn encode_pact(pact: pact_map_kernel.Pact) -> Json {
   ])
 }
 
-/// A PactMap value is `Option(Json)`: `None` is a genuine tombstone, distinct
-/// from `Some(null)`, so it gets its own `Absent` wire tag rather than a JSON
-/// `null`.
+/// A PactMap value is an `Option(Json)` value. `None` is a true tombstone,
+/// which is not the same as `Some(null)`. It thus gets its own `Absent` wire
+/// tag, and not a JSON `null`.
 fn encode_optional_value(value: Option(Json)) -> Json {
   case value {
     Some(inner) ->
@@ -2089,8 +2126,9 @@ fn optional_value_decoder() -> Decoder(Option(Json)) {
   }
 }
 
-/// `{queue: [value...], jobs: [{acquireId, value, owner}]}`. `owner` is an int
-/// client id or `null` for a locally-acquired (unattached) job.
+/// `{queue: [value...], jobs: [{acquireId, value, owner}]}`. `owner` is an
+/// integer client id, or `null` for a job that a local client acquired while
+/// the collection was unattached.
 fn encode_ordered_snapshot(
   queue: List(Json),
   jobs: List(#(String, ordered_collection_kernel.JobEntry)),

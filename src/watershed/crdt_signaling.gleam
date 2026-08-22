@@ -1,32 +1,32 @@
 //// The reference signaling protocol: a closed frame vocabulary and the
 //// pure room registry a service runs it with.
 ////
-//// A signaling service exists to introduce peers to each other and to
-//// carry three kinds of opaque WebRTC blob between them. It is not part
-//// of the document, and this module is what makes that structural rather
-//// than a promise: `ClientFrame` has exactly three constructors, its
-//// signal payload is `p2p_transport_js.SignalPayload` — the same closed
-//// sum the transport speaks, `Offer | Answer | Candidate` — and the
-//// decoder is total. There is no frame shape that carries a
-//// `crdt_wire.Envelope`, so a document delta cannot be routed by a
-//// service built on this, however the service is written. A peer that
-//// sends one gets a `Rejected` and a closed socket.
+//// A signaling service exists to introduce the peers to each other, and to
+//// carry three kinds of opaque WebRTC payload between them. It is not part of
+//// the document. This module makes that separation structural, and not a
+//// promise. `ClientFrame` has exactly three constructors. Its signal payload
+//// is a `p2p_transport_js.SignalPayload` value, which is the same closed sum
+//// that the transport uses: `Offer`, `Answer`, or `Candidate`. The decoder is
+//// total. No frame shape carries a `crdt_wire.Envelope` value, so a service
+//// that this module supports cannot route a document delta, whatever the
+//// author of that service writes. A peer that sends one receives a `Rejected`
+//// frame and a closed socket.
 ////
-//// `Rooms` is a pure state machine. `handle_frame` and `disconnect` take
-//// a registry and a connection id and return a new registry plus the
-//// `Action`s a service should perform; nothing here opens a socket,
-//// writes a log, or reads a clock. That is what lets the room cap,
-//// duplicate-id rejection, cross-room targeting, and every rejection
-//// path be tested without a server.
+//// `Rooms` is a pure state machine. `handle_frame` and `disconnect` take a
+//// registry and a connection id, and they return a new registry with the
+//// `Action` values that a service must perform. Nothing here opens a socket,
+//// writes a log, or reads a clock. A test can thus check the room limit, the
+//// refusal of a duplicate id, a cross-room target, and every other refusal
+//// path, and it needs no server.
 ////
-//// What the service built on it must satisfy — the transport's discovery
-//// contract — is that the smaller of any two peer ids learns about the
-//// larger. `Joined` tells a newcomer every existing member and
-//// `PeerJoined` tells every existing member about the newcomer, so both
-//// directions are covered and the contract holds for every pair.
+//// The service must satisfy the discovery contract of the transport: the
+//// smaller of any two peer ids must learn about the larger one. `Joined` tells
+//// a new peer about every existing member, and `PeerJoined` tells every
+//// existing member about the new peer. Both directions are thus covered, and
+//// the contract holds for every pair.
 ////
-//// JavaScript target only: it shares the transport's payload type, and
-//// the reference service runs on Node.
+//// JavaScript target only. This module shares the payload type of the
+//// transport, and the reference service runs on Node.
 
 @target(javascript)
 import gleam/bit_array
@@ -55,27 +55,28 @@ import watershed/p2p_transport_js.{type SignalPayload, Answer, Candidate, Offer}
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Peers allowed in one room, read from the core protocol limits so the
-/// service, the transport, and the wire cannot disagree.
+/// The number of peers that one room permits. The value comes from the core
+/// protocol limits, so the service, the transport, and the wire cannot
+/// disagree.
 pub fn room_limit() -> Int {
   crdt_wire.default_limits().room_peers
 }
 
 @target(javascript)
-/// The largest signaling frame accepted, in bytes.
+/// The largest signaling frame that the module accepts, in bytes.
 ///
-/// An SDP offer with a handful of candidates is a few kilobytes; this is
-/// generous for that and far below the 256 KiB a document envelope may
-/// be, so the size guard alone already refuses anything document-shaped
-/// before it is parsed.
+/// An SDP offer with several candidates is a few kilobytes, and this limit is
+/// generous for that. It is also much less than the 256 KiB of a document
+/// envelope. The size check alone thus refuses anything with the shape of a
+/// document, before the module parses it.
 pub const max_frame_bytes = 16_384
 
 @target(javascript)
-/// The longest accepted room or peer id, **in UTF-8 bytes**. Both are
-/// echoed to other peers, so an unbounded one is an amplification vector
-/// — and what is echoed is bytes, not graphemes: one emoji is four of
-/// these, and a grapheme count would admit a frame four times the size it
-/// promised.
+/// The longest room id or peer id that the module accepts, **in UTF-8 bytes**.
+/// The service echoes both to the other peers, so an id with no limit is a way
+/// to amplify traffic. The service echoes bytes, and not graphemes. One emoji
+/// is four bytes, so a limit on the grapheme count would permit a frame four
+/// times the size that the limit states.
 pub const max_id_bytes = 128
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,8 +84,8 @@ pub const max_id_bytes = 128
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Everything a client may say. Three constructors, and the only payload
-/// is the transport's own closed signal sum.
+/// Everything that a client can send. There are three constructors, and the
+/// only payload is the closed signal sum of the transport.
 pub type ClientFrame {
   Join(room: String, peer: String)
   Signal(to: String, payload: SignalPayload)
@@ -92,39 +93,40 @@ pub type ClientFrame {
 }
 
 @target(javascript)
-/// Everything a service may say back.
+/// Everything that a service can send back.
 pub type ServerFrame {
-  /// Admission, with the room's existing members.
+  /// The admission of a peer, with the existing members of the room.
   Joined(room: String, peer: String, peers: List(String))
   PeerJoined(peer: String)
   PeerLeft(peer: String)
   Forwarded(from: String, payload: SignalPayload)
-  /// A refusal that ends the connection. `reason` is a stable machine
-  /// tag; `detail` is prose.
+  /// A refusal that ends the connection. `reason` is a stable tag for a
+  /// program to read. `detail` is prose for a person to read.
   Rejected(reason: String, detail: String)
-  /// One frame could not be delivered, and the connection is fine. The
-  /// only thing that produces it is a signal addressed to a peer that is
-  /// no longer in the room — a candidate that lost a race with a leave —
-  /// which is ordinary in a mesh and not a protocol violation.
+  /// The service could not deliver one frame, and the connection is correct.
+  /// One condition produces this frame: a signal addressed to a peer that is
+  /// no longer in the room. That occurs when a candidate loses a race with a
+  /// leave, which is usual in a mesh and is not a protocol violation.
   Dropped(reason: String, detail: String)
 }
 
 @target(javascript)
-/// What a service should do after a frame. Connections are named by the
-/// integer id the service assigned them, so the state machine never
-/// holds a socket.
+/// What a service must do after a frame. Each action names a connection by the
+/// integer id that the service assigned to it, so the state machine never holds
+/// a socket.
 pub type Action {
   Send(connection: Int, frame: ServerFrame)
-  /// Close a connection after any `Send` already emitted for it.
+  /// Close a connection, after every `Send` action that the module already
+  /// emitted for it.
   Close(connection: Int, reason: String)
 }
 
 @target(javascript)
-/// Why a frame was refused.
+/// The reason that the module refused a frame.
 ///
-/// Most of these are protocol violations: the connection is told why and
-/// then closed, and the room registry is left exactly as it was.
-/// `UnknownTarget` is the exception — see `is_terminal`.
+/// Most of these reasons are protocol violations. The service tells the
+/// connection the reason and then closes it, and the room registry does not
+/// change. `UnknownTarget` is the exception. See `is_terminal`.
 pub type Refusal {
   FrameTooLarge(bytes: Int)
   Malformed(detail: String)
@@ -132,12 +134,14 @@ pub type Refusal {
   AlreadyJoined
   DuplicatePeerId(peer: String)
   RoomFull(limit: Int)
-  /// A signal addressed to a peer that is in *another* room. Rooms are
-  /// the whole of the addressing, so naming across one is a violation.
+  /// A signal addressed to a peer that is in *another* room. The room is the
+  /// whole of the addressing, so a name across a room boundary is a
+  /// violation.
   CrossRoomTarget(peer: String)
-  /// A signal addressed to a peer that is in no room at all. Almost
-  /// always a peer that left between the sender deciding to write and the
-  /// frame arriving, which is a race every mesh runs constantly.
+  /// A signal addressed to a peer that is in no room. In almost every case
+  /// that peer left between the moment at which the sender decided to write
+  /// and the moment at which the frame arrived. Every mesh runs that race
+  /// often.
   UnknownTarget(peer: String)
   InvalidId(detail: String)
 }
@@ -145,12 +149,12 @@ pub type Refusal {
 @target(javascript)
 /// Whether a refusal ends the connection.
 ///
-/// Everything a peer can be *wrong* about does: a malformed or oversize
-/// frame, signalling before joining, a duplicate id, a full room, a
-/// target in another room. A target that has simply gone is not one of
-/// them — closing the sender for it would mean any peer could take
-/// another down by leaving at the wrong moment, and the `peerLeft` that
-/// explains it is already on its way.
+/// Every condition that a peer can get *wrong* ends it: a malformed frame, an
+/// oversize frame, a signal before a join, a duplicate id, a full room, and a
+/// target in another room. A target that left is not one of those conditions.
+/// To close the sender for it would let any peer close another peer, by
+/// leaving at the correct moment. The `peerLeft` frame that explains the
+/// departure is already on its way.
 pub fn is_terminal(refusal: Refusal) -> Bool {
   case refusal {
     UnknownTarget(_) -> False
@@ -251,9 +255,9 @@ pub fn server_to_string(frame: ServerFrame) -> String {
 }
 
 @target(javascript)
-/// The signal payload codec, shared with `watershed/nostr_signaling_js`:
-/// both lanes carry the same three WebRTC blobs, so they spell them the
-/// same way.
+/// The codec for a signal payload. `watershed/nostr_signaling_js` shares it.
+/// The two lanes carry the same three WebRTC payloads, so they encode them in
+/// the same way.
 pub fn encode_payload(payload: SignalPayload) -> Json {
   case payload {
     Offer(sdp) ->
@@ -273,9 +277,10 @@ pub fn encode_payload(payload: SignalPayload) -> Json {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Decode a client frame. Total: size first, then JSON, then the closed
-/// tag set. Anything else — including every shape a `crdt_wire.Envelope`
-/// can take — is a `Refusal`, never a routed frame.
+/// Decode a client frame. The function is total. It checks the size first,
+/// then the JSON, and then the closed set of tags. Every other value is a
+/// `Refusal`, and never a routed frame. That includes every shape that a
+/// `crdt_wire.Envelope` value can take.
 pub fn decode_client(raw: String) -> Result(ClientFrame, Refusal) {
   use _ <- result.try(check_size(raw))
   use frame <- result.try(
@@ -359,7 +364,7 @@ fn server_decoder() -> Decoder(ServerFrame) {
 }
 
 @target(javascript)
-/// `encode_payload`'s decoder, public for the same reason.
+/// The decoder for `encode_payload`. It is public for the same reason.
 pub fn payload_decoder() -> Decoder(SignalPayload) {
   use tag <- decode.field("t", decode.string)
   case tag {
@@ -412,20 +417,22 @@ fn valid_id(value: String, what: String) -> Result(Nil, Refusal) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Every room and every connection in them. Purely a membership table:
-/// it holds ids, never payloads.
+/// Every room and every connection in those rooms. This type is a membership
+/// table only. It holds ids, and never a payload.
 pub opaque type Rooms {
   Rooms(
-    /// Room name to the peer ids in it, each with the connection that
-    /// owns it.
+    /// A map from a room name to the peer ids in that room. Each peer id
+    /// carries the connection that owns it.
     rooms: Dict(String, Dict(String, Int)),
-    /// Connection to the room and peer id it joined as.
+    /// A map from a connection to the room and the peer id that it joined
+    /// with.
     members: Dict(Int, #(String, String)),
-    /// How many rooms hold each peer id. Ids are unique within a room and
-    /// not across them, so this is a count rather than a room name — and
-    /// it is what makes "is this target in *another* room?" a lookup
-    /// instead of a scan of every room on the service, on a path a peer
-    /// can now repeat without being closed.
+    /// The number of rooms that hold each peer id. An id is unique in one
+    /// room, and not across the rooms, so this field is a count and not a room
+    /// name. The count makes the question "is this target in *another* room?"
+    /// one lookup, instead of a scan of every room on the service. A peer can
+    /// repeat that question without a closed connection, so the cost of the
+    /// scan would be a problem.
     occupancy: Dict(String, Int),
   )
 }
@@ -436,7 +443,7 @@ pub fn new_rooms() -> Rooms {
 }
 
 @target(javascript)
-/// Peer ids in a room, sorted.
+/// The peer ids in a room, sorted.
 pub fn members(rooms: Rooms, room: String) -> List(String) {
   case dict.get(rooms.rooms, room) {
     Ok(peers) -> dict.keys(peers) |> list.sort(string.compare)
@@ -445,14 +452,14 @@ pub fn members(rooms: Rooms, room: String) -> List(String) {
 }
 
 @target(javascript)
-/// Room names currently held, sorted. An emptied room is deleted, so a
-/// room that appears here has at least one member.
+/// The room names that the registry holds now, sorted. The registry deletes a
+/// room that becomes empty, so a room in this list has one member or more.
 pub fn room_names(rooms: Rooms) -> List(String) {
   dict.keys(rooms.rooms) |> list.sort(string.compare)
 }
 
 @target(javascript)
-/// The room and peer id a connection joined as.
+/// The room and the peer id that a connection joined with.
 pub fn membership(
   rooms: Rooms,
   connection: Int,
@@ -463,9 +470,9 @@ pub fn membership(
 @target(javascript)
 /// Apply one raw frame from one connection.
 ///
-/// Every rejection is the same shape — tell the peer why, then close it
-/// — and none of them mutates the registry, so a hostile connection
-/// cannot disturb the room it was refused from.
+/// Every refusal has the same shape: tell the peer the reason, then close the
+/// connection. No refusal changes the registry, so a hostile connection cannot
+/// change the room that refused it.
 pub fn handle_frame(
   rooms: Rooms,
   connection: Int,
@@ -481,12 +488,12 @@ pub fn handle_frame(
 }
 
 @target(javascript)
-/// Apply one decoded frame, carrying out whether the registry refused it.
+/// Apply one decoded frame, and return whether the registry refused it.
 ///
-/// The refusal is carried out rather than inferred from the actions,
-/// because a service's instrumentation has to be able to tell a routed
-/// `signal` from one that was refused without inspecting either — and
-/// looking at what came back would mean reading frames it must not read.
+/// The function returns the refusal, and a caller does not derive it from the
+/// actions. The instrumentation of a service must separate a routed `signal`
+/// from a refused one without an examination of either frame. To read the
+/// result would mean to read frames that the service must not read.
 fn apply_frame(
   rooms: Rooms,
   connection: Int,
@@ -551,13 +558,14 @@ fn join(
 }
 
 @target(javascript)
-/// Route one opaque payload to one named peer in the sender's own room.
+/// Route one opaque payload to one named peer in the room of the sender.
 ///
-/// Two ways to miss, and they are not the same mistake. A target that is
-/// a member of some other room is a peer naming across a room boundary,
-/// which is a violation and closes it. A target that is in no room at all
-/// is a peer that left mid-negotiation: the frame is dropped, the sender
-/// is told so, and its membership is untouched.
+/// There are two ways to miss, and they are not the same fault. A target that
+/// is a member of another room means that the sender named a peer across a
+/// room boundary. That is a violation, and the service closes the sender. A
+/// target that is in no room means that the peer left in the middle of the
+/// negotiation. The service drops the frame, tells the sender, and does not
+/// change the membership of the sender.
 fn forward(
   rooms: Rooms,
   connection: Int,
@@ -581,9 +589,9 @@ fn forward(
 }
 
 @target(javascript)
-/// Whether `peer` is a member of any room other than `room`. Only ever
-/// asked about a peer the sender's own room does not hold, so any
-/// occupancy at all is occupancy somewhere else.
+/// Whether `peer` is a member of a room other than `room`. A caller asks this
+/// question only about a peer that the room of the sender does not hold, so any
+/// occupancy at all is occupancy in another room.
 fn elsewhere(rooms: Rooms, room: String, peer: String) -> Bool {
   let here = case dict.get(rooms.rooms, room) {
     Ok(occupants) -> dict.has_key(occupants, peer)
@@ -597,8 +605,8 @@ fn elsewhere(rooms: Rooms, room: String, peer: String) -> Bool {
 }
 
 @target(javascript)
-/// Move a peer id's room count by `delta`, dropping it at zero so the
-/// index holds only ids that are somewhere.
+/// Change the room count of a peer id by `delta`, and remove the id at zero.
+/// The index thus holds only the ids that are in a room.
 fn adjust(
   occupancy: Dict(String, Int),
   peer: String,
@@ -615,9 +623,9 @@ fn adjust(
 }
 
 @target(javascript)
-/// Remove a connection, tell its room, and delete the room when it
-/// empties. Idempotent: a connection that is not a member produces no
-/// actions.
+/// Remove a connection, tell its room, and delete that room when it becomes
+/// empty. A second call has no more effect. A connection that is not a member
+/// produces no action.
 pub fn disconnect(rooms: Rooms, connection: Int) -> #(Rooms, List(Action)) {
   case dict.get(rooms.members, connection) {
     Error(Nil) -> #(rooms, [])
@@ -645,8 +653,8 @@ pub fn disconnect(rooms: Rooms, connection: Int) -> #(Rooms, List(Action)) {
 }
 
 @target(javascript)
-/// A refusal: tell the connection why, close it if the refusal is
-/// terminal, and leave the registry exactly as it was.
+/// A refusal. Tell the connection the reason, close it if the refusal is
+/// terminal, and do not change the registry.
 fn refused(
   rooms: Rooms,
   connection: Int,
@@ -672,21 +680,20 @@ fn refuse(connection: Int, refusal: Refusal) -> List(Action) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// `handle_frame` in the shape a JavaScript service can consume without
-/// touching a single Gleam value: the new registry, the actions rendered
-/// by `render_actions`, and the tag the frame classified as.
+/// `handle_frame` in the shape that a JavaScript service can read without any
+/// Gleam value: the new registry, the actions that `render_actions` produced,
+/// and the tag of the frame.
 ///
-/// The tag is the whole of a service's instrumentation: `join`,
-/// `signal`, `leave`, `rejected:<reason>`, or `dropped:<reason>`. It is
-/// derived from the frame's own type and from whether the protocol
-/// refused it, never from its contents, so counting frames does not
-/// require looking inside one. Every refusal is tagged — the decoder's
-/// and the registry's alike — so a room that is quietly turning peers
-/// away cannot look like healthy traffic. `dropped:` is kept apart from
-/// `rejected:` because the one refusal that does not close a connection
-/// is also the one that is nobody's fault: a signal to a peer that left.
-/// A document envelope is `rejected:malformed`, which is how a test
-/// proves none arrived.
+/// The tag is the whole instrumentation of a service. It is `join`, `signal`,
+/// `leave`, `rejected:<reason>`, or `dropped:<reason>`. It comes from the type
+/// of the frame and from whether the protocol refused that frame. It never
+/// comes from the contents, so a service can count the frames and read none of
+/// them. Every refusal has a tag, from the decoder and from the registry
+/// alike. A room that refuses peers thus cannot look like correct traffic. The
+/// `dropped:` prefix is separate from `rejected:`, because the one refusal
+/// that does not close a connection is also the one that no peer caused: a
+/// signal to a peer that left. A document envelope gets `rejected:malformed`,
+/// and a test uses that tag to prove that no envelope arrived.
 pub fn serve(
   rooms: Rooms,
   connection: Int,
@@ -719,10 +726,11 @@ fn refusal_tag(refusal: Refusal) -> String {
 }
 
 @target(javascript)
-/// Actions as `#(connection, payload, close_reason)`. A `Send` carries
-/// its encoded frame and an empty close reason; a `Close` carries an
-/// empty payload and its reason. Order is preserved, so a refusal's
-/// `Rejected` is always written before its `Close`.
+/// The actions as `#(connection, payload, close_reason)` triples. A `Send`
+/// action carries its encoded frame and an empty close reason. A `Close`
+/// action carries an empty payload and its reason. The function keeps the
+/// order, so the `Rejected` frame of a refusal always goes out before its
+/// `Close` action.
 pub fn render_actions(actions: List(Action)) -> List(#(Int, String, String)) {
   list.map(actions, fn(action) {
     case action {

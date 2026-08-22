@@ -1,31 +1,36 @@
-//// Stateful client-transform kernel over the pure json0 algebra in
-//// `json_ot.gleam`, riding watershed's central sequencer. Same discipline as
-//// `map_kernel.gleam`: no process, no side effects — every operation returns
-//// the new state plus the events it produced. The runtime actor owns
-//// sequencing (SN/RSN, FIFO ack matching); the kernel assumes acks arrive in
-//// submission order.
+//// A stateful client-transform kernel over the pure json0 algebra in
+//// `json_ot.gleam`. It runs on the central sequencer of watershed. The
+//// discipline is the same as in `map_kernel.gleam`. There is no process and
+//// there are no side effects. Every operation returns the new state with the
+//// events that it produced. The runtime actor owns the sequencing, which is
+//// the SN, the RSN, and the FIFO ack matching. The kernel assumes only that
+//// the acks arrive in submission order.
 ////
-//// ## Single op in flight (the Wave/ShareDB client model)
+//// ## One op in flight (the Wave and ShareDB client model)
 ////
-//// floodgate never transforms (the sequencer is kernel-agnostic), so an op is
-//// broadcast verbatim with the reference sequence number (RSN) it was authored
-//// against, and a receiver must transform it past every op sequenced in
-//// `(op.ref_seq, op.seq)` its author had not seen. For that to be
-//// context-consistent, an op must never be preceded in that window by an
-//// *earlier unacked op of the same author* — otherwise the incoming op's
-//// context already includes ops the window replay does not (the classic dOPT
-//// hazard).
+//// floodgate never transforms, because the sequencer does not know the
+//// kernels. It broadcasts an op without a change, with the reference sequence
+//// number (RSN) that the author wrote it against. A receiver must thus
+//// transform that op past every op that sequenced in the window
+//// `(op.ref_seq, op.seq)`, because the author did not see those ops.
 ////
-//// We guarantee this by keeping at most one op **in flight**: `inflight` is the
-//// single unacked op on the wire (authored against `sequenced`), and `buffer`
-//// composes every optimistic edit made since, released as the next `inflight`
-//// only when `inflight` is acked. Because a client's previous op is always
-//// acked before its next is sent, no window ever contains a same-author op, so
-//// transforming an incoming op past *all* logged ops in its window is correct.
+//// For the context to stay consistent, no earlier unacked op of the same
+//// author can come before the incoming op in that window. If one does, the
+//// context of the incoming op already contains ops that the window replay does
+//// not contain. This is the dOPT hazard.
 ////
-//// `side` is derived from author identity (design decision #4): for any pair of
-//// ops the client with the smaller id is `Lft`, so every replica breaks
-//// insert-at-same-index ties identically and TP1 convergence holds.
+//// This kernel prevents that condition. It keeps one op **in flight** at most.
+//// `inflight` is the one unacked op on the wire, written against `sequenced`.
+//// `buffer` composes every optimistic edit that follows, and the kernel
+//// releases it as the next `inflight` only when the current `inflight` is
+//// acked. The previous op of a client is always acked before the client sends
+//// the next one, so no window contains an op from the same author. It is thus
+//// correct to transform an incoming op past *every* logged op in its window.
+////
+//// `side` comes from the identity of the author, which is design decision 4.
+//// For any pair of ops, the client with the smaller id is `Lft`. Every replica
+//// thus breaks an insert-at-the-same-index tie in the same way, and TP1
+//// convergence holds.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -35,46 +40,53 @@ import watershed/json_ot.{
 }
 import watershed/ot_client.{LogEntry}
 
-/// A sequenced op remembered for the concurrency window, already transformed
-/// into the context it was applied in (head context at its `seq`). An alias
-/// for `ot_client`'s shared log-entry shape, concretized to json0's `Op`.
+/// A sequenced op that the kernel keeps for the concurrency window. The kernel
+/// already transformed it into the context that it was applied in, which is
+/// the head context at its `seq`. This is an alias for the shared log-entry
+/// shape of `ot_client`, with the `Op` type of json0.
 type LogEntry =
   ot_client.LogEntry(Op)
 
-/// Server-confirmed document, the concurrency-window `log`, and the single
-/// in-flight op plus a composed buffer of later optimistic edits.
+/// The server-confirmed document, the concurrency-window `log`, the one
+/// in-flight op, and a composed buffer of the later optimistic edits.
 pub type JsonOtState {
   JsonOtState(
-    /// This client's sequencing identity, for the `side` tie-break.
+    /// The sequencing identity of this client, for the `side` tie-break.
     self: Int,
-    /// Server-confirmed document (all sequenced ops applied in order).
+    /// The server-confirmed document, with every sequenced op applied in
+    /// order.
     sequenced: JsonValue,
-    /// Sequenced ops in head context, oldest first, kept while they can still
-    /// fall inside some future op's `(ref_seq, seq)` window (seq > MSN).
+    /// The sequenced ops in head context, oldest first. The kernel keeps an op
+    /// while a future `(ref_seq, seq)` window can contain it, which is while
+    /// `seq > MSN`.
     log: List(LogEntry),
-    /// The one unacked op on the wire, expressed against `sequenced` (rebased
-    /// as remote ops arrive). `None` when nothing is in flight.
+    /// The one unacked op on the wire, expressed against `sequenced`. The
+    /// kernel rebases it as the remote ops arrive. The value is `None` when no
+    /// op is in flight.
     inflight: Option(Op),
-    /// Optimistic edits authored since `inflight` was sent, composed into one
-    /// op expressed against `sequenced` ∘ `inflight`. Released as the next
-    /// `inflight` on ack. `None` when empty.
+    /// The optimistic edits that the client wrote after it sent `inflight`,
+    /// composed into one op that is expressed against `sequenced` ∘
+    /// `inflight`. The kernel releases it as the next `inflight` on an ack. The
+    /// value is `None` when there is no such edit.
     buffer: Option(Op),
-    /// A buffer just released as the new `inflight` on ack and awaiting
-    /// dispatch on the wire. Drained by `take_outbound`; the runtime cannot
-    /// send it inline because acks are processed while ingesting a sequenced
-    /// message. `None` when there is nothing pending to send.
+    /// A buffer that an ack released as the new `inflight`, which waits to go
+    /// on the wire. `take_outbound` removes it. The runtime cannot send it
+    /// immediately, because it processes an ack while it reads a sequenced
+    /// message. The value is `None` when there is nothing to send.
     outbound: Option(JsonOtWireOp),
   )
 }
 
-/// An op as it travels on the wire: the components plus the reference sequence
-/// number they were authored against (needed to rebuild the receiver's
-/// concurrency window). `author`/`seq` are stamped by the sequencer envelope.
+/// An op in its wire form: the components with the reference sequence number
+/// that the author wrote them against. The receiver needs that number to
+/// rebuild its concurrency window. The sequencer envelope supplies `author` and
+/// `seq`.
 pub type JsonOtWireOp {
   JsonOtWireOp(ref_seq: Int, components: Op)
 }
 
-/// Emitted whenever the observable document changes. One per op component.
+/// The kernel emits this event when the observable document changes. There is
+/// one event for each op component.
 pub type JsonOtEvent {
   DocChanged(path: List(PathKey), local: Bool)
 }
@@ -82,7 +94,8 @@ pub type JsonOtEvent {
 pub type KernelError {
   /// An ack arrived with nothing in flight.
   UnexpectedAck(detail: String)
-  /// The pure algebra rejected an apply/transform (bad path, bad value, …).
+  /// The pure algebra refused an apply or a transform, for example for a bad
+  /// path or a bad value.
   OtFailure(err: json_ot.OtError)
 }
 
@@ -90,12 +103,12 @@ pub type KernelError {
 // Construction / summary round-trip
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A fresh kernel for client `self` over an empty object document.
+/// A new kernel for the client `self`, over an empty object document.
 pub fn new(self: Int) -> JsonOtState {
   from_value(self, json_ot.VObject([]))
 }
 
-/// A fresh kernel seeded with an initial document value.
+/// A new kernel with an initial document value.
 pub fn from_value(self: Int, doc: JsonValue) -> JsonOtState {
   JsonOtState(
     self: self,
@@ -107,13 +120,15 @@ pub fn from_value(self: Int, doc: JsonValue) -> JsonOtState {
   )
 }
 
-/// Load a sequenced-only state from a stored summary under identity `self`. No
-/// local edits are ever summarized, and the concurrency window starts empty.
+/// Load a state that contains sequenced data only, from a stored summary,
+/// under the identity `self`. A summary never contains a local edit, and the
+/// concurrency window starts empty.
 pub fn from_summary(self: Int, doc: JsonValue) -> JsonOtState {
   from_value(self, doc)
 }
 
-/// The confirmed document a summary captures — sequenced only, no local edits.
+/// The confirmed document that a summary captures. It contains the sequenced
+/// data only, and no local edit.
 pub fn summary(state: JsonOtState) -> JsonValue {
   state.sequenced
 }
@@ -122,7 +137,8 @@ pub fn summary(state: JsonOtState) -> JsonValue {
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The optimistic document: `sequenced` with `inflight` then `buffer` applied.
+/// The optimistic document: `sequenced` with `inflight` applied, and then
+/// `buffer`.
 pub fn view(state: JsonOtState) -> Result(JsonValue, KernelError) {
   use after_inflight <- result.try(apply_opt(state.sequenced, state.inflight))
   apply_opt(after_inflight, state.buffer)
@@ -139,22 +155,25 @@ fn apply_opt(doc: JsonValue, op: Option(Op)) -> Result(JsonValue, KernelError) {
 // Pure re-exports (KernelError-wrapped) shared by local + remote paths
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply an op to a document (json0 J2–J4).
+/// Apply an op to a document. This is json0 J2 to J4.
 pub fn apply_op(doc: JsonValue, op: Op) -> Result(JsonValue, KernelError) {
   json_ot.apply(doc, op) |> result.map_error(OtFailure)
 }
 
-/// Transform `a` past `b` for the given side (json0 J5–J8, TP1).
+/// Transform `a` past `b` for the supplied side. This is json0 J5 to J8, and
+/// it holds TP1.
 pub fn transform(a: Op, b: Op, side: Side) -> Result(Op, KernelError) {
   json_ot.transform(a, b, side) |> result.map_error(OtFailure)
 }
 
-/// Compose two consecutive ops into one (json0 J9): `b` applied after `a`.
+/// Compose two consecutive ops into one, which is json0 J9. The result
+/// applies `b` after `a`.
 pub fn compose(a: Op, b: Op) -> Op {
   list.append(a, b)
 }
 
-/// Invert an op using the pre-images its `od`/`ld` components already carry.
+/// Invert an op with the pre-images that its `od` and `ld` components already
+/// carry.
 pub fn invert(op: Op) -> Op {
   json_ot.invert(op)
 }
@@ -163,12 +182,16 @@ pub fn invert(op: Op) -> Op {
 // Local operations (optimistic apply + outbound op)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Author a local edit against the current optimistic view. If nothing is in
-/// flight the edit becomes `inflight` and is returned as a wire op to send
-/// (stamped with `ref_seq`, the client's last-delivered SN). Otherwise it is
-/// composed into `buffer` and held until the in-flight op is acked, so at most
-/// one op is ever on the wire; `Ok(#(state, None, events))` signals "nothing to
-/// send yet".
+/// Write a local edit against the current optimistic view.
+///
+/// If no op is in flight, the edit becomes `inflight`, and the function returns
+/// it as a wire op to send. That op carries `ref_seq`, which is the last
+/// sequence number that the client received.
+///
+/// If an op is in flight, the function composes the edit into `buffer` and
+/// holds it until an ack retires the in-flight op. One op is thus on the wire
+/// at most. `Ok(#(state, None, events))` means that there is nothing to send
+/// yet.
 pub fn submit(
   state: JsonOtState,
   components: Op,
@@ -203,12 +226,14 @@ pub fn submit(
 // Remote operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a sequenced op authored by another client. `seq` is its sequence
-/// number, `author` its client id, `msn` the minimum sequence number (log GC).
-/// We transform the op into head context past every op sequenced in
-/// `(ref_seq, seq)` — none of which can be the author's own (single in-flight),
-/// so the window is gap-free — apply it, log it, then rebase `inflight` and
-/// `buffer` past it.
+/// Apply a sequenced op that another client wrote. `seq` is its sequence
+/// number, `author` is its client id, and `msn` is the minimum sequence number,
+/// which the log garbage collection uses.
+///
+/// The kernel transforms the op into head context past every op that sequenced
+/// in `(ref_seq, seq)`. No op in that window can come from the same author,
+/// because one op is in flight at most, so the window has no gap. The kernel
+/// then applies the op, logs it, and rebases `inflight` and `buffer` past it.
 pub fn apply_remote(
   state: JsonOtState,
   wire: JsonOtWireOp,
@@ -272,17 +297,20 @@ pub fn apply_remote(
 // Acks (own ops coming back sequenced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Commit our own op now that the server has sequenced it. The op is the
-/// current `inflight`, already rebased past every concurrent remote op, so we
-/// apply it to `sequenced` and log it in head context. The `buffer` (if any) is
-/// released as the next `inflight` and stashed in `outbound` — stamped with
-/// `ref_seq = seq`, since the buffer is expressed against `sequenced` with our
-/// just-acked op applied — for the runtime to dispatch via `take_outbound`. The
-/// optimistic view is unchanged, so no events are emitted.
+/// Commit the local op after the server sequences it. That op is the current
+/// `inflight`, which the kernel already rebased past every concurrent remote
+/// op. The kernel thus applies it to `sequenced` and logs it in head context.
 ///
-/// The `_wire` echoed by the sequencer is the original op we submitted; since
-/// the sequencer never transforms it will not match the rebased in-flight op,
-/// so it is ignored beyond FIFO ordering.
+/// If there is a `buffer`, the kernel releases it as the next `inflight` and
+/// puts it in `outbound`, for the runtime to send with `take_outbound`. That op
+/// carries `ref_seq = seq`, because the buffer is expressed against `sequenced`
+/// with the acked op applied. The optimistic view does not change, so the
+/// kernel emits no event.
+///
+/// The `_wire` value that the sequencer echoes is the original op that the
+/// client submitted. The sequencer never transforms, so that value does not
+/// equal the rebased in-flight op. The kernel uses it for the FIFO order
+/// only.
 pub fn ack_local(
   state: JsonOtState,
   _wire: JsonOtWireOp,
@@ -315,9 +343,10 @@ pub fn ack_local(
   }
 }
 
-/// Drain any op released onto the wire by `ack_local` (a buffer promoted to the
-/// new in-flight op). Returns the op to dispatch and clears the pending slot;
-/// `None` when nothing is waiting. Idempotent once drained.
+/// Take the op that `ack_local` released onto the wire, which is a buffer that
+/// became the new in-flight op. The function returns the op to send and empties
+/// the pending slot. The result is `None` when there is no such op. A second
+/// call has no more effect.
 pub fn take_outbound(
   state: JsonOtState,
 ) -> #(JsonOtState, Option(JsonOtWireOp)) {
@@ -329,9 +358,10 @@ pub fn take_outbound(
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The transform side for `x` when transformed past a `y` authored elsewhere:
-/// the op whose author has the smaller id is `Lft`. Symmetric and replicated,
-/// so every client breaks the same tie the same way.
+/// The transform side for `x` when the kernel transforms it past a `y` that
+/// another client wrote. The op whose author has the smaller id is `Lft`. The
+/// rule is symmetric and replicated, so every client breaks the same tie in the
+/// same way.
 fn side_of(author_x: Int, author_y: Int) -> Side {
   case ot_client.author_precedes(author_x, author_y) {
     True -> Lft

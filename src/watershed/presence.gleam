@@ -1,24 +1,25 @@
 //// Presence — who is here, and what they are doing.
 ////
-//// One model, two implementations. **Server mode** mirrors Beryl's presence:
-//// the server tracks each connection, so a late joiner gets the whole roster in
-//// one snapshot and a dropped socket removes its entry with no browser
-//// involvement. **Ripple mode** is the fallback for servers without the
-//// presence lane: each client announces itself on a heartbeat and expires peers
-//// it stops hearing from. Both produce the same `PresenceEntry`, `Diff`, and
-//// `Event` values, so an application renders one thing either way.
+//// One model, two implementations. **Server mode** is the same design as the
+//// presence of Beryl. The server tracks each connection, so a late joiner
+//// receives the whole roster in one snapshot, and a dropped socket removes its
+//// entry without any action by the browser. **Ripple mode** is the fallback
+//// for a server without the presence lane. Each client announces itself on a
+//// heartbeat, and it removes a peer that it stops receiving. Both modes
+//// produce the same `PresenceEntry`, `Diff`, and `Event` values, so an
+//// application renders one thing in both modes.
 ////
-//// Presence is transient collaboration state: it is never sequenced,
-//// persisted, or replayed. Ripple mode rides watershed *ripples*
-//// (fire-and-forget, non-sequenced); server mode rides a lane of its own that
-//// likewise never touches the op stream.
+//// Presence is transient collaboration state. Nothing sequences it, stores it,
+//// or replays it. Ripple mode uses watershed *ripples*, which are
+//// fire-and-forget and do not sequence. Server mode uses a lane of its own,
+//// which also never touches the op stream.
 ////
-//// A session is one tab, device, or CLI process; a key groups the sessions of
-//// one authenticated user. Two tabs from one person are two entries sharing a
-//// key — which is why the roster is keyed by session and not by user.
+//// A session is one tab, one device, or one CLI process. A key groups the
+//// sessions of one authenticated user. Two tabs of one person are two entries
+//// that share a key. The roster is thus keyed by session, and not by user.
 ////
-//// This module is target-agnostic and pure. The JS driver
-//// (`watershed/presence_js`) drives it; an erlang driver can slot in later.
+//// This module is target-agnostic and pure. The JavaScript driver
+//// (`watershed/presence_js`) drives it. An Erlang driver can be added later.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
@@ -32,31 +33,33 @@ import gleam/string
 
 import watershed/wire
 
-/// The ripple `type` tag and envelope `kind` value for all presence broadcasts.
-/// floodgate strips the ripple `type` on broadcast (Fluid compat), so we discriminate
-/// inbound by the `kind` field of the content envelope; the `type` stamp is kept
-/// only for forward compat. Multiple ripple uses per document coexist by `kind`.
+/// The `type` tag of the ripple and the `kind` value of the envelope, for every
+/// presence broadcast. floodgate removes the `type` field of a ripple on a
+/// broadcast, for compatibility with Fluid. This module thus separates the
+/// inbound kinds by the `kind` field of the content envelope. It keeps the
+/// `type` stamp for compatibility with a later server only. Several uses of
+/// ripples in one document work together, because `kind` separates them.
 pub const ripple_type = "presence"
 
-/// Which implementation a presence handle uses.
+/// The implementation that a presence handle uses.
 ///
-/// `Auto` picks server presence when the server advertises `presence_v1` and
-/// the ripple heartbeat otherwise. `Server` refuses to fall back — a silent
-/// downgrade would make presence look intermittently broken with no signal.
-/// `Ripple` forces the heartbeat, for tests and for servers known to lack the
-/// lane.
+/// `Auto` selects server presence when the server announces `presence_v1`, and
+/// the ripple heartbeat in every other condition. `Server` never changes to the
+/// fallback, because a silent downgrade would make presence look intermittently
+/// broken and would report nothing. `Ripple` forces the heartbeat, for a test
+/// and for a server that you know has no presence lane.
 pub type Mode {
   Auto
   Server
   Ripple
 }
 
-/// How to encode and decode an application's presence metadata, which
-/// implementation to use, and (ripple mode only) the heartbeat cadence.
+/// The encoder and decoder for the presence metadata of an application, the
+/// implementation to use, and, in ripple mode only, the heartbeat interval.
 ///
-/// Metadata must encode to a JSON **object**: the Phoenix `metas` shape puts
-/// the server's `phx_ref` and `client_id` beside the application's own fields,
-/// and a scalar or an array leaves nowhere to put them.
+/// The metadata must encode to a JSON **object**. The Phoenix `metas` shape
+/// puts the `phx_ref` and `client_id` fields of the server beside the fields of
+/// the application, and a scalar or an array has no position for them.
 pub opaque type Config(a) {
   Config(
     encode: fn(a) -> Json,
@@ -67,9 +70,10 @@ pub opaque type Config(a) {
   )
 }
 
-/// A presence configuration: a codec for the application's metadata, in `Auto`
-/// mode, with the default ripple cadence (re-announce every 2s, expire after
-/// 6.5s — about three missed beats).
+/// A presence configuration: a codec for the metadata of the application, in
+/// `Auto` mode, with the default ripple interval. The client announces itself
+/// again every 2 seconds, and it removes a peer after 6.5 seconds, which is
+/// about three missed beats.
 pub fn config(encode: fn(a) -> Json, decode: Decoder(a)) -> Config(a) {
   Config(
     encode: encode,
@@ -84,9 +88,9 @@ pub fn with_mode(config: Config(a), mode: Mode) -> Config(a) {
   Config(..config, mode: mode)
 }
 
-/// Override the ripple heartbeat and liveness window. Server mode ignores both:
-/// it has no browser heartbeat at all, because the connection *is* the liveness
-/// signal.
+/// Replace the ripple heartbeat interval and the liveness window. Server mode
+/// ignores both values. It has no heartbeat in the browser at all, because the
+/// connection *is* the liveness signal.
 pub fn with_ripple_timing(
   config: Config(a),
   heartbeat_ms heartbeat_ms: Int,
@@ -124,10 +128,11 @@ pub fn config_ttl_ms(config: Config(a)) -> Int {
 // application renders one thing either way.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The event names on the presence lane. Client→server commands are camelCase
-/// like `submitOp`/`submitSignal`; server→client frames are snake_case like
-/// `connect_document_success`. That split is the existing wire convention, not
-/// an inconsistency in this module.
+/// The event names on the presence lane. A command from the client to the
+/// server uses camel case, the same as `submitOp` and `submitSignal`. A frame
+/// from the server to the client uses snake case, the same as
+/// `connect_document_success`. That difference is the existing wire
+/// convention. It is not an error in this module.
 pub const event_join = "joinPresence"
 
 pub const event_update = "updatePresence"
@@ -140,35 +145,37 @@ pub const event_diff = "presence_diff"
 
 pub const event_error = "presence_error"
 
-/// Meta fields the server owns. They are stripped before the application's
-/// decoder runs, so an app never sees them and can never claim them.
+/// The meta fields that the server owns. This module removes them before the
+/// decoder of the application runs. An application thus never sees them, and it
+/// can never claim one.
 pub const reserved_meta_fields = ["phx_ref", "phx_ref_prev", "client_id"]
 
-/// One tracked session: Beryl's `PresenceEntry` with `meta: a` in place of its
-/// `meta: Json`.
+/// One tracked session. This is the `PresenceEntry` type of Beryl, with
+/// `meta: a` in place of its `meta: Json`.
 ///
-/// `session_id` identifies one tab, device, CLI process, or reconnect
-/// incarnation; `key` groups the sessions belonging to one authenticated user.
-/// Two tabs from one user are two entries sharing a `key`.
+/// `session_id` identifies one tab, one device, one CLI process, or one
+/// instance after a reconnect. `key` groups the sessions of one authenticated
+/// user. Two tabs of one user are two entries that share a `key`.
 pub type PresenceEntry(a) {
   PresenceEntry(session_id: String, key: String, meta: a)
 }
 
-/// A tracked session plus the wire-only `phx_ref` that identifies *which* meta
-/// joined or left. Never public: `phx_ref` is Phoenix's bookkeeping, not the
-/// application's.
+/// A tracked session with the wire-only `phx_ref` value, which identifies the
+/// meta that joined or left. This type is never public. `phx_ref` is a record
+/// of Phoenix, and not of the application.
 type Tracked(a) {
   Tracked(phx_ref: String, session_id: String, key: String, meta: a)
 }
 
-/// A meta the application's decoder rejected. The entry is dropped and reported
-/// rather than failing the whole frame — one malformed peer must not blank the
-/// roster.
+/// A meta that the decoder of the application refused. This module drops the
+/// entry and reports it. It does not fail the whole frame, because one
+/// malformed peer must not clear the roster.
 pub type Dropped {
   Dropped(key: String, session_id: String)
 }
 
-/// A membership change. Opaque because it carries `phx_ref`.
+/// A change of membership. The type is opaque, because it carries a
+/// `phx_ref` value.
 pub opaque type Diff(a) {
   Diff(
     joins: List(Tracked(a)),
@@ -177,14 +184,14 @@ pub opaque type Diff(a) {
   )
 }
 
-/// A decoded `presence_state`, not yet applied.
+/// A decoded `presence_state` frame that this module has not applied yet.
 pub opaque type Snapshot(a) {
   Snapshot(entries: List(Tracked(a)), dropped: List(Dropped))
 }
 
-/// What a presence handle reports. `State` replaces the roster wholesale;
-/// `Changed` carries both the delta and the resulting roster so a renderer can
-/// use either.
+/// The report of a presence handle. `State` replaces the whole roster.
+/// `Changed` carries the change and the roster that results, so a renderer can
+/// use either one.
 pub type Event(a) {
   State(entries: List(PresenceEntry(a)))
   Changed(diff: Diff(a), entries: List(PresenceEntry(a)))
@@ -192,13 +199,13 @@ pub type Event(a) {
 }
 
 pub type PresenceError {
-  /// `Mode.Server` was forced against a server that does not advertise
-  /// `presence_v1`.
+  /// The application forced `Mode.Server` against a server that does not
+  /// announce `presence_v1`.
   UnsupportedPresence
   /// The server rejected a presence command.
   Rejected(code: String, message: String)
-  /// One peer's metadata failed the application decoder; that entry was
-  /// dropped and the rest of the roster kept.
+  /// The metadata of one peer failed the decoder of the application. This
+  /// module dropped that entry and kept the rest of the roster.
   DecodeFailed(key: String, session_id: String)
 }
 
@@ -212,12 +219,14 @@ pub fn diff_leaves(diff: Diff(a)) -> List(PresenceEntry(a)) {
   public_entries(diff.leaves)
 }
 
-/// Whether this change moves nothing. A bare ripple heartbeat produces one.
+/// Whether this change moves nothing. A ripple heartbeat alone produces such a
+/// change.
 pub fn diff_is_empty(diff: Diff(a)) -> Bool {
   diff.joins == [] && diff.leaves == []
 }
 
-/// Every session registered under one presence key — i.e. one user's tabs.
+/// Every session that is registered under one presence key, which is the set
+/// of tabs of one user.
 pub fn by_key(
   entries: List(PresenceEntry(a)),
   key: String,
@@ -225,9 +234,9 @@ pub fn by_key(
   list.filter(entries, fn(entry) { entry.key == key })
 }
 
-/// Everyone but this client. Presence state includes the local session (server
-/// snapshots and Phoenix diffs both carry it), so interfaces that only render
-/// peers filter it out here.
+/// Every session except this client. The presence state contains the local
+/// session, because a server snapshot and a Phoenix diff both carry it. An
+/// interface that renders the peers only thus removes it with this function.
 pub fn remote_entries(
   entries: List(PresenceEntry(a)),
   local_session: String,
@@ -237,30 +246,31 @@ pub fn remote_entries(
 
 // ── Server-mode tracker ──────────────────────────────────────────────────────
 
-/// Server-mode presence state, keyed by `phx_ref`.
+/// The presence state of server mode, keyed by `phx_ref`.
 ///
-/// `entries` is `None` until the first `presence_state` arrives. That is not a
-/// flag but the mechanism: an unsynced tracker has nowhere to apply a diff, so
-/// diffs queue structurally instead of corrupting a stale roster. A reconnect
-/// calls `reset`, which returns to that state and is what stops stale diffs
-/// from replaying across sessions.
+/// `entries` is `None` until the first `presence_state` frame arrives. That
+/// value is not a flag. It is the mechanism: a tracker that is not synchronized
+/// has no place to apply a diff, so the diffs queue by the structure of the
+/// type, and they do not corrupt a stale roster. A reconnect calls `reset`,
+/// which returns the tracker to that state. That call is what prevents a
+/// replay of a stale diff into a new session.
 pub opaque type Tracker(a) {
   Tracker(entries: Option(Dict(String, Tracked(a))), pending: List(Diff(a)))
 }
 
-/// A tracker awaiting its first snapshot.
+/// A tracker that waits for its first snapshot.
 pub fn tracker() -> Tracker(a) {
   Tracker(entries: None, pending: [])
 }
 
-/// Forget everything, including queued diffs. Emits nothing: reporting an empty
-/// roster on every socket blip would blank the UI for a gap the next snapshot
-/// closes in milliseconds.
+/// Remove everything, including the queued diffs. The function emits no event.
+/// A report of an empty roster on every short socket failure would clear the
+/// interface for an interval that the next snapshot closes in milliseconds.
 pub fn reset(_tracker: Tracker(a)) -> Tracker(a) {
   tracker()
 }
 
-/// Whether an initial snapshot has been applied.
+/// Whether the tracker has applied an initial snapshot.
 pub fn is_synced(tracker: Tracker(a)) -> Bool {
   tracker.entries != None
 }
@@ -273,9 +283,10 @@ pub fn tracker_entries(tracker: Tracker(a)) -> List(PresenceEntry(a)) {
   }
 }
 
-/// Adopt an initial snapshot, then drain any diffs that arrived ahead of it.
-/// A snapshot arriving while already synced is ignored — duplicate states are
-/// not a resync, and treating them as one would drop concurrent diffs.
+/// Take an initial snapshot, then apply each diff that arrived before it. The
+/// tracker ignores a snapshot that arrives while it is already synchronized. A
+/// duplicate state is not a resynchronization, and to treat it as one would
+/// drop the concurrent diffs.
 pub fn apply_state(
   tracker: Tracker(a),
   snapshot: Snapshot(a),
@@ -303,10 +314,10 @@ pub fn apply_state(
 
 /// Apply a change, or queue it when no snapshot has arrived yet.
 ///
-/// Joins for a `phx_ref` already present and leaves for one that is absent are
-/// dropped: the server may replay a change across a reconnect, and applying it
-/// twice would double-count a session. A change with nothing left after that
-/// filter produces no event.
+/// The tracker drops a join for a `phx_ref` that is already present, and a
+/// leave for one that is absent. The server can replay a change across a
+/// reconnect, and to apply that change two times would count a session two
+/// times. A change with nothing left after that filter produces no event.
 pub fn apply_diff(
   tracker: Tracker(a),
   diff: Diff(a),
@@ -344,10 +355,11 @@ pub fn apply_diff(
 
 // ── Ripple-mode sessions ─────────────────────────────────────────────────────
 
-/// Ripple-mode state, keyed by **session id** rather than by user.
+/// The state of ripple mode, keyed by **session id** and not by user.
 ///
-/// That is the whole fix for the old roster: two tabs from one user are two
-/// sessions sharing a key, and they join, update, and expire independently.
+/// That key is the complete fix for the old roster. Two tabs of one user are
+/// two sessions that share a key, and each one joins, updates, and expires on
+/// its own.
 pub opaque type Sessions(a) {
   Sessions(entries: Dict(String, Live(a)))
 }
@@ -361,18 +373,19 @@ pub fn sessions() -> Sessions(a) {
   Sessions(dict.new())
 }
 
-/// A change that moves nothing. Lets a driver take the same code path whether
-/// or not there was anything to report.
+/// A change that moves nothing. A driver can thus use one code path, whether or
+/// not it has something to report.
 pub fn no_change() -> Diff(a) {
   empty_diff()
 }
 
 /// Record a heartbeat from one session.
 ///
-/// An unseen session joins; a repeat of the same metadata moves only
-/// `last_seen` and reports nothing, so a bare heartbeat never re-renders; and
-/// changed metadata reports a leave and a join for that session — deliberately
-/// the same shape server mode produces for an update.
+/// A session that this module has not seen joins. A repeat of the same metadata
+/// moves `last_seen` only and reports nothing, so a heartbeat alone never
+/// causes a re-render. Metadata that changed reports a leave and then a join
+/// for that session. That is the same shape that server mode produces for an
+/// update, and the agreement is deliberate.
 pub fn observe_session(
   sessions: Sessions(a),
   session_id: String,
@@ -406,8 +419,9 @@ pub fn observe_session(
   }
 }
 
-/// Drop sessions whose last heartbeat is older than the TTL. A session exactly
-/// at the TTL survives, matching the old `prune` boundary.
+/// Remove each session whose last heartbeat is older than the time-to-live
+/// (TTL). A session exactly at the TTL stays, which is the same boundary as in
+/// the old `prune` function.
 pub fn expire_sessions(
   sessions: Sessions(a),
   ttl_ms: Int,
@@ -426,8 +440,8 @@ pub fn expire_sessions(
   }
 }
 
-/// Remove one session by id (a local stop, or a session being re-keyed after a
-/// reconnect assigns a new client id).
+/// Remove one session by its id. Use this function for a local stop, and for a
+/// session that gets a new key after a reconnect assigns a new client id.
 pub fn forget_session(
   sessions: Sessions(a),
   session_id: String,
@@ -455,26 +469,28 @@ pub fn session_entries(sessions: Sessions(a)) -> List(PresenceEntry(a)) {
 
 // ── Wire codecs ──────────────────────────────────────────────────────────────
 
-/// `joinPresence` / `updatePresence` payload. The client never sends `key`,
-/// `session_id`, or `phx_ref`: the server derives identity from the
-/// authenticated connection, so a client cannot claim another user or session.
+/// The payload of a `joinPresence` command or an `updatePresence` command. The
+/// client never sends `key`, `session_id`, or `phx_ref`. The server derives
+/// the identity from the authenticated connection, so a client cannot claim
+/// another user or another session.
 pub fn encode_command(encode: fn(a) -> Json, meta: a) -> Json {
   json.object([#("meta", encode(meta))])
 }
 
-/// `leavePresence` payload.
+/// The payload of a `leavePresence` command.
 pub fn encode_leave() -> Json {
   json.object([])
 }
 
-/// Decode Phoenix's `{key: {metas: [{phx_ref, client_id, ...app}]}}` snapshot.
+/// Decode the Phoenix snapshot
+/// `{key: {metas: [{phx_ref, client_id, ...app}]}}`.
 pub fn presence_state_decoder(decode meta: Decoder(a)) -> Decoder(Snapshot(a)) {
   use groups <- decode.then(group_decoder())
   let #(entries, dropped) = tracked_from_groups(groups, meta)
   decode.success(Snapshot(entries: entries, dropped: dropped))
 }
 
-/// Decode Phoenix's `{joins: {...}, leaves: {...}}` change.
+/// Decode the Phoenix change `{joins: {...}, leaves: {...}}`.
 pub fn presence_diff_decoder(decode meta: Decoder(a)) -> Decoder(Diff(a)) {
   use joins <- decode.optional_field("joins", dict.new(), group_decoder())
   use leaves <- decode.optional_field("leaves", dict.new(), group_decoder())
@@ -494,10 +510,12 @@ pub fn presence_error_decoder() -> Decoder(PresenceError) {
   decode.success(Rejected(code: code, message: message))
 }
 
-/// The ripple-mode envelope: `{"kind": "presence", "key": ..., "meta": ...}`.
+/// The envelope of ripple mode:
+/// `{"kind": "presence", "key": ..., "meta": ...}`.
 ///
-/// No session id rides along — the receiver takes it from the ripple's
-/// server-stamped client id, so a sender cannot name its own session.
+/// The envelope carries no session id. The receiver takes that id from the
+/// server-stamped client id of the ripple, so a sender cannot select its own
+/// session.
 pub fn encode_ripple(key: String, encode: fn(a) -> Json, meta: a) -> Json {
   json.object([
     #("kind", json.string(ripple_type)),
@@ -506,9 +524,10 @@ pub fn encode_ripple(key: String, encode: fn(a) -> Json, meta: a) -> Json {
   ])
 }
 
-/// Decoder for an inbound ripple envelope, yielding `#(key, meta)`. Fails for a
-/// foreign `kind` or malformed metadata; ripples are unsequenced,
-/// garbage-tolerant input, so callers drop failures rather than crash.
+/// The decoder for an inbound ripple envelope. It gives `#(key, meta)`. It
+/// fails for a foreign `kind` value and for malformed metadata. A ripple does
+/// not sequence, and the lane accepts invalid input, so a caller drops a
+/// failure and does not crash.
 pub fn ripple_decoder(decode meta: Decoder(a)) -> Decoder(#(String, a)) {
   use kind <- decode.field("kind", decode.string)
   use key <- decode.field("key", decode.string)
@@ -545,8 +564,9 @@ fn insert_tracked(
   })
 }
 
-/// Project tracked sessions into the public entry list, dropping `phx_ref` and
-/// sorting by key then session id so every render order is stable.
+/// Convert the tracked sessions into the public entry list. The function
+/// removes `phx_ref`, and it sorts by key and then by session id, so every
+/// render uses the same stable order.
 fn public_entries(tracked: List(Tracked(a))) -> List(PresenceEntry(a)) {
   tracked
   |> list.map(fn(one) {
@@ -562,8 +582,9 @@ fn public_entries(tracked: List(Tracked(a))) -> List(PresenceEntry(a)) {
 
 // ── Codec internals ──────────────────────────────────────────────────────────
 
-/// `{key: {metas: [...]}}` with each meta left as raw `Dynamic`, so one
-/// undecodable meta can be dropped without failing its siblings.
+/// `{key: {metas: [...]}}`, with each meta as a raw `Dynamic` value. This
+/// module can thus drop one meta that it cannot decode, and keep the other
+/// metas.
 fn group_decoder() -> Decoder(Dict(String, List(Dynamic))) {
   decode.dict(decode.string, metas_decoder())
 }
@@ -594,8 +615,8 @@ fn tracked_from_groups(
   |> split_outcomes
 }
 
-/// Split decoded metas into the tracked ones and the dropped ones, preserving
-/// the order they arrived in.
+/// Separate the decoded metas into the tracked ones and the dropped ones, and
+/// keep the order in which they arrived.
 fn split_outcomes(
   outcomes: List(Result(Tracked(a), Dropped)),
 ) -> #(List(Tracked(a)), List(Dropped)) {
@@ -633,8 +654,9 @@ fn tracked_decoder(
   }
 }
 
-/// A stable, high-contrast color for a user id, chosen deterministically so
-/// every client renders the same peer in the same color without coordination.
+/// A stable color with high contrast for a user id. The function is
+/// deterministic, so every client renders the same peer in the same color, and
+/// the clients need no coordination.
 pub fn color_for(user: String) -> String {
   let palette = [
     "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#008080", "#9a6324",
@@ -647,7 +669,8 @@ pub fn color_for(user: String) -> String {
   }
 }
 
-/// A short display name derived from the user id (e.g. "web-1234" -> "1234").
+/// A short display name from the user id. For example, `"web-1234"` gives
+/// `"1234"`.
 pub fn short_name(user: String) -> String {
   case string.split(user, "-") {
     [_, tail, ..] -> tail
