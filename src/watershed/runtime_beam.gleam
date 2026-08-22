@@ -1,25 +1,29 @@
 //// Runtime actor: one per document connection.
 ////
-//// Owns the kernel-bearing `runtime_core` state and the subscriber list.
-//// The aquamarine channel is owned by a dedicated receiver process (the
-//// transport only delivers to the process that opened it); the receiver
-//// forwards every inbound frame to this actor, while pushes are safe from
-//// the actor itself.
+//// This actor owns the `runtime_core` state, which holds the kernels, and the
+//// list of subscribers. A dedicated receiver process owns the aquamarine
+//// channel, because the transport delivers only to the process that opened it.
+//// That receiver forwards every inbound frame to this actor. The actor itself
+//// can push safely.
 ////
 //// Resilience (M4):
 ////
-//// - **Gaps** — out-of-order ops are buffered by `runtime_core`, which asks
-////   us to `requestOps` an in-band catch-up; the buffer drains as it fills.
-//// - **Reconnect** — a mid-session channel close (or a retryable nack)
-////   rejoins and re-handshakes with a fresh client_id, passing
-////   `lastSeenSequenceNumber` so the server pushes just the delta. Old ops
-////   still in flight are reconciled against the catch-up stream and the
-////   remainder resubmitted with fresh CSNs once we reach the reconnect
-////   checkpoint. Edits made while (re)connecting are applied optimistically
-////   and their push is deferred to that resubmit.
-//// - **Nacks** — fatal ones (bad scope, size, hard limit) crash the actor;
-////   everything else reconnects and reconciles.
-//// - **Heartbeat** — a periodic `noop` advances the server's MSN while idle.
+//// - **Gaps.** `runtime_core` buffers an op that arrives out of order, and it
+////   asks this actor to send a `requestOps` frame for an in-band catch-up. The
+////   buffer empties as it fills.
+//// - **Reconnect.** A channel that closes in the middle of a session, or a
+////   nack that permits a retry, causes a rejoin and a new handshake with a new
+////   client id. The handshake sends `lastSeenSequenceNumber`, so the server
+////   pushes the delta only. The actor reconciles the old ops that are still in
+////   flight against the catch-up stream, and it resubmits the remainder with
+////   new CSN values after it reaches the reconnect checkpoint. The actor
+////   applies an edit from the connecting interval optimistically, and it
+////   delays the push of that edit to the same resubmit.
+//// - **Nacks.** A fatal nack, which reports a bad scope, a bad size, or a hard
+////   limit, crashes the actor. Every other nack causes a reconnect and a
+////   reconcile.
+//// - **Heartbeat.** A periodic `noop` frame advances the MSN of the server
+////   while the client is idle.
 
 @target(erlang)
 import gleam/dict.{type Dict}
@@ -108,7 +112,8 @@ const connect_timeout_ms = 10_000
 const heartbeat_interval_ms = 30_000
 
 @target(erlang)
-/// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
+/// The server nacks a submission of more than 100 ops. Split a resubmit into
+/// chunks to stay below that limit.
 const max_ops_per_submission = 100
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -125,11 +130,11 @@ const max_ops_per_submission = 100
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// A live connection's outbound operations. Each function closes over the
-/// concrete link, so the runtime holds `TransportHandle` without naming the
-/// transport it came from. `push` carries the wire event name and its JSON
-/// payload; `close` is an intentional teardown; `drop` forces a reconnect
-/// (for the real transport the two coincide).
+/// The outbound operations of a live connection. Each function closes over the
+/// concrete link, so the runtime holds a `TransportHandle` value and never
+/// names the transport that it came from. `push` carries the wire event name
+/// and its JSON payload. `close` is a deliberate teardown. `drop` forces a
+/// reconnect. For the real transport the last two do the same thing.
 pub type TransportHandle {
   TransportHandle(
     push: fn(String, Json) -> Nil,
@@ -139,27 +144,29 @@ pub type TransportHandle {
 }
 
 @target(erlang)
-/// How a transport reports lifecycle and inbound frames back to the runtime
-/// actor. The default transport drives these from its receiver process; the
-/// hub drives them synchronously on delivery.
+/// How a transport reports its lifecycle and its inbound frames back to the
+/// runtime actor. The default transport calls these functions from its receiver
+/// process. The hub calls them synchronously at delivery time.
 pub type TransportCallbacks {
   TransportCallbacks(
-    /// The channel joined and is ready to push. Carries the handle used for
-    /// all subsequent outbound frames.
+    /// The channel joined and can push now. This callback carries the handle
+    /// for every later outbound frame.
     on_ready: fn(TransportHandle) -> Nil,
-    /// An inbound frame: the wire event name and its still-`Dynamic` payload.
+    /// An inbound frame: the wire event name with its payload, which is still
+    /// a `Dynamic` value.
     on_event: fn(String, Dynamic) -> Nil,
-    /// The initial connect/join failed; the runtime treats this as fatal.
+    /// The first connect or join failed. The runtime treats this event as
+    /// fatal.
     on_fail: fn(String) -> Nil,
-    /// A ready session closed; the runtime enters its reconnect path.
+    /// A ready session closed. The runtime enters its reconnect path.
     on_close: fn(String) -> Nil,
   )
 }
 
 @target(erlang)
-/// A pluggable connection to a floodgate-shaped server. `connect` establishes the
-/// link (spawning whatever process it needs) and drives the callbacks; it
-/// returns immediately, never blocking the actor.
+/// A replaceable connection to a floodgate-shaped server. `connect` opens the
+/// link, and it starts whatever process it needs. It then calls the callbacks.
+/// It returns immediately, and it never blocks the actor.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> Nil)
 }
@@ -175,13 +182,16 @@ pub type ClaimSubmitReply {
 @target(erlang)
 pub type Msg {
   Heartbeat
-  /// A jittered wake-up from the automatic summarization policy. Carries no
-  /// state: the decision is re-taken against the core as it is on arrival, so
-  /// a peer's summary landing in the window makes this a no-op.
+  /// A wake-up from the automatic summarization policy, after a delay that
+  /// differs for each client. The message carries no state. The actor makes the
+  /// decision again against the core as it is at that moment, so a summary from
+  /// a peer that arrives in the window makes this message do nothing.
   MaybeSummarize
-  /// Install or clear the automatic summarization policy. `None` turns it off.
+  /// Install the automatic summarization policy, or clear it. A value of
+  /// `None` turns the policy off.
   SetAutoSummary(policy: Option(summary_policy.Policy))
-  /// Ops sequenced past the newest checkpoint this client knows of.
+  /// The ops that sequenced after the newest checkpoint that this client
+  /// knows about.
   OpsSinceSummary(reply: Subject(Int))
   // Receiver-process lifecycle
   ChannelReady(TransportHandle)
@@ -198,8 +208,9 @@ pub type Msg {
   DeletePactMap(address: String, key: String)
   AddOrderedItem(address: String, value: Json)
   AcquireOrderedItem(address: String, reply: Subject(String))
-  /// Like `AcquireOrderedItem`, but `outcome` also receives the acquire's
-  /// consensus result once the op sequences (or immediately when detached).
+  /// The same as `AcquireOrderedItem`, and `outcome` also receives the
+  /// consensus result of the acquire when the op sequences, or immediately
+  /// when the channel is detached.
   AcquireOrderedItemWithOutcome(
     address: String,
     outcome: Subject(ordered_collection_kernel.AcquireOutcome),
@@ -230,25 +241,25 @@ pub type Msg {
     value: Json,
     reply: Subject(Result(Nil, String)),
   )
-  /// Insert `value` at zero-based grapheme `index`. Empty edits
-  /// (`value == ""`) are true no-ops: they succeed without producing an
-  /// event or an outbound op.
+  /// Insert `value` at the grapheme `index`, counted from zero. An empty
+  /// edit, where `value` is `""`, changes nothing. It succeeds, and it
+  /// produces no event and no outbound op.
   InsertText(
     address: String,
     index: Int,
     value: String,
     reply: Subject(Result(Nil, String)),
   )
-  /// Delete the graphemes in `[start, end)`. An empty range is a no-op.
+  /// Delete the graphemes in `[start, end)`. An empty range changes nothing.
   DeleteRangeText(
     address: String,
     start: Int,
     end: Int,
     reply: Subject(Result(Nil, String)),
   )
-  /// Replace the graphemes in `[start, end)` with `value` as one
-  /// collaborative operation. Replacing an empty range with `""` is a
-  /// no-op.
+  /// Replace the graphemes in `[start, end)` with `value`, as one
+  /// collaborative operation. To replace an empty range with `""` changes
+  /// nothing.
   ReplaceRangeText(
     address: String,
     start: Int,
@@ -256,7 +267,7 @@ pub type Msg {
     value: String,
     reply: Subject(Result(Nil, String)),
   )
-  /// Append `value` to the end of the text. Appending `""` is a no-op.
+  /// Append `value` to the end of the text. To append `""` changes nothing.
   AppendText(
     address: String,
     value: String,
@@ -298,21 +309,25 @@ pub type Msg {
     outcome: Subject(claims_kernel.ClaimOutcome),
     reply: Subject(ClaimSubmitReply),
   )
-  /// Create a new detached map channel: local-only until its handle is first
-  /// stored into an attached map. Replies with the generated address.
+  /// Create a new detached map channel. It is local only, until a caller
+  /// stores its handle into an attached map. The reply carries the address
+  /// that the runtime generated.
   CreateMap(reply: Subject(Result(String, String)))
-  /// Create a new detached counter channel, same lifecycle as `CreateMap`.
-  CreateCounter(reply: Subject(Result(String, String)))
-  /// Create a new detached PN-counter channel, same lifecycle as `CreateMap`.
-  CreatePnCounter(reply: Subject(Result(String, String)))
-  /// Create a new detached PactMap (consensus map) channel, same lifecycle as
+  /// Create a new detached counter channel. The lifecycle is the same as for
   /// `CreateMap`.
+  CreateCounter(reply: Subject(Result(String, String)))
+  /// Create a new detached PN-counter channel. The lifecycle is the same as
+  /// for `CreateMap`.
+  CreatePnCounter(reply: Subject(Result(String, String)))
+  /// Create a new detached PactMap channel, which is a consensus map. The
+  /// lifecycle is the same as for `CreateMap`.
   CreatePactMap(reply: Subject(Result(String, String)))
-  /// Create a new detached ConsensusOrderedCollection channel, same lifecycle
-  /// as `CreateMap`.
+  /// Create a new detached ConsensusOrderedCollection channel. The lifecycle
+  /// is the same as for `CreateMap`.
   CreateOrderedCollection(reply: Subject(Result(String, String)))
   CreateSequence(reply: Subject(Result(String, String)))
-  /// Create a new detached text channel, same lifecycle as `CreateMap`.
+  /// Create a new detached text channel. The lifecycle is the same as for
+  /// `CreateMap`.
   CreateText(reply: Subject(Result(String, String)))
   /// Create a new detached OR-map channel in the requested value mode.
   CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
@@ -324,68 +339,79 @@ pub type Msg {
   CreateJsonOt(reply: Subject(Result(String, String)))
   CreateRichText(reply: Subject(Result(String, String)))
   CreateTaskManager(reply: Subject(Result(String, String)))
-  /// Whether a channel exists at `address` (attached or detached). Errors are
-  /// retryable — a foreign attach may still be in flight.
+  /// Whether a channel exists at `address`, attached or detached. A caller
+  /// can retry after an error, because an attach from another client can
+  /// still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
-  /// Summarize the current confirmed state to floodgate storage, replying with the
-  /// summary handle (git tree SHA) on success.
+  /// Summarize the current confirmed state to the storage of floodgate. On a
+  /// success the reply carries the summary handle, which is a git tree SHA.
   Summarize(reply: Subject(Result(String, String)))
-  /// List the document's stored summary versions, newest first.
+  /// List the stored summary versions of the document, newest first.
   GetVersions(
     count: Int,
     reply: Subject(Result(List(git_storage.SummaryVersion), String)),
   )
-  /// Read the historical snapshot a summary version captured, by its handle.
+  /// Read the snapshot that a summary version captured, by the handle of that
+  /// version.
   LoadVersion(
     handle: String,
     reply: Subject(Result(summary_blob.SummaryBlob, String)),
   )
   // Reads
   GetValue(address: String, key: String, reply: Subject(Option(Json)))
-  /// The counter's optimistic value, `None` when the address is missing or
-  /// not a counter channel.
+  /// The optimistic value of the counter. The reply is `None` when the address
+  /// does not exist, and when it does not name a counter channel.
   GetCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The PN-counter's optimistic value, `None` when the address is missing or
-  /// not a pn-counter channel.
+  /// The optimistic value of the PN-counter. The reply is `None` when the
+  /// address does not exist, and when it does not name a PN-counter channel.
   GetPnCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The PactMap's accepted value for `key`, `None` when pending, absent, or
-  /// not a PactMap channel.
+  /// The accepted value of the PactMap for `key`. The reply is `None` when the
+  /// value is pending, when the key is absent, and when the address does not
+  /// name a PactMap channel.
   GetPactMapValue(address: String, key: String, reply: Subject(Option(Json)))
-  /// All keys with an accepted or pending pact in the PactMap at `address`.
+  /// Every key with an accepted pact or a pending pact, in the PactMap at
+  /// `address`.
   GetPactMapKeys(address: String, reply: Subject(List(String)))
-  /// Whether `key` has a pending (proposed but not-yet-accepted) value.
+  /// Whether `key` has a pending value, which a client proposed and no room
+  /// has accepted yet.
   GetPactMapPending(address: String, key: String, reply: Subject(Bool))
-  /// The pending proposal for `key` — value plus the signoff list it is waiting
-  /// on — `None` when nothing is pending or the address is not a PactMap.
+  /// The pending proposal for `key`, which is the value with the signoff list
+  /// that it waits on. The reply is `None` when nothing is pending, and when
+  /// the address does not name a PactMap.
   GetPactMapPendingDetails(
     address: String,
     key: String,
     reply: Subject(Option(pact_map_kernel.Pending)),
   )
-  /// The accepted entry (value + sequence number) for `key`, `None` when the
-  /// key has no accepted value.
+  /// The accepted entry for `key`, which is the value with its sequence
+  /// number. The reply is `None` when the key has no accepted value.
   GetPactMapAccepted(
     address: String,
     key: String,
     reply: Subject(Option(pact_map_kernel.Accepted)),
   )
-  /// The number of queued (not-yet-acquired) items in the ordered collection at
-  /// `address`, `None` when missing or not an ordered-collection channel.
+  /// The number of items in the queue of the ordered collection at `address`,
+  /// which are the items that no client acquired yet. The reply is `None` when
+  /// the address does not exist, and when it does not name an
+  /// ordered-collection channel.
   GetOrderedSize(address: String, reply: Subject(Option(Int)))
-  /// The queued (not-yet-acquired) values at `address`, front first.
+  /// The values in the queue at `address`, which no client acquired yet, front
+  /// first.
   GetOrderedQueue(address: String, reply: Subject(List(Json)))
-  /// The currently-held jobs at `address`, keyed by acquire id (sorted).
+  /// The jobs that clients hold at `address` now, keyed by acquire id and
+  /// sorted by that id.
   GetOrderedJobs(
     address: String,
     reply: Subject(List(#(String, ordered_collection_kernel.JobEntry))),
   )
-  /// The json0 channel's optimistic document, `None` when the address is missing
-  /// or not a json0 channel.
+  /// The optimistic document of the json0 channel. The reply is `None` when
+  /// the address does not exist, and when it does not name a json0 channel.
   GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
-  /// The rich-text channel's optimistic document, `None` when the address is
-  /// missing or not a rich-text channel.
+  /// The optimistic document of the rich-text channel. The reply is `None`
+  /// when the address does not exist, and when it does not name a rich-text
+  /// channel.
   GetRichTextView(address: String, reply: Subject(Option(rich_text.Document)))
   GetOrMapValue(
     address: String,
@@ -400,33 +426,38 @@ pub type Msg {
   GetGSetValues(address: String, reply: Subject(List(String)))
   GetSequenceValues(address: String, reply: Subject(List(Json)))
   GetSequenceLength(address: String, reply: Subject(Int))
-  /// The text channel's current optimistic visible string, `""` when the
-  /// address is missing or not a text channel.
+  /// The current visible optimistic string of the text channel. The reply is
+  /// `""` when the address does not exist, and when it does not name a text
+  /// channel.
   GetTextValue(address: String, reply: Subject(String))
-  /// The text channel's current optimistic grapheme count, `0` when the
-  /// address is missing or not a text channel.
+  /// The current optimistic grapheme count of the text channel. The reply is
+  /// `0` when the address does not exist, and when it does not name a text
+  /// channel.
   GetTextLength(address: String, reply: Subject(Int))
-  /// The graphemes in `[start, end)` of the text channel's optimistic
-  /// string. An explicit error string when `start..end` is invalid, the
-  /// address is missing, or the address is not a text channel.
+  /// The graphemes in `[start, end)` of the optimistic string of the text
+  /// channel. The reply is an error string when the range `start..end` is
+  /// invalid, when the address does not exist, and when the address does not
+  /// name a text channel.
   GetTextSubstring(
     address: String,
     start: Int,
     end: Int,
     reply: Subject(Result(String, String)),
   )
-  /// Create a stable anchor at the gap before/after the optimistic
-  /// grapheme at `index`, per `bias`. An explicit error string on an
-  /// out-of-bounds index, a missing address, or a non-text channel.
+  /// Create a stable anchor at the gap before or after the optimistic grapheme
+  /// at `index`, as `bias` selects. The reply is an error string when the
+  /// index is out of bounds, when the address does not exist, and when the
+  /// address does not name a text channel.
   TextAnchorAt(
     address: String,
     index: Int,
     bias: text_kernel.Bias,
     reply: Subject(Result(text_kernel.TextAnchor, String)),
   )
-  /// Resolve an anchor to its current optimistic grapheme index. An
-  /// explicit error string on a stale/unknown anchor target, a missing
-  /// address, or a non-text channel.
+  /// Resolve an anchor to its current optimistic grapheme index. The reply is
+  /// an error string when the anchor target is stale or unknown, when the
+  /// address does not exist, and when the address does not name a text
+  /// channel.
   TextResolveAnchor(
     address: String,
     anchor: text_kernel.TextAnchor,
@@ -482,63 +513,73 @@ pub type Msg {
   GetEntries(address: String, reply: Subject(List(#(String, Json))))
   GetKeys(address: String, reply: Subject(List(String)))
   GetSize(address: String, reply: Subject(Int))
-  /// Whether every local edit has been acknowledged (in-flight queue empty),
-  /// so the confirmed state is complete and stable.
+  /// Whether the server acked every local edit, which is true when the
+  /// in-flight queue is empty. The confirmed state is then complete and
+  /// stable.
   IsSynced(reply: Subject(Bool))
-  /// The server-assigned client id, `None` before the first handshake.
+  /// The client id that the server assigned. The reply is `None` before the
+  /// first handshake.
   ClientId(reply: Subject(Option(String)))
-  /// Broadcast an ephemeral, document-scoped ripple (`type` tag + arbitrary
-  /// JSON content). Fire-and-forget: no ordering, ack, or catch-up. A no-op
-  /// until the handshake assigns a client id.
+  /// Broadcast an ephemeral ripple to this document, with a `type` tag and any
+  /// JSON content. The message expects no reply. There is no order, no ack,
+  /// and no catch-up. The message does nothing until the handshake assigns a
+  /// client id.
   SubmitRipple(ripple_type: String, content: Json)
-  /// Register a subscriber invoked for every inbound ripple on the document.
+  /// Register a subscriber that the runtime calls for every inbound ripple on
+  /// the document.
   SubscribeRipple(subscriber: fn(SignalMessage) -> Nil)
-  /// Push a presence-lane command (`joinPresence`, `updatePresence`,
-  /// `leavePresence`). Unlike a ripple this needs no client id: the payload
-  /// carries no identity, because the server derives key and session from the
-  /// authenticated connection.
+  /// Push a command on the presence lane, which is `joinPresence`,
+  /// `updatePresence`, or `leavePresence`. Unlike a ripple, this command needs
+  /// no client id. The payload carries no identity, because the server derives
+  /// the key and the session from the authenticated connection.
   SubmitPresence(event: String, payload: Json)
-  /// Register a subscriber invoked for every presence-lane frame.
+  /// Register a subscriber that the runtime calls for every frame on the
+  /// presence lane.
   SubscribePresence(subscriber: fn(PresenceFrame) -> Nil)
   // Lifecycle
   Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
   AwaitReady(reply: Subject(Result(Nil, String)))
-  /// Fault-injection hook (tests): drop the live channel to force the
-  /// runtime through its reconnect/reconcile path.
+  /// A hook that injects a fault, for a test. It closes the live channel, so
+  /// that the runtime runs its reconnect and reconcile path.
   DropChannel
   Shutdown
 }
 
 @target(erlang)
-/// One ordered inbox for the presence lane, carrying both data frames and the
-/// connection lifecycle a presence driver has to react to.
+/// One ordered inbox for the presence lane. It carries the data frames and the
+/// connection lifecycle events that a presence driver must react to.
 ///
-/// They share a channel deliberately: a driver that learned of a lost session
-/// from one source and of diffs from another could apply a diff belonging to a
-/// dead session. In one stream that reordering is not representable.
+/// The two share one channel on purpose. A driver that learned about a lost
+/// session from one source, and about the diffs from another source, could
+/// apply a diff that belongs to a dead session. One stream cannot represent
+/// that order.
 pub type PresenceFrame {
-  /// A `presence_state` snapshot, left undecoded — the runtime has no
-  /// application metadata decoder, unlike the op lane.
+  /// A `presence_state` snapshot, which the runtime does not decode. The
+  /// runtime has no decoder for the metadata of the application, and the op
+  /// lane does have one.
   PresenceState(payload: Dynamic)
   PresenceDiff(payload: Dynamic)
   PresenceError(payload: Dynamic)
-  /// A fresh document session settled: a new server-assigned client id and the
-  /// features this handshake negotiated. Fires on the initial handshake and on
-  /// every reconnect, which is what a driver rejoins on.
+  /// A new document session settled. The frame carries a new client id from
+  /// the server, and the features that this handshake negotiated. The runtime
+  /// sends it after the first handshake and after every reconnect, and a
+  /// driver rejoins on it.
   PresenceSession(client_id: String, presence_v1: Bool)
-  /// The session went away. Any presence the server held for it is gone.
+  /// The session ended. Every presence that the server held for it is gone.
   PresenceSessionLost
 }
 
 @target(erlang)
 type Phase {
   Connecting(waiters: List(Subject(Result(Nil, String))))
-  /// Socket down and re-handshaking; holds the pre-reconnect core so its
-  /// kernel/pending/in-flight survive the round trip.
+  /// The socket is closed and the runtime is doing the handshake again. This
+  /// state holds the core from before the reconnect, so its kernels, its
+  /// pending entries, and its in-flight ops all stay.
   Reconnecting(core: runtime_core.Core)
-  /// Connected. `resubmit_at` is `Some(checkpoint)` while a reconnect is
-  /// still catching up to the point where un-acked ops can be resubmitted,
-  /// and `None` once fully synced.
+  /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
+  /// reconnect still catches up to the point at which the runtime can
+  /// resubmit the ops with no ack. It is `None` after the runtime is fully
+  /// synchronized.
   Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
@@ -557,36 +598,39 @@ type State {
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
-    /// Presence-lane subscribers. Like ripples, presence is unsequenced and
-    /// never touches the core.
+    /// The subscribers on the presence lane. Presence does not sequence and
+    /// never touches the core, the same as a ripple.
     presence_subscribers: List(fn(PresenceFrame) -> Nil),
-    /// What the *current* connection's handshake advertised. Deliberately on
-    /// `State` rather than the core: the core survives a reconnect intact, so a
-    /// capability parked there would outlive the connection that negotiated it
-    /// and could claim support on a server that has none.
+    /// What the handshake of the *current* connection announced. This field is
+    /// on `State`, and not on the core, and that is deliberate. The core stays
+    /// intact across a reconnect. A capability on the core would thus outlive
+    /// the connection that negotiated it, and it could claim support on a
+    /// server that does not have it.
     supported_features: Dict(String, Dynamic),
     claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
-    /// Pending ordered-collection acquires awaiting their sequenced outcome,
-    /// keyed by `#(address, acquire_id)`.
+    /// The pending acquires on an ordered collection, which wait for their
+    /// sequenced outcome, keyed by `#(address, acquire_id)`.
     acquire_waiters: Dict(
       #(String, String),
       Subject(ordered_collection_kernel.AcquireOutcome),
     ),
-    /// The automatic summarization policy, `None` unless an application asked
-    /// for one. On `State` rather than the core because it is a property of
-    /// this client's configuration, not of the document.
+    /// The automatic summarization policy. The value is `None` unless an
+    /// application asked for one. This field is on `State`, and not on the
+    /// core, because it is part of the configuration of this client, and not
+    /// part of the document.
     auto_summary: Option(summary_policy.Policy),
-    /// Whether a `MaybeSummarize` wake-up is already scheduled. Without it a
-    /// busy document arms a fresh timer on every sequenced op.
+    /// Whether a `MaybeSummarize` wake-up is scheduled already. Without this
+    /// flag, a busy document would arm a new timer for every sequenced op.
     summary_armed: Bool,
     self: Subject(Msg),
   )
 }
 
 @target(erlang)
-/// Start a document runtime against a live floodgate: spawns the actor and the
-/// channel receiver process, then returns the actor subject. Callers should
-/// `AwaitReady` (via `process.call`) before editing.
+/// Start a document runtime against a live floodgate server. The function
+/// starts the actor and the channel receiver process, and it then returns the
+/// subject of the actor. A caller must send `AwaitReady`, with `process.call`,
+/// before it edits the document.
 pub fn start(
   host host: String,
   port port: Int,
@@ -609,10 +653,10 @@ pub fn start(
 }
 
 @target(erlang)
-/// Start a document runtime against an arbitrary transport. Used by the live
-/// `start` (aquamarine) and by the in-memory hub test driver. `host`/`port`
-/// only feed the REST summary API and may be placeholders for transports that
-/// don't serve one.
+/// Start a document runtime against any transport. The live `start` function,
+/// which uses aquamarine, calls this function, and so does the in-memory hub
+/// test driver. `host` and `port` supply the REST summary API only. A transport
+/// that serves no such API can pass any value.
 pub fn start_with_transport(
   host host: String,
   port port: Int,
@@ -648,7 +692,7 @@ pub fn start_with_transport(
 }
 
 @target(erlang)
-/// Block until the handshake completes (or fails).
+/// Wait until the handshake completes or fails.
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
 }
@@ -674,29 +718,31 @@ pub fn resolve_text(
 }
 
 @target(erlang)
-/// An anchor at the start of the text. Always resolves to `0`. Pure — no
-/// actor round trip since it carries no document state.
+/// An anchor at the start of the text. It always resolves to `0`. The function
+/// is pure. It needs no message to the actor, because the anchor carries no
+/// document state.
 pub fn text_start_anchor() -> text_kernel.TextAnchor {
   runtime_core.text_start_anchor()
 }
 
 @target(erlang)
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+/// An anchor at the end of the text. It always resolves to the current grapheme
+/// count, and it moves as the text becomes longer. The function is pure, the
+/// same as `text_start_anchor`.
 pub fn text_end_anchor() -> text_kernel.TextAnchor {
   runtime_core.text_end_anchor()
 }
 
 @target(erlang)
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors. Pure.
+/// Encode an anchor as a self-describing JSON value, for example to send it
+/// through presence for a shared cursor. The function is pure.
 pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
   runtime_core.text_anchor_to_json(anchor)
 }
 
 @target(erlang)
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
-/// An explicit error string on malformed JSON. Pure.
+/// Decode an anchor from a JSON string that `text_anchor_to_json` produced. The
+/// result is an error string for malformed JSON. The function is pure.
 pub fn text_anchor_from_json(
   json_string: String,
 ) -> Result(text_kernel.TextAnchor, String) {
@@ -704,15 +750,16 @@ pub fn text_anchor_from_json(
 }
 
 @target(erlang)
-/// Summarize the current confirmed state to floodgate storage. Returns the summary
-/// handle (git tree SHA) on success. Requires the connection to be fully synced
-/// and the token to carry the `summary:write` scope.
+/// Summarize the current confirmed state to the storage of floodgate. On a
+/// success the function returns the summary handle, which is a git tree SHA.
+/// The connection must be fully synchronized, and the token must carry the
+/// `summary:write` scope.
 pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: Summarize)
 }
 
 @target(erlang)
-/// Install (or with `None`, clear) the automatic summarization policy.
+/// Install the automatic summarization policy. A value of `None` clears it.
 pub fn auto_summarize(
   runtime: Subject(Msg),
   policy: Option(summary_policy.Policy),
@@ -721,27 +768,27 @@ pub fn auto_summarize(
 }
 
 @target(erlang)
-/// How far the document has drifted past the newest checkpoint this client
-/// knows of. Zero before the first handshake.
+/// How far the document moved past the newest checkpoint that this client knows
+/// about. The result is zero before the first handshake.
 pub fn ops_since_summary(runtime: Subject(Msg)) -> Int {
   process.call(runtime, waiting: connect_timeout_ms, sending: OpsSinceSummary)
 }
 
 @target(erlang)
-/// Whether the client is caught up: every local edit has been acknowledged by
-/// the server, so the confirmed state is complete and stable.
+/// Whether the client is caught up, which is true when the server acked every
+/// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Subject(Msg)) -> Bool {
   process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
 }
 
 @target(erlang)
-/// The server-assigned client id for this connection, `None` before the first
-/// handshake completes.
+/// The client id that the server assigned to this connection. The result is
+/// `None` before the first handshake completes.
 ///
-/// It survives a reconnect only in the sense that there is always *a* current
-/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
-/// assigns, which may differ from the previous one. Callers holding it across
-/// a disconnect must re-read rather than cache.
+/// A reconnect does not keep the value. There is always *a* current id, and
+/// `adopt_reconnect` replaces it with the id that the new handshake assigns.
+/// That id can differ from the previous one. A caller that holds the id across
+/// a disconnect must read it again. It must not use a cached value.
 pub fn client_id(runtime: Subject(Msg)) -> Option(String) {
   process.call(runtime, waiting: connect_timeout_ms, sending: ClientId)
 }
@@ -863,8 +910,9 @@ pub fn task_manager_queues(
 }
 
 @target(erlang)
-/// List the document's stored summary versions, newest first (the client half
-/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. The token must carry the
+/// `doc:read` scope.
 pub fn get_versions(
   runtime: Subject(Msg),
   count: Int,
@@ -875,9 +923,10 @@ pub fn get_versions(
 }
 
 @target(erlang)
-/// Read the historical snapshot a summary version captured, by its handle
-/// (from `get_versions` or a `summarize` return). The live document is
-/// unaffected — this is a point-in-time read of the stored blob.
+/// Read the snapshot that a summary version captured, by the handle of that
+/// version. `get_versions` and the return value of `summarize` both give a
+/// handle. The function does not change the live document. It reads the stored
+/// blob at one point in time.
 pub fn load_version(
   runtime: Subject(Msg),
   handle: String,
@@ -892,8 +941,9 @@ pub fn load_version(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Ask the transport to connect, routing its lifecycle callbacks into actor
-/// messages. Called at startup and on every reconnect.
+/// Ask the transport to connect, and route its lifecycle callbacks into actor
+/// messages. The runtime calls this function at startup and at every
+/// reconnect.
 fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
   transport.connect(
     TransportCallbacks(
@@ -908,9 +958,10 @@ fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
 }
 
 @target(erlang)
-/// The default transport: a dedicated receiver process owning one aquamarine
-/// channel. `connect` joins (blocking in its own process), announces the
-/// handle, then pumps inbound frames until the channel closes.
+/// The default transport: a dedicated receiver process that owns one aquamarine
+/// channel. `connect` joins the channel, and it blocks in its own process while
+/// it does that. It then announces the handle, and it forwards the inbound
+/// frames until the channel closes.
 fn aquamarine_transport(
   host: String,
   port: Int,
@@ -1716,9 +1767,9 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 }
 
 @target(erlang)
-/// Create a detached channel of the given type, replying with its generated
-/// address. Detached channels are pure local state, so this works in any
-/// connected-ish phase.
+/// Create a detached channel of the supplied type, and reply with the address
+/// that the runtime generated. A detached channel is local state only, so this
+/// function works in every phase that has a connection.
 fn create_channel(
   state: State,
   reply: Subject(Result(String, String)),
@@ -1926,8 +1977,9 @@ fn handle_inbound(
 }
 
 @target(erlang)
-/// Resubmit un-acked ops once catch-up has reached the reconnect checkpoint;
-/// otherwise stay in the catching-up state until more ops arrive.
+/// Resubmit the ops with no ack, after the catch-up reaches the reconnect
+/// checkpoint. Before that point, stay in the catching-up state until more ops
+/// arrive.
 fn settle_reconnect(
   state: State,
   core: runtime_core.Core,
@@ -2143,9 +2195,10 @@ fn abort_outcome_waiters(state: State) -> State {
 }
 
 @target(erlang)
-/// Mint an acquire id, submit the `Acquire` op, and reply with the id so the
-/// caller can later complete/release the job. The acquired item itself arrives
-/// via the sequenced `Acquired` event (the queue is non-optimistic).
+/// Create an acquire id, submit the `Acquire` op, and reply with that id, so
+/// that the caller can complete or release the job later. The acquired item
+/// arrives in the sequenced `Acquired` event, because the queue is not
+/// optimistic.
 fn handle_ordered_acquire(
   state: State,
   address: String,
@@ -2159,10 +2212,11 @@ fn handle_ordered_acquire(
 }
 
 @target(erlang)
-/// Like `handle_ordered_acquire`, but registers `outcome` to receive the
-/// acquire's consensus result: immediately for a detached channel, on the
-/// `AcquireResolved` resolution when the op sequences, or `Aborted` when the
-/// document closes with the acquire still in flight.
+/// The same as `handle_ordered_acquire`, and the function also registers
+/// `outcome` to receive the consensus result of the acquire. That result
+/// arrives immediately for a detached channel, in the `AcquireResolved`
+/// resolution when the op sequences, or as `Aborted` when the document closes
+/// while the acquire is still in flight.
 fn handle_ordered_acquire_with_outcome(
   state: State,
   address: String,
@@ -2557,8 +2611,9 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Enter the reconnecting phase after a channel close: drop the dead channel
-/// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
+/// Enter the reconnecting phase after a channel closes. Drop the dead channel
+/// and start a new receiver. That receiver does the handshake again, with the
+/// last sequence number that this client saw.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   connect_transport(state.transport, state.self)
   notify_session_lost(state)
@@ -2566,9 +2621,9 @@ fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
 }
 
 @target(erlang)
-/// Retryable nack: close the channel and enter the reconnecting phase. The
-/// receiver's resulting `ChannelClosed` drives the actual reconnect, so we
-/// don't spawn a second receiver here.
+/// A nack that permits a retry. Close the channel and enter the reconnecting
+/// phase. The `ChannelClosed` message from the receiver then drives the
+/// reconnect, so this function does not start a second receiver.
 fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
   case state.channel {
     Some(channel) -> channel.close()
@@ -2604,14 +2659,14 @@ fn maybe_request_ops(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Schedule a summarization attempt if the policy wants one and none is
-/// already pending.
+/// Schedule an attempt to summarize, if the policy asks for one and no attempt
+/// is pending.
 ///
-/// The delay is what keeps a room cheap. Every client crosses the threshold on
-/// the same op; each waits a different, id-derived interval; the first summary
-/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
-/// room re-checks in `MaybeSummarize` and stands down. A lost race costs one
-/// redundant upload and nothing else.
+/// The delay keeps the cost of a room low. Every client crosses the threshold
+/// on the same op. Each client then waits for a different interval, which comes
+/// from its id. The first summary that sequences advances `last_summary_sn` on
+/// every client, and the rest of the room checks again in `MaybeSummarize` and
+/// stops. A lost race costs one unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
   case state.auto_summary, state.summary_armed {
     Some(policy), False ->
@@ -2661,8 +2716,9 @@ fn handle_summarize(
 }
 
 @target(erlang)
-/// Upload the confirmed state as a summary blob, then stamp and push the
-/// summarize op referencing it. Returns the updated core and the tree SHA.
+/// Upload the confirmed state as a summary blob. Then stamp the summarize op
+/// that references that blob, and push it. The function returns the new core
+/// and the tree SHA.
 fn do_summarize(
   state: State,
   core: runtime_core.Core,
@@ -2704,10 +2760,11 @@ fn do_summarize(
 }
 
 @target(erlang)
-/// Close any gap between the bootstrap seed point and the earliest op the
-/// server pushed in-band by paging the missing prefix from the deltas REST
-/// endpoint until the history is contiguous. Bootstrap must not complete on
-/// a gapped history, so any failure here is fatal.
+/// Close the gap between the seed point of the bootstrap and the earliest op
+/// that the server pushed in band. The function reads the missing prefix from
+/// the deltas REST endpoint, one page at a time, until the history has no gap.
+/// A bootstrap must not complete on a history with a gap, so every failure here
+/// is fatal.
 fn complete_bootstrap(
   state: State,
   bootstrapped: runtime_core.Bootstrapped,
@@ -2811,9 +2868,9 @@ fn fetch_summary(
 }
 
 @target(erlang)
-/// The HTTP(S) base URL for git-storage calls, derived from the socket host
-/// and port. floodgate serves both the Phoenix socket and the REST API from the
-/// same origin.
+/// The base HTTP or HTTPS URL for the git-storage calls. It comes from the host
+/// and the port of the socket. floodgate serves the Phoenix socket and the REST
+/// API from the same origin.
 fn http_base_url(state: State) -> String {
   "http://" <> state.host <> ":" <> int.to_string(state.port)
 }
@@ -2840,8 +2897,8 @@ fn push(channel: TransportHandle, event: String, payload: Json) -> Nil {
 }
 
 @target(erlang)
-/// Route each address-tagged event to the subscribers registered for that
-/// channel address.
+/// Route each event to the subscribers that registered for the channel address
+/// on that event.
 fn fan_out(
   subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
   events: List(#(String, ChannelEvent)),
@@ -2871,8 +2928,8 @@ fn notify_presence(state: State, frame: PresenceFrame) -> Nil {
 }
 
 @target(erlang)
-/// Announce a settled handshake, carrying the id and capability a driver needs
-/// to (re)join.
+/// Announce a handshake that settled. The message carries the id and the
+/// capability that a driver needs to join.
 fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
   notify_presence(
     state,
@@ -2887,9 +2944,10 @@ fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
 }
 
 @target(erlang)
-/// Announce that a live session ended, but only when one was live: a socket
-/// that never reached `Ready`, or one already known to be down, has no presence
-/// to lose and must not report losing it twice.
+/// Announce that a live session ended, and only when one was live. A socket
+/// that never reached `Ready`, and a socket that the runtime already knows is
+/// closed, both hold no presence. The runtime must not report a lost presence
+/// two times.
 fn notify_session_lost(state: State) -> Nil {
   case state.phase {
     Ready(_, _) -> notify_presence(state, PresenceSessionLost)

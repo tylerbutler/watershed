@@ -1,41 +1,40 @@
 //// The optional sequencer relay client: one socket, the `crdt_relay_v1`
 //// handshake, and bounded reconnection.
 ////
-//// This module carries strings. It does not know what a document is, it
-//// never touches `crdt_core`, and the only thing it understands about an
-//// envelope is that it is opaque and has a size limit. What arrives is
-//// handed up as the exact string the sender wrote; the relay's
-//// diagnostic `order` is read here and goes no further than the
-//// attestation that quotes it back.
+//// This module carries strings. It does not know what a document is. It never
+//// calls `crdt_core`. It knows two things about an envelope: the envelope is
+//// opaque, and it has a size limit. The module passes each arrival up as the
+//// exact string that the sender wrote. It reads the diagnostic `order` value
+//// of the relay, and that value goes no further than the attestation that
+//// quotes it back.
 ////
 //// ## The driver seam
 ////
-//// A `Driver` is the whole of the browser dependency: give it a URL and
-//// three callbacks, get back something you can write strings to and
-//// close. `native_driver` is a real `WebSocket`; a test supplies
-//// closures, and every timing rule below then becomes a deterministic
-//// assertion rather than a wait. The same shape, and the same reason, as
-//// the transport's `Signaling`.
+//// A `Driver` value is the whole browser dependency. Give it a URL and three
+//// callbacks, and it returns a value that you can write strings to and close.
+//// `native_driver` is a real `WebSocket`. A test supplies closures instead,
+//// and every timing rule below then becomes a deterministic assertion, and not
+//// a wait. This is the same shape as the `Signaling` type of the transport,
+//// for the same reason.
 ////
 //// ## Generations
 ////
-//// Every connection attempt takes a generation number, and every
-//// callback closes over the one that created it. A socket that errors
-//// after it was replaced, a message that arrives after `close`, a
-//// reconnect timer that fires after a newer socket opened — all three
-//// find a stale generation and do nothing. This is the only defence that
-//// works: the browser will call a dead socket's handlers, and a relay
-//// that let a retired connection report a drop would tear down the one
-//// that replaced it.
+//// Every connection attempt takes a generation number, and every callback
+//// closes over the number that created it. Three conditions thus find a stale
+//// generation and do nothing: a socket that errors after a newer socket
+//// replaced it, a message that arrives after `close`, and a reconnect timer
+//// that runs after a newer socket opened. This is the only defence that works.
+//// The browser calls the handlers of a dead socket. A relay that let a retired
+//// connection report a drop would thus close the connection that replaced it.
 ////
 //// ## Backoff
 ////
-//// 250 ms, 500 ms, 1 s, 2 s, then 5 s for every attempt after that. The
-//// delay is scheduled through an injected `Scheduler`, so a test steps a
-//// logical clock instead of sleeping. A session that reached the point
-//// of being useful — the caller says so with `healthy` — resets the
-//// sequence, so an hour-long connection that drops retries promptly
-//// rather than at the cap it reached a week ago.
+//// The delays are 250 ms, 500 ms, 1 s, 2 s, and then 5 s for every attempt
+//// after that. An injected `Scheduler` schedules the delay, so a test steps a
+//// logical clock and does not wait. A session that became useful resets the
+//// sequence, and the caller reports that condition with `healthy`. A
+//// connection that ran for an hour and then dropped thus retries quickly. It
+//// does not retry at the limit that it reached a week before.
 ////
 //// JavaScript target only.
 
@@ -60,32 +59,32 @@ import watershed/transport_js.{type Cell, type Scheduler}
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// A live socket, as this module needs it: somewhere to write a string
-/// and a way to hang up. Closures rather than a handle type, so a fake
-/// driver needs no FFI of its own.
+/// A live socket, in the form that this module needs: a place to write a
+/// string, and a way to close the socket. The type holds closures, and not a
+/// handle type, so a substitute driver needs no FFI of its own.
 ///
-/// `send` answers whether the string was actually handed to an open
-/// socket. A `False` is not a queue and not a retry — it is the caller's
-/// signal that this path is gone and the other one is needed *now*.
+/// `send` returns whether it gave the string to an open socket. A `False`
+/// result is not a queue and not a retry. It tells the caller that this path is
+/// gone and that the other path is necessary *now*.
 pub type Connection {
   Connection(send: fn(String) -> Bool, close: fn() -> Nil)
 }
 
 @target(javascript)
-/// What a driver reports. `on_close` is terminal for that socket and is
-/// delivered exactly once per successful `open`, whether the far end hung
-/// up, the socket errored, or the transport gave up. There is no
-/// `on_open`: this client writes nothing before the relay's greeting,
-/// which arrives on `on_message`, so the socket opening is not an event
-/// it acts on.
+/// What a driver reports. `on_close` is terminal for that socket, and each
+/// successful `open` call gives exactly one of them. The far end can close the
+/// connection, the socket can error, or the transport can stop. `on_close`
+/// reports all three. There is no `on_open` callback. This client writes
+/// nothing before the greeting of the relay, which arrives on `on_message`, so
+/// the client does not act on the open event of the socket.
 pub type Handlers {
   Handlers(on_message: fn(String) -> Nil, on_close: fn(String) -> Nil)
 }
 
 @target(javascript)
-/// Opens sockets. An `Error` is a socket the environment refused to
-/// construct at all, which is a failure this attempt rather than an
-/// exception out of `start`.
+/// A value that opens sockets. An `Error` result means that the environment
+/// refused to construct the socket at all. That is a failure of this attempt,
+/// and not an exception out of `start`.
 pub type Driver {
   Driver(open: fn(String, Handlers) -> Result(Connection, String))
 }
@@ -110,8 +109,9 @@ fn native_send(socket: NativeSocket, payload: String) -> Bool
 fn native_close(socket: NativeSocket) -> Nil
 
 @target(javascript)
-/// A real browser `WebSocket`, read from `globalThis` at call time so a
-/// bundle that never configures a sequencer pays nothing for this module.
+/// A real browser `WebSocket`. The function reads it from `globalThis` at call
+/// time, so a bundle that configures no sequencer pays no cost for this
+/// module.
 pub fn native_driver() -> Driver {
   Driver(open: fn(url, handlers) {
     case native_open(url, handlers.on_message, handlers.on_close) {
@@ -132,50 +132,53 @@ pub fn native_driver() -> Driver {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// What the owner of a relay hears. Every one of these is already
-/// generation-checked: a stale socket reaches none of them.
+/// What the owner of a relay receives. The module already checks the generation
+/// of each one. A stale socket thus reaches none of them.
 pub type Events {
   Events(
-    /// A connection attempt is starting. One per attempt, including the
-    /// first, so a reconnect sequence reads as one of these per retry.
+    /// A connection attempt starts. There is one of these events for each
+    /// attempt, and that includes the first attempt. A reconnect sequence thus
+    /// gives one event for each retry.
     on_connecting: fn() -> Nil,
-    /// The relay greeted us and advertised `crdt_relay_v1`. The lane is
-    /// usable from here.
+    /// The relay sent its greeting and announced `crdt_relay_v1`. The lane is
+    /// usable from this point.
     on_ready: fn() -> Nil,
-    /// One encoded `crdt_wire.Envelope`, exactly as its author wrote it.
+    /// One encoded `crdt_wire.Envelope` value, exactly as its author wrote
+    /// it.
     ///
-    /// Answers whether it was *processed*. A `False` — a refusal, a
-    /// closed document — is reported to the relay as a `skip` naming
-    /// that exact order, which is what lets a client that will never
-    /// merge an entry stop being wedged behind it while the relay keeps
-    /// the entry for whoever can. If the skip cannot be written the
-    /// socket is retired, because a mark that can never move again is a
-    /// lane that can never checkpoint again: an attestation quoting a
-    /// higher order would be claiming to have accounted for an entry this
-    /// client never merged and never reported.
+    /// The callback returns whether the client *processed* the envelope. A
+    /// `False` result, which is a refusal or a closed document, goes to the
+    /// relay as a `skip` frame that names that exact order. A client that will
+    /// never merge an entry thus stops waiting behind it, and the relay keeps
+    /// that entry for a client that can merge it.
+    ///
+    /// If the module cannot write the skip, it retires the socket. A mark that
+    /// can never move again is a lane that can never checkpoint again. An
+    /// attestation that quoted a higher order would claim to have accounted for
+    /// an entry that this client never merged and never reported.
     on_envelope: fn(String) -> Bool,
-    /// The relay has replayed everything it holds for this room. The
-    /// moment a merged local state is worth publishing.
+    /// The relay replayed everything that it holds for this room. This is the
+    /// moment at which the merged local state is worth a publication.
     on_synced: fn() -> Nil,
-    /// The answer to an `attest`: the digest echoed back, or `""` when
-    /// the relay holds more than the state we published.
+    /// The answer to an `attest` frame: the digest, echoed back, or `""` when
+    /// the relay holds more than the state that this client published.
     on_attested: fn(String) -> Nil,
-    /// The relay is asking for a checkpoint: publish the current merged
-    /// state and attest it.
+    /// The relay asks for a checkpoint. Publish the current merged state and
+    /// attest it.
     ///
-    /// Sent only to a client that declared support with
-    /// `declare_support`, and only when the relay's live log has grown
-    /// past the mark where it would otherwise have to start refusing
-    /// traffic. It carries nothing a document could read — no order, no
-    /// digest, no envelope — so answering it can never be a route from a
-    /// relay's diagnostic sequence into `crdt_core`.
+    /// The relay sends this frame only to a client that declared support with
+    /// `declare_support`, and only when its live log grows past the point at
+    /// which it would otherwise start to refuse traffic. The frame carries
+    /// nothing that a document could read: no order, no digest, and no
+    /// envelope. An answer to it thus can never carry the diagnostic sequence
+    /// of a relay into `crdt_core`.
     on_checkpoint_requested: fn() -> Nil,
-    /// The endpoint answered, but not with this lane. Terminal: no
-    /// retry is scheduled, because a sequencer without the capability
-    /// will not grow one by being asked again.
+    /// The endpoint answered, and it does not support this lane. This event is
+    /// terminal, and the module schedules no retry. A sequencer without the
+    /// capability does not get one when a client asks again.
     on_unsupported: fn(String) -> Nil,
-    /// The socket is gone. Followed by `on_retry` when a reconnect was
-    /// scheduled, and by nothing when one was not.
+    /// The socket closed. An `on_retry` event follows when the module
+    /// scheduled a reconnect, and nothing follows when it did not.
     on_dropped: fn(String) -> Nil,
     on_retry: fn(Int) -> Nil,
     on_error: fn(P2pError) -> Nil,
@@ -187,16 +190,17 @@ pub type Events {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// How many refused orders this client keeps for diagnostics, per
-/// socket. The relay holds the claims that matter; this list exists so a
-/// test or an operator can see what a lane refused, and it is bounded so
-/// that a room full of unreadable records cannot turn a diagnostic into
+/// The number of refused orders that this client keeps for diagnostics, for
+/// each socket. The relay holds the authoritative claims. This list exists so
+/// that a test or an operator can see what a lane refused. It has a limit, so
+/// that a room full of unreadable records cannot make a diagnostic use
 /// unbounded memory in a browser tab.
 pub const max_reported_skips = 64
 
 @target(javascript)
-/// The reconnect delay for the nth consecutive failure, counting from
-/// zero: 250 ms, 500 ms, 1 s, 2 s, then 5 s forever.
+/// The reconnect delay for the nth consecutive failure, counted from zero. The
+/// delays are 250 ms, 500 ms, 1 s, 2 s, and then 5 s for every later
+/// attempt.
 pub fn backoff_ms(attempt: Int) -> Int {
   case attempt {
     0 -> 250
@@ -217,50 +221,51 @@ type State {
     url: String,
     driver: Driver,
     scheduler: Scheduler,
-    /// Whether a dropped socket is worth another attempt. `True` until
-    /// the endpoint proves it does not speak this lane at all — asking a
-    /// sequencer without the capability again would get the same answer.
+    /// Whether a dropped socket is worth another attempt. The value is `True`
+    /// until the endpoint shows that it does not support this lane at all. To
+    /// ask a sequencer without the capability again would give the same
+    /// answer.
     retry: Bool,
     events: Events,
     connection: Option(Connection),
-    /// The current attempt's number. Every callback carries the one it
-    /// was created under, and anything older is ignored.
+    /// The number of the current attempt. Every callback carries the number
+    /// that it was created under, and the module ignores an older one.
     generation: Int,
-    /// Consecutive failures since the last healthy session, which is what
-    /// `backoff_ms` indexes.
+    /// The number of consecutive failures after the last healthy session.
+    /// `backoff_ms` uses this number as its index.
     attempt: Int,
-    /// Cancels a pending reconnect.
+    /// The function that cancels a pending reconnect.
     pending: Option(fn() -> Nil),
     /// Whether this generation finished the capability handshake.
     ready: Bool,
-    /// The highest diagnostic order this socket has *accounted for* —
-    /// processed, or reported as skipped. Quoted back in an attestation
-    /// and used for nothing else: it never enters an envelope, a kernel,
-    /// or a digest.
+    /// The highest diagnostic order that this socket *accounted for*, which
+    /// means that the client processed it or reported it as skipped. An
+    /// attestation quotes this value back, and nothing else uses it. It never
+    /// enters an envelope, a kernel, or a digest.
     ///
-    /// Reset with every generation. A relay that restarts rebuilds its
-    /// counter from its log and can hand out orders it has already used,
-    /// so a number carried across a reconnect would mean nothing — and
-    /// would mean it loudly, since the relay retires log entries at or
-    /// below it.
+    /// Every generation resets this value. A relay that restarts rebuilds its
+    /// counter from its log, and it can then give out an order that it already
+    /// used. A number that a client carried across a reconnect would thus have
+    /// no meaning, and the effect would be large, because the relay retires
+    /// each log entry at that order or below it.
     order: Int,
-    /// Set when something this socket delivered was not processed *and*
-    /// could not be reported as skipped. The high-water mark stops moving
-    /// from there: everything after an unreported gap is something this
-    /// client cannot vouch for.
+    /// The module sets this flag when the client did not process something
+    /// that this socket delivered, *and* could not report it as skipped. The
+    /// high-water mark then stops. This client cannot make a claim about
+    /// anything after a gap that it did not report.
     stalled: Bool,
-    /// The most recent orders this socket reported as skipped, newest
+    /// The most recent orders that this socket reported as skipped, newest
     /// first, and never more than `max_reported_skips` of them.
     ///
-    /// Diagnostic only — the relay keeps the authoritative list, and this
-    /// one is reset with every generation. It is bounded because a
-    /// diagnostic must not be the thing that runs a tab out of memory: a
-    /// client attached to a room full of records it cannot read refuses
-    /// one per replayed entry, and an unbounded list would grow with the
-    /// room forever. `skips` counts every one of them.
+    /// This list is a diagnostic only. The relay keeps the authoritative list,
+    /// and every generation resets this one. The list has a limit, because a
+    /// diagnostic must not use all the memory of a tab. A client in a room full
+    /// of records that it cannot read refuses one record for each replayed
+    /// entry, and a list with no limit would thus grow with the room without an
+    /// end. `skips` counts every refusal.
     skipped: List(Int),
-    /// How many refusals this socket has reported, including the ones
-    /// that have aged out of `skipped`.
+    /// The number of refusals that this socket reported, and that number
+    /// includes the refusals that the module removed from `skipped`.
     skips: Int,
     closed: Bool,
   )
@@ -276,10 +281,10 @@ pub opaque type Relay {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Build a relay lane. Opens nothing until `connect`.
+/// Build a relay lane. The function opens nothing until you call `connect`.
 ///
-/// A dropped socket always schedules another attempt, until `close` or an
-/// endpoint that turns out not to speak this lane at all.
+/// A dropped socket always schedules another attempt, until a `close` call, or
+/// until an endpoint shows that it does not support this lane at all.
 pub fn start(
   url url: String,
   driver driver: Driver,
@@ -310,19 +315,19 @@ pub fn start(
 }
 
 @target(javascript)
-/// Begin connecting.
+/// Start to connect.
 ///
-/// Separate from `start` on purpose: a driver may deliver its whole
-/// conversation from inside `open` — a fake does, and so does a socket
-/// that fails synchronously — and an owner that had not yet stored the
-/// relay would miss every event of the first generation. Store first,
-/// connect second.
+/// This function is separate from `start` on purpose. A driver can deliver its
+/// whole conversation from inside `open`. A substitute driver does that, and so
+/// does a socket that fails synchronously. An owner that had not stored the
+/// relay yet would thus miss every event of the first generation. Store the
+/// relay first, and connect second.
 pub fn connect(relay: Relay) -> Nil {
   open(relay.cell)
 }
 
 @target(javascript)
-/// Begin one connection attempt under a fresh generation.
+/// Start one connection attempt, under a new generation.
 fn open(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -383,8 +388,9 @@ fn open(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Stop for good. Idempotent, and it cancels a pending reconnect as well
-/// as the live socket, so a closed relay schedules nothing more.
+/// Stop permanently. A second call has no more effect. The function cancels a
+/// pending reconnect and the live socket, so a closed relay schedules
+/// nothing.
 pub fn close(relay: Relay) -> Nil {
   let cell = relay.cell
   let state = transport_js.get_cell(cell)
@@ -414,8 +420,8 @@ pub fn close(relay: Relay) -> Nil {
 }
 
 @target(javascript)
-/// Report that the current session did its job, so the next drop starts
-/// the backoff sequence again rather than continuing it.
+/// Report that the current session worked. The next drop thus starts the
+/// backoff sequence again, and it does not continue the earlier sequence.
 pub fn healthy(relay: Relay) -> Nil {
   let state = transport_js.get_cell(relay.cell)
   transport_js.set_cell(relay.cell, State(..state, attempt: 0))
@@ -426,21 +432,22 @@ pub fn healthy(relay: Relay) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Write one encoded envelope, unchanged. A relay that is not ready
-/// drops it: the caller is on another path, and a queue here would
-/// deliver a document's history in the wrong order after a reconnect.
+/// Write one encoded envelope, without a change. A relay that is not ready
+/// drops it. The caller is on another path, and a queue here would deliver the
+/// history of a document in the wrong order after a reconnect.
 ///
-/// `False` means the string did not reach an open socket — the lane was
-/// never ready, it was closed, or the socket had gone underneath it. The
-/// caller's business, and immediately: this module never retries a write.
+/// A `False` result means that the string did not reach an open socket. The
+/// lane was never ready, or a caller closed it, or the socket closed below it.
+/// The caller must act on that result immediately, because this module never
+/// writes again.
 pub fn send_envelope(relay: Relay, payload: String) -> Bool {
   write(relay, payload)
 }
 
 @target(javascript)
-/// Attest a digest for the state just published, quoting the highest
-/// order this client has accounted for — processed, or reported as
-/// skipped. The relay answers on `on_attested`.
+/// Attest a digest for the state that this client published, and quote the
+/// highest order that this client accounted for, which it processed or reported
+/// as skipped. The relay answers on `on_attested`.
 pub fn attest(relay: Relay, digest: String) -> Bool {
   let state = transport_js.get_cell(relay.cell)
   write(
@@ -453,14 +460,14 @@ pub fn attest(relay: Relay, digest: String) -> Bool {
 }
 
 @target(javascript)
-/// Tell the relay which optional control frames this client
-/// understands.
+/// Tell the relay which optional control frames this client understands.
 ///
-/// Sent after the `hello` that admits the connection — a relay's first
-/// frame must be an envelope, so this cannot come before it — and it is
-/// the only reason a relay will ever send a `CheckpointRequest`. A
-/// client that never calls this is treated exactly as a client built
-/// before the frame existed: it is never sent one.
+/// The client sends this frame after the `hello` frame that admits the
+/// connection. The first frame of a relay must be an envelope, so this frame
+/// cannot come before it. This frame is the only reason for a relay to send a
+/// `CheckpointRequest` frame. A client that never calls this function receives
+/// the same treatment as a client that a developer built before the frame
+/// existed: the relay never sends it one.
 pub fn declare_support(relay: Relay) -> Bool {
   write(
     relay,
@@ -478,12 +485,13 @@ fn write(relay: Relay, payload: String) -> Bool {
 }
 
 @target(javascript)
-/// Drop the current socket without retiring the lane.
+/// Drop the current socket, and keep the lane.
 ///
-/// For an owner that discovered the socket was gone by writing to it: the
-/// generation is retired, `on_dropped` runs, and the policy's reconnect
-/// is scheduled exactly as it would be for a close the driver reported.
-/// A relay that is already closed, or that has no socket, is untouched.
+/// Use this function when an owner found that the socket was gone by a write to
+/// it. The module retires the generation, runs `on_dropped`, and schedules the
+/// reconnect of the policy, exactly as it would for a close that the driver
+/// reported. The function does not change a relay that is already closed, or a
+/// relay that has no socket.
 pub fn abort(relay: Relay, detail: String) -> Nil {
   let cell = relay.cell
   let state = transport_js.get_cell(cell)
@@ -499,7 +507,7 @@ pub fn abort(relay: Relay, detail: String) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// One frame from the relay, under the generation that asked for it.
+/// One frame from the relay, under the generation that requested it.
 fn receive(cell: Cell(State), generation: Int, raw: String) -> Nil {
   case current(cell, generation) {
     False -> Nil
@@ -593,18 +601,22 @@ fn deliver(
 @target(javascript)
 /// Something arrived that this document will not merge.
 ///
-/// Reported to the relay as a `skip` naming the exact order, which is
-/// what lets the relay carry the entry for whoever *can* merge it, keep
-/// it through this client's checkpoints, and still let those checkpoints
-/// land. Only once the skip is on the wire may the high-water mark move
-/// past it: an entry refused in silence is an entry a later attestation
-/// would claim to have accounted for without anyone having said so.
+/// The module reports it to the relay as a `skip` frame that names the exact
+/// order. The relay can thus keep the entry for a client that *can* merge it,
+/// keep it through the checkpoints of this client, and still accept those
+/// checkpoints. The high-water mark can move past that entry only after the
+/// skip is on the wire. An entry that a client refuses without a report is an
+/// entry that a later attestation would claim to have accounted for, and no
+/// client said so.
 ///
-/// A relay that stamped no order — `0` — has given this client nothing to
-/// name, so there is nothing to report and the mark freezes instead. A
-/// skip that could not be *written* is a different thing entirely: the
-/// socket is gone, so it is retired here rather than left looking healthy
-/// with a frozen mark it can never unfreeze.
+/// A relay that stamped no order, which is the value `0`, gave this client
+/// nothing to name. There is thus nothing to report, and the mark freezes
+/// instead.
+///
+/// A skip that the module could not *write* is a different condition. The
+/// socket is gone, so the module retires it here. It does not leave the socket
+/// with the appearance of health and a frozen mark that it can never move
+/// again.
 fn refused(cell: Cell(State), generation: Int, order: Int) -> Nil {
   let state = transport_js.get_cell(cell)
   case order > 0 && !state.stalled {
@@ -643,8 +655,9 @@ fn refused(cell: Cell(State), generation: Int, order: Int) -> Nil {
 }
 
 @target(javascript)
-/// The diagnostic order, recorded and bounded below by what we have
-/// already processed. It leaves this module only inside an attestation.
+/// The diagnostic order. The module records it, and it never falls below the
+/// order that the client already processed. This value leaves the module inside
+/// an attestation only.
 fn note_order(cell: Cell(State), order: Int) -> Nil {
   let state = transport_js.get_cell(cell)
   case !state.stalled && order > state.order {
@@ -654,17 +667,18 @@ fn note_order(cell: Cell(State), order: Int) -> Nil {
 }
 
 @target(javascript)
-/// A gap this client cannot account for. Freeze the high-water mark:
-/// from here on this socket cannot honestly say it holds everything up to
-/// any later order.
+/// A gap that this client cannot account for. Freeze the high-water mark. From
+/// this point, the socket cannot correctly claim that it holds everything up to
+/// a later order.
 fn stall(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, stalled: True))
 }
 
 @target(javascript)
-/// The endpoint is a sequencer without this lane. Reported once, and the
-/// relay stops: retrying would ask the same question forever.
+/// The endpoint is a sequencer without this lane. The module reports that one
+/// time and stops the relay. A retry would ask the same question without an
+/// end.
 fn unsupported(cell: Cell(State), generation: Int) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, retry: False))
@@ -675,9 +689,10 @@ fn unsupported(cell: Cell(State), generation: Int) -> Nil {
 }
 
 @target(javascript)
-/// Close this generation's socket and retire it. The driver's own
-/// `on_close` may or may not follow; either way `dropped` runs exactly
-/// once for this generation, because the second caller finds it stale.
+/// Close the socket of this generation and retire it. The `on_close` callback
+/// of the driver can follow, or it can not follow. In both conditions `dropped`
+/// runs exactly one time for this generation, because the second caller finds a
+/// stale generation.
 fn hang_up(cell: Cell(State), generation: Int, detail: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.connection {
@@ -688,8 +703,8 @@ fn hang_up(cell: Cell(State), generation: Int, detail: String) -> Nil {
 }
 
 @target(javascript)
-/// This generation's socket is gone. Advance the generation before
-/// anything else, so a driver that calls back twice cannot schedule two
+/// The socket of this generation closed. The function advances the generation
+/// first, so a driver that calls back two times cannot schedule two
 /// reconnects.
 fn dropped(cell: Cell(State), generation: Int, detail: String) -> Nil {
   case current(cell, generation) {
@@ -716,7 +731,7 @@ fn dropped(cell: Cell(State), generation: Int, detail: String) -> Nil {
 }
 
 @target(javascript)
-/// Arm the next attempt, if the policy wants one.
+/// Arm the next attempt, if the policy permits one.
 fn schedule(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.retry {
@@ -797,22 +812,22 @@ pub fn last_order(relay: Relay) -> Int {
 }
 
 @target(javascript)
-/// The most recent orders this socket reported as skipped, oldest first.
-/// At most `max_reported_skips` of them — `skip_count` is the number
-/// that were actually reported.
+/// The most recent orders that this socket reported as skipped, oldest first.
+/// There are `max_reported_skips` of them at most. `skip_count` gives the
+/// number that the socket reported.
 pub fn skipped_orders(relay: Relay) -> List(Int) {
   list.reverse(transport_js.get_cell(relay.cell).skipped)
 }
 
 @target(javascript)
-/// How many refusals this socket has reported, whether or not they are
+/// The number of refusals that this socket reported, whether or not they are
 /// still in `skipped_orders`.
 pub fn skip_count(relay: Relay) -> Int {
   transport_js.get_cell(relay.cell).skips
 }
 
 @target(javascript)
-/// Consecutive failed attempts since the last `healthy`.
+/// The number of consecutive failed attempts after the last `healthy` call.
 pub fn attempts(relay: Relay) -> Int {
   transport_js.get_cell(relay.cell).attempt
 }

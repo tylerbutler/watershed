@@ -1,12 +1,14 @@
 //// JavaScript runtime for the SharedMap client — the browser counterpart of
 //// the Erlang `watershed/runtime_beam` OTP actor.
 ////
-//// Same responsibilities (handshake, CSN/RSN stamping, inbound ordering,
-//// gap catch-up, reconnect/reconcile, event fan-out) driving the *same* pure
-//// core (`runtime_core`/`wire`/`map_kernel`), but with no OTP: state lives in
-//// a mutable cell and the Phoenix transport delivers events via callbacks.
+//// This module has the same responsibilities as that actor: the handshake, the
+//// CSN and RSN stamps, the order of the inbound frames, the catch-up after a
+//// gap, the reconnect and reconcile, and the event fan-out. It drives the
+//// *same* pure core, which is `runtime_core`, `wire`, and `map_kernel`. It uses
+//// no OTP. The state is in a mutable cell, and the Phoenix transport delivers
+//// its events through callbacks.
 ////
-//// JavaScript target only (gated with `@target(javascript)`).
+//// JavaScript target only. `@target(javascript)` gates the module.
 
 @target(javascript)
 import gleam/dict.{type Dict}
@@ -79,7 +81,8 @@ import watershed/wire/socket
 import watershed/wire/summary_blob
 
 @target(javascript)
-/// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
+/// The server nacks a submission of more than 100 ops. Split a resubmit into
+/// chunks to stay below that limit.
 const max_ops_per_submission = 100
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,15 +96,17 @@ const max_ops_per_submission = 100
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// A live connection's outbound operations. `push` carries the wire event and
-/// its JSON payload; `close` tears the connection down; `drop` forces the
-/// reconnect path (for phoenix, a socket drop that auto-rejoins).
+/// The outbound operations of a live connection. `push` carries the wire event
+/// and its JSON payload. `close` shuts the connection down. `drop` forces the
+/// reconnect path, which for Phoenix is a socket drop that joins again by
+/// itself.
 ///
-/// `hold` and `resume` are `drop` split in two. `drop` is away-and-back in one
-/// step, which is the right shape for fault injection and the wrong one for an
-/// offline mode: there is no window in the middle to edit in. A held connection
-/// stays held until `resume`, and because the runtime keeps its core either way,
-/// edits made in that window are still there to flush on the rejoin.
+/// `hold` and `resume` are `drop`, split into two steps. `drop` goes away and
+/// comes back in one step. That shape is correct for a fault injection, and
+/// incorrect for an offline mode, because there is no interval in the middle to
+/// edit in. A held connection stays held until a `resume` call. The runtime
+/// keeps its core in both forms, so an edit from that interval is still there,
+/// and the rejoin sends it.
 pub type TransportHandle {
   TransportHandle(
     push: fn(String, Json) -> Nil,
@@ -113,21 +118,23 @@ pub type TransportHandle {
 }
 
 @target(javascript)
-/// How a transport reports inbound frames and (re)join/close lifecycle back to
-/// the runtime. Phoenix drives these from its socket; the hub drives them on
-/// explicit delivery.
+/// How a transport reports its inbound frames and its join and close lifecycle
+/// back to the runtime. Phoenix calls these functions from its socket. The hub
+/// calls them at an explicit delivery.
 pub type TransportCallbacks {
   TransportCallbacks(
     on_event: fn(String, Dynamic) -> Nil,
-    /// Fires on every successful (re)join — also the re-handshake hook.
+    /// This callback runs after every successful join. It is also the hook for
+    /// a new handshake.
     on_join: fn() -> Nil,
     on_close: fn() -> Nil,
   )
 }
 
 @target(javascript)
-/// A pluggable connection to a floodgate-shaped server. `connect` opens the link,
-/// wires the callbacks, and returns the handle used for outbound frames.
+/// A replaceable connection to a floodgate-shaped server. `connect` opens the
+/// link, connects the callbacks, and returns the handle for the outbound
+/// frames.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> TransportHandle)
 }
@@ -141,33 +148,38 @@ pub type ClaimSubmitReply {
 }
 
 @target(javascript)
-/// One ordered inbox for the presence lane, carrying both data frames and the
-/// connection lifecycle a presence driver has to react to.
+/// One ordered inbox for the presence lane. It carries the data frames and the
+/// connection lifecycle events that a presence driver must react to.
 ///
-/// They share a channel deliberately: a driver that learned of a lost session
-/// from one source and of diffs from another could apply a diff belonging to a
-/// dead session. In one stream that reordering is not representable.
+/// The two share one channel on purpose. A driver that learned about a lost
+/// session from one source, and about the diffs from another source, could
+/// apply a diff that belongs to a dead session. One stream cannot represent
+/// that order.
 pub type PresenceFrame {
-  /// A `presence_state` snapshot, left undecoded — the runtime has no
-  /// application metadata decoder, unlike the op lane.
+  /// A `presence_state` snapshot, which the runtime does not decode. The
+  /// runtime has no decoder for the metadata of the application, and the op
+  /// lane does have one.
   PresenceState(payload: Dynamic)
   PresenceDiff(payload: Dynamic)
   PresenceError(payload: Dynamic)
-  /// A fresh document session settled: a new server-assigned client id and the
-  /// features this handshake negotiated. Fires on the initial handshake and on
-  /// every reconnect, which is what a driver rejoins on.
+  /// A new document session settled. The frame carries a new client id from
+  /// the server, and the features that this handshake negotiated. The runtime
+  /// sends it after the first handshake and after every reconnect, and a
+  /// driver rejoins on it.
   PresenceSession(client_id: String, presence_v1: Bool)
-  /// The session went away. Any presence the server held for it is gone.
+  /// The session ended. Every presence that the server held for it is gone.
   PresenceSessionLost
 }
 
 @target(javascript)
 type Phase {
   Connecting
-  /// Socket down and re-handshaking; holds the pre-reconnect core.
+  /// The socket is closed and the runtime is doing the handshake again. This
+  /// state holds the core from before the reconnect.
   Reconnecting(core: runtime_core.Core)
-  /// Connected. `resubmit_at` is `Some(checkpoint)` while a reconnect is still
-  /// catching up to where un-acked ops can be resubmitted, `None` once synced.
+  /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
+  /// reconnect still catches up to the point at which the runtime can resubmit
+  /// the ops with no ack. It is `None` after the runtime is synchronized.
   Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
@@ -176,58 +188,63 @@ type Phase {
 type State {
   State(
     connect_message: ConnectMessage,
-    /// HTTP(S) base URL for git-storage (summary) calls, derived from the
-    /// Phoenix socket URL. floodgate serves both the socket and REST from one
-    /// origin.
+    /// The base HTTP or HTTPS URL for the git-storage calls, which the
+    /// summaries use. It comes from the Phoenix socket URL. floodgate serves
+    /// the socket and the REST API from one origin.
     http_base_url: String,
     channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
-    /// Ephemeral-ripple subscribers. Ripples are document-scoped and
-    /// non-sequenced, so they fan out independently of the op event stream.
+    /// The subscribers for the ephemeral ripples. A ripple belongs to one
+    /// document and does not sequence, so the fan-out is separate from the op
+    /// event stream.
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
-    /// Presence-lane subscribers. Like ripples, presence is unsequenced and
-    /// never touches the core.
+    /// The subscribers on the presence lane. Presence does not sequence and
+    /// never touches the core, the same as a ripple.
     presence_subscribers: List(fn(PresenceFrame) -> Nil),
-    /// What the *current* connection's handshake advertised. Deliberately on
-    /// `State` rather than the core: the core survives a reconnect intact, so a
-    /// capability parked there would outlive the connection that negotiated it
-    /// and could claim support on a server that has none.
+    /// What the handshake of the *current* connection announced. This field is
+    /// on `State`, and not on the core, and that is deliberate. The core stays
+    /// intact across a reconnect. A capability on the core would thus outlive
+    /// the connection that negotiated it, and it could claim support on a
+    /// server that does not have it.
     supported_features: Dict(String, Dynamic),
     claim_waiters: Dict(
       #(String, String),
       fn(claims_kernel.ClaimOutcome) -> Nil,
     ),
-    /// Pending ordered-collection acquires awaiting their sequenced outcome,
-    /// keyed by `#(address, acquire_id)`.
+    /// The pending acquires on an ordered collection, which wait for their
+    /// sequenced outcome, keyed by `#(address, acquire_id)`.
     acquire_waiters: Dict(
       #(String, String),
       fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
     ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
-    /// The automatic summarization policy, `None` unless an application asked
-    /// for one. On `State` rather than the core because it is a property of
-    /// this client's configuration, not of the document.
+    /// The automatic summarization policy. The value is `None` unless an
+    /// application asked for one. This field is on `State`, and not on the
+    /// core, because it is part of the configuration of this client, and not
+    /// part of the document.
     auto_summary: Option(summary_policy.Policy),
-    /// Whether a summarization wake-up is already scheduled. Without it a busy
-    /// document arms a fresh timer on every sequenced op.
+    /// Whether a summarization wake-up is scheduled already. Without this flag,
+    /// a busy document would arm a new timer for every sequenced op.
     summary_armed: Bool,
-    /// How delayed work is scheduled. Real `setTimeout` in production; the
-    /// in-memory hub swaps in its logical clock so the policy's jitter window
-    /// can be driven by `sluice_js.advance` instead of elapsed time.
+    /// How the runtime schedules delayed work. In production it uses the real
+    /// `setTimeout` function. The in-memory hub substitutes its logical clock,
+    /// so `sluice_js.advance` drives the delay window of the policy, and not
+    /// the elapsed time.
     scheduler: transport_js.Scheduler,
   )
 }
 
 @target(javascript)
-/// Opaque handle to a running document runtime.
+/// An opaque handle to a running document runtime.
 pub opaque type Runtime {
   Runtime(cell: Cell(State))
 }
 
 @target(javascript)
-/// Read-only runtime state intended for diagnostics and example tooling.
+/// Runtime state that you can read but not change, for diagnostics and for the
+/// example tools.
 pub type Diagnostics {
   Diagnostics(
     phase: String,
@@ -238,20 +255,22 @@ pub type Diagnostics {
     buffered_out_of_order_count: Int,
     resubmit_checkpoint: Option(Int),
     synced: Bool,
-    /// Ops sequenced past the newest checkpoint this client knows of — the
-    /// drift an automatic summarization policy thresholds on, and what a
-    /// joining client would replay on top of that checkpoint.
+    /// The ops that sequenced after the newest checkpoint that this client
+    /// knows about. An automatic summarization policy compares this count with
+    /// its threshold, and a client that joins replays these ops on top of that
+    /// checkpoint.
     ops_since_summary: Int,
-    /// Whether an automatic summarization attempt is scheduled and waiting out
-    /// its jitter window. Always `False` without a policy installed.
+    /// Whether an automatic summarization attempt is scheduled and waits for
+    /// its delay window. The value is always `False` without a policy.
     summary_pending: Bool,
   )
 }
 
 @target(javascript)
-/// Start a runtime: open the Phoenix socket, join the topic, and begin the
-/// handshake. `on_ready` fires once with `Ok(Nil)` when the document has
-/// bootstrapped, or `Error(reason)` if the connection is rejected.
+/// Start a runtime. The function opens the Phoenix socket, joins the topic, and
+/// starts the handshake. `on_ready` runs one time. It gives `Ok(Nil)` after the
+/// document bootstraps, or `Error(reason)` when the server refuses the
+/// connection.
 pub fn start(
   url url: String,
   topic topic: String,
@@ -271,9 +290,10 @@ pub fn start(
 }
 
 @target(javascript)
-/// Start a runtime against an arbitrary transport. Used by the live `start`
-/// (phoenix) and by the in-memory hub test driver. `http_base_url` only feeds
-/// the REST summary API and may be a placeholder for transports without one.
+/// Start a runtime against any transport. The live `start` function, which uses
+/// Phoenix, calls this function, and so does the in-memory hub test driver.
+/// `http_base_url` supplies the REST summary API only. A transport that serves
+/// no such API can pass any value.
 pub fn start_with_transport(
   http_base_url http_base_url: String,
   connect_message connect_message: ConnectMessage,
@@ -313,9 +333,9 @@ pub fn start_with_transport(
 }
 
 @target(javascript)
-/// The default transport: a phoenix socket over `transport_js`. Phoenix
-/// auto-rejoins after a socket drop, re-firing `on_join`, so the runtime never
-/// re-invokes `connect`.
+/// The default transport: a Phoenix socket over `transport_js`. Phoenix joins
+/// again by itself after a socket drop, and it runs `on_join` again. The runtime
+/// thus never calls `connect` a second time.
 fn phoenix_transport(
   url: String,
   topic: String,
@@ -388,22 +408,22 @@ pub fn has(runtime: Runtime, address: String, key: String) -> Bool {
 }
 
 @target(javascript)
-/// Optimistically increment the counter at `address` (negative amounts
-/// decrement).
+/// Increment the counter at `address` optimistically. A negative amount
+/// decrements it.
 pub fn increment(runtime: Runtime, address: String, amount: Int) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.increment(core, address, amount) })
 }
 
 @target(javascript)
-/// The counter's optimistic value, `None` when the address is missing or
-/// not a counter channel.
+/// The optimistic value of the counter. The result is `None` when the address
+/// does not exist, and when it does not name a counter channel.
 pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
   read(runtime.cell, None, runtime_core.counter_value(_, address))
 }
 
 @target(javascript)
-/// Optimistically apply a signed update to the PN-counter at `address`
-/// (negative amounts decrement).
+/// Apply a signed update to the PN-counter at `address` optimistically. A
+/// negative amount decrements it.
 pub fn pn_counter_update(
   runtime: Runtime,
   address: String,
@@ -415,16 +435,17 @@ pub fn pn_counter_update(
 }
 
 @target(javascript)
-/// The PN-counter's optimistic value, `None` when the address is missing or
-/// not a pn-counter channel.
+/// The optimistic value of the PN-counter. The result is `None` when the
+/// address does not exist, and when it does not name a PN-counter channel.
 pub fn pn_counter_value(runtime: Runtime, address: String) -> Option(Int) {
   read(runtime.cell, None, runtime_core.pn_counter_value(_, address))
 }
 
 @target(javascript)
-/// Propose `value` for `key` in the PactMap at `address`. Consensus, not
-/// optimistic: the value takes effect only once the `Set` sequences (and its
-/// automatic `Accept` follow-up settles the quorum).
+/// Propose `value` for `key` in the PactMap at `address`. This write is a
+/// consensus write, and it is not optimistic. The value takes effect only after
+/// the `Set` op sequences, and after the `Accept` op that follows it settles
+/// the quorum.
 pub fn pact_map_set(
   runtime: Runtime,
   address: String,
@@ -437,7 +458,8 @@ pub fn pact_map_set(
 }
 
 @target(javascript)
-/// Propose a delete (tombstone) for `key` in the PactMap at `address`.
+/// Propose a delete for `key` in the PactMap at `address`. A delete writes a
+/// tombstone.
 pub fn pact_map_delete(runtime: Runtime, address: String, key: String) -> Nil {
   edit(runtime.cell, fn(core) {
     runtime_core.pact_map_delete(core, address, key)
@@ -445,7 +467,8 @@ pub fn pact_map_delete(runtime: Runtime, address: String, key: String) -> Nil {
 }
 
 @target(javascript)
-/// The PactMap's accepted value for `key`, `None` when pending, absent, or not
+/// The accepted value of the PactMap for `key`. The result is `None` when the
+/// value is pending, when the key is absent, and when the address does not name
 /// a PactMap channel.
 pub fn pact_map_get(
   runtime: Runtime,
@@ -456,13 +479,15 @@ pub fn pact_map_get(
 }
 
 @target(javascript)
-/// All keys with an accepted or pending pact in the PactMap at `address`.
+/// Every key with an accepted pact or a pending pact, in the PactMap at
+/// `address`.
 pub fn pact_map_keys(runtime: Runtime, address: String) -> List(String) {
   read(runtime.cell, [], runtime_core.pact_map_keys(_, address))
 }
 
 @target(javascript)
-/// Whether `key` has a pending (proposed but not-yet-accepted) value.
+/// Whether `key` has a pending value, which a client proposed and no room has
+/// accepted yet.
 pub fn pact_map_is_pending(
   runtime: Runtime,
   address: String,
@@ -472,8 +497,8 @@ pub fn pact_map_is_pending(
 }
 
 @target(javascript)
-/// The pending proposal for `key` — value plus the signoff list it is waiting
-/// on — `None` when nothing is pending.
+/// The pending proposal for `key`, which is the value with the signoff list that
+/// it waits on. The result is `None` when nothing is pending.
 pub fn pact_map_pending(
   runtime: Runtime,
   address: String,
@@ -483,8 +508,8 @@ pub fn pact_map_pending(
 }
 
 @target(javascript)
-/// The accepted entry (value + sequence number) for `key`, `None` when the key
-/// has no accepted value.
+/// The accepted entry for `key`, which is the value with its sequence number.
+/// The result is `None` when the key has no accepted value.
 pub fn pact_map_get_with_details(
   runtime: Runtime,
   address: String,
@@ -498,16 +523,18 @@ pub fn pact_map_get_with_details(
 }
 
 @target(javascript)
-/// Append `value` to the ordered collection at `address`. Non-optimistic when
-/// attached (takes effect on sequencing); a detached channel adds immediately.
+/// Append `value` to the ordered collection at `address`. An attached channel
+/// is not optimistic, and the value takes effect when the op sequences. A
+/// detached channel adds the value immediately.
 pub fn ordered_add(runtime: Runtime, address: String, value: Json) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.ordered_add(core, address, value) })
 }
 
 @target(javascript)
-/// Acquire the head of the ordered collection at `address`, returning the minted
-/// acquire id for the later `ordered_complete`/`ordered_release`. The acquired
-/// item arrives via the `Acquired` event (the queue is non-optimistic).
+/// Acquire the head of the ordered collection at `address`, and return the new
+/// acquire id for a later `ordered_complete` or `ordered_release` call. The
+/// acquired item arrives in the `Acquired` event, because the queue is not
+/// optimistic.
 pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
   let acquire_id = ids.uuid_v4()
   edit(runtime.cell, fn(core) {
@@ -517,12 +544,15 @@ pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
 }
 
 @target(javascript)
-/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
-/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
-/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
-/// (a losing acquire emits no event, so this is the loser's only signal), or
-/// `Aborted` when the document closes with the acquire still in flight. A
-/// detached channel resolves immediately.
+/// The same as `ordered_acquire`, and the function also reports the consensus
+/// outcome of the acquire.
+///
+/// `on_outcome` runs exactly one time. It gives `AcquiredItem` when this client
+/// won the head. It gives `QueueEmpty` when the queue became empty before the
+/// op sequenced. An acquire that loses emits no event, so `QueueEmpty` is the
+/// only signal that a loser receives. It gives `Aborted` when the document
+/// closes while the acquire is still in flight. A detached channel resolves
+/// immediately.
 pub fn ordered_acquire_with_outcome(
   runtime: Runtime,
   address: String,
@@ -594,7 +624,8 @@ pub fn ordered_complete(
 }
 
 @target(javascript)
-/// Release the held job `acquire_id` back to the ordered collection at `address`.
+/// Release the held job `acquire_id` back to the ordered collection at
+/// `address`.
 pub fn ordered_release(
   runtime: Runtime,
   address: String,
@@ -606,20 +637,23 @@ pub fn ordered_release(
 }
 
 @target(javascript)
-/// The number of queued (not-yet-acquired) items at `address`, `None` when
-/// missing or not an ordered-collection channel.
+/// The number of items in the queue at `address`, which are the items that no
+/// client acquired yet. The result is `None` when the address does not exist,
+/// and when it does not name an ordered-collection channel.
 pub fn ordered_size(runtime: Runtime, address: String) -> Option(Int) {
   read(runtime.cell, None, runtime_core.ordered_size(_, address))
 }
 
 @target(javascript)
-/// The queued (not-yet-acquired) values at `address`, front first.
+/// The values in the queue at `address`, which no client acquired yet, front
+/// first.
 pub fn ordered_queue(runtime: Runtime, address: String) -> List(Json) {
   read(runtime.cell, [], runtime_core.ordered_queue(_, address))
 }
 
 @target(javascript)
-/// The currently-held jobs at `address`, keyed by acquire id (sorted).
+/// The jobs that clients hold at `address` now, keyed by acquire id and sorted
+/// by that id.
 pub fn ordered_jobs(
   runtime: Runtime,
   address: String,
@@ -628,7 +662,7 @@ pub fn ordered_jobs(
 }
 
 @target(javascript)
-/// Optimistically submit a json0 op to the channel at `address`.
+/// Submit a json0 op to the channel at `address`, optimistically.
 pub fn submit_json_ot(
   runtime: Runtime,
   address: String,
@@ -640,8 +674,8 @@ pub fn submit_json_ot(
 }
 
 @target(javascript)
-/// The json0 channel's optimistic document, `None` when the address is missing
-/// or not a json0 channel.
+/// The optimistic document of the json0 channel. The result is `None` when the
+/// address does not exist, and when it does not name a json0 channel.
 pub fn json_ot_view(
   runtime: Runtime,
   address: String,
@@ -650,7 +684,7 @@ pub fn json_ot_view(
 }
 
 @target(javascript)
-/// Optimistically submit a rich-text delta to the channel at `address`.
+/// Submit a rich-text delta to the channel at `address`, optimistically.
 pub fn submit_rich_text(
   runtime: Runtime,
   address: String,
@@ -662,8 +696,9 @@ pub fn submit_rich_text(
 }
 
 @target(javascript)
-/// The rich-text channel's optimistic document, `None` when the address is
-/// missing or not a rich-text channel.
+/// The optimistic document of the rich-text channel. The result is `None` when
+/// the address does not exist, and when it does not name a rich-text
+/// channel.
 pub fn rich_text_view(
   runtime: Runtime,
   address: String,
@@ -834,8 +869,8 @@ pub fn sequence_length(runtime: Runtime, address: String) -> Int {
 
 @target(javascript)
 /// Insert `value` at the optimistic grapheme `index`. An empty `value` at a
-/// valid index is a no-op: `Ok(Nil)` with no outbound effect (see
-/// `text_kernel` module docs).
+/// valid index changes nothing. The result is `Ok(Nil)`, and the runtime sends
+/// no op. See the module docs of `text_kernel`.
 pub fn text_insert(
   runtime: Runtime,
   address: String,
@@ -848,8 +883,8 @@ pub fn text_insert(
 }
 
 @target(javascript)
-/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
-/// a no-op.
+/// Delete the graphemes in `[start, end)`. An empty range with valid bounds
+/// changes nothing.
 pub fn text_delete_range(
   runtime: Runtime,
   address: String,
@@ -863,7 +898,7 @@ pub fn text_delete_range(
 
 @target(javascript)
 /// Replace the graphemes in `[start, end)` with `value`. Only an empty range
-/// replaced with `""` is a no-op.
+/// that you replace with `""` changes nothing.
 pub fn text_replace_range(
   runtime: Runtime,
   address: String,
@@ -877,7 +912,7 @@ pub fn text_replace_range(
 }
 
 @target(javascript)
-/// Insert `value` at the end of the text. An empty `value` is a no-op.
+/// Insert `value` at the end of the text. An empty `value` changes nothing.
 pub fn text_append(
   runtime: Runtime,
   address: String,
@@ -889,21 +924,24 @@ pub fn text_append(
 }
 
 @target(javascript)
-/// The text channel's current optimistic visible string, `""` when the
-/// address is missing or not a text channel.
+/// The current visible optimistic string of the text channel. The result is
+/// `""` when the address does not exist, and when it does not name a text
+/// channel.
 pub fn text_value(runtime: Runtime, address: String) -> String {
   read(runtime.cell, "", runtime_core.text_value(_, address))
 }
 
 @target(javascript)
-/// The text channel's current optimistic grapheme count, `0` when the
-/// address is missing or not a text channel.
+/// The current optimistic grapheme count of the text channel. The result is `0`
+/// when the address does not exist, and when it does not name a text
+/// channel.
 pub fn text_length(runtime: Runtime, address: String) -> Int {
   read(runtime.cell, 0, runtime_core.text_length(_, address))
 }
 
 @target(javascript)
-/// The graphemes in `[start, end)` of the text channel's optimistic string.
+/// The graphemes in `[start, end)` of the optimistic string of the text
+/// channel.
 pub fn text_substring(
   runtime: Runtime,
   address: String,
@@ -918,9 +956,9 @@ pub fn text_substring(
 }
 
 @target(javascript)
-/// Create a stable anchor at the gap at `index`; `bias` selects which
-/// adjacent grapheme the anchor binds to (`Before` binds to the following
-/// grapheme, `After` to the preceding one).
+/// Create a stable anchor at the gap at `index`. `bias` selects the adjacent
+/// grapheme that the anchor binds to. `Before` binds it to the grapheme after
+/// the gap, and `After` binds it to the grapheme before the gap.
 pub fn text_anchor_at(
   runtime: Runtime,
   address: String,
@@ -949,22 +987,24 @@ pub fn text_resolve_anchor(
 }
 
 @target(javascript)
-/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
-/// need a `Runtime`/address since it carries no document state.
+/// An anchor at the start of the text. It always resolves to 0. The function is
+/// pure. It needs no `Runtime` value and no address, because the anchor carries
+/// no document state.
 pub fn text_start_anchor() -> text_kernel.TextAnchor {
   runtime_core.text_start_anchor()
 }
 
 @target(javascript)
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+/// An anchor at the end of the text. It always resolves to the current grapheme
+/// count, and it moves as the text becomes longer. The function is pure, the
+/// same as `text_start_anchor`.
 pub fn text_end_anchor() -> text_kernel.TextAnchor {
   runtime_core.text_end_anchor()
 }
 
 @target(javascript)
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors.
+/// Encode an anchor as a self-describing JSON value, for example to send it
+/// through presence for a shared cursor.
 pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
   runtime_core.text_anchor_to_json(anchor)
 }
@@ -1321,34 +1361,37 @@ pub fn task_manager_queues(
 }
 
 @target(javascript)
-/// Create a new detached map channel: local-only until its handle is first
-/// stored into an attached map. Returns the generated address.
+/// Create a new detached map channel. It is local only, until a caller stores
+/// its handle into an attached map. The function returns the address that the
+/// runtime generated.
 pub fn create_map(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitMap, "create_map")
 }
 
 @target(javascript)
-/// Create a new detached counter channel, same lifecycle as `create_map`.
+/// Create a new detached counter channel. The lifecycle is the same as for
+/// `create_map`.
 pub fn create_counter(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitCounter, "create_counter")
 }
 
 @target(javascript)
-/// Create a new detached PN-counter channel, same lifecycle as `create_map`.
+/// Create a new detached PN-counter channel. The lifecycle is the same as for
+/// `create_map`.
 pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitPnCounter, "create_pn_counter")
 }
 
 @target(javascript)
-/// Create a new detached PactMap (consensus map) channel, same lifecycle as
-/// `create_map`.
+/// Create a new detached PactMap channel, which is a consensus map. The
+/// lifecycle is the same as for `create_map`.
 pub fn create_pact_map(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitPactMap, "create_pact_map")
 }
 
 @target(javascript)
-/// Create a new detached ConsensusOrderedCollection channel, same lifecycle as
-/// `create_map`.
+/// Create a new detached ConsensusOrderedCollection channel. The lifecycle is
+/// the same as for `create_map`.
 pub fn create_ordered_collection(runtime: Runtime) -> Result(String, String) {
   create_channel(
     runtime,
@@ -1381,7 +1424,8 @@ pub fn create_sequence(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
-/// Create a new detached text channel, same lifecycle as `create_map`.
+/// Create a new detached text channel. The lifecycle is the same as for
+/// `create_map`.
 pub fn create_text(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitText, "create_text")
 }
@@ -1406,13 +1450,15 @@ pub fn create_claims(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
-/// Create a new detached json0 channel, same lifecycle as `create_map`.
+/// Create a new detached json0 channel. The lifecycle is the same as for
+/// `create_map`.
 pub fn create_json_ot(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitJsonOt, "create_json_ot")
 }
 
 @target(javascript)
-/// Create a new detached rich-text channel, same lifecycle as `create_map`.
+/// Create a new detached rich-text channel. The lifecycle is the same as for
+/// `create_map`.
 pub fn create_rich_text(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitRichText, "create_rich_text")
 }
@@ -1509,8 +1555,9 @@ fn create_channel(
 }
 
 @target(javascript)
-/// Whether a channel exists at `address` (attached or detached). Errors are
-/// retryable — a foreign attach may still be in flight.
+/// Whether a channel exists at `address`, attached or detached. A caller can
+/// retry after an error, because an attach from another client can still be in
+/// flight.
 pub fn resolve_address(
   runtime: Runtime,
   address: String,
@@ -1564,8 +1611,8 @@ pub fn resolve_text(runtime: Runtime, address: String) -> Result(Nil, String) {
 }
 
 @target(javascript)
-/// Register a callback invoked for every local and remote event on the
-/// channel at `address`.
+/// Register a callback that the runtime calls for every local event and remote
+/// event on the channel at `address`.
 pub fn subscribe(
   runtime: Runtime,
   address: String,
@@ -1579,13 +1626,13 @@ pub fn subscribe(
 }
 
 @target(javascript)
-/// The server-assigned client id for this connection, `None` before the first
-/// handshake completes.
+/// The client id that the server assigned to this connection. The result is
+/// `None` before the first handshake completes.
 ///
-/// It survives a reconnect only in the sense that there is always *a* current
-/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
-/// assigns, which may differ from the previous one. Callers holding it across
-/// a disconnect must re-read rather than cache.
+/// A reconnect does not keep the value. There is always *a* current id, and
+/// `adopt_reconnect` replaces it with the id that the new handshake assigns.
+/// That id can differ from the previous one. A caller that holds the id across
+/// a disconnect must read it again. It must not use a cached value.
 pub fn client_id(runtime: Runtime) -> Option(String) {
   client_id_of(cell_get(runtime.cell))
 }
@@ -1600,10 +1647,11 @@ fn client_id_of(state: State) -> Option(String) {
 }
 
 @target(javascript)
-/// Broadcast an ephemeral, document-scoped ripple (`type` + arbitrary JSON
-/// `content`). Ripples are non-sequenced and non-persisted — fire-and-forget,
-/// with no ack, resubmit, or catch-up. A no-op until the client has a
-/// server-assigned client id (i.e. before the first handshake completes).
+/// Broadcast an ephemeral ripple to this document, with a `type` field and any
+/// JSON `content`. A ripple does not sequence and no server stores it. It
+/// expects no reply, and it has no ack, no resubmit, and no catch-up. The
+/// function does nothing until the server assigns a client id, which is until
+/// the first handshake completes.
 pub fn send_ripple(
   runtime: Runtime,
   ripple_type: String,
@@ -1626,8 +1674,9 @@ pub fn send_ripple(
 }
 
 @target(javascript)
-/// Register a callback invoked for every inbound ephemeral ripple on the
-/// document. Content is left as `Dynamic` for the caller to decode.
+/// Register a callback that the runtime calls for every inbound ephemeral
+/// ripple on the document. The content stays a `Dynamic` value, for the caller
+/// to decode.
 pub fn subscribe_ripples(
   runtime: Runtime,
   handler: fn(SignalMessage) -> Nil,
@@ -1640,12 +1689,13 @@ pub fn subscribe_ripples(
 }
 
 @target(javascript)
-/// Push a presence-lane command (`joinPresence`, `updatePresence`,
-/// `leavePresence`). A no-op before the channel exists.
+/// Push a command on the presence lane, which is `joinPresence`,
+/// `updatePresence`, or `leavePresence`. The function does nothing before the
+/// channel exists.
 ///
-/// Unlike `send_ripple` this does not wait for a client id: presence payloads
-/// carry no identity at all, because the server derives key and session from
-/// the authenticated connection.
+/// Unlike `send_ripple`, this function does not wait for a client id. A
+/// presence payload carries no identity at all, because the server derives the
+/// key and the session from the authenticated connection.
 pub fn send_presence(runtime: Runtime, event: String, payload: Json) -> Nil {
   case cell_get(runtime.cell).channel {
     Some(channel) -> push_json(channel, event, payload)
@@ -1654,8 +1704,9 @@ pub fn send_presence(runtime: Runtime, event: String, payload: Json) -> Nil {
 }
 
 @target(javascript)
-/// Register a callback for every presence-lane frame, data and lifecycle alike.
-/// Payloads are left as `Dynamic` for the typed driver to decode.
+/// Register a callback for every frame on the presence lane, both a data frame
+/// and a lifecycle frame. Each payload stays a `Dynamic` value, for the typed
+/// driver to decode.
 pub fn subscribe_presence(
   runtime: Runtime,
   handler: fn(PresenceFrame) -> Nil,
@@ -1668,8 +1719,8 @@ pub fn subscribe_presence(
 }
 
 @target(javascript)
-/// Whether the *current* connection's handshake advertised `presence_v1`.
-/// False before the first handshake settles.
+/// Whether the handshake of the *current* connection announced `presence_v1`.
+/// The result is `False` before the first handshake settles.
 pub fn supports_presence(runtime: Runtime) -> Bool {
   socket.supports_feature(
     cell_get(runtime.cell).supported_features,
@@ -1678,15 +1729,16 @@ pub fn supports_presence(runtime: Runtime) -> Bool {
 }
 
 @target(javascript)
-/// The authenticated user id this runtime connected as. Server presence derives
-/// the presence key from the same value; ripple mode reads it here so the two
-/// implementations key their rosters identically.
+/// The authenticated user id that this runtime connected with. Server presence
+/// derives its presence key from the same value. Ripple mode reads that value
+/// here, so the two implementations use the same key for their rosters.
 pub fn user_id(runtime: Runtime) -> String {
   cell_get(runtime.cell).connect_message.client.user.id
 }
 
 @target(javascript)
-/// Fault-injection hook: drop the socket to force the reconnect/reconcile path.
+/// A hook that injects a fault. It closes the socket, so that the runtime runs
+/// its reconnect and reconcile path.
 pub fn force_reconnect(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
@@ -1700,19 +1752,20 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
 }
 
 @target(javascript)
-/// Go offline and stay there: hold the connection down while the document keeps
-/// accepting edits locally. `go_online` brings it back.
+/// Go offline and stay offline. The function holds the connection closed, and
+/// the document continues to accept local edits. `go_online` opens the
+/// connection again.
 ///
-/// The phase parks at `Reconnecting`, which is a state the runtime already
-/// serves fully — reads and edits both work, edits accumulate as pending, and
-/// the rejoin handshake carries `last_seen` and flushes them. Nothing here is a
-/// new state machine; the only new thing is that the socket does not come back
-/// on its own.
+/// The phase stays at `Reconnecting`, which is a state that the runtime already
+/// serves in full. A read and an edit both work, the edits collect as pending
+/// entries, and the rejoin handshake carries `last_seen` and sends them. This
+/// function adds no state machine. The one new behaviour is that the socket
+/// does not open again by itself.
 ///
-/// This is what an offline toggle needs and neither neighbouring hook provides.
-/// `force_reconnect` is away-and-back with no window in between, and `close` is
-/// terminal — reconnecting after it means a fresh runtime, whose empty core has
-/// none of the edits made in the meantime.
+/// An offline toggle needs this function, and neither of the two similar hooks
+/// gives it. `force_reconnect` goes away and comes back with no interval
+/// between. `close` is terminal, and to reconnect after it means a new runtime,
+/// whose empty core holds none of the edits from that interval.
 pub fn go_offline(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
@@ -1726,8 +1779,9 @@ pub fn go_offline(runtime: Runtime) -> Nil {
 }
 
 @target(javascript)
-/// Come back from `go_offline`. A no-op unless the connection is held, so a UI
-/// can bind this to a toggle without tracking the phase itself.
+/// Return from `go_offline`. The function does nothing unless the connection is
+/// held, so an interface can bind it to a toggle and does not have to track the
+/// phase.
 pub fn go_online(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
@@ -1748,8 +1802,8 @@ pub fn close(runtime: Runtime) -> Nil {
 }
 
 @target(javascript)
-/// Whether the document is fully caught up: every local edit has been
-/// acknowledged by the server, so the confirmed state is complete and stable.
+/// Whether the document is caught up, which is true when the server acked every
+/// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Runtime) -> Bool {
   case cell_get(runtime.cell).phase {
     Ready(core, None) -> runtime_core.is_synced(core)
@@ -1758,8 +1812,9 @@ pub fn is_synced(runtime: Runtime) -> Bool {
 }
 
 @target(javascript)
-/// Snapshot connection and sequencing state for diagnostics. This does not
-/// mutate the runtime and is safe to poll from a debug UI.
+/// Take a snapshot of the connection state and the sequencing state, for
+/// diagnostics. The function does not change the runtime, and a debug interface
+/// can call it repeatedly.
 pub fn diagnostics(runtime: Runtime) -> Diagnostics {
   let state = cell_get(runtime.cell)
   case state.phase {
@@ -1827,10 +1882,11 @@ fn diagnostics_from_core(
 }
 
 @target(javascript)
-/// Replace the runtime's scheduler. A test seam for the in-memory hub, which
-/// binds delayed work to its logical clock; production runtimes keep the real
-/// `setTimeout` they start with. Safe to call any time before the first
-/// sequenced op, which is the earliest anything can be scheduled.
+/// Replace the scheduler of the runtime. This is a test seam for the in-memory
+/// hub, which binds the delayed work to its logical clock. A production runtime
+/// keeps the real `setTimeout` function that it started with. You can call this
+/// function at any time before the first sequenced op, which is the earliest
+/// moment at which the runtime schedules anything.
 pub fn set_scheduler(
   runtime: Runtime,
   scheduler: transport_js.Scheduler,
@@ -1839,7 +1895,7 @@ pub fn set_scheduler(
 }
 
 @target(javascript)
-/// Install (or with `None`, clear) the automatic summarization policy.
+/// Install the automatic summarization policy. A value of `None` clears it.
 pub fn auto_summarize(
   runtime: Runtime,
   policy: Option(summary_policy.Policy),
@@ -1851,8 +1907,8 @@ pub fn auto_summarize(
 }
 
 @target(javascript)
-/// How far the document has drifted past the newest checkpoint this client
-/// knows of. Zero before the first handshake.
+/// How far the document moved past the newest checkpoint that this client knows
+/// about. The result is zero before the first handshake.
 pub fn ops_since_summary(runtime: Runtime) -> Int {
   case cell_get(runtime.cell).phase {
     Ready(core, _) | Reconnecting(core) -> runtime_core.ops_since_summary(core)
@@ -1861,14 +1917,14 @@ pub fn ops_since_summary(runtime: Runtime) -> Int {
 }
 
 @target(javascript)
-/// Schedule a summarization attempt if the policy wants one and none is
-/// already pending.
+/// Schedule an attempt to summarize, if the policy asks for one and no attempt
+/// is pending.
 ///
-/// The delay is what keeps a room cheap. Every client crosses the threshold on
-/// the same op; each waits a different, id-derived interval; the first summary
-/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
-/// room re-checks on wake and stands down. A lost race costs one redundant
-/// upload and nothing else.
+/// The delay keeps the cost of a room low. Every client crosses the threshold
+/// on the same op. Each client then waits for a different interval, which comes
+/// from its id. The first summary that sequences advances `last_summary_sn` on
+/// every client, and the rest of the room checks again on its wake-up and
+/// stops. A lost race costs one unnecessary upload, and nothing more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
   case state.auto_summary, state.summary_armed {
@@ -1890,9 +1946,9 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
 }
 
 @target(javascript)
-/// The policy's wake-up: re-take the decision against the core as it is now,
-/// because a peer's summary landing in the jitter window is exactly what this
-/// is waiting to find out about.
+/// The wake-up of the policy. The function makes the decision again against the
+/// core as it is now, because a summary from a peer that arrives in the delay
+/// window is the condition that this wake-up looks for.
 fn attempt_summary(cell: Cell(State)) -> Nil {
   let state = cell_get(cell)
   cell_set(cell, State(..state, summary_armed: False))
@@ -1913,15 +1969,16 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Summarize the document's current confirmed state to floodgate storage so future
-/// clients can bootstrap from the snapshot instead of replaying the full op
-/// history. Resolves with the summary handle (git tree SHA). Requires the
-/// connection to be fully synced and the token to carry `summary:write`.
+/// Summarize the current confirmed state of the document to the storage of
+/// floodgate. A later client can then start from that snapshot, and it does not
+/// replay the full op history. The promise resolves with the summary handle,
+/// which is a git tree SHA. The connection must be synchronized, and the token
+/// must carry the `summary:write` scope.
 ///
-/// Uploading is asynchronous, so the returned Promise settles once the blob is
-/// stored and the summarize op has been pushed. The summarize op's sequence
-/// number is drawn from the live core at push time (not at upload start) so a
-/// concurrent local edit can't collide with it.
+/// The upload is asynchronous, so the promise settles after the storage holds
+/// the blob and the runtime pushes the summarize op. The sequence number of
+/// that op comes from the live core at push time, and not at the start of the
+/// upload, so a concurrent local edit cannot collide with it.
 pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let cell = runtime.cell
   let state = cell_get(cell)
@@ -1961,8 +2018,9 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
 }
 
 @target(javascript)
-/// List the document's stored summary versions, newest first (the client half
-/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. The token must carry the
+/// `doc:read` scope.
 pub fn get_versions(
   runtime: Runtime,
   count: Int,
@@ -1982,9 +2040,10 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the historical snapshot a summary version captured, by its handle
-/// (from `get_versions` or a `summarize` resolution). The live document is
-/// unaffected — this is a point-in-time read of the stored blob.
+/// Read the snapshot that a summary version captured, by the handle of that
+/// version. `get_versions` and the resolution of `summarize` both give a
+/// handle. The function does not change the live document. It reads the stored
+/// blob at one point in time.
 pub fn load_version(
   runtime: Runtime,
   handle: String,
@@ -2003,10 +2062,10 @@ pub fn load_version(
 }
 
 @target(javascript)
-/// Stamp the summarize op referencing the uploaded snapshot tree and push it.
-/// Re-reads the live state so the op is built from the current core, keeping
-/// its client sequence number strictly increasing past any edits that landed
-/// during the async upload.
+/// Stamp the summarize op that references the uploaded snapshot tree, and push
+/// it. The function reads the live state again, so it builds the op from the
+/// current core. The client sequence number of that op thus stays above the
+/// number of every edit that arrived during the asynchronous upload.
 fn finish_summarize(
   cell: Cell(State),
   tree_sha: String,
@@ -2038,9 +2097,10 @@ fn finish_summarize(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// (Re)join succeeded: (re)send `connect_document`. On the initial join this
-/// starts the handshake; on a Phoenix auto-rejoin it re-handshakes with our
-/// last-seen SN so the server pushes just the delta.
+/// A join succeeded, so send `connect_document`. On the first join that message
+/// starts the handshake. On a rejoin that Phoenix performed by itself, it
+/// starts the handshake again, with the last sequence number that this client
+/// saw, so the server pushes the delta only.
 fn on_join(cell: Cell(State)) -> Nil {
   let state = cell_get(cell)
   case state.channel {
@@ -2143,10 +2203,11 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
 }
 
 @target(javascript)
-/// Fetch the summary blob referenced by `ctx`, then bootstrap the core seeded
-/// from it. Real-time ops that arrive during the async fetch are dropped while
-/// still `Connecting`, but the gap they create is self-healing: the first op
-/// after bootstrap that is non-contiguous triggers a `requestOps` catch-up.
+/// Fetch the summary blob that `ctx` references, and then bootstrap the core
+/// from it. The runtime drops a real-time op that arrives during the
+/// asynchronous fetch, while the phase is still `Connecting`. The gap that those
+/// drops create repairs itself: the first op after the bootstrap that is not
+/// contiguous starts a `requestOps` catch-up.
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
@@ -2184,7 +2245,7 @@ fn load_summary_then_bootstrap(
 }
 
 @target(javascript)
-/// Bootstrap the core (optionally seeded from a summary) and fire `on_ready`.
+/// Bootstrap the core, from a summary if one exists, and then run `on_ready`.
 fn finish_bootstrap(
   cell: Cell(State),
   connected: ConnectedMessage,
@@ -2197,10 +2258,11 @@ fn finish_bootstrap(
 }
 
 @target(javascript)
-/// Complete a bootstrap step: ready the document, or page the missing history
-/// prefix from the deltas REST endpoint (async, possibly several rounds) and
-/// resume. Bootstrap must not complete on a gapped history, so any failure
-/// here drives the cell to `Failed`.
+/// Complete one bootstrap step. The function makes the document ready, or it
+/// reads the missing prefix of the history from the deltas REST endpoint and
+/// continues. That read is asynchronous, and it can need several rounds. A
+/// bootstrap must not complete on a history with a gap, so every failure here
+/// moves the cell to `Failed`.
 fn continue_bootstrap(
   cell: Cell(State),
   bootstrapped: runtime_core.Bootstrapped,
@@ -2719,9 +2781,11 @@ fn push_json(channel: TransportHandle, event: String, payload: Json) -> Nil {
 }
 
 @target(javascript)
-/// Derive the HTTP(S) base URL for git-storage calls from the Phoenix socket
-/// URL, e.g. `ws://localhost:4000/socket/websocket?vsn=2.0.0` →
-/// `http://localhost:4000`. `wss` maps to `https`; everything else to `http`.
+/// Derive the base HTTP or HTTPS URL for the git-storage calls, from the
+/// Phoenix socket URL. For example,
+/// `ws://localhost:4000/socket/websocket?vsn=2.0.0` gives
+/// `http://localhost:4000`. A `wss` scheme gives `https`, and every other
+/// scheme gives `http`.
 fn http_base_from_socket_url(url: String) -> String {
   case uri.parse(url) {
     Ok(parsed) -> {
@@ -2741,12 +2805,13 @@ fn http_base_from_socket_url(url: String) -> String {
 }
 
 @target(javascript)
-/// Route each address-tagged event to the subscribers registered for that
-/// channel address.
+/// Route each event to the subscribers that registered for the channel address
+/// on that event.
 ///
-/// Contract: callers must commit the updated core to the cell before fanning
-/// out, so a handler that reads the map during the event observes the
-/// just-applied state (local edits, remote ops, and reconnects alike).
+/// The contract for a caller: write the new core into the cell before this
+/// fan-out. A handler that reads the map during the event thus sees the state
+/// that the runtime applied. That rule holds for a local edit, a remote op, and
+/// a reconnect.
 fn fan_out(
   subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
   events: List(#(String, ChannelEvent)),
@@ -2763,9 +2828,10 @@ fn fan_out(
 }
 
 @target(javascript)
-/// Fan an inbound ephemeral `signal` broadcast out to ripple subscribers.
-/// (The wire event is Fluid's `"signal"`; we surface it as a *ripple*.)
-/// Malformed payloads are dropped silently — ripples are best-effort.
+/// Send an inbound ephemeral `signal` broadcast to the ripple subscribers. The
+/// wire event is the `"signal"` event of Fluid, and watershed calls it a
+/// *ripple*. The function drops a malformed payload and reports nothing,
+/// because a ripple is best-effort.
 fn on_ripple(cell: Cell(State), payload: Dynamic) -> Nil {
   case decode.run(payload, socket.ripple_message_decoder()) {
     Error(_) -> Nil
@@ -2783,8 +2849,8 @@ fn notify_presence(cell: Cell(State), frame: PresenceFrame) -> Nil {
 }
 
 @target(javascript)
-/// Announce a settled handshake, carrying the id and capability a driver needs
-/// to (re)join.
+/// Announce a handshake that settled. The message carries the id and the
+/// capability that a driver needs to join.
 fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
   notify_presence(
@@ -2800,9 +2866,10 @@ fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
 }
 
 @target(javascript)
-/// Announce that a live session ended, but only when one was live: a socket
-/// that never reached `Ready`, or one already known to be down, has no presence
-/// to lose and must not report losing it twice.
+/// Announce that a live session ended, and only when one was live. A socket
+/// that never reached `Ready`, and a socket that the runtime already knows is
+/// closed, both hold no presence. The runtime must not report a lost presence
+/// two times.
 fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
   case previous {
     Ready(_, _) -> notify_presence(cell, PresenceSessionLost)
@@ -2819,7 +2886,7 @@ fn fail(cell: Cell(State), reason: String) -> Nil {
 }
 
 @target(javascript)
-/// Fire the one-shot `on_ready` callback exactly once.
+/// Run the `on_ready` callback exactly one time.
 fn fire_ready(cell: Cell(State), result: Result(Nil, String)) -> Nil {
   let state = cell_get(cell)
   case state.ready_fired {
