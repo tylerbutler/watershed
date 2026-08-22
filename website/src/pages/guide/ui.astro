@@ -96,22 +96,22 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
 
 <GuideLayout
   slug="ui"
-  description="Step five of the watershed build guide: watershed_lustre provides Lustre effects for connections, ensure_* initialization, channel subscriptions, and presence."
+  description="Step five of the watershed build guide: watershed_lustre binds the browser facade to Lustre as effects (connect, ensure_* bootstrap, per-channel subscriptions, and presence) so an app declares its sync wiring instead of hand-bridging callbacks into dispatch."
 >
   <div class="g-block">
     <h2>Declare the wiring, don’t hand-bridge it</h2>
     <p>
-      watershed’s browser facade uses callbacks such as <code>on_ready</code>,
-      subscription handlers, and presence <code>on_change</code>. A manual
-      Lustre integration must dispatch a message from each callback. Dispatching
-      inside <code>update</code> can overwrite the model returned by that update,
-      so each callback would need deferral.
+      watershed’s browser facade speaks in callbacks: <code>on_ready</code>,
+      <code>subscribe</code> handlers, presence <code>on_change</code>. Wired
+      into Lustre by hand, each of those has to <code>dispatch</code> a message.
+      Dispatching from inside <code>update</code> clobbers the very model you’re
+      returning, so you end up deferring every callback to dodge it.
     </p>
     <p>
       <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
-      <code>watershed_lustre</code></a> provides this integration. Each facade
-      function becomes a Lustre <code>Effect</code> that dispatches a message
-      selected by the application.
+      <code>watershed_lustre</code></a> does that once, correctly. Every piece of
+      the facade becomes a Lustre <code>Effect</code> that dispatches a message
+      you name, so your app <em>declares</em> its sync instead of gluing it.
     </p>
   </div>
 
@@ -119,7 +119,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <h2>Connect as an effect</h2>
     <p>
       <code>connect</code> becomes an effect that dispatches two messages: the
-      <code>Document</code> handle when it is created, and the ready
+      <code>Document</code> handle when it’s created, and the ready
       <code>Result</code> when the handshake completes. You return it from
       <code>init</code> and handle the messages in <code>update</code>.
     </p>
@@ -134,9 +134,9 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
       The <code>ensure_*</code> calls from step 02 are the same here, batched as
       effects. Each channel ensure dispatches its handle back; in
       <code>update</code> you store the handle, take an initial snapshot, and
-      subscribe to the channel. Take the snapshot before subscribing.
-      Subscriptions report later changes and do not replay existing state.
-      Without the snapshot, the user interface starts empty.
+      subscribe to the channel. The snapshot is not optional: subscriptions
+      fire only on subsequent change and never replay existing state, so
+      without it the UI boots empty.
       An optimistic local edit dispatches <code>SharedChanged</code> at once. A
       remote edit dispatches the same message when it reaches your replica.
       Both re-snapshot the shared state through one render path.
@@ -154,20 +154,21 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   <div class="g-block">
     <h2>Presence, wired</h2>
     <p>
-      The presence driver from step 04 is also one effect. Give it the
-      payload encoder and decoder. It manages the heartbeat and TTL and calls
+      The presence driver from the last step is a single effect too. Give it your
+      encode/decode for the payload; it owns the heartbeat and TTL, and fires
       <code>on_peers</code> with the sorted roster whenever the visible peer set
-      changes. Always render the markers from that roster.
+      changes. Render the markers unconditionally from that roster.
     </p>
     <figure class="g-code">
       <Code code={presence} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>View an application.</strong> The <a href="/sudoku">collaborative
-        Sudoku demo</a> uses <code>watershed_lustre</code> for connection, typed
-        bootstrap, per-channel subscriptions, and live presence cursors. Its
-        source is the reference implementation for this step.
+        <strong>See it running.</strong> The <a href="/sudoku">collaborative
+        Sudoku demo</a> is a full <code>watershed_lustre</code> app: connect,
+        typed bootstrap, per-channel subscriptions, and live presence cursors,
+        built on exactly this wiring. Its source is the reference implementation
+        for this step.
       </p>
     </div>
     <div class="g-note">
@@ -185,16 +186,15 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
   <div class="g-block">
     <h2>Complete working project</h2>
     <p>
-      The snippets above isolate each lifecycle step. The following files are
-      required to run Flowboard. The guide reads them from the example source,
-      so the displayed and compiled source stay consistent.
+      The snippets above isolate each lifecycle step. These are all the files
+      required to run Flowboard. The guide reads them straight from the example source, so the displayed source and the compiled source cannot drift.
     </p>
     <p>
       Put the files in the structure below, start a floodgate development server on
       port <code>4000</code>, then run <code>pnpm install</code>,
       <code>pnpm build</code>, and <code>pnpm serve</code>. Open
       <code>http://localhost:8080</code> in two tabs to see local edits render
-      at once and remote edits arrive through the same subscriptions.
+      immediately and remote edits arrive through the same subscriptions.
     </p>
     <figure class="g-code">
       <Code
@@ -216,7 +216,7 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
       watershed is not published to Hex yet. The two <code>path</code>
       dependencies below resolve because this example is in
       <code>examples/</code> inside a watershed checkout. In your own project,
-      add both as Git dependencies at a specific commit. The{" "}
+      take both as git dependencies pinned to a commit instead; the{" "}
       <a href="https://github.com/tylerbutler/watershed#install">README</a>{" "}
       gives the exact lines.
     </p>
@@ -261,8 +261,8 @@ fn presence_effect(model: Model, doc: Document(doc_schema.Board)) -> Effect(Msg)
     <span class="annot">You can now</span>
     <p>
       Wire a whole document into a Lustre SPA as a handful of declared effects:
-      connection, typed initialization, subscriptions, and presence. These
-      effects prevent dispatch calls during <code>update</code>.
+      connection, typed bootstrap, subscriptions, and presence, with none of
+      the mid-<code>update</code> dispatch hazards of bridging callbacks by hand.
     </p>
   </div>
 </GuideLayout>

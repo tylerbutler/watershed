@@ -319,7 +319,7 @@ function describeOp(ddsId, op) {
   if (ddsId === "ormap") {
     if (op instanceof orMapKernel.Increment) {
       return op.amount === 0
-        ? `reopen ${op.key}`
+        ? `re-open ${op.key}`
         : `log ${signed(op.amount)} yd³ → ${op.key}`;
     }
     if (op instanceof orMapKernel.Remove) return `strike ${op.key}`;
@@ -556,7 +556,7 @@ export function initDemo() {
       const row = client.el.querySelector(`tr[data-key="${key}"]`);
       const value = readInt(mapKernel.get(client.map, key));
       row.querySelector("[data-value]").textContent =
-        value === null ? "None" : String(value);
+        value === null ? "—" : String(value);
       row.classList.toggle("pending", pending.has(key));
       const minus = row.querySelector('button[data-step="-1"]');
       if (minus) minus.disabled = value !== null && value <= 0;
@@ -658,7 +658,7 @@ export function initDemo() {
       row.querySelector("[data-ormap-note]").textContent = pending.has(key)
         ? "unsequenced delta"
         : struck
-          ? "stored, not visible"
+          ? "hidden, not erased"
           : "";
     }
   }
@@ -687,10 +687,10 @@ export function initDemo() {
         ? "marked"
         : "clear";
       row.querySelector("[data-orset-note]").textContent = pending.has(element)
-        ? "tag not sequenced"
+        ? "unsequenced tag"
         : present
-          ? "client has live tag"
-          : "no live tag";
+          ? "live tag observed"
+          : "no live tags";
     }
   }
 
@@ -718,10 +718,10 @@ export function initDemo() {
         ? "recorded"
         : "unrecorded";
       row.querySelector("[data-gset-note]").textContent = pending.has(element)
-        ? "waiting for sequence number"
+        ? "unsequenced permanent fact"
         : recorded
-          ? "in registry"
-          : "not observed";
+          ? "in the registry"
+          : "not yet observed";
       row.querySelector("[data-gset-add]").disabled =
         recorded || pending.has(element);
     }
@@ -775,11 +775,11 @@ export function initDemo() {
       row.querySelector("[data-twopset-add]").disabled =
         active || pending.has(element);
       row.querySelector("[data-twopset-add]").textContent = retired
-        ? "Place again"
+        ? "Try place"
         : "Place";
       row.querySelector("[data-twopset-add]").setAttribute(
         "aria-label",
-        `${retired ? "Place retired marker again" : "Place marker"} ${element} on ${client.id.toUpperCase()}`,
+        `${retired ? "Try to re-place retired marker" : "Place marker"} ${element} on ${client.id.toUpperCase()}`,
       );
       row.querySelector("[data-twopset-remove]").disabled =
         retired || pendingKind === "retire";
@@ -793,12 +793,12 @@ export function initDemo() {
       const filed = gdict.has_key(client.claims.pending, key);
       // Non-optimistic by design: a filed claim never prints as the holder —
       // the row shows "—" in ink until the claim round-trips as won or lost.
-      row.querySelector("[data-holder]").textContent = holder ?? "None";
+      row.querySelector("[data-holder]").textContent = holder ?? "—";
       row.classList.toggle("filed", filed);
       row.querySelector("[data-claim-note]").textContent = filed
-        ? "claim submitted · result pending"
+        ? "claim filed · outcome unknown"
         : (claimNotes[client.id][key] ??
-          (holder === CLAIMANTS[client.id] ? "held by this client" : ""));
+          (holder === CLAIMANTS[client.id] ? "yours" : ""));
       row.querySelector("[data-claim]").disabled = filed;
     }
   }
@@ -822,11 +822,11 @@ export function initDemo() {
       );
       const versions = registerVersions(client.registers, key);
       const filed = registerPending[client.id].has(key);
-      row.querySelector("[data-register-atomic]").textContent = atomic ?? "None";
-      row.querySelector("[data-register-lww]").textContent = lww ?? "None";
+      row.querySelector("[data-register-atomic]").textContent = atomic ?? "—";
+      row.querySelector("[data-register-lww]").textContent = lww ?? "—";
       row.classList.toggle("filed", filed);
       row.querySelector("[data-register-note]").textContent = filed
-        ? "revision submitted · atomic result pending"
+        ? "revision filed · atomic outcome unknown"
         : (registerNotes[client.id][key] ?? "");
       row.querySelector("[data-register-versions]").textContent =
         versions.length > 1 ? `${versions.length} concurrent versions` : "";
@@ -873,10 +873,10 @@ export function initDemo() {
       jobs.length === 0
         ? "none"
         : jobs
-            .map((job) => `${job.value} · ${CLIENT_NAMES[job.owner] ?? "this client"}`)
+            .map((job) => `${job.value} · ${CLIENT_NAMES[job.owner] ?? "local"}`)
             .join(", ");
     queueRow.querySelector("[data-ordered-note]").textContent = filed
-      ? "operation submitted · waiting for SN"
+      ? "op filed · waiting for SN"
       : orderedNotes[client.id];
     queueRow.querySelector("[data-ordered-add]").disabled = filed;
     queueRow.querySelector("[data-ordered-acquire]").disabled = filed;
@@ -923,19 +923,15 @@ export function initDemo() {
       );
       row.classList.toggle("filed", pending.has(task));
       row.querySelector("[data-task-assignee]").textContent =
-        assignee === null ? "None" : CLIENT_NAMES[assignee];
+        assignee === null ? "—" : CLIENT_NAMES[assignee];
       row.querySelector("[data-task-waiters]").textContent =
         waiters.length === 0
           ? "empty"
           : waiters.map((id) => CLIENT_NAMES[id]).join(" → ");
       row.querySelector("[data-task-note]").textContent = pending.has(task)
-        ? (taskNotes[client.id][task] ?? "operation submitted · waiting for SN")
+        ? (taskNotes[client.id][task] ?? "op filed · waiting for SN")
         : taskNotes[client.id][task] ??
-          (assignedHere
-            ? "assigned to this client"
-            : queuedHere
-              ? "in task queue"
-              : "");
+          (assignedHere ? "yours" : queuedHere ? "waiting" : "");
       row.querySelector("[data-task-volunteer]").disabled =
         pending.has(task) || queuedHere;
       row.querySelector("[data-task-abandon]").disabled =
@@ -978,14 +974,14 @@ export function initDemo() {
       const filed = pactPending[client.id].has(key);
       row.classList.toggle("filed", filed || pending !== null);
       row.querySelector("[data-pact-accepted]").textContent =
-        accepted?.value ?? "None";
-      row.querySelector("[data-pact-pending]").textContent = pending ?? "None";
+        accepted?.value ?? "—";
+      row.querySelector("[data-pact-pending]").textContent = pending ?? "—";
       row.querySelector("[data-pact-signoffs]").textContent =
         signoffs.length > 0
-          ? `needs signoff from ${signoffs.map((id) => CLIENT_NAMES[id]).join(" + ")}`
+          ? `awaiting ${signoffs.map((id) => CLIENT_NAMES[id]).join(" + ")}`
           : "";
       row.querySelector("[data-pact-note]").textContent = filed
-        ? (pactNotes[client.id][key] ?? "proposal submitted")
+        ? (pactNotes[client.id][key] ?? "proposal filed")
         : (pactNotes[client.id][key] ?? "");
       row.querySelector("[data-pact-set]").disabled =
         filed || pending !== null;
@@ -1084,17 +1080,17 @@ export function initDemo() {
     const pending = pendingTotal();
     const inFlight = sequencer.inFlight;
     if (!linkUp) {
-      statusEl.innerHTML = `<span class="stamp revising">Disconnected</span> Client B · ${heldSubmits.length} operations to resubmit · ${heldHops.length} deliveries to receive`;
+      statusEl.innerHTML = `<span class="stamp revising">Link cut</span> Client B off the wire · ${heldSubmits.length} to resubmit · ${heldHops.length} to catch up`;
       return;
     }
     if (inFlight === 0 && pending === 0) {
       const signatures = Object.values(clients).map(replicaSignature);
       const same = signatures.every((sig) => sig === signatures[0]);
       statusEl.innerHTML = same
-        ? `<span class="stamp converged">Converged</span> replicas match · no pending operations`
-        : `<span class="stamp revising">Diverged</span> replicas do not match · file a bug`;
+        ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
+        : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
     } else {
-      statusEl.innerHTML = `<span class="stamp revising">Revising</span> ${inFlight} operation${inFlight === 1 ? "" : "s"} in flight · ${pending} pending`;
+      statusEl.innerHTML = `<span class="stamp revising">Revising</span> ${inFlight} op${inFlight === 1 ? "" : "s"} in flight · ${pending} pending`;
     }
   }
 
@@ -1197,7 +1193,7 @@ export function initDemo() {
   function logRejected(stampedSn, key) {
     const li = document.createElement("li");
     li.className = "rejected";
-    li.textContent = `#${String(stampedSn).padStart(2, "0")} rejected · ${key} held · first writer wins`;
+    li.textContent = `#${String(stampedSn).padStart(2, "0")} rejected — ${key} held · first writer wins`;
     opLog.push(li);
   }
 
@@ -1306,7 +1302,7 @@ export function initDemo() {
           if (outcome instanceof claimsKernel.Lost) {
             const holder = readClaimant(outcome.current_value);
             claimNotes[target.id][op.key] = holder
-              ? `claim lost · ${holder} holds it`
+              ? `lost — ${holder} holds it`
               : "lost";
             logRejected(seq, op.key);
           }
@@ -1326,7 +1322,7 @@ export function initDemo() {
         registerPending[target.id].delete(op.key);
         registerNotes[target.id][op.key] = isWinner
           ? "atomic winner"
-          : "atomic write lost · version retained";
+          : "atomic lost · version retained";
       } else {
         const [next] = registerKernel.apply_remote(target.registers, op, seq);
         target.registers = next;
@@ -1348,7 +1344,7 @@ export function initDemo() {
         } else if (op instanceof orderedKernel.Complete) {
           orderedNotes[target.id] = "completed";
         } else if (op instanceof orderedKernel.Release) {
-          orderedNotes[target.id] = "released to queue end";
+          orderedNotes[target.id] = "released to back";
         } else {
           orderedNotes[target.id] = "queued";
         }
@@ -1412,12 +1408,12 @@ export function initDemo() {
           pactNotes[target.id][op.key] =
             pactPendingValue(target.pact, op.key) ===
             readOptionalJsonString(op.value)
-              ? "waiting for quorum"
-              : "proposal removed";
+              ? "pending quorum"
+              : "proposal dropped";
         }
         if (reaction instanceof pactKernel.OweAccept) {
           pactPending[target.id].add(op.key);
-          pactNotes[target.id][op.key] = "signoff required";
+          pactNotes[target.id][op.key] = "signoff owed";
           submit(target.id, "pact", reaction.op);
         }
       } else {
@@ -1432,7 +1428,7 @@ export function initDemo() {
           target.pact = next;
           if (target.id === originId) {
             pactPending[target.id].delete(op.key);
-            pactNotes[target.id][op.key] = "signoff complete";
+            pactNotes[target.id][op.key] = "signed off";
           }
         } else {
           console.error("unexpected pact accept", result[0]);
@@ -1678,10 +1674,10 @@ export function initDemo() {
     if (result[0] instanceof claimsKernel.AlreadyClaimed) {
       // Write-once: the kernel refuses a claim on a committed slot locally
       // and synchronously — no op travels, no SN is spent.
-      claimNotes[clientId][key] = "already claimed · no operation sent";
+      claimNotes[clientId][key] = "already claimed — nothing sent";
       render(client);
       setTimeout(() => {
-        if (claimNotes[clientId][key] === "already claimed · no operation sent") {
+        if (claimNotes[clientId][key] === "already claimed — nothing sent") {
           delete claimNotes[clientId][key];
           render(client);
         }
@@ -1704,7 +1700,7 @@ export function initDemo() {
       client.lastSeq,
     );
     registerPending[clientId].add(key);
-    registerNotes[clientId][key] = "revision submitted";
+    registerNotes[clientId][key] = "revision filed";
     // Non-optimistic: the atomic/LWW values move only when sequenced (ink).
     fieldNotes.trackChange("registers", client.el, true, () => render(client));
     submit(clientId, "registers", op);
@@ -1716,7 +1712,7 @@ export function initDemo() {
     orderedAddSerial += 1;
     const op = orderedKernel.add(client.ordered, json.string(value));
     orderedPending[clientId].add(describeOrderedPending(op));
-    orderedNotes[clientId] = "add submitted";
+    orderedNotes[clientId] = "add filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
@@ -1726,7 +1722,7 @@ export function initDemo() {
     orderedAcquireSerial += 1;
     const op = orderedKernel.acquire(`${clientId}${orderedAcquireSerial}`);
     orderedPending[clientId].add(describeOrderedPending(op));
-    orderedNotes[clientId] = "acquire submitted";
+    orderedNotes[clientId] = "acquire filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
@@ -1737,7 +1733,7 @@ export function initDemo() {
     if (!job) return;
     const op = orderedKernel.complete(job.id);
     orderedPending[clientId].add(describeOrderedPending(op));
-    orderedNotes[clientId] = "completion submitted";
+    orderedNotes[clientId] = "complete filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
@@ -1748,7 +1744,7 @@ export function initDemo() {
     if (!job) return;
     const op = orderedKernel.release(job.id);
     orderedPending[clientId].add(describeOrderedPending(op));
-    orderedNotes[clientId] = "release submitted";
+    orderedNotes[clientId] = "release filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
     submit(clientId, "ordered", op);
   }
@@ -1765,8 +1761,8 @@ export function initDemo() {
     client.taskmanager = next;
     taskNotes[clientId][taskId] =
       outcome instanceof taskManagerKernel.AssignedNow
-        ? "assigned locally · submitting"
-        : "volunteer submitted";
+        ? "assigned locally · filing"
+        : "volunteer filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     if (maybeOp instanceof Some) {
       submit(clientId, "tasks", { op: maybeOp[0], messageId });
@@ -1783,7 +1779,7 @@ export function initDemo() {
       messageId,
     );
     client.taskmanager = next;
-    taskNotes[clientId][taskId] = "abandon submitted";
+    taskNotes[clientId][taskId] = "abandon filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     if (maybeOp instanceof Some) {
       submit(clientId, "tasks", { op: maybeOp[0], messageId });
@@ -1806,7 +1802,7 @@ export function initDemo() {
     }
     const [next, op] = result[0];
     client.taskmanager = next;
-    taskNotes[clientId][taskId] = "completion submitted";
+    taskNotes[clientId][taskId] = "complete filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
     submit(clientId, "tasks", { op, messageId });
   }
@@ -1820,12 +1816,12 @@ export function initDemo() {
       client.lastSeq,
     );
     if (!(op instanceof Some)) {
-      pactNotes[clientId][key] = "pending pact blocks another proposal";
+      pactNotes[clientId][key] = "pending pact blocks new proposal";
       render(client);
       return;
     }
     pactPending[clientId].add(key);
-    pactNotes[clientId][key] = "proposal submitted";
+    pactNotes[clientId][key] = "proposal filed";
     // Non-optimistic: pending/accepted print only when sequenced (ink).
     fieldNotes.trackChange("pact", client.el, true, () => render(client));
     submit(clientId, "pact", op[0]);
@@ -1835,12 +1831,12 @@ export function initDemo() {
     const client = clients[clientId];
     const op = pactKernel.delete$(client.pact, key, client.lastSeq);
     if (!(op instanceof Some)) {
-      pactNotes[clientId][key] = "no accepted value to delete";
+      pactNotes[clientId][key] = "nothing accepted to delete";
       render(client);
       return;
     }
     pactPending[clientId].add(key);
-    pactNotes[clientId][key] = "deletion submitted";
+    pactNotes[clientId][key] = "delete filed";
     // Non-optimistic: pending/accepted print only when sequenced (ink).
     fieldNotes.trackChange("pact", client.el, true, () => render(client));
     submit(clientId, "pact", op[0]);
@@ -1961,7 +1957,7 @@ export function initDemo() {
     const { op, sn: originalSn } = last;
     const li = document.createElement("li");
     li.className = "replay";
-    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · no change`;
+    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
     opLog.push(li);
     if (fieldNotes.active && ddsId === activeDds && FIELD_FLASH.has(ddsId)) {
       fieldNotes.flashLog();
@@ -2170,34 +2166,34 @@ export function initDemo() {
   }
 
   const RACE_LABELS = {
-    map: "Submit concurrent writes",
-    counter: "Submit concurrent increments",
-    gcounter: "Submit concurrent inspections",
-    pn: "Submit fill and cut concurrently",
-    ormap: "Submit a strike and a delivery at the same time",
-    orset: "Submit a clear and a mark at the same time",
-    gset: "Submit two permanent marks",
-    twopset: "Submit retirement and placement at the same time",
-    claims: "Submit two claims for one slot",
-    registers: "Submit two revisions for one register",
-    ordered: "Submit two acquires for one task",
-    tasks: "Submit two volunteers for one task",
-    pact: "Submit two pact proposals",
+    map: "Race a concurrent write",
+    counter: "Race concurrent increments",
+    gcounter: "Race grow-only inspections",
+    pn: "Race fill against cut",
+    ormap: "Race a strike against a delivery",
+    orset: "Race clear against re-mark",
+    gset: "Race two permanent marks",
+    twopset: "Race retire against re-place",
+    claims: "Race two claims for one slot",
+    registers: "Race two revisions for one register",
+    ordered: "Race two acquires for one queued task",
+    tasks: "Race two volunteers for one task",
+    pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
-    map: "Reset all gauges to their initial values",
-    counter: "Reset the counter to its initial value",
-    gcounter: "Reset the inspection counter to its initial value",
-    pn: "Reset the earthwork balance to its initial value",
-    ormap: "Reset the stockpile ledger to its initial state",
-    orset: "Reset the marker roster to its initial state",
-    gset: "Reset the benchmark registry to its initial state",
-    twopset: "Reset the retired marker ledger to its initial state",
-    claims: "Reset all claim replicas from the initial summary",
-    registers: "Reset all register collections from the initial summary",
-    ordered: "Reset all ordered collections from the initial summary",
-    tasks: "Reset all task managers from the initial summary",
-    pact: "Reset all pact maps from the initial summary",
+    map: "Reset all gauges to their surveyed baseline values",
+    counter: "Reset the counter to its surveyed baseline value",
+    gcounter: "Ensure the inspection counter is at least its surveyed baseline",
+    pn: "Reset the earthwork balance to its surveyed baseline",
+    ormap: "Reset the stockpile ledger to its surveyed baseline",
+    orset: "Reset the marker roster to its surveyed baseline",
+    gset: "Ensure the permanent benchmark registry includes its surveyed baseline",
+    twopset: "Reload the retired marker ledger from the surveyed tombstone baseline",
+    claims: "Tear off a fresh claim sheet, reloading all replicas from the baseline summary",
+    registers: "Reload all register collections from the surveyed baseline summary",
+    ordered: "Reload all ordered collections from the queued-task baseline summary",
+    tasks: "Reload all task managers from the crew baseline summary",
+    pact: "Reload all pact maps from the accepted datum baseline summary",
   };
 
   function applyActiveView() {
@@ -2486,7 +2482,7 @@ export function initDemo() {
       const li = document.createElement("li");
       li.className = "replay";
       if (!linkUp) {
-        li.textContent = "Client B disconnected from the sequencer";
+        li.textContent = "link cut — Client B off the wire";
       } else {
         // Reconnect discipline: deliver the sequenced ops B missed first,
         // then resubmit what B authored offline — the runtime's own order.
@@ -2494,7 +2490,7 @@ export function initDemo() {
         for (const hop of hops) hop();
         const subs = heldSubmits.splice(0);
         for (const sub of subs) sub();
-        li.textContent = `Client B reconnected · received ${hops.length} deliveries · resubmitted ${subs.length} operations`;
+        li.textContent = `link restored — caught up ${hops.length}, resubmitted ${subs.length}`;
       }
       opLog.push(li);
       renderStatus();

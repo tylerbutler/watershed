@@ -5,8 +5,8 @@ import Ecosystem from "../components/Ecosystem.astro";
 ---
 
 <Sheet
-  title="watershed: SharedDirectory demo"
-  description="Three browser clients edit one shared folder tree through watershed's compiled directory_kernel. The demo shows recursive key-value storage, edits before confirmation, server-sequenced convergence, and concurrent folder creation."
+  title="watershed — SharedDirectory demo"
+  description="Three browser clients edit one shared folder tree through watershed's compiled directory_kernel, modeled after Fluid Framework's SharedDirectory design. Recursive key/value storage per folder, optimistic edits, server-sequenced convergence, and concurrent same-name folder creation that merges into one node instead of duplicating."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
@@ -17,11 +17,11 @@ import Ecosystem from "../components/Ecosystem.astro";
       <p class="lede">
         <a href="/structures/maps">SharedMap</a> resolves a flat set of keys.
         <strong>SharedDirectory</strong> adds recursion. Each node contains a map
-        and named child folders. The design follows Fluid Framework's
-        SharedDirectory. Two clients can create a folder at the same path. A
-        client can also delete and recreate that folder. watershed’s
-        <code>directory_kernel</code> records hierarchical identity so that all
-        replicas identify the same folder instance.
+        and named child folders. The design follows Fluid Framework. Two clients
+        can create a folder at the same path. A client can then delete and
+        recreate that folder. All replicas must identify the same folder
+        instance. watershed’s <code>directory_kernel</code> records this
+        hierarchical identity.
       </p>
       <div class="cta-row">
         <a class="cta-quiet" href="#dir-demo">Jump to the demo ↓</a>

@@ -14,7 +14,7 @@ let config =
 
 <RuntimeLayout
   slug="presence"
-  description="Ripples send document-scoped, non-sequenced broadcasts. Presence uses server connection tracking or heartbeat timeouts to maintain a live session roster."
+  description="Watershed's ephemeral tier: ripples are document-scoped, non-sequenced broadcasts that never touch converged state, and presence turns them into a live roster of who is here, backed by the server's own connection tracking where the server offers it, and by a heartbeat and TTL where it does not."
 >
   <div class="g-block">
     <h2>Not everything belongs in the document</h2>
@@ -34,10 +34,10 @@ let config =
     <h2>Ripples: broadcast and forget</h2>
     <p>
       A <strong>ripple</strong> is a document-scoped, non-sequenced broadcast
-      delivered to each <em>other</em> connected client. The server does not
-      order or store ripples.
+      delivered to every <em>other</em> connected client and then gone. No
+      ordering, no storage, no convergence, deliberately.
       <code>submit_ripple</code> sends a type tag plus a JSON payload and returns
-      nothing because there is no state change or acknowledgment.
+      nothing, because there is no state to change and no ack to await;
       <code>subscribe_ripples</code> hands each inbound ripple to your handler
       with the sender's id attached. The{" "}
       <a href="/guide/ripples">build guide's ripples step</a> walks through the
@@ -46,8 +46,8 @@ let config =
     <p>
       Because a summary never contains a ripple, a client that{" "}
       <a href="/runtime/reconnect">reconnects</a> or joins late will not see the
-      ripples that it missed. Use this behavior for a cursor. Store a durable
-      reading in a channel.
+      ripples that it missed. This behavior is suitable for a cursor but not for
+      a durable reading.
     </p>
   </div>
 
@@ -62,13 +62,13 @@ let config =
       <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      A <strong>session</strong> is one tab, device, or process. A
+      A <strong>session</strong> is one tab, device, or process; a
       <strong>key</strong> groups the sessions of one authenticated person. Two
-      tabs from the same user are two entries that share a key. The roster uses
-      the session as its key, so the two tabs do not overwrite each other. Your handler receives a
+      tabs from the same user are two entries sharing a key: the roster is keyed
+      by session, so they never overwrite each other. Your handler receives a
       <code>State</code> that replaces the roster wholesale, or a
       <code>Changed</code> carrying both the delta and the resulting roster; both
-      provide a complete list. Render from either event type.
+      hand you a complete list, so render from whichever suits.
     </p>
   </div>
 
@@ -90,18 +90,19 @@ let config =
     <p>
       <code>Auto</code> chooses between them from what the server advertises in
       its handshake. <code>Ripple</code> forces the heartbeat.
-      <code>Server</code> reports <code>UnsupportedPresence</code> if server
-      presence is unavailable. A silent change of mode would
-      hide the cause of intermittent presence failures.
-      <code>presence_js.mode</code> reports the active mode because the two modes
-      have different failure timing.
+      <code>Server</code> refuses to fall back and reports
+      <code>UnsupportedPresence</code> instead: a silent downgrade would make
+      presence look intermittently broken with nothing to point at.
+      <code>presence_js.mode</code> reports which one is running, because the two
+      have genuinely different failure timing and hiding that makes it
+      undebuggable.
     </p>
     <div class="g-note">
       <p>
-        <strong>Use each channel for its intended traffic.</strong> Presence carries
-        membership and low-frequency status: which panel, which cell, and typing
-        status. High-frequency cursor motion still belongs on raw ripples: presence
-        tracks membership and status.
+        <strong>Send the right traffic down each tier.</strong> Presence carries
+        membership and low-frequency status: which panel, which cell, typing or
+        not. High-frequency cursor motion still belongs on raw ripples: presence
+        exists to answer "who is here", not to be a pipe.
       </p>
     </div>
   </div>
@@ -109,9 +110,10 @@ let config =
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      Ripples send temporary broadcasts without changing converged state.
-      Presence maintains a session roster through server connection tracking or
-      heartbeat timeouts. One API reports the active mode.
+      Ripples are throwaway broadcasts that never touch converged state; presence
+      turns them into a roster of who is here, backed by the server's own
+      connection tracking where that exists, and by a heartbeat and TTL where it
+      does not, behind one API that reports which it chose.
     </p>
   </div>
 </RuntimeLayout>

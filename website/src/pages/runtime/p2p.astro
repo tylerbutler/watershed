@@ -21,7 +21,7 @@ let config =
 
 <RuntimeLayout
   slug="p2p"
-  description="How a watershed CRDT document runs on a WebRTC mesh without a sequencer. Signaling introduces peers, CRDT structures merge changes, and an optional relay provides durable storage."
+  description="How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
 >
   <div class="g-block">
     <h2>A document that doesn't need a sequencer</h2>
@@ -46,11 +46,12 @@ let config =
       outage prevents new peer discovery but does not affect connected peers.
     </p>
     <p>
-      The full mesh supports up to eight peers. Every peer opens one data channel
-      to every other peer. The ninth arrival receives <code>RoomFull</code>.
-      This limit preserves the existing mesh. Applications supply their own STUN
-      and TURN servers. watershed does not provide these servers. Host candidates
-      connect only peers with no NAT between them.
+      The first topology is a small full mesh: every peer opens one data
+      channel to every other peer, capped at eight, and the ninth arrival is
+      refused with <code>RoomFull</code> rather than degrading the mesh
+      underneath everyone already in it. Applications supply their own STUN
+      and TURN servers (watershed ships neither); host candidates alone only
+      connect peers with no NAT between them.
     </p>
   </div>
 
@@ -64,26 +65,25 @@ let config =
       <a href="/structures/sets#gset">G-set</a>,
       <a href="/structures/sets#twopset">2P-set</a>,
       <a href="/structures/sequences#sequence">SharedSequence</a>, and
-      <a href="/structures/sequences#text">SharedText</a>. At
-      <code>config</code> time, choose one of these structures as the root of a
-      peer-to-peer document. The last-write-wins
-      <a href="/structures/maps">SharedMap</a> cannot be the root.
+      <a href="/structures/sequences#text">SharedText</a>. A p2p document's
+      root is one of these, chosen explicitly at <code>config</code> time,
+      never the ordinary last-write-wins <a href="/structures/maps">SharedMap</a>.
     </p>
     <p>
-      Structures that depend on server order or acknowledgment cannot run in
-      this mode:
+      Everything that depends on server order or acknowledgement stays out:
       <a href="/structures/maps">SharedMap</a>,
       <a href="/structures/counters">SharedCounter</a>, and
       <a href="/structures/maps#directory">SharedDirectory</a> resolve by
       sequence number; <a href="/structures/coordination#claims">claims</a>
-      and <a href="/structures/coordination#registers">registers</a> depend on a
-      sequence number; <a href="/structures/coordination#tasks">TaskManager</a>,
+      and <a href="/structures/coordination#registers">registers</a> persist
+      one; <a href="/structures/coordination#tasks">TaskManager</a>,
       <a href="/structures/coordination#pact">pact maps</a>, and{" "}
       <a href="/structures/coordination#ordered">ordered collections</a>{" "}
-      depend on ordered membership. The OT-transformed{" "}
+      depend on ordered membership; and the OT-transformed{" "}
       <a href="/structures/transforms">json_ot and rich-text</a> channels
-      transform against sequenced history. These structures do not have a merge
-      function that can replace the sequencer.
+      transform against sequenced history. None of these have a merge
+      function to fall back on, so none of them are safe with no sequencer in
+      the room.
     </p>
   </div>
 
@@ -98,21 +98,25 @@ let config =
     </figure>
     <p>
       <strong><code>Auto</code></strong> is the default: the mesh and any
-      configured relay connect independently. Readiness waits only for the mesh.
-      After the relay connects, it becomes the durable delta path.
-      <strong><code>P2pOnly</code></strong> opens no relay socket and ignores a
-      configured relay. <strong><code>SequencedOnly</code></strong> uses no
-      signaling or <code>RTCPeerConnection</code>. Readiness waits for the relay
-      within a fixed deadline. All three policies use the same document and wire
-      envelopes, so each policy can import a snapshot from another policy.
+      configured relay each come up on their own schedule, readiness waits
+      only for the mesh, and the relay becomes the durable delta path once it
+      proves itself. <strong><code>P2pOnly</code></strong>{" "}
+      opens no relay socket and ignores a configured one entirely.
+      <strong><code>SequencedOnly</code></strong> is the inverse: no
+      signaling, no <code>RTCPeerConnection</code>, and readiness waits on the
+      relay alone, under a bounded deadline, because there is nothing else to
+      wait on. All three run the identical document over the identical wire
+      envelopes, so a snapshot exported under one policy imports under
+      either of the others.
     </p>
     <div class="g-note">
       <p>
-        <strong>The document continues after a relay disconnects.</strong> When
-        the primary relay connection drops, the document reports the failover,
-        sends its pending digest to the mesh, requests peer state, and continues
-        over WebRTC. Public handles and converged state remain unchanged.
-        <code>Auto</code> readiness does not depend on the relay.
+        <strong>Losing the relay doesn't lose the document.</strong> When a
+        primary relay connection drops, the document reports the failover,
+        pushes the digest it owed the mesh, asks its peers for state, and
+        keeps running on WebRTC: same public handles, same converged state,
+        one transport quietly retired. Readiness under
+        <code>Auto</code> never waited on the relay in the first place.
       </p>
     </div>
   </div>
@@ -131,10 +135,11 @@ let config =
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      A CRDT document uses merge rules instead of server order. It can run on a
-      WebRTC mesh without a sequencer. Signaling introduces peers, eligible
-      structures merge changes, and an optional relay provides durability and
-      wider access without changing document semantics.
+      A CRDT document trades the server's order for a merge rule, so it can
+      run on a WebRTC mesh with no sequencer at all. Signaling only
+      introduces peers; eligible structures converge by merge; and an
+      optional relay attaches later purely for durability and reach, never
+      changing what the document means.
     </p>
   </div>
 </RuntimeLayout>

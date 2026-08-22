@@ -13,23 +13,23 @@ const panes = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="text-element-demo-title">All of that, as one tag</h2>
     <p>
-      The <code>&lt;watershed-textarea&gt;</code> component provides the
-      behavior from the demo above. watershed compiles the editor from Gleam
-      and registers it as a custom element. These two panes use that element
-      with two documents, one shared <code>SharedText</code>, and the same
-      in-memory sluice. This page contains no editor implementation. Set the
-      channel through <code>el.channel&nbsp;=&nbsp;text</code>. The element
-      emits edits, errors, and the local cursor as DOM events. The page passes
-      each remote cursor back to the other element as data.
+      Everything the rig above does by hand ships as a
+      component: <code>&lt;watershed-textarea&gt;</code>, the <code>watershed_lustre</code> editor
+      compiled from Gleam and registered as a custom element. These two panes
+      are that element: two documents, one shared <code>SharedText</code>,
+      the same in-memory sluice, and this page contributes <em>no editor code at all</em>.
+      The channel goes in as one property (<code>el.channel&nbsp;=&nbsp;text</code>);
+      edits, errors, and this user’s cursor come back out as DOM events; the
+      other pane’s cursor goes back in as data.
     </p>
     <p class="demo-hint">
-      The component converts each keystroke into one minimal grapheme operation.
-      A peer edit does not move your caret to an unrelated position. An IME
-      composition remains valid during remote keystrokes.
-      <strong>Select a few words in one pane.</strong> The other pane shows a
-      named highlight. Type before the selection to see the highlight remain
-      attached to the selected words. Content-bound anchors provide this
-      behavior and keep the local caret in place.
+      The component owns what the naïve bridge gets wrong: each keystroke is
+      diffed into one minimal grapheme op, a peer’s edit can’t teleport your
+      caret, and an IME composition survives remote
+      keystrokes. <strong>Select a few words in one pane</strong> and a named
+      highlight appears in the other, then type before them and watch it stay
+      glued to those words. It travels as content-bound anchors, not offsets,
+      which is the same machinery that keeps your own caret in place.
     </p>
   </div>
 
@@ -51,23 +51,24 @@ const panes = [
   </div>
 
   <p class="controls-hint">
-    This demo passes cursors between panes through a property assignment. In an
-    application, send the <code>cursor</code> event payload through the presence
-    channel without changes.
+    Cursors here hop panes through a property assignment; in an app
+    the <code>cursor</code> event’s payload rides your presence channel
+    unchanged.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      Enable JavaScript for the live demo. The browser runs the production
-      watershed runtime and compiled editor component. The rest of the page
-      works without JavaScript.
+      The live demo needs JavaScript: it runs the production watershed runtime and
+      the compiled editor component in your browser. The rest of the page works
+      fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-text-element-fallback hidden>
-    The live demo could not start because the browser did not load the compiled
-    <code>&lt;watershed-textarea&gt;</code> component and in-memory
-    <code>sluice</code>. The rest of the page works without the demo.
+    The live demo couldn’t start: it runs the compiled
+    <code>&lt;watershed-textarea&gt;</code> component against the in-memory
+    <code>sluice</code>, and this browser didn’t load it. The rest of the page
+    works fine without it.
   </p>
 </section>
 

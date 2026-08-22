@@ -5,7 +5,7 @@ import { steps } from "../../data/guide";
 ---
 
 <Sheet
-  title="watershed: build guide"
+  title="watershed — build guide"
   description="A six-step guide to building a multiplayer app with watershed. Connect a document, define a typed schema, select data structures, add temporary signals, connect a Lustre UI, and test convergence."
 >
   <header class="gi-hero">
@@ -38,9 +38,9 @@ import { steps } from "../../data/guide";
             WIP-limit breaches. Each step adds one function to the same codebase.
           </p>
           <p class="gi-prereq">
-            Install the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}
-            and run a <a href="https://floodgate.tylerbutler.com">floodgate</a>
-            server. The last step tests convergence without a server. Step 05
+            You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}
+            and a <a href="https://floodgate.tylerbutler.com">floodgate</a> server,
+            but the last step tests convergence without a server. Step 05
             includes all files for a runnable Flowboard project. The earlier
             steps explain these files.
           </p>
@@ -51,7 +51,7 @@ import { steps } from "../../data/guide";
             <li><span class="gi-key">title</span><span class="gi-typ">String field</span></li>
             <li><span class="gi-key">cards</span><span class="gi-typ">SharedMap → column per card</span></li>
             <li><span class="gi-key">wip_breaches</span><span class="gi-typ">SharedCounter → limit-breach tally</span></li>
-            <li class="gi-doc-eph"><span class="gi-key">↯ focus</span><span class="gi-typ">ripple → current card for each viewer</span></li>
+            <li class="gi-doc-eph"><span class="gi-key">↯ focus</span><span class="gi-typ">ripple → who’s looking where</span></li>
           </ul>
         </figure>
       </div>
@@ -83,7 +83,7 @@ import { steps } from "../../data/guide";
 
     <aside class="gi-companion" aria-labelledby="gi-companion-title">
       <div>
-        <h2 id="gi-companion-title">Then compare the working shapes.</h2>
+        <h2 id="gi-companion-title">Compare working applications</h2>
         <p>
           The guide builds one application. The gallery contains thirteen
           browser applications grouped by conflict rule and interaction type.

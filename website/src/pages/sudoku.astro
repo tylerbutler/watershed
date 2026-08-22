@@ -5,8 +5,8 @@ import Ecosystem from "../components/Ecosystem.astro";
 ---
 
 <Sheet
-  title="watershed: SharedMap Sudoku demo"
-  description="Three browser clients edit one Sudoku board through watershed's compiled map_kernel. The demo shows JSON cell values, local writes before confirmation, server-sequenced last-write-wins convergence, and concurrent writes to one cell."
+  title="watershed — SharedMap Sudoku demo"
+  description="Three browser clients edit one Sudoku-flavored board through watershed's compiled map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
 >
   <header class="page-hero">
     <div class="page-hero-inner">
@@ -15,7 +15,7 @@ import Ecosystem from "../components/Ecosystem.astro";
       </p>
       <h1>One board.<br />Three clients. <em>One cell value.</em></h1>
       <p class="lede">
-        The <a href="https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre">Sudoku example</a>{" "}
+        The full <a href="https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre">Sudoku example</a>{" "}
         uses <strong>SharedMap</strong> cell values, SharedOrSet notes,
         SharedClaims givens, SharedCounter mistakes, and temporary presence
         signals. This page shows only the cell layer. Keys such as
@@ -25,7 +25,7 @@ import Ecosystem from "../components/Ecosystem.astro";
       <div class="cta-row">
         <a class="cta-quiet" href="#sudoku-demo">Jump to the demo ↓</a>
         <a class="cta-quiet" href="https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre">
-          Read the example
+          Read the full example
         </a>
       </div>
     </div>

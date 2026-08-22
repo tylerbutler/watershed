@@ -12,23 +12,26 @@ const clients = [
     <p>
       Three <code>watershed</code> documents share one
       rich-text channel over the <code>rich_text_kernel</code>. It runs the
-      single-op-in-flight client-transform protocol from the{" "}
-      <a href="/json-ot">json_ot demo</a> with the quill-delta algebra.
-      Operations <em>retain</em>, <em>insert</em>, or <em>delete</em> text spans.
-      An operation can also change attributes such as bold or color, or insert
-      an image embed. Positions use UTF-16 code units, which Quill and
-      JavaScript strings also use. Each editor keeps at most one operation in
-      flight. Input received while that operation is pending combines into one
-      buffered operation. SharedRichText uses OT. For CRDT plain text,{" "}
-      <a href="/text"><code>SharedText</code></a> indexes graphemes by stable
-      identity and converges by merge.
+      same single-op-in-flight client-transform protocol as the{" "}
+      <a href="/json-ot">json_ot demo</a>, but over quill-delta's algebra:
+      operations <em>retain</em>, <em>insert</em>, or <em>delete</em> spans of
+      text. Each op can carry an attribute patch (bold, color, …) or wrap an
+      embed (an image) instead of plain text. Positions are counted in UTF-16
+      code units (the units Quill and JavaScript strings index by), so nothing
+      converts at the editor boundary. Each editor keeps at most one op in flight;
+      anything typed while it's outstanding composes into a single buffered
+      op behind it. This is SharedRichText, watershed's OT-backed rich text. For
+      CRDT-backed plain text, <a href="/text"><code>SharedText</code></a> indexes
+      graphemes by stable identity and converges by merge rather than by
+      transform.
     </p>
     <p class="demo-hint">
-      Local edits appear when you type. Type at the same position in two
-      clients, apply different formatting to one span, or delete text while
-      another client formats it. The operation log and canonical text show the
-      convergence result. Dashed, colored peer cursors show each peer
-      selection. The client transforms those selections through each edit.
+      Local edits apply the instant you type, Quill's own optimistic model,
+      no different from typing into any editor. Race two clients at the same
+      spot, format concurrently, or delete under someone else's formatting,
+      then watch the op log and the canonical text below each editor converge.
+      Peer cursors (dashed, colored) track where the other two are looking,
+      transformed through every edit exactly like the local caret is.
     </p>
   </div>
 
@@ -44,7 +47,7 @@ const clients = [
           <header class="client-head">
             <h3>{c.name}</h3>
             <span class="pending-count annot" data-pending-count>
-              synchronized
+              synced
             </span>
           </header>
           <div class="quill-mount" data-quill-root />
@@ -71,7 +74,7 @@ const clients = [
         class="op-log"
         data-op-log
         aria-live="polite"
-        aria-label="Sequenced rich-text operations, newest first"
+        aria-label="Sequenced rich-text ops, newest first"
       >
       </ol>
     </div>
@@ -102,7 +105,7 @@ const clients = [
         step="0.25"
         value="0.5"
         data-rt-pace
-        title="Changes animation speed only. It does not affect simulated ordering."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-rt-pace-out>0.5×</output>
@@ -118,34 +121,34 @@ const clients = [
     </label>
     <p class="status" data-rt-status role="status">
       <span class="stamp converged">Converged</span>
-      replicas match · no pending operations
+      replicas identical · nothing pending
     </p>
   </div>
 
   <div class="scenario-row" data-reveal="rise">
     <button type="button" class="scenario-btn" data-rt-race-type disabled>
-      Type at the same position
+      Race: type at the same spot
     </button>
     <button type="button" class="scenario-btn" data-rt-race-format disabled>
-      Apply bold and color to one span
+      Race: bold vs. color, same span
     </button>
     <button type="button" class="scenario-btn" data-rt-race-delete disabled>
-      Delete and format the same span
+      Race: delete vs. format
     </button>
     <button type="button" class="scenario-btn" data-rt-embed disabled>
-      Insert an image
+      Insert an image embed
     </button>
     <button type="button" class="step-btn" data-rt-step disabled>
-      Deliver one operation
+      Step one delivery
     </button>
     <button type="button" class="step-btn" data-rt-settle disabled>
-      Deliver all operations
+      Settle to quiescence
     </button>
     <button
       type="button"
       class="reset-btn"
       data-rt-reset
-      aria-label="Reset all three editors to the initial formatted content"
+      aria-label="Reset all three editors to the formatted baseline"
       disabled
     >
       Reset
@@ -153,25 +156,27 @@ const clients = [
   </div>
 
   <p class="controls-hint">
-    Each scenario button submits through the corresponding Quill editor. This
-    is the same path as keyboard input. You can also type and use the toolbar in
-    all three editors. Edit one editor while another editor has a pending
-    operation.
+    The scenario buttons submit through each editor's own Quill instance
+    (the same path a browser keystroke takes), so you're watching the
+    genuine client-transform protocol, not a scripted animation. Manual
+    typing and toolbar formatting work in all three editors too; try editing
+    one while a race is still in flight in another.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      Enable JavaScript for the live demo. The browser runs the compiled
-      production client runtime, <code>rich_text_kernel</code>, in-memory
-      <code>sluice</code>, and Quill editor. The rest of the page works without
-      JavaScript.
+      The live demo needs JavaScript: it runs the production client runtime,
+      the <code>rich_text_kernel</code>, and the in-memory <code>sluice</code>
+      as compiled JavaScript in your browser, plus Quill for the editor
+      surface. The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-rt-fallback hidden>
-    The live demo could not start because the browser did not load the compiled
-    production client runtime, in-memory <code>sluice</code>, and Quill editor.
-    The rest of the page works without the demo.
+    The live demo couldn’t start: it runs the production client runtime against
+    the in-memory <code>sluice</code> and a Quill editor as compiled
+    JavaScript, and this browser didn’t load it. The rest of the page works
+    fine without it.
   </p>
 </section>
 

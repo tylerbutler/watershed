@@ -183,7 +183,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // the cell flashes magenta on a local edit, ink when a remote write lands.
     map() {
       setNote(
-        "Shared map: the last write to one key wins. Each cell holds a complete value. A local edit appears in magenta. A later remote write replaces it and appears in ink.",
+        "Shared map — one key, last write wins. Each cell holds a whole value: watch a cell flash magenta the moment a client edits it, then ink when a remote write overwrites it outright. It is replaced, never merged.",
       );
     },
     // Counters are event-driven (see CHANGE_TARGETS): no static marks. Every
@@ -191,12 +191,12 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // origin, ink as the op is sequenced and applied to each replica.
     counter() {
       setNote(
-        "Shared counter: increments commute, so one increment does not overwrite another. A local total appears in magenta. After sequencing, each replica shows the increment in ink.",
+        "Shared counter — increments commute, so nothing is overwritten. Watch the total: it flashes magenta the moment a client edits it, then ink on every replica as the increment is sequenced and applied.",
       );
     },
     pn() {
       setNote(
-        "PN counter: net equals fill minus cut. Both component tallies can only increase. A local delta appears in magenta. After sequencing, each replica shows the result in ink. A repeated delta leaves the values unchanged.",
+        "PN counter — net = fill − cut, two monotone tallies that only ever grow. Watch the changed tally and the net value flash magenta on edit, then ink as the delta is sequenced and applied; a re-delivered delta is absorbed, so nothing moves.",
       );
     },
     // G-counter is event-driven too: each client owns one tally, the total is
@@ -204,7 +204,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // each replica as the delta lands.
     gcounter() {
       setNote(
-        "G-counter: each client owns one tally, and the total is their sum. A pending change appears in magenta on its source client. After sequencing, each replica shows the change in ink.",
+        "G-counter — each client owns one tally; the total is their sum. Watch every value that changes get circled as the delta flows: magenta while pending on the origin, ink as it is sequenced and applied to each replica.",
       );
     },
     // The sets are event-driven too (see CHANGE_TARGETS): no static marks. Each
@@ -212,24 +212,24 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // edit, then ink as the op is sequenced and applied to each replica.
     orset() {
       setNote(
-        "OR-set: addition wins over an observed removal. A local marker change appears in magenta. After sequencing, each replica shows the change in ink. If a clear and a new mark occur concurrently, the marker remains because the clear did not observe the new tag.",
+        "OR-set — add-wins, observed-remove. Watch a marker's state flash magenta the moment a client edits it, then ink as the op is sequenced and applied. Race a clear against a concurrent re-mark and the marker stays present — the fresh tag was unseen by the clear.",
       );
     },
     gset() {
       setNote(
-        "G-set: union only adds values, so each recorded benchmark is permanent. A local mark appears in magenta. After sequencing, each replica shows it in ink. A repeated delta leaves the registry unchanged.",
+        "G-set — grow-only union; marking a benchmark is a permanent fact. Watch a row flash magenta on edit, then ink as the op is sequenced and applied to each replica. The registry only grows, and a re-delivered delta is absorbed, so nothing moves.",
       );
     },
     twopset() {
       setNote(
-        "2P-set: a tombstone wins, so a retired marker cannot return. A local change appears in magenta. After sequencing, each replica shows it in ink. If placement and retirement occur concurrently, each replica keeps the tombstone. A repeated retirement leaves the state unchanged.",
+        "2P-set — tombstone wins; a retired marker never comes back. Watch a row flash magenta on edit, then ink as the op is sequenced and applied. Race a re-place against a retire and both replicas keep the tombstone; a re-delivered retire is absorbed, so nothing moves.",
       );
     },
     // OR-map is optimistic: logging or striking a stockpile mutates the local
     // ledger before it is sequenced, so the value flashes magenta on edit.
     ormap() {
       setNote(
-        "OR-map: addition wins over an observed removal. Each stockpile has a separate ledger. A local change appears in magenta. After sequencing, each replica shows it in ink. If a strike and a new log occur concurrently, the row and each logged yard remain.",
+        "OR-map — add-wins, observed-remove. Each stockpile carries its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
       );
     },
     // Claims are non-optimistic (see renderClaims in demo.js): a filed claim
@@ -237,35 +237,35 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // the holder only flashes ink on the writer that wins the slot.
     claims() {
       setNote(
-        "Claims: the first writer wins. A submitted claim does not change the holder before confirmation. After sequencing, the winning client appears in ink. If two clients claim one slot, only the first sequenced claim changes the row.",
+        "Claims — first writer wins. A filed claim prints nothing optimistically: the holder stays ink until the sequencer stamps it, then flashes ink on the winner. Race two claims for one slot and only the first-sequenced writer lands; the loser's row never changes.",
       );
     },
     // Registers: the atomic slot is non-optimistic — a revision files without
     // moving the printed value, which flashes ink only as the op is sequenced.
     registers() {
       setNote(
-        "Registers: the atomic write wins, and the register retains other versions. A submitted revision does not change the slot before confirmation. After sequencing, the atomic and LWW values appear in ink. Concurrent losing writes remain as versions, so LWW can differ from atomic.",
+        "Registers — atomic wins, losers retained as versions. A revision files without changing the slot: watch the atomic and LWW values flash ink as the op is sequenced and applied. A write that knew the current atomic sequence wins; concurrent losers still append a version, so LWW can diverge from atomic.",
       );
     },
     // Ordered collection is non-optimistic: adds and acquires take effect only in
     // server order, so the queue and held jobs flash ink as each op is sequenced.
     ordered() {
       setNote(
-        "OrderedCollection: FIFO follows server sequence. Adds enter the queue in server order, and acquires take the front item. The queue and held jobs appear in ink after sequencing. A concurrent acquire can return empty when an earlier sequence number takes the item.",
+        "OrderedCollection — FIFO by sequence. Adds enter the queue in server order and acquires take the front item: watch the queue and held-jobs values flash ink as each op is sequenced and applied. A racing acquire may come back empty because the earlier SN already took the front.",
       );
     },
     // TaskManager is optimistic: volunteering assigns locally before the op is
     // sequenced, so the assignee and waiters flash magenta on edit.
     tasks() {
       setNote(
-        "TaskManager: one client receives a task, and other volunteers wait in FIFO order. A local volunteer appears in magenta. After sequencing, the assignee and waiters appear in ink. Abandoning a task promotes the next waiter.",
+        "TaskManager — one assignee, FIFO waiters. Volunteers join a per-task queue in sequenced order: watch the assignee and waiters flash magenta on a local volunteer, then ink as the op is sequenced and applied. The first connected volunteer owns the task; abandon promotes the next waiter.",
       );
     },
     // Pact map is non-optimistic: a proposal only prints once sequenced, and the
     // accepted value only lands after a full quorum signs off — both ink.
     pact() {
       setNote(
-        "PactMap: quorum controls acceptance. After sequencing, a proposal appears as pending with a fixed signoff list. The accepted value appears in ink after each connected client signs off. A client departure removes that client from the list.",
+        "PactMap — quorum acceptance. A proposal first prints as pending with a frozen signoff list: watch the pending value flash ink as it is sequenced, then the accepted value flash ink once every connected client signs off. A leave drains the list.",
       );
     },
   };
@@ -285,7 +285,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
       // Every structure in the picker has a recipe above; this is only reached
       // if a new view is added without one. Point the reader at a covered view.
       setNote(
-        "Operation notes are not available for this structure. Select another structure to view its notes.",
+        "Field notes aren't marked up for this structure yet — switch to another view to see its behavior annotated.",
       );
     }
     // The persistent narration bracket is for the static structures; the

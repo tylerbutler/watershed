@@ -8,27 +8,26 @@ const clients = [
 
 <section id="sudoku-demo" class="demo" aria-labelledby="sudoku-demo-title">
   <div class="demo-head" data-reveal="rise">
-    <h2 id="sudoku-demo-title">SharedMap Sudoku cells, live</h2>
+    <h2 id="sudoku-demo-title">SharedMap sudoku cells, live</h2>
     <p>
-      The browser runs three compiled <code>watershed</code> documents with the
-      production runtime, including wire codecs and pending queues. The
-      documents connect to one <code>sluice</code>, the in-memory server included
-      with the library. The demo uses the sluice in place of a floodgate
-      backend. A cell edit appears before confirmation and sends an
-      operation to the sluice. The demo controls each delivery, so the state
-      moves one sequenced step at a time. Local edits appear in
-      <strong class="k-pending">magenta</strong> until the sequencer assigns a
-      sequence number. Server-sequenced state appears in
-      <strong class="k-seq">ink</strong>.
+      Three <code>watershed</code> documents run the full
+      runtime (wire codecs, pending queues, and all), compiled to JavaScript
+      and running in your browser. They talk to one <code>sluice</code>: the
+      in-memory server that ships in the library,
+      standing in for floodgate with no backend. A cell edit renders optimistically
+      and pushes an op the sluice sequences; delivery is explicit, so state
+      propagates one stamped hop at a time. Local edits are drawn in
+      <strong class="k-pending">magenta</strong> until the sequencer stamps them;
+      server-sequenced state is <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
-      Select a cell to change its digit. Type <strong>1–9</strong> to set a
-      digit. Press Delete or Shift-click to clear a cell. Use the arrow keys to
-      move across a board. Select
-      <strong>Write one cell concurrently</strong> to make clients A, B, and C
-      write different digits to <code>r4c4</code> at the same time. The sluice
-      sequences the writes in FIFO order. Each replica shows the last sequenced
-      value.
+      Click any cell to cycle its digit, type <strong>1–9</strong> to write
+      directly, or press Delete or Shift-click to clear. Arrow keys move across
+      each board. Press
+      <strong>Race the same cell</strong> and A, B, and C write different digits
+      to the center cell, <code>r4c4</code>, at the same instant. The sluice
+      sequences those writes FIFO, and every replica converges on the last
+      sequenced value.
     </p>
   </div>
 
@@ -100,7 +99,7 @@ const clients = [
         step="0.25"
         value="0.5"
         data-sudoku-pace
-        title="Changes animation speed only. It does not affect simulated ordering."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-sudoku-pace-out>0.5×</output>
@@ -115,7 +114,7 @@ const clients = [
       <span class="annot">Jitter ±50&nbsp;ms</span>
     </label>
     <button type="button" class="race-btn" data-sudoku-race disabled>
-      Write one cell concurrently
+      Race the same cell
     </button>
     <button type="button" class="reset-btn" data-sudoku-seed disabled>
       Place corner givens
@@ -131,27 +130,27 @@ const clients = [
     </button>
     <p class="status" data-sudoku-status role="status">
       <span class="stamp converged">Converged</span>
-      all boards match · no pending operations
+      all boards identical · nothing pending
     </p>
   </div>
 
   <p class="controls-hint">
-    Latency and jitter can change simulated arrival order. Animation speed
-    changes playback only.
+    Latency and jitter affect simulated arrival order; animation speed changes
+    playback only.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      Enable JavaScript for the live demo. The browser runs the compiled
-      production client runtime and in-memory <code>sluice</code>. The rest of
-      the page works without JavaScript.
+      The live demo needs JavaScript: it runs the production client runtime and
+      the in-memory <code>sluice</code> as compiled JavaScript in your browser.
+      The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-sudoku-fallback hidden>
-    The live demo could not start because the browser did not load the compiled
-    production client runtime and in-memory <code>sluice</code>. The rest of the
-    page works without the demo.
+    The live demo couldn’t start: it runs the production client runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page works fine without it.
   </p>
 </section>
 

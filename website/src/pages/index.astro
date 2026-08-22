@@ -11,8 +11,8 @@ import Ecosystem from "../components/Ecosystem.astro";
 ---
 
 <Sheet
-  title="watershed: collaborative data structures for Gleam"
-  description="watershed provides collaborative data structures for Gleam. It supports local edits before confirmation, server sequencing, reconnection, CRDTs, and operational transform on the BEAM and in the browser."
+  title="watershed — collaborative data structures for Gleam"
+  description="A Gleam DDS client toolkit for optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. Its pure core runs on the BEAM and in the browser."
 >
   <Hero />
   <main>
@@ -28,7 +28,7 @@ import Ecosystem from "../components/Ecosystem.astro";
         </p>
         <p class="demo-hint">
           Change a gauge, make two clients write at once, or increase the network
-          delay. The replicas match after all queued writes arrive. The last write
+          delay. The copies agree after all queued writes arrive. The last write
           to each key wins.
         </p>
         <p class="demo-hint">
@@ -41,14 +41,12 @@ import Ecosystem from "../components/Ecosystem.astro";
         <div class="demo-outro">
         <aside class="demo-bug-teaser">
           <p>
-            <strong>Seen enough of “most recent write wins”? It has a famous
-            failure mode.</strong> Store a <em>counter</em> in this map and have
-            two people add to it at once: their increments silently overwrite
-            each other instead of adding up. It’s the classic
-            distributed-systems bug — and the reason the counter is its own
-            structure.
+            <strong>Last-write-wins maps can lose counter updates.</strong>
+            Store a <em>counter</em> in this map and let two people increment it
+            at once. One increment overwrites the other instead of adding to it.
+            Use a counter structure to prevent this error.
           </p>
-          <a href="/counter-bug">Watch a boat vanish, live →</a>
+          <a href="/counter-bug">See the lost update →</a>
         </aside>
         <p class="demo-hint demo-outro-hint">
           Every other structure runs the same way on its own page. Start with the{" "}

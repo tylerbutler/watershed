@@ -29,10 +29,10 @@ const familyViews = category.structures
 ---
 
 <Sheet
-  title={`watershed: ${category.name.toLowerCase()}`}
+  title={`watershed — ${category.name.toLowerCase()}`}
   description={`${category.name} in watershed: ${category.tagline} ${category.structures
     .map((s) => s.name)
-    .join(", ")}. Learn how each structure works, how it merges changes, and when to use it.`}
+    .join(", ")}. How each works, its merge rule, and what it is best for.`}
 >
   <header class="cat-hero">
     <div class="cat-hero-inner">
@@ -72,16 +72,17 @@ const familyViews = category.structures
       >
         <Fragment slot="intro">
           <p>
-            The shared gauge demo below runs the structures that use this
-            interaction. Open separate demos for the other structures. Pending edits
-            appear in <strong class="k-pending">magenta</strong>. After the
-            sequencer assigns an SN, each replica shows the same
-            <strong class="k-seq">ink</strong> state. The selector changes the
-            structure view. All views use one ordered stream.
+            The structures from this family that fit the shared gauge rig run
+            below on watershed’s Gleam kernels. Structures with dedicated
+            interactions link to their own demos. Pending edits print in
+            <strong class="k-pending">magenta</strong>; once the sequencer stamps
+            an SN, every replica lands the same <strong class="k-seq">ink</strong>
+            state. The picker switches among the loaded views, which share one
+            ordered stream.
           </p>
           <p class="demo-hint">
-            Change a value. Submit concurrent writes. Increase the link latency
-            to inspect each merge rule.
+            Nudge a value, race a concurrent write, or stretch the link latency
+            to watch each merge rule hold.
           </p>
         </Fragment>
       </Demo>
@@ -144,7 +145,7 @@ const familyViews = category.structures
                 <dd>{s.optimistic}</dd>
               </div>
               <div>
-                <dt>Summary contents</dt>
+                <dt>Summary shape</dt>
                 <dd>{s.summary}</dd>
               </div>
               <div>
@@ -172,7 +173,7 @@ const familyViews = category.structures
     <div class="cat-nav-mid">
       <a href="/structures">All families</a>
       <a href="/models">DDS vs CRDT vs OT →</a>
-      <a href="/#demo">Open the live demo ↓</a>
+      <a href="/#demo">See it live ↓</a>
     </div>
     <a class="cat-nav-side cat-nav-next" href={`/structures/${next.slug}`}>
       <span class="annot">Next family →</span>

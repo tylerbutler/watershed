@@ -65,7 +65,7 @@ pub fn main() {
 
 <GuideLayout
   slug="connect"
-  description="Connect to a named, server-sequenced document on the BEAM or in the browser. Read the root map and learn how a local edit becomes sequenced state."
+  description="Step one of the watershed build guide: connect to a named, server-sequenced document, read its root map, and understand the optimistic-then-sequenced edit model, on both the BEAM and browser targets."
 >
   <div class="g-block">
     <h2>A document is a named container of channels</h2>
@@ -74,7 +74,7 @@ pub fn main() {
       identifies this container by a <code>tenant</code> and a
       <code>document</code> ID. Clients that connect to the same pair share the
       same state. Flowboard’s teammates all open
-      tenant <code>flow-co</code> and document <code>flowboard</code>.
+      <code>flow-co / flowboard</code>.
     </p>
     <p>
       During connection, watershed replays the document’s operation history to
@@ -123,9 +123,9 @@ pub fn main() {
         <code>on_ready</code> after the handshake because the event loop cannot
         block. Keep the document handle for diagnostics and document services.
         Attach or ensure channels only after
-        <code>on_ready</code> reports <code>Ok</code>. Treating document handle
-        availability and readiness as one event causes an initial-load race
-        condition. Map subscriptions also differ. BEAM returns an OTP
+        <code>on_ready</code> reports <code>Ok</code>. Treating handle-arrival
+        and readiness as one event causes a first-load race. Map subscriptions
+        also differ. BEAM returns an OTP
         <code>Subject(MapEvent)</code>; the browser facade registers a callback
         directly. Step 05 converts browser callbacks to Lustre effects.
       </p>
@@ -141,18 +141,18 @@ pub fn main() {
       would for an ordinary map. You do not write a merge callback.
     </p>
     <p>
-      A <code>set</code> applies to your local replica at once and
+      A <code>set</code> applies to your local replica <em>immediately</em> and
       emits a local subscription event. Subscribe before you make edits.
       Remote writes emit when the runtime applies them to your replica. Both
       event types must read visible state through the same render path. A server
-      The runtime emits no event for an acknowledgment that does not change
-      visible state.
+      acknowledgment can emit no event when confirmation does not change
+      that visible state.
     </p>
     <p>
       The server still assigns the order that resolves concurrent writes.
-      The application uses subscriptions to detect local view changes.
-      Sequencing determines which value wins on every replica. For a map, the
-      last sequenced write wins per key.
+      Subscriptions tell your app when its local view changed; sequencing tells
+      replicas which value wins. For a map, the last sequenced write wins per
+      key.
     </p>
     <p>
       You can store a string under <code>"title"</code>, but repeated key

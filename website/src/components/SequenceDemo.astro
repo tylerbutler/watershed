@@ -18,21 +18,22 @@ const actions = [
     <p>
       Three <code>watershed</code> documents share one
       <code>SharedSequence</code>, an ordered list of waypoints down a river.
-      One client creates it and shares the handle; the others resolve it. The
-      clients connect to one <code>sluice</code>, the in-memory server included
-      with the library. The sluice runs the production client runtime without a
-      network backend. Local edits appear in <strong class="k-pending">magenta</strong> until the
-      sluice assigns a sequence number. Server-sequenced state appears in
+      One client creates it and shares the handle; the others resolve it. They
+      talk to one <code>sluice</code>, the in-memory server that ships in the
+      library. It runs the production client runtime
+      without a network backend. Local
+      edits are drawn in <strong class="k-pending">magenta</strong> until the
+      sluice stamps them; server-sequenced state is
       <strong class="k-seq">ink</strong>.
     </p>
     <p class="demo-hint">
-      Select a station, then move, rename, or delete it. Select
-      <strong>+</strong> between stations to insert a waypoint. Use
-      <strong>Move one waypoint concurrently</strong> to make clients B and C
-      move the same waypoint in opposite directions. Use
-      <strong>Insert two waypoints at one position</strong> to add different
-      waypoints at the same position. Both operations converge because each
-      operation identifies an item instead of an index.
+      Select a station to move, rename, or delete it, or press
+      <strong>+</strong> between stations to insert one. Then stage a race:
+      <strong>Race a move</strong> has B and C drag the same waypoint opposite
+      ways; <strong>Crowd an insert</strong> has them insert different
+      waypoints at the same spot. Both converge: a move follows its waypoint
+      and concurrent inserts both survive, because ops name items, not index
+      numbers.
     </p>
   </div>
 
@@ -54,7 +55,7 @@ const actions = [
           <div class="route" data-route aria-label={`${c.name} route`} />
           <div class="route-actions" data-route-actions>
             <span class="selected-label annot" data-selected>
-              Select a station
+              select a station
             </span>
             {actions.map((a) => (
               <button
@@ -119,7 +120,7 @@ const actions = [
         step="0.25"
         value="0.5"
         data-route-pace
-        title="Changes animation speed only. It does not affect simulated ordering."
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
       <output data-route-pace-out>0.5×</output>
@@ -137,16 +138,16 @@ const actions = [
       <input
         type="checkbox"
         data-route-notes
-        title="Show operation notes during the animation."
+        title="Annotate the demo with hand-drawn field notes while ops animate."
         disabled
       />
-      <span class="annot">Operation notes</span>
+      <span class="annot">Field notes</span>
     </label>
     <button type="button" class="race-btn" data-route-race-move disabled>
-      Move one waypoint concurrently
+      Race a move
     </button>
     <button type="button" class="race-btn" data-route-race-insert disabled>
-      Insert two waypoints at one position
+      Crowd an insert
     </button>
     <button
       type="button"
@@ -159,27 +160,27 @@ const actions = [
     </button>
     <p class="status" data-route-status role="status">
       <span class="stamp converged">Converged</span>
-      all routes match · no pending operations
+      all routes identical · nothing pending
     </p>
   </div>
 
   <p class="controls-hint">
-    Latency and jitter can change simulated arrival order. Animation speed
-    changes playback only.
+    Latency and jitter affect simulated arrival order; animation speed changes
+    playback only.
   </p>
 
   <noscript>
     <p class="demo-noscript">
-      Enable JavaScript for the live demo. The browser runs the compiled
-      production client runtime and in-memory <code>sluice</code>. The rest of
-      the page works without JavaScript.
+      The live demo needs JavaScript: it runs the production client runtime and
+      the in-memory <code>sluice</code> as compiled JavaScript in your browser.
+      The rest of the page works fine without it.
     </p>
   </noscript>
 
   <p class="demo-noscript" data-route-fallback hidden>
-    The live demo could not start because the browser did not load the compiled
-    production client runtime and in-memory <code>sluice</code>. The rest of the
-    page works without the demo.
+    The live demo couldn’t start: it runs the production client runtime against
+    the in-memory <code>sluice</code> as compiled JavaScript, and this browser
+    didn’t load it. The rest of the page works fine without it.
   </p>
 </section>
 

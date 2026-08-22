@@ -4,7 +4,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
 
 <RuntimeLayout
   slug="reconnect"
-  description="How a watershed client rejoins after a dropped connection. The client resubmits pending operations and loads an available summary or retained history."
+  description="How a watershed client rejoins after a dropped connection: pending operations are resubmitted, while fresh bootstrap uses an available server summary plus later operations or falls back to replaying retained history."
 >
   <div class="g-block">
     <h2>A dropped link is not a lost document</h2>
@@ -22,7 +22,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       A long-lived document can contain thousands of operations. Replaying all
       operations on each connection makes startup time increase with document
       age.
-      An application can call <code>summarize(document)</code> to
+      An application can explicitly call <code>summarize(document)</code> to
       write the client’s current confirmed channel snapshots to floodgate storage.
       The server records the sequence number covered by that summary. On a later
       bootstrap, watershed loads an available summary and applies operations
@@ -50,13 +50,13 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
     <p>
       Kernel demos also exercise <code>from_summary</code> directly by building
       baseline replicas under a dedicated <code>survey-baseline</code>
-      identity. That validates channel snapshot decoding. The transport
-      reconnect path uses a different process. Because snapshots include
-      required sequence metadata,
+      identity. That validates channel snapshot decoding, but it is not the
+      transport reconnect path. Because required sequence metadata rides along
+      in snapshots,
       order-sensitive structures like <a href="/structures/coordination#claims">claims</a>{" "}
-      stay correct after a load. A slot that was claimed before the connection
-      dropped is still claimed after reconnection. A compare-and-set still
-      refers to the correct prior state.
+      stay correct after a load: a slot that was claimed before you dropped is
+      still claimed when you return, and a compare-and-set still refers to the
+      right prior state.
     </p>
     <div class="g-note">
       <p>
@@ -72,9 +72,10 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
   <div class="g-out">
     <span class="annot">In short</span>
     <p>
-      A summary is an optional checkpoint. Bootstrap uses an available summary
-      or replays retained history. Reconnection preserves pending durable
-      operations by resubmitting them in the resumed session.
+      Summaries are explicit checkpoints, not a requirement. Bootstrap uses one
+      when available and otherwise replays retained history; reconnect preserves
+      pending durable operations by resubmitting them against the resumed
+      session.
     </p>
   </div>
 </RuntimeLayout>

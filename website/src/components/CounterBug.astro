@@ -8,7 +8,7 @@
 // run watershed's JS-compiled Gleam kernels; rough-notation draws the attention.
 ---
 
-<section id="counter-bug" class="cb" aria-label="Counter-in-a-map error demonstration">
+<section id="counter-bug" class="cb" aria-label="The counter-in-a-map bug, demonstrated">
   <div class="cb-inner">
     <div class="cb-head">
       <p class="cb-lede">
@@ -190,7 +190,7 @@
     <div class="cb-fix-copy">
       <p class="annot">Fix two · ship the delta</p>
       <p>
-        watershed's <a href="/structures/counters">SharedCounter</a> goes
+        Watershed's <a href="/structures/counters">SharedCounter</a> goes
         further: the op <em>is</em> the delta. A client never reads the tally to
         write it back. It sends <code>increment(+1)</code>, or
         <code>increment(−1)</code> for a correction, and signed deltas sum the

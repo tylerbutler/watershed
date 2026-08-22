@@ -46,13 +46,13 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
 
 <GuideLayout
   slug="testing"
-  description="Step six of the watershed build guide: use the in-memory sluice sequencer to run deterministic multi-client convergence tests with explicit delivery and no external server."
+  description="Step six of the watershed build guide: the sluice is an in-memory sequencer that runs the production client runtime over an injected transport, so you can write deterministic multi-client convergence tests with explicit delivery and no infrastructure."
 >
   <div class="g-block">
     <h2>Prove convergence without a server</h2>
     <p>
       A multiplayer application must produce the same state on each client.
-      Developers often use two browser tabs and a live server for this test. The
+      This test usually requires two browser tabs and a live server. The
       <strong>sluice</strong> replaces both with a deterministic,
       single-process sequencer and transport.
     </p>
@@ -86,8 +86,8 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     <p>
       When you need to inspect an intermediate state,
       <code>step</code> advances one inbound frame at a time. It does not
-      reorder operations that are already sequenced. Submission call order
-      determines that order in sluice:
+      reorder operations already sequenced; submission call order determines
+      that order in sluice:
     </p>
     <p>
       Identify the concurrent behavior that the application requires and test
@@ -100,9 +100,9 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     </figure>
     <div class="g-note">
       <p>
-        <strong>Pause and resume delivery.</strong> Both <code>sluice</code> and
-        <code>sluice_js</code> provide <code>pause</code> and
-        <code>resume</code> to hold one client’s inbound frames.
+        <strong>More controls.</strong> Both <code>sluice</code> and
+        <code>sluice_js</code> provide <code>pause</code> /
+        <code>resume</code> to hold one client’s inbound frames, and
         <code>advance(ms)</code> moves the sequencer’s logical clock for frame
         timestamps. Presence uses the target runtime’s wall clock. JavaScript
         also exposes <code>step_info</code> with delivery metadata for
@@ -112,22 +112,22 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
   </div>
 
   <div class="g-block">
-    <h2>That’s the loop</h2>
+    <h2>Complete the application</h2>
     <p>
       Connect a document, define a typed schema, select a merge model for each
       slot, add ripples for temporary signals, connect it to Lustre, and add
-      deterministic convergence tests. Flowboard follows the same process as a
+      deterministic convergence tests. Flowboard uses the same structure as a
       production watershed application.
     </p>
     <p>
-      The <a href="/examples">example catalog</a> applies this process to
-      thirteen browser applications. Each entry lists its structures,
-      key scenario, and run guide.
+      The <a href="/examples">example gallery</a> maps this loop onto thirteen
+      complete browser applications, each with its structures, its payoff race,
+      and a checked-in run guide.
     </p>
     <p>
-      The{" "}
+      Prefer the raw files? The{" "}
       <a href="https://github.com/tylerbutler/watershed/tree/main/examples">
-      examples directory</a> contains the source files.
+      examples directory</a> remains the source of truth.
     </p>
   </div>
 
@@ -135,8 +135,8 @@ sluice_js.settle(sluice)   // then drain the rest to quiescence`;
     <span class="annot">You can now</span>
     <p>
       Write multi-client convergence tests that run under <code>gleam test</code>
-      without external infrastructure. The tests use deterministic delivery and
-      the same client code that runs in production.
+      with no infrastructure: deterministic, scriptable, and exercising the same
+      code that runs in production.
     </p>
   </div>
 </GuideLayout>

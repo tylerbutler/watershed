@@ -28,28 +28,28 @@ export const runtimeDocs: RuntimeDoc[] = [
   },
   {
     slug: "reconnect",
-    title: "Reconnect and resynchronize",
+    title: "Reconnect & resync",
     gloss:
       "Restore a dropped connection. A returning client loads state from the same summary path as a new client.",
     concept: "from_summary · replay · catch-up",
   },
   {
     slug: "redelivery",
-    title: "Repeated delivery",
+    title: "Idempotent re-delivery",
     gloss:
       "A sequence-number check drops a repeated delta, or an idempotent merge leaves the state unchanged.",
-    concept: "deliver again · sequence check · idempotent merge",
+    concept: "re-deliver · dedupe · absorb",
   },
   {
     slug: "presence",
-    title: "Presence and ripples",
+    title: "Presence & ripples",
     gloss:
       "Use temporary broadcasts and a live roster. The server tracks connections when possible; otherwise, clients use heartbeats and a TTL.",
     concept: "submit_ripple · sessions · server or heartbeat",
   },
   {
     slug: "p2p",
-    title: "Peer-to-peer WebRTC",
+    title: "Peer-to-peer over WebRTC",
     gloss:
       "Run a document on a WebRTC mesh without a sequencer. Eligible structures merge changes, and an optional relay adds durable storage.",
     concept: "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1",

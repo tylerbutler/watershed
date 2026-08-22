@@ -35,7 +35,7 @@ watershed.increment(wip_breaches, 1)
 
 <GuideLayout
   slug="structures"
-  description="Step three of the watershed build guide: each document slot is a channel, and its channel type defines the conflict rule. Compare SharedMap, OR-map, and SharedCounter."
+  description="Step three of the watershed build guide: every slot in a document is a channel, and the channel kind IS its conflict policy. Choosing SharedMap vs OR-map vs SharedCounter per slot, and how to pick the right merge model while building."
 >
   <div class="g-block">
     <h2>The channel kind <em>is</em> the conflict policy</h2>
@@ -73,7 +73,7 @@ watershed.increment(wip_breaches, 1)
     </figure>
     <div class="g-note">
       <p>
-        <strong>A type edit does not migrate data.</strong> If
+        <strong>A type edit is not an in-place migration.</strong> If
         <code>cards</code> already contains a SharedMap handle,
         <code>ensure_or_map</code> does not convert its data or replace that
         channel. Deploy a new field key, copy values with an explicit migration,
@@ -88,12 +88,12 @@ watershed.increment(wip_breaches, 1)
   <div class="g-block">
     <h2>wip_breaches: never store a counter in a map</h2>
     <p>
-      The limit-breach tally is a
-      <a href="/structures/counters#counter">SharedCounter</a>. A counter sends
-      each change as a signed <em>delta</em>. Addition is commutative, so
-      concurrent increments add instead of overwriting. If you store the same
-      number in a SharedMap, last-write-wins reduces two simultaneous
-      <code>+1</code> operations to one.
+      The limit-breach tally is a <a href="/structures/counters#counter">SharedCounter</a>,
+      and this is not a stylistic choice. A counter ships each change as a signed
+      <em>delta</em>; because addition commutes, concurrent increments add up
+      instead of overwriting. Store that same number as a value in a SharedMap
+      and two simultaneous <code>+1</code>s collapse to a single <code>+1</code>
+      under last-write-wins.
     </p>
     <figure class="g-code">
       <Code code={counter} lang="gleam" theme={watershedCodeTheme} />
@@ -110,20 +110,23 @@ watershed.increment(wip_breaches, 1)
 
   <div class="g-block">
     <h2>Choosing, in general</h2>
+    <p>
+      Ask these questions for each slot:
+    </p>
     <ul>
       <li>
-        <strong>For additive data</strong>, use a{" "}
+        <strong>Is it additive?</strong> Tallies, votes, quantities → a{" "}
         <a href="/structures/counters#counter">counter</a>, so concurrent changes
-        sum instead of overwriting.
+        sum instead of clobbering.
       </li>
       <li>
-        <strong>For offline or repeated delivery</strong>, use a{" "}
+        <strong>Must it accept offline or repeated delivery?</strong> Use a{" "}
         <a href="/models">CRDT</a> (OR-map, OR-set, PN counter) whose merge
         does not depend on order.
       </li>
       <li>
-        <strong>For ownership, turn-taking, or agreement</strong>, use the{" "}
-        <a href="/structures/coordination">coordination</a>{" "}
+        <strong>Is it a decision, not a value?</strong> Ownership, turn-taking,
+        agreement → the <a href="/structures/coordination">coordination</a>{" "}
         family: claims, ordered collections, the pact map.
       </li>
     </ul>
@@ -134,9 +137,9 @@ watershed.increment(wip_breaches, 1)
     </p>
     <div class="g-note">
       <p>
-        <strong>The structure type also determines the user interface state.</strong>
-        Most structures apply a local change at once. Consensus structures such
-        as the pact map wait for sequencing, and index-based
+        <strong>The kind also decides what the UI owes the user.</strong> Most
+        structures apply a local guess immediately; consensus structures like
+        the pact map intentionally wait for sequencing, and index-based
         sequence edits can reject after a concurrent change. Render
         optimistic, pending, and rejected mutations as distinct states instead
         of showing every click as committed.
@@ -147,9 +150,9 @@ watershed.increment(wip_breaches, 1)
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Choose server order, a merge rule, or coordination for each slot. Keep
-      that choice explicit in the schema. Changing an occupied slot’s kind
-      requires a data migration and a type edit.
+      Choose a merge model per slot (order it, merge it, or coordinate it)
+      and keep that choice explicit in the schema. Changing an occupied slot’s
+      kind requires a data migration, not only a type edit.
     </p>
   </div>
 </GuideLayout>

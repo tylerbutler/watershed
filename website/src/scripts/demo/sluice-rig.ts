@@ -218,8 +218,8 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function renderStatus() {
     statusEl.innerHTML = converged()
-      ? '<span class="stamp converged">Converged</span> all replicas match · no pending operations'
-      : '<span class="stamp revising">Revising</span> operations in flight';
+      ? '<span class="stamp converged">Converged</span> all replicas identical · nothing pending'
+      : '<span class="stamp revising">Revising</span> ops in flight';
   }
 
   function stampSeqCounter(seq: number) {
@@ -240,7 +240,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     pathEl.textContent = label;
     const kindEl = document.createElement("span");
     kindEl.className = "op-kind";
-    kindEl.textContent = "operation";
+    kindEl.textContent = "op";
     li.append(meta, pathEl, kindEl);
     opLog.push(li);
   }

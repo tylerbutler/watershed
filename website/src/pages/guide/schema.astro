@@ -70,15 +70,15 @@ fn card_schema() -> schema.Schema(Card, CardState) {
 
 <GuideLayout
   slug="schema"
-  description="Declare a document's shape with the typed schema layer and initialize its channels with ensure_*. Handle invalid remote JSON at the decode boundary."
+  description="Step two of the watershed build guide: declare a document's shape once with the typed schema layer, seed its channels with ensure_*, and read and write through a decode boundary that returns Result because remote peers can write any JSON."
 >
   <div class="g-block">
     <h2>Typing is a decode boundary, not a closed schema</h2>
     <p>
       Repeated key strings can become inconsistent. The typed layer
-      (<code>watershed/schema</code>) declares a document’s shape in one place.
-      A remote peer with an older build or a stale summary can still
-      write any JSON value to any key.
+      (<code>watershed/schema</code>) lets you declare a document’s shape in one
+      place. It is not a closed schema. A remote peer with an older build, or a
+      stale summary, can write any JSON value to any key.
     </p>
     <p>
       Typing provides a <strong>decode boundary</strong>. The field encodes
@@ -103,12 +103,12 @@ fn card_schema() -> schema.Schema(Card, CardState) {
       another document type.
     </p>
     <p>
-      The tag also names the document:
+      That tag names the document itself, not just the fields:
       <code>connect</code> hands back a <code>Document(Board)</code>, and
       <code>root_typed</code> on it returns a <code>TypedMap(Board)</code>. One
-      document admits one root schema. The compiler reports an error if a second
-      application mounts its fields on the same root map. This check prevents
-      two applications from sharing a key namespace by mistake.
+      document admits one root schema: mounting a second app’s fields on the
+      same root map is a compile error rather than two apps quietly sharing a
+      key namespace.
     </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
@@ -134,10 +134,10 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   <div class="g-block">
     <h2>Read and write through the field</h2>
     <p>
-      After you declare the fields, you no longer use key strings.
+      With the fields declared, you never touch a key string again.
       <code>set_field</code> encodes; <code>get_field</code> decodes and returns
       <code>Result(Option(a), FieldError)</code>: <code>Ok(None)</code> for an
-      absent key, <code>Error</code> when a peer wrote a value that does not
+      absent key, <code>Error</code> when a peer wrote a value that doesn’t
       decode to your type.
     </p>
     <figure class="g-code">
@@ -153,7 +153,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
   </div>
 
   <div class="g-block">
-    <h3>Use one record across keys</h3>
+    <h3>Deepening: a whole record across keys</h3>
     <p>
       A slot can contain a record instead of a scalar. The
       <code>record1</code>…<code>record9</code> builders derive the decoder and
@@ -165,7 +165,7 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     </figure>
     <p>
       The <a href="https://github.com/tylerbutler/watershed/tree/main/examples/scoreboard_cli">
-      scoreboard example</a> uses this pattern throughout, with
+      scoreboard example</a> carries this pattern end to end, with
       <code>versioned</code> and <code>sealed_known</code> strictness.
     </p>
   </div>
@@ -174,8 +174,9 @@ fn card_schema() -> schema.Schema(Card, CardState) {
     <span class="annot">You can now</span>
     <p>
       Declare a document’s shape in one file, bootstrap its channels with a
-      batch of <code>ensure_*</code> calls. Read and write typed fields through
-      a boundary that reports values which do not decode as the declared type.
+      batch of <code>ensure_*</code> calls, and read and write typed fields
+      through a boundary that reports values which do not decode as the
+      declared type.
     </p>
   </div>
 </GuideLayout>
