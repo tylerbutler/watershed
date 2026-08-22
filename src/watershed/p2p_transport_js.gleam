@@ -2,46 +2,48 @@
 //// `RTCPeerConnection` per remote peer, one reliable unordered data
 //// channel each, and nothing else.
 ////
-//// This layer moves **strings**. It negotiates links, validates the
-//// transport lifecycle, and hands every payload that arrives on a data
-//// channel straight up to its caller. It never decodes a
-//// `crdt_wire.Envelope`, never touches a `crdt_core.Document`, and holds
-//// no document semantics — a room's document state is the facade's
-//// problem (P2P5), not the transport's.
+//// This layer moves **strings**. It negotiates the links, checks the
+//// transport lifecycle, and passes every payload that arrives on a data
+//// channel directly up to its caller. It never decodes a
+//// `crdt_wire.Envelope` value, it never touches a `crdt_core.Document`
+//// value, and it holds no document behaviour. The document state of a room
+//// belongs to the facade (P2P5), and not to the transport.
 ////
-//// Signaling is a callback adapter, not a WebSocket dependency. The three
-//// closures in `Signaling` carry offers, answers, and ICE candidates and
-//// nothing else: `SignalPayload` is a closed sum of exactly those three,
-//// so a document message cannot reach a signaling service even by
-//// mistake. Applications supply their own adapter — Phoenix, a hosted
-//// signaling product, or a hand-rolled invitation exchange.
+//// Signaling is a callback adapter, and not a dependency on a WebSocket. The
+//// three closures in `Signaling` carry an offer, an answer, and an ICE
+//// candidate, and nothing else. `SignalPayload` is a closed sum of exactly
+//// those three, so a document message cannot reach a signaling service, not
+//// even by mistake. An application supplies its own adapter, over Phoenix,
+//// over a hosted signaling product, or over an invitation exchange that the
+//// application writes.
 ////
 //// The `Rtc` record is the browser seam. `real_rtc()` returns the native
-//// `RTCPeerConnection` implementation in `p2p_transport_ffi.mjs`; tests
-//// pass a deterministic fake to `start_with_rtc` and drive negotiation,
-//// glare, and failures without a browser. Every mutable browser object
-//// lives behind that seam, keyed by peer ID — Gleam owns no
-//// `RTCPeerConnection`, no `RTCDataChannel`, and no listener list.
+//// `RTCPeerConnection` implementation in `p2p_transport_ffi.mjs`. A test
+//// gives a deterministic substitute to `start_with_rtc`, and it can then
+//// drive the negotiation, a collision, and a failure, with no browser. Every
+//// mutable browser object is behind that seam, keyed by peer id. Gleam owns
+//// no `RTCPeerConnection`, no `RTCDataChannel`, and no list of listeners.
 ////
-//// Negotiation is the standard perfect-negotiation algorithm with a
-//// deterministic role assignment layered on top:
+//// The negotiation is the standard perfect-negotiation algorithm, with a
+//// deterministic assignment of the roles on top of it:
 ////
-//// - the lexicographically **smaller** peer ID creates the offer and the
-////   one data channel, so exactly one channel exists per link — whichever
-////   signal first made the peer known, and however many times it is
-////   repeated (see `Signaling` for the exact discovery contract);
-//// - that same peer is the **impolite** one, so its offer wins a
-////   simultaneous-offer collision and the larger peer rolls back;
-//// - remote ICE candidates are queued until a remote description exists
-////   and then flushed in arrival order;
-//// - duplicate `PeerJoined`, offer, answer, candidate, close, and leave
-////   signals are all no-ops.
+//// - The peer with the **smaller** id, in lexicographic order, creates the
+////   offer and the one data channel. Exactly one channel thus exists on each
+////   link, whichever signal first made that peer known, and whatever number
+////   of times a signal repeats. See `Signaling` for the exact discovery
+////   contract.
+//// - That same peer is the **impolite** one. Its offer thus wins a collision
+////   of two simultaneous offers, and the peer with the larger id rolls back.
+//// - A remote ICE candidate waits in a queue until a remote description
+////   exists. The transport then applies the queue in arrival order.
+//// - A duplicate `PeerJoined`, offer, answer, candidate, close, and leave
+////   signal all change nothing.
 ////
-//// Every asynchronous browser rejection reaches `Callbacks.on_error` as a
-//// typed `p2p.P2pError` naming the peer. Nothing is thrown into the event
-//// loop and nothing is swallowed — the one suppression, an
-//// `addIceCandidate` failure while an offer is being ignored, is the
-//// suppression the perfect-negotiation algorithm itself prescribes.
+//// Every asynchronous rejection from the browser reaches `Callbacks.on_error`
+//// as a typed `p2p.P2pError` value that names the peer. The transport throws
+//// nothing into the event loop, and it hides nothing. There is one
+//// suppression: a failure of `addIceCandidate` while the transport ignores an
+//// offer. The perfect-negotiation algorithm prescribes that suppression.
 ////
 //// JavaScript target only.
 
@@ -74,13 +76,13 @@ import watershed/transport_js.{type Cell}
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// The only three things that ever cross a signaling service. There is no
-/// variant for document data, so `crdt_wire` envelopes cannot be routed
-/// through signaling however the adapter is written.
+/// The only three values that cross a signaling service. There is no variant
+/// for document data, so a signaling service cannot route a `crdt_wire`
+/// envelope, whatever the author of the adapter writes.
 ///
-/// `sdp` is the raw session description text. `candidate` is the JSON
-/// serialization of an `RTCIceCandidateInit` — opaque to this module,
-/// parsed only by the browser.
+/// `sdp` is the raw text of a session description. `candidate` is the JSON
+/// serialization of an `RTCIceCandidateInit` value. That string is opaque to
+/// this module, and the browser is the only reader of it.
 pub type SignalPayload {
   Offer(sdp: String)
   Answer(sdp: String)
@@ -90,39 +92,43 @@ pub type SignalPayload {
 @target(javascript)
 /// What a signaling adapter reports back to the transport.
 pub type Signal {
-  /// The room's membership at the moment this peer was admitted,
-  /// *complete*: every id in it is a member, and no member is missing.
+  /// The membership of the room at the moment that the service admitted this
+  /// peer. The list must be *complete*: every id in it is a member, and no
+  /// member is absent.
   ///
-  /// This is the one signal an adapter must send exactly once per
-  /// successful `join`, empty room included — it is the only way a caller
-  /// can tell "nobody is here" from "nobody has been announced yet", and
-  /// a document that cannot tell those apart either waits forever or
-  /// declares itself alone in a room that is not empty. An adapter that
-  /// knows the membership inside `join` reports it there; one that learns
-  /// it over a round trip reports it when it arrives.
+  /// An adapter must send this one signal exactly one time for each
+  /// successful `join` call, and that includes a join into an empty room.
+  /// This signal is the only way for a caller to separate "no client is here"
+  /// from "no client is announced yet". A document that cannot separate those
+  /// two conditions either waits without an end, or it declares that it is
+  /// alone in a room that is not empty. An adapter that knows the membership
+  /// inside `join` reports it there. An adapter that learns the membership
+  /// over a round trip reports it when that membership arrives.
   Roster(peers: List(String))
   PeerJoined(peer_id: String)
   PeerLeft(peer_id: String)
   Message(from: String, payload: SignalPayload)
-  /// Signaling failed *after* `join` returned: the service went away, the
-  /// socket closed, the roster never arrived. Reported as a typed
-  /// `SignalingFailed` through `Callbacks.on_error`, so a caller still
-  /// waiting to be admitted is answered rather than left hanging.
+  /// Signaling failed *after* `join` returned. The service became
+  /// unavailable, the socket closed, or the roster never arrived. The
+  /// transport reports this signal as a typed `SignalingFailed` value,
+  /// through `Callbacks.on_error`. A caller that still waits for admission
+  /// thus gets an answer, and it does not wait without an end.
   ///
-  /// It does not close the transport: data channels that are already open
-  /// keep working without signaling, which is the whole point of a mesh.
+  /// This signal does not close the transport. A data channel that is already
+  /// open continues to work without signaling, and that property is the
+  /// purpose of a mesh.
   Failed(detail: String)
 }
 
 @target(javascript)
-/// The membership token an adapter's `join` hands back, and that `send`
-/// and `leave` take again.
+/// The membership token that the `join` function of an adapter returns, and
+/// that `send` and `leave` take again.
 ///
-/// It carries the room and local peer ID rather than the adapter's own
-/// socket, because the three `Signaling` closures are built together and
-/// close over whatever state the adapter needs. Keeping the token free of
-/// adapter internals is what lets it stay a plain, sound Gleam value
-/// instead of an unchecked cast around a browser object.
+/// The token carries the room and the local peer id, and not the socket of the
+/// adapter. The three `Signaling` closures are built together, and they close
+/// over whatever state the adapter needs. The token thus contains no adapter
+/// internals, and it can stay a plain, sound Gleam value. It is not an
+/// unchecked cast around a browser object.
 pub opaque type SignalingSession {
   SignalingSession(room: String, peer_id: String)
 }
@@ -146,60 +152,64 @@ pub fn session_peer_id(session: SignalingSession) -> String {
 }
 
 @target(javascript)
-/// An application-supplied signaling adapter.
+/// A signaling adapter that the application supplies.
 ///
-/// `join` receives the room, the local peer ID, and the callback the
-/// adapter drives with every `Signal`; it fails with a human-readable
-/// detail, which the transport reports as `SignalingFailed`. `send`
-/// addresses one peer. `leave` is called exactly once, by `close`.
+/// `join` receives the room, the local peer id, and the callback that the
+/// adapter calls with every `Signal` value. It fails with a detail string for a
+/// person to read, and the transport reports that string as
+/// `SignalingFailed`. `send` addresses one peer. `close` calls `leave` exactly
+/// one time.
 ///
-/// ## Peer discovery contract
+/// ## The peer discovery contract
 ///
-/// For each pair of members, exactly one side offers: the one with the
-/// lexicographically **smaller** peer ID, which also creates the pair's
-/// single data channel. So the whole of what an adapter must guarantee is:
+/// For each pair of members, exactly one side offers. That side is the peer
+/// with the **smaller** id, in lexicographic order, and that peer also creates
+/// the one data channel of the pair. An adapter must thus guarantee one thing
+/// only:
 ///
-/// > the smaller of any two peers learns about the larger — by a
-/// > `PeerJoined(larger)`, or by any `Message` from it.
+/// > The smaller of any two peers learns about the larger one, through a
+/// > `PeerJoined(larger)` signal, or through any `Message` from that peer.
 ///
-/// Nothing more is required, and no event has to be repeated. In
-/// particular:
+/// Nothing more is necessary, and no event has to repeat. In particular:
 ///
-/// - **Order does not matter.** An `Offer` that overtakes its
-///   `PeerJoined` is enough on its own; the `PeerJoined` that follows adds
-///   nothing and creates no second channel.
-/// - **Duplicates are free.** `PeerJoined`, `PeerLeft`, offers, answers,
-///   and candidates are all idempotent, and a re-announced member is not
-///   renegotiated.
-/// - **One side is enough, if it is the right one.** Each one-sided shape
-///   carries exactly the pairs whose *smaller* peer is the side being
-///   told, and silently leaves the rest waiting. A roster to the newcomer
-///   carries every pair whose newcomer sorts first; a notice to the
-///   members already in the room carries every pair whose existing member
-///   sorts first. Neither covers a whole mesh on its own. Announcing to
-///   both sides — the common shape, and what the reference adapters do —
-///   satisfies the contract for every pair and costs one extra event.
+/// - **The order does not matter.** An `Offer` that arrives before its
+///   `PeerJoined` is sufficient by itself. The `PeerJoined` that follows adds
+///   nothing, and it creates no second channel.
+/// - **A duplicate costs nothing.** `PeerJoined`, `PeerLeft`, an offer, an
+///   answer, and a candidate are all idempotent, and the transport does not
+///   negotiate again with a member that an adapter announces a second time.
+/// - **One side is sufficient, if it is the correct side.** Each one-sided
+///   shape carries exactly the pairs whose *smaller* peer is the side that
+///   receives the announcement, and it leaves the other pairs waiting, with no
+///   report. A roster to the new peer carries every pair in which that new
+///   peer sorts first. A notice to the members that are already in the room
+///   carries every pair in which the existing member sorts first. Neither
+///   shape covers a whole mesh by itself. To announce to both sides satisfies
+///   the contract for every pair, and it costs one more event. That is the
+///   usual shape, and the reference adapters use it.
 ///
-/// A member that leaves and rejoins under the same peer ID is a new
-/// membership and must be announced again; a `PeerLeft` closes the peer,
-/// and the `PeerJoined` after it is what rebuilds the link.
+/// A member that leaves and joins again under the same peer id is a new
+/// membership, and the adapter must announce it again. A `PeerLeft` signal
+/// closes the peer, and the `PeerJoined` signal after it rebuilds the link.
 ///
-/// ## Roster contract
+/// ## The roster contract
 ///
-/// Connectivity is all the above requires. *Readiness* — a caller
-/// knowing whether it is alone in the room — needs one thing more, and it
-/// is the one obligation an adapter cannot skip:
+/// The rules above give connectivity. *Readiness*, which is a caller that
+/// knows whether it is alone in the room, needs one more thing. That is the
+/// one obligation that an adapter cannot omit:
 ///
-/// > exactly one `Roster` per successful `join`, listing the whole
-/// > membership at admission, the empty room included.
+/// > Exactly one `Roster` signal for each successful `join`, which lists the
+/// > whole membership at admission, and which the adapter sends also for an
+/// > empty room.
 ///
-/// The roster may be reported from inside `join` or a round trip later;
-/// it may repeat peers already announced, and peers may join or leave
-/// before it arrives. What it may not do is never arrive, or arrive
-/// missing a member: a caller that acts on "the room is empty" cannot
-/// distinguish a late roster from a true one. An adapter that discovers
-/// it cannot produce a roster — the socket died, the service never
-/// answered — reports `Failed` instead, so the wait ends either way.
+/// The adapter can report the roster from inside `join`, or one round trip
+/// later. That roster can repeat a peer that the adapter already announced,
+/// and a peer can join or leave before the roster arrives. The roster must not
+/// be absent, and it must not omit a member. A caller that acts on "the room
+/// is empty" cannot separate a late roster from a true one. An adapter that
+/// finds that it cannot produce a roster, because the socket closed or the
+/// service never answered, reports `Failed` instead. The wait thus ends in
+/// both conditions.
 pub type Signaling {
   Signaling(
     join: fn(String, String, fn(Signal) -> Nil) ->
@@ -214,10 +224,10 @@ pub type Signaling {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// One entry of the browser's `RTCConfiguration.iceServers`. Watershed
-/// ships no STUN or TURN defaults and no credentials: a caller that wants
-/// NAT traversal supplies its own servers, or opts into the
-/// `public_stun_servers` preset by naming it.
+/// One entry of the `RTCConfiguration.iceServers` list of the browser.
+/// watershed supplies no default STUN server, no default TURN server, and no
+/// credentials. A caller that wants NAT traversal supplies its own servers, or
+/// it selects the `public_stun_servers` preset by name.
 pub type IceServer {
   IceServer(
     urls: List(String),
@@ -233,7 +243,7 @@ pub fn ice_server(urls urls: List(String)) -> IceServer {
 }
 
 @target(javascript)
-/// Attach TURN credentials to an ICE server.
+/// Add TURN credentials to an ICE server.
 pub fn with_credentials(
   server: IceServer,
   username username: String,
@@ -243,22 +253,23 @@ pub fn with_credentials(
 }
 
 @target(javascript)
-/// Free public STUN, for callers who want NAT traversal with nothing
-/// deployed: Google's and Cloudflare's servers, two independent
-/// operators that publish these addresses for exactly this use, free,
-/// credential-free, and stable for years. STUN only tells a peer its
-/// own public address — a few request/response packets per connection —
-/// which is why it is free, and it is enough for most NAT pairs.
+/// Free public STUN servers, for a caller that wants NAT traversal and deploys
+/// nothing. The list holds the servers of Google and of Cloudflare. Those two
+/// operators are independent of each other, and each one publishes these
+/// addresses for exactly this use. The servers are free, they need no
+/// credentials, and they have been stable for years. A STUN server only tells
+/// a peer its own public address, in a few request and response packets for
+/// each connection. That small cost is the reason that STUN is free, and STUN
+/// is sufficient for most NAT pairs.
 ///
-/// What this preset cannot cover: two peers behind *symmetric* NATs
-/// have no direct path and need TURN, which carries the whole stream
-/// and therefore has no free public offering. A caller that needs those
-/// pairs appends its own TURN server via `ice_server` +
-/// `with_credentials`.
+/// This preset cannot cover one condition. Two peers behind *symmetric* NATs
+/// have no direct path, and they need TURN. A TURN server carries the whole
+/// stream, so there is no free public TURN service. A caller that needs those
+/// pairs adds its own TURN server, with `ice_server` and `with_credentials`.
 ///
-/// These are third-party best-effort services on someone else's
-/// infrastructure, which is the trade named on the tin; a deployment
-/// that wants a service level runs its own (e.g. coturn) instead.
+/// These are best-effort services from a third party, on the infrastructure of
+/// another company. That is the trade of this preset. A deployment that needs
+/// a service level runs its own servers instead, for example coturn.
 pub fn public_stun_servers() -> List(IceServer) {
   [
     ice_server(urls: ["stun:stun.l.google.com:19302"]),
@@ -267,10 +278,11 @@ pub fn public_stun_servers() -> List(IceServer) {
 }
 
 @target(javascript)
-/// The `RTCConfiguration` the peer connections are built with, as JSON.
-/// Emitted here rather than marshalled field by field so the FFI parses
-/// one browser-shaped object, and so the exact configuration a caller's
-/// ICE servers produce is assertable without a browser.
+/// The `RTCConfiguration` value that the peer connections are built with, as
+/// JSON. This function emits the whole object, and the code does not pass one
+/// field at a time. The FFI thus parses one object in the shape that the
+/// browser needs, and a test can assert the exact configuration that the ICE
+/// servers of a caller produce, with no browser.
 pub fn rtc_configuration_json(servers: List(IceServer)) -> String {
   json.object([
     #("iceServers", json.array(servers, encode_ice_server)),
@@ -293,24 +305,26 @@ fn encode_ice_server(server: IceServer) -> json.Json {
 }
 
 @target(javascript)
-/// The document data channel's label. One per peer, no others.
+/// The label of the document data channel. There is one such channel for each
+/// peer, and no other channel.
 pub const document_channel_label = "watershed-crdt-v1"
 
 @target(javascript)
-/// The document channel's options: unordered and reliable.
+/// The options of the document channel: unordered and reliable.
 ///
-/// `ordered: false` proves the protocol does not lean on one connection's
-/// delivery order. Reliability comes from omitting both `maxRetransmits`
-/// and `maxPacketLifeTime` — setting either one is what makes a channel
-/// lossy, so the correct encoding of "reliable" is their absence, not a
-/// large value.
+/// `ordered: false` proves that the protocol does not depend on the delivery
+/// order of one connection. The channel is reliable because the options omit
+/// `maxRetransmits` and `maxPacketLifeTime`. To set either one makes a channel
+/// lossy, so the correct encoding of "reliable" is the absence of both fields,
+/// and not a large value.
 pub fn document_channel_options_json() -> String {
   json.object([#("ordered", json.bool(False))]) |> json.to_string
 }
 
 @target(javascript)
-/// Peers allowed in one room, local peer included. Read from the core
-/// protocol limits so the transport and the wire agree by construction.
+/// The number of peers that one room permits, and that number includes the
+/// local peer. The value comes from the core protocol limits, so the transport
+/// and the wire agree by construction.
 pub fn room_limit() -> Int {
   crdt_wire.default_limits().room_peers
 }
@@ -320,19 +334,19 @@ pub fn room_limit() -> Int {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Transport lifecycle facts, enough for the later facade to render
-/// connection state and derive presence.
+/// The facts of the transport lifecycle. They are sufficient for the facade
+/// above to render the connection state and to derive the presence.
 ///
-/// Presence is `PeerOpen`/`PeerClosed`/`PeerCount` and nothing else: a
-/// peer counts as present exactly while its document data channel is
-/// open. None of this is written into `crdt_core`.
+/// The presence is `PeerOpen`, `PeerClosed`, and `PeerCount`, and nothing
+/// else. A peer is present exactly while its document data channel is open.
+/// None of this data goes into `crdt_core`.
 pub type Status {
   SignalingJoined(room: String, peer_id: String)
-  /// The adapter's `Roster`, after every peer in it has been tracked.
-  /// Emitted once per join, and the only status that means "the room's
-  /// membership is now completely known" — `known_peers` is already
-  /// populated when it arrives, so a caller may read it and conclude it
-  /// is alone.
+  /// The `Roster` signal of the adapter, after the transport tracks every peer
+  /// in it. The transport emits this status one time for each join. It is the
+  /// only status that means that the membership of the room is now completely
+  /// known. `known_peers` already holds every peer when this status arrives,
+  /// so a caller can read that list and conclude that it is alone.
   SignalingRoster(peers: List(String))
   SignalingLeft
   PeerConnecting(peer_id: String)
@@ -344,25 +358,26 @@ pub type Status {
 }
 
 @target(javascript)
-/// Where the transport reports to. `on_document` receives the peer ID and
-/// the raw string that arrived on its data channel, uninspected.
+/// The place that the transport reports to. `on_document` receives the peer id
+/// and the raw string that arrived on the data channel of that peer. The
+/// transport does not read that string.
 ///
-/// A `Status` describing a transition is always emitted *before* the
-/// application callback for that same transition, so the status stream
-/// stays complete and correctly ordered however the callback behaves —
-/// including an `on_peer_open` that immediately closes the peer it was
-/// handed. Every peer the stream announced as `PeerConnecting` is
-/// eventually retired with a `PeerClosed`, whether or not it ever opened;
-/// `on_peer_close` is the callback half of `on_peer_open` and fires only
-/// for peers that did.
+/// A `Status` value that describes a transition always goes out *before* the
+/// application callback for that same transition. The status stream thus stays
+/// complete and correctly ordered, whatever the callback does. That includes an
+/// `on_peer_open` callback that immediately closes the peer that it received.
+/// Every peer that the stream announced as `PeerConnecting` later gets a
+/// `PeerClosed` status, whether or not that peer opened. `on_peer_close` is the
+/// callback that pairs with `on_peer_open`, and it runs only for a peer that
+/// opened.
 ///
-/// These are application callbacks and the transport does not catch what
-/// they throw: an exception propagates out of whatever call ran it — a
-/// `close`, a `send`, or a browser event — and skips the callbacks after
-/// it. It cannot corrupt the transport. Every state write, every
-/// `RTCPeerConnection` teardown, and the signaling `leave` happen before
-/// the callbacks that report them, so a throwing callback leaves nothing
-/// half-closed.
+/// These are application callbacks, and the transport does not catch what they
+/// throw. An exception goes out of the call that ran the callback, which is a
+/// `close` call, a `send` call, or a browser event, and it skips the callbacks
+/// after that one. It cannot corrupt the transport. Every write to the state,
+/// every teardown of an `RTCPeerConnection`, and the signaling `leave` all
+/// happen before the callbacks that report them. A callback that throws thus
+/// leaves nothing half-closed.
 pub type Callbacks {
   Callbacks(
     on_peer_open: fn(String) -> Nil,
@@ -378,17 +393,18 @@ pub type Callbacks {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// What one peer connection reports back. Every callback names the remote
-/// peer, so one hook set serves the whole mesh.
+/// What one peer connection reports back. Every callback names the remote peer,
+/// so one set of hooks serves the whole mesh.
 ///
-/// `on_remote_description` fires after `setRemoteDescription` resolves and
-/// before any answer is produced — that is the moment queued ICE
-/// candidates become applicable, so it is a separate hook rather than an
-/// inference from `on_description`.
+/// `on_remote_description` runs after `setRemoteDescription` resolves, and
+/// before the browser produces an answer. At that moment the queued ICE
+/// candidates become applicable. That hook is thus separate, and a caller does
+/// not derive the moment from `on_description`.
 ///
-/// `on_failure` carries a stage tag (`open`, `offer`, `answer`,
-/// `candidate`, `channel`, `connection`, `send`) so a rejection can be
-/// classified before it becomes a `P2pError`.
+/// `on_failure` carries a stage tag, which is `open`, `offer`, `answer`,
+/// `candidate`, `channel`, `connection`, or `send`. The transport can thus
+/// classify a rejection before it converts that rejection into a `P2pError`
+/// value.
 pub type PeerHooks {
   PeerHooks(
     on_negotiation_needed: fn(String) -> Nil,
@@ -405,26 +421,27 @@ pub type PeerHooks {
 }
 
 @target(javascript)
-/// The `RTCPeerConnection` operations this transport needs, keyed by
-/// remote peer ID.
+/// The `RTCPeerConnection` operations that this transport needs, keyed by
+/// remote peer id.
 ///
-/// Every operation is fire-and-forget: the browser's promises are
-/// asynchronous, so results come back through `PeerHooks` rather than
-/// through return values. The two exceptions are `signaling_state` and
-/// `diagnostics`, which read the connection synchronously, and `send`,
-/// which reports whether the channel accepted the payload.
+/// Most operations expect no reply. The promises of the browser are
+/// asynchronous, so a result comes back through `PeerHooks` and not through a
+/// return value. There are three exceptions. `signaling_state` and
+/// `diagnostics` read the connection synchronously. `send` reports whether the
+/// channel accepted the payload.
 pub type Rtc {
   Rtc(
     /// Create the connection for `peer` from an `RTCConfiguration` JSON
-    /// string, wiring `PeerHooks`. Idempotent per peer.
+    /// string, and connect the `PeerHooks` callbacks. A second call for the
+    /// same peer has no more effect.
     open: fn(String, String, PeerHooks) -> Nil,
-    /// Create the one document data channel (offerer side only), from a
-    /// label and an `RTCDataChannelInit` JSON string.
+    /// Create the one document data channel, on the side that offers only,
+    /// from a label and an `RTCDataChannelInit` JSON string.
     open_channel: fn(String, String, String) -> Nil,
     /// Set a local description and report it through `on_description`.
     offer: fn(String) -> Nil,
-    /// Apply a remote offer — rolling back a local offer if one is
-    /// outstanding — then answer.
+    /// Apply a remote offer, and then answer it. If a local offer is
+    /// outstanding, the browser rolls that offer back first.
     accept_offer: fn(String, String) -> Nil,
     /// Apply a remote answer.
     accept_answer: fn(String, String) -> Nil,
@@ -432,21 +449,22 @@ pub type Rtc {
     add_candidate: fn(String, String) -> Nil,
     /// The connection's `signalingState`, or `"closed"` if unknown.
     signaling_state: fn(String) -> String,
-    /// Send one string on the document channel. `False` means the channel
-    /// was not open, or the browser refused the payload.
+    /// Send one string on the document channel. A `False` result means that
+    /// the channel was not open, or that the browser refused the payload.
     send: fn(String, String) -> Bool,
-    /// Detach every listener, close the channel and the connection, and
-    /// forget the peer. Idempotent.
+    /// Remove every listener, close the channel and the connection, and
+    /// remove the peer. A second call has no more effect.
     close: fn(String) -> Nil,
-    /// A JSON description of the peer's channel and connection state, for
-    /// status reporting and for asserting channel options against a real
-    /// browser.
+    /// A JSON description of the channel state and the connection state of the
+    /// peer, for a status report, and for an assertion about the channel
+    /// options against a real browser.
     diagnostics: fn(String) -> String,
   )
 }
 
 @target(javascript)
-/// An opaque native peer-connection registry, owned entirely by the FFI.
+/// An opaque native registry of the peer connections. The FFI owns all of
+/// it.
 pub type NativeRtc
 
 @target(javascript)
@@ -513,8 +531,8 @@ fn native_close(rtc: NativeRtc, peer: String) -> Nil
 fn native_diagnostics(rtc: NativeRtc, peer: String) -> String
 
 @target(javascript)
-/// The native `RTCPeerConnection` backend. Each call returns a fresh
-/// registry, so two transports in one page never share connections.
+/// The native `RTCPeerConnection` backend. Each call returns a new registry, so
+/// two transports on one page never share a connection.
 pub fn real_rtc() -> Rtc {
   let native = new_native_rtc()
   Rtc(
@@ -567,15 +585,17 @@ type State {
     room: String,
     peer_id: String,
     signaling: Signaling,
-    /// `None` until `join` returns, and again after `close`.
+    /// The value is `None` until `join` returns, and `None` again after
+    /// `close`.
     session: Option(SignalingSession),
     rtc: Rtc,
     configuration: String,
     callbacks: Callbacks,
     peers: Dict(String, Peer),
-    /// Signals an adapter delivered synchronously from inside `join`,
-    /// before it had returned the session `send` needs. Drained, in
-    /// arrival order, the moment the session is stored.
+    /// The signals that an adapter delivered synchronously from inside `join`,
+    /// before that call returned the session that `send` needs. The transport
+    /// applies them in arrival order, at the moment that it stores the
+    /// session.
     pending_signals: List(Signal),
     closed: Bool,
   )
@@ -585,43 +605,49 @@ type State {
 type Peer {
   Peer(
     id: String,
-    /// The larger peer ID yields in a collision, so the smaller peer's
-    /// offer — the only offer either side should be making — always wins.
+    /// The peer with the larger id yields in a collision. The offer of the peer
+    /// with the smaller id thus always wins, and that offer is the only offer
+    /// that either side must make.
     polite: Bool,
-    /// The smaller peer ID offers and creates the one data channel.
+    /// The peer with the smaller id offers, and it creates the one data
+    /// channel.
     offerer: Bool,
-    /// Whether `PeerConnecting` has been reported for this peer, so a
-    /// teardown knows whether it owes the status stream a `PeerClosed`.
+    /// Whether the transport reported `PeerConnecting` for this peer. A
+    /// teardown thus knows whether it owes a `PeerClosed` status to the
+    /// stream.
     announced: Bool,
-    /// Whether `open_channel` has been asked for. The offerer creates its
-    /// channel the first time the peer is observed by *any* route, and
-    /// this is what keeps a second observation from creating another.
+    /// Whether the transport requested `open_channel`. The peer that offers
+    /// creates its channel the first time that it observes the remote peer, by
+    /// *any* route. This field prevents a second channel on a second
+    /// observation.
     channel_requested: Bool,
-    /// Whether this peer has ever sent us an offer. Its offer carries its
-    /// own data channel, which arrives in-band, so creating one here as
-    /// well would put two channels on the link.
+    /// Whether this peer has ever sent an offer to this client. That offer
+    /// carries its own data channel, which arrives in band. To create a channel
+    /// here too would put two channels on the link.
     remote_offered: Bool,
     making_offer: Bool,
-    /// Set when an offer is dropped as an impolite collision, cleared by
-    /// the next accepted remote description. While set, a failure to add
-    /// a remote candidate is expected rather than an error: the candidate
-    /// belongs to the description that was refused.
+    /// The transport sets this flag when it drops an offer as an impolite
+    /// collision, and the next accepted remote description clears it. While the
+    /// flag is set, a failure to add a remote candidate is expected, and it is
+    /// not an error. That candidate belongs to the description that the
+    /// transport refused.
     ignore_offer: Bool,
     have_remote_description: Bool,
-    /// The last remote offer applied, so an exact duplicate can be dropped
-    /// instead of answered twice.
+    /// The last remote offer that the transport applied. It can thus drop an
+    /// exact duplicate, and it does not answer that offer two times.
     last_remote_offer: Option(String),
-    /// Remote candidates that arrived before a remote description, oldest
-    /// last. Reversed on flush so they are applied in arrival order.
+    /// The remote candidates that arrived before a remote description, oldest
+    /// last. The transport reverses the list when it applies the queue, so it
+    /// applies the candidates in arrival order.
     queued_candidates: List(String),
     open: Bool,
   )
 }
 
 @target(javascript)
-/// How many remote candidates may wait for a remote description. A peer
-/// that sends more than this before describing itself is flooding, not
-/// negotiating.
+/// The number of remote candidates that can wait for a remote description. A
+/// peer that sends more than this number before it describes itself is flooding
+/// the transport, and it is not negotiating.
 const max_queued_candidates = 128
 
 @target(javascript)
@@ -647,13 +673,14 @@ fn new_peer(local: String, remote: String) -> Peer {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Join a signaling room over real `RTCPeerConnection`s.
+/// Join a signaling room over real `RTCPeerConnection` objects.
 ///
-/// `peer_id` is this connection's collision-resistant session identity;
-/// it is both the signaling address and the tie-break key, so two live
-/// members of a room must never share one. `ice_servers` is applied with
-/// browser `RTCConfiguration` semantics and may be empty, which is the
-/// right choice on a LAN and for same-origin loopback.
+/// `peer_id` is the session identity of this connection, and a collision
+/// between two of them is very unlikely. That id is the signaling address and
+/// the tie-break key, so two live members of a room must never share one.
+/// `ice_servers` follows the `RTCConfiguration` behaviour of the browser, and
+/// the list can be empty. An empty list is correct on a LAN, and for a
+/// same-origin loopback.
 pub fn start(
   room room: String,
   peer_id peer_id: String,
@@ -672,9 +699,9 @@ pub fn start(
 }
 
 @target(javascript)
-/// `start` against a substituted browser seam, so negotiation, glare,
-/// candidate queueing, and failures can be driven deterministically
-/// without a browser.
+/// `start` against a replacement browser seam. A test can thus drive the
+/// negotiation, a collision, the candidate queue, and a failure
+/// deterministically, and it needs no browser.
 pub fn start_with_rtc(
   room room: String,
   peer_id peer_id: String,
@@ -729,20 +756,20 @@ fn validate(room: String, peer_id: String) -> Result(Nil, P2pError) {
 }
 
 @target(javascript)
-/// This transport's local peer ID.
+/// The local peer id of this transport.
 pub fn local_peer_id(transport: Transport) -> String {
   transport_js.get_cell(transport.cell).peer_id
 }
 
 @target(javascript)
-/// The room this transport joined.
+/// The room that this transport joined.
 pub fn room(transport: Transport) -> String {
   transport_js.get_cell(transport.cell).room
 }
 
 @target(javascript)
-/// Peers whose document data channel is open, sorted. This is the whole
-/// of p2p presence.
+/// The peers whose document data channel is open, sorted. This list is the
+/// whole of the p2p presence.
 pub fn open_peers(transport: Transport) -> List(String) {
   transport_js.get_cell(transport.cell).peers
   |> dict.values
@@ -752,13 +779,13 @@ pub fn open_peers(transport: Transport) -> List(String) {
 }
 
 @target(javascript)
-/// How many peers have an open document data channel.
+/// The number of peers that have an open document data channel.
 pub fn open_peer_count(transport: Transport) -> Int {
   list.length(open_peers(transport))
 }
 
 @target(javascript)
-/// Every peer this transport is tracking, open or still negotiating.
+/// Every peer that this transport tracks, open or still in a negotiation.
 pub fn known_peers(transport: Transport) -> List(String) {
   transport_js.get_cell(transport.cell).peers
   |> dict.keys
@@ -766,22 +793,24 @@ pub fn known_peers(transport: Transport) -> List(String) {
 }
 
 @target(javascript)
-/// Whether `close` has run.
+/// Whether `close` ran.
 pub fn is_closed(transport: Transport) -> Bool {
   transport_js.get_cell(transport.cell).closed
 }
 
 @target(javascript)
-/// A JSON description of one peer's channel and connection state.
+/// A JSON description of the channel state and the connection state of one
+/// peer.
 pub fn peer_diagnostics(transport: Transport, peer_id: String) -> String {
   let state = transport_js.get_cell(transport.cell)
   state.rtc.diagnostics(peer_id)
 }
 
 @target(javascript)
-/// Send one encoded document message to one peer. `False` means the peer
-/// has no open channel — the caller decides whether that warrants a state
-/// exchange later, so it is a return value rather than an error report.
+/// Send one encoded document message to one peer. A `False` result means that
+/// the peer has no open channel. The caller decides whether that condition
+/// needs a state exchange later, so this function returns a value and it
+/// reports no error.
 pub fn send(transport: Transport, peer_id: String, payload: String) -> Bool {
   let state = transport_js.get_cell(transport.cell)
   case state.closed, dict.get(state.peers, peer_id) {
@@ -791,8 +820,8 @@ pub fn send(transport: Transport, peer_id: String, payload: String) -> Bool {
 }
 
 @target(javascript)
-/// Send one encoded document message to every open peer, returning how
-/// many accepted it.
+/// Send one encoded document message to every open peer, and return the number
+/// of peers that accepted it.
 pub fn broadcast(transport: Transport, payload: String) -> Int {
   open_peers(transport)
   |> list.fold(0, fn(sent, peer_id) {
@@ -804,22 +833,22 @@ pub fn broadcast(transport: Transport, payload: String) -> Int {
 }
 
 @target(javascript)
-/// Close one peer. Idempotent.
+/// Close one peer. A second call has no more effect.
 pub fn close_peer(transport: Transport, peer_id: String) -> Nil {
   teardown(transport.cell, peer_id, None)
 }
 
 @target(javascript)
-/// Close every peer, drop the transport's grip on the browser, and leave
-/// signaling exactly once. Idempotent: a second call does nothing, and no
-/// signal delivered afterwards is acted on.
+/// Close every peer, release the browser objects that the transport holds, and
+/// leave the signaling room exactly one time. A second call does nothing, and
+/// the transport acts on no signal that arrives after it.
 ///
-/// Every release the transport owes the outside world — the browser
-/// objects and the signaling membership — happens *before* the first
-/// application callback runs, so an exception thrown by a status or peer
-/// callback cannot leave a room joined or a connection open. An exception
-/// still propagates to the caller of `close` and will skip the callbacks
-/// after it; the transport itself is fully closed either way.
+/// The transport releases everything that it owes to the outside world, which
+/// is the browser objects and the signaling membership, *before* the first
+/// application callback runs. An exception from a status callback or a peer
+/// callback thus cannot leave a room joined or a connection open. That
+/// exception still goes to the caller of `close`, and it skips the callbacks
+/// after it. The transport is fully closed in both conditions.
 pub fn close(transport: Transport) -> Nil {
   let cell = transport.cell
   let state = transport_js.get_cell(cell)
@@ -881,35 +910,36 @@ fn handle_signal(cell: Cell(State), signal: Signal) -> Nil {
 }
 
 @target(javascript)
-/// The room's complete membership. Every member is tracked exactly as if
-/// it had been announced one at a time, and only then is the roster
-/// reported — so a caller reading `known_peers` from the
-/// `SignalingRoster` status sees the whole room, and an empty roster
-/// really does mean an empty room.
+/// The complete membership of the room. The transport tracks every member in
+/// the same way as an announcement of one member at a time, and only then does
+/// it report the roster. A caller that reads `known_peers` from the
+/// `SignalingRoster` status thus sees the whole room, and an empty roster does
+/// mean an empty room.
 fn handle_roster(cell: Cell(State), peers: List(String)) -> Nil {
   list.each(peers, fn(peer_id) { handle_peer_joined(cell, peer_id) })
   emit(cell, SignalingRoster(peers))
 }
 
 @target(javascript)
-/// Signaling failed after `join` returned. Reported as a typed error and
-/// nothing else: open data channels do not need signaling, so tearing the
-/// mesh down here would destroy the connectivity that survived.
+/// Signaling failed after `join` returned. The transport reports a typed error
+/// and does nothing more. An open data channel needs no signaling, so to close
+/// the mesh here would destroy the connectivity that stayed.
 fn signaling_failed(cell: Cell(State), detail: String) -> Nil {
   transport_js.get_cell(cell).callbacks.on_error(p2p.SignalingFailed(detail))
 }
 
 @target(javascript)
-/// Track a peer, creating its connection, and — when we are the offerer —
-/// its one data channel.
+/// Track a peer and create its connection. When this client is the peer that
+/// offers, also create the one data channel.
 ///
-/// A peer already tracked is not created again, but its channel is still
-/// ensured: an adapter may report a member the transport first met as an
-/// inbound signal, or re-report one whose `createDataChannel` failed, and
-/// neither may be left without the channel that drives negotiation.
+/// The function does not create a peer that it already tracks, and it still
+/// checks the channel of that peer. An adapter can report a member that the
+/// transport first met as an inbound signal, and it can report a member whose
+/// `createDataChannel` call failed. Neither member can stay without the channel
+/// that drives the negotiation.
 ///
-/// The room cap is checked first: the ninth member of a room never gets an
-/// `RTCPeerConnection`, only a `RoomFull`.
+/// The function checks the room limit first. The ninth member of a room gets no
+/// `RTCPeerConnection`, and it gets a `RoomFull` error only.
 fn handle_peer_joined(cell: Cell(State), peer_id: String) -> Nil {
   case ensure_peer(cell, peer_id) {
     Error(Nil) -> Nil
@@ -927,18 +957,18 @@ fn handle_peer_joined(cell: Cell(State), peer_id: String) -> Nil {
 }
 
 @target(javascript)
-/// Create the one document data channel for a peer we offer to, if it does
-/// not have one already.
+/// Create the one document data channel for a peer that this client offers to,
+/// if that peer has no channel yet.
 ///
-/// Idempotent and route-independent: whichever event first made this peer
-/// known — a `PeerJoined` for a newcomer, a `PeerJoined` for a member that
-/// was already there, or a repeat of either — the offerer ends up with
-/// exactly one channel, and the answering side receives it through
-/// `ondatachannel`.
+/// The function is idempotent, and the route does not matter. The peer that
+/// offers ends with exactly one channel, whichever event first made the remote
+/// peer known. That event is a `PeerJoined` for a new peer, a `PeerJoined` for
+/// a member that was already in the room, or a repeat of either one. The side
+/// that answers receives the channel through `ondatachannel`.
 ///
-/// Two peers are left alone. One that has already offered is sending its
-/// own channel in-band, so a second here would be one too many; one whose
-/// channel is already open needs nothing.
+/// The function does nothing for two kinds of peer. A peer that already offered
+/// sends its own channel in band, so a second channel here would be one too
+/// many. A peer whose channel is already open needs nothing.
 fn ensure_channel(cell: Cell(State), peer_id: String) -> Nil {
   with_peer(cell, peer_id, fn(state, peer) {
     case
@@ -963,8 +993,9 @@ fn ensure_channel(cell: Cell(State), peer_id: String) -> Nil {
 }
 
 @target(javascript)
-/// Build the browser connection for a freshly tracked peer and report it
-/// as connecting. `False` means the peer did not survive construction.
+/// Build the browser connection for a peer that the transport just started to
+/// track, and report that peer as connecting. A `False` result means that the
+/// construction of the peer failed.
 fn open_connection(cell: Cell(State), peer_id: String) -> Bool {
   let state = transport_js.get_cell(cell)
   state.rtc.open(peer_id, state.configuration, hooks(cell))
@@ -979,8 +1010,9 @@ fn open_connection(cell: Cell(State), peer_id: String) -> Bool {
 }
 
 @target(javascript)
-/// Find or create a peer, reporting whether it was created. `Error(Nil)`
-/// means the peer must not exist: it is us, we are closed, or the room is
+/// Find a peer, or create one, and report whether the function created it. An
+/// `Error(Nil)` result means that the peer must not exist. That occurs when the
+/// peer is this client, when this transport is closed, and when the room is
 /// full.
 fn ensure_peer(
   cell: Cell(State),
@@ -1014,15 +1046,17 @@ fn ensure_peer(
 }
 
 @target(javascript)
-/// Ensure the peer an inbound offer names, marking that it has offered.
+/// Make sure that the peer which an inbound offer names exists, and record that
+/// the peer offered.
 ///
-/// A peer can turn up this way — an offer that beat its `PeerJoined`
-/// through the signaling service, or a member no adapter ever announced —
-/// and it gets a connection but no data channel of ours, whichever side it
-/// is: an offer carries the offerer's own channel, which arrives in-band
-/// through `ondatachannel`, so creating a second one here would put two
-/// channels on one link. A `PeerJoined` arriving afterwards will not create
-/// one either, for the same reason.
+/// A peer can arrive on this path in two ways: an offer that reached the
+/// signaling service before its `PeerJoined` signal, and a member that no
+/// adapter announced. Such a peer gets a connection, and it gets no data
+/// channel from this client, whichever side it is. An offer carries the channel
+/// of the peer that offers, and that channel arrives in band through
+/// `ondatachannel`. To create a second channel here would put two channels on
+/// one link. A `PeerJoined` signal that arrives after the offer also creates no
+/// channel, for the same reason.
 fn ensure_peer_for_offer(
   cell: Cell(State),
   peer_id: String,
@@ -1046,25 +1080,27 @@ fn ensure_peer_for_offer(
 }
 
 @target(javascript)
-/// Perfect negotiation's collision guard.
+/// The collision guard of the perfect-negotiation algorithm.
 ///
-/// A collision is a remote offer arriving while we have an offer of our
-/// own outstanding. The impolite peer — the lexicographically smaller ID,
-/// which is also the only peer that should be offering — refuses it and
-/// remembers that refusal so the candidates belonging to the refused
-/// description can fail quietly. The polite peer accepts, and the browser
-/// rolls its own local offer back as part of applying the remote one.
+/// A collision occurs when a remote offer arrives while this client has an
+/// offer of its own outstanding. The impolite peer is the peer with the smaller
+/// id, in lexicographic order, and that peer is also the only peer that must
+/// offer. That peer refuses the remote offer, and it records that refusal, so
+/// the candidates of the refused description can fail without a report. The
+/// polite peer accepts the remote offer, and the browser rolls its own local
+/// offer back as part of that step.
 ///
-/// This is also what makes a duplicate or reordered offer harmless: the
-/// second copy either lands in a stable state, where re-applying it is a
-/// no-op renegotiation, or it lands in a collision and is resolved by the
-/// same rule as the first.
+/// This rule also makes a duplicate offer and a reordered offer harmless. The
+/// second copy arrives in a stable state, where to apply it again is a
+/// renegotiation that changes nothing. Or it arrives in a collision, and the
+/// same rule resolves it.
 ///
-/// ponytail: between *conforming* peers this collision cannot happen — the
-/// deterministic role assignment (the smaller ID is the only offerer) already
-/// excludes simultaneous offers. The glare/polite-peer machinery is kept as
-/// belt-and-braces against a non-conforming peer that offers out of turn;
-/// it becomes deletable if the mesh ever enforces conformance at admission.
+/// ponytail: this collision cannot occur between two *conforming* peers. The
+/// deterministic assignment of the roles, where the peer with the smaller id is
+/// the only peer that offers, already prevents two simultaneous offers. This
+/// collision machinery stays as a protection against a peer that does not
+/// conform and offers out of turn. You can delete it if the mesh ever checks
+/// conformance at admission.
 fn handle_offer(cell: Cell(State), from: String, sdp: String) -> Nil {
   case ensure_peer_for_offer(cell, from) {
     Error(Nil) -> Nil
@@ -1096,10 +1132,11 @@ fn handle_offer(cell: Cell(State), from: String, sdp: String) -> Nil {
 }
 
 @target(javascript)
-/// An answer is only meaningful against an outstanding local offer.
-/// Anything else — a duplicate, a reordered copy, an answer to an offer
-/// we rolled back — is dropped rather than pushed into the browser, which
-/// would reject it asynchronously and report a failure that is not one.
+/// An answer has a meaning only against an outstanding local offer. The
+/// function drops every other answer, which is a duplicate, a reordered copy,
+/// and an answer to an offer that the browser rolled back. It does not give
+/// such an answer to the browser. The browser would refuse it asynchronously,
+/// and it would then report a failure that is not a failure.
 fn handle_answer(cell: Cell(State), from: String, sdp: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case dict.get(state.peers, from) {
@@ -1113,15 +1150,17 @@ fn handle_answer(cell: Cell(State), from: String, sdp: String) -> Nil {
 }
 
 @target(javascript)
-/// Remote candidates are useless — and rejected by the browser — until a
-/// remote description exists, so they queue until one does and are then
-/// flushed in arrival order.
+/// A remote candidate has no use until a remote description exists, and the
+/// browser refuses it before that point. Each candidate thus waits in a queue,
+/// and the transport applies the queue in arrival order after a description
+/// arrives.
 ///
-/// A candidate for a peer we do not know is dropped rather than allowed to
-/// create one. `PeerJoined` and an offer are the two events that introduce
-/// a peer; a candidate that beat both of them describes a connection that
-/// does not exist yet, and letting it conjure a peer would also let a
-/// flooding peer reappear the instant its flood closed it.
+/// The function drops a candidate for a peer that the transport does not know,
+/// and it does not create that peer. A `PeerJoined` signal and an offer are the
+/// two events that introduce a peer. A candidate that arrived before both of
+/// them describes a connection that does not exist yet. To let that candidate
+/// create a peer would also let a flooding peer return at the moment that its
+/// flood closed it.
 fn handle_candidate(cell: Cell(State), from: String, candidate: String) -> Nil {
   let known = transport_js.get_cell(cell).peers
   case dict.get(known, from) {
@@ -1280,13 +1319,13 @@ fn handle_message(cell: Cell(State), peer_id: String, data: String) -> Nil {
 }
 
 @target(javascript)
-/// The document channel carries strings. Anything else is a peer speaking
-/// a protocol this transport does not have, so it is reported and the
-/// peer is closed rather than skipped.
+/// The document channel carries strings. Every other value comes from a peer
+/// that uses a protocol that this transport does not have. The transport thus
+/// reports that value and closes the peer, and it does not skip the value.
 ///
-/// The peer is dropped before the report goes out: a foreign message means
-/// this connection is finished either way, and an `on_error` that throws
-/// must not be able to keep it alive.
+/// The function removes the peer before it sends the report. A foreign message
+/// means that this connection is finished, and an `on_error` callback that
+/// throws must not be able to keep that connection alive.
 fn handle_invalid_message(
   cell: Cell(State),
   peer_id: String,
@@ -1307,17 +1346,18 @@ fn handle_invalid_message(
 }
 
 @target(javascript)
-/// ICE state is reported as status. `failed` and `closed` are terminal
-/// without a restart, so they also tear the peer down — leaving it in the
-/// peer set would overstate the mesh.
+/// The transport reports the ICE state as a status. The `failed` state and the
+/// `closed` state are terminal without a restart, so they also close the peer.
+/// To keep such a peer in the peer set would report a mesh that is larger than
+/// the real one.
 ///
-/// A terminal state drops the peer before the status is emitted, for the
-/// same reason a foreign message does: the connection is over whatever the
-/// application's callback does with the news.
+/// A terminal state removes the peer before the transport emits the status, for
+/// the same reason as a foreign message. The connection is over, whatever the
+/// callback of the application does with the report.
 ///
-/// `disconnected` is deliberately not terminal: the browser recovers from
-/// it on its own, and treating it as a loss would churn presence on every
-/// brief network hiccup.
+/// The `disconnected` state is not terminal, and that is deliberate. The
+/// browser recovers from it by itself, and to treat it as a loss would change
+/// the presence on every short network fault.
 fn handle_ice_state(cell: Cell(State), peer_id: String, ice: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case dict.get(state.peers, peer_id) {
@@ -1342,30 +1382,35 @@ fn handle_ice_state(cell: Cell(State), peer_id: String, ice: String) -> Nil {
 }
 
 @target(javascript)
-/// Every asynchronous browser rejection lands here and leaves as a typed
-/// error naming the peer and the stage that failed.
+/// Every asynchronous rejection from the browser arrives here, and it leaves as
+/// a typed error that names the peer and the stage that failed.
 ///
-/// A failed description stage clears the negotiation flags the attempt set,
-/// with `finally` semantics: `making_offer` survives a rejected
-/// `setLocalDescription` otherwise, and a peer whose `making_offer` is
-/// stuck sees every later remote offer as a collision and — when it is the
-/// impolite side — refuses all of them, which wedges the link for good. A
-/// failed answer stage forgets the offer it could not apply too, so a
-/// retransmission of that same offer is answered rather than dropped as a
-/// duplicate. A failed channel stage forgets the request, so the next time
-/// the peer is observed the channel is attempted again.
+/// A description stage that fails clears the negotiation flags that the attempt
+/// set, and it clears them in every condition. Without that step,
+/// `making_offer` would stay set after a rejected `setLocalDescription` call. A
+/// peer whose `making_offer` flag stays set reads every later remote offer as a
+/// collision. When that peer is the impolite side, it refuses every one of
+/// them, and the link then never works again.
 ///
-/// The one exception to reporting is the suppression perfect negotiation
-/// prescribes: a candidate cannot be applied to a description we refused,
-/// so while `ignore_offer` is set that particular failure is expected and
-/// is not reported. Every other candidate failure is.
+/// An answer stage that fails also removes the offer that it could not apply. A
+/// second copy of that same offer thus gets an answer, and the transport does
+/// not drop it as a duplicate.
 ///
-/// Two stages are terminal and also close the peer: `open`, where no
-/// connection was ever constructed, and `connection`, where the browser
-/// has declared the established one failed. The rest are reported and
-/// left alone — a description or a send can fail without the link being
-/// beyond repair, and closing a peer is the facade's call once it has the
-/// error.
+/// A channel stage that fails removes the request. The transport thus tries the
+/// channel again the next time that it observes the peer.
+///
+/// There is one exception to the report, and the perfect-negotiation algorithm
+/// prescribes it. The browser cannot apply a candidate to a description that
+/// this client refused. While `ignore_offer` is set, that one failure is
+/// expected, and the transport does not report it. It reports every other
+/// candidate failure.
+///
+/// Two stages are terminal, and they also close the peer. In the `open` stage
+/// the transport never constructed a connection. In the `connection` stage the
+/// browser declared that an established connection failed. The transport
+/// reports every other stage and changes nothing. A description or a send can
+/// fail while the link is still usable, and the facade decides whether to close
+/// a peer, after it receives the error.
 fn handle_failure(
   cell: Cell(State),
   peer_id: String,
@@ -1397,9 +1442,9 @@ fn handle_failure(
 }
 
 @target(javascript)
-/// Undo the bookkeeping a failed stage left behind, so the next signal is
-/// judged against what the connection actually is rather than against an
-/// attempt that never landed.
+/// Remove the records that a failed stage left. The transport thus judges the
+/// next signal against the real state of the connection, and not against an
+/// attempt that never completed.
 fn clear_negotiation_flags(
   cell: Cell(State),
   peer_id: String,
@@ -1425,10 +1470,10 @@ fn clear_negotiation_flags(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Run `action` only for a peer this transport still tracks on a
-/// transport that is still open. A hook that fires for a peer we have
-/// already torn down is not an error — the browser can have a callback in
-/// flight when `close` runs — it is simply nothing to do.
+/// Run `action` only for a peer that this transport still tracks, and only on a
+/// transport that is still open. A hook that runs for a peer that the transport
+/// already closed is not an error. The browser can have a callback in flight
+/// when `close` runs. There is simply nothing to do.
 fn with_peer(
   cell: Cell(State),
   peer_id: String,
@@ -1491,16 +1536,16 @@ fn emit_peer_count(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Drop one peer: forget it first, then close the browser objects, then
-/// report. Forgetting first is what makes this idempotent under
-/// re-entrant callbacks — a listener that fires while the connection is
-/// closing finds no peer and does nothing.
+/// Remove one peer. The function removes the record first, then it closes the
+/// browser objects, and then it reports. The order makes the function
+/// idempotent under a re-entrant callback: a listener that runs while the
+/// connection closes finds no peer, and it does nothing.
 ///
-/// Every peer the status stream announced as `PeerConnecting` is closed
-/// with a `PeerClosed`, open or not, so a peer that dies mid-negotiation
-/// cannot leave a facade rendering it as connecting for ever. The
-/// `on_peer_close` *callback* stays paired with `on_peer_open` and fires
-/// only for a peer that opened.
+/// Every peer that the status stream announced as `PeerConnecting` gets a
+/// `PeerClosed` status, whether or not it opened. A peer that fails during a
+/// negotiation thus cannot leave a facade that renders it as connecting without
+/// an end. The `on_peer_close` *callback* stays paired with `on_peer_open`, and
+/// it runs only for a peer that opened.
 fn teardown(
   cell: Cell(State),
   peer_id: String,
@@ -1513,14 +1558,15 @@ fn teardown(
 }
 
 @target(javascript)
-/// The half of a teardown that must happen before any application
-/// callback: forget the peer and close its browser objects. `None` means
-/// there was no such peer, so nothing is owed a report either.
+/// The half of a teardown that must run before every application callback:
+/// remove the peer and close its browser objects. A `None` result means that no
+/// such peer existed, so the transport owes no report either.
 ///
-/// Split out because two paths — a terminal ICE state and a foreign
-/// message — report what happened *before* the peer is gone, and a
-/// callback that throws there must not be able to leave a dead connection
-/// tracked, addressable by `broadcast`, and holding a room slot.
+/// This function is separate because two paths report the event *before* the
+/// peer is gone. Those paths are a terminal ICE state and a foreign message. A
+/// callback that throws there must not be able to leave a dead connection in
+/// the peer set, where `broadcast` can address it and where it holds a place in
+/// the room.
 fn drop_peer(cell: Cell(State), peer_id: String) -> Option(Peer) {
   let state = transport_js.get_cell(cell)
   case dict.get(state.peers, peer_id) {
@@ -1537,8 +1583,8 @@ fn drop_peer(cell: Cell(State), peer_id: String) -> Option(Peer) {
 }
 
 @target(javascript)
-/// The reporting half of a teardown, for a peer `drop_peer` has already
-/// forgotten.
+/// The reporting half of a teardown, for a peer that `drop_peer` already
+/// removed.
 fn report_teardown(
   cell: Cell(State),
   peer: Peer,

@@ -13,11 +13,8 @@
 //// let events = watershed_beam.subscribe(map)
 //// ```
 ////
-//// Reads are optimistic (local pending edits overlay the sequenced state);
-//// convergence is guaranteed by server sequencing. Beyond the root map,
-//// `create_map` makes additional (initially detached) maps whose handles
-//// (`handle_of`) can be stored as values and `resolve`d by peers, enabling
-//// nested collaborative structures.
+//// A read is optimistic: the local pending edits go over the sequenced state.
+//// The server sequencing guarantees that the replicas converge.
 ////
 //// For a schema-typed view, `typed` wraps a map as a `TypedMap(s)` and the
 //// `set_field`/`get_field`/`read`/`write` functions read and write through a
@@ -210,19 +207,20 @@ pub opaque type SharedText {
 }
 
 @target(erlang)
-/// A stable position in a `SharedText`'s optimistic string that survives
-/// concurrent edits and merges. Opaque so callers can't construct one
-/// without going through `text_anchor_at`, `text_start_anchor`,
-/// `text_end_anchor`, or `text_anchor_from_json`.
+/// A stable position in the optimistic string of a `SharedText` value. It stays
+/// correct across concurrent edits and merges. The type is opaque, so a caller
+/// must use `text_anchor_at`, `text_start_anchor`, `text_end_anchor`, or
+/// `text_anchor_from_json` to construct one.
 pub type TextAnchor =
   text_kernel.TextAnchor
 
 @target(erlang)
-/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
-/// gap. `bias_before` binds to the following grapheme (inserts at the gap
-/// push it right); `bias_after` binds to the preceding grapheme (inserts at
-/// the gap land after it). Re-exported so callers don't need a direct
-/// `lattice_sequence` dependency to build one.
+/// The grapheme that a `TextAnchor` value binds to across a concurrent insert
+/// at its gap. `bias_before` binds it to the grapheme after the gap, so an
+/// insert at the gap moves the anchor to the right. `bias_after` binds it to
+/// the grapheme before the gap, so an insert at the gap goes after the anchor.
+/// This type is re-exported here, so a caller needs no direct dependency on
+/// `lattice_sequence` to build an anchor.
 pub type Bias =
   text_kernel.Bias
 
@@ -233,8 +231,8 @@ pub const bias_before: Bias = Before
 pub const bias_after: Bias = After
 
 @target(erlang)
-/// Connect to a document, blocking until the handshake completes and the
-/// full op history has been replayed locally.
+/// Connect to a document. The function waits until the handshake completes and
+/// the client replays the full op history.
 pub fn connect(
   host host: String,
   port port: Int,
@@ -303,9 +301,10 @@ fn build_connect_message(
 }
 
 @target(erlang)
-/// Connect through an injected transport — the seam the in-memory `sluice`
-/// test driver uses. Unlike `connect`, this does *not* block on the handshake:
-/// the sluice completes it on the first `settle`. Not for production use.
+/// Connect through an injected transport. The in-memory `sluice` test driver
+/// uses this seam. Unlike `connect`, this function does *not* wait for the
+/// handshake. The sluice completes that handshake on the first `settle` call.
+/// Do not use this function in production.
 pub fn connect_via(
   tenant tenant: String,
   document document: String,
@@ -327,24 +326,26 @@ pub fn connect_via(
 }
 
 @target(erlang)
-/// The runtime actor behind a document. Exposed for the `sluice` test driver,
-/// which barriers the actor (a synchronous call flushes its mailbox) to make
-/// delivery deterministic. Not part of the app-facing API.
+/// The runtime actor behind a document. This function is public for the
+/// `sluice` test driver, which applies a barrier to that actor. A synchronous
+/// call empties the mailbox of the actor, and the delivery is thus
+/// deterministic. This function is not part of the API for an application.
 pub fn runtime_subject(document: Document(root)) -> Subject(runtime_beam.Msg) {
   document.runtime
 }
 
 @target(erlang)
-/// The document's root map (channel address `"root"`).
+/// The root map of the document, at the channel address `"root"`.
 pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
 @target(erlang)
-/// Create a new map channel. The map starts *detached* — local-only, its
-/// edits produce no ops — until its handle (`handle_of`) is first stored into
-/// an attached map, at which point the runtime attaches it (snapshot and all)
-/// and starts syncing its edits.
+/// Create a new map channel. The map starts *detached*, which means that it is
+/// local only and its edits produce no op. It stays detached until a caller
+/// stores its handle, from `handle_of`, into an attached map. The runtime then
+/// attaches it, with its snapshot, and it starts to synchronize the edits of
+/// that map.
 pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   process.call(
     document.runtime,
@@ -357,23 +358,25 @@ pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `map`, suitable for storing as a value
-/// in another map: `{"type": "__fluid_handle__", "url": "/<address>"}`.
+/// The Fluid handle marker that references `map`. Store it as a value in
+/// another map. Its shape is
+/// `{"type": "__fluid_handle__", "url": "/<address>"}`.
 pub fn handle_of(map: SharedMap) -> Json {
   handle.encode_handle(map.address)
 }
 
 @target(erlang)
-/// Whether a value read from a map is a handle marker (see `resolve`).
+/// Whether a value that you read from a map is a handle marker. See
+/// `resolve`.
 pub fn is_handle(value: Json) -> Bool {
   handle.parse_handle(value) != Error(Nil)
 }
 
 @target(erlang)
-/// Resolve a handle value (from `get`/`entries`) to the SharedMap it
-/// references. Errors are retryable: a handle read from a remote value can be
-/// transiently unresolved while the referenced channel's attach op is still
-/// in flight.
+/// Resolve a handle value, from `get` or from `entries`, to the SharedMap that
+/// it references. A caller can retry after an error. A handle from a remote
+/// value can stay unresolved for a short time, while the attach op of the
+/// channel that it references is still in flight.
 pub fn resolve(
   document: Document(root),
   value: Json,
@@ -403,51 +406,54 @@ pub fn resolve(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// A SharedMap viewed through a schema `s`.
+/// A SharedMap value, viewed through a schema `s`.
 pub opaque type TypedMap(s) {
   TypedMap(map: SharedMap)
 }
 
 @target(erlang)
-/// View a raw map through a schema. The schema is chosen by how the result is
-/// used (or by annotation): `let players: TypedMap(Roster) = typed(map)`.
+/// View a raw map through a schema. The use of the result selects the schema,
+/// and an annotation can also select it, for example
+/// `let players: TypedMap(Roster) = typed(map)`.
 pub fn typed(map: SharedMap) -> TypedMap(s) {
   TypedMap(map: map)
 }
 
 @target(erlang)
-/// The underlying raw map, for dropping back to the untyped API.
+/// The raw map below the typed view, to return to the untyped API.
 pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
   typed_map.map
 }
 
 @target(erlang)
-/// The document's root map, viewed through the document's own schema.
+/// The root map of the document, viewed through the schema of that document.
 ///
-/// One tag per document. The tag comes from the `Document(root)` you pass, so
-/// it is fixed wherever your app writes the type concretely — the function
-/// that receives the connected document, or the state record holding it:
+/// One document has one tag. The tag comes from the `Document(root)` value that
+/// you pass, so it is fixed at the position where your application writes the
+/// type concretely. That position is the function that receives the connected
+/// document, or the state record that holds it:
 ///
 /// ```gleam
 /// fn run(doc: watershed_beam.Document(GameRoot)) -> Nil
 /// ```
 ///
-/// Every `root_typed` on that document then agrees, and a second schema at the
-/// root is a compile error rather than a silently shared key namespace.
+/// Every `root_typed` call on that document then agrees. A second schema at the
+/// root is a compile error, and not a key namespace that two schemas share
+/// quietly.
 ///
-/// A caller generic in `root` may still call this, but an abstract tag has no
-/// fields, so it cannot read or write the root.
+/// A caller that is generic in `root` can still call this function. But an
+/// abstract tag has no field, so that caller cannot read or write the root.
 ///
-/// `typed(root(document))` remains available and remains unchecked; it is the
-/// deliberate way to view the root through a foreign schema, and unlike the
-/// old signature it now has to be written out loud.
+/// `typed(root(document))` is still available, and it is still unchecked. It is
+/// the deliberate way to view the root through a foreign schema. Unlike the old
+/// signature, you must now write it explicitly.
 pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
 @target(erlang)
-/// Create a new (detached) map, viewed through a schema. Same lifecycle as
-/// `create_map`.
+/// Create a new detached map, viewed through a schema. The lifecycle is the
+/// same as for `create_map`.
 pub fn create_typed_map(
   document: Document(root),
 ) -> Result(TypedMap(s), String) {
@@ -455,20 +461,20 @@ pub fn create_typed_map(
 }
 
 @target(erlang)
-/// Optimistically write a typed field.
+/// Write a typed field optimistically.
 pub fn set_field(typed_map: TypedMap(s), field: Field(s, a), value: a) -> Nil {
   set(typed_map.map, schema.field_key(field), schema.encode_value(field, value))
 }
 
 @target(erlang)
-/// Optimistically delete a typed field.
+/// Delete a typed field optimistically.
 pub fn delete_field(typed_map: TypedMap(s), field: Field(s, a)) -> Nil {
   delete(typed_map.map, schema.field_key(field))
 }
 
 @target(erlang)
-/// Read a typed field. `Ok(None)` when the key is absent; `Error(Invalid)`
-/// when the stored value does not decode to `a`.
+/// Read a typed field. The result is `Ok(None)` when the key is absent, and
+/// `Error(Invalid)` when the stored value does not decode to the type `a`.
 pub fn get_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -480,7 +486,8 @@ pub fn get_field(
 }
 
 @target(erlang)
-/// Read a typed field that is expected to exist. `Error(Missing)` when absent.
+/// Read a typed field that must exist. The result is `Error(Missing)` when the
+/// key is absent.
 pub fn get_required(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -493,7 +500,8 @@ pub fn get_required(
 }
 
 @target(erlang)
-/// Whether a typed field is present (does not check that it decodes).
+/// Whether a typed field is present. The function does not check that the
+/// value decodes.
 pub fn has_field(typed_map: TypedMap(s), field: Field(s, a)) -> Bool {
   has(typed_map.map, schema.field_key(field))
 }
@@ -509,9 +517,10 @@ pub fn set_child(
 }
 
 @target(erlang)
-/// Resolve the nested typed map referenced by a child field. `Ok(None)` when
-/// the key is absent; errors from `resolve` (including transient
-/// not-yet-attached ones) are surfaced as-is and are retryable.
+/// Resolve the nested typed map that a child field references. The result is
+/// `Ok(None)` when the key is absent. The function returns an error from
+/// `resolve` without a change, and a caller can retry after it. That includes
+/// the short-lived error for a channel that is not attached yet.
 pub fn resolve_child(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -525,8 +534,9 @@ pub fn resolve_child(
 }
 
 @target(erlang)
-/// Read the whole map as a typed record through a schema: one `Result`, after
-/// the schema's version and seal checks. See `watershed/schema`.
+/// Read the whole map as a typed record, through a schema. The function returns
+/// one `Result` value, after the version check and the seal check of that
+/// schema. See `watershed/schema`.
 pub fn read(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -535,9 +545,10 @@ pub fn read(
 }
 
 @target(erlang)
-/// Write a whole record through a schema, as per-key ops — so concurrent
-/// edits to sibling keys still merge (the record view is never a clobbering
-/// blob). Optional props that are `None` delete their key.
+/// Write a whole record through a schema, as one op for each key. Concurrent
+/// edits to two other keys thus still merge, and the record view never
+/// overwrites the whole map. An optional prop with the value `None` deletes its
+/// key.
 pub fn write(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -552,8 +563,9 @@ pub fn write(
 }
 
 @target(erlang)
-/// Stamp a versioned schema's version marker once (typically right after
-/// creating the map). A no-op for unversioned schemas.
+/// Write the version marker of a schema that has a version, one time. The usual
+/// position for this call is immediately after you create the map. The function
+/// does nothing for a schema with no version.
 pub fn stamp(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
@@ -565,10 +577,12 @@ pub fn stamp(
 }
 
 @target(erlang)
-/// Resolve every handle-valued key to a typed child map — the typed view of a
-/// dynamic collection (a map whose keys are not statically known, e.g. a
-/// roster keyed by id). Non-handle keys are skipped; each child's resolution
-/// `Result` is surfaced (transient not-yet-attached errors are retryable).
+/// Resolve every key whose value is a handle to a typed child map. This is the
+/// typed view of a dynamic collection, which is a map whose keys the compiler
+/// does not know, for example a roster keyed by id. The function skips a key
+/// whose value is not a handle. It returns the `Result` value of each child,
+/// and a caller can retry after the short-lived error for a channel that is not
+/// attached yet.
 pub fn typed_children(
   document: Document(root),
   typed_map: TypedMap(parent),
@@ -1002,8 +1016,10 @@ fn resolve_with_retry(
 }
 
 @target(erlang)
-/// Adopt the channel under `key`: resolve the sequenced winner if the key is
-/// set, else `seed` a candidate, wait for sync, and resolve whatever won.
+/// Adopt the channel under `key`. If the key holds a value, the function
+/// resolves the sequenced winner. If the key is empty, the function calls `seed`
+/// to create a candidate, waits for the synchronization, and then resolves the
+/// channel that won.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1022,7 +1038,7 @@ fn ensure_channel(
 }
 
 @target(erlang)
-/// Ensure a nested (untyped) map exists under `field`.
+/// Make sure that a nested (untyped) map exists under `field`.
 pub fn ensure_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1041,7 +1057,8 @@ pub fn ensure_map(
 }
 
 @target(erlang)
-/// Ensure a counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a counter exists under `field`. If the slot is empty, the
+/// function creates one.
 pub fn ensure_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1098,7 +1115,8 @@ pub fn ensure_rich_text(
 }
 
 @target(erlang)
-/// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
+/// Make sure that an OR-map exists under `field`. If none exists, the function
+/// creates one in `mode`.
 pub fn ensure_or_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1118,7 +1136,7 @@ pub fn ensure_or_map(
 }
 
 @target(erlang)
-/// Ensure an OR-set exists under `field`.
+/// Make sure that an OR-set exists under `field`.
 pub fn ensure_or_set(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1175,7 +1193,7 @@ pub fn ensure_text(
 }
 
 @target(erlang)
-/// Ensure a register collection exists under `field`.
+/// Make sure that a register collection exists under `field`.
 pub fn ensure_register_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1194,7 +1212,7 @@ pub fn ensure_register_collection(
 }
 
 @target(erlang)
-/// Ensure a claims channel exists under `field`.
+/// Make sure that a claims channel exists under `field`.
 pub fn ensure_claims(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1213,7 +1231,7 @@ pub fn ensure_claims(
 }
 
 @target(erlang)
-/// Ensure a task manager exists under `field`.
+/// Make sure that a task manager exists under `field`.
 pub fn ensure_task_manager(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1289,7 +1307,8 @@ pub fn ensure_directory(
 }
 
 @target(erlang)
-/// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
+/// Make sure that a PN-counter exists under `field`. If the slot is empty, the
+/// function creates one.
 pub fn ensure_pn_counter(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1308,7 +1327,7 @@ pub fn ensure_pn_counter(
 }
 
 @target(erlang)
-/// Ensure a PactMap exists under `field`.
+/// Make sure that a PactMap exists under `field`.
 pub fn ensure_pact_map(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1327,7 +1346,7 @@ pub fn ensure_pact_map(
 }
 
 @target(erlang)
-/// Ensure an ordered collection exists under `field`.
+/// Make sure that an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1346,7 +1365,7 @@ pub fn ensure_ordered_collection(
 }
 
 @target(erlang)
-/// Ensure a nested *typed* child map exists under a child field.
+/// Make sure that a nested *typed* child map exists under a child field.
 pub fn ensure_child(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1365,8 +1384,9 @@ pub fn ensure_child(
 }
 
 @target(erlang)
-/// Set a plain typed field to `default` only if its key is currently absent.
-/// Concurrent racers all set; last-writer-wins on the key settles one value.
+/// Set a plain typed field to `default`, and only when its key is absent now.
+/// Every client in a race writes the value, and the last-writer-wins rule on
+/// that key settles one of them.
 pub fn ensure_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -1383,9 +1403,9 @@ pub fn ensure_field(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new counter channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle (`counter_handle_of`) is first stored into an
-/// attached map.
+/// Create a new counter channel. The detached lifecycle is the same as for
+/// `create_map`. The channel is local only, until a caller stores its handle,
+/// from `counter_handle_of`, into an attached map.
 pub fn create_counter(
   document: Document(root),
 ) -> Result(SharedCounter, String) {
@@ -1400,16 +1420,17 @@ pub fn create_counter(
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `counter`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `counter`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn counter_handle_of(counter: SharedCounter) -> Json {
   handle.encode_handle(counter.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedCounter it references. Existence is
-/// checked, not channel type: resolving a non-counter yields a counter whose
-/// reads return `None`. Errors are retryable, as with `resolve`.
+/// Resolve a handle value to the SharedCounter that it references. The function
+/// checks that the channel exists, and it does not check the channel type. To
+/// resolve a channel that is not a counter gives a counter whose reads return
+/// `None`. A caller can retry after an error, the same as for `resolve`.
 pub fn resolve_counter(
   document: Document(root),
   value: Json,
@@ -1429,7 +1450,7 @@ pub fn resolve_counter(
 }
 
 @target(erlang)
-/// Optimistically increment the counter (negative amounts decrement).
+/// Increment the counter optimistically. A negative amount decrements it.
 pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
   process.send(
     counter.runtime,
@@ -1438,8 +1459,8 @@ pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
 }
 
 @target(erlang)
-/// The counter's current optimistic value, `None` when the address is not a
-/// counter channel.
+/// The current optimistic value of the counter. The result is `None` when the
+/// address does not name a counter channel.
 pub fn counter_value(counter: SharedCounter) -> Option(Int) {
   process.call(counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetCounterValue(counter.address, reply)
@@ -1447,10 +1468,11 @@ pub fn counter_value(counter: SharedCounter) -> Option(Int) {
 }
 
 @target(erlang)
-/// Subscribe to a channel's events, forwarding only the events `narrow`
-/// accepts — already decoded to the kind's own event type — to a fresh
-/// caller-owned subject. The per-kind `subscribe_*` functions wrap this so a
-/// subscriber sees only its channel's events, never the 14-variant union.
+/// Subscribe to the events of a channel, and forward only the events that
+/// `narrow` accepts to a new subject that the caller owns. The function decodes
+/// each one to the event type of that channel kind. The `subscribe_*` function
+/// of each kind uses this function, so a subscriber sees the events of its own
+/// channel only, and never the union of 14 variants.
 fn subscribe_narrowed(
   runtime_subject: Subject(runtime_beam.Msg),
   address: String,
@@ -1470,9 +1492,9 @@ fn subscribe_narrowed(
 }
 
 @target(erlang)
-/// Subscribe the calling process to this counter's events, local and remote
-/// alike. The subject carries `counter_kernel.CounterEvent` — counter events
-/// only.
+/// Subscribe the calling process to the events of this counter, both local and
+/// remote. The subject carries a `counter_kernel.CounterEvent` value, and it
+/// carries no other kind of event.
 pub fn subscribe_counter(
   counter: SharedCounter,
 ) -> Subject(counter_kernel.CounterEvent) {
@@ -1488,9 +1510,10 @@ pub fn subscribe_counter(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new json0 (JSON-OT) channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`json_ot_handle_of`) is first
-/// stored into an attached map.
+/// Create a new json0 channel, which uses JSON operational transform. The
+/// detached lifecycle is the same as for `create_map`. The channel is local
+/// only, until a caller stores its handle, from `json_ot_handle_of`, into an
+/// attached map.
 pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
   process.call(
     document.runtime,
@@ -1503,15 +1526,16 @@ pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `json_ot`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
   handle.encode_handle(json_ot.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the JsonOt it references. Existence is
-/// checked, not channel type. Errors are retryable, as with `resolve`.
+/// Resolve a handle value to the JsonOt value that it references. The function
+/// checks that the channel exists, and it does not check the channel type. A
+/// caller can retry after an error, the same as for `resolve`.
 pub fn resolve_json_ot(
   document: Document(root),
   value: Json,
@@ -1531,14 +1555,15 @@ pub fn resolve_json_ot(
 }
 
 @target(erlang)
-/// Optimistically submit a json0 op (a list of components) to the channel.
+/// Submit a json0 op to the channel, optimistically. An op is a list of
+/// components.
 pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
   process.send(json_ot.runtime, runtime_beam.SubmitJsonOt(json_ot.address, op))
 }
 
 @target(erlang)
-/// The json0 channel's current optimistic document, `None` when the address is
-/// not a json0 channel.
+/// The current optimistic document of the json0 channel. The result is `None`
+/// when the address does not name a json0 channel.
 pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
   process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetJsonOtView(json_ot.address, reply)
@@ -1563,7 +1588,8 @@ pub fn subscribe_json_ot(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new rich-text channel. Same detached lifecycle as `create_map`.
+/// Create a new rich-text channel. The detached lifecycle is the same as for
+/// `create_map`.
 pub fn create_rich_text(
   document: Document(root),
 ) -> Result(SharedRichText, String) {
@@ -1578,15 +1604,16 @@ pub fn create_rich_text(
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
-/// value in a map (see `handle_of`).
+/// The Fluid handle marker that references `rich_text`. Store it as a value in a
+/// map. See `handle_of`.
 pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
   handle.encode_handle(rich_text.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedRichText it references. Existence is
-/// checked, not channel type. Errors are retryable, as with `resolve`.
+/// Resolve a handle value to the SharedRichText value that it references. The
+/// function checks that the channel exists, and it does not check the channel
+/// type. A caller can retry after an error, the same as for `resolve`.
 pub fn resolve_rich_text(
   document: Document(root),
   value: Json,
@@ -1606,7 +1633,7 @@ pub fn resolve_rich_text(
 }
 
 @target(erlang)
-/// Optimistically submit a rich-text delta to the channel.
+/// Submit a rich-text delta to the channel, optimistically.
 pub fn submit_rich_text(
   rich_text: SharedRichText,
   delta: rich_text.Delta,
@@ -1618,8 +1645,8 @@ pub fn submit_rich_text(
 }
 
 @target(erlang)
-/// The channel's current optimistic rich-text document, `None` when the address
-/// is not a rich-text channel.
+/// The current optimistic rich-text document of the channel. The result is
+/// `None` when the address does not name a rich-text channel.
 pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
   process.call(rich_text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetRichTextView(rich_text.address, reply)
@@ -1644,9 +1671,9 @@ pub fn subscribe_rich_text(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new OR-map channel in tally or register mode. Same detached
-/// lifecycle as `create_map`: local-only until its handle is stored into an
-/// attached container.
+/// Create a new OR-map channel, in tally mode or in register mode. The detached
+/// lifecycle is the same as for `create_map`. The channel is local only, until
+/// a caller stores its handle into an attached container.
 pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
@@ -1739,7 +1766,7 @@ pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new observed-remove set channel for string elements.
+/// Create a new observed-remove set channel, for string elements.
 pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
   process.call(
     document.runtime,
@@ -1848,7 +1875,8 @@ pub fn resolve_sequence(
 }
 
 @target(erlang)
-/// Insert `value` at zero-based `index`, from `0` through the sequence length.
+/// Insert `value` at `index`, counted from zero, in the range `0` to the length
+/// of the sequence.
 pub fn sequence_insert(
   sequence: SharedSequence,
   index: Int,
@@ -1860,7 +1888,8 @@ pub fn sequence_insert(
 }
 
 @target(erlang)
-/// Delete the value at a zero-based `index`, from `0` through `length - 1`.
+/// Delete the value at `index`, counted from zero, in the range `0` to
+/// `length - 1`.
 pub fn sequence_delete(
   sequence: SharedSequence,
   index: Int,
@@ -1871,8 +1900,8 @@ pub fn sequence_delete(
 }
 
 @target(erlang)
-/// Move a value between zero-based indexes; the destination is evaluated after
-/// removing the source value.
+/// Move a value between two indexes, counted from zero. The function reads the
+/// destination index after it removes the value from the source index.
 pub fn sequence_move(
   sequence: SharedSequence,
   from_index: Int,
@@ -1884,7 +1913,8 @@ pub fn sequence_move(
 }
 
 @target(erlang)
-/// Replace the value at a zero-based `index` as one collaborative operation.
+/// Replace the value at `index`, counted from zero, as one collaborative
+/// operation.
 pub fn sequence_replace(
   sequence: SharedSequence,
   index: Int,
@@ -1957,9 +1987,9 @@ pub fn resolve_text(
 }
 
 @target(erlang)
-/// Insert `value` at zero-based grapheme `index`, from `0` through the text
-/// length. Inserting `""` is a no-op: it returns `Ok(Nil)` without emitting
-/// an event or submitting a channel op.
+/// Insert `value` at the grapheme `index`, counted from zero, in the range `0`
+/// to the length of the text. To insert `""` changes nothing. The function then
+/// returns `Ok(Nil)`, and it emits no event and submits no channel op.
 pub fn text_insert(
   text: SharedText,
   index: Int,
@@ -1971,8 +2001,8 @@ pub fn text_insert(
 }
 
 @target(erlang)
-/// Delete the graphemes in `[start, end)`. An empty range (`start == end`)
-/// is a no-op.
+/// Delete the graphemes in `[start, end)`. An empty range, where
+/// `start == end`, changes nothing.
 pub fn text_delete_range(
   text: SharedText,
   start: Int,
@@ -1984,8 +2014,8 @@ pub fn text_delete_range(
 }
 
 @target(erlang)
-/// Replace the graphemes in `[start, end)` with `value` as one
-/// collaborative operation. Replacing an empty range with `""` is a no-op.
+/// Replace the graphemes in `[start, end)` with `value`, as one collaborative
+/// operation. To replace an empty range with `""` changes nothing.
 pub fn text_replace_range(
   text: SharedText,
   start: Int,
@@ -1998,7 +2028,7 @@ pub fn text_replace_range(
 }
 
 @target(erlang)
-/// Append `value` to the end of the text. Appending `""` is a no-op.
+/// Append `value` to the end of the text. To append `""` changes nothing.
 pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
   process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.AppendText(text.address, value, reply)
@@ -2006,7 +2036,7 @@ pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
 }
 
 @target(erlang)
-/// The text's current optimistic visible string.
+/// The current visible optimistic string of the text.
 pub fn text_value(text: SharedText) -> String {
   process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetTextValue(text.address, reply)
@@ -2014,7 +2044,7 @@ pub fn text_value(text: SharedText) -> String {
 }
 
 @target(erlang)
-/// The text's current optimistic grapheme count.
+/// The current optimistic grapheme count of the text.
 pub fn text_length(text: SharedText) -> Int {
   process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetTextLength(text.address, reply)
@@ -2022,8 +2052,8 @@ pub fn text_length(text: SharedText) -> Int {
 }
 
 @target(erlang)
-/// The graphemes in `[start, end)` of the text's optimistic string. An
-/// explicit error string when `start..end` is invalid.
+/// The graphemes in `[start, end)` of the optimistic string of the text. The
+/// result is an error string when the range `start..end` is invalid.
 pub fn text_substring(
   text: SharedText,
   start: Int,
@@ -2075,8 +2105,8 @@ pub fn text_end_anchor() -> TextAnchor {
 }
 
 @target(erlang)
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors.
+/// Encode an anchor as a self-describing JSON value, for example to send it
+/// through presence for a shared cursor.
 pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
   runtime_beam.text_anchor_to_json(anchor)
 }
@@ -2091,8 +2121,9 @@ pub fn text_anchor_from_json(
 }
 
 @target(erlang)
-/// Subscribe the calling process to this text's events, local and remote
-/// alike. The subject carries `text_kernel.TextEvent` — text events only.
+/// Subscribe the calling process to the events of this text channel, both local
+/// and remote. The subject carries a `text_kernel.TextEvent` value, and it
+/// carries no other kind of event.
 pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
   use event <- subscribe_narrowed(text.runtime, text.address)
   case event {
@@ -2375,10 +2406,11 @@ pub fn subscribe_task_manager(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new grow-only set channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`g_set_handle_of`) is first
-/// stored into an attached map. Elements can only be added, never removed;
-/// concurrent adds always converge to the union.
+/// Create a new grow-only set channel. The detached lifecycle is the same as
+/// for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `g_set_handle_of`, into an attached map. You can add an
+/// element, and you cannot remove one. Two concurrent adds always converge to
+/// the union of the two sets.
 pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
   process.call(
     document.runtime,
@@ -2391,8 +2423,8 @@ pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `set`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn g_set_handle_of(set: GSet) -> Json {
   handle.encode_handle(set.address)
 }
@@ -2417,13 +2449,13 @@ pub fn resolve_g_set(
 }
 
 @target(erlang)
-/// Optimistically add `element` to the set.
+/// Add `element` to the set, optimistically.
 pub fn g_set_add(set: GSet, element: String) -> Nil {
   process.send(set.runtime, runtime_beam.AddGSetElement(set.address, element))
 }
 
 @target(erlang)
-/// Whether `element` is present in the set's current optimistic state.
+/// Whether `element` is in the current optimistic state of the set.
 pub fn g_set_contains(set: GSet, element: String) -> Bool {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GSetContains(set.address, element, reply)
@@ -2431,7 +2463,7 @@ pub fn g_set_contains(set: GSet, element: String) -> Bool {
 }
 
 @target(erlang)
-/// The set's current optimistic members.
+/// The current optimistic members of the set.
 pub fn g_set_values(set: GSet) -> List(String) {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetGSetValues(set.address, reply)
@@ -2453,11 +2485,11 @@ pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new two-phase set channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`two_p_set_handle_of`) is first
-/// stored into an attached map. A remove is a permanent tombstone: a removed
-/// element can never be made active again, so remove wins over a concurrent
-/// (re-)add.
+/// Create a new two-phase set channel. The detached lifecycle is the same as
+/// for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `two_p_set_handle_of`, into an attached map. A remove writes a
+/// permanent tombstone. An element that you remove can never become active
+/// again, so a remove wins against a concurrent add.
 pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
   process.call(
     document.runtime,
@@ -2470,8 +2502,8 @@ pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `set`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
   handle.encode_handle(set.address)
 }
@@ -2498,21 +2530,21 @@ pub fn resolve_two_p_set(
 }
 
 @target(erlang)
-/// Optimistically add `element` to the set. Adding a previously removed
+/// Add `element` to the set, optimistically. Adding a previously removed
 /// element records the add but never reactivates it.
 pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
   process.send(set.runtime, runtime_beam.AddTwoPSetElement(set.address, element))
 }
 
 @target(erlang)
-/// Optimistically remove `element` from the set. Removal is a permanent
+/// Remove `element` from the set, optimistically. A remove writes a permanent
 /// tombstone.
 pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
   process.send(set.runtime, runtime_beam.RemoveTwoPSetElement(set.address, element))
 }
 
 @target(erlang)
-/// Whether `element` is present in the set's current optimistic state.
+/// Whether `element` is in the current optimistic state of the set.
 pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.TwoPSetContains(set.address, element, reply)
@@ -2520,7 +2552,7 @@ pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
 }
 
 @target(erlang)
-/// The set's current optimistic members.
+/// The current optimistic members of the set.
 pub fn two_p_set_values(set: TwoPSet) -> List(String) {
   process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetTwoPSetValues(set.address, reply)
@@ -2544,10 +2576,10 @@ pub fn subscribe_two_p_set(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new directory channel: a hierarchical map keyed by absolute paths
-/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
-/// until its handle (`directory_handle_of`) is first stored into an attached
-/// map.
+/// Create a new directory channel, which is a hierarchical map keyed by
+/// absolute paths. The root path is `"/"`. The detached lifecycle is the same
+/// as for `create_map`. The channel is local only, until a caller stores its
+/// handle, from `directory_handle_of`, into an attached map.
 pub fn create_directory(
   document: Document(root),
 ) -> Result(SharedDirectory, String) {
@@ -2562,15 +2594,15 @@ pub fn create_directory(
 }
 
 @target(erlang)
-/// The Fluid handle marker referencing `dir`, suitable for storing as a value
-/// in a map (see `handle_of`).
+/// The Fluid handle marker that references `dir`. Store it as a value in a map.
+/// See `handle_of`.
 pub fn directory_handle_of(dir: SharedDirectory) -> Json {
   handle.encode_handle(dir.address)
 }
 
 @target(erlang)
-/// Resolve a handle value to the SharedDirectory it references. Errors are
-/// retryable, as with `resolve`.
+/// Resolve a handle value to the SharedDirectory value that it references. A
+/// caller can retry after an error, the same as for `resolve`.
 pub fn resolve_directory(
   document: Document(root),
   value: Json,
@@ -2590,8 +2622,8 @@ pub fn resolve_directory(
 }
 
 @target(erlang)
-/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
-/// `"/"`).
+/// Set `key` to `value` in the subdirectory at `path`, optimistically. The root
+/// path is `"/"`.
 pub fn directory_set(
   dir: SharedDirectory,
   path: String,
@@ -2602,7 +2634,7 @@ pub fn directory_set(
 }
 
 @target(erlang)
-/// Optimistically remove `key` from the subdirectory at `path`.
+/// Remove `key` from the subdirectory at `path`, optimistically.
 pub fn directory_delete(
   dir: SharedDirectory,
   path: String,
@@ -2612,13 +2644,13 @@ pub fn directory_delete(
 }
 
 @target(erlang)
-/// Optimistically remove every key from the subdirectory at `path`.
+/// Remove every key from the subdirectory at `path`, optimistically.
 pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
   process.send(dir.runtime, runtime_beam.DirectoryClear(dir.address, path))
 }
 
 @target(erlang)
-/// Optimistically create a subdirectory named `name` under `path`.
+/// Create a subdirectory named `name` under `path`, optimistically.
 pub fn directory_create_subdirectory(
   dir: SharedDirectory,
   path: String,
@@ -2631,8 +2663,8 @@ pub fn directory_create_subdirectory(
 }
 
 @target(erlang)
-/// Optimistically delete the subdirectory named `name` under `path` (and all
-/// of its contents).
+/// Delete the subdirectory named `name` under `path`, optimistically. The
+/// delete also removes every value in that subdirectory.
 pub fn directory_delete_subdirectory(
   dir: SharedDirectory,
   path: String,
@@ -2645,8 +2677,8 @@ pub fn directory_delete_subdirectory(
 }
 
 @target(erlang)
-/// The current optimistic value at `key` in the subdirectory at `path`, `None`
-/// when absent.
+/// The current optimistic value at `key`, in the subdirectory at `path`. The
+/// result is `None` when the key is absent.
 pub fn directory_get(
   dir: SharedDirectory,
   path: String,
@@ -2670,7 +2702,7 @@ pub fn directory_entries(
 }
 
 @target(erlang)
-/// The names of the immediate subdirectories under `path`.
+/// The names of the direct subdirectories under `path`.
 pub fn directory_subdirectories(
   dir: SharedDirectory,
   path: String,
@@ -2710,8 +2742,9 @@ pub fn subscribe_directory(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new PN-counter channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle is stored into an attached container.
+/// Create a new PN-counter channel. The detached lifecycle is the same as for
+/// `create_map`. The channel is local only, until a caller stores its handle
+/// into an attached container.
 pub fn create_pn_counter(
   document: Document(root),
 ) -> Result(PnCounter, String) {
@@ -2750,7 +2783,7 @@ pub fn resolve_pn_counter(
 }
 
 @target(erlang)
-/// Optimistically add `amount` (negative amounts decrement).
+/// Add `amount` optimistically. A negative amount decrements the counter.
 pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
   process.send(
     pn_counter.runtime,
@@ -2759,8 +2792,8 @@ pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
 }
 
 @target(erlang)
-/// The counter's current optimistic value, `None` when the address is not a
-/// PN-counter channel.
+/// The current optimistic value of the counter. The result is `None` when the
+/// address does not name a PN-counter channel.
 pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
   process.call(pn_counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPnCounterValue(pn_counter.address, reply)
@@ -2785,7 +2818,8 @@ pub fn subscribe_pn_counter(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new PactMap channel. Same detached lifecycle as `create_map`.
+/// Create a new PactMap channel. The detached lifecycle is the same as for
+/// `create_map`.
 pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
   process.call(
     document.runtime,
@@ -2822,8 +2856,9 @@ pub fn resolve_pact_map(
 }
 
 @target(erlang)
-/// Propose `value` for `key`. Consensus, not optimistic: the value is `pending`
-/// until server sequencing accepts it.
+/// Propose `value` for `key`. This write is a consensus write, and it is not
+/// optimistic. The value stays pending until the server sequencing accepts
+/// it.
 pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
   process.send(
     pact_map.runtime,
@@ -2832,14 +2867,15 @@ pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
 }
 
 @target(erlang)
-/// Propose a delete (tombstone) for `key`.
+/// Propose a delete for `key`. A delete writes a tombstone.
 pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
   process.send(pact_map.runtime, runtime_beam.DeletePactMap(pact_map.address, key))
 }
 
 @target(erlang)
-/// The accepted value for `key`, `None` when pending, absent, or not a PactMap
-/// channel.
+/// The accepted value for `key`. The result is `None` when the value is
+/// pending, when the key is absent, and when the address does not name a
+/// PactMap channel.
 pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapValue(pact_map.address, key, reply)
@@ -2847,7 +2883,7 @@ pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
 }
 
 @target(erlang)
-/// All keys with an accepted or pending pact.
+/// Every key with an accepted pact or a pending pact.
 pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapKeys(pact_map.address, reply)
@@ -2859,9 +2895,10 @@ pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
 /// `WentPending` when a proposal is sequenced and `WentAccepted` when its
 /// signoff list drains.
 ///
-/// Those two transitions *are* the protocol. Without this a PactMap is
-/// write-and-poll: an app can propose and read but cannot learn that a peer's
-/// proposal landed, which is the one thing that distinguishes it from a map.
+/// Those two transitions *are* the protocol. Without this callback a PactMap
+/// only accepts a write and answers a read. An application can then propose a
+/// value and read a value, and it cannot learn that the proposal of a peer
+/// arrived. That one difference separates a PactMap from a map.
 pub fn subscribe_pact_map(
   pact_map: PactMap,
 ) -> Subject(pact_map_kernel.PactMapEvent) {
@@ -2873,7 +2910,8 @@ pub fn subscribe_pact_map(
 }
 
 @target(erlang)
-/// Whether `key` currently has an unsettled (pending) proposal.
+/// Whether `key` has a proposal now that no room has settled, which is a
+/// pending proposal.
 pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapPending(pact_map.address, key, reply)
@@ -2881,14 +2919,15 @@ pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
 }
 
 @target(erlang)
-/// The clients whose agreement `key` is still waiting on, `None` when nothing
-/// is pending.
+/// The clients whose agreement `key` still waits on. The result is `None` when
+/// nothing is pending.
 ///
-/// This is what turns a spinner into an explanation: `pact_map_is_pending`
-/// says *that* a value is unsettled, this says *who* it is unsettled on. The
-/// list is frozen from the connected roster when the proposal was sequenced,
-/// so it names the room at that moment — a client that has since left is
-/// removed as its `"leave"` is sequenced, not retroactively.
+/// This list changes a progress indicator into an explanation.
+/// `pact_map_is_pending` reports *that* a value is unsettled. This function
+/// reports *which clients* it waits on. The kernel freezes the list from the
+/// connected roster when the proposal sequences, so the list names the room at
+/// that moment. A client that left after that moment leaves the list when its
+/// `"leave"` message sequences, and not before.
 pub fn pact_map_pending_signoffs(
   pact_map: PactMap,
   key: String,
@@ -2898,8 +2937,9 @@ pub fn pact_map_pending_signoffs(
 }
 
 @target(erlang)
-/// The full pending proposal for `key` — the value awaiting agreement and the
-/// signoff list it is waiting on — `None` when nothing is pending.
+/// The full pending proposal for `key`, which is the value that waits for
+/// agreement, with the signoff list that it waits on. The result is `None` when
+/// nothing is pending.
 pub fn pact_map_pending(
   pact_map: PactMap,
   key: String,
@@ -2910,8 +2950,9 @@ pub fn pact_map_pending(
 }
 
 @target(erlang)
-/// The accepted entry for `key`: the agreed value and the sequence number it
-/// settled at. `None` when the key is absent or still pending.
+/// The accepted entry for `key`: the agreed value, with the sequence number
+/// that it settled at. The result is `None` when the key is absent, and when
+/// the value is still pending.
 pub fn pact_map_get_with_details(
   pact_map: PactMap,
   key: String,
@@ -2926,8 +2967,8 @@ pub fn pact_map_get_with_details(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
-/// `create_map`.
+/// Create a new ConsensusOrderedCollection channel. The detached lifecycle is
+/// the same as for `create_map`.
 pub fn create_ordered_collection(
   document: Document(root),
 ) -> Result(OrderedCollection, String) {
@@ -2966,7 +3007,7 @@ pub fn resolve_ordered_collection(
 }
 
 @target(erlang)
-/// Enqueue `value` at the tail of the collection.
+/// Add `value` at the end of the collection.
 pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
   process.send(
     collection.runtime,
@@ -2975,8 +3016,8 @@ pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
 }
 
 @target(erlang)
-/// Acquire (lease) the head item, returning the acquire id used to `complete`
-/// or `release` it.
+/// Acquire the head item, and return the acquire id. A later `complete` call or
+/// `release` call uses that id.
 pub fn ordered_acquire(collection: OrderedCollection) -> String {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.AcquireOrderedItem(collection.address, reply)
@@ -3009,7 +3050,7 @@ pub fn ordered_acquire_with_outcome(
 }
 
 @target(erlang)
-/// Complete an acquired item, removing it permanently.
+/// Complete an acquired item, and remove it permanently.
 pub fn ordered_complete(
   collection: OrderedCollection,
   acquire_id: String,
@@ -3021,7 +3062,7 @@ pub fn ordered_complete(
 }
 
 @target(erlang)
-/// Release an acquired item back to the collection for another consumer.
+/// Release an acquired item back to the collection, for another consumer.
 pub fn ordered_release(
   collection: OrderedCollection,
   acquire_id: String,
@@ -3033,8 +3074,8 @@ pub fn ordered_release(
 }
 
 @target(erlang)
-/// The number of items currently in the collection, `None` when the address is
-/// not an ordered-collection channel.
+/// The number of items in the collection now. The result is `None` when the
+/// address does not name an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetOrderedSize(collection.address, reply)
@@ -3042,7 +3083,7 @@ pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
 }
 
 @target(erlang)
-/// The queued (not-yet-acquired) values, front first.
+/// The values in the queue, which no client acquired yet, front first.
 pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetOrderedQueue(collection.address, reply)
@@ -3050,7 +3091,7 @@ pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
 }
 
 @target(erlang)
-/// The currently-held jobs, keyed by acquire id (sorted).
+/// The jobs that clients hold now, keyed by acquire id and sorted by that id.
 pub fn ordered_jobs(
   collection: OrderedCollection,
 ) -> List(#(String, ordered_collection_kernel.JobEntry)) {
@@ -3060,8 +3101,10 @@ pub fn ordered_jobs(
 }
 
 @target(erlang)
-/// Subscribe the calling process to this ordered collection's queue events —
-/// items added, acquired, completed, and released back on a client's departure.
+/// Subscribe the calling process to the queue events of this ordered
+/// collection. Those events report an item that a client added, acquired, or
+/// completed, and an item that the kernel released again after a client
+/// left.
 pub fn subscribe_ordered_collection(
   collection: OrderedCollection,
 ) -> Subject(ordered_collection_kernel.OrderedEvent) {
@@ -3075,16 +3118,18 @@ pub fn subscribe_ordered_collection(
 // ── Ripples (ephemeral presence signals) ─────────────────────────────────────
 
 @target(erlang)
-/// A received ripple: an ephemeral, document-scoped broadcast. Non-sequenced
-/// and non-persisted — ideal for transient presence (cursors, selection,
-/// typing indicators) that must NOT live in a DDS.
+/// A ripple that this client received. A ripple is an ephemeral broadcast that
+/// belongs to one document. It does not sequence, and no server stores it. Use
+/// a ripple for transient presence, which is a cursor, a selection, or a typing
+/// indicator. Such data must **not** go into a DDS.
 pub type Ripple =
   SignalMessage
 
 @target(erlang)
-/// Broadcast an ephemeral ripple to every other connected client: a `type`
-/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
-/// catch-up. No-op until the first handshake assigns a client id.
+/// Broadcast an ephemeral ripple to every other connected client. A ripple has
+/// a `type` tag and any JSON `content`. It expects no reply, and it has no
+/// order, no ack, and no catch-up. The function does nothing until the first
+/// handshake assigns a client id.
 pub fn submit_ripple(
   document: Document(root),
   ripple_type ripple_type: String,
@@ -3107,20 +3152,21 @@ pub fn subscribe_ripples(document: Document(root)) -> Subject(Ripple) {
 }
 
 @target(erlang)
-/// The ripple's `type` tag, if present.
+/// The `type` tag of the ripple, if the ripple has one.
 pub fn ripple_type(ripple: Ripple) -> Option(String) {
   ripple.signal_type
 }
 
 @target(erlang)
-/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
+/// The JSON payload of the ripple, as a `Dynamic` value, for the caller to
+/// decode.
 pub fn ripple_content(ripple: Ripple) -> Dynamic {
   ripple.content
 }
 
 @target(erlang)
-/// The sending client's id, if the server stamped one (`None` for
-/// server-originated ripples).
+/// The id of the client that sent the ripple, if the server stamped one. The
+/// result is `None` for a ripple that the server produced.
 pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
   ripple.client_id
 }
@@ -3140,14 +3186,16 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 }
 
 @target(erlang)
-/// This client's server-assigned id, `None` until the first handshake lands.
+/// The id that the server assigned to this client. The result is `None` until
+/// the first handshake completes.
 ///
-/// The reason to want it is identity in *someone else's* list. Consensus
-/// kernels report membership as the integer ids they tie-break on — a
-/// `PactMap`'s `pact_map_pending_signoffs`, for instance — and without this
-/// there is no way to tell which entry is your own client. Convert with
-/// `watershed/client_id.to_int`, which is the same derivation the runtime and
-/// the kernels use, so the two are guaranteed to agree.
+/// You need this id to find your own identity in a list from *another*
+/// component. A consensus kernel reports its membership as the integer ids that
+/// it uses to tie-break. `pact_map_pending_signoffs` of a `PactMap` is one
+/// example. Without this id you cannot find the entry of your own client.
+/// Convert the id with `watershed/client_id.to_int`. That function performs the
+/// same derivation as the runtime and the kernels, so the two results always
+/// agree.
 ///
 /// ```gleam
 /// let mine = watershed_beam.client_id(doc) |> option.map(client_id.to_int)
@@ -3157,36 +3205,38 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 /// }
 /// ```
 ///
-/// Re-read it after a reconnect rather than caching: the fresh handshake may
-/// assign a different id, and a stale one silently stops matching.
+/// Read this id again after a reconnect. Do not cache it. The new handshake can
+/// assign a different id, and a stale id then matches nothing, and it reports
+/// nothing.
 pub fn client_id(document: Document(root)) -> Option(String) {
   runtime_beam.client_id(document.runtime)
 }
 
 @target(erlang)
-/// Summarize the document's current confirmed state to floodgate storage so future
-/// clients can bootstrap from the snapshot instead of replaying the full op
-/// history. Returns the summary handle (git tree SHA). Requires the connection
-/// to be fully synced and the token to carry the `summary:write` scope.
+/// Summarize the current confirmed state of the document to the storage of
+/// floodgate. A later client can then start from that snapshot, and it does not
+/// replay the full op history. The function returns the summary handle, which
+/// is a git tree SHA. The connection must be synchronized, and the token must
+/// carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Result(String, String) {
   runtime_beam.summarize(document.runtime)
 }
 
 @target(erlang)
-/// Let this client summarize the document on its own, per `policy`.
+/// Let this client summarize the document without a request, under `policy`.
 ///
-/// Without this nothing ever summarizes and every joining client replays the
-/// whole log — `summarize` has to be called by hand. With it, the runtime
-/// writes a checkpoint once the document has drifted past the policy's
-/// threshold and this client is settled, so a later join costs recent history
-/// rather than all of it.
+/// Without this function nothing summarizes, and every client that joins
+/// replays the whole log. You must then call `summarize` by hand. With this
+/// function, the runtime writes a checkpoint after the document moves past the
+/// threshold of the policy and this client is settled. A later join thus costs
+/// the recent history, and not all of it.
 ///
-/// Safe to install on every client in a room: the attempts are spread over a
-/// jitter window and the first summary to be sequenced stands the others down.
-/// A lost race costs one redundant upload.
+/// It is safe to install the policy on every client in a room. The attempts
+/// spread across a delay window, and the first summary that sequences stops the
+/// other attempts. A lost race costs one unnecessary upload.
 ///
-/// Requires the token to carry `summary:write`, which `connect` mints by
-/// default. Applies from the next sequenced op onward.
+/// The token must carry the `summary:write` scope, which `connect` includes by
+/// default. The policy applies from the next sequenced op.
 pub fn auto_summarize(
   document: Document(root),
   policy: summary_policy.Policy,
@@ -3195,35 +3245,36 @@ pub fn auto_summarize(
 }
 
 @target(erlang)
-/// Stop summarizing automatically. Any attempt already scheduled still
-/// re-checks before acting, and finds no policy.
+/// Stop the automatic summaries. An attempt that is already scheduled still
+/// checks again before it acts, and it then finds no policy.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime_beam.auto_summarize(document.runtime, None)
 }
 
 @target(erlang)
-/// How many ops have been sequenced past the newest summary this client knows
-/// about — the drift an automatic policy thresholds on, and what a joining
-/// client would have to replay on top of the checkpoint.
+/// The number of ops that sequenced after the newest summary that this client
+/// knows about. An automatic policy compares that number with its threshold,
+/// and a client that joins replays those ops on top of the checkpoint.
 ///
-/// On a document nothing has ever summarized this is the whole log.
+/// On a document that no client has summarized, this number is the whole
+/// log.
 pub fn ops_since_summary(document: Document(root)) -> Int {
   runtime_beam.ops_since_summary(document.runtime)
 }
 
 @target(erlang)
-/// Whether the document is fully caught up: every local edit has been
-/// acknowledged by the server, so the confirmed state is complete and stable.
+/// Whether the document is caught up, which is true when the server acked every
+/// local edit. The confirmed state is then complete and stable.
 /// Useful to wait for quiescence before summarizing or handing off.
 pub fn is_synced(document: Document(root)) -> Bool {
   runtime_beam.is_synced(document.runtime)
 }
 
 @target(erlang)
-/// List the document's stored summary versions, newest first — the client
-/// half of Fluid's `getVersions`. Each `summarize` call stores one version;
-/// the newest is what a fresh connection bootstraps from. Requires the token
-/// to carry `doc:read`.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. Each `summarize` call
+/// stores one version, and a new connection starts from the newest one. The
+/// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
   count count: Int,
@@ -3232,10 +3283,12 @@ pub fn get_versions(
 }
 
 @target(erlang)
-/// Read the historical confirmed state a summary version captured, by its
-/// handle (from `get_versions` or a `summarize` return). Returns the stored
-/// snapshot blob — entries in insertion order plus the sequence number they
-/// were captured at. A point-in-time read: the live document is unaffected.
+/// Read the confirmed state that a summary version captured, by the handle of
+/// that version. `get_versions` and the return value of `summarize` both give a
+/// handle. The function returns the stored snapshot blob, which holds the
+/// entries in insertion order with the sequence number that the writer captured
+/// them at. The read is at one point in time, and it does not change the live
+/// document.
 pub fn load_version(
   document: Document(root),
   handle handle: String,
@@ -3304,9 +3357,10 @@ pub fn size(map: SharedMap) -> Int {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Subscribe the calling process to this map's events. The returned subject
-/// receives a `map_kernel.MapEvent` — map events only — for every local and
-/// remote change to this channel.
+/// Subscribe the calling process to the events of this map. The subject that
+/// the function returns receives a `map_kernel.MapEvent` value for every local
+/// change and remote change to this channel. It receives no other kind of
+/// event.
 pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
   use event <- subscribe_narrowed(map.runtime, map.address)
   case event {
@@ -3324,8 +3378,9 @@ pub fn subscribe_typed(typed_map: TypedMap(s)) -> Subject(map_kernel.MapEvent) {
 }
 
 @target(erlang)
-/// Map a fanned-out channel event to a typed change for `field` (under `key`),
-/// or `None` when the event is for another key or channel kind.
+/// Convert a channel event from the fan-out into a typed change for `field`,
+/// which is under `key`. The result is `None` when the event is for another
+/// key, and when it is for another channel kind.
 fn field_change(
   field: Field(s, a),
   key: String,
@@ -3347,11 +3402,13 @@ fn field_change(
 }
 
 @target(erlang)
-/// Subscribe to changes of a single typed field. Each local or remote write to
-/// `field`'s key delivers a `FieldChange` with the new and previous values
-/// decoded at the boundary — `Error(Invalid)` when a peer wrote a value that
-/// does not match the field type. A `Cleared` on the map fans out as
-/// `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key previous.
+/// Subscribe to the changes of one typed field. Every local or remote write to
+/// the key of `field` delivers a `FieldChange` value. That value carries the new
+/// value and the previous value, both decoded at the boundary. Each one is
+/// `Error(Invalid)` when a peer wrote a value that does not match the field
+/// type. A `Cleared` event on the map arrives as
+/// `FieldChange(Ok(None), Ok(None), local)`, because a clear carries no previous
+/// value for each key.
 pub fn subscribe_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
@@ -3375,10 +3432,11 @@ pub fn subscribe_field(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Mint an HS256 dev JWT for a floodgate server running in dev mode (`just server`).
-/// Matches the signature that `watershed_beam.dev_token` produces on the JS
-/// target. **Do not use in production** — the secret must never be embedded in
-/// a deployed binary.
+/// Mint an HS256 development JWT for a floodgate server that runs in
+/// development mode, with `just server`. The signature is the same as the
+/// signature that `watershed.dev_token` produces on the JavaScript target. **Do
+/// not use this function in production.** A deployed binary must never contain
+/// the secret.
 ///
 /// ```gleam
 /// let token = watershed_beam.dev_token(
