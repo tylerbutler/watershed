@@ -161,8 +161,8 @@ pub fn document_operations(document: Document) -> Result(Document, Error) {
   }
 }
 
-/// Build a normalized operation delta. This is also useful to normalize
-/// operations assembled from the public operation constructors.
+/// Build a normalized operation delta. Use this function also to normalize
+/// operations that you assemble with the public operation constructors.
 pub fn delta_operations(delta: Delta) -> Result(Delta, Error) {
   let Delta(ops) = delta
   normalize_operations(ops) |> result.map(Delta)
@@ -197,7 +197,8 @@ pub fn document_length(document: Document) -> Int {
   |> list.fold(0, fn(total, op) { total + op_iterator.length(op) })
 }
 
-/// The sum of operation lengths, matching Delta#length().
+/// The sum of the operation lengths. This is the same result as
+/// `Delta#length()`.
 pub fn length(delta: Delta) -> Int {
   operations_delta(delta)
   |> list.fold(0, fn(total, op) { total + op_iterator.length(op) })
@@ -222,15 +223,16 @@ pub fn normalize(delta: Delta) -> Delta {
   }
 }
 
-/// Quill Delta compose. `b` is interpreted against the result of `a`.
+/// Quill Delta compose. The kernel interprets `b` against the result of `a`.
 pub fn compose(a: Delta, b: Delta) -> Result(Delta, Error) {
   let left = op_iterator.new(operations_delta(a))
   let right = op_iterator.new(operations_delta(b))
   compose_loop(left, right, []) |> result.map(Delta)
 }
 
-/// Apply is deliberately the same compose routine as upstream
-/// `snapshot.compose(delta)`, then checks that its result remains a document.
+/// Apply uses the same compose routine as the upstream
+/// `snapshot.compose(delta)`. This is deliberate. It then checks that the
+/// result is still a document.
 pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
   use _ <- result.try(validate_application_boundaries(
     operations_document(document),
@@ -247,7 +249,7 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
   })
 }
 
-/// rich-text adapter semantics: `b.transform(a, side == Left)`.
+/// The rich-text adapter behaviour: `b.transform(a, side == Left)`.
 pub fn transform(a: Delta, b: Delta, side: Side) -> Result(Delta, Error) {
   transform_core(
     op_iterator.new(operations_delta(b)),
@@ -267,7 +269,8 @@ pub fn invert(delta: Delta, base: Document) -> Result(Delta, Error) {
   |> result.map(fn(ops) { Delta(ops) })
 }
 
-/// rich-text's transformCursor: `delta.transformPosition(index, !is_own_op)`.
+/// The `transformCursor` function of rich-text:
+/// `delta.transformPosition(index, !is_own_op)`.
 pub fn transform_position(
   delta: Delta,
   index: Int,
@@ -905,8 +908,9 @@ fn validate_text(text: String) -> Result(Nil, Error) {
   }
 }
 
-/// Detect the one context-dependent malformed shape: a retain/delete endpoint
-/// in the middle of a supplementary scalar's UTF-16 surrogate pair.
+/// Detect the one malformed shape that depends on context. That shape is a
+/// retain endpoint or a delete endpoint inside the UTF-16 surrogate pair of a
+/// supplementary scalar.
 fn validate_application_boundaries(
   document: List(Operation),
   delta: List(Operation),

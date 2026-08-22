@@ -1,8 +1,9 @@
 //// Pure port of FluidFramework's PactMap quorum protocol.
 ////
-//// A set first becomes pending with a frozen signoff list captured from the
-//// connected quorum at set sequencing time. The value becomes accepted when
-//// accept ops and/or membership leaves drain that signoff list.
+//// A set operation first becomes pending. When the set operation sequences,
+//// the kernel records a frozen signoff list from the connected quorum. The
+//// value becomes accepted when accept operations and membership leaves remove
+//// every client from that signoff list.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -92,10 +93,10 @@ pub fn get_pending(state: PactMapState, key: String) -> Option(Option(Json)) {
   }
 }
 
-/// The whole pending proposal for `key`, including the signoff list it is
-/// waiting on. `get_pending` answers *what* is pending; this answers *who* it
-/// is waiting for, which is the only thing that explains a stalled pact to a
-/// user staring at a spinner.
+/// The full pending proposal for `key`, with the signoff list that it waits
+/// on. `get_pending` gives the value that is pending. This function gives the
+/// clients that must sign off. Only that list can explain a stalled pact to a
+/// user.
 pub fn pending(state: PactMapState, key: String) -> Option(Pending) {
   case dict.get(state.values, key) {
     Ok(Pact(_, Some(pending))) -> Some(pending)

@@ -1,7 +1,8 @@
 //// A lattice-backed two-phase set kernel for string elements.
 ////
-//// Add and remove deltas are monotonic. A remove is a permanent tombstone, so
-//// re-adding a removed element records the add but never makes it active again.
+//// An add delta and a remove delta are both monotonic. A remove is a permanent
+//// tombstone. If you add a removed element again, the kernel records the add,
+//// but the element does not become active again.
 
 import gleam/int
 import gleam/json.{type Json}
@@ -102,9 +103,9 @@ pub fn remove(
   #(state, events_between(before, values(state)), op, message_id)
 }
 
-/// Merge a freshly-authored local delta into both `sequenced` and
-/// `optimistic` in one step, with no pending entry — the ack-free p2p
-/// commit. Mirrors `sequence_kernel.commit_p2p`.
+/// Merge a new local delta into `sequenced` and `optimistic` in one step.
+/// The delta gets no pending entry, because a p2p commit needs no ack.
+/// This function has the same behaviour as `sequence_kernel.commit_p2p`.
 fn commit_p2p(
   state: TwoPSetState,
   op: TwoPSetOp,
@@ -120,7 +121,7 @@ fn commit_p2p(
   #(state, events_between(before, values(state)), op)
 }
 
-/// Ack-free p2p variant of `add`: commits immediately, see `commit_p2p`.
+/// The ack-free p2p form of `add`. It commits immediately. See `commit_p2p`.
 pub fn p2p_add(
   state: TwoPSetState,
   element: String,
@@ -129,7 +130,7 @@ pub fn p2p_add(
   commit_p2p(state, Add(element, delta))
 }
 
-/// Ack-free p2p variant of `remove`: commits immediately, see `commit_p2p`.
+/// The ack-free p2p form of `remove`. It commits immediately. See `commit_p2p`.
 pub fn p2p_remove(
   state: TwoPSetState,
   element: String,
@@ -138,10 +139,12 @@ pub fn p2p_remove(
   commit_p2p(state, Remove(element, delta))
 }
 
-/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
-/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
-/// than one delta. Lattice merge is a join, so this never replaces a
-/// winner: the result is the least upper bound of both sides.
+/// Merge the full confirmed CRDT state of a peer into this state. This is
+/// the ack-free equivalent of `apply_remote`. It takes a `state` or
+/// `channel` snapshot, not one delta.
+///
+/// A lattice merge is a join, so it never discards a winner. The result is
+/// the least upper bound of the two sides.
 pub fn p2p_merge(
   state: TwoPSetState,
   other: TwoPSet(String),

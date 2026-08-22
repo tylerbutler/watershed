@@ -6,13 +6,14 @@ import lattice_core/replica_id.{type ReplicaId}
 import lattice_sequence/sequence
 import lattice_text/text.{type Text}
 
-/// Pure, runtime-independent state for a collaborative plain-text CRDT.
+/// Pure state for a collaborative plain-text CRDT. It does not depend on a
+/// runtime.
 ///
-/// Mirrors `sequence_kernel.SequenceState`: `sequenced` holds acknowledged
-/// local and remote deltas (and is what summaries persist), `optimistic`
-/// holds `sequenced` plus every still-pending local delta (and is what reads
-/// use), and `pending` is a FIFO queue of local operations awaiting
-/// acknowledgement.
+/// The structure is the same as `sequence_kernel.SequenceState`. `sequenced`
+/// holds the acked local deltas and the remote deltas, and a summary stores
+/// it. `optimistic` holds `sequenced` with every local delta that is still
+/// pending, and a read uses it. `pending` is a FIFO queue of the local
+/// operations that wait for an ack.
 pub type TextState {
   TextState(
     replica_id: ReplicaId,
@@ -27,9 +28,10 @@ pub type PendingOp {
   PendingOp(op: TextOp, message_id: Int)
 }
 
-/// Every grapheme index in these constructors records author intent for
-/// diagnostics only. `delta` is the authoritative CRDT payload; a remote
-/// replica applies `delta`, never the diagnostic index/value fields.
+/// Every grapheme index in these constructors records the intent of the
+/// author, for diagnostics only. `delta` is the authoritative CRDT payload. A
+/// remote replica applies `delta`. It never applies a diagnostic index field
+/// or value field.
 pub type TextOp {
   Insert(index: Int, value: String, delta: Text)
   DeleteRange(start: Int, end: Int, delta: Text)
@@ -37,9 +39,9 @@ pub type TextOp {
   Append(value: String, delta: Text)
 }
 
-/// Emitted only when the visible optimistic string actually changes. A
-/// state-shaped event avoids reporting an author's stale index as the final
-/// position after concurrent edits.
+/// The kernel emits this event only when the visible optimistic string
+/// changes. The event carries state, and not an index. It thus does not report
+/// a stale index of an author as the final position after concurrent edits.
 pub type TextEvent {
   TextChanged(value: String)
 }
@@ -56,36 +58,40 @@ pub type KernelError {
   UnexpectedRollback(detail: String)
 }
 
-/// An error returned when an anchor cannot be created or resolved.
+/// An error that the kernel returns when it cannot create or resolve an
+/// anchor.
 ///
-/// `UnknownAnchorTarget` means the anchor references a grapheme this replica
-/// has never seen (created remotely and not yet merged), or one that was
-/// compacted away and whose forwarding entry has since expired. Either way
-/// the anchor is unusable and the holder should re-anchor.
+/// `UnknownAnchorTarget` means that the anchor references a grapheme that this
+/// replica has never seen. A remote replica created that grapheme and this
+/// replica has not merged it yet. Or the kernel compacted that grapheme away
+/// and its forwarding entry has expired. In both conditions the anchor is
+/// unusable, and the holder must create a new anchor.
 pub type AnchorError {
   AnchorOutOfBounds(index: Int, length: Int)
   UnknownAnchorTarget
 }
 
-/// The lattice `Bias` sum, re-exported so callers don't need a direct
-/// `lattice_sequence` dependency just to build anchors. `Before` attaches an
-/// anchor to the following grapheme (inserts at the gap push it right);
-/// `After` attaches it to the preceding grapheme (inserts at the gap land
-/// after it). Construct values with `sequence.Before` / `sequence.After`.
+/// The `Bias` sum type of the lattice, re-exported here. A caller thus needs
+/// no direct dependency on `lattice_sequence` to build an anchor. `Before`
+/// attaches an anchor to the grapheme after the gap, so an insert at the gap
+/// moves the anchor to the right. `After` attaches the anchor to the grapheme
+/// before the gap, so an insert at the gap goes after the anchor. Construct a
+/// value with `sequence.Before` or `sequence.After`.
 pub type Bias =
   sequence.Bias
 
-/// A stable position in a `TextState`'s optimistic text that survives
-/// concurrent edits and merges. Opaque so callers can't construct one
-/// without going through `anchor_at`, `start_anchor`, `end_anchor`, or
-/// `anchor_from_json`.
+/// A stable position in the optimistic text of a `TextState` value. It stays
+/// correct across concurrent edits and merges. The type is opaque, so a caller
+/// must use `anchor_at`, `start_anchor`, `end_anchor`, or `anchor_from_json`
+/// to construct one.
 pub opaque type TextAnchor {
   TextAnchor(anchor: sequence.Anchor)
 }
 
-/// The op and local message ID submitted for a real edit. `None` when the
-/// mutation was a valid no-op (see module docs on empty edits): no pending
-/// entry was queued, no event fired, and no channel op should be sent.
+/// The op and the local message id that the kernel submitted for a real edit.
+/// The value is `None` when the mutation was a valid change of nothing. See
+/// the module docs on an empty edit. The kernel then queued no pending entry,
+/// emitted no event, and the caller must send no channel op.
 pub type Submission {
   Submission(op: TextOp, message_id: Int)
 }
@@ -101,12 +107,13 @@ pub fn new(replica_id: ReplicaId) -> TextState {
   )
 }
 
-/// The optimistic (sequenced + pending) visible string. Reads use this.
+/// The visible optimistic string, which is `sequenced` with the pending
+/// deltas. A read uses this function.
 pub fn value(state: TextState) -> String {
   text.value(state.optimistic)
 }
 
-/// The sequenced (acknowledged) visible string.
+/// The visible sequenced string, which contains the acked deltas only.
 pub fn sequenced_value(state: TextState) -> String {
   text.value(state.sequenced)
 }
@@ -116,8 +123,9 @@ pub fn length(state: TextState) -> Int {
   text.length(state.optimistic)
 }
 
-/// Return the graphemes in `[start, end)` from the optimistic text, or an
-/// error when the range does not satisfy `0 <= start <= end <= length`.
+/// Return the graphemes in `[start, end)` from the optimistic text. The
+/// function returns an error when the range does not satisfy
+/// `0 <= start <= end <= length`.
 pub fn substring(
   state: TextState,
   start: Int,
@@ -169,9 +177,9 @@ fn changed_event(before: String, after: String) -> List(TextEvent) {
 
 /// Insert `value` at the optimistic grapheme `index`.
 ///
-/// Validates `index` against the optimistic length even when `value` is
-/// empty. An empty insert at a valid index succeeds without a pending
-/// entry, event, or submission (see `Submission`).
+/// The function checks `index` against the optimistic length, also when
+/// `value` is empty. An empty insert at a valid index succeeds, and it
+/// produces no pending entry, no event, and no submission. See `Submission`.
 pub fn insert(
   state: TextState,
   index: Int,
@@ -197,8 +205,8 @@ pub fn insert(
 
 /// Delete the graphemes in `[start, end)` from the optimistic text.
 ///
-/// An empty range at valid bounds succeeds without a pending entry, event,
-/// or submission.
+/// An empty range with valid bounds succeeds, and it produces no pending
+/// entry, no event, and no submission.
 pub fn delete_range(
   state: TextState,
   start: Int,
@@ -224,9 +232,10 @@ pub fn delete_range(
 
 /// Replace the graphemes in `[start, end)` with `value`.
 ///
-/// Only an empty range replaced with the empty string is a no-op: a
-/// non-empty range replaced with the empty string is a real deletion, and an
-/// empty range replaced with a non-empty value is a real insertion.
+/// Only an empty range that you replace with the empty string changes nothing.
+/// A non-empty range that you replace with the empty string is a real
+/// deletion. An empty range that you replace with a non-empty value is a real
+/// insertion.
 pub fn replace_range(
   state: TextState,
   start: Int,
@@ -251,8 +260,8 @@ pub fn replace_range(
   }
 }
 
-/// Insert `value` at the end of the optimistic text. Appending is always
-/// valid, so this never fails. An empty append is a no-op.
+/// Insert `value` at the end of the optimistic text. An append is always
+/// valid, so this function never fails. An empty append changes nothing.
 pub fn append(
   state: TextState,
   value: String,
@@ -266,12 +275,13 @@ pub fn append(
   }
 }
 
-/// Merge a freshly-authored local delta into both `sequenced` and
-/// `optimistic` in one step, with no pending entry — the ack-free p2p
-/// commit. Unlike `finish_local`, this never needs the empty-edit
-/// `Option(Submission)` no-op path: p2p has no pending queue to spare from a
-/// content-free entry, so every call (even one whose delta is a no-op,
-/// e.g. inserting `""`) reports its op for broadcast.
+/// Merge a new local delta into `sequenced` and `optimistic` in one step. The
+/// delta gets no pending entry, because a p2p commit needs no ack.
+///
+/// Unlike `finish_local`, this function never needs the `Option(Submission)`
+/// path for an empty edit. The p2p mode has no pending queue to protect from
+/// an entry with no content. Every call thus reports its op for the broadcast,
+/// also a call whose delta changes nothing, for example an insert of `""`.
 fn commit_p2p(
   state: TextState,
   op: TextOp,
@@ -287,9 +297,9 @@ fn commit_p2p(
   #(state, changed_event(before, value(state)), op)
 }
 
-/// Ack-free p2p variant of `insert`: authors the same delta, but merges it
-/// into confirmed and visible state immediately (see `commit_p2p`) instead
-/// of queuing a pending entry for a later ack.
+/// The ack-free p2p form of `insert`. It writes the same delta, but it merges
+/// that delta into the confirmed state and the visible state immediately. See
+/// `commit_p2p`. It queues no pending entry for a later ack.
 pub fn p2p_insert(
   state: TextState,
   index: Int,
@@ -302,7 +312,7 @@ pub fn p2p_insert(
   }
 }
 
-/// Ack-free p2p variant of `delete_range`. See `p2p_insert`.
+/// The ack-free p2p form of `delete_range`. See `p2p_insert`.
 pub fn p2p_delete_range(
   state: TextState,
   start: Int,
@@ -315,7 +325,7 @@ pub fn p2p_delete_range(
   }
 }
 
-/// Ack-free p2p variant of `replace_range`. See `p2p_insert`.
+/// The ack-free p2p form of `replace_range`. See `p2p_insert`.
 pub fn p2p_replace_range(
   state: TextState,
   start: Int,
@@ -330,7 +340,8 @@ pub fn p2p_replace_range(
   }
 }
 
-/// Ack-free p2p variant of `append`. Always valid, like `append`.
+/// The ack-free p2p form of `append`. It is always valid, the same as
+/// `append`.
 pub fn p2p_append(
   state: TextState,
   value: String,
@@ -339,10 +350,12 @@ pub fn p2p_append(
   commit_p2p(state, Append(value, delta))
 }
 
-/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
-/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
-/// than one delta. Lattice merge is a join, so this never replaces a
-/// winner: the result is the least upper bound of both sides.
+/// Merge the full confirmed CRDT state of a peer into this state. This is
+/// the ack-free equivalent of `apply_remote`. It takes a `state` or
+/// `channel` snapshot, not one delta.
+///
+/// A lattice merge is a join, so it never discards a winner. The result is
+/// the least upper bound of the two sides.
 pub fn p2p_merge(
   state: TextState,
   other: Text,
@@ -410,8 +423,9 @@ fn do_ack(
   }
 }
 
-/// Roll back the newest pending local op. Only the newest entry may be
-/// rolled back (LIFO); rolling back anything else is a consistency error.
+/// Roll back the newest pending local op. The kernel can roll back the newest
+/// entry only, which is LIFO order. To roll back any other entry is a
+/// consistency error.
 pub fn rollback(
   state: TextState,
   op: TextOp,
@@ -436,10 +450,11 @@ pub fn rollback(
   }
 }
 
-/// Replay a previously-submitted local op (for example after a reconnect
-/// stashed it) as a fresh pending entry. Unlike `insert`/`delete_range`/etc,
-/// this always queues a pending entry: the op was already decided to be a
-/// real edit before it reached the stash.
+/// Replay a local op that the kernel submitted before, for example an op that
+/// a reconnect put in the stash, as a new pending entry. Unlike `insert` and
+/// `delete_range`, this function always queues a pending entry. The kernel
+/// already decided that the op is a real edit, before that op reached the
+/// stash.
 pub fn apply_stashed_op(
   state: TextState,
   op: TextOp,
@@ -448,8 +463,9 @@ pub fn apply_stashed_op(
   finish_local(state, optimistic, op)
 }
 
-/// Promote the optimistic text to sequenced state and clear pending ops,
-/// matching the attach behavior of the other optimistic lattice kernels.
+/// Move the optimistic text into the sequenced state and remove the pending
+/// ops. This is the same attach behaviour as in the other optimistic lattice
+/// kernels.
 pub fn promote_attach(state: TextState) -> TextState {
   TextState(..state, sequenced: state.optimistic, pending: [])
 }
@@ -458,9 +474,9 @@ pub fn summary(state: TextState) -> Json {
   text.to_json(state.sequenced)
 }
 
-/// Load a summary and rebrand it to `replica_id`, so future local deltas use
-/// the joining replica's identity rather than whichever replica produced the
-/// summary.
+/// Load a summary and re-brand it with `replica_id`. The future local deltas
+/// thus use the identity of the replica that joins, and not the identity of
+/// the replica that wrote the summary.
 pub fn from_summary(
   summary_json: String,
   replica_id: ReplicaId,
@@ -567,8 +583,8 @@ pub fn start_anchor() -> TextAnchor {
   TextAnchor(text.start_anchor())
 }
 
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth.
+/// An anchor at the end of the text. It always resolves to the current
+/// grapheme count, and it moves as the text becomes longer.
 pub fn end_anchor() -> TextAnchor {
   TextAnchor(text.end_anchor())
 }

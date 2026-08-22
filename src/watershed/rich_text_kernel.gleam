@@ -1,9 +1,9 @@
 //// Stateful client-transform kernel over the checked rich-text Delta algebra.
 ////
-//// The central sequencer broadcasts operations unchanged. This kernel keeps at
-//// most one local operation in flight, composing later edits into `buffer`, so
-//// every received operation can be transformed through a complete concurrency
-//// window.
+//// The central sequencer broadcasts the operations without a change. This
+//// kernel keeps one local operation in flight at most, and it composes the
+//// later edits into `buffer`. The kernel can thus transform every received
+//// operation through a complete concurrency window.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -35,7 +35,7 @@ pub type KernelError {
   RichTextFailure(error: rich_text.Error)
 }
 
-/// Start over an empty rich-text document.
+/// Start with an empty rich-text document.
 pub fn new(self: Int) -> RichTextState {
   from_document(self, rich_text.empty_document())
 }
@@ -62,7 +62,8 @@ pub fn summary(state: RichTextState) -> rich_text.Document {
   state.sequenced
 }
 
-/// The optimistic document: confirmed state followed by pending local edits.
+/// The optimistic document. This is the confirmed state with the pending
+/// local edits after it.
 pub fn view(state: RichTextState) -> Result(rich_text.Document, KernelError) {
   use after_inflight <- result.try(apply_optional(
     state.sequenced,
@@ -110,8 +111,9 @@ pub fn invert(
   rich_text.invert(delta, base) |> result.map_error(RichTextFailure)
 }
 
-/// Optimistically apply a local edit. Only the first pending edit is released
-/// to the caller; subsequent edits are composed into the single buffer.
+/// Apply a local edit optimistically. The kernel releases only the first
+/// pending edit to the caller. It composes each later edit into the one
+/// buffer.
 pub fn submit(
   state: RichTextState,
   delta: rich_text.Delta,
@@ -145,9 +147,10 @@ pub fn submit(
   }
 }
 
-/// Integrate a sequenced operation from another author. The emitted delta is
-/// advanced through every pending local layer, making it the exact change to
-/// the optimistic editor view rather than merely the confirmed document.
+/// Integrate a sequenced operation from another author. The kernel advances
+/// the emitted delta through every pending local layer. That delta is thus the
+/// exact change to the optimistic editor view, and not only the change to the
+/// confirmed document.
 pub fn apply_remote(
   state: RichTextState,
   wire: RichTextWireOp,
@@ -207,8 +210,9 @@ pub fn apply_remote(
   Ok(#(state, [RichTextChanged(remote_after_buffer, False)]))
 }
 
-/// Commit the (possibly rebased) in-flight operation. The echoed body is
-/// intentionally ignored: FIFO acknowledgement identifies the operation.
+/// Commit the in-flight operation, which the kernel can have rebased. The
+/// function ignores the echoed body on purpose, because the FIFO order of the
+/// acknowledgement identifies the operation.
 pub fn ack_local(
   state: RichTextState,
   _echoed_wire: RichTextWireOp,
@@ -243,8 +247,8 @@ pub fn ack_local(
   }
 }
 
-/// Drain the operation released by an acknowledgement. Once drained, repeated
-/// calls yield `None`.
+/// Take the operation that an acknowledgement released. After that, each
+/// further call gives `None`.
 pub fn take_outbound(
   state: RichTextState,
 ) -> #(RichTextState, Option(RichTextWireOp)) {
@@ -252,8 +256,9 @@ pub fn take_outbound(
   #(RichTextState(..state, outbound: outbound), taken)
 }
 
-/// rich-text reverses json0's transform-side convention. Lower-numbered
-/// authors must therefore use `Right` when transformed past higher authors.
+/// rich-text reverses the transform-side convention of json0. Thus an author
+/// with a lower number must use `Right` when the kernel transforms past an
+/// author with a higher number.
 fn side_of(author_x: Int, author_y: Int) -> rich_text.Side {
   case ot_client.author_precedes(author_x, author_y) {
     True -> rich_text.Right

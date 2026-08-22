@@ -1,10 +1,11 @@
-//// Channel address generation. Addresses only need to be unique within a
-//// document; UUID v4 makes collisions negligible without any coordination.
+//// Channel address generation. An address must be unique in one document only.
+//// UUID v4 makes a collision very unlikely, and it needs no coordination.
 ////
-//// Target-split on purpose: the erlang side uses `gleam/crypto`, but pulling
-//// that package into the JavaScript build would drag its FFI's static
-//// `node:crypto` import into browser bundles, so the JS side binds directly
-//// to `globalThis.crypto.randomUUID` instead.
+//// This module is target-split on purpose. The Erlang side uses
+//// `gleam/crypto`. The JavaScript build cannot use that package, because its
+//// FFI has a static import of `node:crypto` that a browser bundle would then
+//// include. The JavaScript side binds to `globalThis.crypto.randomUUID`
+//// instead.
 
 @target(erlang)
 import gleam/bit_array
@@ -15,7 +16,8 @@ import gleam/int
 @target(erlang)
 import gleam/string
 
-/// Generate a random RFC 4122 UUID v4 (lowercase, hyphenated).
+/// Generate a random RFC 4122 UUID v4. The result is lowercase and
+/// hyphenated.
 pub fn uuid_v4() -> String {
   do_uuid_v4()
 }

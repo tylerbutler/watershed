@@ -1,8 +1,8 @@
 //// Digest-gated save scheduling for `watershed/persist_js`.
 ////
-//// Applications call `changed` after a local mutation. Remote edits are
-//// captured by the periodic digest sweep, and `pagehide` gets one final save
-//// attempt. At most one persistence write is active per controller.
+//// An application calls `changed` after a local mutation. The periodic digest
+//// sweep captures the remote edits. The `pagehide` event starts one final save
+//// attempt. One controller runs one persistence write at a time.
 ////
 //// JavaScript target only.
 
@@ -53,7 +53,7 @@ type State(root) {
 }
 
 @target(javascript)
-/// Start a controller using real browser timers and `pagehide`.
+/// Start a controller that uses the browser timers and the `pagehide` event.
 pub fn start(
   storage: Storage,
   document: CrdtDocument(root),
@@ -69,7 +69,7 @@ pub fn start(
 }
 
 @target(javascript)
-/// Injectable lifecycle for deterministic tests.
+/// An injectable lifecycle, for deterministic tests.
 pub fn start_with(
   storage: Storage,
   document: CrdtDocument(root),
@@ -87,7 +87,7 @@ pub fn start_with(
 }
 
 @target(javascript)
-/// Injectable lifecycle and save driver for deterministic tests.
+/// An injectable lifecycle and save driver, for deterministic tests.
 pub fn start_with_save(
   document: CrdtDocument(root),
   on_status: fn(Status) -> Nil,
@@ -120,16 +120,16 @@ pub fn start_with_save(
 }
 
 @target(javascript)
-/// Report a possible local edit. Digest comparison keeps selection-only and
-/// no-op messages from causing a write.
+/// Report a possible local edit. The digest comparison prevents a write for a
+/// message that only moves the selection or changes nothing.
 pub fn changed(controller: Controller(root)) -> Nil {
   update(controller, fn(state) { State(..state, dirty: True) })
   arm_debounce(controller)
 }
 
 @target(javascript)
-/// Cancel timers and remove the page lifecycle listener. An IndexedDB write
-/// already in progress is allowed to finish and report its result.
+/// Cancel the timers and remove the page lifecycle listener. An IndexedDB
+/// write that is already in progress continues and reports its result.
 pub fn stop(controller: Controller(root)) -> Nil {
   let state = get(controller)
   cancel(state.debounce)

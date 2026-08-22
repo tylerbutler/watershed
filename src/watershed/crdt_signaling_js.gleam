@@ -1,39 +1,41 @@
 //// A browser WebSocket signaling adapter for `p2p_transport_js`.
 ////
-//// This is the client half of `crdt_signaling`: it speaks that module's
-//// frame vocabulary over a native `WebSocket` and nothing else. It has no
-//// dependency on `crdt_core`, `crdt_js`, or `crdt_wire` — it cannot see a
-//// document, so it cannot leak one into a signaling service even by
+//// This is the client half of `crdt_signaling`. It uses the frame vocabulary
+//// of that module over a native `WebSocket`, and it does nothing else. It does
+//// not depend on `crdt_core`, `crdt_js`, or `crdt_wire`. It cannot see a
+//// document, so it cannot send one to a signaling service, not even by
 //// accident.
 ////
-//// `join` is synchronous and the socket is not, which is the one thing
-//// worth knowing about it:
+//// `join` is synchronous and the socket is not. That difference is the
+//// important part of this module:
 ////
-//// - a `WebSocket` this browser refuses to construct at all (a malformed
-////   or blocked URL, a context with no `WebSocket`) fails `join`, and the
-////   transport reports `SignalingFailed`;
-//// - a socket that opens and then fails is reported twice over: to the
-////   transport as a `Failed` signal, so a document still waiting to be
-////   admitted is answered rather than left hanging, and to the
-////   application's own `on_failure`, so it can say so on screen. Once
-////   each, because a socket that has failed is finished;
-//// - frames written before the socket opens are queued and flushed, in
-////   order, when it does. Nothing is dropped and nothing is sent twice.
+//// - `join` fails when the browser refuses to construct the `WebSocket` at
+////   all. That occurs for a malformed URL, a blocked URL, or a context with
+////   no `WebSocket` type. The transport then reports `SignalingFailed`.
+//// - A socket that opens and then fails is reported two times. The transport
+////   receives a `Failed` signal, so a document that still waits for admission
+////   gets an answer and does not wait without an end. The `on_failure`
+////   function of the application also receives the failure, so the
+////   application can show it. Each report happens one time only, because a
+////   socket that has failed is finished.
+//// - The adapter queues each frame that a caller writes before the socket
+////   opens. It then sends the queue in order when the socket opens. It drops
+////   no frame, and it sends no frame two times.
 ////
 //// ## The roster
 ////
-//// The transport's contract asks for exactly one `Roster` per join,
-//// listing the whole room. This adapter's is the service's `joined`
-//// frame, which arrives a round trip after `join` returned — so a
-//// document connected through it holds its empty root, silently, until
-//// the room is known, and only then decides whether it is alone or has
-//// state to wait for. There is no moment where it announces an empty
-//// document that a peer is about to fill.
+//// The contract of the transport asks for exactly one `Roster` for each join,
+//// and that roster must list the whole room. In this adapter the roster is the
+//// `joined` frame of the service, which arrives one round trip after `join`
+//// returns. A document that connects through this adapter thus holds its empty
+//// root, and says nothing, until it knows the room. Only then does it decide
+//// whether it is alone or must wait for state. There is no moment at which it
+//// announces an empty document that a peer is about to fill.
 ////
-//// A roster that never arrives is a failure like any other:
-//// `roster_timeout_ms` after `join`, the wait ends with a `Failed`
-//// rather than hanging on a service that accepted a socket and then said
-//// nothing.
+//// A roster that never arrives is a failure, the same as any other failure.
+//// The wait ends with a `Failed` result `roster_timeout_ms` after `join`. The
+//// adapter does not wait without an end on a service that accepted a socket
+//// and then sent nothing.
 ////
 //// JavaScript target only.
 
@@ -53,15 +55,15 @@ import watershed/p2p_transport_js.{
 import watershed/transport_js.{type Cell}
 
 @target(javascript)
-/// How long a service has to admit this peer before the join is called a
-/// failure. Generous: it covers a socket handshake and one round trip,
-/// not a negotiation.
+/// The time that a service has to admit this peer before the join becomes a
+/// failure. The value is generous. It covers a socket handshake and one round
+/// trip. It does not cover a negotiation.
 pub const default_roster_timeout_ms = 10_000
 
 @target(javascript)
-/// An opaque native socket, owned by the FFI. It holds the browser
-/// `WebSocket`, its listeners, and the queue of frames written before it
-/// opened.
+/// An opaque native socket, which the FFI owns. It holds the browser
+/// `WebSocket`, the listeners of that socket, and the queue of frames that a
+/// caller wrote before the socket opened.
 pub type NativeSocket
 
 @target(javascript)
@@ -84,32 +86,31 @@ fn native_close(socket: NativeSocket) -> Nil
 type State {
   State(
     socket: Option(NativeSocket),
-    /// The deadline for the service's `joined` frame, cancelled the
-    /// moment it arrives or the socket fails.
+    /// The deadline for the `joined` frame of the service. The adapter
+    /// cancels it when that frame arrives, or when the socket fails.
     deadline: Option(transport_js.TimerId),
-    /// Whether the roster has been reported to the transport. One join,
-    /// one roster.
+    /// Whether the adapter has reported the roster to the transport. One
+    /// join gives one roster.
     roster: Bool,
-    /// Whether a failure has been reported. One socket, one failure: the
-    /// first one is the one that explains the rest.
+    /// Whether the adapter has reported a failure. One socket gives one
+    /// failure. The first failure explains the failures after it.
     failed: Bool,
     closed: Bool,
   )
 }
 
 @target(javascript)
-/// A signaling adapter that connects to a `crdt_signaling` service at
-/// `url`.
+/// A signaling adapter that connects to a `crdt_signaling` service at `url`.
 ///
-/// `on_failure` receives socket-level failures that happen after `join`
-/// returned — an unreachable service, a socket the service closed, a
-/// refusal frame naming its reason, a roster that never came. It is
-/// required rather than optional: a signaling service that has gone away
-/// is not something an application should be able to not notice.
+/// `on_failure` receives each socket-level failure that occurs after `join`
+/// returns. Those failures are an unreachable service, a socket that the
+/// service closed, a refusal frame with its reason, and a roster that never
+/// arrived. The argument is required, and not optional. An application must
+/// always know that a signaling service is no longer available.
 ///
-/// One adapter drives one membership. The transport calls `join` once;
-/// each `join` gets a state cell of its own, which is what lets
-/// `SignalingSession` stay free of adapter internals.
+/// One adapter drives one membership. The transport calls `join` one time.
+/// Each `join` gets its own state cell, and `SignalingSession` thus contains
+/// no adapter internals.
 pub fn websocket_signaling(
   url url: String,
   on_failure on_failure: fn(String) -> Nil,
@@ -122,9 +123,9 @@ pub fn websocket_signaling(
 }
 
 @target(javascript)
-/// `websocket_signaling` with the roster deadline chosen explicitly. A
-/// non-positive timeout never expires, which is only ever right for a
-/// caller that is bounding the wait itself.
+/// `websocket_signaling` with an explicit roster deadline. A timeout of zero
+/// or less never expires. That value is correct only for a caller that limits
+/// the wait itself.
 pub fn websocket_signaling_with_timeout(
   url url: String,
   on_failure on_failure: fn(String) -> Nil,
@@ -192,8 +193,8 @@ pub fn websocket_signaling_with_timeout(
 }
 
 @target(javascript)
-/// Run `work` against the current join's state, or do nothing before the
-/// first join has stored one.
+/// Run `work` on the state of the current join. Do nothing before the first
+/// join stores a state.
 fn with_current(
   current: Cell(Option(Cell(State))),
   work: fn(Cell(State)) -> Nil,
@@ -205,9 +206,9 @@ fn with_current(
 }
 
 @target(javascript)
-/// Start the roster deadline. The timer reads the cell rather than
-/// closing over the socket, so a join that has already been admitted —
-/// or failed, or left — finds nothing to report when it fires.
+/// Start the roster deadline. The timer reads the cell, and it does not close
+/// over the socket. A join that the service already admitted, or that failed,
+/// or that left, thus has nothing to report when the timer runs.
 fn arm(
   cell: Cell(State),
   timeout_ms: Int,
@@ -256,12 +257,12 @@ fn disarm(state: State) -> Nil {
 }
 
 @target(javascript)
-/// Report one failure, to the transport and to the application, once.
+/// Report one failure to the transport and to the application, one time each.
 ///
-/// The transport half is what stops a document hanging: a `Failed` signal
-/// becomes a typed `SignalingFailed`, which resolves a readiness result
-/// that would otherwise never come. A connection its owner already closed
-/// reports nothing — that outcome was asked for.
+/// The report to the transport prevents a document that waits without an end.
+/// A `Failed` signal becomes a typed `SignalingFailed` value, which resolves a
+/// readiness result that would not arrive. A connection that its owner already
+/// closed reports nothing, because the owner asked for that result.
 fn fail(
   cell: Cell(State),
   detail: String,
@@ -293,10 +294,11 @@ fn write(cell: Cell(State), frame: ClientFrame) -> Nil {
 }
 
 @target(javascript)
-/// One frame from the service. Only the membership and routing frames
-/// mean anything; a terminal refusal is a failure, and so is anything
-/// undecodable — a service that has started saying things this client
-/// does not understand is a service to report, not to guess at.
+/// One frame from the service. The membership frames and the routing frames
+/// have a meaning here. A terminal refusal is a failure. A frame that the
+/// adapter cannot decode is also a failure. A service that sends frames that
+/// this client does not understand is a service to report. Do not guess at
+/// what it means.
 fn receive(
   cell: Cell(State),
   raw: String,

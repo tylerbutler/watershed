@@ -1,10 +1,12 @@
 //// Durable browser persistence for peer-to-peer CRDT documents.
 ////
-//// A stored snapshot is another replica, not a cache. Saving atomically joins
-//// the latest stored snapshot into the live document, then exports and writes
-//// the joined state inside one storage update. A corrupt or incompatible value
-//// is reported and left in place; this module never deletes the only copy of
-//// offline edits unless a caller explicitly chooses `replace/3` recovery.
+//// A stored snapshot is another replica, not a cache. A save joins the most
+//// recent stored snapshot into the live document, then exports and writes the
+//// joined state. One storage update contains all of those steps.
+////
+//// The module reports a corrupt or incompatible value and keeps it in storage.
+//// It never deletes the only copy of the offline edits, unless the caller
+//// selects `replace/3` recovery.
 ////
 //// JavaScript target only.
 
@@ -33,9 +35,9 @@ pub type PersistenceError {
 }
 
 @target(javascript)
-/// A replaceable read plus atomic-update storage seam. Production code uses
-/// `indexed_db`; tests can provide an in-memory implementation without a
-/// browser.
+/// A replaceable storage seam that supplies a read and an atomic update.
+/// Production code uses `indexed_db`. A test can supply an in-memory
+/// implementation, which needs no browser.
 pub opaque type Storage {
   Storage(
     get: fn(String, fn(Result(Option(String), String)) -> Nil) -> Nil,
@@ -88,8 +90,9 @@ pub fn indexed_db() -> Storage {
 }
 
 @target(javascript)
-/// Load a detached document, or `None` when this browser has never stored the
-/// room. Invalid bytes remain stored and are returned as an error.
+/// Load a detached document. The result is `None` if this browser has never
+/// stored the room. Invalid bytes stay in storage, and the function returns an
+/// error.
 pub fn load(
   storage: Storage,
   config: Config(root),
@@ -123,8 +126,8 @@ fn load_snapshot(
 }
 
 @target(javascript)
-/// Join the latest disk value into `document`, then atomically replace it with
-/// the joined canonical snapshot.
+/// Join the most recent stored value into `document`. Then replace the stored
+/// value with the joined canonical snapshot, in one atomic update.
 pub fn save(
   storage: Storage,
   document: CrdtDocument(root),
@@ -139,8 +142,9 @@ pub fn save(
 }
 
 @target(javascript)
-/// Atomically replace the stored snapshot with the current document, ignoring
-/// any unreadable or incompatible stored bytes on purpose.
+/// Replace the stored snapshot with the current document, in one atomic
+/// update. This function ignores unreadable or incompatible stored bytes on
+/// purpose.
 pub fn replace(
   storage: Storage,
   document: CrdtDocument(root),

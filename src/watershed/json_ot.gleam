@@ -1,18 +1,21 @@
-//// Pure port of `ottypes/json0` (`lib/json0.js`) — the JSON OT algebra:
-//// an inspectable JSON value model plus `apply`, `transform` (TP1),
-//// `compose`, and `invert`. No process, no state; the stateful client
-//// kernel that rides the watershed sequencer lives in `json_ot_kernel`.
+//// A pure port of `ottypes/json0` (`lib/json0.js`), the JSON operational
+//// transform (OT) algebra. It contains an inspectable JSON value model with
+//// `apply`, `transform` (TP1), `compose`, and `invert`. There is no process
+//// and no state. The stateful client kernel that runs on the watershed
+//// sequencer is in `json_ot_kernel`.
 ////
-//// Modeling note: the reference type stores components as JS objects with
-//// independent optional fields (`oi`,`od`,`li`,`ld`,`lm`,`na`,`t`/`o`) and
-//// the transform matrix branches on which are present (replace = `oi`+`od`,
-//// list replace = `li`+`ld`). We mirror that with an optional-field
-//// `Component` record rather than a single-edit sum so the port stays
-//// mechanical and TP1-faithful.
+//// A note on the model: the reference type stores a component as a JavaScript
+//// object with independent optional fields (`oi`, `od`, `li`, `ld`, `lm`,
+//// `na`, and `t` with `o`). Its transform matrix branches on the fields that
+//// are present: a replace is `oi` with `od`, and a list replace is `li` with
+//// `ld`. This port uses a `Component` record with optional fields, and not a
+//// sum type of one edit each, so that the port stays mechanical and correct
+//// for TP1.
 ////
-//// Objects are kept sorted by key so structural equality (`==`) is a valid
-//// convergence oracle. Legacy `si`/`sd` string ops are not modeled; use the
-//// `text0` subtype (`t`/`o`) instead, matching modern json0 usage.
+//// The members of an object stay sorted by key, so structural equality (`==`)
+//// is a valid convergence oracle. This port does not model the old `si` and
+//// `sd` string ops. Use the `text0` subtype (`t` with `o`) instead, the same
+//// as current json0 usage.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
@@ -28,8 +31,9 @@ import gleam/string
 // JSON value model
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// An inspectable JSON value. `VObject` members are always held sorted by
-/// key so `==` is canonical (order-independent) equality.
+/// An inspectable JSON value. The members of a `VObject` value always stay
+/// sorted by key, so `==` is canonical equality, which does not depend on the
+/// order.
 pub type JsonValue {
   VNull
   VBool(Bool)
@@ -39,21 +43,23 @@ pub type JsonValue {
   VObject(List(#(String, JsonValue)))
 }
 
-/// JSON numbers keep the int/float distinction the wire codec draws.
+/// A JSON number keeps the difference between an integer and a float that the
+/// wire codec makes.
 pub type Num {
   NInt(Int)
   NFloat(Float)
 }
 
-/// A JSON pointer step: an object member or an array position.
+/// One step of a JSON pointer: an object member or an array position.
 pub type PathKey {
   Key(String)
   Index(Int)
 }
 
-/// A json0 op component: a path plus whichever edit fields are set. At most
-/// one "family" is populated per component, except the deliberate combos
-/// `oi`+`od` (object replace) and `li`+`ld` (list replace).
+/// One component of a json0 op: a path with the edit fields that are set. A
+/// component sets one family of fields at most. There are two deliberate
+/// exceptions: `oi` with `od` is an object replace, and `li` with `ld` is a
+/// list replace.
 pub type Component {
   Component(
     path: List(PathKey),
@@ -216,7 +222,8 @@ fn num_negate(a: Num) -> Num {
 // apply
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a full op to a document, component by component (json0 `apply`).
+/// Apply a full op to a document, one component at a time. This is the
+/// `apply` function of json0.
 pub fn apply(doc: JsonValue, op: Op) -> Result(JsonValue, OtError) {
   list.try_fold(op, doc, apply_component)
 }
@@ -251,8 +258,8 @@ fn do_split_last(
   }
 }
 
-/// Functional update: navigate `path` into `doc` and replace the reached
-/// sub-value with `f(sub)`.
+/// A functional update. Follow `path` into `doc`, and replace the sub-value at
+/// the end of that path with `f(sub)`.
 fn update_at(
   doc: JsonValue,
   path: List(PathKey),
@@ -291,7 +298,8 @@ fn update_at(
   }
 }
 
-/// Apply an edit whose path is empty — it targets the document root.
+/// Apply an edit whose path is empty. Such an edit targets the root of the
+/// document.
 fn edit_root(doc: JsonValue, c: Component) -> Result(JsonValue, OtError) {
   case c {
     Component(oi: Some(value), ..) -> Ok(value)
@@ -307,7 +315,7 @@ fn edit_root(doc: JsonValue, c: Component) -> Result(JsonValue, OtError) {
   }
 }
 
-/// Apply an edit at `key` within `container` (its parent).
+/// Apply an edit at `key` in `container`, which is the parent of the edit.
 fn edit_in_container(
   container: JsonValue,
   key: PathKey,
@@ -499,8 +507,8 @@ fn list_move_element(
 // Path arithmetic (transform helpers)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A component's path length adjusted the way json0 does: `na`/subtype ops
-/// conceptually reach one step deeper than their explicit path.
+/// The path length of a component, adjusted the same way as in json0. An `na`
+/// op and a subtype op both reach one step deeper than their explicit path.
 fn adj_len(c: Component) -> Int {
   let extra = case c.na, c.subtype {
     None, None -> 0
@@ -509,8 +517,9 @@ fn adj_len(c: Component) -> Int {
   list.length(c.path) + extra
 }
 
-/// json0's `commonLengthForOps(a, b)`: the shared operand-prefix length, or
-/// `None` (its `null`). `Some(-1)` mirrors the `a` reaches root case.
+/// The `commonLengthForOps(a, b)` function of json0. The result is the length
+/// of the shared operand prefix, or `None`, which is `null` in json0.
+/// `Some(-1)` is the case where `a` reaches the root.
 fn common_length(a: Component, b: Component) -> Option(Int) {
   let alen = adj_len(a)
   let blen = adj_len(b)
@@ -564,9 +573,9 @@ fn list_at_generic(items: List(a), index: Int) -> Result(a, Nil) {
   }
 }
 
-/// The numeric index value at position `i` (list branches only). Returns a
-/// sentinel for non-index / out-of-range positions, which those branches
-/// never actually consume.
+/// The numeric index value at position `i`. The list branches use this
+/// function only. It returns a sentinel value for a position that is not an
+/// index or is out of range. Those branches never read that sentinel.
 fn idx_at(path: List(PathKey), i: Int) -> Int {
   case pk_at(path, i) {
     Some(Index(n)) -> n
@@ -685,8 +694,9 @@ fn split_last_component(op: Op) -> Option(#(Op, Component)) {
 // transform (TP1) — json0 `transformComponent` + `bootstrapTransform`
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Transform `op` so it applies after `other`, breaking ties by `side`
-/// (json0's `left`/`right`). TP1: for any concurrent pair,
+/// Transform `op` so that it applies after `other`. `side` breaks a tie, and
+/// it is the `left` and `right` pair of json0. The TP1 property holds: for any
+/// concurrent pair,
 /// `apply(apply(d,a), transform(b,a,Rgt)) == apply(apply(d,b), transform(a,b,Lft))`.
 pub fn transform(op: Op, other: Op, side: Side) -> Result(Op, OtError) {
   case other {
@@ -713,8 +723,8 @@ fn transform_component_into(
   Ok(list.fold(to_append, dest, append))
 }
 
-/// json0 `transformX`: N² cross-transform of two ops, returning
-/// `#(leftOp', rightOp')`.
+/// The `transformX` function of json0. It cross-transforms two ops in N²
+/// steps, and it returns `#(leftOp', rightOp')`.
 fn transform_x(left_op: Op, right_op: Op) -> Result(#(Op, Op), OtError) {
   do_transform_x(right_op, left_op, [])
 }
@@ -769,8 +779,9 @@ fn inner_loop(
   }
 }
 
-/// json0 `transformComponent`: transform a single component `c` past a single
-/// `other`, returning the (0, 1, or 2) components to append to the result.
+/// The `transformComponent` function of json0. It transforms one component `c`
+/// past one `other` component, and it returns the 0, 1, or 2 components to
+/// append to the result.
 fn transform_component(
   c: Component,
   other: Component,
@@ -788,8 +799,9 @@ fn transform_component(
   }
 }
 
-/// If `c` deletes a subtree that `other` edits, fold `other`'s edit into the
-/// stored pre-image so `invert` stays exact (json0's `common2` block).
+/// If `c` deletes a subtree that `other` edits, add the edit of `other` to the
+/// stored pre-image. `invert` thus stays exact. This is the `common2` block of
+/// json0.
 fn apply_preimage(
   c: Component,
   other: Component,
@@ -1211,8 +1223,8 @@ fn lm_vs_lm(
 // invert (json0 `invert`) — powers rollback
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Invert an op so `apply(apply(doc, op), invert(op)) == doc`. Deletes carry
-/// their pre-image, so no external snapshot is needed.
+/// Invert an op, so that `apply(apply(doc, op), invert(op)) == doc`. A delete
+/// carries its pre-image, so the caller needs no external snapshot.
 pub fn invert(op: Op) -> Op {
   list.reverse(op) |> list.map(invert_component)
 }
@@ -1251,8 +1263,8 @@ fn invert_component(c: Component) -> Component {
 // Subtype registry (only `text0` ships; container stays name-generic)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a subtype op to a value. Filled in by rung 4 (`text0`); until then
-/// unknown subtypes error rather than silently no-op.
+/// Apply a subtype op to a value. Rung 4 (`text0`) completes this function.
+/// Before that, an unknown subtype gives an error. It does not do nothing.
 pub fn apply_subtype(
   name: String,
   value: JsonValue,
@@ -1268,7 +1280,8 @@ fn is_known_subtype(name: String) -> Bool {
   name == "text0"
 }
 
-/// Transform subtype op `a` past `b`. Filled in by rung 4 (`text0`).
+/// Transform the subtype op `a` past `b`. Rung 4 (`text0`) completes this
+/// function.
 fn subtype_transform(
   name: String,
   a: JsonValue,
@@ -1281,12 +1294,14 @@ fn subtype_transform(
   }
 }
 
-/// A subtype op is empty (drop the component) when it is an empty op list.
+/// A subtype op is empty when its op list is empty. Drop the component in that
+/// case.
 fn is_empty_subtype_op(op: JsonValue) -> Bool {
   op == VArray([])
 }
 
-/// Invert a subtype op. Identity placeholder until rung 4 wires text0.
+/// Invert a subtype op. This is an identity placeholder until rung 4 adds
+/// text0.
 fn invert_subtype(name: String, op: JsonValue) -> JsonValue {
   case name {
     "text0" -> text0_invert(op)
@@ -1361,8 +1376,10 @@ fn text0_is_empty_component(c: TextComp) -> Bool {
   }
 }
 
-/// Append `c` to `op`, dropping no-ops and composing adjacent inserts/deletes
-/// the way json0's `text._append` does. `op` is in normal (execution) order.
+/// Append `c` to `op`. The function drops a component that does nothing, and
+/// it composes two adjacent inserts or two adjacent deletes, the same as the
+/// `text._append` function of json0. `op` is in the normal order, which is the
+/// execution order.
 fn text0_append(op: List(TextComp), c: TextComp) -> List(TextComp) {
   case text0_is_empty_component(c) {
     True -> op
@@ -1387,8 +1404,9 @@ fn text0_split_last(
   }
 }
 
-/// Compose `c` onto the trailing component `last` when they are adjacent edits
-/// of the same kind (two overlapping inserts, or two overlapping deletes).
+/// Compose `c` onto the last component `last`, when the two are adjacent edits
+/// of the same kind. That is two overlapping inserts, or two overlapping
+/// deletes.
 fn text0_merge(last: TextComp, c: TextComp) -> Result(TextComp, Nil) {
   case last, c {
     TIns(lp, li), TIns(cp, ci) ->
@@ -1405,9 +1423,8 @@ fn text0_merge(last: TextComp, c: TextComp) -> Result(TextComp, Nil) {
   }
 }
 
-/// Shift `pos` to account for a concurrent component `c`. For an insert,
-/// `insert_after` decides whether a position exactly at the insert is pushed
-/// past it.
+/// Move `pos` for a concurrent component `c`. For an insert, `insert_after`
+/// decides whether a position exactly at the insert moves past it.
 fn text0_transform_position(pos: Int, c: TextComp, insert_after: Bool) -> Int {
   case c {
     TIns(cp, cs) ->
@@ -1429,8 +1446,9 @@ fn text0_transform_position(pos: Int, c: TextComp, insert_after: Bool) -> Int {
   }
 }
 
-/// Transform component `c` by `other`, appending the result(s) to `dest`
-/// (normal order). Asymmetric; `side` breaks insert-vs-insert ties.
+/// Transform the component `c` by `other`, and append each result to `dest` in
+/// the normal order. The function is asymmetric. `side` breaks a tie between
+/// two inserts.
 fn text0_transform_component(
   dest: List(TextComp),
   c: TextComp,
@@ -1510,8 +1528,9 @@ fn text0_transform_component(
   }
 }
 
-/// The recursive N² transform driver (json0's `bootstrapTransform.transformX`):
-/// returns `#(left', right')`, each op transformed past the other.
+/// The recursive N² transform driver, which is `bootstrapTransform.transformX`
+/// in json0. It returns `#(left', right')`, where each op is transformed past
+/// the other.
 fn text0_transform_x(
   left_op: List(TextComp),
   right_op: List(TextComp),
@@ -1538,9 +1557,9 @@ fn text0_tx_outer(
   }
 }
 
-/// Compose one `right_component` against the whole (remaining) left op,
-/// mirroring the inner `while` loop of `transformX` including its split-and-
-/// recurse branch.
+/// Compose one `right_component` against the whole remaining left op. This is
+/// the inner `while` loop of `transformX`, with its split-and-recurse
+/// branch.
 fn text0_tx_inner(
   left: List(TextComp),
   right_component: TextComp,
@@ -1709,7 +1728,8 @@ fn dict_to_sorted_list(
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
-/// Parse a JSON string into a `JsonValue` (used by tests and summaries).
+/// Parse a JSON string into a `JsonValue`. The tests and the summaries use
+/// this function.
 pub fn from_json_string(raw: String) -> Result(JsonValue, Nil) {
   case json.parse(raw, decoder()) {
     Ok(value) -> Ok(value)
@@ -1721,10 +1741,11 @@ pub fn from_json_string(raw: String) -> Result(JsonValue, Nil) {
 // Op wire codec (json0's on-the-wire component array)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Encode an op as a json0 component array: `[{p, oi?, od?, li?, ld?, lm?, na?,
-/// t?/o?}, …]`. Paths are arrays of strings (object keys) or ints (indices);
-/// values round-trip through `to_json`; a subtype's `#(name, op)` becomes
-/// `t`/`o`.
+/// Encode an op as a json0 component array:
+/// `[{p, oi?, od?, li?, ld?, lm?, na?, t?/o?}, …]`. A path is an array of
+/// strings, which are object keys, or of integers, which are indices. Each
+/// value goes through `to_json` and back. The `#(name, op)` pair of a subtype
+/// becomes the `t` and `o` fields.
 pub fn op_to_json(op: Op) -> Json {
   json.array(op, component_to_json)
 }
@@ -1774,7 +1795,8 @@ fn num_to_json(n: Num) -> Json {
   }
 }
 
-/// Decoder for a json0 op from parsed JSON (inverse of `op_to_json`).
+/// The decoder for a json0 op from parsed JSON. It is the inverse of
+/// `op_to_json`.
 pub fn op_decoder() -> Decoder(Op) {
   decode.list(component_decoder())
 }

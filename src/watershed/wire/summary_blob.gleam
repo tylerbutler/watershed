@@ -1,22 +1,25 @@
-//// The summary snapshot blob (v4): the format `summarize` uploads to floodgate's
-//// git storage and fresh connections bootstrap from. A *storage* format, not
-//// a wire format — versioned independently so loaders reject snapshots they
-//// don't understand rather than misread them.
+//// The summary snapshot blob, version 4. `summarize` uploads this format to
+//// the git storage of floodgate, and a new connection starts from it. This is
+//// a storage format, not a wire format. It has its own version, so a loader
+//// can refuse a snapshot that it does not understand instead of reading that
+//// snapshot incorrectly.
 ////
-//// A blob carries one `{address, type, data}` object per channel, `data` being
-//// the channel-type-dependent snapshot payload (see `channel.Snapshot`), plus
-//// the connected roster at the captured sequence number.
+//// A blob carries one `{address, type, data}` object for each channel. The
+//// `data` field is the snapshot payload of that channel type. See
+//// `channel.Snapshot`. The blob also carries the connected roster at the
+//// captured sequence number.
 ////
-//// v4 adds `members`. Membership is checkpoint state exactly like a kernel
-//// snapshot, because the consensus kernels read it: a `PactMap` freezes a
-//// signoff list from the roster and `TaskManager` judges a volunteer's
-//// authorship against it. Without it, a client bootstrapping from a checkpoint
-//// replays every later op against an empty room — which does not report an error,
-//// it silently settles pacts the room is still deciding.
+//// Version 4 adds `members`. Membership is checkpoint state, the same as a
+//// kernel snapshot, because the consensus kernels read it. A `PactMap` freezes
+//// a signoff list from the roster, and `TaskManager` checks the authorship of
+//// a volunteer against the roster. Without `members`, a client that starts
+//// from a checkpoint replays every later op against an empty room. That
+//// condition reports no error. It settles pacts that the room is still
+//// deciding.
 ////
-//// There is no v3 loader, and there was no v2 one: formats are cut clean while
-//// nothing external consumes them, and stored documents are reset rather than
-//// migrated.
+//// There is no version 3 loader, and there was no version 2 loader. A format
+//// is removed completely while nothing outside the project reads it. Stored
+//// documents are reset, not migrated.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/int
@@ -24,17 +27,17 @@ import gleam/json.{type Json}
 
 import watershed/channel
 
-/// Current on-disk format version. Loaders reject anything they don't
-/// recognise rather than misread a foreign snapshot.
+/// The current on-disk format version. A loader refuses a version that it does
+/// not recognize. It does not read a foreign snapshot incorrectly.
 pub const version = 4
 
 pub type SummaryBlob {
   SummaryBlob(
     sequence_number: Int,
-    /// The connected roster at `sequence_number`, as the kernel-side integer
-    /// ids consensus kernels tie-break on — the same derivation
-    /// `client_id.to_int` performs, so it matches what a replayed `join`
-    /// produces.
+    /// The connected roster at `sequence_number`. Each member is the
+    /// kernel-side integer id that the consensus kernels use to tie-break.
+    /// `client_id.to_int` performs the same derivation, so this list agrees
+    /// with the result of a replayed `join`.
     members: List(Int),
     channels: List(ChannelSnapshot),
   )
@@ -70,8 +73,8 @@ pub fn encode_channels(
   ])
 }
 
-/// Decode a blob produced by `encode_channels`. Reject unknown versions and
-/// unknown channel types.
+/// Decode a blob that `encode_channels` produced. Refuse an unknown version
+/// and an unknown channel type.
 pub fn decode(raw: String) -> Result(SummaryBlob, json.DecodeError) {
   json.parse(raw, decoder())
 }

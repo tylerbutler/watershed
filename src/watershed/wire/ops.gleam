@@ -1,22 +1,25 @@
-//// Codecs for the contents of `"op"` messages: kernel DDS ops in their
-//// `{address, contents}` document envelope, attach envelopes carrying a
-//// channel snapshot, and the `"summarize"` op announcing a stored snapshot.
+//// Codecs for the contents of an `"op"` message. There are three kinds: a
+//// kernel DDS op in its `{address, contents}` document envelope, an attach
+//// envelope that carries a channel snapshot, and the `"summarize"` op that
+//// announces a stored snapshot.
 ////
-//// The `{address, contents}` envelope carries no channel type: the channel
-//// registry is the authoritative source of a channel's type, so decoding is
-//// two-stage. `decode_op_contents` returns attach ops fully decoded (the
-//// attach envelope has `channelType`) but channel ops only as
-//// `#(address, Dynamic)`; the runtime looks the channel's type up by
-//// address and finishes with `channel_op_decoder`.
+//// The `{address, contents}` envelope carries no channel type. The channel
+//// registry is the authoritative source of the type of a channel, so the
+//// decode has two stages. `decode_op_contents` returns an attach op fully
+//// decoded, because the attach envelope has a `channelType` field. It returns
+//// a channel op as `#(address, Dynamic)` only. The runtime then finds the type
+//// of the channel by its address and completes the decode with
+//// `channel_op_decoder`.
 ////
-//// The map op format inside the envelope matches TS `@fluidframework/map`
-//// ops (`set`/`delete`/`clear`, values wrapped as
-//// `{"type": "Plain", "value": ...}`). That is a convenience — it keeps the
-//// corpus tests' vocabulary aligned with the TS oracle — not a compatibility
-//// contract: nothing external consumes watershed's wire or storage formats
-//// yet, so a considered format change needs versioning and fixture updates
-//// but no migration shims. Change formats deliberately all the same; that
-//// freedom shrinks as soon as real documents or clients exist.
+//// The map op format in the envelope is the same as the format of the
+//// TypeScript `@fluidframework/map` ops: `set`, `delete`, and `clear`, with
+//// each value in a `{"type": "Plain", "value": ...}` wrapper. That agreement
+//// is a convenience, because it keeps the vocabulary of the corpus tests the
+//// same as the vocabulary of the TypeScript oracle. It is not a compatibility
+//// contract. Nothing outside the project reads the wire formats or the storage
+//// formats of watershed yet, so a format change needs a new version and new
+//// fixtures, but it needs no migration code. Change a format with care all the
+//// same. That freedom ends when real documents or real clients exist.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -56,9 +59,10 @@ import watershed/text_kernel.{type TextOp}
 import watershed/two_p_set_kernel.{type TwoPSetOp}
 import watershed/wire.{type OutboundOp}
 
-/// Contents of a sequenced `"op"`: either a kernel channel op — its payload
-/// still undecoded, pending the address → channel-type lookup — or an attach
-/// envelope carrying a channel snapshot.
+/// The contents of a sequenced `"op"` message. The contents are a kernel
+/// channel op, whose payload is not decoded yet because the
+/// address-to-channel-type lookup must run first. Or the contents are an attach
+/// envelope, which carries a channel snapshot.
 pub type OpContents {
   ChannelOp(address: String, contents: Dynamic)
   AttachOp(address: String, snapshot: channel.Snapshot)
@@ -80,9 +84,9 @@ pub fn outbound_channel_op(
   )
 }
 
-/// Attach envelopes carry the full channel snapshot as
-/// `{type:"attach", address, channelType, snapshot}`, the `snapshot` payload
-/// shaped by the channel type.
+/// An attach envelope carries the full channel snapshot as
+/// `{type:"attach", address, channelType, snapshot}`. The channel type sets the
+/// shape of the `snapshot` payload.
 pub fn encode_attach(address: String, snapshot: channel.Snapshot) -> Json {
   json.object([
     #("type", json.string("attach")),
@@ -110,11 +114,12 @@ pub fn outbound_attach_op(
   )
 }
 
-/// A `"summarize"` op announcing a stored snapshot. Contents carry the fields
-/// the server's `validate_summarize_contents` requires: `handle` (storage
-/// handle for the snapshot), `message` (commit message), `parents` (parent
-/// summary handles), and `head` (the git tree SHA the client uploaded). We set
-/// `handle == head` so a loading client can fetch the tree directly by handle.
+/// A `"summarize"` op that announces a stored snapshot. The contents carry the
+/// fields that the `validate_summarize_contents` function of the server needs:
+/// `handle`, the storage handle of the snapshot; `message`, the commit message;
+/// `parents`, the handles of the parent summaries; and `head`, the git tree SHA
+/// that the client uploaded. The client sets `handle` equal to `head`, so a
+/// client that loads the summary can fetch the tree by its handle.
 pub fn outbound_summarize_op(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
@@ -137,7 +142,7 @@ pub fn outbound_summarize_op(
   )
 }
 
-/// `{address, contents}` document envelope around a kernel op.
+/// The `{address, contents}` document envelope around a kernel op.
 pub fn encode_channel_envelope(address: String, op: channel.ChannelOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -167,8 +172,8 @@ pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
   }
 }
 
-/// Decoder for a channel op's `contents` payload, selected by the channel's
-/// registered type. Stage two of `decode_op_contents`.
+/// The decoder for the `contents` payload of a channel op. The registered type
+/// of the channel selects it. This is stage two of `decode_op_contents`.
 pub fn channel_op_decoder(
   channel_type: channel.ChannelType,
 ) -> Decoder(channel.ChannelOp) {
@@ -204,7 +209,7 @@ pub fn channel_op_decoder(
   }
 }
 
-/// `{address, contents}` document envelope around a map op.
+/// The `{address, contents}` document envelope around a map op.
 pub fn encode_map_envelope(address: String, op: MapOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -235,7 +240,7 @@ pub fn encode_map_op(op: MapOp) -> Json {
   }
 }
 
-/// `{address, contents}` document envelope around a SharedCounter op.
+/// The `{address, contents}` document envelope around a SharedCounter op.
 pub fn encode_counter_envelope(address: String, op: CounterOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -253,7 +258,7 @@ pub fn encode_counter_op(op: CounterOp) -> Json {
   }
 }
 
-/// `{address, contents}` document envelope around a PnCounter op.
+/// The `{address, contents}` document envelope around a PnCounter op.
 pub fn encode_pn_counter_envelope(address: String, op: PnCounterOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -272,7 +277,7 @@ pub fn encode_pn_counter_op(op: PnCounterOp) -> Json {
   }
 }
 
-/// `{address, contents}` document envelope around a OrMap op.
+/// The `{address, contents}` document envelope around an OrMap op.
 pub fn encode_or_map_envelope(address: String, op: OrMapOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -425,8 +430,8 @@ pub fn encode_claim_op(op: ClaimOp) -> Json {
   }
 }
 
-/// Encode a json0 op envelope: the reference sequence number the components
-/// were authored against plus the json0 component array itself.
+/// Encode a json0 op envelope. It contains the reference sequence number that
+/// the components were written against, and the json0 component array.
 pub fn encode_json_ot_op(op: JsonOtWireOp) -> Json {
   json.object([
     #("refSeq", json.int(op.ref_seq)),
@@ -434,8 +439,9 @@ pub fn encode_json_ot_op(op: JsonOtWireOp) -> Json {
   ])
 }
 
-/// Encode a rich-text op envelope: the reference sequence number the delta
-/// was authored against plus the delta's canonical Quill-Delta JSON array.
+/// Encode a rich-text op envelope. It contains the reference sequence number
+/// that the delta was written against, and the canonical Quill Delta JSON
+/// array of that delta.
 pub fn encode_rich_text_op(op: RichTextWireOp) -> Json {
   json.object([
     #("refSeq", json.int(op.ref_seq)),
@@ -473,10 +479,10 @@ pub fn encode_task_manager_op(op: TaskManagerOp) -> Json {
   }
 }
 
-/// Encode a SharedDirectory op. Every variant carries `path` (the absolute
-/// directory address) and `mid` — the kernel's `message_id`, which is the op's
-/// client-sequence identity; a remote client needs it to run the
-/// stale-instance filter and sibling ordering.
+/// Encode a SharedDirectory op. Every variant carries `path`, which is the
+/// absolute directory address, and `mid`, which is the `message_id` of the
+/// kernel. `mid` is the client-sequence identity of the op. A remote client
+/// needs it for the stale-instance filter and for the sibling order.
 pub fn encode_directory_op(op: DirectoryOp, message_id: Int) -> Json {
   case op {
     directory_kernel.Set(path, key, value) ->
@@ -567,7 +573,7 @@ fn directory_op_decoder() -> Decoder(channel.ChannelOp) {
   }
 }
 
-/// `{address, contents}` document envelope around a PactMap op.
+/// The `{address, contents}` document envelope around a PactMap op.
 pub fn encode_pact_map_envelope(
   address: String,
   op: pact_map_kernel.PactMapOp,
@@ -578,8 +584,9 @@ pub fn encode_pact_map_envelope(
   ])
 }
 
-/// Encode a PactMap op. A `Set` value is `Option(Json)`: `None` is a genuine
-/// tombstone (distinct from `Some(null)`) and gets an `Absent` tag.
+/// Encode a PactMap op. The value of a `Set` op is an `Option(Json)`. `None`
+/// is a true tombstone, which is not the same as `Some(null)`, and it gets the
+/// `Absent` tag.
 pub fn encode_pact_map_op(op: pact_map_kernel.PactMapOp) -> Json {
   case op {
     pact_map_kernel.Set(key, value, ref_seq) ->
@@ -648,7 +655,8 @@ fn pact_map_value_decoder() -> Decoder(option.Option(Json)) {
   }
 }
 
-/// `{address, contents}` document envelope around an ordered-collection op.
+/// The `{address, contents}` document envelope around an ordered-collection
+/// op.
 pub fn encode_ordered_envelope(address: String, op: OrderedOp) -> Json {
   json.object([
     #("address", json.string(address)),
@@ -747,10 +755,10 @@ pub fn sequence_op_decoder() -> Decoder(SequenceOp) {
   }
 }
 
-/// Decode a `TextOp`'s wire tag. Diagnostic intent fields (indexes/ranges/
-/// value) travel alongside the authoritative CRDT `delta`; a malformed or
-/// missing `delta` fails this decoder (and therefore stage-two decoding)
-/// before the op ever reaches the kernel.
+/// Decode the wire tag of a `TextOp`. The diagnostic intent fields, which are
+/// the indexes, the ranges, and the value, travel with the authoritative CRDT
+/// `delta`. A `delta` that is malformed or absent fails this decoder, and thus
+/// fails stage two of the decode, before the op reaches the kernel.
 pub fn text_op_decoder() -> Decoder(TextOp) {
   use op_type <- decode.field("type", decode.string)
   case op_type {
@@ -819,8 +827,9 @@ pub fn encode_sequence_op(op: SequenceOp) -> Json {
 }
 
 /// Encode a `TextOp` for the wire. Every constructor carries the diagnostic
-/// intent fields (indexes/ranges/value) alongside the authoritative CRDT
-/// `delta`; a remote replica applies `delta`, never the diagnostic fields.
+/// intent fields, which are the indexes, the ranges, and the value, with the
+/// authoritative CRDT `delta`. A remote replica applies `delta`. It never
+/// applies a diagnostic field.
 pub fn encode_text_op(op: TextOp) -> Json {
   case op {
     text_kernel.Insert(index, value, delta) ->
@@ -1089,10 +1098,10 @@ pub fn json_ot_op_decoder() -> Decoder(JsonOtWireOp) {
   decode.success(JsonOtWireOp(ref_seq, components))
 }
 
-/// Strict decoder for a rich-text op envelope. The `delta` field must decode
-/// as a well-formed Quill Delta (an insert/delete/retain operation array);
-/// malformed deltas fail the whole decode rather than silently dropping the
-/// op.
+/// A strict decoder for a rich-text op envelope. The `delta` field must decode
+/// as a correct Quill Delta, which is an array of insert, delete, and retain
+/// operations. A malformed delta fails the whole decode. The decoder does not
+/// drop the op.
 pub fn rich_text_op_decoder() -> Decoder(RichTextWireOp) {
   use ref_seq <- decode.field("refSeq", decode.int)
   use delta <- decode.field("delta", rich_text_delta_decoder())
@@ -1254,9 +1263,10 @@ fn default_two_p_set_delta() -> two_p_set.TwoPSet(String) {
   two_p_set.new()
 }
 
-/// `Plain` values carry an opaque kernel `Json` payload. Handle-like markers
-/// (e.g., `{"type":"Shared", ...}`) are not interpreted here — they must be
-/// materialized by the full runtime. We only accept `Plain` markers.
+/// A `Plain` value carries an opaque kernel `Json` payload. This decoder does
+/// not interpret a handle marker, for example `{"type":"Shared", ...}`. The
+/// full runtime must materialize such a marker. This decoder accepts a `Plain`
+/// marker only.
 fn plain_value_decoder() -> Decoder(Json) {
   use value_type <- decode.field("type", decode.string)
   case value_type {

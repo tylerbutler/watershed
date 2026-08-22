@@ -7,17 +7,17 @@ import watershed/schema
 pub type P2pError {
   UnsupportedChannel(ChannelType)
   RootMismatch(expected: ChannelType, received: ChannelType)
-  /// A handle, or an imported snapshot entry, named an address registered
-  /// under a different channel type. Distinct from `RootMismatch`, which is
-  /// only ever about the document's own root.
+  /// A handle or an imported snapshot entry named an address that is
+  /// registered under a different channel type. This error is not
+  /// `RootMismatch`, which reports the root of the document only.
   ChannelTypeMismatch(
     address: String,
     expected: ChannelType,
     received: ChannelType,
   )
-  /// An operation was attempted on a document whose connection has been
-  /// closed. Reads and mutations both refuse rather than working against a
-  /// document nothing will ever broadcast again.
+  /// The caller applied an operation to a document whose connection is
+  /// closed. Reads and mutations both refuse. The document can no longer
+  /// broadcast, so no result from it would be correct.
   DocumentClosed
   CompatibilityMismatch(expected: String, received: String)
   ProtocolMismatch(expected: Int, received: Int)
@@ -81,8 +81,8 @@ pub fn validate(channel_type: ChannelType) -> Result(ChannelType, P2pError) {
   }
 }
 
-/// `validate` for a channel initializer, handing the initializer back so a
-/// creation site can keep threading it.
+/// `validate` for a channel initializer. It returns the initializer, so a
+/// creation site can continue to thread it.
 pub fn validate_create(init: ChannelInit) -> Result(ChannelInit, P2pError) {
   case validate(channel.init_type(init)) {
     Ok(_) -> Ok(init)

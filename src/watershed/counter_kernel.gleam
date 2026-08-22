@@ -1,8 +1,9 @@
 //// Pure port of FluidFramework's `packages/dds/counter/src/counter.ts`.
 ////
-//// SharedCounter is a delta-based integer DDS: every op is an increment
-//// amount, and concurrent increments commute instead of overwriting each other.
-//// Local increments are applied optimistically; acks only retire pending ops.
+//// SharedCounter is a delta-based integer DDS. Every op is an increment
+//// amount. Concurrent increments commute, and they do not overwrite each
+//// other. The kernel applies a local increment optimistically. An ack only
+//// retires a pending op.
 
 import gleam/int
 import gleam/list
@@ -15,8 +16,9 @@ pub type CounterState {
   )
 }
 
-/// A submitted local op plus the local metadata Fluid uses to match acks and
-/// rollbacks. The metadata is local-only; it is not part of the counter op.
+/// A submitted local op with the local metadata that Fluid uses to match acks
+/// and rollbacks. The metadata is local only. It is not part of the counter
+/// op.
 pub type PendingOperation {
   PendingIncrement(increment_amount: Int, message_id: Int)
 }
@@ -30,9 +32,10 @@ pub type CounterEvent {
   Incremented(increment_amount: Int, new_value: Int)
 }
 
-/// Returned when a local ack or rollback does not line up with the pending
-/// queue. The TS counter assert-fails in these cases; runtime callers should
-/// treat this as fatal rather than continue with divergent state.
+/// The kernel returns this error when a local ack or rollback does not agree
+/// with the pending queue. The TypeScript counter fails an assert in these
+/// conditions. A runtime caller must treat this error as fatal. It must not
+/// continue with divergent state.
 pub type KernelError {
   UnexpectedAck(op: CounterOp, detail: String)
   UnexpectedRollback(op: CounterOp, detail: String)
@@ -42,19 +45,20 @@ pub fn new() -> CounterState {
   CounterState(value: 0, pending: [], next_pending_message_id: 0)
 }
 
-/// Build a state from a stored summary value. Freshly loaded counters have no
+/// Build a state from a stored summary value. A counter that you load has no
 /// pending local ops.
 pub fn from_summary(value: Int) -> CounterState {
   CounterState(value: value, pending: [], next_pending_message_id: 0)
 }
 
-/// The value to store in a summary once the runtime is synced.
+/// The value to store in a summary after the runtime is synchronized.
 pub fn summary_value(state: CounterState) -> Int {
   state.value
 }
 
-/// Optimistically apply a local increment and return the outbound op plus its
-/// local message id. Gleam `Int` enforces Fluid's "whole number" constraint.
+/// Apply a local increment optimistically, and return the outbound op with its
+/// local message id. The Gleam `Int` type enforces the whole-number constraint
+/// of Fluid.
 pub fn increment(
   state: CounterState,
   increment_amount: Int,
@@ -90,8 +94,9 @@ pub fn apply_remote(
   }
 }
 
-/// Retire the oldest pending op when our local op comes back sequenced. The
-/// value and events do not change because the op already applied optimistically.
+/// Retire the oldest pending op when the local op returns sequenced. The value
+/// and the events do not change, because the kernel already applied the op
+/// optimistically.
 pub fn ack_local(
   state: CounterState,
   op: CounterOp,
@@ -114,7 +119,7 @@ pub fn ack_local(
   }
 }
 
-/// Retire the oldest pending op and validate Fluid's local op metadata.
+/// Retire the oldest pending op and check the local op metadata of Fluid.
 pub fn ack_local_with_message_id(
   state: CounterState,
   op: CounterOp,
@@ -143,8 +148,9 @@ pub fn ack_local_with_message_id(
   }
 }
 
-/// Re-apply a stashed op after reconnect. Fluid routes this back through
-/// `increment`, so it is optimistically visible and becomes pending again.
+/// Apply a stashed op again after a reconnect. Fluid sends it through
+/// `increment` again. The op is thus visible optimistically, and it becomes
+/// pending again.
 pub fn apply_stashed_op(
   state: CounterState,
   op: CounterOp,
@@ -154,8 +160,8 @@ pub fn apply_stashed_op(
   }
 }
 
-/// Roll back the newest pending op, undoing its optimistic effect. Fluid emits
-/// a normal `incremented` event with the negated amount.
+/// Roll back the newest pending op and remove its optimistic effect. Fluid
+/// emits a usual `incremented` event with the negated amount.
 pub fn rollback(
   state: CounterState,
   op: CounterOp,

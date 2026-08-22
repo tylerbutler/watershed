@@ -1,25 +1,25 @@
-//// The JavaScript presence driver: one handle over both implementations.
+//// The JavaScript presence driver: one handle over the two implementations.
 ////
-//// `start` subscribes to the presence lane and to ripples, then waits. The
-//// mode cannot be chosen yet — the server's capability is only known once the
-//// handshake settles, and every application starts presence before that. So
-//// the first `PresenceSession` frame resolves the mode, and from then on the
-//// handle behaves as one implementation or the other:
+//// `start` subscribes to the presence lane and to the ripples, then it waits.
+//// It cannot select the mode yet. The capability of the server is known only
+//// after the handshake settles, and every application starts presence before
+//// that point. The first `PresenceSession` frame thus resolves the mode. After
+//// that, the handle behaves as one implementation or as the other:
 ////
-//// - **Server mode** sends `joinPresence` and folds `presence_state` /
-////   `presence_diff` into a `presence.Tracker`. It has no heartbeat: the
+//// - **Server mode** sends `joinPresence` and folds `presence_state` and
+////   `presence_diff` into a `presence.Tracker`. It has no heartbeat. The
 ////   connection is the liveness signal, and the server removes a presence when
-////   its socket goes.
-//// - **Ripple mode** broadcasts its metadata every `heartbeat_ms` and expires
-////   peers it has not heard from within `ttl_ms`, folding both into a
-////   `presence.Sessions`.
+////   its socket closes.
+//// - **Ripple mode** broadcasts its metadata every `heartbeat_ms`, and it
+////   removes a peer that has sent nothing for `ttl_ms`. It folds both events
+////   into a `presence.Sessions` value.
 ////
-//// Once `Auto` has resolved, the choice sticks. A later reconnect onto a server
-//// without the capability reports `UnsupportedPresence` rather than quietly
-//// dropping to ripples, because a silent downgrade reads as presence being
+//// After `Auto` resolves, the choice does not change. A later reconnect to a
+//// server without the capability reports `UnsupportedPresence`. It does not
+//// change to ripple mode, because a silent downgrade makes presence look
 //// intermittently broken.
 ////
-//// JavaScript target only; the pure model lives in `watershed/presence`.
+//// JavaScript target only. The pure model is in `watershed/presence`.
 
 @target(javascript)
 import gleam/dynamic/decode
@@ -48,24 +48,26 @@ pub opaque type Handle(a) {
 @target(javascript)
 type Driver(a) {
   Driver(
-    /// The runtime handle and a "send one presence ripple" closure stand in
-    /// for the document, so the root-schema tag on `Document(root)` stops at
-    /// `start` instead of threading through `Driver` into the public
-    /// `Handle(a)`.
+    /// The runtime handle and a closure that sends one presence ripple replace
+    /// the document here. The root-schema tag on `Document(root)` thus stops at
+    /// `start`. It does not go through `Driver` into the public `Handle(a)`
+    /// type.
     runtime: runtime.Runtime,
     broadcast: fn(Json) -> Nil,
     config: Config(a),
     on_event: fn(Event(a)) -> Nil,
     scheduler: Scheduler,
-    /// The latest metadata, always. A rejoin after a reconnect sends *this*,
-    /// which is what makes "changed while disconnected" arrive on reconnect
-    /// without any extra bookkeeping.
+    /// The most recent metadata, always. A rejoin after a reconnect sends this
+    /// value. A change that the client made while it was disconnected thus
+    /// arrives on the reconnect, and the driver needs no other record of it.
     meta: a,
     /// `None` until the first handshake resolves it.
     mode: Option(Mode),
-    /// The local session id — the current server-assigned client id.
+    /// The local session id, which is the current client id that the server
+    /// assigned.
     session: Option(String),
-    /// The ripple-mode presence key: this client's authenticated user id.
+    /// The presence key in ripple mode, which is the authenticated user id of
+    /// this client.
     key: String,
     implementation: Implementation(a),
     stopped: Bool,
@@ -80,11 +82,11 @@ type Implementation(a) {
 }
 
 @target(javascript)
-/// Begin tracking presence on `document` with `initial` as this client's
-/// metadata.
+/// Start to track presence on `document`, with `initial` as the metadata of
+/// this client.
 ///
-/// Metadata is required up front rather than announced separately, so there is
-/// no window in which the handle is running but has nothing to say.
+/// The metadata is a required argument, and not a separate announcement. There
+/// is thus no interval in which the handle runs but has no metadata to send.
 pub fn start(
   document document: Document(root),
   config config: Config(a),
@@ -101,9 +103,9 @@ pub fn start(
 }
 
 @target(javascript)
-/// `start`, but driven by a supplied clock and timer. Pass
-/// `sluice_js.scheduler` to advance a heartbeat or a TTL by stepping a test's
-/// logical clock instead of waiting out real time.
+/// `start`, but with a supplied clock and timer. Give `sluice_js.scheduler` to
+/// advance a heartbeat or a TTL with the logical clock of a test, instead of a
+/// wait for the real time.
 pub fn start_with_scheduler(
   document document: Document(root),
   config config: Config(a),
@@ -144,9 +146,9 @@ pub fn start_with_scheduler(
 }
 
 @target(javascript)
-/// Replace this client's metadata. In server mode the change is pushed
-/// immediately; in ripple mode the next heartbeat carries it, and peers see the
-/// replacement as a leave followed by a join.
+/// Replace the metadata of this client. In server mode the driver pushes the
+/// change immediately. In ripple mode the next heartbeat carries it, and the
+/// peers see the change as a leave and then a join.
 pub fn update(handle: Handle(a), meta: a) -> Nil {
   let driver = transport_js.get_cell(handle.cell)
   case driver.stopped {
@@ -169,8 +171,9 @@ pub fn update(handle: Handle(a), meta: a) -> Nil {
 }
 
 @target(javascript)
-/// Stop tracking. Server mode leaves immediately; ripple-mode peers see the
-/// departure when the TTL expires, since there is no one to tell.
+/// Stop the tracking. In server mode the client leaves immediately. In ripple
+/// mode the peers see the departure when the TTL expires, because there is no
+/// message to send.
 pub fn stop(handle: Handle(a)) -> Nil {
   let driver = transport_js.get_cell(handle.cell)
   case driver.stopped {
@@ -198,16 +201,17 @@ pub fn stop(handle: Handle(a)) -> Nil {
 }
 
 @target(javascript)
-/// Which implementation this handle resolved to, or `None` before the first
-/// handshake settles. For diagnostics and tests — the two modes have different
-/// failure timing, and hiding which one is running makes that undebuggable.
+/// The implementation that this handle resolved to. The result is `None`
+/// before the first handshake settles. Use this function for diagnostics and
+/// tests. The two modes fail at different times, and you cannot debug that
+/// difference if the mode is hidden.
 pub fn mode(handle: Handle(a)) -> Option(Mode) {
   transport_js.get_cell(handle.cell).mode
 }
 
 @target(javascript)
-/// This client's own session id, for `presence.remote_entries`. `None` before
-/// the first handshake.
+/// The session id of this client, for `presence.remote_entries`. The result is
+/// `None` before the first handshake.
 pub fn local_session(handle: Handle(a)) -> Option(String) {
   transport_js.get_cell(handle.cell).session
 }
@@ -272,8 +276,8 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
 }
 
 @target(javascript)
-/// A handshake settled: resolve the mode if it is still open, adopt the new
-/// session id, and (re)join.
+/// A handshake settled. Resolve the mode if it is not resolved yet, take the
+/// new session id, and join again.
 fn on_session(
   cell: Cell(Driver(a)),
   client_id: String,
@@ -350,12 +354,13 @@ fn on_session(
 }
 
 @target(javascript)
-/// The connection went away. In server mode the tracker goes back to unsynced,
-/// which is what makes a diff arriving before the next snapshot queue rather
-/// than apply to a roster that no longer exists.
+/// The connection closed. In server mode the tracker returns to the unsynced
+/// state. A diff that arrives before the next snapshot thus queues. It does not
+/// apply to a roster that no longer exists.
 ///
-/// No event is emitted: reporting an empty roster on every socket blip would
-/// blank the interface for a gap the next snapshot closes in milliseconds.
+/// The driver emits no event. A report of an empty roster on every short socket
+/// failure would clear the interface for an interval that the next snapshot
+/// closes in milliseconds.
 fn on_session_lost(cell: Cell(Driver(a))) -> Nil {
   let driver = transport_js.get_cell(cell)
   case driver.implementation {
@@ -422,11 +427,11 @@ fn runtime_of(driver: Driver(a)) -> runtime.Runtime {
 // ── Ripple mode ──────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// An inbound ripple. The session id comes from the ripple's *server-stamped*
-/// client id, never from the payload, so a sender cannot name its own session.
-/// A ripple without one cannot be attributed and is dropped, as are foreign
-/// kinds and malformed metadata — ripples are best-effort input that any peer
-/// on the document can emit.
+/// An inbound ripple. The session id comes from the *server-stamped* client id
+/// of the ripple, and never from the payload, so a sender cannot select its own
+/// session. The driver drops a ripple without that id, because it cannot
+/// attribute the ripple. It also drops a foreign kind and malformed metadata. A
+/// ripple is best-effort input, and any peer on the document can emit one.
 fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
   let driver = transport_js.get_cell(cell)
   case driver.stopped, driver.implementation {
@@ -452,12 +457,13 @@ fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
 }
 
 @target(javascript)
-/// One heartbeat: refresh our own entry, expire the silent, broadcast, and
-/// re-arm.
+/// One heartbeat. Refresh the local entry, remove the silent peers, broadcast,
+/// and arm the timer again.
 ///
-/// The local entry is refreshed rather than special-cased because a client
-/// never hears its own ripple, so nothing else would keep it alive — and
-/// presence state includes the local session by design.
+/// The function refreshes the local entry, and it does not treat that entry as
+/// a special case. A client never receives its own ripple, so nothing else
+/// would keep the entry alive. The presence state includes the local session by
+/// design.
 fn tick(cell: Cell(Driver(a))) -> Nil {
   let driver = transport_js.get_cell(cell)
   case driver.stopped, driver.implementation {
@@ -540,7 +546,8 @@ fn commit_ripple(
 }
 
 @target(javascript)
-/// Report a change, unless nothing moved — a bare heartbeat must not re-render.
+/// Report a change. If nothing changed, report nothing, because a heartbeat
+/// alone must not cause a re-render.
 fn report(
   cell: Cell(Driver(a)),
   sessions: presence.Sessions(a),

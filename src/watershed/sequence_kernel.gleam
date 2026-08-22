@@ -91,9 +91,10 @@ fn changed_event(before: List(Json), after: List(Json)) -> List(SequenceEvent) {
   }
 }
 
-/// Equal encoded strings are equal values, so the cheap comparison settles
-/// the common no-change case; only a mismatch pays for the normalizing
-/// element-by-element comparison (which forgives e.g. object key order).
+/// Two equal encoded strings are two equal values. Thus the cheap comparison
+/// answers the usual no-change case. Only a mismatch runs the comparison of
+/// each element, which normalizes the elements and thus accepts a different
+/// object key order.
 fn same_json_list(before: List(Json), after: List(Json)) -> Bool {
   list.map(before, json.to_string) == list.map(after, json.to_string)
   || same_normalized_list(before, after)
@@ -180,10 +181,12 @@ pub fn replace(
   }
 }
 
-/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
-/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
-/// than one delta. Lattice merge is a join, so this never replaces a
-/// winner: the result is the least upper bound of both sides.
+/// Merge the full confirmed CRDT state of a peer into this state. This is
+/// the ack-free equivalent of `apply_remote`. It takes a `state` or
+/// `channel` snapshot, not one delta.
+///
+/// A lattice merge is a join, so it never discards a winner. The result is
+/// the least upper bound of the two sides.
 pub fn p2p_merge(
   state: SequenceState,
   other: Sequence(Json),
@@ -208,9 +211,9 @@ pub fn apply_remote(
   #(state, changed_event(before, values(state)))
 }
 
-/// Merge a freshly-authored local delta into both `sequenced` and
-/// `optimistic` in one step, with no pending entry — the ack-free p2p
-/// commit. Mirrors `text_kernel.commit_p2p`.
+/// Merge a new local delta into `sequenced` and `optimistic` in one step.
+/// The delta gets no pending entry, because a p2p commit needs no ack.
+/// This function has the same behaviour as `text_kernel.commit_p2p`.
 fn commit_p2p(
   state: SequenceState,
   op: SequenceOp,
@@ -226,9 +229,9 @@ fn commit_p2p(
   #(state, changed_event(before, values(state)), op)
 }
 
-/// Ack-free p2p variant of `insert`: authors the same delta, but merges it
-/// into confirmed and visible state immediately (see `commit_p2p`) instead
-/// of queuing a pending entry for a later ack.
+/// The ack-free p2p form of `insert`. It writes the same delta, but it merges
+/// that delta into the confirmed state and the visible state immediately. See
+/// `commit_p2p`. It queues no pending entry for a later ack.
 pub fn p2p_insert(
   state: SequenceState,
   index: Int,
@@ -241,7 +244,7 @@ pub fn p2p_insert(
   }
 }
 
-/// Ack-free p2p variant of `delete`. See `p2p_insert`.
+/// The ack-free p2p form of `delete`. See `p2p_insert`.
 pub fn p2p_delete(
   state: SequenceState,
   index: Int,
@@ -253,7 +256,7 @@ pub fn p2p_delete(
   }
 }
 
-/// Ack-free p2p variant of `move`. See `p2p_insert`.
+/// The ack-free p2p form of `move`. See `p2p_insert`.
 pub fn p2p_move(
   state: SequenceState,
   from_index: Int,
@@ -268,7 +271,7 @@ pub fn p2p_move(
   }
 }
 
-/// Ack-free p2p variant of `replace`. See `p2p_insert`.
+/// The ack-free p2p form of `replace`. See `p2p_insert`.
 pub fn p2p_replace(
   state: SequenceState,
   index: Int,

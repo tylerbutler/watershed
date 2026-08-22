@@ -1,22 +1,23 @@
-//// HTTP client for floodgate's storage REST endpoints: the git-storage
-//// (Historian) API used to read and write SharedMap summaries, and the
-//// deltas API (`GET /deltas/:tenant_id/:id`) used to fetch sequenced ops
-//// that have aged out of the server's in-band history window.
+//// The HTTP client for the storage REST endpoints of floodgate. There are two
+//// of them. The git-storage (Historian) API reads and writes the SharedMap
+//// summaries. The deltas API (`GET /deltas/:tenant_id/:id`) fetches the
+//// sequenced ops that are older than the in-band history window of the server.
 ////
-//// A watershed summary is a single JSON blob (see
-//// `summary_blob.encode_channels`)
-//// stored at path `"header"` inside a git tree. We set the summarize op's
-//// `handle` equal to the tree SHA, so loading a summary is: fetch the tree by
-//// handle, read the `header` blob, base64-decode, and decode the blob.
+//// A watershed summary is one JSON blob. See `summary_blob.encode_channels`.
+//// A git tree holds that blob at the path `"header"`. The client sets the
+//// `handle` field of the summarize op to the tree SHA. To load a summary, the
+//// client thus fetches the tree by its handle, reads the `header` blob,
+//// decodes that blob from base64, and then decodes the summary.
 ////
-//// Writes (`upload_summary`) require the `summary:write` scope on the token;
-//// reads (`fetch_summary`) require `doc:read`.
+//// A write with `upload_summary` needs the `summary:write` scope on the token.
+//// A read with `fetch_summary` needs the `doc:read` scope.
 ////
-//// This module is a **cross-target seam**: request construction, response
-//// decoders, and blob (de)serialization are shared, while the network `send`
-//// differs by target. The erlang path uses `gleam_httpc` and is synchronous
-//// (it runs inside the OTP actor); the JavaScript path uses `gleam_fetch` and
-//// returns a `Promise`, since browser `fetch` is inherently asynchronous.
+//// This module is a **cross-target seam**. The request construction, the
+//// response decoders, and the blob serialization are shared. The network
+//// `send` function differs for each target. The Erlang path uses
+//// `gleam_httpc` and is synchronous, because it runs in the OTP actor. The
+//// JavaScript path uses `gleam_fetch` and returns a `Promise`, because the
+//// `fetch` function of a browser is always asynchronous.
 
 import gleam/bit_array
 import gleam/dynamic/decode.{type Decoder}
@@ -47,10 +48,11 @@ import gleam/javascript/promise.{type Promise}
 /// The tree entry path that stores a watershed summary blob.
 const summary_blob_path = "header"
 
-/// One stored summary version, as listed by `GET /versions/:tenant_id/:id`
-/// (newest first). `handle` identifies the snapshot tree and can be passed to
-/// `fetch_summary` to read the historical state it captured;
-/// `sequence_number` is the SN the server assigned to the summarize op.
+/// One stored summary version, as `GET /versions/:tenant_id/:id` lists it,
+/// newest first. `handle` identifies the snapshot tree. Give that handle to
+/// `fetch_summary` to read the state that the snapshot captured.
+/// `sequence_number` is the sequence number that the server gave to the
+/// summarize op.
 pub type SummaryVersion {
   SummaryVersion(
     handle: String,
@@ -65,7 +67,8 @@ pub type SummaryVersion {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Fetch and decode the summary identified by `handle` (a git tree SHA).
+/// Fetch and decode the summary that `handle` identifies. A handle is a git
+/// tree SHA.
 pub fn fetch_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -87,14 +90,14 @@ pub fn fetch_summary(
 }
 
 @target(erlang)
-/// Serialize the given channel state as a summary blob, upload it as a git
-/// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
-/// summarize op's `head` and `handle`).
+/// Serialize the supplied channel state as a summary blob. Upload that blob as
+/// a git blob in a tree with one entry. Return the tree SHA, which is both the
+/// `head` field and the `handle` field of the summarize op.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
-/// snapshots rather than beside them because it is checkpoint state of exactly
-/// the same kind — the consensus kernels read it when replaying anything
-/// sequenced after this point.
+/// snapshots, and not beside them, because it is checkpoint state of the same
+/// kind. The consensus kernels read it when they replay an op that sequenced
+/// after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -118,9 +121,10 @@ pub fn upload_summary(
 }
 
 @target(erlang)
-/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint.
-/// The server caps each response (currently 2000 ops), so a large range may
-/// come back short — callers re-request from the last sequence number seen.
+/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint. The
+/// server limits each response, at present to 2000 ops. A large range can thus
+/// give an incomplete result. The caller must then request again from the last
+/// sequence number that it received.
 pub fn fetch_deltas(
   base_url base_url: String,
   tenant tenant: String,
@@ -137,9 +141,9 @@ pub fn fetch_deltas(
 }
 
 @target(erlang)
-/// List the document's stored summary versions, newest first (the client
-/// half of Fluid's `getVersions`). Pass a version's `handle` to
-/// `fetch_summary` to read the snapshot it captured.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. Give the `handle` of a
+/// version to `fetch_summary` to read the snapshot that it captured.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -159,7 +163,8 @@ pub fn fetch_versions(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Fetch and decode the summary identified by `handle` (a git tree SHA).
+/// Fetch and decode the summary that `handle` identifies. A handle is a git
+/// tree SHA.
 pub fn fetch_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -181,14 +186,14 @@ pub fn fetch_summary(
 }
 
 @target(javascript)
-/// Serialize the given channel state as a summary blob, upload it as a git
-/// blob wrapped in a one-entry tree, and return the tree SHA (used as both the
-/// summarize op's `head` and `handle`).
+/// Serialize the supplied channel state as a summary blob. Upload that blob as
+/// a git blob in a tree with one entry. Return the tree SHA, which is both the
+/// `head` field and the `handle` field of the summarize op.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
-/// snapshots rather than beside them because it is checkpoint state of exactly
-/// the same kind — the consensus kernels read it when replaying anything
-/// sequenced after this point.
+/// snapshots, and not beside them, because it is checkpoint state of the same
+/// kind. The consensus kernels read it when they replay an op that sequenced
+/// after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -212,9 +217,10 @@ pub fn upload_summary(
 }
 
 @target(javascript)
-/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint.
-/// The server caps each response (currently 2000 ops), so a large range may
-/// come back short — callers re-request from the last sequence number seen.
+/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint. The
+/// server limits each response, at present to 2000 ops. A large range can thus
+/// give an incomplete result. The caller must then request again from the last
+/// sequence number that it received.
 pub fn fetch_deltas(
   base_url base_url: String,
   tenant tenant: String,
@@ -231,9 +237,9 @@ pub fn fetch_deltas(
 }
 
 @target(javascript)
-/// List the document's stored summary versions, newest first (the client
-/// half of Fluid's `getVersions`). Pass a version's `handle` to
-/// `fetch_summary` to read the snapshot it captured.
+/// List the stored summary versions of the document, newest first. This is the
+/// client half of the `getVersions` function of Fluid. Give the `handle` of a
+/// version to `fetch_summary` to read the snapshot that it captured.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -268,8 +274,8 @@ fn trees_url(base_url: String, tenant: String) -> String {
   base_url <> "/repos/" <> tenant <> "/git/trees"
 }
 
-/// `from` is an exclusive lower bound and `to` an inclusive upper bound on
-/// sequence number, matching the server's query semantics.
+/// `from` is an exclusive lower bound on the sequence number, and `to` is an
+/// inclusive upper bound. The query behaviour of the server is the same.
 fn deltas_url(
   base_url: String,
   tenant: String,
@@ -343,7 +349,7 @@ fn tree_body(blob_sha: String) -> String {
 // Shared response handling
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Locate the summary blob's SHA within a decoded tree.
+/// Find the SHA of the summary blob in a decoded tree.
 fn find_blob_sha(
   tree: List(#(String, String)),
   handle: String,
@@ -361,7 +367,8 @@ fn find_blob_sha(
   }
 }
 
-/// Base64-decode a blob's content and decode the summary blob within.
+/// Decode the content of a blob from base64, then decode the summary blob in
+/// it.
 fn decode_blob(
   blob_sha: String,
   blob: BlobContent,
@@ -543,7 +550,7 @@ fn send(
 }
 
 @target(javascript)
-/// Lift a synchronous `Result` into the Promise-`try_await` chain.
+/// Lift a synchronous `Result` value into the `try_await` chain of a promise.
 fn promise_try(
   result: Result(a, e),
   next: fn(a) -> Promise(Result(b, e)),
@@ -558,7 +565,8 @@ fn promise_try(
 // Response decoders (shared)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Tree response: `{sha, url, tree: [{path, sha, type, ...}]}` → `[#(path, sha)]`.
+/// The tree response `{sha, url, tree: [{path, sha, type, ...}]}`, decoded to
+/// `[#(path, sha)]`.
 fn tree_decoder() -> Decoder(List(#(String, String))) {
   decode.at(["tree"], decode.list(tree_entry_decoder()))
 }
@@ -573,24 +581,26 @@ type BlobContent {
   BlobContent(content: String)
 }
 
-/// Blob response: `{sha, size, content: <base64>, encoding, url}`.
+/// The blob response `{sha, size, content: <base64>, encoding, url}`.
 fn blob_content_decoder() -> Decoder(BlobContent) {
   use content <- decode.field("content", decode.string)
   decode.success(BlobContent(content: content))
 }
 
-/// Blob/tree create response: `{sha, url, ...}` → the SHA.
+/// The create response for a blob or a tree, `{sha, url, ...}`, decoded to the
+/// SHA.
 fn sha_decoder() -> Decoder(String) {
   decode.field("sha", decode.string, decode.success)
 }
 
-/// Deltas response: `{value: [SequencedDocumentMessage]}` — the same message
-/// format used by document channel pushes, so the channel decoder is reused.
+/// The deltas response `{value: [SequencedDocumentMessage]}`. A document
+/// channel push uses the same message format, so this decoder uses the channel
+/// decoder.
 fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
   decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
 }
 
-/// Versions response: `{value: [{handle, sequenceNumber, message, ...}]}`,
+/// The versions response `{value: [{handle, sequenceNumber, message, ...}]}`,
 /// newest first.
 fn versions_decoder() -> Decoder(List(SummaryVersion)) {
   decode.at(["value"], decode.list(version_decoder()))

@@ -1,4 +1,4 @@
-//// The splitting iterator used by Quill Delta compose and transform.
+//// The splitting iterator that Quill Delta compose and transform use.
 
 import gleam/int
 import gleam/option.{type Option, None, Some}

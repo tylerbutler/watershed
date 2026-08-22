@@ -34,8 +34,9 @@ fn single_segment_url(url: String) -> Option(String) {
   }
 }
 
-/// Decode a handle marker — exactly `{type: fluid_handle_type, url: "/addr"}`
-/// with a single-segment url and no extra keys — to its address.
+/// Decode a handle marker to its address. A marker is exactly
+/// `{type: fluid_handle_type, url: "/addr"}`. The url must have one segment,
+/// and the object must have no other keys.
 fn marker_decoder() -> decode.Decoder(String) {
   use obj <- decode.then(decode.dict(decode.string, decode.string))
   let address = case dict.size(obj) == 2 {

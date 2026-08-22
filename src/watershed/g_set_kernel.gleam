@@ -1,7 +1,7 @@
 //// A lattice-backed grow-only set kernel for string elements.
 ////
-//// G-set deltas are themselves G-sets containing newly added elements. Merge is
-//// set union, so duplicate delivery and replay are no-ops.
+//// A G-set delta is itself a G-set, and it contains the new elements only.
+//// Merge is a set union, so a duplicate delivery or a replay changes nothing.
 
 import gleam/int
 import gleam/json.{type Json}
@@ -81,9 +81,9 @@ pub fn add(
   #(state, events_between(before, values(state)), op, message_id)
 }
 
-/// Merge a freshly-authored local delta into both `sequenced` and
-/// `optimistic` in one step, with no pending entry — the ack-free p2p
-/// commit. Mirrors `sequence_kernel.commit_p2p`.
+/// Merge a new local delta into `sequenced` and `optimistic` in one step.
+/// The delta gets no pending entry, because a p2p commit needs no ack.
+/// This function has the same behaviour as `sequence_kernel.commit_p2p`.
 fn commit_p2p(
   state: GSetState,
   op: GSetOp,
@@ -99,7 +99,7 @@ fn commit_p2p(
   #(state, events_between(before, values(state)), op)
 }
 
-/// Ack-free p2p variant of `add`: commits immediately, see `commit_p2p`.
+/// The ack-free p2p form of `add`. It commits immediately. See `commit_p2p`.
 pub fn p2p_add(
   state: GSetState,
   element: String,
@@ -108,10 +108,12 @@ pub fn p2p_add(
   commit_p2p(state, Add(element, delta))
 }
 
-/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
-/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
-/// than one delta. Lattice merge is a join, so this never replaces a
-/// winner: the result is the least upper bound of both sides.
+/// Merge the full confirmed CRDT state of a peer into this state. This is
+/// the ack-free equivalent of `apply_remote`. It takes a `state` or
+/// `channel` snapshot, not one delta.
+///
+/// A lattice merge is a join, so it never discards a winner. The result is
+/// the least upper bound of the two sides.
 pub fn p2p_merge(
   state: GSetState,
   other: GSet(String),

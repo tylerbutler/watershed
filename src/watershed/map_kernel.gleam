@@ -1,18 +1,20 @@
 //// Pure port of FluidFramework's `packages/dds/map/src/mapKernel.ts`.
 ////
-//// No process, no side effects: every operation returns the new state plus
-//// the events and outbound op it produced. The runtime actor owns
-//// sequencing concerns (CSN/RSN, ack matching by `(client_id, csn)`); the
-//// kernel only assumes acks arrive in submission order (FIFO), mirroring the
-//// TS kernel's reference-identity asserts.
+//// There is no process and there are no side effects. Every operation returns
+//// the new state with the events and the outbound op that it produced. The
+//// runtime actor owns the sequencing work: the CSN, the RSN, and the ack
+//// matching by `(client_id, csn)`. The kernel assumes only that the acks
+//// arrive in submission order (FIFO). The TypeScript kernel makes the same
+//// assumption in its reference-identity asserts.
 ////
-//// State is split the same way as the TS kernel:
-//// - `sequenced`: values confirmed by the server (plus `insertion_order`,
-////   since Gleam's `Dict` is unordered but the TS kernel relies on JS `Map`
-////   insertion-order iteration)
-//// - `pending`: optimistic local changes not yet acked, with consecutive
-////   sets to a key aggregated into "lifetimes" so iteration order stays
-////   correct across remote ops
+//// The state is split the same way as in the TypeScript kernel:
+//// - `sequenced`: the values that the server confirmed, with
+////   `insertion_order`. The Gleam `Dict` type is unordered, but the TypeScript
+////   kernel depends on the insertion-order iteration of the JavaScript `Map`
+////   type.
+//// - `pending`: the local optimistic changes that have no ack yet.
+////   Consecutive sets to one key are collected into a "lifetime", so the
+////   iteration order stays correct across the remote ops.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -29,15 +31,15 @@ pub type MapState {
 }
 
 pub type PendingEntry {
-  /// One or more consecutive local sets to a key, oldest first. A delete or
-  /// clear terminates the lifetime; a later set starts a new one.
+  /// One or more consecutive local sets to one key, oldest first. A delete or
+  /// a clear ends the lifetime. A later set starts a new lifetime.
   PendingLifetime(key: String, sets: List(Json))
   PendingDelete(key: String)
   PendingClear
 }
 
-/// A map operation as it travels over the wire (before envelope/encoding,
-/// which belong to the wire layer).
+/// A map operation in its wire form, before the envelope and the encoding.
+/// Those belong to the wire layer.
 pub type MapOp {
   Set(key: String, value: Json)
   Delete(key: String)
@@ -45,7 +47,7 @@ pub type MapOp {
 }
 
 pub type MapEvent {
-  /// `value: None` means the key was deleted (or removed by a clear).
+  /// `value: None` means that a delete or a clear removed the key.
   ValueChanged(
     key: String,
     previous_value: Option(Json),
@@ -55,9 +57,10 @@ pub type MapEvent {
   Cleared(local: Bool)
 }
 
-/// Returned when an ack does not line up with the pending queue. The TS
-/// kernel assert-fails here; callers (the runtime actor) should treat this
-/// as fatal and crash rather than continue with divergent state.
+/// The kernel returns this error when an ack does not agree with the pending
+/// queue. The TypeScript kernel fails an assert here. The caller, which is the
+/// runtime actor, must treat this error as fatal and crash. It must not
+/// continue with divergent state.
 pub type KernelError {
   UnexpectedAck(op: MapOp, detail: String)
 }
@@ -66,10 +69,10 @@ pub fn new() -> MapState {
   MapState(sequenced: dict.new(), insertion_order: [], pending: [])
 }
 
-/// Build a sequenced-only state from summary snapshot entries, preserving the
-/// given insertion order. Used to bootstrap a connection from a stored summary
-/// before replaying post-summary deltas. There are no pending local edits in a
-/// freshly loaded snapshot.
+/// Build a state that contains sequenced data only, from the summary snapshot
+/// entries. The function keeps the supplied insertion order. Use it to start a
+/// connection from a stored summary, before you replay the deltas that follow
+/// that summary. A snapshot that you load has no pending local edits.
 pub fn from_sequenced(entries: List(#(String, Json))) -> MapState {
   let #(sequenced, order) =
     list.fold(entries, #(dict.new(), []), fn(acc, entry) {
@@ -90,8 +93,8 @@ pub fn from_sequenced(entries: List(#(String, Json))) -> MapState {
   )
 }
 
-/// The sequenced entries in insertion order, ignoring pending local edits.
-/// This is the confirmed state a summary snapshot captures.
+/// The sequenced entries in insertion order. This function ignores the pending
+/// local edits. A summary snapshot captures this confirmed state.
 pub fn sequenced_entries(state: MapState) -> List(#(String, Json)) {
   list.filter_map(state.insertion_order, fn(key) {
     case dict.get(state.sequenced, key) {
@@ -105,7 +108,8 @@ pub fn sequenced_entries(state: MapState) -> List(#(String, Json)) {
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Optimistic read: sequenced data overlaid with pending local changes.
+/// An optimistic read: the sequenced data with the pending local changes over
+/// it.
 pub fn get(state: MapState, key: String) -> Option(Json) {
   case latest_pending_for(state.pending, key) {
     None -> dict.get(state.sequenced, key) |> option.from_result
@@ -126,9 +130,11 @@ pub fn keys(state: MapState) -> List(String) {
   entries(state) |> list.map(fn(entry) { entry.0 })
 }
 
-/// Optimistically observable entries, in the TS iterator's order: sequenced
-/// keys first (insertion order, skipping keys with a pending delete/clear),
-/// then pending lifetimes that survive any later delete/clear.
+/// The entries that are observable optimistically, in the order of the
+/// TypeScript iterator. The sequenced keys come first, in insertion order, and
+/// the function skips each key that has a pending delete or clear. The pending
+/// lifetimes come after, and the function keeps only those that a later delete
+/// or clear does not remove.
 pub fn entries(state: MapState) -> List(#(String, Json)) {
   let sequenced_phase =
     list.filter_map(state.insertion_order, fn(key) {
@@ -223,8 +229,9 @@ pub fn clear(state: MapState) -> #(MapState, List(MapEvent), MapOp) {
 // Remote operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a sequenced op from another client. Events are suppressed when
-/// pending local changes mask the remote change optimistically.
+/// Apply a sequenced op from another client. The kernel suppresses the events
+/// when the pending local changes hide the remote change in the optimistic
+/// view.
 pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
   case op {
     Set(key, value) -> {
@@ -297,12 +304,13 @@ pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
 // Acks (own ops coming back sequenced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Commit an acked local op: pending → sequenced. Acks must arrive in
-/// submission order; a mismatch means the runtime routed an ack we never
-/// submitted (or out of order) and is fatal.
+/// Commit an acked local op, which moves it from `pending` to `sequenced`. The
+/// acks must arrive in submission order. A mismatch means that the runtime
+/// routed an ack for an op that the kernel never submitted, or that it routed
+/// the acks out of order. Either condition is fatal.
 ///
-/// Acking never emits events — the optimistic view already reflected the op
-/// when it was submitted.
+/// An ack never emits an event. The optimistic view already showed the op at
+/// submit time.
 pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
   case op {
     Clear ->
@@ -359,8 +367,9 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
 // Pending-queue helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The most recent pending entry that affects `key`: a lifetime or delete of
-/// that key, or any clear (TS `findLast` with the same predicate).
+/// The most recent pending entry that affects `key`. That entry is a lifetime
+/// of the key, a delete of the key, or a clear. The TypeScript kernel uses
+/// `findLast` with the same predicate.
 fn latest_pending_for(
   pending: List(PendingEntry),
   key: String,
@@ -418,8 +427,8 @@ fn last_delete_or_clear_index(
   })
 }
 
-/// Append a set to the latest pending entry matching `key`, which the caller
-/// has established is a lifetime.
+/// Append a set to the most recent pending entry for `key`. The caller must
+/// have confirmed that the entry is a lifetime.
 fn append_to_latest_lifetime(
   pending: List(PendingEntry),
   key: String,
@@ -445,8 +454,8 @@ fn do_append_to_first_lifetime(
   }
 }
 
-/// Split the pending queue at the first non-clear entry for `key` (TS
-/// `findIndex` in the local ack handlers).
+/// Split the pending queue at the first entry for `key` that is not a clear.
+/// The TypeScript kernel uses `findIndex` in its local ack handlers.
 fn split_at_first_for_key(
   pending: List(PendingEntry),
   key: String,

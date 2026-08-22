@@ -1,4 +1,4 @@
-//// Canonical, JSON-valued Quill attribute maps.
+//// Quill attribute maps in canonical form, with JSON values.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -41,7 +41,8 @@ pub fn without_nulls(attributes: Attributes) -> Attributes {
   Attributes(list.filter(entries, fn(entry) { entry.1 != VNull }))
 }
 
-/// Quill AttributeMap.compose. Nulls are retained only for retain patches.
+/// Quill `AttributeMap.compose`. This function keeps a null value for a
+/// retain patch only.
 pub fn compose(a: Attributes, b: Attributes, keep_null: Bool) -> Attributes {
   let Attributes(left) = a
   let Attributes(right) = b
@@ -60,7 +61,7 @@ pub fn compose(a: Attributes, b: Attributes, keep_null: Bool) -> Attributes {
   )
 }
 
-/// Attribute changes which restore `base` after applying `patch`.
+/// The attribute changes that restore `base` after you apply `patch`.
 pub fn invert(patch: Attributes, base: Attributes) -> Attributes {
   let Attributes(patch_entries) = patch
   let Attributes(base_entries) = base
@@ -83,7 +84,8 @@ pub fn invert(patch: Attributes, base: Attributes) -> Attributes {
   )
 }
 
-/// Transform `other` attributes through `base`, using Quill priority rules.
+/// Transform the `other` attributes through `base`. This function uses the
+/// Quill priority rules.
 pub fn transform(
   base: Attributes,
   other: Attributes,

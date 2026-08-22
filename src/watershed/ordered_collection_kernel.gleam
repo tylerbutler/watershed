@@ -1,9 +1,11 @@
 //// Pure port of FluidFramework's ConsensusOrderedCollection queue semantics.
 ////
-//// The collection is non-optimistic: attached adds/acquires/completes/releases
-//// only change committed state when their ops sequence. Acquires remove from
-//// the FIFO queue into job tracking, and completed/released jobs tolerate
-//// missing entries because a sequenced leave may already have re-released them.
+//// The collection is not optimistic. An attached add, acquire, complete, or
+//// release changes the committed state only when its op sequences.
+////
+//// An acquire moves an item from the FIFO queue into job tracking. A complete
+//// or a release accepts a missing entry, because a sequenced leave can already
+//// have released that job.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -13,10 +15,10 @@ import gleam/string
 
 pub type OrderedState {
   OrderedState(
-    /// FIFO queue, front (next to remove) = head.
+    /// FIFO queue. The head is the front, which is the next item to remove.
     queue: List(Json),
-    /// acquireId -> held item. Owner is the acquiring client id, or None for a
-    /// local-unattached acquisition.
+    /// acquireId to held item. The owner is the client id that acquired the
+    /// item, or `None` for a local acquisition on an unattached collection.
     jobs: Dict(String, JobEntry),
   )
 }
@@ -33,20 +35,22 @@ pub type OrderedOp {
 }
 
 pub type OrderedEvent {
-  /// `newly_added` distinguishes a fresh add from a re-release/return to queue.
+  /// `newly_added` separates a new add from a release that returns an item to
+  /// the queue.
   Added(value: Json, newly_added: Bool, local: Bool)
   Acquired(value: Json, owner: Option(Int), local: Bool)
   Completed(value: Json, local: Bool)
-  /// Notification only: a locally-held item will be re-released when the leave
-  /// sequences. Carries no state change.
+  /// A notification only. The kernel releases a locally held item when the
+  /// leave sequences. This event changes no state.
   LocalReleased(value: Json, intentional: Bool)
 }
 
 pub type AcquireOutcome {
   AcquiredItem(acquire_id: String, value: Json)
   QueueEmpty
-  /// Never produced by the kernel: the runtime resolves a still-pending acquire
-  /// with `Aborted` when the document closes before the op sequences.
+  /// The kernel never produces this event. The runtime resolves an acquire
+  /// that is still pending with `Aborted` when the document closes before the
+  /// op sequences.
   Aborted
 }
 

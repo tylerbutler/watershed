@@ -1,9 +1,10 @@
 //// Pure consensus queue kernel for Fluid TaskManager semantics.
 ////
-//// The kernel owns committed per-task FIFO queues plus the small amount of
-//// local pending-op metadata needed for optimistic submit guards, strict local
-//// acks, rollback, and resubmit. Promises, subscriptions, read-only checks, and
-//// reconnect policy remain runtime-layer concerns.
+//// The kernel owns one committed FIFO queue for each task. It also owns the
+//// small amount of local pending-op metadata that the optimistic submit
+//// guards, the strict local acks, rollback, and resubmit need. Promises,
+//// subscriptions, read-only checks, and reconnect policy stay in the runtime
+//// layer.
 
 import gleam/dict.{type Dict}
 import gleam/list
@@ -12,9 +13,9 @@ import gleam/string
 
 pub type TaskManagerState {
   TaskManagerState(
-    /// task id -> FIFO client queue; head owns the task.
+    /// Task id to FIFO client queue. The head of the queue owns the task.
     queues: Dict(String, List(Int)),
-    /// task id -> FIFO local pending ops for this client.
+    /// Task id to the FIFO of local pending ops for this client.
     pending: Dict(String, List(PendingOp)),
   )
 }
@@ -349,19 +350,20 @@ pub fn apply_stashed_op(
   #(state, None)
 }
 
-/// A volunteer from a client that is not in the room at this sequence point is
-/// dropped.
+/// This function drops a volunteer from a client that is not in the room at
+/// this sequence point.
 ///
-/// The invariant it holds is that a queue only ever names clients the roster
-/// names, which is what makes leave-driven release complete: `remove_client`
-/// on a sequenced `"leave"` is the only thing that frees a lock its holder
-/// walked away from, so a client that got into a queue without ever being a
-/// member could hold a role that nothing will ever release.
+/// The invariant is that a queue names only the clients that the roster names.
+/// That invariant makes the leave-driven release complete. `remove_client` on a
+/// sequenced `"leave"` is the only operation that frees a lock whose holder
+/// left the room. A client that entered a queue without membership could thus
+/// hold a role that nothing releases.
 ///
-/// Every replica must reach the same verdict here or the queues diverge, which
-/// is why it takes `meta.roster` — reconstructed at the op's own sequence point
-/// — rather than `meta.quorum`, whose defensive additions differ between a
-/// replica applying the op live and one replaying it.
+/// Every replica must give the same result here, or the queues diverge. Thus
+/// this function takes `meta.roster`, which the kernel rebuilds at the sequence
+/// point of the op. It does not take `meta.quorum`, whose defensive additions
+/// differ between a replica that applies the op live and a replica that replays
+/// it.
 fn apply_volunteer_core(
   state: TaskManagerState,
   task_id: String,

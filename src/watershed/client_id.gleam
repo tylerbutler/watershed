@@ -1,16 +1,20 @@
-//// A stable, replicated mapping from a client's string id to the integer the
-//// OT tie-break (`side`) and sequencing metadata use. Shared by the runtime
-//// (which stamps `author`/`self` on sequenced ops) and `channel` (which seeds
-//// a json0 kernel's `self`) so every replica derives the same integer for a
-//// given client — a prerequisite for convergent tie-breaking.
+//// A stable, replicated mapping from the string id of a client to an integer.
+//// The operational transform (OT) tie-break field `side` and the sequencing
+//// metadata use that integer.
+////
+//// Two callers share this mapping. The runtime stamps `author` and `self` on
+//// sequenced ops. The `channel` module seeds the `self` field of a json0
+//// kernel. Every replica must derive the same integer for a given client, or
+//// the tie-break does not converge.
 
 import gleam/int
 import gleam/list
 import gleam/string
 
-/// Derive a client's integer id: the numeric suffix after the last `_` when
-/// present (Fluid client ids are `<prefix>_<n>`), else a stable hash of the
-/// whole string.
+/// Derive the integer id of a client. If the string has a numeric suffix after
+/// the last `_`, use that suffix. Fluid client ids have the form
+/// `<prefix>_<n>`. If there is no such suffix, use a stable hash of the whole
+/// string.
 pub fn to_int(client_id: String) -> Int {
   case string.split(client_id, "_") |> list.last {
     Ok(raw) ->

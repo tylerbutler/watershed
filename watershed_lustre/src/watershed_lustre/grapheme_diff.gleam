@@ -1,39 +1,41 @@
-//// Minimal grapheme-level diff between two strings.
+//// A minimal grapheme-level diff between two strings.
 ////
-//// A `<textarea>`'s `input` event only ever hands you the *whole* new value.
-//// Writing that straight back to a CRDT as one giant replace-the-document op is
-//// correct in isolation but catastrophic under collaboration: it clobbers every
-//// concurrent remote edit and makes the sequence do maximum work for a
-//// single-keystroke change. It also tempts you to address the CRDT by the
-//// browser's UTF-16 code-unit offsets (`selectionStart`), which are *not*
-//// grapheme indices — an emoji or a combining mark and the two disagree, so the
-//// op lands in the wrong place.
+//// The `input` event of a `<textarea>` gives you the whole new value only. If
+//// you write that value back to a CRDT as one replace-the-document op, the
+//// result is correct for one client. Under collaboration it is very bad. It
+//// overwrites every concurrent remote edit, and it makes the sequence do the
+//// maximum amount of work for a one-keystroke change. It also makes you want
+//// to address the CRDT by the UTF-16 code-unit offsets of the browser, such as
+//// `selectionStart`. Those offsets are *not* grapheme indices. An emoji or a
+//// combining mark makes the two disagree, and the op then applies at the wrong
+//// position.
 ////
-//// This module derives the one minimal edit a keystroke implies, entirely from
-//// the before/after strings, using Gleam's `string.to_graphemes` (Unicode
-//// extended grapheme clusters) as the unit — never code units. It finds the
-//// longest common grapheme prefix and suffix, and the graphemes between them on
-//// each side are the removed range and the inserted text:
+//// This module derives the one minimal edit that a keystroke implies, from the
+//// two strings only. The unit is the Unicode extended grapheme cluster, from
+//// `string.to_graphemes` of Gleam. The unit is never a code unit. The module
+//// finds the longest common grapheme prefix and the longest common grapheme
+//// suffix. The graphemes between them on each side are the removed range and
+//// the inserted text:
 ////
-//// - only insertion  → `Insert(index, value)`
-//// - only removal     → `Delete(start, end)`
-//// - both             → `Replace(start, end, value)`
-//// - identical        → `NoChange`
+//// - an insertion only → `Insert(index, value)`
+//// - a removal only    → `Delete(start, end)`
+//// - both              → `Replace(start, end, value)`
+//// - no difference     → `NoChange`
 ////
-//// All indices are grapheme indices into the *old* string, exactly what
-//// `watershed.text_insert` / `text_delete_range` / `text_replace_range`
-//// expect. The result is deterministic and never a whole-document replace when a
-//// narrower op exists.
+//// Every index is a grapheme index into the *old* string, which is what
+//// `watershed.text_insert`, `text_delete_range`, and `text_replace_range`
+//// need. The result is deterministic. It is never a whole-document replace
+//// when a smaller op is possible.
 
 import gleam/list
 import gleam/string
 
-/// The single minimal edit that turns one string into another, expressed in
-/// grapheme indices into the *old* string.
+/// The one minimal edit that changes one string into another, in grapheme
+/// indices into the *old* string.
 pub type Edit {
-  /// The strings are identical: emit no CRDT op.
+  /// The two strings are the same. Emit no CRDT op.
   NoChange
-  /// Insert `value` at grapheme `index` (`0..old_length`).
+  /// Insert `value` at the grapheme `index`, in the range `0..old_length`.
   Insert(index: Int, value: String)
   /// Delete the graphemes in `[start, end)`.
   Delete(start: Int, end: Int)
@@ -41,8 +43,9 @@ pub type Edit {
   Replace(start: Int, end: Int, value: String)
 }
 
-/// Derive the minimal `Edit` from `old` to `new`, both segmented into extended
-/// grapheme clusters. Pure and total — no CRDT, no browser offsets involved.
+/// Derive the minimal `Edit` value from `old` to `new`. The function segments
+/// both strings into extended grapheme clusters. It is pure and total. It uses
+/// no CRDT and no browser offset.
 pub fn diff(old old: String, new new: String) -> Edit {
   case old == new {
     True -> NoChange
@@ -90,24 +93,28 @@ pub fn diff(old old: String, new new: String) -> Edit {
   }
 }
 
-/// Re-address an edit so it applies to text that has moved under it: every
-/// index shifts by `by`, and the inserted content is untouched.
+/// Re-address an edit, so that it applies to text that moved below it. Every
+/// index moves by `by`, and the inserted content does not change.
 ///
-/// An IME composition is what needs this. Its edit is recovered against the
-/// value the element held when the session opened, so it arrives in the
-/// coordinates of a string that may be several remote keystrokes out of date;
-/// a `TextAnchor` on the composition site gives the distance it travelled and
-/// this carries the edit that far. One distance describes the move only while
-/// the composed-over region stayed intact, which is why the component prefers
-/// [`replacement`](#replacement) and [`splice`](#splice) — a resolved span says
-/// where *both* ends went — and falls back here when the session cannot be read
-/// as one region changing.
+/// An input method editor (IME) composition needs this function. The component
+/// recovers the edit of a composition against the value that the element held
+/// when the session opened. The edit thus arrives in the coordinates of a
+/// string that can be several remote keystrokes out of date. A `TextAnchor` on
+/// the composition site gives the distance that the site moved, and this
+/// function moves the edit by that distance.
 ///
-/// Indices clamp at zero — a peer can delete more before the site than the site
-/// was offset by, and index 0 is a position that exists where a negative one is
-/// not. Both ends of a range move together, so `start <= end` survives. Nothing
-/// clamps at the upper end: an index past the end of the text is a rejection the
-/// runtime should report, not one to quietly relocate.
+/// One distance describes the move only while the composed-over region stayed
+/// complete. The component thus prefers [`replacement`](#replacement) and
+/// [`splice`](#splice), because a resolved span says where *both* ends moved.
+/// The component uses this function only when it cannot read the session as one
+/// region that changed.
+///
+/// An index clamps at zero. A peer can delete more text before the site than
+/// the offset of the site, and index 0 is a position that exists, where a
+/// negative index is not. The two ends of a range move together, so
+/// `start <= end` stays true. Nothing clamps at the upper end. An index after
+/// the end of the text is a rejection that the runtime must report. It is not a
+/// rejection to move quietly.
 pub fn shift(edit: Edit, by amount: Int) -> Edit {
   case edit {
     NoChange -> NoChange
@@ -119,24 +126,26 @@ pub fn shift(edit: Edit, by amount: Int) -> Edit {
   }
 }
 
-/// Recover the text that took the place of a known region of `old`.
+/// Recover the text that replaced a known region of `old`.
 ///
-/// [`diff`](#diff) *infers* an edit's extent from two strings, which is all a
-/// keystroke gives you. An IME session has more than that: it knows the region
-/// it opened over — the selection the user is composing across — so the extent
-/// is not in question and only its content is. That distinction matters,
-/// because inference cannot tell "the user replaced these five graphemes" from
-/// "the user replaced the three of them that changed", and only the first is
-/// a claim that can be re-addressed against a document a peer has edited
-/// meanwhile.
+/// [`diff`](#diff) *infers* the extent of an edit from two strings, which is
+/// all that a keystroke gives you. An IME session gives more. It knows the
+/// region that it opened over, which is the selection that the user composes
+/// across. The extent is thus known, and only the content is in question.
 ///
-/// `region` is a half-open grapheme range into `old`. The answer is the
-/// graphemes of `new` that now sit between the same surroundings.
+/// That difference is important. Inference cannot separate "the user replaced
+/// these five graphemes" from "the user replaced the three of them that
+/// changed". Only the first statement can be re-addressed against a document
+/// that a peer edited in the same interval.
 ///
-/// `Error(Nil)` when `new` is not `old` with that region swapped out — the
-/// region is out of bounds or inverted, `new` is too short to hold the
-/// surroundings, or the text outside the region moved. Nothing here can honour
-/// those cases; the caller should fall back to inferring the edit with `diff`.
+/// `region` is a half-open grapheme range into `old`. The result is the
+/// graphemes of `new` that are now between the same surrounding text.
+///
+/// The result is `Error(Nil)` when `new` is not `old` with that region
+/// replaced. That occurs when the region is out of bounds or inverted, when
+/// `new` is too short to hold the surrounding text, or when the text outside
+/// the region moved. This function cannot answer those conditions. The caller
+/// must then infer the edit with `diff`.
 pub fn replacement(
   old old: String,
   new new: String,
@@ -171,13 +180,14 @@ pub fn replacement(
 }
 
 /// The edit that puts `value` in place of the graphemes in `[start, end)`,
-/// named by the narrowest constructor that says the same thing.
+/// with the most specific constructor that gives the same result.
 ///
-/// The counterpart to [`replacement`](#replacement): once a caller knows the
-/// region and its new content, the op needs no inferring at all. Callers with
-/// only two strings want [`diff`](#diff) instead — this will happily emit a
-/// wider op than the change requires, which is right when the *user* chose that
-/// extent and wrong when a diff merely failed to narrow it.
+/// This function is the counterpart of [`replacement`](#replacement). After a
+/// caller knows the region and its new content, the op needs no inference. A
+/// caller that has two strings only must use [`diff`](#diff) instead. This
+/// function emits an op that is wider than the change when you ask it to. That
+/// result is correct when the *user* selected that extent, and incorrect when a
+/// diff only failed to make the extent smaller.
 pub fn splice(start start: Int, end end: Int, value value: String) -> Edit {
   case start >= end, value {
     True, "" -> NoChange

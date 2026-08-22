@@ -1,12 +1,15 @@
-//// Codecs for connection-level frames and spillway message envelopes.
-//// Wire-key quirks confirmed against `document_channel.ex` / `session.ex`:
+//// Codecs for the connection-level frames and the spillway message envelopes.
+//// These wire keys are unusual, and `document_channel.ex` and `session.ex`
+//// confirm them:
 ////
-//// - `ConnectMessage.document_id` maps to wire key `id`, not `documentId`.
-//// - Sequenced ops carry exactly the 9 keys spillway's
-////   `session_logic.build_sequenced_op` emits; everything else is optional.
-//// - `lastSeenSequenceNumber` is a floodgate extension to `connect_document`, so it
-////   is a separate argument rather than a `ConnectMessage` field. It is
-////   advisory only — see `encode_connect_document`.
+//// - `ConnectMessage.document_id` maps to the wire key `id`, and not to
+////   `documentId`.
+//// - A sequenced op carries exactly the 9 keys that
+////   `session_logic.build_sequenced_op` of spillway emits. Every other key is
+////   optional.
+//// - `lastSeenSequenceNumber` is an extension of floodgate to
+////   `connect_document`. It is thus a separate argument, and not a field of
+////   `ConnectMessage`. It is advisory only. See `encode_connect_document`.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
@@ -35,17 +38,19 @@ import watershed/wire.{type OutboundOp}
 // Encoders (client → server)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// `connect_document` payload. The server requires `tenantId`, `id`,
-/// `client`, `mode`, and `token`; `versions` drives protocol negotiation.
+/// The `connect_document` payload. The server requires `tenantId`, `id`,
+/// `client`, `mode`, and `token`. `versions` controls the protocol
+/// negotiation.
 ///
-/// `last_seen_sequence_number` is **advisory** and no server acts on it. This
-/// used to promise "automatic delta catch-up pushed as a normal `op` event",
-/// which floodgate does not do — it does not read the field at all, and answers
-/// a reconnect with the same full bootstrap it gives a cold join. Believing the
-/// promise is what left reconnecting clients waiting forever for a delta nobody
-/// was sending. The catch-up is the client's own `requestOps`; see
-/// `runtime_core.catch_up_from`. The field is still sent, because it costs
-/// nothing and a server that did honour it would need it.
+/// `last_seen_sequence_number` is **advisory**, and no server uses it. This
+/// documentation gave a different promise before: an automatic delta catch-up,
+/// pushed as a usual `op` event. floodgate does not do that. It does not read
+/// the field, and it answers a reconnect with the same full bootstrap that it
+/// gives a cold join. That incorrect promise made a reconnecting client wait
+/// for a delta that no server sent. The client must do its own catch-up with
+/// `requestOps`. See `runtime_core.catch_up_from`. The client still sends the
+/// field, because the field costs nothing and a server that did use it would
+/// need it.
 pub fn encode_connect_document(
   msg: ConnectMessage,
   last_seen_sequence_number: Option(Int),
@@ -79,8 +84,8 @@ pub fn encode_connect_document(
   )
 }
 
-/// `submitOp` payload: `{clientId, messageBatches}`. The server nacks
-/// submissions above 100 total ops; the runtime enforces that cap.
+/// The `submitOp` payload: `{clientId, messageBatches}`. The server nacks a
+/// submission of more than 100 ops in total. The runtime applies that limit.
 pub fn encode_submit_op(
   client_id: String,
   batches: List(List(OutboundOp)),
@@ -108,16 +113,17 @@ fn encode_outbound_op(op: OutboundOp) -> Json {
   )
 }
 
-/// `requestOps` payload for in-band delta catch-up; the response arrives as
-/// a normal `op` event.
+/// The `requestOps` payload, for an in-band delta catch-up. The response
+/// arrives as a usual `op` event.
 pub fn encode_request_ops(from from: Int) -> Json {
   json.object([#("from", json.int(from))])
 }
 
-/// `submitSignal` payload for an ephemeral, non-sequenced ripple. Uses the V2
-/// format levee's `normalize_signal` expects: a `contentBatches` list whose
-/// single entry carries the app `content` (arbitrary JSON) and a `type` tag.
-/// Ripples are fire-and-forget — no sequencing, persistence, ack, or catch-up.
+/// The `submitSignal` payload, for an ephemeral ripple that does not sequence.
+/// It uses the V2 format that the `normalize_signal` function of levee needs:
+/// a `contentBatches` list with one entry. That entry carries the application
+/// `content`, which is any JSON, and a `type` tag. A ripple has no sequencing,
+/// no persistence, no ack, and no catch-up.
 pub fn encode_submit_ripple(
   client_id client_id: String,
   ripple_type ripple_type: String,
@@ -137,7 +143,8 @@ pub fn encode_submit_ripple(
   ])
 }
 
-/// `noop` heartbeat payload, advancing the server's MSN while idle.
+/// The `noop` heartbeat payload. It advances the MSN of the server while the
+/// client is idle.
 pub fn encode_noop(
   client_id: String,
   reference_sequence_number reference_sequence_number: Int,
@@ -231,7 +238,7 @@ fn mode_decoder() -> Decoder(ConnectionMode) {
   })
 }
 
-/// `connect_document_success` payload.
+/// The `connect_document_success` payload.
 pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   use claims <- decode.field("claims", token_claims_decoder())
   use client_id <- decode.field("clientId", decode.string)
@@ -314,16 +321,19 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
   ))
 }
 
-/// The `supportedFeatures` key a server sets to advertise the presence lane.
+/// The `supportedFeatures` key that a server sets to announce the presence
+/// lane.
 pub const feature_presence_v1 = "presence_v1"
 
-/// Whether a server's `connect_document_success` `supportedFeatures` advertises
-/// `feature`. Takes the dict rather than the whole message so a runtime can
-/// answer the same question from the value it stashed at handshake time.
+/// Whether the `supportedFeatures` field of a `connect_document_success`
+/// message announces `feature`. The function takes the dict, and not the whole
+/// message, so a runtime can answer the same question from the value that it
+/// stored at handshake time.
 ///
-/// Strict on purpose: the feature must be present *and* decode as `True`. A
-/// server that has never heard of a feature omits the key, and treating an
-/// unparseable value as support would send it traffic it cannot answer.
+/// The test is strict on purpose. The key must be present, *and* it must decode
+/// as `True`. A server that does not know a feature omits the key. If this
+/// function accepted a value that it cannot decode, the client would send that
+/// server traffic that the server cannot answer.
 pub fn supports_feature(
   features: dict.Dict(String, Dynamic),
   feature: String,
@@ -334,7 +344,7 @@ pub fn supports_feature(
   }
 }
 
-/// `summaryContext` sub-object of `connect_document_success`:
+/// The `summaryContext` sub-object of `connect_document_success`:
 /// `{handle, sequenceNumber}`.
 pub fn summary_context_decoder() -> Decoder(SummaryContext) {
   use handle <- decode.field("handle", decode.string)
@@ -345,21 +355,21 @@ pub fn summary_context_decoder() -> Decoder(SummaryContext) {
   ))
 }
 
-/// `connect_document_error` payload: HTTP-style `{code, message}`.
+/// The `connect_document_error` payload, in the HTTP form `{code, message}`.
 pub fn connect_error_decoder() -> Decoder(ConnectError) {
   use code <- decode.field("code", decode.int)
   use error_message <- decode.field("message", decode.string)
   decode.success(ConnectError(code: code, message: error_message))
 }
 
-/// `op` event payload, in either shape a server sends it.
+/// The `op` event payload, in the two shapes that a server can send.
 ///
-/// Levee wraps the messages: `{documentId, op: [SequencedDocumentMessage]}`.
-/// Floodgate pushes the bare `[SequencedDocumentMessage]` on every op path —
-/// submit, join, leave, `requestOps` and summary — dropping the document id,
-/// which is redundant with the channel topic. Accept both, so one client works
-/// against either server; `document_id` is `""` for the bare shape and no
-/// caller reads it.
+/// levee wraps the messages: `{documentId, op: [SequencedDocumentMessage]}`.
+/// floodgate pushes the bare `[SequencedDocumentMessage]` on every op path:
+/// submit, join, leave, `requestOps`, and summary. It omits the document id,
+/// which the channel topic already gives. This decoder accepts both shapes, so
+/// one client works with either server. `document_id` is `""` for the bare
+/// shape, and no caller reads it.
 pub fn op_message_decoder() -> Decoder(OpMessage) {
   decode.one_of(wrapped_op_message_decoder(), [bare_op_message_decoder()])
 }
@@ -378,9 +388,9 @@ fn bare_op_message_decoder() -> Decoder(OpMessage) {
   decode.success(OpMessage(document_id: "", ops: ops))
 }
 
-/// One sequenced message as built by spillway's
-/// `session_logic.build_sequenced_op`. `clientId` is null for system
-/// messages (join/leave/summary*).
+/// One sequenced message, as the `session_logic.build_sequenced_op` function
+/// of spillway builds it. `clientId` is null for a system message, which is a
+/// join, a leave, or a summary message.
 pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage) {
   use client_id <- decode.field("clientId", decode.optional(decode.string))
   use sequence_number <- decode.field("sequenceNumber", decode.int)
@@ -428,7 +438,8 @@ pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage)
   ))
 }
 
-/// `nack` event payload: `{clientId, nacks}`; decodes just the nack list.
+/// The `nack` event payload: `{clientId, nacks}`. This decoder reads the nack
+/// list only.
 pub fn nacks_decoder() -> Decoder(List(Nack)) {
   use nacks <- decode.field("nacks", decode.list(nack_decoder()))
   decode.success(nacks)
@@ -476,7 +487,7 @@ fn nack_error_type_decoder() -> Decoder(nack.NackErrorType) {
   })
 }
 
-/// A client-authored op as echoed back inside a nack.
+/// An op that a client wrote, as a nack echoes it back.
 pub fn document_message_decoder() -> Decoder(DocumentMessage) {
   use client_sequence_number <- decode.field("clientSequenceNumber", decode.int)
   use reference_sequence_number <- decode.field(
@@ -583,9 +594,9 @@ fn ripple_client_decoder() -> Decoder(SignalClient) {
   ))
 }
 
-/// Decoder for an inbound `ripple` broadcast (`SignalMessage`). Ripples are
-/// ephemeral: not sequenced, persisted, or acked. `content` stays `Dynamic`
-/// for the app to decode.
+/// The decoder for an inbound `ripple` broadcast, which is a `SignalMessage`.
+/// A ripple is ephemeral: the server does not sequence it, store it, or ack
+/// it. `content` stays `Dynamic`, for the application to decode.
 pub fn ripple_message_decoder() -> Decoder(SignalMessage) {
   use client_id <- decode.optional_field(
     "clientId",
@@ -623,8 +634,8 @@ pub fn ripple_message_decoder() -> Decoder(SignalMessage) {
   ))
 }
 
-/// Lenient `Client` decoder: the server echoes back the same structure that
-/// joining client sent, so missing fields fall back to sensible defaults.
+/// A permissive `Client` decoder. The server echoes back the same structure
+/// that the joining client sent, so a missing field takes a default value.
 pub fn client_decoder() -> Decoder(Client) {
   use mode <- decode.optional_field("mode", WriteMode, mode_decoder())
   use details <- decode.optional_field(

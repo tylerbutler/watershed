@@ -1,9 +1,9 @@
 //// Shared primitives for watershed's Fluid-compatible document-channel
 //// payloads.
 ////
-//// Types are reused from `spillway/types` and `spillway/message` so the
-//// client and server can't drift; watershed only owns the JSON codecs.
-//// Those live in submodules, split by vocabulary:
+//// The types come from `spillway/types` and `spillway/message`, so the client
+//// and the server cannot drift apart. watershed owns the JSON codecs only.
+//// Those codecs are in submodules, one for each vocabulary:
 ////
 //// - `wire/socket` — connection-level frames and spillway envelope codecs
 //// - `wire/ops` — op contents: channel ops, attach envelopes, summarize ops
@@ -20,9 +20,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-/// A client-authored op ready for `submitOp`. Mirrors the fields the TS
-/// driver's `submitCore` puts on the wire. Constructed by `wire/ops`,
-/// serialized by `wire/socket`.
+/// An op that a client wrote, ready for `submitOp`. It has the same fields
+/// that the `submitCore` function of the TypeScript driver puts on the wire.
+/// `wire/ops` constructs it, and `wire/socket` serializes it.
 pub type OutboundOp {
   OutboundOp(
     client_sequence_number: Int,
@@ -33,9 +33,9 @@ pub type OutboundOp {
   )
 }
 
-/// Wire names for the channel types watershed speaks (the attach envelope's
-/// and summary blob's `channelType`/`type` fields).
-/// The map tag is one variant in that multi-channel set.
+/// The wire names of the channel types that watershed uses. These are the
+/// `channelType` field of the attach envelope and the `type` field of the
+/// summary blob. The map tag is one member of that set.
 pub const channel_type_map = "map"
 
 pub const channel_type_counter = "counter"
@@ -70,8 +70,8 @@ pub const channel_type_rich_text = "richText"
 
 pub const channel_type_text = "text"
 
-/// Encode map entries as the ordered `[{key, value}]` array shared by attach
-/// snapshots and summary blob channels.
+/// Encode the map entries as the ordered `[{key, value}]` array. An attach
+/// snapshot and a summary blob channel both use that array.
 pub fn encode_entries(entries: List(#(String, Json))) -> Json {
   json.array(entries, fn(entry) {
     json.object([#("key", json.string(entry.0)), #("value", entry.1)])
@@ -85,8 +85,9 @@ pub fn entry_decoder() -> Decoder(#(String, Json)) {
   decode.success(#(key, value))
 }
 
-/// Decode any parsed-JSON `Dynamic` back into a `Json` value, so decoded op
-/// contents can flow into the kernel (which stores values as `Json`).
+/// Decode a parsed-JSON `Dynamic` value back into a `Json` value. The decoded
+/// op contents can then go into the kernel, which stores each value as
+/// `Json`.
 pub fn json_value_decoder() -> Decoder(Json) {
   let non_null =
     decode.one_of(decode.string |> decode.map(json.string), or: [
@@ -107,7 +108,8 @@ pub fn json_value_decoder() -> Decoder(Json) {
   })
 }
 
-/// `json_value_decoder` as a plain function; undecodable values become null.
+/// `json_value_decoder` as a plain function. A value that the decoder cannot
+/// read becomes null.
 pub fn dynamic_to_json(value: Dynamic) -> Json {
   case decode.run(value, json_value_decoder()) {
     Ok(decoded) -> decoded
@@ -129,9 +131,10 @@ const max_safe_json_integer = 9_007_199_254_740_991
 
 const min_safe_json_integer = -9_007_199_254_740_991
 
-/// Compare JSON values by their data semantics rather than their encoded
-/// spelling. Object key order is ignored, and safe integral floats compare
-/// equal to integers so JavaScript number normalization cannot break echoes.
+/// Compare two JSON values by their data, and not by their encoded text. The
+/// comparison ignores the object key order. A safe integral float is equal to
+/// the same integer, so the number normalization of JavaScript cannot break an
+/// echo.
 pub fn json_semantically_equal(ours: Json, echoed: Json) -> Bool {
   case
     json.parse(json.to_string(ours), comparable_json_decoder()),

@@ -1,26 +1,27 @@
-//// Convert between the browser's UTF-16 code-unit offsets and the CRDT's
-//// grapheme indices.
+//// Convert between the UTF-16 code-unit offsets of the browser and the
+//// grapheme indices of the CRDT.
 ////
-//// A `<textarea>` reports `selectionStart`/`selectionEnd` as counts of UTF-16
-//// code units; `SharedText` addresses every edit by extended grapheme cluster.
-//// The two agree only for text that is entirely BMP scalars with no combining
-//// marks — that is, until the first emoji, accent, or flag. Reading a caret
-//// position on one side and using it on the other is the single most common way
-//// a collaborative text bridge lands an op in the wrong place.
+//// A `<textarea>` reports `selectionStart` and `selectionEnd` as counts of
+//// UTF-16 code units. `SharedText` addresses every edit by extended grapheme
+//// cluster. The two counts agree only for text that contains BMP scalars and
+//// no combining marks. The first emoji, accent, or flag ends that agreement.
+//// If you read a caret position on one side and use it on the other side, the
+//// bridge puts an op at the wrong position. This is the most frequent error in
+//// a collaborative text bridge.
 ////
-//// Both directions clamp rather than fail: an offset past the end resolves to
-//// the end, a negative one to zero. An offset that lands *inside* a cluster —
-//// between the surrogate halves of an emoji, say — snaps backwards to that
-//// cluster's start, because a caret is better placed one grapheme early than at
-//// an index the CRDT cannot name.
+//// Both directions clamp, and neither one fails. An offset after the end gives
+//// the end. A negative offset gives zero. An offset inside a cluster, for
+//// example between the two surrogate halves of an emoji, moves back to the
+//// start of that cluster. A caret one grapheme too early is better than an
+//// index that the CRDT cannot name.
 
 import gleam/list
 import gleam/string
 
 import watershed/rich_text/utf16
 
-/// The UTF-16 offset of grapheme `index` — where the browser should put a caret
-/// that the CRDT calls `index`.
+/// The UTF-16 offset of the grapheme at `index`. This is where the browser
+/// must put a caret that the CRDT calls `index`.
 pub fn to_utf16(text: String, index: Int) -> Int {
   case index <= 0 {
     True -> 0
@@ -33,8 +34,8 @@ pub fn to_utf16(text: String, index: Int) -> Int {
   }
 }
 
-/// The grapheme index containing UTF-16 `offset` — what the CRDT should call a
-/// caret the browser reported at `offset`.
+/// The grapheme index that contains the UTF-16 `offset`. This is the name that
+/// the CRDT must use for a caret that the browser reported at `offset`.
 pub fn from_utf16(text: String, offset: Int) -> Int {
   case offset <= 0 {
     True -> 0

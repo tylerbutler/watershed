@@ -1,9 +1,10 @@
 //// Pure port of FluidFramework's ConsensusRegisterCollection core semantics.
 ////
-//// Like `claims_kernel`, this kernel is non-optimistic: local writes are not
-//// visible until their op sequences. Unlike claims, every sequenced write is
-//// retained as a version; the atomic slot is updated only when the write knew
-//// the current atomic version (`ref_seq >= atomic.sequence_number`).
+//// This kernel is not optimistic, the same as `claims_kernel`. A local write
+//// is not visible until its op sequences. Unlike claims, the kernel keeps
+//// every sequenced write as a version. It updates the atomic slot only if the
+//// write knew the current atomic version
+//// (`ref_seq >= atomic.sequence_number`).
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -16,8 +17,9 @@ pub type RegisterState {
 }
 
 pub type Register {
-  /// `atomic` is the linearizable winner; `versions` contains every still-
-  /// concurrent value in sequence order, oldest first. Non-empty by invariant.
+  /// `atomic` is the linearizable winner. `versions` contains every value that
+  /// is still concurrent, in sequence order, oldest first. An invariant keeps
+  /// `versions` non-empty.
   Register(atomic: VersionedValue, versions: List(VersionedValue))
 }
 
@@ -25,16 +27,18 @@ pub type VersionedValue {
   VersionedValue(value: Json, sequence_number: Int)
 }
 
-/// The single register-collection op. `ref_seq` is the author's last-seen
-/// sequence number at submit time and is preserved across resubmits.
+/// The one register-collection op. `ref_seq` is the last sequence number that
+/// the author saw at submit time. A resubmit keeps that value.
 pub type WriteOp {
   Write(key: String, value: Json, ref_seq: Int)
 }
 
 pub type RegisterEvent {
-  /// Emitted only when the atomic/linearizable value changes.
+  /// The kernel emits this event only when the atomic (linearizable) value
+  /// changes.
   AtomicChanged(key: String, value: Json, local: Bool)
-  /// Emitted for every sequenced write, including atomic losers.
+  /// The kernel emits this event for every sequenced write, including a write
+  /// that does not win the atomic slot.
   VersionChanged(key: String, value: Json, local: Bool)
 }
 
@@ -47,8 +51,9 @@ pub fn new() -> RegisterState {
   RegisterState(registers: dict.new())
 }
 
-/// Build committed state from summary entries. Sequence numbers are part of
-/// the summary so atomic CAS and version pruning keep working after load.
+/// Build the committed state from the summary entries. The summary contains
+/// the sequence numbers, so the atomic compare-and-set and the version pruning
+/// continue to work after a load.
 pub fn from_summary(entries: List(#(String, Register))) -> RegisterState {
   let registers =
     list.fold(entries, dict.new(), fn(acc, entry) {
@@ -58,14 +63,15 @@ pub fn from_summary(entries: List(#(String, Register))) -> RegisterState {
   RegisterState(registers: registers)
 }
 
-/// Stable summary entries sorted by key.
+/// The summary entries in a stable order, sorted by key.
 pub fn summary_registers(state: RegisterState) -> List(#(String, Register)) {
   dict.to_list(state.registers)
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
-/// The committed value for `key` under `policy`, or `None` if the key has no
-/// sequenced data. Committed-only: pending local writes are invisible.
+/// The committed value for `key` under `policy`. The result is `None` if the
+/// key has no sequenced data. This read gives committed data only, and a
+/// pending local write is not visible.
 pub fn read(
   state: RegisterState,
   key: String,
@@ -85,7 +91,8 @@ pub fn read(
   }
 }
 
-/// All committed versions for `key`, oldest to newest, or `None` if absent.
+/// Every committed version for `key`, oldest first. The result is `None` if
+/// the key is absent.
 pub fn read_versions(state: RegisterState, key: String) -> Option(List(Json)) {
   case dict.get(state.registers, key) {
     Error(_) -> None
@@ -100,8 +107,9 @@ pub fn keys(state: RegisterState) -> List(String) {
   dict.keys(state.registers) |> list.sort(string.compare)
 }
 
-/// Attached submit path: build an op with the runtime-provided last-seen
-/// sequence number. State is unchanged because reads are non-optimistic.
+/// The attached submit path. Build an op with the last-seen sequence number
+/// that the runtime supplies. The state does not change, because a read is not
+/// optimistic.
 pub fn write(
   _state: RegisterState,
   key: String,
@@ -111,7 +119,8 @@ pub fn write(
   Write(key, value, last_seen_seq)
 }
 
-/// Detached apply: no sequencer exists yet, so both refSeq and seq are zero.
+/// The detached apply path. There is no sequencer yet, so `ref_seq` and `seq`
+/// are both zero.
 pub fn write_detached(
   state: RegisterState,
   key: String,
@@ -141,13 +150,14 @@ pub fn ack_local(
   #(state, events, is_winner)
 }
 
-/// Rollback resolves the deferred write outcome as false. There is no pending
-/// kernel state to undo because writes are invisible until ack.
+/// A rollback resolves the deferred write result as false. There is no pending
+/// kernel state to undo, because a write is not visible until its ack.
 pub fn rollback(state: RegisterState, _op: WriteOp) -> #(RegisterState, Bool) {
   #(state, False)
 }
 
-/// Stashed ops are resubmitted verbatim; in particular, `ref_seq` is preserved.
+/// The kernel resubmits a stashed op without a change. In particular, it keeps
+/// `ref_seq`.
 pub fn apply_stashed_op(
   state: RegisterState,
   op: WriteOp,

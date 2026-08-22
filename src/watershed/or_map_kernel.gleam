@@ -1,10 +1,13 @@
 //// A lattice-backed observed-remove map kernel.
 ////
-//// This kernel hosts an `lattice_maps/or_map.ORMap` in one of two value modes:
-//// signed tallies (PN-counter leaves) or string registers (LWW-register
-//// leaves). Local mutations use `update_with_delta`/`remove_with_delta` only to
-//// produce sparse deltas; state is advanced by applying those deltas back with
-//// `apply_delta`, so authors and peers both store the same join-of-deltas view.
+//// This kernel holds one `lattice_maps/or_map.ORMap` in one of two value
+//// modes. The first mode holds signed tallies, which are PN-counter leaves.
+//// The second mode holds string registers, which are LWW-register leaves.
+////
+//// A local mutation calls `update_with_delta` or `remove_with_delta` to
+//// produce a sparse delta only. The kernel then advances the state by applying
+//// that delta with `apply_delta`. The author and the peers thus all store the
+//// same join-of-deltas view.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -37,29 +40,31 @@ pub type OrMapState {
     sequenced: ORMap,
     optimistic: ORMap,
     own_tallies: Dict(String, #(Int, Int)),
-    /// The highest register timestamp this replica has seen per key, from
-    /// either end — the logical half of a hybrid logical clock.
+    /// The highest register timestamp that this replica has seen for each key,
+    /// from a local write or a remote write. This is the logical half of a
+    /// hybrid logical clock.
     ///
-    /// The timestamps stamped on register writes come from a wall clock, and
-    /// `lww_register` accepts a write only when its timestamp is *strictly*
-    /// greater than the one held. A wall clock is not a logical clock: it
-    /// stands still for a millisecond at a time and occasionally runs
-    /// backwards, and either way two writes can end up unordered when the
-    /// order was never in doubt. Keeping the maximum per key lets a local
-    /// write be stamped above everything already seen for that key, so a
-    /// second write in the same millisecond lands instead of vanishing.
+    /// The timestamp on a register write comes from a wall clock, and
+    /// `lww_register` accepts a write only when its timestamp is *more* than
+    /// the timestamp that it holds. A wall clock is not a logical clock. It
+    /// does not move for a millisecond at a time, and it sometimes moves
+    /// backwards. Either condition can leave two writes unordered when their
+    /// order was never in doubt. This clock keeps the maximum for each key, so
+    /// the kernel can stamp a local write above everything that it has seen
+    /// for that key. A second write in the same millisecond thus applies
+    /// instead of disappearing.
     ///
-    /// Per key rather than per channel: a hot key must not push an untouched
-    /// one into the future, where it would beat a peer's genuinely later
-    /// write.
+    /// The clock is per key, and not per channel. A key that changes often
+    /// must not move an unchanged key into the future, where that key would
+    /// win against a later write from a peer.
     ///
-    /// Starts empty on `from_summary` and `from_sequenced`, which cannot
-    /// seed it: `lww_register` is opaque, so those paths have no timestamp
-    /// to read. A client that joins against a *server* checkpoint written
-    /// by a replica whose clock ran ahead can therefore still lose its
-    /// first write to a key. The p2p path does not have that hole —
-    /// `p2p_merge` reads each merged register's own timestamp back out
-    /// through `lww_register.to_json` and folds it in here.
+    /// `from_summary` and `from_sequenced` start this clock empty, because
+    /// they cannot fill it. `lww_register` is opaque, so those paths have no
+    /// timestamp to read. A client that joins against a *server* checkpoint
+    /// can thus still lose its first write to a key, if the replica that wrote
+    /// that checkpoint had a clock that ran ahead. The p2p path does not have
+    /// that fault. `p2p_merge` reads the timestamp of each merged register
+    /// through `lww_register.to_json` and adds it to this clock.
     register_clock: Dict(String, Int),
     pending: List(PendingOp),
     next_pending_message_id: Int,
@@ -213,15 +218,16 @@ pub fn set_register(
   }
 }
 
-/// The timestamp to stamp a local register write with: the wall clock, unless
-/// this replica has already seen that instant or later for this key, in which
-/// case one tick past the newest it has seen.
+/// The timestamp for a local register write. The result is the wall clock,
+/// unless this replica has already seen that instant or a later one for this
+/// key. In that condition the result is one tick after the newest timestamp
+/// that it has seen.
 ///
-/// This is the whole fix for "two writes in the same millisecond, second one
-/// silently dropped". It cannot be done by loosening `lww_register`'s strictly-
-/// greater comparison to `>=`: that comparison is what makes the merge
-/// commutative, and the `replica_id` tie-break underneath it is what settles
-/// genuinely concurrent writes from different replicas. Only the *stamping*
+/// This is the complete fix for a lost second write in the same millisecond.
+/// You cannot make that fix by changing the more-than comparison of
+/// `lww_register` to a more-than-or-equal comparison. That comparison makes the
+/// merge commutative, and the `replica_id` tie-break below it settles the
+/// writes from different replicas that are truly concurrent. Only the *stamping*
 /// side knows that these two writes are ordered.
 fn stamp(clock: Dict(String, Int), key: String, wall_clock: Int) -> Int {
   case dict.get(clock, key) {
@@ -230,7 +236,7 @@ fn stamp(clock: Dict(String, Int), key: String, wall_clock: Int) -> Int {
   }
 }
 
-/// Record a timestamp as seen for a key, keeping the maximum.
+/// Record a timestamp as seen for a key. The clock keeps the maximum.
 fn observe(
   clock: Dict(String, Int),
   key: String,
@@ -242,9 +248,9 @@ fn observe(
   }
 }
 
-/// Track what a peer's write claimed, so the next local write to that key beats
-/// it rather than tying with it and falling through to the replica-id
-/// tie-break.
+/// Record the timestamp that the write of a peer used. The next local write to
+/// that key is thus above it. Without this record the two writes could be
+/// equal, and the replica-id tie-break would then decide.
 fn observe_op(clock: Dict(String, Int), op: OrMapOp) -> Dict(String, Int) {
   case op {
     SetRegister(key, _, timestamp, _) -> observe(clock, key, timestamp)
@@ -271,9 +277,9 @@ pub fn remove(
   #(new_state, events_between(before, entries(new_state)), op, message_id)
 }
 
-/// Ack-free p2p variant of `increment`: authors the same delta, but merges
-/// it into confirmed and visible state immediately instead of queuing a
-/// pending entry for a later ack.
+/// The ack-free p2p form of `increment`. It writes the same delta, but it
+/// merges that delta into the confirmed state and the visible state
+/// immediately. It queues no pending entry for a later ack.
 pub fn p2p_increment(
   state: OrMapState,
   key: String,
@@ -312,7 +318,7 @@ pub fn p2p_increment(
   }
 }
 
-/// Ack-free p2p variant of `set_register`. See `p2p_increment`.
+/// The ack-free p2p form of `set_register`. See `p2p_increment`.
 pub fn p2p_set_register(
   state: OrMapState,
   key: String,
@@ -344,7 +350,7 @@ pub fn p2p_set_register(
   }
 }
 
-/// Ack-free p2p variant of `remove`. Never fails, like `remove`.
+/// The ack-free p2p form of `remove`. It never fails, the same as `remove`.
 pub fn p2p_remove(
   state: OrMapState,
   key: String,
@@ -359,18 +365,19 @@ pub fn p2p_remove(
   #(new_state, events_between(before, entries(new_state)), op)
 }
 
-/// Merge a peer's whole confirmed CRDT state into this one — the ack-free
-/// counterpart of `apply_remote` for a `state`/`channel` snapshot rather
-/// than one delta. Lattice merge is a join, so this never replaces a
+/// Merge the full confirmed CRDT state of a peer into this state. This is the
+/// ack-free equivalent of `apply_remote`. It takes a `state` or `channel`
+/// snapshot, not one delta. A lattice merge is a join, so it never discards a
 /// winner.
 ///
-/// In `RegisterMode` the merged registers' own timestamps are folded into
-/// `register_clock`, so a replica that bootstraps from a peer whose clock
-/// ran ahead still wins its own next write to those keys instead of
-/// silently losing it. The timestamps are read back through
-/// `lww_register.to_json`, because `LWWRegister` is opaque and exposes only
-/// `value`; that is a JSON round trip per register, which is why it happens
-/// on merge (bootstrap and repair) and not on the per-op path.
+/// In `RegisterMode` the function adds the timestamp of each merged register to
+/// `register_clock`. A replica that starts from a peer with a clock that ran
+/// ahead thus still wins its own next write to those keys. It does not lose
+/// that write. The function reads each timestamp through
+/// `lww_register.to_json`, because `LWWRegister` is opaque and gives access to
+/// `value` only. That is one JSON round trip for each register. The function
+/// thus runs on a merge, which is a bootstrap or a repair, and not on the path
+/// of each op.
 pub fn p2p_merge(
   state: OrMapState,
   other: ORMap,
@@ -400,9 +407,9 @@ pub fn p2p_merge(
   }
 }
 
-/// Fold every merged register's timestamp into the clock, keeping the
-/// per-key maximum. A `TallyMode` map holds no registers, so it is skipped
-/// whole rather than walked.
+/// Add the timestamp of every merged register to the clock, and keep the
+/// maximum for each key. A `TallyMode` map holds no register, so the function
+/// skips the whole map and does not walk it.
 fn observe_registers(
   clock: Dict(String, Int),
   mode: OrMapMode,
@@ -424,9 +431,10 @@ fn observe_registers(
   }
 }
 
-/// `LWWRegister` is opaque and has no timestamp accessor, but `to_json`
-/// publishes the timestamp it merged on, so the clock is rebuilt from the
-/// register's own value rather than from anything invented here.
+/// `LWWRegister` is opaque and has no accessor for its timestamp. But `to_json`
+/// publishes the timestamp that the register merged on. The clock is thus
+/// rebuilt from the value of the register, and not from a value that this
+/// module invents.
 fn register_timestamp(
   register: lww_register.LWWRegister(String),
 ) -> Result(Int, Nil) {
