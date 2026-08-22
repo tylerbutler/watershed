@@ -2,16 +2,16 @@
 //// for CRDT documents, and the pure room state machine a relay runs it
 //// with.
 ////
-//// A relay is a durable fan-out point, not a sequencer for these
-//// documents. It stamps a diagnostic order, keeps a log it can replay,
-//// broadcasts what it accepts, and answers a `stateRequest` from what it
-//// holds. It never merges, never decides which of two replicas is right,
-//// and never looks inside a kernel payload: a `crdt_wire.Envelope`
-//// reaches this module as an opaque string and leaves as the same
-//// string, byte for byte. Only the envelope's own preamble — protocol
-//// version, room, sender, session, and the message's `type` tag — is
-//// ever read, which is exactly what admission and the accepted-type list
-//// need and nothing more.
+//// A relay is a durable fan-out point. It is not a sequencer for these
+//// documents. It stamps a diagnostic order, it keeps a log that it can replay,
+//// it broadcasts what it accepts, and it answers a `stateRequest` from what it
+//// holds. It never merges, it never decides which of two replicas is correct,
+//// and it never reads inside a kernel payload. A `crdt_wire.Envelope` value
+//// arrives at this module as an opaque string, and it leaves as the same
+//// string, byte for byte. The module reads the preamble of the envelope only,
+//// which is the protocol version, the room, the sender, the session, and the
+//// `type` tag of the message. Admission and the list of accepted types need
+//// exactly those five fields, and nothing more.
 ////
 //// ## The lane
 ////
@@ -22,12 +22,12 @@
 //// {"type": "connected", "capabilities": {"crdt_relay_v1": true}}
 //// ```
 ////
-//// A client that does not see `crdt_relay_v1` treats the endpoint as a
-//// relay it cannot use, which is the whole of capability negotiation.
+//// A client that does not receive `crdt_relay_v1` treats the endpoint as a
+//// relay that it cannot use. That is the whole capability negotiation.
 ////
-//// After that the client writes **bare encoded envelope strings** —
-//// `hello`, `channel`, `delta`, `stateRequest`, `state`, `digest` — and
-//// nothing else on the document side. The relay writes back:
+//// After that, the client writes **bare encoded envelope strings** on the
+//// document side, and nothing else. Those strings are `hello`, `channel`,
+//// `delta`, `stateRequest`, `state`, and `digest`. The relay writes back:
 ////
 //// ```json
 //// {"type": "frame",    "order": 12, "envelope": "<the same string>"}
@@ -35,108 +35,115 @@
 //// {"type": "error",    "reason": "...", "detail": "..."}
 //// ```
 ////
-//// `order` is diagnostic. It lives outside the envelope, is never
-//// rewritten into one, and a client passes it to nothing: kernels,
-//// message ids, digests, and events are all computed as if it did not
+//// `order` is a diagnostic value. It is outside the envelope, no code writes
+//// it into one, and a client passes it to nothing. The kernels, the message
+//// ids, the digests, and the events are all computed as if that value did not
 //// exist.
 ////
 //// ## Attestation, and why the client sends one extra frame
 ////
-//// A relay that cannot merge cannot know whether the state it holds is
-//// the join of everything it was given. The client can: it merges every
-//// entry the relay replays, publishes the merged result, and then says
-//// what it has covered.
+//// A relay that cannot merge cannot know whether the state that it holds is
+//// the join of everything that it received. A client can know that. It merges
+//// every entry that the relay replays, it publishes the merged result, and it
+//// then reports what that result covers.
 ////
 //// ```json
 //// {"type": "attest", "digest": "<local digest>", "upTo": 12}
 //// ```
 ////
-//// `upTo` is the highest `order` the client has *accounted for* — merged
-//// into the state it just published, or reported as skipped below — and
-//// it is a fact only the client holds, since the relay knows what it sent
-//// and not what was made of it.
+//// `upTo` is the highest `order` value that the client *accounted for*, which
+//// means that it merged that entry into the state that it just published, or
+//// that it reported that entry as skipped, as described below. Only the client
+//// holds that fact. The relay knows what it sent, and it does not know what the
+//// client made of it.
 ////
-//// **This is an attestation by a trusted client, not a proof.** A relay
-//// that never merges cannot verify it and does not try: it takes the
-//// client's word that the state it published *claims to contain* the
-//// entries at or below `upTo`, and retires those log entries on that
-//// word. What makes that safe is not arithmetic, it is the trust
-//// boundary: **admission and authentication are the checkpoint's trust
-//// boundary**, and a deployment that admits a client is deciding that
-//// client may check the room's log point. The reference service's
-//// admission rules are bounded examples, not a security model — a real
-//// deployment substitutes its own authentication and keeps everything
-//// else here. Every mechanical defence that *can* be kept is still kept:
-//// `upTo` is clamped to what this connection was actually sent, a
-//// connection can only speak for its own room and session, and no
-//// attestation ever deletes a record its author said it could not read.
+//// **This is an attestation by a trusted client, and it is not a proof.** A
+//// relay that never merges cannot check the attestation, and it does not try.
+//// It accepts the statement of the client that the published state *claims to
+//// contain* the entries at `upTo` or below it, and it retires those log entries
+//// on that statement. Arithmetic does not make that safe. The trust boundary
+//// makes it safe: **admission and authentication are the trust boundary of the
+//// checkpoint**. A deployment that admits a client decides that the client can
+//// move the log point of the room. The admission rules of the reference service
+//// are limited examples, and they are not a security model. A real deployment
+//// substitutes its own authentication and keeps every other part of this
+//// module.
 ////
-//// If what remains after retiring is exactly the published state plus the
-//// entries this client said it could not read, the relay's content and
-//// the client's are the same document plus a remainder neither of them
-//// has thrown away, and it echoes the digest back. Anything else — a
-//// concurrent state, a delta that raced the publication — leaves the log
-//// intact and the echo empty, and the client tries again after merging
-//// what it missed.
+//// The module keeps every mechanical protection that it *can* keep. It clamps
+//// `upTo` to the orders that it sent to this connection. A connection can speak
+//// for its own room and its own session only. And no attestation ever deletes a
+//// record that its author reported as unreadable.
 ////
-//// This is what keeps "never pick a winning replica" and "checkpoint the
-//// canonical state" from contradicting each other. Two clients attaching
-//// at once publish two different states; both are logged, both are
-//// broadcast, neither is refused, and the log collapses to one entry only
-//// when an admitted client has claimed the one entry contains the others.
+//// After the relay retires the entries, it compares what remains. If that
+//// remainder is exactly the published state with the entries that this client
+//// reported as unreadable, then the content of the relay and the content of the
+//// client are the same document, with a remainder that neither of them
+//// discarded. The relay then echoes the digest back. Every other condition, for
+//// example a concurrent state or a delta that raced the publication, leaves the
+//// log complete and the echo empty. The client then merges what it missed and
+//// tries again.
+////
+//// This design keeps two rules from a contradiction: "never select a winning
+//// replica" and "checkpoint the canonical state". Two clients that attach at the
+//// same time publish two different states. The relay logs both, it broadcasts
+//// both, and it refuses neither. The log becomes one entry only after an
+//// admitted client claims that the one entry contains the others.
 ////
 //// ## Refusals, and why a client may skip
 ////
-//// A relay accepts an envelope on its preamble alone, so it can hold one
-//// no client will ever merge: a delta for a channel type this build does
-//// not have, a frame from a replica whose address does not name it, a
-//// body that is well-formed JSON and nonsense to a kernel. Nothing on
-//// the relay can detect that, and a client that simply stopped counting
-//// at such an entry could never attest again — which would freeze the
-//// log, the checkpoint, and every `SequencedOnly` replica in the room.
+//// A relay accepts an envelope on its preamble alone, so it can hold an
+//// envelope that no client will ever merge. Three examples: a delta for a
+//// channel type that this build does not have, a frame from a replica whose
+//// address does not name that replica, and a body that is correct JSON and has
+//// no meaning to a kernel. Nothing on the relay can detect those conditions. A
+//// client that stopped counting at such an entry could never attest again, and
+//// that would stop the log, the checkpoint, and every `SequencedOnly` replica
+//// in the room.
 ////
 //// ```json
 //// {"type": "skip", "order": 7}
 //// ```
 ////
-//// So a client says so, naming the exact order it refused. The relay
-//// validates the claim against what it actually *sent that connection*,
-//// records it against that connection alone, and lets that client's next
-//// checkpoint proceed **without deleting the entry**: a skipped record is
-//// written into the compaction beside the checkpoint, in order, and
-//// replayed to everybody afterwards exactly as it was. A skip says "this
-//// state does not contain that entry", which is a reason to carry it, not
-//// a licence to drop it — so a client that cannot read something, or lies
-//// about being able to, can never shorten the room's history. The entry
-//// goes away when a client that *did* merge it publishes a state that
-//// covers it with no skip of its own to keep it alive.
+//// The client thus reports the exact order that it refused. The relay checks
+//// that claim against the orders that it *sent that connection*, it records the
+//// claim against that connection only, and it lets the next checkpoint of that
+//// client proceed **without a delete of the entry**. The relay writes a skipped
+//// record into the compaction beside the checkpoint, in order, and it replays
+//// that record to every client afterwards, exactly as it was.
 ////
-//// A skip for an order the connection was never sent is ignored rather
-//// than honoured — it can only be a relay that stamped something it did
-//// not account for, and there is nothing to carry — which is what keeps
-//// "a client cannot decide the fate of an entry it never saw" true in
-//// both directions.
+//// A skip means "this state does not contain that entry". That statement is a
+//// reason to carry the entry, and not permission to drop it. A client that
+//// cannot read something, and a client that reports a false claim, thus can
+//// never make the history of the room shorter. The entry goes away when a
+//// client that *did* merge it publishes a state that covers it, and that client
+//// has no skip of its own to keep the entry alive.
+////
+//// The relay ignores a skip for an order that it never sent to that connection.
+//// Such a claim can only come from a relay that stamped something that it did
+//// not account for, and there is nothing to carry. The rule "a client cannot
+//// decide the fate of an entry that it never saw" thus holds in both
+//// directions.
 ////
 //// ## The hard log bound
 ////
-//// A room's live log stops growing at `max_room_records`. Before it gets
-//// there the relay asks attached clients that declared support to
-//// checkpoint (`CheckpointRequest`); at the bound, the one frame still
-//// admitted is a `state` from a supports-declaring client — the answer
-//// that compacts the room — and everything else durable is refused with
-//// `roomAtCapacity` and its sender closed. A flood from an admitted
-//// client is therefore bounded by the room, and the rest of that defence
-//// — telling an attacker from a customer — belongs to the deployment
-//// that admitted it, not to this module.
+//// The live log of a room stops growing at `max_room_records`. Before the log
+//// reaches that bound, the relay asks the attached clients that declared
+//// support to checkpoint, with a `CheckpointRequest` frame. At the bound, the
+//// relay still admits one frame: a `state` frame from a client that declared
+//// support, which is the answer that compacts the room. It refuses every other
+//// durable frame with `roomAtCapacity`, and it closes the sender of that frame.
+//// The room thus bounds a flood from an admitted client. The other half of that
+//// protection, which separates an attacker from a customer, belongs to the
+//// deployment that admitted the client, and not to this module.
 ////
 //// ## Durability
 ////
-//// `Storage` actions are append-only JSONL lines plus whole-file
-//// rewrites. A compaction is only ever emitted *after* the append that
-//// carries the checkpoint it keeps, so the data is durable in its new
-//// home before the old one is allowed to go away. `replay` rebuilds a
-//// room from its lines, which is what makes a relay restart a merge
-//// rather than a data loss.
+//// A `Storage` action is an append-only JSONL line, or a rewrite of a whole
+//// file. The module emits a compaction only *after* the append that carries the
+//// checkpoint that the compaction keeps. The data is thus durable in its new
+//// position before the old position can go away. `replay` rebuilds a room from
+//// its lines, and that function makes a restart of a relay a merge, and not a
+//// loss of data.
 
 import gleam/bit_array
 import gleam/dict.{type Dict}
@@ -152,142 +159,154 @@ import gleam/string
 
 import watershed/crdt_wire
 
-/// The capability a relay must advertise for a client to use it. An
-/// endpoint that omits it is a sequencer without this lane, which is a
-/// status rather than a failure under `Auto`.
+/// The capability that a relay must announce before a client can use it. An
+/// endpoint that omits it is a sequencer without this lane. In `Auto` mode that
+/// condition is a status, and it is not a failure.
 pub const capability = "crdt_relay_v1"
 
-/// The largest accepted frame, in bytes, on either direction of the lane.
-/// The same bound the CRDT envelope itself carries, so a frame that could
-/// never hold a legal envelope is refused before it is parsed.
+/// The largest frame that the module accepts, in bytes, in both directions of
+/// the lane. This is the same limit as the CRDT envelope itself. A frame that
+/// could never hold a valid envelope is thus refused before the module parses
+/// it.
 pub fn max_frame_bytes() -> Int {
   crdt_wire.default_limits().envelope_bytes
 }
 
-/// Clients admitted to one room. A relay is not a mesh — it fans out
-/// rather than connecting everyone to everyone — so this is far higher
-/// than the WebRTC room cap, and it is here to bound memory rather than
-/// to shape a topology.
+/// The number of clients that one room admits. A relay is not a mesh. It fans
+/// out, and it does not connect every client to every other client. This limit
+/// is thus much higher than the room limit of WebRTC. It exists to bound the
+/// memory, and not to control a topology.
 pub const max_room_clients = 32
 
 /// The longest accepted room name, in UTF-8 bytes.
 pub const max_room_bytes = 128
 
-/// The longest accepted session identifier, in UTF-8 bytes. A session is
-/// client-supplied, is held for the life of a connection, and is written
-/// into every durable record, so it is bounded for the same reason a room
-/// name is.
+/// The longest session identifier that the module accepts, in UTF-8 bytes. A
+/// client supplies the session, the relay holds it for the life of a
+/// connection, and the relay writes it into every durable record. It thus has a
+/// limit, for the same reason as a room name.
 pub const max_session_bytes = 128
 
-/// The most skipped orders one connection may hold at once. Skips are
-/// pruned to the orders still in the room's log every time one arrives
-/// and every time a checkpoint lands, and the log itself is bounded by
-/// `max_room_records`, so this is a backstop rather than a rule any
-/// connection is expected to meet: it is at least `max_room_records`, so
-/// a client that refuses *every* entry in a completely full room is
-/// still not closed for having too many claims.
+/// The largest number of skipped orders that one connection can hold at one
+/// time. The relay removes from that list every order that the log of the room
+/// no longer holds, and it does that every time a skip arrives and every time a
+/// checkpoint lands. `max_room_records` also bounds the log itself. This value
+/// is thus a backstop, and it is not a rule that a connection must meet. It is
+/// `max_room_records` or more, so a client that refuses *every* entry in a
+/// completely full room still does not get a closed connection for the number
+/// of its claims.
 ///
-/// It is still a real operational limit. A connection that reports one
-/// more than this many live skips is closed with `tooManySkips` and has
-/// to reconnect.
+/// It is still a real operational limit. The relay closes a connection that
+/// reports more live skips than this number, with the reason `tooManySkips`,
+/// and that client must connect again.
 pub const max_client_skips = 1024
 
-/// The hard bound on a room's *active log*, enforced **before** an
-/// append rather than after it.
+/// The hard bound on the *active log* of a room. The relay applies it **before**
+/// an append, and not after one.
 ///
-/// An admitted client alone in a room can write well-formed records
-/// nobody is there to refuse, and 100 000 of them are 100 000 lines on
-/// disk and 100 000 entries in this process's heap, replayed to whoever
-/// attaches next. So a room's live log stops growing here. Past this
-/// bound the relay first asks compatible clients to checkpoint (see
-/// `checkpoint_pressure_records`), and if the log still reaches the
-/// bound the *sender* of the frame that would cross it is refused with
-/// `roomAtCapacity` and closed. Nothing already durable is touched: a
-/// refusal at the bound writes nothing and deletes nothing.
+/// An admitted client that is alone in a room can write correct records, and no
+/// other client is there to refuse them. 100 000 such records are 100 000 lines
+/// on disk and 100 000 entries in the heap of this process, and the relay
+/// replays all of them to the next client that attaches. The live log of a room
+/// thus stops growing at this bound.
+///
+/// Before the log reaches the bound, the relay asks the compatible clients to
+/// checkpoint. See `checkpoint_pressure_records`. If the log still reaches the
+/// bound, the relay refuses the *sender* of the frame that would cross it, with
+/// the reason `roomAtCapacity`, and it closes that connection. The relay
+/// changes nothing that is already durable. A refusal at the bound writes
+/// nothing and deletes nothing.
 pub const max_room_records = 1024
 
-/// Where a room starts asking for a checkpoint instead of waiting to
-/// refuse one: three quarters of `max_room_records`.
+/// The log size at which a room starts to ask for a checkpoint, instead of a
+/// wait until it must refuse one. The value is three quarters of
+/// `max_room_records`.
 ///
-/// A room reaching its hard bound with an honest client attached is a
-/// failure of this repository, not of the client — an ordinary editing
-/// session that outruns the bound must not be cut off mid-sentence. So
-/// at this mark the relay sends `CheckpointRequest` to every attached
-/// client that declared it understands one, and an honest client answers
-/// by publishing its merged state and attesting it, which compacts the
-/// room's ordinary valid history down to that one record. The remaining
-/// quarter is the headroom that request has to be answered in.
+/// A room that reaches its hard bound with a correct client attached is a fault
+/// of this repository, and not of that client. An ordinary editing session that
+/// passes the bound must not stop in the middle of the work. At this mark the
+/// relay thus sends a `CheckpointRequest` frame to every attached client that
+/// declared that it understands one. A correct client answers with a
+/// publication of its merged state and an attestation of that state, and the
+/// relay then compacts the ordinary valid history of the room down to that one
+/// record. The last quarter is the space in which the client can answer that
+/// request.
 pub const checkpoint_pressure_records = 768
 
-/// How much a room's log must grow before it asks again.
+/// The growth in the log of a room before that room asks again.
 ///
-/// Requests are idempotent per connection — a client with one
-/// outstanding is not asked twice — and re-armed only by this much
-/// further growth, so a room under pressure sends at most
+/// A request is idempotent for each connection: a client with one outstanding
+/// request does not get a second one. The relay arms the request again only
+/// after the log grows by this amount. A room under pressure thus sends
 /// `(max_room_records - checkpoint_pressure_records) /
-/// checkpoint_request_interval` rounds before it starts refusing, and a
-/// client that ignores them cannot be used to generate traffic.
+/// checkpoint_request_interval` rounds at most, before it starts to refuse. An
+/// attacker thus cannot use a client that ignores those requests to generate
+/// traffic.
 pub const checkpoint_request_interval = 64
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Frames
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Everything a relay may say. Document traffic is carried in `Frame`
-/// as the sender's own encoded envelope; every other constructor is
-/// control and carries no document data at all.
+/// Everything that a relay can send. The document traffic is in `Frame`, as the
+/// encoded envelope of the sender. Every other constructor is a control frame,
+/// and it carries no document data at all.
 pub type ServerFrame {
-  /// The greeting, written the moment a socket opens. `supports` is
-  /// whether the greeting advertised this lane's capability — the wire
-  /// carries a capabilities object, but this client reads exactly one
-  /// entry from it, so one `Bool` is what survives decoding.
+  /// The greeting, which the relay writes at the moment that a socket opens.
+  /// `supports` reports whether that greeting announced the capability of this
+  /// lane. The wire carries an object of capabilities, and this client reads
+  /// exactly one entry from that object. One `Bool` value thus survives the
+  /// decode.
   Connected(supports: Bool, envelope_bytes: Int)
-  /// One relayed envelope, with the diagnostic order stamped outside it.
+  /// One relayed envelope, with the diagnostic order outside it.
   Frame(order: Int, envelope: String)
-  /// The end of the burst a `stateRequest` produced. Without it a client
-  /// cannot tell "the relay has replayed everything it holds" from "the
-  /// next entry has not arrived yet", and it would have to guess when to
-  /// publish its merged state.
+  /// The end of the group of frames that a `stateRequest` produced. Without
+  /// this frame, a client cannot separate "the relay replayed everything that
+  /// it holds" from "the next entry has not arrived yet", and it would have to
+  /// guess the moment at which to publish its merged state.
   Synced(order: Int)
-  /// The answer to an `attest`: the client's own digest echoed back when
-  /// the relay's content is exactly the state that client published, and
-  /// the empty string when it is not.
+  /// The answer to an `attest` frame. The value is the digest of the client,
+  /// echoed back, when the content of the relay is exactly the state that the
+  /// client published. It is the empty string in every other condition.
   Attested(order: Int, digest: String)
-  /// Publish your merged state and attest it, please.
+  /// A request to publish the merged state of the client and to attest it.
   ///
-  /// Sent only to a connection that declared it understands one (see
-  /// `Supports`), only when a room's live log has crossed
-  /// `checkpoint_pressure_records`, and only once per connection until
-  /// that connection publishes a `state` or the log grows by another
-  /// `checkpoint_request_interval`. It carries nothing at all — no
-  /// order, no digest, no envelope: a client answers it out of its
-  /// *own* state, and nothing a relay stamped can enter a document
-  /// through it.
+  /// The relay sends this frame to a connection that declared that it
+  /// understands one. See `Supports`. It sends the frame only after the live
+  /// log of a room passes `checkpoint_pressure_records`, and one time for each
+  /// connection, until that connection publishes a `state` frame or the log
+  /// grows by another `checkpoint_request_interval`.
+  ///
+  /// The frame carries nothing at all: no order, no digest, and no envelope. A
+  /// client answers it from its *own* state, so nothing that a relay stamped
+  /// can enter a document through this frame.
   CheckpointRequest
-  /// A refusal. Terminal: the connection is closed after it.
+  /// A refusal. This frame is terminal, and the relay closes the connection
+  /// after it.
   Refused(reason: String, detail: String)
 }
 
-/// Everything a client may say that is not an envelope.
+/// Everything that a client can send that is not an envelope.
 pub type ControlFrame {
   Attest(digest: String, up_to: Int)
-  /// One delivered order this client could not process. Never a
-  /// document decision: the relay learns *that* an entry was refused and
-  /// nothing about why.
+  /// One delivered order that this client could not process. This frame is
+  /// never a decision about a document. The relay learns *that* the client
+  /// refused an entry, and it learns nothing about the reason.
   Skip(order: Int)
-  /// Optional relay control features this connection understands, sent
-  /// once, after the `hello` that admits it.
+  /// The optional relay control features that this connection understands. The
+  /// client sends this frame one time, after the `hello` frame that admits the
+  /// connection.
   ///
-  /// A client that never sends this is never sent a `CheckpointRequest`,
-  /// which is what makes the request safe to add to a live lane: an
-  /// older client that would treat an unknown server frame as a
-  /// handshake violation is never given one.
+  /// The relay never sends a `CheckpointRequest` frame to a client that does
+  /// not send this frame. That rule makes the request safe to add to a lane
+  /// that is already in use. An older client would treat an unknown server
+  /// frame as a handshake violation, and that client never receives one.
   Supports(checkpoint_requests: Bool)
 }
 
-/// One inbound frame, classified. `Envelope` keeps the raw string
-/// alongside the four preamble facts admission needs, because what is
-/// relayed is the string and not a re-encoding of it.
+/// One inbound frame, in its classified form. `Envelope` keeps the raw string
+/// with the four preamble facts that admission needs, because the relay
+/// forwards that string and not a new encoding of it.
 pub type ClientFrame {
   Document(
     raw: String,
@@ -299,9 +318,9 @@ pub type ClientFrame {
   Control(frame: ControlFrame)
 }
 
-/// The envelope message types this lane accepts. Deliberately a closed
-/// list read off the `type` tag: `error` is not on it, because a relay
-/// is not a peer and has nobody to be rejected by.
+/// The envelope message types that this lane accepts. The list is closed on
+/// purpose, and the module reads the `type` tag against it. `error` is not on
+/// the list, because a relay is not a peer, and no client can refuse it.
 pub type MessageKind {
   HelloMessage
   ChannelMessage
@@ -334,28 +353,31 @@ fn message_kind_from_string(raw: String) -> Result(MessageKind, Nil) {
   }
 }
 
-/// Why a frame was refused. Every one of these is terminal: the
-/// connection is told and then closed, and the room is left exactly as it
-/// was.
+/// The reason that the module refused a frame. Every reason here is terminal.
+/// The relay tells the connection the reason and then closes it, and the room
+/// does not change.
 pub type Refusal {
   FrameTooLarge(bytes: Int)
   Malformed(detail: String)
   UnsupportedMessage(tag: String)
-  /// A document frame before the `hello` that admits the connection.
+  /// A document frame that arrived before the `hello` frame that admits the
+  /// connection.
   NotAdmitted
   InvalidRoom(detail: String)
   RoomFull(limit: Int)
-  /// A frame whose room, sender, or session is not the one this
-  /// connection was admitted with — the wrong-room client, isolated.
+  /// A frame whose room, sender, or session is not the one that this
+  /// connection was admitted with. This refusal isolates a client that speaks
+  /// to the wrong room.
   IdentityChanged(detail: String)
   DuplicateSession(session: String)
-  /// More outstanding skips than a connection is allowed. Bounded
-  /// memory, and terminal for that connection only.
+  /// A connection reported more outstanding skips than the module permits.
+  /// This limit bounds the memory, and the refusal is terminal for that
+  /// connection only.
   TooManySkips(limit: Int)
-  /// The room's live log is at `max_room_records` and this frame would
-  /// have taken it past. Terminal for the sender and for nothing else:
-  /// the room's durable records are left exactly as they are, and every
-  /// other connection keeps its lane.
+  /// The live log of the room is at `max_room_records`, and this frame would
+  /// have taken it past that bound. The refusal is terminal for the sender
+  /// only. The durable records of the room do not change, and every other
+  /// connection keeps its lane.
   RoomAtCapacity(limit: Int)
 }
 
@@ -398,18 +420,20 @@ pub fn refusal_parts(refusal: Refusal) -> #(String, String) {
   }
 }
 
-/// What a relay should do after a frame. Connections are named by the
-/// integer id the service assigned them, so the state machine never holds
-/// a socket, and storage is described rather than performed, so it never
-/// holds a file handle either.
+/// What a relay must do after a frame. Each action names a connection by the
+/// integer id that the service assigned to it, so the state machine never holds
+/// a socket. Each action also describes a storage operation and does not perform
+/// it, so the state machine never holds a file handle.
 pub type Action {
   Send(connection: Int, frame: ServerFrame)
-  /// Close a connection, after any `Send` already emitted for it.
+  /// Close a connection, after every `Send` action that the module already
+  /// emitted for it.
   Close(connection: Int, reason: String)
-  /// Append one JSONL line to the room's log.
+  /// Append one JSONL line to the log of the room.
   Append(room: String, line: String)
-  /// Replace the room's log with exactly these lines. Only ever emitted
-  /// after the `Append` that carries the checkpoint it keeps.
+  /// Replace the log of the room with exactly these lines. The module emits
+  /// this action only after the `Append` action that carries the checkpoint
+  /// that it keeps.
   Compact(room: String, lines: List(String))
 }
 
@@ -490,7 +514,7 @@ pub fn control_to_string(frame: ControlFrame) -> String {
   }
 }
 
-/// The greeting a compatible relay opens with.
+/// The greeting that a compatible relay opens with.
 pub fn connected_frame() -> ServerFrame {
   Connected(supports: True, envelope_bytes: max_frame_bytes())
 }
@@ -509,9 +533,9 @@ type Preamble {
   )
 }
 
-/// Read only the envelope's own preamble. `message` is descended into for
-/// exactly one field — its `type` tag — and its payload is never
-/// touched, which is what keeps a relay out of the kernels.
+/// Read the preamble of the envelope only. The decoder reads exactly one field
+/// inside `message`, which is its `type` tag, and it never reads the payload of
+/// that message. That rule keeps a relay outside the kernels.
 fn preamble_decoder() -> Decoder(Preamble) {
   use version <- decode.field("v", decode.int)
   use room <- decode.field("room", decode.string)
@@ -563,11 +587,12 @@ fn server_decoder() -> Decoder(ServerShape) {
   ))
 }
 
-/// Read one frame a relay sent. The client half of the same codec the
-/// relay encodes with, so the two cannot drift.
+/// Read one frame that a relay sent. This is the client half of the codec that
+/// the relay encodes with, so the two cannot drift apart.
 ///
-/// A relay that stamps nothing is legal: a frame with no top-level `type`
-/// is accepted as a bare envelope, and reported with order `0`.
+/// A relay that stamps nothing is valid. The function accepts a frame with no
+/// top-level `type` field as a bare envelope, and it reports that frame with the
+/// order `0`.
 pub fn decode_server(raw: String) -> Result(ServerFrame, String) {
   case json.parse(raw, server_decoder()) {
     Ok(shape) ->
@@ -596,7 +621,7 @@ pub fn decode_server(raw: String) -> Result(ServerFrame, String) {
   }
 }
 
-/// Whether a `connected` frame advertises the lane this client speaks.
+/// Whether a `connected` frame announces the lane that this client uses.
 pub fn supports_relay(frame: ServerFrame) -> Bool {
   case frame {
     Connected(supports, _) -> supports
@@ -629,9 +654,10 @@ fn control_decoder() -> Decoder(ControlShape) {
 
 /// Classify one raw inbound frame.
 ///
-/// A control frame is a JSON object with a top-level `type`; a document
-/// frame is a v1 CRDT envelope, which has none. That is the whole of the
-/// disambiguation, and it is why a relay never has to guess.
+/// A control frame is a JSON object with a top-level `type` field. A document
+/// frame is a version 1 CRDT envelope, and it has no such field. That
+/// difference is the whole test, and it is the reason that a relay never has to
+/// guess.
 pub fn decode_client(raw: String) -> Result(ClientFrame, Refusal) {
   use _ <- result.try(case int.compare(byte_size(raw), max_frame_bytes()) {
     order.Gt -> Error(FrameTooLarge(byte_size(raw)))
@@ -684,26 +710,27 @@ fn decode_document(raw: String) -> Result(ClientFrame, Refusal) {
   Ok(Document(raw: raw, room: room, from: from, session: session, message: kind))
 }
 
-/// The cheap structural checks a relay can make on a message *without*
-/// decoding a kernel payload.
+/// The inexpensive structural checks that a relay can make on a message
+/// *without* a decode of a kernel payload.
 ///
-/// Everything here reads fields that name or address a message — a
-/// delta's id, address and declared channel type; a channel
-/// announcement's descriptor; the shape of a `state`'s channel list — and
-/// nothing here touches a `contents` or a `snapshot`, which are the
-/// kernel's business and stay an opaque string all the way to the log.
+/// Every check here reads a field that names or addresses a message. Those
+/// fields are the id, the address, and the declared channel type of a delta, the
+/// descriptor of a channel announcement, and the shape of the channel list of a
+/// `state` message. No check here reads a `contents` field or a `snapshot`
+/// field. Those two belong to the kernel, and they stay an opaque string all the
+/// way to the log.
 ///
-/// The checks are deliberately a *subset* of the ones `crdt_wire`'s
-/// decoder makes, so a relay can never refuse an envelope a document
-/// would have accepted. What they buy is that the cheapest junk — a frame
-/// with a `delta` tag and no id, an address that names no channel, a
-/// descriptor whose `createdBy` contradicts its own address, a `state`
-/// whose channels are not a list — is refused at the socket instead of
-/// being logged, replayed, and skipped by every client forever. It
-/// does not make poison
-/// impossible: a well-formed delta whose op is nonsense to every kernel
-/// still gets in, and it always will, because the only thing that could
-/// detect it is a merge.
+/// These checks are a *subset* of the checks that the decoder of `crdt_wire`
+/// makes, and that is deliberate. A relay thus can never refuse an envelope that
+/// a document would have accepted. The checks refuse the cheapest invalid input
+/// at the socket, instead of a log, a replay, and a skip by every client
+/// without an end. Four examples: a frame with a `delta` tag and no id, an
+/// address that names no channel, a descriptor whose `createdBy` field
+/// disagrees with its own address, and a `state` whose channels are not a list.
+///
+/// These checks do not remove every bad record. A correct delta whose op has no
+/// meaning to any kernel still enters the log, and it always will, because only
+/// a merge could detect it.
 fn check_shape(raw: String, kind: MessageKind) -> Result(Nil, Refusal) {
   case kind {
     HelloMessage -> shaped(raw, hello_shape(), "hello")
@@ -778,9 +805,9 @@ fn digest_shape() -> Decoder(String) {
   decode.at(["message", "digest"], decode.string)
 }
 
-/// A `state`'s channels must be a list. What is *in* the list is a
-/// kernel's business: the elements stay dynamic here and are never
-/// looked at.
+/// The channels of a `state` message must be a list. The content of that list
+/// belongs to a kernel. The elements stay dynamic values here, and this module
+/// never reads them.
 fn state_shape() -> Decoder(List(decode.Dynamic)) {
   decode.at(["message", "channels"], decode.list(decode.dynamic))
 }
@@ -833,22 +860,23 @@ fn check_room(room: String) -> Result(Nil, Refusal) {
 // Durable records
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// One line of a room's log.
+/// One line of the log of a room.
 pub type LogRecord {
-  /// A full state publication. A checkpoint once it has been attested.
+  /// A publication of a full state. It becomes a checkpoint after a client
+  /// attests it.
   StateRecord(order: Int, session: String, envelope: String)
   /// A channel announcement or a delta.
   TrafficRecord(order: Int, session: String, envelope: String)
-  /// The room's checkpoint marker: the digest a client attested, and the
-  /// order of the `state` record that attestation described.
+  /// The checkpoint marker of the room: the digest that a client attested,
+  /// with the order of the `state` record that the attestation described.
   ///
-  /// `checkpoint` is what survives a restart knowing *which* of a log's
-  /// `state` records is the room's canonical one — the entry a
-  /// `stateRequest` rebuilds from. `digest` is only current while this marker is the
-  /// newest record in the file: anything logged after a checkpoint means
-  /// the checkpoint has stopped describing the room, and a marker
-  /// rewritten by a later compaction carries `""` to say so while still
-  /// naming the canonical entry.
+  /// `checkpoint` survives a restart, and it says *which* `state` record of a
+  /// log is the canonical record of the room. That record is the entry that a
+  /// `stateRequest` rebuilds from. `digest` is current only while this marker
+  /// is the newest record in the file. Anything that the relay logs after a
+  /// checkpoint means that the checkpoint no longer describes the room. A
+  /// marker that a later compaction rewrites carries `""` to report that, and
+  /// it still names the canonical entry.
   DigestRecord(order: Int, digest: String, checkpoint: Int)
 }
 
@@ -925,12 +953,13 @@ type Entry {
     session: String,
     envelope: String,
     state: Bool,
-    /// The durable line this entry was appended as, kept verbatim.
+    /// The durable line that the relay appended for this entry, without a
+    /// change.
     ///
-    /// A compaction rewrites every line it keeps, so holding the
-    /// original is both the honest answer — the record leaves exactly
-    /// as it arrived, byte for byte — and the one that does not
-    /// re-encode a room's whole log to do it.
+    /// A compaction rewrites every line that it keeps. To hold the original
+    /// line is thus the correct answer, because the record leaves exactly as it
+    /// arrived, byte for byte. It is also the answer that does not encode the
+    /// whole log of a room again.
     line: String,
   )
 }
@@ -939,67 +968,71 @@ type Client {
   Client(
     from: String,
     session: String,
-    /// The highest order this connection has been *sent*. An attestation
-    /// cannot claim to have processed further than this, whatever it
-    /// says: a client that survived a relay restart is quoting a number
-    /// from an order sequence that no longer exists, and this is what
-    /// stops that number retiring an entry it never saw.
+    /// The highest order that the relay *sent* to this connection. An
+    /// attestation cannot claim to have processed further than this value,
+    /// whatever number it carries. A client that survived a restart of the
+    /// relay quotes a number from an order sequence that no longer exists. This
+    /// field prevents that number from retiring an entry that the client never
+    /// saw.
     delivered: Int,
-    /// Orders this connection was sent and reported it could not
-    /// process, still present in the log. This connection's own
-    /// checkpoints are allowed to land around them — they are carried
-    /// into the compaction rather than retired by it — and nobody else's
-    /// claim can do that for them. A skip for an order that was never
-    /// delivered never reaches this list.
+    /// The orders that the relay sent to this connection, that the connection
+    /// reported as unreadable, and that the log still holds. A checkpoint from
+    /// this connection can land around those entries: the compaction carries
+    /// them, and it does not retire them. No claim from another connection can
+    /// do that for them. A skip for an order that the relay never delivered
+    /// never enters this list.
     skipped: List(Int),
-    /// Whether this connection said it understands a
-    /// `CheckpointRequest`. Nothing is ever sent to a connection that
-    /// did not, so a client written against an earlier build of this
-    /// lane sees exactly the frames it always saw.
+    /// Whether this connection reported that it understands a
+    /// `CheckpointRequest` frame. The relay sends nothing of that kind to a
+    /// connection that did not report it. A client that a developer wrote
+    /// against an earlier build of this lane thus receives exactly the frames
+    /// that it always received.
     supports_checkpoints: Bool,
-    /// Whether this connection has an unanswered `CheckpointRequest`.
-    /// One at a time: a room under pressure asks a client once, and asks
-    /// again only after the client published a `state` or the log grew by
-    /// another `checkpoint_request_interval`.
+    /// Whether this connection has a `CheckpointRequest` frame with no answer.
+    /// There is one at a time. A room under pressure asks a client one time,
+    /// and it asks again only after that client publishes a `state` frame, or
+    /// after the log grows by another `checkpoint_request_interval`.
     checkpoint_requested: Bool,
   )
 }
 
 type Room {
   Room(
-    /// Connection id to the identity it was admitted with.
+    /// A map from a connection id to the identity that the relay admitted it
+    /// with.
     clients: Dict(Int, Client),
     /// The next diagnostic order to stamp.
     next_order: Int,
-    /// Everything accepted and not yet subsumed by an attested state,
-    /// oldest first. The *live replay lane*: what a `stateRequest`
-    /// gets, and what `max_room_records` bounds.
+    /// Everything that the relay accepted and that an attested state does not
+    /// contain yet, oldest first. This list is the *live replay lane*. A
+    /// `stateRequest` receives it, and `max_room_records` bounds it.
     log: List(Entry),
-    /// The connection whose `state` is awaiting an attestation, and the
-    /// order that state was stamped with.
+    /// The connection whose `state` frame waits for an attestation, with the
+    /// order that the relay stamped that state with.
     pending: Option(#(Int, Int)),
-    /// The digest attested for the current checkpoint, or `""`.
+    /// The digest that a client attested for the current checkpoint, or `""`.
     attested: String,
-    /// The order the current checkpoint's digest record was written at,
-    /// so a compaction for any other reason can rewrite that line
-    /// unchanged rather than dropping the room's attestation.
+    /// The order that the relay wrote the digest record of the current
+    /// checkpoint at. A compaction for another reason can thus rewrite that
+    /// line without a change, and it does not drop the attestation of the
+    /// room.
     attested_order: Int,
-    /// The order of the `state` entry the room's checkpoint describes,
-    /// or `0` for a room that has never checkpointed.
+    /// The order of the `state` entry that the checkpoint of the room
+    /// describes. The value is `0` for a room that has never checkpointed.
     ///
-    /// This is the room's canonical state: what a `stateRequest`
-    /// rebuilds from. It outlives `attested` — traffic landing after a checkpoint
-    /// clears the digest, and the state that checkpoint published is
-    /// still the base every later delta is read against.
+    /// That entry is the canonical state of the room, and a `stateRequest`
+    /// rebuilds from it. This field outlives `attested`. Traffic that arrives
+    /// after a checkpoint clears the digest, and the state that the checkpoint
+    /// published is still the base that every later delta reads against.
     checkpoint_order: Int,
-    /// The live log size the last round of `CheckpointRequest`s was sent
-    /// at, or `0` for a room that has never asked. A room asks again
-    /// only once its log has grown another `checkpoint_request_interval`
-    /// past this, which is what bounds the requests a flood can
-    /// generate.
+    /// The size of the live log at which the relay sent the last round of
+    /// `CheckpointRequest` frames. The value is `0` for a room that has never
+    /// asked. A room asks again only after its log grows another
+    /// `checkpoint_request_interval` past this value. That rule bounds the
+    /// number of requests that a flood can produce.
     pressure_at: Int,
-    /// How many `CheckpointRequest` frames this room has sent since the
-    /// process started. Metrics only.
+    /// The number of `CheckpointRequest` frames that this room sent after the
+    /// process started. This field is for metrics only.
     requests: Int,
   )
 }
@@ -1019,8 +1052,9 @@ fn new_room() -> Room {
 }
 
 pub opaque type Relay {
-  /// `connections` maps a socket's id to the room it was admitted to;
-  /// everything else about the connection lives in that room's `clients`.
+  /// `connections` maps the id of a socket to the room that the relay admitted
+  /// it to. Every other fact about that connection is in the `clients` field of
+  /// that room.
   Relay(rooms: Dict(String, Room), connections: Dict(Int, String))
 }
 
@@ -1028,13 +1062,14 @@ pub fn new_relay() -> Relay {
   Relay(rooms: dict.new(), connections: dict.new())
 }
 
-/// Room names currently held, sorted. A room with a log survives its last
-/// client leaving — that is what makes a relay durable rather than a hub.
+/// The room names that the relay holds now, sorted. A room with a log stays
+/// after its last client leaves. That behaviour makes a relay durable, and not
+/// a hub.
 pub fn room_names(relay: Relay) -> List(String) {
   dict.keys(relay.rooms) |> list.sort(string.compare)
 }
 
-/// Connections admitted to a room, sorted.
+/// The connections that the relay admitted to a room, sorted.
 pub fn clients(relay: Relay, room: String) -> List(Int) {
   case dict.get(relay.rooms, room) {
     Ok(found) -> dict.keys(found.clients) |> list.sort(int.compare)
@@ -1042,7 +1077,7 @@ pub fn clients(relay: Relay, room: String) -> List(Int) {
   }
 }
 
-/// Sessions admitted to a room, sorted.
+/// The sessions that the relay admitted to a room, sorted.
 pub fn sessions(relay: Relay, room: String) -> List(String) {
   case dict.get(relay.rooms, room) {
     Ok(found) ->
@@ -1053,8 +1088,9 @@ pub fn sessions(relay: Relay, room: String) -> List(String) {
   }
 }
 
-/// The next order a room will stamp. One more than the last accepted
-/// frame; `1` for a room that has accepted none.
+/// The next order that a room stamps. The value is one more than the order of
+/// the last accepted frame, and it is `1` for a room that has accepted no
+/// frame.
 pub fn next_order(relay: Relay, room: String) -> Int {
   case dict.get(relay.rooms, room) {
     Ok(found) -> found.next_order
@@ -1062,9 +1098,10 @@ pub fn next_order(relay: Relay, room: String) -> Int {
   }
 }
 
-/// How many entries a room's log holds. After a successful attestation:
-/// the checkpoint, plus every entry the attesting connection reported it
-/// could not read — `1` for the ordinary case where there were none.
+/// The number of entries in the log of a room. After a successful attestation,
+/// that number is the checkpoint with every entry that the attesting connection
+/// reported as unreadable. It is `1` in the usual case, where there was no such
+/// entry.
 pub fn log_size(relay: Relay, room: String) -> Int {
   case dict.get(relay.rooms, room) {
     Ok(found) -> list.length(found.log)
@@ -1072,14 +1109,15 @@ pub fn log_size(relay: Relay, room: String) -> Int {
   }
 }
 
-/// The digest attested for the room's checkpoint, or `""` if the room has
-/// never been checkpointed or has moved on since.
+/// The digest that a client attested for the checkpoint of the room. The value
+/// is `""` when the room has never checkpointed, and when the room changed
+/// after that checkpoint.
 ///
-/// It describes the checkpoint *entry*, which is not always the whole
-/// log: a log that also carries entries the attesting client could not
-/// read holds more than this digest names, and a client that can read
-/// them will hold more than it too. That is the honest reading — the
-/// alternative is a digest that claims to cover records nobody has
+/// The digest describes the checkpoint *entry*, which is not always the whole
+/// log. A log that also carries the entries that the attesting client could not
+/// read holds more than this digest names, and a client that can read those
+/// entries holds more than the digest too. That is the correct reading. The
+/// other option is a digest that claims to cover records that no client
 /// merged.
 pub fn attested_digest(relay: Relay, room: String) -> String {
   case dict.get(relay.rooms, room) {
@@ -1088,7 +1126,7 @@ pub fn attested_digest(relay: Relay, room: String) -> String {
   }
 }
 
-/// Every envelope a `stateRequest` would replay, oldest first.
+/// Every envelope that a `stateRequest` would replay, oldest first.
 pub fn replayable(relay: Relay, room: String) -> List(String) {
   case dict.get(relay.rooms, room) {
     Ok(found) -> list.map(found.log, fn(entry) { entry.envelope })
@@ -1096,11 +1134,12 @@ pub fn replayable(relay: Relay, room: String) -> List(String) {
   }
 }
 
-/// The orders one connection has reported it could not process and that
-/// are still in its room's log, sorted. Diagnostic: a service exposes it
-/// so an operator can see exactly which entries are being carried past a
-/// checkpoint, and by whom, rather than guessing at why a room's log will
-/// not collapse to one line.
+/// The orders that one connection reported as unreadable, and that the log of
+/// its room still holds, sorted. This function is a diagnostic. A service makes
+/// it available, so that an operator can see the exact entries that the relay
+/// carries past a checkpoint, and the connection that reported each one. The
+/// operator thus does not have to guess at the reason that the log of a room
+/// does not become one line.
 pub fn skipped_orders(relay: Relay, connection: Int) -> List(Int) {
   case client_of(relay, connection) {
     Error(Nil) -> []
@@ -1108,9 +1147,10 @@ pub fn skipped_orders(relay: Relay, connection: Int) -> List(Int) {
   }
 }
 
-/// The room and per-room record for an admitted connection. A connection
-/// in `connections` is always in its room's `clients` — `admit` inserts
-/// both and `disconnect` removes both — so the inner lookup asserts.
+/// The room and the per-room record of an admitted connection. A connection in
+/// `connections` is always in the `clients` field of its room, because `admit`
+/// inserts both entries and `disconnect` removes both. The inner lookup thus
+/// asserts.
 fn client_of(relay: Relay, connection: Int) -> Result(#(String, Client), Nil) {
   case dict.get(relay.connections, connection) {
     Error(Nil) -> Error(Nil)
@@ -1122,11 +1162,12 @@ fn client_of(relay: Relay, connection: Int) -> Result(#(String, Client), Nil) {
   }
 }
 
-/// Every order this room is carrying live: still in the log, and
-/// reported unmergeable by at least one connection currently attached.
-/// Sorted, oldest first, and bounded by the room's log. Diagnostic: an
-/// operator reads it to see which entries checkpoints are landing
-/// around, and why a room's log will not collapse to one line.
+/// Every order that this room carries now, which means that the log still holds
+/// it and that one attached connection or more reported that it cannot merge
+/// it. The list is sorted, oldest first, and the log of the room bounds it. This
+/// function is a diagnostic. An operator reads it to see the entries that a
+/// checkpoint lands around, and the reason that the log of a room does not
+/// become one line.
 pub fn carried_orders(relay: Relay, room: String) -> List(Int) {
   case dict.get(relay.rooms, room) {
     Error(Nil) -> []
@@ -1134,9 +1175,10 @@ pub fn carried_orders(relay: Relay, room: String) -> List(Int) {
   }
 }
 
-/// The order of the `state` entry this room's checkpoint describes, or
-/// `0` if it has never checkpointed. The room's canonical state: an
-/// operator reads it to see what a fresh attachment would rebuild from.
+/// The order of the `state` entry that the checkpoint of this room describes.
+/// The value is `0` when the room has never checkpointed. That entry is the
+/// canonical state of the room. An operator reads this value to see what a new
+/// attachment would rebuild from.
 pub fn checkpoint_order(relay: Relay, room: String) -> Int {
   case dict.get(relay.rooms, room) {
     Error(Nil) -> 0
@@ -1144,9 +1186,10 @@ pub fn checkpoint_order(relay: Relay, room: String) -> Int {
   }
 }
 
-/// How many `CheckpointRequest` frames this room has sent since this
-/// process started. Metrics: a room whose requests climb while its log
-/// stays high is a room whose clients are not answering them.
+/// The number of `CheckpointRequest` frames that this room sent after this
+/// process started. This function is for metrics. A room whose count grows
+/// while its log stays large is a room whose clients do not answer those
+/// requests.
 pub fn checkpoint_requests(relay: Relay, room: String) -> Int {
   case dict.get(relay.rooms, room) {
     Error(Nil) -> 0
@@ -1154,8 +1197,8 @@ pub fn checkpoint_requests(relay: Relay, room: String) -> Int {
   }
 }
 
-/// Connections in this room with an unanswered `CheckpointRequest`,
-/// sorted.
+/// The connections in this room that have a `CheckpointRequest` frame with no
+/// answer, sorted.
 pub fn checkpoints_pending(relay: Relay, room: String) -> List(Int) {
   case dict.get(relay.rooms, room) {
     Error(Nil) -> []
@@ -1167,8 +1210,8 @@ pub fn checkpoints_pending(relay: Relay, room: String) -> List(Int) {
   }
 }
 
-/// Whether this connection told the relay it understands a
-/// `CheckpointRequest`.
+/// Whether this connection told the relay that it understands a
+/// `CheckpointRequest` frame.
 pub fn supports_checkpoints(relay: Relay, connection: Int) -> Bool {
   case client_of(relay, connection) {
     Error(Nil) -> False
@@ -1184,9 +1227,9 @@ fn carriage(found: Room) -> List(Int) {
   |> list.sort(int.compare)
 }
 
-/// Every order any connection in this room has claimed it could not
-/// process, as a set. A flooded room asks this once per refusal, so it is
-/// deliberately not a scan of one list inside another.
+/// Every order that a connection in this room reported as unreadable, as a set.
+/// A flooded room calls this function one time for each refusal, so the function
+/// does not scan one list inside another. That choice is deliberate.
 fn claimed_orders(found: Room) -> set.Set(Int) {
   dict.fold(found.clients, set.new(), fn(carried, _connection, client) {
     list.fold(client.skipped, carried, fn(carried, order) {
@@ -1195,7 +1238,7 @@ fn claimed_orders(found: Room) -> set.Set(Int) {
   })
 }
 
-/// The orders a room's live log holds, as a set.
+/// The orders that the live log of a room holds, as a set.
 fn log_orders(found: Room) -> set.Set(Int) {
   list.fold(found.log, set.new(), fn(carried, entry) {
     set.insert(carried, entry.order)
@@ -1206,14 +1249,15 @@ fn log_orders(found: Room) -> set.Set(Int) {
 // Connection lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A socket opened. The relay speaks first, so capability negotiation is
-/// finished before a client has said anything at all.
+/// A socket opened. The relay writes first, so the capability negotiation ends
+/// before a client sends anything.
 pub fn connect(relay: Relay, connection: Int) -> #(Relay, List(Action)) {
   #(relay, [Send(connection, connected_frame())])
 }
 
-/// A socket closed, for any reason. Idempotent, and it never touches the
-/// log: a room's durable content outlives every client in it.
+/// A socket closed, for any reason. A second call has no more effect, and the
+/// function never changes the log. The durable content of a room outlives every
+/// client in that room.
 pub fn disconnect(relay: Relay, connection: Int) -> #(Relay, List(Action)) {
   case dict.get(relay.connections, connection) {
     Error(Nil) -> #(relay, [])
@@ -1259,13 +1303,13 @@ pub fn handle_frame(
   #(relay, actions)
 }
 
-/// `handle_frame`, plus the tag the frame classified as.
+/// `handle_frame`, with the tag of the frame.
 ///
-/// The tag is a relay's whole instrumentation: `hello`, `channel`,
+/// The tag is the whole instrumentation of a relay. It is `hello`, `channel`,
 /// `delta`, `stateRequest`, `state`, `digest`, `attest`, `skip`,
-/// `skip:undelivered`, or `rejected:<reason>`. It comes from the
-/// envelope's own `type` tag and from whether the relay refused the
-/// frame, never from a payload.
+/// `skip:undelivered`, or `rejected:<reason>`. It comes from the `type` tag of
+/// the envelope, and from whether the relay refused the frame. It never comes
+/// from a payload.
 pub fn serve(
   relay: Relay,
   connection: Int,
@@ -1313,14 +1357,14 @@ pub fn serve(
   }
 }
 
-/// Whether this durable frame fits in this room's bounded live log.
+/// Whether this durable frame fits in the bounded live log of this room.
 ///
-/// Only the three message kinds that are logged are checked: a `hello`, a
-/// `digest` and a `stateRequest` are stamped or answered and never
-/// appended, so a room at its bound still admits clients, still answers
-/// their replay, and still carries their digests — which is what lets an
-/// honest client attach to a full room, refuse what it cannot read, and
-/// drain it.
+/// The function checks the three message kinds that the relay logs. It does not
+/// check a `hello` frame, a `digest` frame, or a `stateRequest` frame. The relay
+/// stamps or answers those three and never appends them. A room at its bound
+/// thus still admits a client, still answers a replay, and still carries a
+/// digest. A correct client can therefore attach to a full room, refuse what it
+/// cannot read, and empty that room.
 fn capacity(
   relay: Relay,
   connection: Int,
@@ -1341,7 +1385,7 @@ fn refusal_tag(refusal: Refusal) -> String {
   "rejected:" <> refusal_parts(refusal).0
 }
 
-/// One control frame, and the tag it classified as.
+/// One control frame, with the tag of that frame.
 fn control(
   relay: Relay,
   connection: Int,
@@ -1376,15 +1420,17 @@ fn control(
   }
 }
 
-/// A connection saying which optional control frames it understands.
+/// A connection that reports which optional control frames it understands.
 ///
-/// Admitted connections only — this is a statement about a client in a
-/// room, and a connection that has not said `hello` has no room to be in.
-/// It stamps no order, logs nothing, and broadcasts nothing, and
-/// repeating it is the same statement twice. A connection that never
-/// sends it is never sent a `CheckpointRequest` — and, because a `state`
-/// at the hard bound is only admitted from a supports-declaring client
-/// (see `room_has_capacity`), never publishes past the bound either.
+/// The relay accepts this frame from an admitted connection only. The frame is a
+/// statement about a client in a room, and a connection that did not send
+/// `hello` is in no room. The frame stamps no order, it logs nothing, and it
+/// broadcasts nothing. To repeat it is to make the same statement two times.
+///
+/// A connection that never sends this frame never receives a
+/// `CheckpointRequest` frame. At the hard bound, the relay admits a `state`
+/// frame only from a client that declared support. See `room_has_capacity`.
+/// Such a connection thus also never publishes past that bound.
 fn declare_support(
   relay: Relay,
   connection: Int,
@@ -1406,25 +1452,30 @@ fn declare_support(
   Ok(#(store(relay, room, found), []))
 }
 
-/// One order this connection could not process.
+/// One order that this connection could not process.
 ///
-/// Honoured only if the relay actually sent that order to *this*
-/// connection: a claim about anything else is about an entry this client
-/// has no evidence of, and acting on it would be letting a client decide
-/// the fate of something it never saw. An unhonoured skip is dropped
-/// rather than fatal — a relay that stamps orders it does not account for
-/// is broken, not the client talking to it, and there is nothing in the
-/// log for the claim to attach to either way. A repeated skip is the same
-/// claim twice and changes nothing.
+/// The relay accepts the claim only when it sent that order to *this*
+/// connection. A claim about any other order is a claim about an entry that
+/// this client has no evidence of, and to act on it would let a client decide
+/// the fate of something that it never saw.
 ///
-/// A skip is a fact about delivery, never about content: the relay does
-/// not learn why the entry was refused, it does not stop carrying it to
-/// anyone else, and it never deletes it on the strength of one. What the
-/// claim buys is that this connection's next checkpoint may land *around*
-/// the entry — carried into the compaction beside it — instead of being
-/// blocked by it forever. An *unhonoured* skip — undelivered, out of
-/// range, or for an order the log no longer holds — changes nothing at
-/// all, and a repeated skip is the same claim twice.
+/// The relay drops a claim that it does not accept, and that claim is not
+/// fatal. A relay that stamps an order that it does not account for is at
+/// fault, and the client that speaks to it is not. There is also nothing in the
+/// log for such a claim to attach to.
+///
+/// A skip is a fact about a delivery, and never about the content. The relay
+/// does not learn the reason that the client refused the entry, it does not stop
+/// to carry that entry to the other clients, and it never deletes that entry on
+/// one claim. The claim buys one thing: the next checkpoint of this connection
+/// can land *around* the entry, and the compaction carries that entry beside the
+/// checkpoint. Without the claim, that entry would block the checkpoint without
+/// an end.
+///
+/// A claim that the relay does not accept changes nothing at all. The relay does
+/// not accept a claim for an order that it never delivered, for an order outside
+/// its range, and for an order that the log no longer holds. A repeated skip is
+/// the same claim two times, and it also changes nothing.
 fn skip(
   relay: Relay,
   connection: Int,
@@ -1475,16 +1526,15 @@ fn skip(
   }
 }
 
-/// Every line a room's log file should hold right now: its live entries
-/// in order, and the room's checkpoint marker, if it has one. A
-/// compaction that dropped that marker would make a restart forget both
-/// the digest a client attested and *which* of the log's `state` records
-/// the room is canonically rebuilt from.
+/// Every line that the log file of a room must hold now: its live entries, in
+/// order, with the checkpoint marker of that room, if the room has one. A
+/// compaction that dropped that marker would make a restart forget the digest
+/// that a client attested, and it would also forget *which* `state` record of
+/// the log the room rebuilds from.
 ///
-/// The marker carries `attested`, which is `""` once anything has landed
-/// after the checkpoint. That is the honest reading: the entry is still
-/// the room's canonical state, and the digest no longer describes the
-/// room.
+/// The marker carries `attested`, and that value is `""` after anything arrives
+/// after the checkpoint. That is the correct reading: the entry is still the
+/// canonical state of the room, and the digest no longer describes the room.
 fn compaction_lines(found: Room) -> List(String) {
   let lines = list.map(found.log, fn(entry) { entry.line })
   case found.checkpoint_order > 0 || found.attested != "" {
@@ -1509,13 +1559,14 @@ fn refuse(connection: Int, refusal: Refusal) -> List(Action) {
   [Send(connection, Refused(reason, detail)), Close(connection, reason)]
 }
 
-/// Admission and its one continuing obligation.
+/// Admission, with its one continuing obligation.
 ///
-/// The first frame must be a `hello`, and it fixes the room, the sender,
-/// and the session for the connection's whole life. Every later frame is
-/// checked against that triple, so a client cannot change room, forge
-/// another replica's identity, or reuse a session already attached — one
-/// connection, one replica, one room.
+/// The first frame must be a `hello` frame, and that frame fixes the room, the
+/// sender, and the session for the whole life of the connection. The relay
+/// checks every later frame against those three values. A client thus cannot
+/// change its room, it cannot forge the identity of another replica, and it
+/// cannot use a session that is already attached. One connection has one
+/// replica and one room.
 fn admit(
   relay: Relay,
   connection: Int,
@@ -1592,22 +1643,26 @@ fn admit(
 
 /// One admitted document frame.
 ///
-/// `stateRequest` is answered from the log rather than forwarded: the
-/// relay is the one participant that always has the room's state, and
-/// asking a client for it would make every attachment a broadcast storm.
-/// Everything else is stamped, logged where it is durable, and fanned out
-/// to the other clients in the room — never back to its sender, which
-/// already has it.
+/// The relay answers a `stateRequest` frame from its log, and it does not
+/// forward that frame. The relay is the one participant that always has the
+/// state of the room, and to ask a client for that state would make every
+/// attachment a storm of broadcasts.
 ///
-/// A durable frame is bounded **before** it is appended. A room's live
-/// log stops at `max_room_records`, whether or not anybody has claimed
-/// it cannot read those records, because the half of the flood nobody
-/// has refused is still a flood: an admitted client alone in a room can
-/// write well-formed traffic nobody will ever skip, and carriage — which
-/// only counts refused records — would never see it. Past
-/// `checkpoint_pressure_records` the relay asks compatible clients to
-/// checkpoint; at the bound the sender is refused and closed, and every
-/// record already on disk stays exactly as it is.
+/// The relay stamps every other frame, it logs the frame when that frame is
+/// durable, and it sends the frame to the other clients in the room. It never
+/// sends the frame back to its sender, because that sender already has it.
+///
+/// The relay bounds a durable frame **before** it appends that frame. The live
+/// log of a room stops at `max_room_records`, whether or not a client reported
+/// that it cannot read those records. The half of a flood that no client
+/// refused is still a flood. An admitted client that is alone in a room can
+/// write correct traffic that no client will skip, and the carriage count,
+/// which counts refused records only, would never see it.
+///
+/// After the log passes `checkpoint_pressure_records`, the relay asks the
+/// compatible clients to checkpoint. At the bound, the relay refuses the sender
+/// and closes it, and every record that is already on disk stays exactly as it
+/// is.
 fn route(
   relay: Relay,
   connection: Int,
@@ -1702,16 +1757,15 @@ fn route(
   }
 }
 
-/// Whether this room may append one more durable record for this
-/// connection.
+/// Whether this room can append one more durable record for this connection.
 ///
-/// The bound is on the room, not on the connection, because the log is
-/// the room's. The single exemption is a `state` from a connection that
-/// declared `Supports(checkpoint_requests)`: that is the frame that can
-/// compact a full room, and refusing it would strand exactly the honest
-/// client the checkpoint machinery exists to protect. A client that
-/// publishes past the bound and never attests earns nothing further —
-/// its next non-`state` append is refused at the bound and closed.
+/// The bound is on the room, and not on the connection, because the log belongs
+/// to the room. There is one exception: a `state` frame from a connection that
+/// declared `Supports(checkpoint_requests)`. That frame can compact a full room,
+/// and to refuse it would stop exactly the correct client that the checkpoint
+/// machinery protects. A client that publishes past the bound and never attests
+/// gains nothing more. The relay refuses the next append from that client that
+/// is not a `state` frame, at the bound, and it closes that connection.
 fn room_has_capacity(
   found: Room,
   connection: Int,
@@ -1727,7 +1781,7 @@ fn room_has_capacity(
   }
 }
 
-/// This connection answered whatever it was asked.
+/// This connection answered the request that the relay sent to it.
 fn answered(clients: Dict(Int, Client), connection: Int) -> Dict(Int, Client) {
   case dict.get(clients, connection) {
     Error(Nil) -> clients
@@ -1740,13 +1794,14 @@ fn answered(clients: Dict(Int, Client), connection: Int) -> Dict(Int, Client) {
   }
 }
 
-/// Send one connection a `CheckpointRequest`, if it is a candidate for
-/// one: it declared `Supports(checkpoint_requests)`, and it has no request
-/// already outstanding. Anything else — a connection that never declared
-/// support, or one still owing an answer — is a no-op.
+/// Send a `CheckpointRequest` frame to one connection, if that connection is a
+/// candidate for one. A candidate declared `Supports(checkpoint_requests)`, and
+/// it has no request outstanding. The function does nothing for every other
+/// connection, which is a connection that never declared support, and a
+/// connection that still owes an answer.
 ///
-/// It advances `pressure_at` to the size it quoted so the very next
-/// record does not re-evaluate a room that has just asked.
+/// The function moves `pressure_at` to the size that it quoted. The next record
+/// thus does not evaluate a room that just asked.
 fn send_checkpoint_request(
   found: Room,
   size: Int,
@@ -1770,32 +1825,33 @@ fn send_checkpoint_request(
   }
 }
 
-/// Ask attached clients to checkpoint, if the room needs one and has not
-/// just asked.
+/// Ask the attached clients to checkpoint, if the room needs a checkpoint and
+/// did not just ask for one.
 ///
-/// Bounded and idempotent, both deliberately:
+/// The function is bounded and idempotent, and both properties are deliberate:
 ///
-///   * nothing is asked below `checkpoint_pressure_records`, so an
-///     ordinary room never sees one of these at all;
-///   * a connection with an unanswered request is not asked again, so a
-///     client that is slow to answer is not flooded with requests;
-///   * a room that has asked does not ask again until its log has grown
-///     another `checkpoint_request_interval`, so the frames a flood can
-///     generate are bounded by the flood's own hard bound;
-///   * only a connection that declared `Supports(checkpoint_requests)`
-///     is asked, so a client built against an earlier version of this
-///     lane is never sent a frame it would treat as a violation.
+///   * The function asks nothing below `checkpoint_pressure_records`, so an
+///     ordinary room never receives one of these frames.
+///   * The function does not ask a connection that has a request with no
+///     answer, so a client that answers slowly does not receive many requests.
+///   * A room that asked does not ask again until its log grows another
+///     `checkpoint_request_interval`. The hard bound of a flood thus also
+///     bounds the frames that the flood can produce.
+///   * The function asks a connection that declared
+///     `Supports(checkpoint_requests)` only. A client that a developer built
+///     against an earlier version of this lane thus never receives a frame that
+///     it would treat as a violation.
 ///
-/// The request carries the room's live log size and a reason, and
-/// nothing else. In particular it carries **no order**: a client answers
-/// out of its own merged state, so there is no path from a relay's
-/// diagnostic sequence into a document through it.
+/// The request carries the live log size of the room and a reason, and nothing
+/// else. In particular it carries **no order**. A client answers from its own
+/// merged state, so there is no path from the diagnostic sequence of a relay
+/// into a document through this frame.
 ///
-/// This is driven off an append: a room whose log is still climbing
-/// toward the bound. A room already *at* the bound can climb no further
-/// and is never asked from here; it drains anyway, because the ordinary
-/// attach flow ends in a publication and a supports-declaring client's
-/// `state` is always admitted at the bound (see `room_has_capacity`).
+/// An append drives this function, in a room whose log still grows toward the
+/// bound. A room that is already *at* the bound cannot grow, and this function
+/// never asks it. That room still empties, because the ordinary attach flow ends
+/// in a publication, and the relay always admits a `state` frame from a client
+/// that declared support at the bound. See `room_has_capacity`.
 fn ask_for_checkpoints(found: Room) -> #(Room, List(Action)) {
   let size = list.length(found.log)
   case
@@ -1827,33 +1883,35 @@ fn ask_for_checkpoints(found: Room) -> #(Room, List(Action)) {
   }
 }
 
-/// An attestation: the publisher's digest, and the highest order it had
-/// accounted for when it published.
+/// An attestation: the digest of the publisher, with the highest order that the
+/// publisher accounted for when it published.
 ///
-/// The relay cannot check any of this, and does not pretend to: it is a
-/// **trusted client's attestation**, admitted by whatever authenticated
-/// it, and admission is the trust boundary this rests on. What the relay
-/// *can* enforce, it does — `upTo` is clamped to what this connection was
-/// sent, and a record the publisher reported as skipped is never retired
-/// by that publisher's own checkpoint.
+/// The relay cannot check any of that, and it does not claim to. This is the
+/// **attestation of a trusted client**, which some component authenticated
+/// before it admitted that client. Admission is the trust boundary that this
+/// design rests on. The relay applies every rule that it *can* apply. It clamps
+/// `upTo` to the orders that it sent to this connection, and the checkpoint of a
+/// publisher never retires a record that the same publisher reported as
+/// skipped.
 ///
-/// Three kinds of entry, and only one of them goes away:
+/// There are three kinds of entry, and the relay removes one kind only:
 ///
-///   * **subsumed** — at or below the clamped `upTo`, or written by the
-///     publisher itself. The published state *claims to contain* it, so
-///     it is retired;
-///   * **skipped** — reported by *this* connection as something it could
-///     not process. The published state says it does *not* contain it, so
-///     it is **kept**, beside the checkpoint, on disk and in memory;
-///   * **outstanding** — anything else: a concurrent state, a delta that
-///     raced the publication. The client has not accounted for it, so the
-///     echo is empty and the log is left exactly as it was.
+///   * **subsumed**: an entry at the clamped `upTo` or below it, or an entry
+///     that the publisher wrote. The published state *claims to contain* that
+///     entry, so the relay retires it.
+///   * **skipped**: an entry that *this* connection reported as unreadable. The
+///     published state says that it does *not* contain that entry, so the relay
+///     **keeps** it, beside the checkpoint, on disk and in memory.
+///   * **outstanding**: every other entry, for example a concurrent state or a
+///     delta that raced the publication. The client did not account for that
+///     entry, so the echo is empty and the log does not change.
 ///
-/// A checkpoint therefore never shortens the room's history. It replaces
-/// what the publisher merged with the merge, and carries everything it
-/// did not merge forward unchanged, so a later client that *can* read
-/// those entries still gets them — and its own checkpoint, which has no
-/// skips to keep them alive, is what finally retires them.
+/// A checkpoint thus never makes the history of the room shorter. It replaces
+/// the entries that the publisher merged with that merge, and it carries every
+/// entry that the publisher did not merge forward, without a change. A later
+/// client that *can* read those entries still receives them, and the checkpoint
+/// of that client, which has no skip to keep them alive, finally retires
+/// them.
 fn attest(
   relay: Relay,
   connection: Int,
@@ -1976,7 +2034,7 @@ fn fan_out(recipients: List(Int), order: Int, raw: String) -> List(Action) {
   list.map(recipients, fn(connection) { Send(connection, Frame(order, raw)) })
 }
 
-/// Record that these connections have been sent everything up to `order`.
+/// Record that the relay sent everything up to `order` to these connections.
 fn delivered(room: Room, recipients: List(Int), order: Int) -> Room {
   Room(
     ..room,
@@ -2011,31 +2069,30 @@ fn store(relay: Relay, room: String, found: Room) -> Relay {
 
 /// Rebuild one room from its durable lines.
 ///
-/// Unreadable lines are skipped here rather than fatal, because this
-/// module is handed lines and cannot tell a torn tail from a corrupt
-/// middle: that judgement belongs to whatever read the file. The
-/// reference service makes it before calling this — it truncates a torn
-/// trailing fragment and refuses to start, or quarantines the file, for
-/// anything else — so what arrives here is already the log it means to
-/// replay.
+/// This function skips a line that it cannot read, and such a line is not
+/// fatal. The caller gives this module a list of lines, and the module cannot
+/// separate an incomplete tail from a corrupt middle. That decision belongs to
+/// the component that read the file. The reference service makes that decision
+/// before it calls this function: it removes an incomplete trailing fragment and
+/// refuses to start, or it quarantines the file, for every other fault. What
+/// arrives here is thus already the log that the service intends to replay.
 ///
-/// Three things about a room that is *already* here are never rewound
-/// by what is read back:
+/// Three properties of a room that is *already* in memory never move backwards
+/// when this function reads the lines:
 ///
-///   * `next_order` only ever moves forward —
-///     `max(existing, highest + 1)`. Reusing an order a live connection
-///     has already been delivered would make its `delivered` clamp
-///     meaningless and let a later attestation retire an entry nobody
-///     ever saw;
-///   * the room's **attestation** is taken from disk only when the disk
-///     proves a *current* one: a checkpoint marker that is the newest
-///     record in the file. Records logged after a checkpoint mean the
-///     checkpoint has stopped describing the room;
-///   * the room's **canonical checkpoint entry**, which the marker names
-///     (`c`), so a restart cannot leave the room unable to say which of
-///     its `state` records is canonical. A log written before markers
-///     named their entry falls back to the newest `state` record it
-///     holds.
+///   * `next_order` only moves forward, to `max(existing, highest + 1)`. To
+///     reuse an order that the relay already delivered to a live connection
+///     would make the `delivered` clamp of that connection useless, and it
+///     would let a later attestation retire an entry that no client saw.
+///   * The function takes the **attestation** of the room from the disk only
+///     when the disk proves a *current* one, which is a checkpoint marker that
+///     is the newest record in the file. A record that the relay logged after a
+///     checkpoint means that the checkpoint no longer describes the room.
+///   * The function also takes the **canonical checkpoint entry** of the room,
+///     which the marker names in its `c` field. A restart thus cannot leave the
+///     room unable to say which of its `state` records is canonical. For a log
+///     that a relay wrote before a marker named its entry, the function uses
+///     the newest `state` record in that log.
 pub fn replay(relay: Relay, room: String, lines: List(String)) -> Relay {
   // The line is kept beside the record it parsed to, so a record that
   // is later carried into a compaction leaves as the bytes this file
@@ -2141,10 +2198,10 @@ fn record_order(record: LogRecord) -> Int {
 // The service seam
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Socket actions as `#(connection, payload, close_reason)`. A `Send`
-/// carries its encoded frame and an empty close reason; a `Close` carries
-/// an empty payload and its reason. Order is preserved, so a refusal's
-/// `error` frame is always written before its close.
+/// The socket actions as `#(connection, payload, close_reason)` triples. A
+/// `Send` action carries its encoded frame and an empty close reason. A `Close`
+/// action carries an empty payload and its reason. The function keeps the order,
+/// so the `error` frame of a refusal always goes out before its close.
 pub fn render_sockets(actions: List(Action)) -> List(#(Int, String, String)) {
   list.filter_map(actions, fn(action) {
     case action {
@@ -2155,13 +2212,13 @@ pub fn render_sockets(actions: List(Action)) -> List(#(Int, String, String)) {
   })
 }
 
-/// Storage actions as `#(room, mode, lines)`, where `mode` is `append`
-/// or `compact`.
+/// The storage actions as `#(room, mode, lines)` triples, where `mode` is
+/// `append` or `compact`.
 ///
-/// Order is preserved, and it is the guarantee: the append that carries
-/// a checkpoint always precedes the compaction that keeps it, so a
-/// service that performs these in order, durably, cannot lose a record
-/// to a crash between two of them.
+/// The function keeps the order, and that order is the guarantee. The append
+/// that carries a checkpoint always comes before the compaction that keeps that
+/// checkpoint. A service that performs these actions in order, and durably,
+/// thus cannot lose a record to a crash between two of them.
 pub fn render_storage(
   actions: List(Action),
 ) -> List(#(String, String, List(String))) {
