@@ -1,83 +1,85 @@
 //// The browser-facing CRDT facade: one peer-to-peer document, typed
 //// handles onto its channels, and nothing that needs a server.
 ////
-//// This is the p2p counterpart of `watershed`, and it is deliberately
-//// a *separate* vocabulary. Every type here — `CrdtDocument`, `Handle`,
-//// `CrdtConnection` — is opaque and shares no constructor with the
-//// sequenced facade, so a p2p handle cannot be passed to a function that
-//// expects a server-backed one, or the other way round. The two stacks
-//// have different lifecycles (there is no ack, no summary, and no client
-//// id here) and mixing them would be a type error rather than a runtime
-//// surprise.
+//// This module is the p2p equivalent of `watershed`, and its vocabulary is
+//// *separate* on purpose. Every type here is opaque, and none of them shares a
+//// constructor with the sequenced facade. Those types are `CrdtDocument`,
+//// `Handle`, and `CrdtConnection`. You thus cannot pass a p2p handle to a
+//// function that needs a server-backed one, or the reverse. The two stacks
+//// have different lifecycles: this one has no ack, no summary, and no client
+//// id. To mix them is a type error, and not a surprise at run time.
 ////
 //// ## What `connect` does
 ////
-//// `connect` is synchronous. It builds the configured root through
-//// `crdt_core.new` and joins signaling before it returns, so the document
-//// exists and is editable from the first frame — there is no sequencer to
-//// wait for and nothing to hand back later.
+//// `connect` is synchronous. It builds the configured root with
+//// `crdt_core.new` and joins the signaling room before it returns. The
+//// document thus exists and accepts an edit from the first frame. There is no
+//// sequencer to wait for, and nothing to return later.
 ////
-//// Readiness is reported exactly once:
+//// The module reports the readiness exactly one time:
 ////
-//// - the signaling adapter's roster says the room was empty, so this
-////   replica is alone in it: ready immediately, with the empty
-////   configured root;
-//// - the roster named peers: ready after one of them has passed the
-////   `hello` check and answered a `stateRequest` with a `state` message
-////   that merged.
+//// - The roster of the signaling adapter says that the room was empty, so this
+////   replica is alone in it. The document is ready immediately, with the empty
+////   configured root.
+//// - The roster named one peer or more. The document is ready after one of
+////   those peers passes the `hello` check and answers a `stateRequest` with a
+////   `state` message that merges.
 ////
-//// Both wait for the *complete* roster, which is the one thing an
-//// adapter must report (see `p2p_transport_js.Signaling`). "No peer has
-//// been announced yet" and "the room is empty" are the same picture from
-//// inside a replica, and a facade that guessed would hand every late
-//// joiner an empty document a moment before the room's state arrived.
-//// An adapter that knows the room inside `join` — the in-page hub the
-//// tests use — makes this synchronous; one that learns it over a round
-//// trip — `crdt_signaling_js`, and any real service — takes a moment
-//// longer to become ready and holds an empty document for exactly that
-//// long, rather than announcing one.
+//// Both conditions wait for the *complete* roster, which is the one thing that
+//// an adapter must report. See `p2p_transport_js.Signaling`. From inside a
+//// replica, "no peer is announced yet" and "the room is empty" look the same.
+//// A facade that guessed would give every late joiner an empty document, a
+//// moment before the state of the room arrived.
 ////
-//// A signaling failure before readiness resolves it once, with
-//// `Error(SignalingFailed(...))` — whether `join` itself failed or the
-//// socket died before the roster arrived. Everything after readiness — a
-//// peer that fails its handshake, a room that empties, a merge that is
-//// rejected, signaling that goes away — is a `Status`, never a second
-//// readiness result.
+//// An adapter that knows the room inside `join`, such as the in-page hub that
+//// the tests use, makes this step synchronous. An adapter that learns the room
+//// over a round trip, such as `crdt_signaling_js` and every real service,
+//// needs a moment longer to become ready. It holds an empty document for
+//// exactly that interval, and it announces no document.
 ////
-//// A room whose members all greet and then go quiet is the one case that
-//// waits indefinitely, and deliberately: this replica has neither the
-//// room's state nor grounds to claim it is alone, so "ready" would be a
-//// lie and "failed" would be wrong. An application that wants a bound
-//// puts its own timer on `close`, which resolves readiness once with
-//// `Error(DocumentClosed)`.
+//// A signaling failure before the readiness resolves that readiness one time,
+//// with `Error(SignalingFailed(...))`. That result covers a failure of `join`
+//// itself, and a socket that closed before the roster arrived. Everything
+//// after the readiness is a `Status` value, and never a second readiness
+//// result. That includes a peer that fails its handshake, a room that becomes
+//// empty, a merge that the module refuses, and signaling that becomes
+//// unavailable.
+////
+//// One condition waits without an end, and that is deliberate: a room whose
+//// members all greet and then send nothing. This replica has neither the state
+//// of the room nor a reason to claim that it is alone. "Ready" would thus be
+//// incorrect, and "failed" would be incorrect too. An application that wants a
+//// limit adds its own timer on `close`, which resolves the readiness one time,
+//// with `Error(DocumentClosed)`.
 ////
 //// ## Application callbacks
 ////
-//// `on_ready`, `on_status`, and every subscriber are application code
-//// and are contained: an exception from one is caught and dropped rather
-//// than allowed to skip a bootstrap request, suppress a readiness
-//// result, or unwind the browser event that was delivering a merge. The
-//// document, the transport, and the protocol's own control flow are
-//// identical whether a callback returns or throws.
+//// `on_ready`, `on_status`, and every subscriber are application code, and this
+//// module contains them. It catches an exception from one of them and drops
+//// it. That exception thus cannot skip a bootstrap request, suppress a
+//// readiness result, or unwind the browser event that delivered a merge. The
+//// document, the transport, and the control flow of the protocol are the same
+//// whether a callback returns or throws.
 ////
 //// ## Trust boundaries
 ////
-//// Everything that arrives on a data channel is hostile until proven
-//// otherwise. Each payload is decoded by `crdt_wire`, checked to have
-//// come from the peer that sent it, required to have opened with a
-//// `hello` that agrees about protocol, room, compatibility tag and root,
-//// and only then merged by `crdt_core`. A peer that breaks any of those
-//// rules is told why, closed, and forgotten — one peer at a time. The
-//// local document is never touched by a rejected message, and the
-//// remaining peers are unaffected.
+//// Everything that arrives on a data channel is hostile until the module
+//// proves otherwise. `crdt_wire` decodes each payload. The module checks that
+//// the payload came from the peer that sent it, and that this peer opened with
+//// a `hello` message that agrees about the protocol, the room, the
+//// compatibility tag, and the root. Only then does `crdt_core` merge that
+//// payload. A peer that breaks one of those rules receives the reason, and the
+//// module closes and removes that peer, one peer at a time. A refused message
+//// never changes the local document, and it never changes the other peers.
 ////
 //// ## Identity
 ////
-//// `replica_label` is an application label and appears only in status
-//// reporting. The identity that authors CRDT writes and addresses
-//// signaling is `label-<random session id>`, minted per connection, so
-//// two tabs of the same application never share an author identity and a
-//// replica that reconnects is a new writer rather than a resurrected one.
+//// `replica_label` is a label of the application, and it appears in the status
+//// reports only. The identity that writes the CRDT edits and addresses the
+//// signaling is `label-<random session id>`, and the module creates it for
+//// each connection. Two tabs of one application thus never share an author
+//// identity, and a replica that reconnects is a new writer, and not the same
+//// writer again.
 ////
 //// JavaScript target only.
 
@@ -142,9 +144,10 @@ import watershed/wire
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Everything needed to build a document and join a room. The phantom
-/// `root` is the channel kind of the document's root, carried from the
-/// `p2p.CrdtKind` given to `config` all the way to `root`'s handle.
+/// Everything that the module needs to build a document and join a room. The
+/// phantom `root` type is the channel kind of the root of that document. It
+/// travels from the `p2p.CrdtKind` value that you give to `config`, all the way
+/// to the handle that `root` returns.
 pub opaque type Config(root) {
   Config(
     room: String,
@@ -155,57 +158,63 @@ pub opaque type Config(root) {
     ice_servers: List(IceServer),
     policy: TransportPolicy,
     sequencer: Option(SequencerConfig),
-    /// The clock every delay this document measures is measured on: the
-    /// mesh anti-entropy heartbeat, the relay's digest coalescer, its
-    /// reconnect and resync backoff, and the `SequencedOnly` readiness
-    /// deadline. Defaults to the real clock; tests substitute a logical
-    /// one and step it by hand.
+    /// The clock that measures every delay of this document. Those delays are
+    /// the anti-entropy heartbeat of the mesh, the digest coalescer of the
+    /// relay, the reconnect and resync backoff of that relay, and the
+    /// readiness deadline of `SequencedOnly`. The default is the real clock. A
+    /// test substitutes a logical clock and steps it by hand.
     scheduler: Scheduler,
-    /// The anti-entropy interval, serving both lanes: how often the mesh
-    /// heartbeat checks whether the peers are owed a digest, and how long
-    /// the relay path coalesces peer digests over while it is primary.
-    /// `default_anti_entropy_ms` unless overridden.
+    /// The anti-entropy interval, which both lanes use. It is the interval at
+    /// which the mesh heartbeat checks whether the peers need a digest. It is
+    /// also the interval over which the relay path collects the peer digests
+    /// while that path is primary. The value is `default_anti_entropy_ms`
+    /// unless a caller replaces it.
     anti_entropy_interval_ms: Int,
   )
 }
 
 @target(javascript)
-/// Which transports a document is allowed to use.
+/// The transports that a document can use.
 ///
-/// The choice is about *durability and reach*, never about semantics:
-/// all three run the same `crdt_core` document over the same
-/// `crdt_wire` envelopes, so a snapshot exported under one imports under
-/// another and a room may hold replicas of more than one policy at once.
+/// The choice is about *durability and reach*, and never about behaviour. All
+/// three policies run the same `crdt_core` document over the same `crdt_wire`
+/// envelopes. A snapshot that you export under one policy thus imports under
+/// another, and one room can hold replicas of more than one policy at the same
+/// time.
 pub type TransportPolicy {
-  /// Both, independently. The mesh comes up on its own schedule and the
-  /// relay on its own, readiness waits only for the mesh, and the relay
-  /// becomes the durable delta path if and when it proves itself.
+  /// Both transports, and each one on its own schedule. The mesh starts by
+  /// itself, and the relay starts by itself. The readiness waits for the mesh
+  /// only. The relay becomes the durable delta path when it proves that it
+  /// works, and not before.
   Auto
-  /// The relay alone. No signaling, no `RTCPeerConnection`, no data
-  /// channels — and readiness that waits for the relay, under a bounded
-  /// deadline, because there is nothing else to be ready on.
+  /// The relay only. There is no signaling, no `RTCPeerConnection`, and no
+  /// data channel. The readiness waits for the relay, under a bounded
+  /// deadline, because there is no other path to be ready on.
   SequencedOnly
-  /// The mesh alone. No relay is opened, no reconnect is scheduled, and
-  /// a configured sequencer is ignored rather than contacted.
+  /// The mesh only. The module opens no relay, it schedules no reconnect, and
+  /// it ignores a sequencer that the config names. It does not contact that
+  /// sequencer.
   P2pOnly
 }
 
 @target(javascript)
-/// Where a document's durable traffic is going right now.
+/// The path that the durable traffic of a document takes now.
 pub type TransportPath {
-  /// Deltas go to the mesh. Every document starts here, including one
-  /// that is about to attach a relay.
+  /// The deltas go to the mesh. Every document starts on this path, and that
+  /// includes a document that is about to attach a relay.
   PeerToPeer
-  /// Deltas go to the relay, which is durable and reaches replicas this
-  /// one has no peer connection to. The mesh stays open underneath.
+  /// The deltas go to the relay. That relay is durable, and it reaches a
+  /// replica that this one has no peer connection to. The mesh stays open
+  /// below it.
   Sequenced
 }
 
 @target(javascript)
-/// How to reach an optional sequencer relay, and how patient to be with
-/// it. Timing — the reconnect backoff, the digest coalescer, the
-/// readiness deadline — runs on the document's one scheduler and one
-/// anti-entropy interval (`with_scheduler`, `with_anti_entropy_interval_ms`).
+/// How to reach an optional sequencer relay, and how long to wait for it. The
+/// timing runs on the one scheduler and the one anti-entropy interval of the
+/// document, from `with_scheduler` and `with_anti_entropy_interval_ms`. That
+/// timing covers the reconnect backoff, the digest coalescer, and the readiness
+/// deadline.
 pub opaque type SequencerConfig {
   SequencerConfig(
     url: String,
@@ -215,40 +224,44 @@ pub opaque type SequencerConfig {
 }
 
 @target(javascript)
-/// How long `SequencedOnly` waits for a relay to become primary before
-/// giving up. Generous: it covers a socket handshake, a capability
+/// How long `SequencedOnly` waits for a relay to become primary, before it
+/// stops. The value is generous. It covers a socket handshake, a capability
 /// exchange, a state replay, and a digest round trip.
 pub const default_readiness_deadline_ms = 10_000
 
 @target(javascript)
 /// The anti-entropy interval, on both lanes.
 ///
-/// This is **anti-entropy, not repair**. While the relay is primary a
-/// new delta goes to the relay and the peers hear a `digest`, which is
-/// how a replica that is not on this relay learns it is behind. That
-/// digest must not overtake the relay's own fan-out of the same delta:
-/// if it does, every peer answers a digest it is about to satisfy with a
-/// `stateRequest`, and the room pays a whole-state transfer per edit.
-/// So the digest waits — long enough for an ordinary relay round trip to
-/// land first, short enough that a peer the relay cannot reach finds out
-/// in the same breath a human would call immediate.
+/// This interval is for **anti-entropy, and not for repair**. While the relay
+/// is primary, a new delta goes to the relay, and the peers receive a `digest`
+/// message. That digest is how a replica that is not on this relay learns that
+/// it is behind.
 ///
-/// On the mesh path the same interval paces the recurring heartbeat —
-/// but there the interval alone is not what keeps an idle room quiet:
-/// the beat broadcasts only when the digest has moved since the peers
-/// were last told, so a quarter-second cadence costs a quiet mesh
-/// nothing while giving a moved one repair a human would call immediate.
+/// That digest must not arrive before the fan-out of the same delta from the
+/// relay. If it does, every peer answers with a `stateRequest` for a digest
+/// that it is about to satisfy, and the room pays for a whole-state transfer on
+/// every edit. The digest thus waits. The wait is long enough for an ordinary
+/// relay round trip to land first, and short enough that a peer that the relay
+/// cannot reach learns the change in an interval that a person calls
+/// immediate.
 ///
-/// A quarter of a second is the number, it is injectable
-/// (`with_anti_entropy_interval_ms`), and it is measured on the
-/// document's scheduler so tests step it rather than wait for it.
-/// Failover repair does not go through it at all: that is a
-/// `stateRequest` to every peer, sent in the same breath as the
-/// fallback, with no delay of any kind.
+/// On the mesh path, the same interval paces the recurring heartbeat. There the
+/// interval alone does not keep an idle room quiet. The heartbeat broadcasts
+/// only when the digest moves after the last message to the peers. A cadence of
+/// one quarter of a second thus costs a quiet mesh nothing, and it gives a mesh
+/// that moved a repair in an interval that a person calls immediate.
+///
+/// The value is one quarter of a second. A caller can replace it, with
+/// `with_anti_entropy_interval_ms`. The scheduler of the document measures it,
+/// so a test steps that scheduler and does not wait.
+///
+/// A repair after a failover does not use this interval at all. That repair is
+/// a `stateRequest` message to every peer, which the module sends with the
+/// fallback, and with no delay.
 pub const default_anti_entropy_ms = 250
 
 @target(javascript)
-/// A relay at `url`, speaking `crdt_relay_v1` over a real `WebSocket`.
+/// A relay at `url`, which uses `crdt_relay_v1` over a real `WebSocket`.
 pub fn sequencer(url: String) -> SequencerConfig {
   SequencerConfig(
     url: url,
@@ -258,9 +271,9 @@ pub fn sequencer(url: String) -> SequencerConfig {
 }
 
 @target(javascript)
-/// Substitute the socket layer. The seam the deterministic tests attach
-/// a scripted relay to, and the same shape `p2p_transport_js.Rtc` has,
-/// for the same reason.
+/// Replace the socket layer. The deterministic tests attach a scripted relay to
+/// this seam. It has the same shape as `p2p_transport_js.Rtc`, for the same
+/// reason.
 pub fn with_relay_driver(
   config: SequencerConfig,
   driver: crdt_sequencer_js.Driver,
@@ -269,8 +282,8 @@ pub fn with_relay_driver(
 }
 
 @target(javascript)
-/// Change how long `SequencedOnly` waits. A non-positive deadline never
-/// expires, which is only ever right for a caller bounding the wait
+/// Change the time that `SequencedOnly` waits. A deadline of zero or less never
+/// expires. That value is correct only for a caller that limits the wait
 /// itself.
 pub fn with_readiness_deadline_ms(
   config: SequencerConfig,
@@ -287,12 +300,13 @@ pub fn sequencer_url(config: SequencerConfig) -> String {
 @target(javascript)
 /// Configure a document.
 ///
-/// `room_id` names the signaling room and is checked on every envelope.
-/// `replica_label` is a human-facing label only (see the module docs on
-/// identity) and must not contain `:`, which separates the two halves of
-/// a channel address. `compatibility_tag` is the application's own
-/// schema version: two peers whose tags differ refuse each other rather
-/// than merging documents that mean different things.
+/// `room_id` names the signaling room, and the module checks it on every
+/// envelope. `replica_label` is a label for a person to read, and nothing else.
+/// See the module docs on identity. That label must contain no `:` character,
+/// because `:` separates the two halves of a channel address.
+/// `compatibility_tag` is the schema version of the application. Two peers
+/// whose tags differ refuse each other, and they do not merge two documents
+/// that have different meanings.
 pub fn config(
   room_id room_id: String,
   replica_label replica_label: String,
@@ -315,7 +329,7 @@ pub fn config(
 }
 
 @target(javascript)
-/// Choose which transports this document may use. `Auto` by default.
+/// Select the transports that this document can use. The default is `Auto`.
 pub fn with_transport_policy(
   config: Config(root),
   policy: TransportPolicy,
@@ -324,10 +338,11 @@ pub fn with_transport_policy(
 }
 
 @target(javascript)
-/// Attach an optional sequencer relay. Ignored under `P2pOnly`, and
-/// required under `SequencedOnly` — a `SequencedOnly` document with no
-/// sequencer fails readiness once, with `SequencerUnavailable`, rather
-/// than waiting for something nobody configured.
+/// Attach an optional sequencer relay. The module ignores this relay under
+/// `P2pOnly`, and it requires one under `SequencedOnly`. A `SequencedOnly`
+/// document with no sequencer fails its readiness one time, with
+/// `SequencerUnavailable`. It does not wait for a component that no caller
+/// configured.
 pub fn with_sequencer(
   config: Config(root),
   sequencer: SequencerConfig,
@@ -336,10 +351,9 @@ pub fn with_sequencer(
 }
 
 @target(javascript)
-/// Supply the STUN/TURN servers peer connections are built with.
-/// Watershed ships none: an empty list is right for a LAN and for
-/// same-origin loopback, and anything else is the application's to
-/// provide.
+/// Supply the STUN servers and TURN servers that the peer connections are built
+/// with. watershed supplies none. An empty list is correct for a LAN and for a
+/// same-origin loopback. The application supplies every other server.
 pub fn with_ice_servers(
   config: Config(root),
   servers: List(IceServer),
@@ -348,10 +362,10 @@ pub fn with_ice_servers(
 }
 
 @target(javascript)
-/// Substitute the clock every delay this document measures is measured
-/// on — the mesh heartbeat, the relay's coalescer, its reconnect and
-/// resync backoff, and the readiness deadline — so a test steps a
-/// logical clock rather than waiting out real time.
+/// Replace the clock that measures every delay of this document. Those delays
+/// are the mesh heartbeat, the coalescer of the relay, the reconnect and resync
+/// backoff of that relay, and the readiness deadline. A test thus steps a
+/// logical clock, and it does not wait for the real time.
 pub fn with_scheduler(
   config: Config(root),
   scheduler: Scheduler,
@@ -360,10 +374,11 @@ pub fn with_scheduler(
 }
 
 @target(javascript)
-/// Change the anti-entropy interval — the mesh heartbeat's cadence, and
-/// how long the relay path coalesces peer digests over while it is
-/// primary. A non-positive interval still goes through the scheduler
-/// rather than sending inline.
+/// Change the anti-entropy interval. That interval is the cadence of the mesh
+/// heartbeat, and it is the period over which the relay path collects the peer
+/// digests while that path is primary. An interval of zero or less still goes
+/// through the scheduler, and the module does not send the message
+/// immediately.
 pub fn with_anti_entropy_interval_ms(
   config: Config(root),
   interval_ms: Int,
@@ -372,13 +387,13 @@ pub fn with_anti_entropy_interval_ms(
 }
 
 @target(javascript)
-/// The signaling room this config will join.
+/// The signaling room that this config joins.
 pub fn config_room(config: Config(root)) -> String {
   config.room
 }
 
 @target(javascript)
-/// The application compatibility tag this config will enforce.
+/// The compatibility tag of the application that this config applies.
 pub fn config_compatibility(config: Config(root)) -> String {
   config.compatibility
 }
@@ -388,48 +403,50 @@ pub fn config_compatibility(config: Config(root)) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// A live CRDT document. One cell holds the whole of it — the pure
-/// `crdt_core.Document`, the transport, the peer table, and the
-/// subscriber list — so every handle, subscription, and callback made
-/// against a document sees the same state for the connection's lifetime.
+/// A live CRDT document. One cell holds all of it: the pure
+/// `crdt_core.Document` value, the transport, the peer table, and the list of
+/// subscribers. Every handle, subscription, and callback on that document thus
+/// sees the same state, for the whole life of the connection.
 pub opaque type CrdtDocument(root) {
   CrdtDocument(cell: Cell(State))
 }
 
 @target(javascript)
 /// A typed reference to one channel of a document. `kind` is the phantom
-/// channel-kind tag from `watershed/schema`, so an OR-set operation
-/// cannot be applied to a text handle.
+/// channel-kind tag from `watershed/schema`. You thus cannot apply an OR-set
+/// operation to a text handle.
 pub opaque type Handle(kind) {
   Handle(cell: Cell(State), address: String)
 }
 
 @target(javascript)
-/// A document's grip on signaling and its peers. `close` releases it.
+/// What a document holds on the signaling and on its peers. `close` releases
+/// it.
 pub opaque type CrdtConnection {
   CrdtConnection(cell: Option(Cell(State)))
 }
 
 @target(javascript)
-/// A removable, address-scoped event subscription.
+/// An event subscription for one address, which a caller can remove.
 pub opaque type Subscription {
   Subscription(cell: Cell(State), id: Int)
 }
 
 @target(javascript)
-/// A stable position in a text channel's optimistic string that survives
-/// concurrent edits and merges. Opaque — construct one with `text_anchor_at`,
-/// `text_start_anchor`, or `text_end_anchor`, or decode one with
-/// `text_anchor_from_json`.
+/// A stable position in the optimistic string of a text channel. It stays
+/// correct across concurrent edits and merges. The type is opaque. Construct
+/// one with `text_anchor_at`, `text_start_anchor`, or `text_end_anchor`, or
+/// decode one with `text_anchor_from_json`.
 pub type TextAnchor =
   text_kernel.TextAnchor
 
 @target(javascript)
-/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
-/// gap. `Before` binds to the following grapheme (inserts at the gap push it
-/// right); `After` binds to the preceding grapheme (inserts at the gap land
-/// after it). Re-exported so callers don't need a direct `lattice_sequence`
-/// dependency to build one.
+/// The grapheme that a `TextAnchor` value binds to across a concurrent insert
+/// at its gap. `Before` binds it to the grapheme after the gap, so an insert at
+/// the gap moves the anchor to the right. `After` binds it to the grapheme
+/// before the gap, so an insert at the gap goes after the anchor. This type is
+/// re-exported here, so a caller needs no direct dependency on
+/// `lattice_sequence` to build an anchor.
 pub type Bias =
   text_kernel.Bias
 
@@ -446,176 +463,190 @@ type State {
     signaling: Signaling,
     ice_servers: List(IceServer),
     document: crdt_core.Document,
-    /// `None` until `attach` has a transport, and again after `close`.
+    /// The value is `None` until `attach` has a transport, and `None` again
+    /// after `close`.
     transport: Option(Transport),
     peers: Dict(String, Peer),
     subscriptions: List(Subscriber),
     next_subscription: Int,
     on_status: fn(Status) -> Nil,
-    /// Set by `attach`; closes over the typed document so `State` itself
-    /// need not carry the root tag.
+    /// `attach` sets this field. The closure holds the typed document, so
+    /// `State` itself does not carry the root tag.
     on_ready: fn(Result(Nil, P2pError)) -> Nil,
-    /// `None` until readiness resolves, and then the result that was
-    /// delivered — which is what makes "exactly once" a fact about the
-    /// state rather than a promise about the code.
+    /// The value is `None` until the readiness resolves. After that it is the
+    /// result that the module delivered. "Exactly one time" is thus a fact
+    /// about the state, and not a promise about the code.
     readiness: Option(Result(Nil, P2pError)),
-    /// Set when the adapter has reported the room's complete membership.
-    /// Until then this replica cannot tell an empty room from an
-    /// unanswered one, and must not conclude it is alone.
+    /// The module sets this flag when the adapter reports the complete
+    /// membership of the room. Before that, this replica cannot separate an
+    /// empty room from a room that has not answered, and it must not conclude
+    /// that it is alone.
     roster: Bool,
     bootstrap: BootstrapState,
-    /// Transport callbacks that fired from inside
-    /// `p2p_transport_js.start`, before it had returned the transport
-    /// they need to answer. Newest first; drained in arrival order the
-    /// moment the transport is stored.
+    /// The transport callbacks that ran from inside `p2p_transport_js.start`,
+    /// before that call returned the transport that they need to answer. The
+    /// list holds the newest one first. The module runs them in arrival order,
+    /// at the moment that it stores the transport.
     deferred: List(Deferred),
-    /// Loaded from an imported snapshot rather than built only from the
-    /// configured root. A synchronous attach refusal leaves this document
-    /// detached so the restored local state stays usable.
+    /// The module loaded this document from an imported snapshot, and it did
+    /// not build it from the configured root only. A synchronous refusal of an
+    /// attach thus leaves this document detached, and the restored local state
+    /// stays usable.
     imported: Bool,
     attached: Bool,
     closed: Bool,
     policy: TransportPolicy,
     sequencer: Option(SequencerConfig),
-    /// The relay lane, once `attach` has opened one. `None` under
-    /// `P2pOnly`, under `Auto` with no sequencer configured, and after
+    /// The relay lane, after `attach` opens one. The value is `None` under
+    /// `P2pOnly`, under `Auto` with no sequencer in the config, and after
     /// `close`.
     relay: Option(crdt_sequencer_js.Relay),
     phase: RelayPhase,
-    /// Where durable traffic goes. Flipped *before* the status that
-    /// reports the flip, so a handler that reads it back agrees with
-    /// what it was just told.
+    /// The path that the durable traffic takes. The module changes this field
+    /// *before* the status that reports the change. A handler that reads the
+    /// field thus agrees with the status that it just received.
     path: TransportPath,
-    /// The digest of the state last published to the relay, and the
-    /// only digest an attestation echo is ever compared against.
+    /// The digest of the state that the module last published to the relay. It
+    /// is the only digest that an attestation echo is compared against.
     published: String,
-    /// Consecutive attestations that came back empty, which is what the
-    /// resync backoff indexes.
+    /// The number of consecutive attestations that returned an empty echo. The
+    /// resync backoff uses that number as its index.
     resyncs: Int,
-    /// Cancels a scheduled resync.
+    /// The function that cancels a scheduled resync.
     resync_timer: Option(fn() -> Nil),
-    /// Whether this document has changed since its peers were last told
-    /// its digest. Set by every mutation and every relayed merge that
-    /// moved it; cleared by the flush that tells them.
+    /// Whether this document changed after the peers last received its digest.
+    /// Every mutation sets this flag, and so does every relayed merge that
+    /// moved the document. The flush that sends the digest clears it.
     nudge_dirty: Bool,
-    /// Whether an anti-entropy flush is already armed. One digest per
-    /// interval while the relay is primary, however many edits the
+    /// Whether an anti-entropy flush is armed already. There is one digest for
+    /// each interval while the relay is primary, whatever number of edits that
     /// interval held.
     nudge_armed: Bool,
-    /// Cancels the armed digest flush.
+    /// The function that cancels the armed digest flush.
     nudge_timer: Option(fn() -> Nil),
-    /// Whether a merge this replica learned from a *peer* moved canonical
-    /// state that the relay has not been told about. The relay carries
-    /// the room's durability, and a peer's delta reaches it through
-    /// nobody else, so the same coalesced flush that digests the mesh
-    /// republishes the merged state to the relay. Cleared by that flush,
-    /// and by a fallback — a lane that comes back publishes everything it
-    /// holds during its handshake.
+    /// Whether a merge that this replica learned from a *peer* moved the
+    /// canonical state, and the relay does not know about that change. The
+    /// relay carries the durability of the room, and a delta from a peer
+    /// reaches that relay through no other route. The same coalesced flush
+    /// that digests the mesh thus publishes the merged state to the relay
+    /// again. That flush clears this flag, and so does a fallback. A lane that
+    /// comes back publishes everything that it holds during its handshake.
     publish_owed: Bool,
-    /// The one clock every delay is measured on — the mesh heartbeat, the
-    /// relay's coalescer and backoff, the readiness deadline — and the
-    /// anti-entropy interval both lanes share.
+    /// The one clock that measures every delay: the mesh heartbeat, the
+    /// coalescer and the backoff of the relay, and the readiness deadline. This
+    /// field also holds the anti-entropy interval that both lanes share.
     scheduler: Scheduler,
     anti_entropy_interval_ms: Int,
-    /// Whether a mesh anti-entropy digest is already armed. One digest per
-    /// interval on the WebRTC path, however many merges the interval held.
-    /// Distinct from `nudge_*`, which is the relay path's coalescer; the
-    /// two never arm at once because the transport path is one or the
-    /// other and a failover cancels the relay's before this one takes over.
-    sync_armed: Bool,
-    /// Cancels the armed mesh digest flush.
-    sync_timer: Option(fn() -> Nil),
-    /// The digest last announced to the peers, or `""` when they are owed
-    /// a fresh one. The heartbeat's dirty gate: a beat whose digest still
-    /// matches this broadcasts nothing, so an idle converged mesh goes
-    /// quiet instead of repeating itself every interval. Cleared by a
-    /// peer's mismatching digest, so a replica that is *ahead* keeps
-    /// announcing until the room has caught up.
-    last_sync_digest: String,
-    /// How many times a peer's digest told this replica it was behind and
-    /// it asked for state — mesh partition-repair activity, as a count.
-    repairs: Int,
-    /// The last peer digest that matched this replica's own, if any: a
-    /// successful anti-entropy comparison, for diagnostics.
-    last_match: Option(String),
-    /// The canonical digest this document has already computed, and the
-    /// document it was computed from.
+    /// Whether a mesh anti-entropy digest is armed already. There is one
+    /// digest for each interval on the WebRTC path, whatever number of merges
+    /// that interval held.
     ///
-    /// Its own cell rather than a field of `State`: every write here is
-    /// `State(..state, ...)` from a snapshot read earlier in the same
-    /// function, so a memo stored between the read and the write would be
-    /// silently dropped by it. A cell is one box every snapshot shares.
+    /// This field is separate from the `nudge_*` fields, which are the
+    /// coalescer of the relay path. The two are never armed at the same time.
+    /// The transport path is one or the other, and a failover cancels the
+    /// coalescer of the relay before this heartbeat starts.
+    sync_armed: Bool,
+    /// The function that cancels the armed mesh digest flush.
+    sync_timer: Option(fn() -> Nil),
+    /// The digest that the module last announced to the peers. The value is
+    /// `""` when those peers need a new one.
+    ///
+    /// This field is the gate of the heartbeat. A beat whose digest still
+    /// equals this value broadcasts nothing. An idle mesh that converged thus
+    /// becomes quiet, and it does not repeat itself in every interval. A digest
+    /// from a peer that does not match clears this field, so a replica that is
+    /// *ahead* continues to announce until the room catches up.
+    last_sync_digest: String,
+    /// The number of times that the digest of a peer told this replica that it
+    /// was behind, and this replica then asked for the state. That number
+    /// counts the partition-repair activity of the mesh.
+    repairs: Int,
+    /// The last peer digest that equalled the digest of this replica, if one
+    /// exists. That value is a successful anti-entropy comparison, for
+    /// diagnostics.
+    last_match: Option(String),
+    /// The canonical digest that this document already computed, with the
+    /// document that it was computed from.
+    ///
+    /// This value has its own cell, and it is not a field of `State`. Every
+    /// write to `State` is a `State(..state, ...)` expression, from a snapshot
+    /// that the function read earlier. A memo that the code stored between that
+    /// read and that write would thus disappear, and nothing would report it. A
+    /// cell is one box that every snapshot shares.
     digest_cache: Cell(DigestCache),
-    /// Cancels the `SequencedOnly` readiness deadline.
+    /// The function that cancels the readiness deadline of `SequencedOnly`.
     deadline: Option(fn() -> Nil),
-    /// Whether the relay has ever been primary, which is what makes a
-    /// later attachment a recovery rather than a first attachment.
+    /// Whether the relay has ever been primary. That fact makes a later
+    /// attachment a recovery, and not a first attachment.
     recovered: Bool,
   )
 }
 
 @target(javascript)
-/// A canonical digest and the document it describes.
+/// A canonical digest, with the document that it describes.
 ///
-/// Canonicalizing and hashing a document is O(document): every channel
-/// snapshot is projected, every key and set-shaped array is sorted into
-/// UTF-8 byte order, and the result is hashed. The anti-entropy heartbeat
-/// asks for one every interval, every received `Digest` is compared
-/// against one, and the relay lane publishes, attests and reports with
-/// one — all of which normally describe a document that has not changed
-/// since the last of them.
+/// To canonicalize and hash a document costs time in proportion to the size of
+/// that document. The code projects every channel snapshot, it sorts every key
+/// and every set-shaped array into UTF-8 byte order, and it hashes the result.
+/// The anti-entropy heartbeat asks for a digest in every interval, every
+/// received `Digest` message is compared against one, and the relay lane
+/// publishes, attests, and reports with one. In the usual case, all of those
+/// requests describe a document that did not change after the previous
+/// request.
 ///
-/// So the answer is kept, keyed on the document that produced it. A
-/// `crdt_core.Document` is immutable: the same reference is the same
-/// state, and every transition — a local edit, a merge, a channel
-/// creation, an import — returns a new one, which cannot match. There is
-/// no invalidation list to keep in step with the code, and no state
-/// change that can be missed by one.
+/// The module thus keeps the answer, keyed on the document that produced it. A
+/// `crdt_core.Document` value is immutable. The same reference is the same
+/// state, and every transition returns a new value, which cannot match the old
+/// key. Those transitions are a local edit, a merge, a channel creation, and an
+/// import. There is thus no invalidation list to keep correct as the code
+/// changes, and no state change that such a list can miss.
 type DigestCache {
   DigestCache(
-    /// The document `value` was computed from, or `None` before the first
-    /// computation.
+    /// The document that the code computed `value` from. The field is `None`
+    /// before the first computation.
     taken_from: Option(crdt_core.Document),
     value: String,
-    /// How many times this document has actually canonicalized and
-    /// hashed itself. A cache hit does not count, which is what makes
-    /// `digest_computations` evidence rather than a guess.
+    /// The number of times that this document canonicalized and hashed itself.
+    /// A cache hit does not add to this count. `digest_computations` is thus
+    /// evidence, and not an estimate.
     computations: Int,
   )
 }
 
 @target(javascript)
-/// Where the relay lane is in its lifecycle. Distinct from the transport
-/// path: a relay can be syncing while WebRTC is still carrying deltas,
-/// which is exactly the state every attachment passes through.
+/// The position of the relay lane in its lifecycle. This value is separate from
+/// the transport path. A relay can synchronize while WebRTC still carries the
+/// deltas, and every attachment passes through that state.
 type RelayPhase {
-  /// No relay: not configured, or refused by policy.
+  /// There is no relay. The config names none, or the policy refuses one.
   RelayOff
-  /// A socket is being opened, or reopened after a drop.
+  /// The lane opens a socket, or it opens one again after a drop.
   RelayOpening
-  /// The capability was accepted and the state handshake is running.
+  /// The relay accepted the capability, and the state handshake runs now.
   RelaySyncing
-  /// Local and relay digests matched. The relay is the delta path.
+  /// The local digest and the relay digest are equal. The relay is the delta
+  /// path.
   RelayPrimaryPhase
-  /// The endpoint answered without `crdt_relay_v1`. Terminal.
+  /// The endpoint answered, and it does not support `crdt_relay_v1`. This
+  /// phase is terminal.
   RelayUnsupportedPhase
 }
 
 @target(javascript)
-/// A peer with an open document channel. `greeted` is set by a `hello`
-/// that passed every compatibility check; until then the peer may send
-/// nothing else.
+/// A peer with an open document channel. A `hello` message that passes every
+/// compatibility check sets `greeted`. Before that, the peer can send nothing
+/// else.
 type Peer {
   Peer(id: String, greeted: Bool)
 }
 
 @target(javascript)
-/// How far this replica is through joining a room: whether it still needs
-/// a peer's state before it can be called ready. Exposed by
-/// `bootstrap_state` as a diagnostic.
+/// The progress of this replica through a join into a room. The value reports
+/// whether the replica still needs the state of a peer before it can become
+/// ready. `bootstrap_state` gives it, as a diagnostic.
 pub type BootstrapState {
-  /// Joined, and either the roster has not arrived or no peer has been
-  /// validated yet.
+  /// The replica joined the room. The roster has not arrived yet, or no peer
+  /// passed its checks yet.
   Joining
   WaitingForState(peer_id: String)
   Bootstrapped
@@ -638,89 +669,100 @@ type Subscriber {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// What a connection reports as it runs. Transport lifecycle is passed
-/// through unchanged in `Transport`; everything else is document-level.
+/// What a connection reports while it runs. `Transport` carries the transport
+/// lifecycle, without a change. Every other constructor is at the document
+/// level.
 pub type Status {
-  /// A `p2p_transport_js.Status`, verbatim: signaling membership, peer
-  /// connection and ICE state, open-peer count.
+  /// A `p2p_transport_js.Status` value, without a change. It reports the
+  /// signaling membership, the peer connection state, the ICE state, and the
+  /// number of open peers.
   Transport(status: p2p_transport_js.Status)
-  /// A typed error the transport reported, before it reached a document.
+  /// A typed error that the transport reported, before that error reached a
+  /// document.
   TransportError(error: P2pError)
-  /// Signaling has been asked to join; the document exists and is
-  /// editable.
+  /// The module asked the signaling service to join. The document exists, and
+  /// it accepts an edit.
   Joined(room: String, replica: String)
-  /// The room's complete membership, as the signaling adapter reported
-  /// it. A replica is not ready before this arrives: until then an empty
-  /// peer list means "nobody has been announced", not "nobody is here".
+  /// The complete membership of the room, as the signaling adapter reported
+  /// it. A replica is not ready before this status arrives. Before that, an
+  /// empty peer list means "no client is announced", and it does not mean "no
+  /// client is here".
   RosterKnown(peers: List(String))
-  /// Waiting for `peer_id` to answer the bootstrap `stateRequest`.
+  /// The replica waits for `peer_id` to answer the bootstrap `stateRequest`
+  /// message.
   AwaitingState(peer_id: String)
-  /// Readiness has resolved successfully. Emitted before `on_ready`
-  /// runs, with `readiness` already resolved, so a status handler and the
-  /// readiness callback never disagree about the document's state.
+  /// The readiness resolved with a success. The module emits this status
+  /// before `on_ready` runs, and `readiness` already holds the result. A status
+  /// handler and the readiness callback thus never disagree about the state of
+  /// the document.
   Ready
   /// A peer completed the `hello` handshake.
   PeerReady(peer_id: String)
-  /// A peer's document channel closed.
+  /// The document channel of a peer closed.
   PeerGone(peer_id: String)
-  /// A peer was closed for the named protocol violation. The local
-  /// document is unchanged and every other peer is untouched.
+  /// The module closed a peer for the named protocol violation. The local
+  /// document does not change, and no other peer changes.
   PeerRejected(peer_id: String, error: P2pError)
-  /// A `state` message from `peer_id` merged, carrying `channels`
-  /// channels. This is both the bootstrap transfer and, later, a repair.
+  /// A `state` message from `peer_id` merged, with `channels` channels. This
+  /// status reports the bootstrap transfer, and it reports a later repair.
   StateMerged(peer_id: String, channels: Int)
-  /// A peer told us *it* rejected something of ours, with the protocol's
-  /// own reason and detail. Nothing local changed; this is the one
-  /// message that explains a link that is about to go away, so it is
-  /// reported rather than dropped.
+  /// A peer reported that *it* refused something from this replica, with the
+  /// reason and the detail of the protocol. Nothing local changed. This message
+  /// is the one message that explains a link that is about to close, so the
+  /// module reports it and does not drop it.
   RejectedByPeer(peer_id: String, reason: String, detail: String)
-  /// A local operation failed. Reported in addition to the `Result` the
-  /// caller already has, so a status log tells the whole story.
+  /// A local operation failed. The module reports this status with the
+  /// `Result` value that the caller already has, so a status log gives the
+  /// whole account.
   Failed(error: P2pError)
-  /// A subscriber callback threw. The document and transport are intact;
-  /// the exception is reported rather than swallowed.
+  /// A subscriber callback threw an exception. The document and the transport
+  /// are correct. The module reports that exception, and it does not hide
+  /// it.
   SubscriberFailed(address: String, detail: String)
-  /// A relay lane is being opened. Emitted per attempt, so a reconnect
-  /// sequence reads as one of these per `RelayRetry`.
+  /// The module opens a relay lane. There is one of these statuses for each
+  /// attempt, so a reconnect sequence gives one of them for each
+  /// `RelayRetry`.
   RelayConnecting(url: String)
-  /// The endpoint answered without `crdt_relay_v1`. Under `Auto` this is
-  /// the whole of it and the document stays on WebRTC; under
-  /// `SequencedOnly` it is also the readiness failure.
+  /// The endpoint answered, and it does not support `crdt_relay_v1`. Under
+  /// `Auto` that is the whole result, and the document stays on WebRTC. Under
+  /// `SequencedOnly` it is also the failure of the readiness.
   RelayUnsupported(detail: String)
-  /// The capability was accepted and the state handshake is running:
-  /// hello, `stateRequest`, merge, publish, digest. Deltas are still
-  /// going to the mesh while this runs.
+  /// The relay accepted the capability, and the state handshake runs now. That
+  /// handshake is a `hello` message, a `stateRequest` message, a merge, a
+  /// publication, and a digest. The deltas still go to the mesh while it
+  /// runs.
   RelaySyncingStatus
-  /// The same handshake, after the relay had already been primary once.
-  /// A recovery merges an outage's worth of edits from both sides before
-  /// it can claim anything.
+  /// The same handshake, after the relay was already primary one time. A
+  /// recovery merges the edits of an outage, from both sides, before it can
+  /// make a claim.
   RelayRecovering
-  /// Local and relay digests matched: the relay is now the durable delta
-  /// path. `path` already reads `Sequenced` when this arrives.
+  /// The local digest and the relay digest are equal. The relay is now the
+  /// durable delta path. `path` already reads `Sequenced` when this status
+  /// arrives.
   RelayPrimary(digest: String)
-  /// The relay asked this client to checkpoint, because its live log is
-  /// approaching the bound past which it would have to start refusing
-  /// traffic. The answer is to publish the current merged state and
-  /// attest it; nothing about the document changes, and no number the
-  /// relay sent is read by anything — not even this status.
+  /// The relay asked this client to checkpoint, because its live log
+  /// approaches the bound at which it must start to refuse traffic. The answer
+  /// is a publication of the current merged state, with an attestation of that
+  /// state. Nothing about the document changes, and no code reads a number that
+  /// the relay sent. This status carries no such number either.
   RelayCheckpointRequested
-  /// A requested checkpoint landed: the relay echoed the digest of the
-  /// state this replica had just published, so the room's ordinary
-  /// history has been compacted down to it.
+  /// A requested checkpoint completed. The relay echoed the digest of the state
+  /// that this replica published, so the relay compacted the ordinary history
+  /// of the room down to that state.
   RelayCheckpointed(digest: String)
-  /// The relay is gone and WebRTC is the delta path again. `path`
-  /// already reads `PeerToPeer` when this arrives, which is what makes a
-  /// mutation racing the drop safe.
+  /// The relay is gone, and WebRTC is the delta path again. `path` already
+  /// reads `PeerToPeer` when this status arrives. A mutation that races the
+  /// drop is thus safe.
   RelayFallback(detail: String)
-  /// A reconnect is armed, `delay_ms` from now.
+  /// The module armed a reconnect, `delay_ms` milliseconds from now.
   RelayRetry(delay_ms: Int)
-  /// One envelope from the relay was refused, with the local document
-  /// untouched. One misbehaving replica does not cost the lane: unlike a
-  /// peer, a relay client cannot be closed from here, and closing the
-  /// relay would punish every other replica on it.
+  /// The module refused one envelope from the relay, and the local document
+  /// did not change. One replica that behaves incorrectly does not cost the
+  /// lane. Unlike a peer, this module cannot close a relay client. To close the
+  /// relay would remove the lane from every other replica on it.
   RelayRejected(from: String, error: P2pError)
-  /// The relay lane itself failed — a socket that would not open, a
-  /// malformed frame, a refusal from the service.
+  /// The relay lane itself failed. That failure is a socket that did not open,
+  /// a malformed frame, or a refusal from the service.
   RelayFailed(error: P2pError)
 }
 
@@ -729,9 +771,9 @@ pub type Status {
 fn guard(work: fn() -> Nil, on_error: fn(String) -> Nil) -> Nil
 
 @target(javascript)
-/// Whether two documents are the same immutable value, by reference.
-/// `crdt_core.Document` is opaque and `==` would walk it, which is the
-/// work the digest cache exists to skip.
+/// Whether two documents are the same immutable value, by reference. The
+/// `crdt_core.Document` type is opaque, and `==` would walk it. That walk is
+/// the work that the digest cache removes.
 @external(javascript, "./crdt_js_ffi.mjs", "sameDocument")
 fn same_document(left: crdt_core.Document, right: crdt_core.Document) -> Bool
 
@@ -740,15 +782,17 @@ fn same_document(left: crdt_core.Document, right: crdt_core.Document) -> Bool
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// This document's canonical digest, computed if the document has moved
-/// since the last one and reused if it has not.
+/// The canonical digest of this document. The function computes it when the
+/// document moved after the last digest, and it reuses the earlier value when
+/// the document did not move.
 ///
-/// Every digest the facade uses goes through here — the mesh heartbeat,
-/// the relay's coalesced digest, the comparison against a peer's digest,
-/// the publication and its attestation, and the public `digest` — so
-/// there is one canonicalization per document state however many of them
-/// ask for it. The cache is keyed on the document itself, so a state
-/// change cannot leave a stale digest behind: it simply misses.
+/// Every digest that this facade uses goes through this function: the mesh
+/// heartbeat, the coalesced digest of the relay, the comparison against the
+/// digest of a peer, the publication with its attestation, and the public
+/// `digest` function. There is thus one canonicalization for each document
+/// state, whatever number of callers ask for it. The cache uses the document
+/// itself as its key, so a state change cannot leave a stale digest. Such a
+/// change misses the cache.
 fn document_digest(cell: Cell(State)) -> String {
   let state = transport_js.get_cell(cell)
   let cache = transport_js.get_cell(state.digest_cache)
@@ -778,9 +822,9 @@ fn document_digest(cell: Cell(State)) -> String {
 }
 
 @target(javascript)
-/// `crdt_core.digest_message`, from the digest this document has already
-/// computed. The message is the same one either way; only the hashing is
-/// skipped.
+/// `crdt_core.digest_message`, from the digest that this document already
+/// computed. The message is the same in both routes. This function removes the
+/// hash step only.
 fn digest_message(cell: Cell(State)) -> Message {
   crdt_wire.Digest(document_digest(cell))
 }
@@ -790,11 +834,12 @@ fn digest_message(cell: Cell(State)) -> Message {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Build the document a `Config` describes, without joining anything.
+/// Build the document that a `Config` value describes, and join nothing.
 ///
-/// The root is created from the config, never learned from a peer, so
-/// two replicas that agree on the config agree on the root before they
-/// have exchanged a message. Pass the result to `attach` to connect it.
+/// The function creates the root from the config, and it never learns that root
+/// from a peer. Two replicas that agree on the config thus agree on the root
+/// before they exchange a message. Give the result to `attach` to connect
+/// it.
 pub fn new_document(
   config: Config(root),
 ) -> Result(CrdtDocument(root), P2pError) {
@@ -863,9 +908,9 @@ pub fn new_document(
 @target(javascript)
 /// Build the configured document and join its room.
 ///
-/// Returns as soon as signaling has been asked to join. `on_ready` fires
-/// exactly once — see the module docs for when — and `on_status` runs for
-/// the connection's lifetime.
+/// The function returns after it asks the signaling service to join.
+/// `on_ready` runs exactly one time. The module docs describe the conditions.
+/// `on_status` runs for the whole life of the connection.
 pub fn connect(
   config: Config(root),
   on_ready on_ready: fn(Result(CrdtDocument(root), P2pError)) -> Nil,
@@ -882,23 +927,24 @@ pub fn connect(
 }
 
 @target(javascript)
-/// Run one application callback without letting its exception escape into
-/// the protocol's own call stack. The facade's contract is that a
-/// callback cannot change what the document or the transport does.
+/// Run one application callback, and do not let an exception from it enter the
+/// call stack of the protocol. The contract of this facade is that a callback
+/// cannot change what the document does, and cannot change what the transport
+/// does.
 fn contained(work: fn() -> Nil) -> Nil {
   guard(work, fn(_detail) { Nil })
 }
 
 @target(javascript)
-/// Join a room with a document that already exists — the one `connect`
-/// uses internally, and the way an `import_snapshot` result is put back
-/// online.
+/// Join a room with a document that already exists. `connect` uses this
+/// function internally, and it is also the way to bring the result of
+/// `import_snapshot` online.
 ///
-/// The document keeps its cell, so handles and subscriptions taken before
-/// the attach stay valid, the snapshot's channels are broadcast to peers
-/// as part of the ordinary `state` exchange, and a synchronous startup
-/// refusal leaves a restored snapshot detached so its local state stays
-/// editable and retryable.
+/// The document keeps its cell. A handle and a subscription that you took
+/// before the attach thus stay valid. The channels of the snapshot go to the
+/// peers in the ordinary `state` exchange. A synchronous refusal at startup
+/// leaves a restored snapshot detached, so its local state stays editable and
+/// the caller can try again.
 pub fn attach(
   document: CrdtDocument(root),
   on_ready on_ready: fn(Result(CrdtDocument(root), P2pError)) -> Nil,
@@ -913,10 +959,10 @@ pub fn attach(
 }
 
 @target(javascript)
-/// `attach` against a substituted browser seam, so bootstrap ordering,
-/// handshake rejection, and merge behaviour can be driven
-/// deterministically without a browser. The same seam
-/// `p2p_transport_js.start_with_rtc` exposes, for the same reason.
+/// `attach` against a replacement browser seam. A test can thus drive the
+/// bootstrap order, a handshake refusal, and the merge behaviour
+/// deterministically, and it needs no browser. This is the same seam that
+/// `p2p_transport_js.start_with_rtc` gives, for the same reason.
 pub fn attach_with_rtc(
   document: CrdtDocument(root),
   on_ready on_ready: fn(Result(CrdtDocument(root), P2pError)) -> Nil,
@@ -1021,12 +1067,12 @@ pub fn attach_with_rtc(
 }
 
 @target(javascript)
-/// Leave signaling, close every peer, and stop the document accepting
-/// reads and writes. Idempotent.
+/// Leave the signaling room, close every peer, and stop the document from
+/// accepting a read or a write. A second call has no more effect.
 ///
-/// Closing before readiness resolves `on_ready` once, with
-/// `Error(DocumentClosed)`: a caller waiting on it is owed an answer even
-/// when the answer is that the document was abandoned.
+/// A close before the readiness resolves `on_ready` one time, with
+/// `Error(DocumentClosed)`. A caller that waits on that callback needs an
+/// answer, also when the answer is that the module abandoned the document.
 pub fn close(connection: CrdtConnection) -> Nil {
   case connection.cell {
     None -> Nil
@@ -1080,11 +1126,11 @@ fn mark_closed(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Forget one attach attempt while keeping the document itself alive.
+/// Remove one attach attempt, and keep the document itself.
 ///
-/// Local state, handles, and subscriptions survive; only the transport
-/// plumbing and per-attempt callbacks are cleared so a caller may keep
-/// editing offline and try `attach` again later.
+/// The local state, the handles, and the subscriptions all stay. The function
+/// clears the transport code and the callbacks of that attempt only. A caller
+/// can thus continue to edit offline, and it can call `attach` again later.
 fn mark_detached(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   cancel(state.resync_timer)
@@ -1124,9 +1170,9 @@ fn mark_detached(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// A synchronous startup failure ends only that attempt for a restored
-/// snapshot; a freshly built document keeps the older fail-closed
-/// semantics.
+/// A synchronous failure at startup ends that attempt only, for a restored
+/// snapshot. A document that the module just built keeps the earlier
+/// fail-closed behaviour.
 fn fail_attach_attempt(cell: Cell(State), error: P2pError) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.imported {
@@ -1151,14 +1197,15 @@ fn cancel(timer: Option(fn() -> Nil)) -> Nil {
 }
 
 @target(javascript)
-/// Resolve readiness at most once for the whole connection lifetime.
+/// Resolve the readiness one time at most, for the whole life of the
+/// connection.
 ///
-/// The result is committed and the status is emitted *before* the
-/// application callback runs, so `readiness` and the status stream
-/// already agree with the result by the time anything observes it — and a
-/// callback that throws cannot leave a connection that will try to
-/// resolve readiness a second time, because both callbacks are guarded
-/// and neither runs before the commit.
+/// The function writes the result and emits the status *before* the application
+/// callback runs. `readiness` and the status stream thus already agree with
+/// that result before any code observes it. A callback that throws also cannot
+/// leave a connection that tries to resolve the readiness a second time,
+/// because the module guards both callbacks and neither one runs before the
+/// write.
 fn resolve_ready(cell: Cell(State), outcome: Result(Nil, P2pError)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.readiness {
@@ -1184,9 +1231,10 @@ fn resolved(state: State) -> Bool {
 }
 
 @target(javascript)
-/// The room's complete membership has arrived. Recorded before the
-/// transport is necessarily stored — an adapter may report the roster
-/// from inside `join` — and `attach` settles readiness once it is.
+/// The complete membership of the room arrived. The function records it, and
+/// the module has not always stored the transport at that point, because an
+/// adapter can report the roster from inside `join`. `attach` then settles the
+/// readiness after it stores the transport.
 fn note_roster(cell: Cell(State), peers: List(String)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.roster {
@@ -1200,15 +1248,15 @@ fn note_roster(cell: Cell(State), peers: List(String)) -> Nil {
 }
 
 @target(javascript)
-/// Become ready if nothing is left to wait for: the room's membership is
-/// completely known, no peer is still negotiating, and none owes us a
-/// `state` transfer.
+/// Become ready when nothing remains to wait for. Three conditions must hold:
+/// the membership of the room is completely known, no peer is still in a
+/// negotiation, and no peer owes this replica a `state` transfer.
 ///
-/// The roster is the essential condition. An adapter that learns its
-/// room over a network round trip has announced nobody at all when `join`
-/// returns, and a replica that read that as "the room is empty" would
-/// call back ready with an empty document a moment before the room's
-/// state arrived — which is what every late joiner would see.
+/// The roster is the necessary condition. An adapter that learns its room over
+/// a network round trip has announced no client when `join` returns. A replica
+/// that read that condition as "the room is empty" would call back ready with
+/// an empty document, a moment before the state of the room arrived. Every
+/// late joiner would see that result.
 fn settle_readiness(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case resolved(state), state.roster, state.bootstrap, state.transport {
@@ -1233,11 +1281,11 @@ fn settle_readiness(cell: Cell(State)) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Open the configured relay, if policy allows one.
+/// Open the configured relay, if the policy permits one.
 ///
-/// Nothing here can delay readiness: `Auto` calls this *after* the mesh
-/// has had its chance to settle, and the relay's own events only ever
-/// resolve readiness for `SequencedOnly`, which has no other source.
+/// Nothing in this function can delay the readiness. `Auto` calls it *after*
+/// the mesh has its opportunity to settle. The events of the relay resolve the
+/// readiness for `SequencedOnly` only, and that policy has no other source.
 fn start_relay(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.policy, state.sequencer {
@@ -1283,10 +1331,10 @@ fn relay_events(cell: Cell(State)) -> crdt_sequencer_js.Events {
 }
 
 @target(javascript)
-/// One relay connection attempt is starting. Every attempt, not only the
-/// first: a reconnect sequence reads as one `RelayConnecting` per
-/// `RelayRetry`, which is what makes the status stream a complete account
-/// of what the lane did.
+/// One relay connection attempt starts. This function runs for every attempt,
+/// and not for the first one only. A reconnect sequence thus gives one
+/// `RelayConnecting` status for each `RelayRetry` status. The status stream is
+/// therefore a complete account of the actions of the lane.
 fn relay_connecting(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.sequencer {
@@ -1297,16 +1345,16 @@ fn relay_connecting(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// The relay advertised `crdt_relay_v1`. Introduce ourselves and ask for
-/// everything it holds; nothing is published until that reply is
-/// complete, because publishing first would hand the relay a state that
-/// had not merged the room's.
+/// The relay announced `crdt_relay_v1`. Send the introduction of this replica,
+/// and ask for everything that the relay holds. The module publishes nothing
+/// until that reply completes, because a publication before it would give the
+/// relay a state that did not merge the state of the room.
 ///
-/// A write that does not reach an open socket ends the attachment there
-/// and then. Carrying on would leave this document in `RelaySyncing`
-/// against a socket that cannot answer — no `synced`, no publication, no
-/// fallback, and no reconnect — which is the one shape of failure this
-/// lane must never have.
+/// A write that does not reach an open socket ends the attachment at that
+/// point. To continue would leave this document in the `RelaySyncing` phase,
+/// against a socket that cannot answer. There would then be no `synced`
+/// message, no publication, no fallback, and no reconnect. That is the one
+/// failure that this lane must never have.
 fn relay_attached(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -1343,14 +1391,14 @@ fn relay_attached(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Publish the whole merged local state and attest its digest in the same
-/// breath.
+/// Publish the whole merged local state, and attest its digest in the same
+/// step.
 ///
-/// The two go together deliberately: the digest describes the state that
-/// was just written, so the relay's echo is an acknowledgement of a
-/// document it holds rather than a claim this replica invented. A write
-/// that fails — either of them — retires the socket instead of waiting
-/// for an echo that cannot come.
+/// The two go together on purpose. The digest describes the state that the
+/// module just wrote, so the echo of the relay is an acknowledgement of a
+/// document that the relay holds. It is not a claim that this replica invented.
+/// If either write fails, the function retires the socket. It does not wait for
+/// an echo that cannot arrive.
 fn publish_state(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.relay, state.phase {
@@ -1370,14 +1418,14 @@ fn publish_state(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// The two frames a publication is, whatever asked for it: the whole
-/// merged state, and an attestation of the digest that describes it.
+/// The two frames of a publication, whatever caller asked for it: the whole
+/// merged state, and an attestation of the digest that describes that state.
 ///
-/// Split out because three callers owe the relay exactly this and must
-/// not drift apart — the attachment handshake, a requested checkpoint,
-/// and a merge this replica learned from a peer while the relay was
-/// primary. A write that fails, either of them, retires the socket rather
-/// than waiting for an echo that cannot come.
+/// This function is separate because three callers owe the relay exactly these
+/// two frames, and those callers must not drift apart. They are the attachment
+/// handshake, a requested checkpoint, and a merge that this replica learned
+/// from a peer while the relay was primary. If either write fails, the function
+/// retires the socket. It does not wait for an echo that cannot arrive.
 fn publish(
   cell: Cell(State),
   relay: crdt_sequencer_js.Relay,
@@ -1395,20 +1443,22 @@ fn publish(
 }
 
 @target(javascript)
-/// Publish the current merged state while the relay is *primary*, and
-/// attest it.
+/// Publish the current merged state while the relay is *primary*, and attest
+/// that state.
 ///
-/// The same two frames the attachment handshake writes, in the same
-/// order, recording the digest as `published` so the relay's echo
-/// completes the checkpoint the ordinary way: an echo that matches is a
-/// `RelayCheckpointed` and a compacted log, and an empty one means the
-/// relay holds traffic published after this state — which its own next
-/// checkpoint request asks about again. Nothing retries from here, which
-/// is what keeps a busy room from turning into a publish loop.
+/// The function writes the same two frames as the attachment handshake, in the
+/// same order, and it records the digest as `published`. The echo of the relay
+/// thus completes the checkpoint in the usual way. An echo that matches gives a
+/// `RelayCheckpointed` status and a compacted log. An empty echo means that the
+/// relay holds traffic that a client published after this state, and the next
+/// checkpoint request of that relay asks about it again.
 ///
-/// Re-reads the document rather than taking a caller's snapshot: a status
-/// handler that closed the document or dropped the lane between the
-/// decision and this line is owed no frames.
+/// Nothing retries from this function. That rule keeps a busy room from a loop
+/// of publications.
+///
+/// The function reads the document again, and it does not take a snapshot from
+/// its caller. A status handler that closed the document, or that dropped the
+/// lane, between the decision and this line is owed no frame.
 fn publish_while_primary(cell: Cell(State)) -> Nil {
   let digest = document_digest(cell)
   let state = transport_js.get_cell(cell)
@@ -1424,27 +1474,26 @@ fn publish_while_primary(cell: Cell(State)) -> Nil {
 @target(javascript)
 /// The relay asked for a checkpoint.
 ///
-/// A relay's live log is bounded, and a room that fills it has to start
-/// refusing traffic — including an honest client's. So before it gets
-/// there it asks the clients that understand the request to publish what
-/// they hold, and an honest client answers with exactly the same two
-/// frames it publishes during attachment: the whole merged state, and an
-/// attestation of that state's digest. The relay's checkpoint then
-/// compacts the room's ordinary valid history down to that one record,
-/// which is what keeps a long editing session from ever reaching the
-/// bound.
+/// The live log of a relay is bounded, and a room that fills that log makes the
+/// relay refuse traffic, and that includes the traffic of a correct client. The
+/// relay thus asks the clients that understand the request to publish what they
+/// hold, before it reaches the bound. A correct client answers with exactly the
+/// two frames that it publishes during an attachment: the whole merged state,
+/// and an attestation of the digest of that state. The checkpoint of the relay
+/// then compacts the ordinary valid history of the room down to that one
+/// record. A long editing session thus never reaches the bound.
 ///
-/// Nothing about the document changes here, and nothing the relay sent
-/// is read: the state published is this replica's own, exactly as it
-/// would be published at attachment.
+/// Nothing about the document changes here, and this function reads nothing
+/// that the relay sent. The published state is the state of this replica,
+/// exactly as it would be at an attachment.
 ///
-/// Three cases, and only one of them writes anything:
+/// There are three conditions, and one of them writes a frame:
 ///
-///   * **syncing** — the attachment handshake is already publishing and
-///     attesting, so the request is already being answered. Reported and
-///     otherwise ignored;
-///   * **primary** — publish and attest now;
-///   * **anything else** — no lane to answer on.
+///   * **syncing**: the attachment handshake already publishes and attests, so
+///     the module already answers the request. This function reports the
+///     request and does nothing more.
+///   * **primary**: publish and attest now.
+///   * **every other condition**: there is no lane to answer on.
 fn relay_checkpoint_requested(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.relay, state.phase {
@@ -1465,21 +1514,21 @@ fn relay_checkpoint_requested(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// The relay's answer to an attestation.
+/// The answer of the relay to an attestation.
 ///
-/// An echoed digest means the relay's whole content is the state this
-/// replica published. An empty one means it holds more — a concurrent
-/// attachment, a delta that raced the publication — and the answer to
-/// that is to merge what arrives and try again, never to overwrite what
-/// is there.
+/// An echoed digest means that the whole content of the relay is the state that
+/// this replica published. An empty echo means that the relay holds more, for
+/// example a concurrent attachment or a delta that raced the publication. The
+/// answer to an empty echo is to merge what arrives and to try again. The
+/// answer is never to overwrite what the relay holds.
 ///
-/// While the relay is *primary* the same echo answers a requested
-/// checkpoint. It is reported and nothing else: the lane is already
-/// primary, the document is unchanged either way, and an empty echo
-/// means the relay holds traffic this replica published after the state
-/// — which the relay's next request, armed by that same growth, asks
-/// about again. Retrying here instead would be an unbounded publish loop
-/// against a busy room.
+/// While the relay is *primary*, the same echo answers a requested checkpoint.
+/// The function reports it and does nothing more. The lane is already primary,
+/// the document does not change in either condition, and an empty echo means
+/// that the relay holds traffic that this replica published after the state.
+/// The next request of the relay, which that same growth arms, asks about it
+/// again. To retry here would be a loop of publications, with no bound, against
+/// a busy room.
 fn relay_attested(cell: Cell(State), attested: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.phase {
@@ -1509,9 +1558,9 @@ fn relay_attested(cell: Cell(State), attested: String) -> Nil {
 @target(javascript)
 /// The relay is now the durable delta path.
 ///
-/// The path flips before the status is emitted, so a handler that reads
-/// `effective_path` back agrees with what it was just told, and a
-/// mutation authored from that handler takes the new route.
+/// The function changes the path before it emits the status. A handler that
+/// reads `effective_path` thus agrees with the status that it just received,
+/// and a mutation from that handler takes the new route.
 fn relay_primary(cell: Cell(State), digest: String) -> Nil {
   let state = transport_js.get_cell(cell)
   cancel(state.resync_timer)
@@ -1553,14 +1602,14 @@ fn relay_primary(cell: Cell(State), digest: String) -> Nil {
 }
 
 @target(javascript)
-/// Try the publish/attest handshake again later.
+/// Try the publish and attest handshake again, later.
 ///
-/// Backed off rather than immediate, and event-driven rather than
-/// polling: two replicas attaching at once can each hold something the
-/// other has not merged yet, and a pair that retried instantly would
-/// invalidate each other's attestation forever. The delay separates
-/// them, and anything that actually changes the local document
-/// short-circuits it.
+/// The retry has a backoff, and it is not immediate. It is also event-driven,
+/// and it does not poll. Two replicas that attach at the same time can each
+/// hold something that the other has not merged yet. A pair that retried
+/// immediately would invalidate the attestation of the other one, without an
+/// end. The delay separates them, and any change to the local document ends the
+/// wait early.
 fn schedule_resync(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.phase {
@@ -1591,10 +1640,10 @@ fn schedule_resync(cell: Cell(State)) -> Nil {
 @target(javascript)
 /// The endpoint is a sequencer without this lane.
 ///
-/// Under `Auto` that is a status and nothing more: the document keeps
-/// running on the mesh, exactly as it would with no sequencer configured
-/// at all. Under `SequencedOnly` it is the readiness failure, because
-/// there is no other path to be ready on.
+/// Under `Auto` that condition is a status and nothing more. The document
+/// continues on the mesh, exactly as it would with no sequencer in the config.
+/// Under `SequencedOnly` it is the failure of the readiness, because there is
+/// no other path to be ready on.
 fn relay_unsupported(cell: Cell(State), detail: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -1622,12 +1671,12 @@ fn relay_unsupported(cell: Cell(State), detail: String) -> Nil {
 @target(javascript)
 /// The relay lane is gone.
 ///
-/// Nothing local pauses. The path flips to the mesh *before* the
-/// fallback status is emitted, so a mutation authored from a status
-/// handler — or one that was already in flight — goes to peers rather
-/// than into a socket that is not there. The document, its handles, its
-/// subscribers, its replica identity, and its message counter are all
-/// untouched: a transport changed, not a session.
+/// Nothing local stops. The function changes the path to the mesh *before* it
+/// emits the fallback status. A mutation from a status handler, and a mutation
+/// that was already in flight, thus both go to the peers, and neither one goes
+/// into a socket that is not there. The document, its handles, its subscribers,
+/// its replica identity, and its message counter all stay the same. A transport
+/// changed, and a session did not.
 fn relay_dropped(cell: Cell(State), detail: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -1677,22 +1726,23 @@ fn relay_dropped(cell: Cell(State), detail: String) -> Nil {
 }
 
 @target(javascript)
-/// The one digest a fallback owes the mesh.
+/// The one digest that a fallback owes the mesh.
 ///
-/// While the relay is primary a durable delta goes to the relay and *not*
-/// to the peers; what the peers get is a coalesced digest on the
-/// anti-entropy interval. A drop inside that window would otherwise
-/// cancel the digest and send only a `stateRequest`, which pulls each
-/// peer's state and tells it nothing: a peer that never saw the
-/// relay-only edits would answer with a state that does not contain them,
-/// merge nothing, and stay behind until the next local mutation — or
-/// forever, in a room that has gone quiet.
+/// While the relay is primary, a durable delta goes to the relay and *not* to
+/// the peers. Those peers receive a coalesced digest on the anti-entropy
+/// interval. Without this function, a drop inside that window would cancel the
+/// digest and send a `stateRequest` message only. That message pulls the state
+/// of each peer and tells that peer nothing. A peer that never saw the
+/// relay-only edits would answer with a state that does not contain them, it
+/// would merge nothing, and it would stay behind until the next local
+/// mutation. In a room that became quiet, it would stay behind without an
+/// end.
 ///
-/// So a dirty or armed window is flushed exactly once, synchronously,
-/// before the failover `stateRequest`. The peer compares it, finds it
-/// does not match, asks for state on `crdt_core`'s existing mismatch
-/// path, and is converged in the same breath as the fallback. The timer
-/// has already been cancelled, so this is one push and not two.
+/// This function thus flushes a window that is dirty or armed exactly one time,
+/// synchronously, before the failover sends its `stateRequest`. The peer
+/// compares that digest, finds that it does not match, asks for the state on
+/// the existing mismatch path of `crdt_core`, and converges with the fallback.
+/// The module already cancelled the timer, so this is one push and not two.
 fn final_nudge(cell: Cell(State), owed: Bool) -> Nil {
   case owed {
     False -> Nil
@@ -1701,10 +1751,10 @@ fn final_nudge(cell: Cell(State), owed: Bool) -> Nil {
 }
 
 @target(javascript)
-/// Ask every validated peer for its state, so an outage that started on
-/// the relay does not also start with a gap. Merges are idempotent and a
-/// `state` that changes nothing emits nothing, so this costs a round trip
-/// and no correctness.
+/// Ask every validated peer for its state, so that an outage that started on
+/// the relay does not also start with a gap. A merge is idempotent, and a
+/// `state` message that changes nothing emits nothing. This function thus costs
+/// one round trip, and it costs no correctness.
 fn repair_from_peers(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   greeted_peers(state)
@@ -1714,8 +1764,9 @@ fn repair_from_peers(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// The ids of every peer that has completed the `hello` handshake,
-/// sorted. The one definition of "the peers this document may talk to".
+/// The ids of every peer that completed the `hello` handshake, sorted. This
+/// function is the one definition of the peers that this document can send
+/// to.
 fn greeted_peers(state: State) -> List(String) {
   state.peers
   |> dict.values
@@ -1725,21 +1776,22 @@ fn greeted_peers(state: State) -> List(String) {
 }
 
 @target(javascript)
-/// One envelope the relay carried.
+/// One envelope that the relay carried.
 ///
-/// The relay's `order` never reaches this function: the lane strips it,
-/// and what arrives is the author's own encoded envelope. Validation is
-/// the same as a peer's, and so is the merge — a delta that arrived over
-/// WebRTC first is suppressed by `crdt_core`'s message-id window, and one
-/// that arrives here first suppresses the WebRTC copy, so a duplicate is
-/// one state change and one subscriber event whichever order it lands in.
+/// The `order` value of the relay never reaches this function. The lane removes
+/// it, and what arrives is the encoded envelope of the author. The checks are
+/// the same as for a peer, and so is the merge. The message-id window of
+/// `crdt_core` suppresses a delta that arrived over WebRTC first, and a delta
+/// that arrives here first suppresses the WebRTC copy. A duplicate is thus one
+/// state change and one subscriber event, in either order.
 ///
-/// A refusal costs the sender's envelope and nothing else. Unlike a peer,
-/// a relay client cannot be closed from here, and closing the lane would
-/// punish every other replica on it for one replica's bad frame. The
-/// `False` it answers with is what stops the lane's order high-water mark
-/// advancing past something this document did not merge — which would
-/// otherwise let a later attestation tell the relay to retire it.
+/// A refusal costs the envelope of the sender, and nothing else. Unlike a peer,
+/// this module cannot close a relay client, and to close the lane would remove
+/// that lane from every other replica on it, for one bad frame from one
+/// replica. The `False` result of this function stops the high-water mark of
+/// the lane from moving past something that this document did not merge. Without
+/// that result, a later attestation could tell the relay to retire that
+/// entry.
 fn relay_document(cell: Cell(State), raw: String) -> Bool {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -1796,7 +1848,7 @@ fn relay_document(cell: Cell(State), raw: String) -> Bool {
 }
 
 @target(javascript)
-/// Write one message to the relay, if there is one to write to.
+/// Write one message to the relay, if a relay exists to write to.
 fn relay_send(cell: Cell(State), message: Message) -> Bool {
   let state = transport_js.get_cell(cell)
   case state.relay {
@@ -1810,16 +1862,16 @@ fn relay_send(cell: Cell(State), message: Message) -> Bool {
 }
 
 @target(javascript)
-/// `relay_send`, with the failure handled rather than ignored.
+/// `relay_send`, and this function handles the failure instead of an ignore.
 ///
-/// Every write on this lane is one of four things — the attachment's
-/// `hello` and `stateRequest`, the published `state`, a reply to
-/// something the relay carried, or a durable broadcast — and a `False`
-/// means the same thing for all of them: this socket is gone. The one
-/// answer that is always right is to retire it, which flips the path to
-/// the mesh, reports the fallback, repairs from the peers and arms the
-/// policy's reconnect. Anything else strands the document mid-handshake
-/// on a socket that will never answer.
+/// Every write on this lane is one of four things: the `hello` and
+/// `stateRequest` messages of the attachment, the published `state` message, a
+/// reply to something that the relay carried, or a durable broadcast. A `False`
+/// result means the same thing for all four: this socket is gone. The one
+/// correct answer is to retire that socket. The function thus changes the path
+/// to the mesh, reports the fallback, repairs from the peers, and arms the
+/// reconnect of the policy. Every other answer leaves the document in the
+/// middle of a handshake, on a socket that will never answer.
 fn relay_write(cell: Cell(State), message: Message) -> Bool {
   case relay_send(cell, message) {
     True -> True
@@ -1831,9 +1883,9 @@ fn relay_write(cell: Cell(State), message: Message) -> Bool {
 }
 
 @target(javascript)
-/// A write that did not reach an open socket. Retires the lane through
-/// the same path a reported close takes, so there is one fallback
-/// sequence and not two.
+/// A write that did not reach an open socket. The function retires the lane on
+/// the same path as a close that the driver reported. There is thus one
+/// fallback sequence, and not two.
 fn relay_unwritable(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.relay {
@@ -1844,11 +1896,12 @@ fn relay_unwritable(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Arm the `SequencedOnly` readiness deadline.
+/// Arm the readiness deadline of `SequencedOnly`.
 ///
-/// It bounds the whole attachment — socket, capability, state replay,
-/// digest — rather than any one step of it, because a caller waiting on
-/// `on_ready` does not care which step is slow.
+/// The deadline bounds the whole attachment, which is the socket, the
+/// capability, the state replay, and the digest. It does not bound one step of
+/// that attachment, because a caller that waits on `on_ready` does not need to
+/// know which step is slow.
 fn arm_deadline(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.sequencer {
@@ -1884,8 +1937,9 @@ fn arm_deadline(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Give up on a document that can never become ready: resolve readiness
-/// once with the reason, and close everything it holds.
+/// Stop with a document that can never become ready. The function resolves the
+/// readiness one time, with the reason, and it closes everything that the
+/// document holds.
 fn abandon(cell: Cell(State), error: P2pError) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, resolved(state) {
@@ -1952,10 +2006,10 @@ fn callbacks(cell: Cell(State)) -> p2p_transport_js.Callbacks {
 }
 
 @target(javascript)
-/// Run a transport callback now, or hold it until `attach` has stored the
-/// transport it needs to answer with. An adapter that opens a channel
-/// from inside `join` is unusual but legal, and nothing it delivers may
-/// be dropped.
+/// Run a transport callback now, or hold it until `attach` stores the transport
+/// that the callback needs to answer with. An adapter that opens a channel from
+/// inside `join` is unusual, and it is valid. The module must drop nothing that
+/// such an adapter delivers.
 fn defer(cell: Cell(State), entry: Deferred) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.transport {
@@ -1979,8 +2033,9 @@ fn run_deferred(cell: Cell(State), entry: Deferred) -> Nil {
 }
 
 @target(javascript)
-/// A peer's document channel is open. Introduce ourselves; nothing else
-/// may be sent until its `hello` comes back and passes.
+/// The document channel of a peer is open. Send the introduction of this
+/// replica. The module can send nothing else until the `hello` message of that
+/// peer arrives and passes its checks.
 fn handle_peer_open(cell: Cell(State), peer_id: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -2003,11 +2058,12 @@ fn handle_peer_open(cell: Cell(State), peer_id: String) -> Nil {
 }
 
 @target(javascript)
-/// Retire a peer. Idempotent, and reached by two routes: the transport's
-/// `PeerClosed` status, which covers every announced peer, and its
-/// `on_peer_close` callback, which covers only the ones that opened.
-/// Whichever arrives first does the work; the second finds nothing left
-/// to report and only re-settles readiness, which is itself idempotent.
+/// Retire a peer. A second call has no more effect. Two routes reach this
+/// function: the `PeerClosed` status of the transport, which covers every
+/// announced peer, and the `on_peer_close` callback of that transport, which
+/// covers the peers that opened only. The route that arrives first does the
+/// work. The second one finds nothing to report, and it settles the readiness
+/// again, which also has no more effect.
 fn handle_peer_close(cell: Cell(State), peer_id: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed {
@@ -2032,9 +2088,9 @@ fn handle_peer_close(cell: Cell(State), peer_id: String) -> Nil {
 }
 
 @target(javascript)
-/// A peer we were bootstrapping from has gone. Ask the next validated
-/// peer instead, and if there is nobody left to ask, this replica is the
-/// room and the document it already holds is ready.
+/// A peer that this replica bootstrapped from is gone. Ask the next validated
+/// peer instead. If no peer remains, this replica is the whole room, and the
+/// document that it already holds is ready.
 fn rebootstrap(cell: Cell(State), lost: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case resolved(state), state.bootstrap {
@@ -2068,8 +2124,8 @@ fn request_state(cell: Cell(State), peer_id: String) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// One payload from one peer's data channel. Every check that can reject
-/// it runs before `crdt_core` is asked to merge anything.
+/// One payload from the data channel of one peer. Every check that can refuse
+/// that payload runs before the module asks `crdt_core` to merge anything.
 fn handle_document(cell: Cell(State), peer_id: String, raw: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, dict.get(state.peers, peer_id) {
@@ -2156,14 +2212,15 @@ fn route(cell: Cell(State), peer: Peer, envelope: crdt_wire.Envelope) -> Nil {
 }
 
 @target(javascript)
-/// `crdt_core.receive`, with the local digest supplied from the cache for
-/// the one message that reads it.
+/// `crdt_core.receive`, with the local digest from the cache, for the one
+/// message that reads it.
 ///
-/// A `Digest` is answered by comparing it against this document's own,
-/// which is the comparison the heartbeat makes in both directions; every
-/// other message never computes a digest at all. The document is read
-/// here rather than taken from a caller, so what is compared and what it
-/// is compared against cannot be two different states.
+/// The module answers a `Digest` message by a comparison against the digest of
+/// this document. The heartbeat makes the same comparison, in both directions.
+/// Every other message computes no digest at all. This function reads the
+/// document itself, and it does not take that document from its caller. The
+/// value that it compares and the value that it compares against thus cannot
+/// come from two different states.
 fn receive_envelope(
   cell: Cell(State),
   envelope: crdt_wire.Envelope,
@@ -2177,20 +2234,23 @@ fn receive_envelope(
 }
 
 @target(javascript)
-/// Merge one validated envelope. The document is written before anything
-/// is sent and before any subscriber runs, so a throwing callback cannot
-/// leave the document behind the state its peers believe it holds.
+/// Merge one envelope that passed its checks. The function writes the document
+/// before it sends anything, and before a subscriber runs. A callback that
+/// throws thus cannot leave the document behind the state that its peers
+/// believe that it holds.
 ///
-/// A merge that moves canonical state while the *relay* is the durable
-/// path also owes the relay that state. Nothing else carries it: a
-/// received message never populates `outcome.broadcast`, so a delta or a
-/// channel a `P2pOnly` peer sent over WebRTC would converge across the
-/// mesh and never reach the room's history, its checkpoint, or a replica
-/// that only ever talks to the relay. The digest is compared across the
-/// merge rather than read off `outcome.events`, because a merge can move
-/// the lattice — an OR-Set tag, a 2P-Set tombstone — with no event at
-/// all, and a state the relay does not hold is a state the relay does not
-/// hold whether or not a subscriber would have noticed.
+/// A merge that moves the canonical state while the *relay* is the durable path
+/// also owes that state to the relay. No other route carries it. A received
+/// message never fills `outcome.broadcast`. A delta or a channel that a
+/// `P2pOnly` peer sent over WebRTC would thus converge across the mesh and
+/// reach neither the history of the room, nor its checkpoint, nor a replica
+/// that talks to the relay only.
+///
+/// The function compares the digest across the merge, and it does not read
+/// `outcome.events`. A merge can move the lattice with no event at all, for
+/// example with an OR-Set tag or a 2P-Set tombstone. A state that the relay
+/// does not hold is a state that the relay does not hold, whether or not a
+/// subscriber would have seen it.
 fn merge(
   cell: Cell(State),
   peer_id: String,
@@ -2224,20 +2284,23 @@ fn merge(
 }
 
 @target(javascript)
-/// A peer moved this document while the relay was carrying its
-/// durability, so the relay is owed the merged state.
+/// A peer moved this document while the relay carried its durability. The relay
+/// thus needs the merged state.
 ///
-/// Coalesced onto the interval the relay path already has rather than
-/// published from inside the merge: a mesh burst is one publication, not
-/// one per delta, and the peers' digest goes out in the same flush. The
-/// publication itself is the ordinary one — a `state` frame and an
-/// attestation — so the relay logs it, fans it to the replicas this one
-/// cannot see, and checkpoints it exactly as it would a publication this
-/// replica authored.
+/// The module collects that publication onto the interval that the relay path
+/// already has. It does not publish from inside the merge. A burst on the mesh
+/// is thus one publication, and not one for each delta, and the digest for the
+/// peers goes out in the same flush.
 ///
-/// A relay-carried merge deliberately does *not* come through here. The
-/// relay already holds what it sent us, and republishing it would have
-/// every client answer every publication with another one.
+/// The publication itself is the ordinary one: a `state` frame with an
+/// attestation. The relay logs it, sends it to the replicas that this one
+/// cannot see, and checkpoints it, exactly as it would for a publication that
+/// this replica wrote.
+///
+/// A merge that the relay carried does *not* come through this function, and
+/// that is deliberate. The relay already holds what it sent, and a second
+/// publication of it would make every client answer every publication with
+/// another one.
 fn owe_publication(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, publish_owed: True))
@@ -2245,22 +2308,22 @@ fn owe_publication(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Forget an owed publication, because one has just been written or
-/// because there is no longer a lane to write it on. A lane that comes
-/// back publishes the whole merged state during its handshake, so
-/// nothing is lost by dropping this on a fallback.
+/// Remove an owed publication, because the module just wrote one, or because
+/// there is no longer a lane to write it on. A lane that comes back publishes
+/// the whole merged state during its handshake, so a fallback that drops this
+/// value loses nothing.
 fn clear_publication(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, publish_owed: False))
 }
 
 @target(javascript)
-/// Record what a peer's digest told this replica. An empty outcome is a
-/// match — the two already agree — so the digest is kept as the last
-/// successful comparison. A `stateRequest` reply means this replica was
-/// behind and `merge` has already asked for state; the repair is counted
-/// when that state arrives and moves the document, not here, so a request
-/// that is never answered is never counted.
+/// Record what the digest of a peer told this replica. An empty outcome is a
+/// match, which means that the two already agree, so the module keeps that
+/// digest as the last successful comparison. A `stateRequest` reply means that
+/// this replica was behind, and `merge` already asked for the state. The module
+/// counts the repair when that state arrives and moves the document, and not
+/// here. A request that no peer answers thus adds nothing to the count.
 fn record_peer_digest(
   cell: Cell(State),
   remote: String,
@@ -2279,8 +2342,8 @@ fn record_peer_digest(
 }
 
 @target(javascript)
-/// Count one completed partition repair: a catch-up `state` that changed
-/// this replica's canonical state.
+/// Count one completed partition repair, which is a catch-up `state` message
+/// that changed the canonical state of this replica.
 fn note_repair(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(cell, State(..state, repairs: state.repairs + 1))
@@ -2330,13 +2393,13 @@ fn greet(cell: Cell(State), peer_id: String) -> Nil {
 @target(javascript)
 /// A `state` transfer merged.
 ///
-/// Any of them settles a bootstrap that is still waiting, not only the
-/// one this replica asked first: every greeted peer is sent a
-/// `stateRequest` and every one of them answers, so a replica that has
-/// merged a room's state is bootstrapped whichever answer arrived.
-/// Pinning readiness to one peer would let a peer that greets and then
-/// goes quiet hold a joiner on its loading screen while the rest of the
-/// room was busy syncing it.
+/// Any such transfer settles a bootstrap that still waits, and not the transfer
+/// from the first peer that this replica asked only. The module sends a
+/// `stateRequest` message to every peer that greeted it, and every one of those
+/// peers answers. A replica that merged the state of a room is thus
+/// bootstrapped, whichever answer arrived. To tie the readiness to one peer
+/// would let a peer that greets and then sends nothing hold a joining client on
+/// its loading screen, while the rest of the room synchronized that client.
 fn state_merged(cell: Cell(State), peer_id: String, channels: Int) -> Nil {
   emit(cell, StateMerged(peer_id, channels))
   let state = transport_js.get_cell(cell)
@@ -2350,9 +2413,10 @@ fn state_merged(cell: Cell(State), peer_id: String, channels: Int) -> Nil {
 }
 
 @target(javascript)
-/// Close one peer for a protocol violation, telling it why first. The
-/// local document is untouched and every other peer keeps running: a
-/// hostile or mismatched peer costs its own connection and nothing else.
+/// Close one peer for a protocol violation, and tell that peer the reason
+/// first. The local document does not change, and every other peer continues. A
+/// hostile peer, and a peer that does not match, each cost their own connection
+/// and nothing else.
 fn reject_peer(cell: Cell(State), peer_id: String, error: P2pError) -> Nil {
   let #(reason, detail) = error_parts(error)
   send(cell, peer_id, crdt_core.rejection_message(reason, detail))
@@ -2390,19 +2454,22 @@ fn send(cell: Cell(State), peer_id: String, message: Message) -> Nil {
 }
 
 @target(javascript)
-/// Send one message down whichever path is durable right now.
+/// Send one message on the path that is durable now.
 ///
-/// While the relay is primary that is the relay: it is durable, it
-/// reaches replicas this one has no peer connection to, and the mesh
-/// stays open underneath for presence, digests, repair, and the failover
-/// that needs no negotiation. The durable message itself is *not* also
-/// pushed to the peers — that is what "one durable path" means — but its
-/// digest is, so a peer that is not on this relay learns it is behind.
+/// While the relay is primary, that path is the relay. It is durable, and it
+/// reaches a replica that this one has no peer connection to. The mesh stays
+/// open below it, for the presence, the digests, the repair, and the failover,
+/// which needs no negotiation.
 ///
-/// A write the relay could not make — it dropped between the mutation
-/// and this line, or the socket is no longer open — takes the mesh
-/// instead, and the lane is dropped rather than left looking healthy: a
-/// path that cannot carry a delta is not the delta path.
+/// The module does *not* also push the durable message to the peers. That is
+/// the meaning of "one durable path". It does push the digest of that message,
+/// so a peer that is not on this relay learns that it is behind.
+///
+/// A write that the relay could not make takes the mesh instead. That occurs
+/// when the relay dropped between the mutation and this line, and when the
+/// socket is no longer open. The module then drops the lane, and it does not
+/// leave that lane with the appearance of health. A path that cannot carry a
+/// delta is not the delta path.
 fn broadcast(cell: Cell(State), message: Message) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.path, state.relay {
@@ -2423,40 +2490,40 @@ fn broadcast(cell: Cell(State), message: Message) -> Nil {
 }
 
 @target(javascript)
-/// Anti-entropy for the mesh while the relay carries the durable
-/// traffic.
+/// Anti-entropy for the mesh, while the relay carries the durable traffic.
 ///
-/// One `digest` to every validated peer. A peer whose digest matches
-/// answers nothing; one that differs asks for state, which this replica
-/// serves from the same `crdt_core` path a bootstrap uses — so a
-/// `P2pOnly` replica, one whose sequencer turned out not to speak this
-/// lane, and one partitioned from the relay all converge without a
-/// durable delta ever being duplicated onto the mesh, and without a
-/// second semantic event: merges are idempotent and a `state` that
-/// changes nothing emits nothing.
+/// The module sends one `digest` message to every validated peer. A peer whose
+/// digest matches answers nothing. A peer whose digest differs asks for the
+/// state, and this replica serves that request from the same `crdt_core` path
+/// as a bootstrap. Three kinds of replica thus converge: a `P2pOnly` replica, a
+/// replica whose sequencer does not support this lane, and a replica that is
+/// partitioned from the relay. No durable delta is duplicated onto the mesh,
+/// and there is no second event, because a merge is idempotent and a `state`
+/// message that changes nothing emits nothing.
 ///
-/// Coalesced over a named interval, and deliberately not sent from
-/// inside the mutation that caused it.
+/// The module collects the digests over a named interval, and it does not send
+/// one from inside the mutation that caused it. That choice is deliberate.
 ///
-/// A digest that overtakes the relay's own fan-out of the same delta
-/// tells every peer it is behind at the exact moment it is about to stop
-/// being behind, and the answer to that is a full `state` transfer across
-/// the mesh — per mutation. A zero-delay tick does not fix that: a
-/// microtask or a task-queue turn still beats a socket round trip
-/// comfortably, and it only coalesces the mutations that happened to be
-/// synchronous.
+/// A digest that arrives before the fan-out of the same delta from the relay
+/// tells every peer that it is behind, at the exact moment at which that peer
+/// stops being behind. The answer to such a digest is a full `state` transfer
+/// across the mesh, for each mutation. A tick with no delay does not solve
+/// that. A microtask, and one turn of the task queue, are both much faster than
+/// a socket round trip, and either one collects the synchronous mutations
+/// only.
 ///
-/// So this marks the document dirty and arms one flush
-/// `default_anti_entropy_ms` (250 ms, injectable) ahead on the document's
-/// scheduler. Edits across many tasks coalesce into it, the relay's copy
-/// of every one of them normally lands at the peers first, and a peer the
-/// relay could not reach hears a digest a quarter of a second later
-/// instead of a stale one immediately. Sustained editing costs exactly
-/// one digest per interval.
+/// This function thus marks the document dirty, and it arms one flush
+/// `default_anti_entropy_ms` ahead, on the scheduler of the document. That
+/// value is 250 ms, and a caller can replace it. Edits across many tasks
+/// collect into that flush. The copy of each edit from the relay usually
+/// reaches the peers first. A peer that the relay could not reach receives a
+/// digest one quarter of a second later, instead of a stale digest
+/// immediately. Continuous editing thus costs exactly one digest for each
+/// interval.
 ///
-/// This is anti-entropy, not repair. Failover does not come through here:
-/// it sends every peer a `stateRequest` in the same breath as the
-/// fallback, with no delay at all.
+/// This function is anti-entropy, and it is not repair. A failover does not use
+/// it. The failover sends a `stateRequest` message to every peer, with the
+/// fallback, and with no delay.
 fn nudge_peers(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.closed, state.path, state.transport {
@@ -2494,20 +2561,21 @@ fn nudge_peers(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Send the coalesced digest, if the document is still dirty and the
-/// relay is still the delta path when the interval comes round — and
-/// publish what a peer merged into this document while the relay was
-/// primary, which is the only route that state has to the relay.
+/// Send the collected digest, when the document is still dirty and the relay is
+/// still the delta path at the end of the interval. The function also publishes
+/// what a peer merged into this document while the relay was primary. That
+/// publication is the only route from that state to the relay.
 ///
-/// A lane that dropped in between has already sent its peers a
-/// `stateRequest`, which is strictly more than the digest would be, and
-/// will publish everything it holds when it comes back; a document that
-/// was closed has no peers to tell and no lane to publish on.
+/// A lane that dropped in that interval already sent a `stateRequest` message to
+/// its peers, which gives more than the digest, and that lane publishes
+/// everything that it holds when it comes back. A document that a caller closed
+/// has no peer to tell and no lane to publish on.
 ///
-/// The mesh is told first. A publication that turns out to be
-/// unwritable retires the lane, and the fallback that follows sends every
-/// peer a `stateRequest` — so ordering the digest first means the peers
-/// hear once either way, rather than twice or not at all.
+/// The function sends to the mesh first. A publication that the module cannot
+/// write retires the lane, and the fallback that follows sends a `stateRequest`
+/// message to every peer. To send the digest first thus means that the peers
+/// receive one message in both conditions, and not two messages or no
+/// message.
 fn flush_nudge(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   transport_js.set_cell(
@@ -2531,10 +2599,10 @@ fn flush_nudge(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Disarm anti-entropy. The mesh is about to be, or has just been, told
-/// something stronger than a digest — or there is nothing left to tell.
-/// An owed publication goes with it: the only caller is a lane that has
-/// gone, and a lane that comes back publishes the whole merged state
+/// Disarm the anti-entropy flush. The module is about to send the mesh
+/// something larger than a digest, or it just sent that, or there is nothing
+/// left to send. An owed publication also goes away. The only caller is a lane
+/// that is gone, and a lane that comes back publishes the whole merged state
 /// during its handshake.
 fn cancel_nudge(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
@@ -2552,18 +2620,19 @@ fn cancel_nudge(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Whether any peer has completed the `hello` handshake. The mesh
-/// anti-entropy digest is only ever sent to a validated peer, so an
-/// unvalidated room is one this replica stays quiet in.
+/// Whether one peer or more completed the `hello` handshake. The module sends
+/// the mesh anti-entropy digest to a validated peer only, so this replica sends
+/// nothing in a room where no peer is validated.
 fn has_greeted_peer(state: State) -> Bool {
   greeted_peers(state) != []
 }
 
 @target(javascript)
-/// Whether the mesh anti-entropy heartbeat should be running: an open
-/// document whose delta path is WebRTC, with a transport and at least one
-/// validated peer to tell. The single predicate `refresh_sync`, `arm_sync`,
-/// and `tick_sync` all gate on, so "when a peer exists" has one meaning.
+/// Whether the mesh anti-entropy heartbeat must run. Four conditions must hold:
+/// the document is open, its delta path is WebRTC, it has a transport, and it
+/// has one validated peer or more to send to. `refresh_sync`, `arm_sync`, and
+/// `tick_sync` all use this one predicate, so "a peer exists" has one
+/// meaning.
 fn should_sync(state: State) -> Bool {
   case state.closed, state.path, state.transport {
     False, PeerToPeer, Some(_) -> has_greeted_peer(state)
@@ -2572,11 +2641,13 @@ fn should_sync(state: State) -> Bool {
 }
 
 @target(javascript)
-/// Reconcile the heartbeat with the document's current shape: arm it if it
-/// ought to be running and is not, cancel it if it is running and ought not
-/// be. Idempotent, so every lifecycle edge that can change `should_sync` —
-/// a greet, a failover to the mesh, a peer leaving — calls this and needs
-/// to know nothing about the timer's prior state.
+/// Reconcile the heartbeat with the current shape of the document. The function
+/// arms the heartbeat when that heartbeat must run and does not run. It cancels
+/// the heartbeat when that heartbeat runs and must not run. A second call has no
+/// more effect. Every lifecycle event that can change `should_sync` thus calls
+/// this function, and it needs to know nothing about the earlier state of the
+/// timer. Those events are a greeting, a failover to the mesh, and a peer that
+/// leaves.
 fn refresh_sync(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case should_sync(state), state.sync_armed {
@@ -2587,32 +2658,35 @@ fn refresh_sync(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Anti-entropy for the mesh while WebRTC is the delta path — the
-/// recurring twin of the relay's `nudge_peers`.
+/// Anti-entropy for the mesh, while WebRTC is the delta path. This function is
+/// the recurring equivalent of `nudge_peers` on the relay path.
 ///
-/// Canonical state moves without a re-broadcast and without a visible
-/// event: a `state` transfer, a partition healing on one reconnected edge,
-/// a concurrent OR-Set tag or a 2P-Set tombstone that changes the lattice
-/// but not the membership a subscriber sees. None of these fan out on
-/// their own, so the mesh cannot key repair off them. Instead, while a
-/// validated peer exists the document checks every
-/// `anti_entropy_interval_ms` whether its canonical digest has moved since
-/// the peers were last told, and broadcasts it when it has; a peer whose
-/// digest matches answers nothing, one that differs asks for state on
-/// `crdt_core`'s existing mismatch path — and clears its own gate, so the
-/// side that turns out to be ahead keeps announcing until the room agrees.
-/// An idle converged mesh therefore costs one digest and then silence, not
-/// a broadcast per interval forever.
-/// Reconnecting one edge between two partitions therefore repairs *every*
-/// remaining peer, not only the two endpoints, and a quiescent mesh that
-/// merged an event-less change still converges — neither needs a later
-/// event-ful edit to trigger a flush.
+/// The canonical state can move with no new broadcast and with no visible
+/// event. Three examples: a `state` transfer, a partition that heals on one
+/// reconnected edge, and a concurrent OR-Set tag or 2P-Set tombstone that
+/// changes the lattice and not the membership that a subscriber sees. None of
+/// those changes fans out by itself, so the mesh cannot start a repair from
+/// them.
 ///
-/// One live timer: `arm_sync` is a no-op if a heartbeat is already armed,
-/// and `tick_sync` clears the flag before it re-arms. The relay path's
-/// `nudge_*` fields are separate and never armed at the same time, because
-/// the transport path is one or the other and a failover cancels the
-/// relay's coalescer before this takes over.
+/// Instead, while a validated peer exists, the document checks every
+/// `anti_entropy_interval_ms` whether its canonical digest moved after the last
+/// message to the peers. It broadcasts that digest when the digest moved. A peer
+/// whose digest matches answers nothing. A peer whose digest differs asks for
+/// the state, on the existing mismatch path of `crdt_core`, and it also clears
+/// its own gate. The side that is ahead thus continues to announce until the
+/// room agrees. An idle mesh that converged therefore costs one digest and then
+/// nothing, and not one broadcast in every interval.
+///
+/// To reconnect one edge between two partitions thus repairs *every* remaining
+/// peer, and not the two endpoints only. A quiet mesh that merged a change with
+/// no event also converges. Neither condition needs a later edit with an event
+/// to start a flush.
+///
+/// There is one live timer. `arm_sync` does nothing when a heartbeat is armed
+/// already, and `tick_sync` clears the flag before it arms the timer again. The
+/// `nudge_*` fields of the relay path are separate, and the module never arms
+/// both at the same time. The transport path is one or the other, and a failover
+/// cancels the coalescer of the relay before this heartbeat starts.
 fn arm_sync(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   case should_sync(state), state.sync_armed {
@@ -2642,24 +2716,25 @@ fn arm_sync(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// One heartbeat: re-check the document is still eligible, send the
-/// canonical digest to every validated peer, and re-arm for the next
-/// interval. A document that failed back onto a relay, lost its last peer,
-/// or closed since the timer was set sends nothing and lets the heartbeat
-/// lapse.
+/// One heartbeat. The function checks again that the document is still
+/// eligible, sends the canonical digest to every validated peer, and arms the
+/// timer for the next interval. A document that failed back onto a relay, that
+/// lost its last peer, or that a caller closed after the timer was set, sends
+/// nothing, and the heartbeat then ends.
 ///
-/// The broadcast is gated on the digest having moved since the last one
-/// went out (or a peer's mismatch having cleared `last_sync_digest`): the
-/// timer recurs, but an idle converged mesh sends nothing rather than
-/// repeating the same digest every interval forever.
+/// The broadcast has a gate: the digest must have moved after the last
+/// broadcast, or a mismatch from a peer must have cleared `last_sync_digest`.
+/// The timer recurs, and an idle mesh that converged sends nothing. It does not
+/// repeat the same digest in every interval without an end.
 ///
-/// The re-arm is skipped when this tick ran *synchronously* from inside
-/// `arm_sync` — detectable because the canceller was not stored yet, so
-/// `sync_timer` is still `None`. A synchronous scheduler that re-armed here
-/// would recurse without bound; firing exactly once instead is the only
-/// non-looping behaviour a clock that never advances can have. A real or
-/// logical asynchronous scheduler stored the canceller before the tick, so
-/// it re-arms and the heartbeat recurs.
+/// The function does not arm the timer again when this tick ran *synchronously*
+/// from inside `arm_sync`. The function detects that condition because the
+/// module has not stored the canceller yet, so `sync_timer` is still `None`. A
+/// synchronous scheduler that armed the timer again here would recurse without
+/// a bound. To run exactly one time instead is the only behaviour without a
+/// loop that a clock which never advances can have. A real asynchronous
+/// scheduler, and a logical one, both store the canceller before the tick. The
+/// function thus arms the timer again, and the heartbeat recurs.
 fn tick_sync(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   let armed_asynchronously = option.is_some(state.sync_timer)
@@ -2680,8 +2755,9 @@ fn tick_sync(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// One heartbeat's payload, behind the dirty gate: broadcast the canonical
-/// digest only if it differs from the last one the peers were told.
+/// The payload of one heartbeat, behind the dirty gate. The function broadcasts
+/// the canonical digest only when that digest differs from the last one that the
+/// peers received.
 fn sync_digest(cell: Cell(State)) -> Nil {
   let digest = document_digest(cell)
   let state = transport_js.get_cell(cell)
@@ -2692,11 +2768,12 @@ fn sync_digest(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Send the canonical digest to every validated peer and remember it as
-/// the last one announced, so the recurring heartbeat stays quiet until
-/// the document moves again. Every whole-mesh digest broadcast goes
-/// through here — the heartbeat's, the relay coalescer's flush, and the
-/// failover's final push — so the gate cannot be fooled by one of them.
+/// Send the canonical digest to every validated peer, and record it as the last
+/// announced digest. The recurring heartbeat thus sends nothing until the
+/// document moves again. Every broadcast of a digest to the whole mesh goes
+/// through this function: the broadcast of the heartbeat, the flush of the relay
+/// coalescer, and the final push of a failover. One of them thus cannot make the
+/// gate incorrect.
 fn broadcast_digest(cell: Cell(State)) -> Nil {
   let digest = document_digest(cell)
   let state = transport_js.get_cell(cell)
@@ -2705,8 +2782,9 @@ fn broadcast_digest(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Stop the heartbeat and clear its flags. Called when the last validated
-/// peer leaves, on failover to a relay-primary path, and on close.
+/// Stop the heartbeat and clear its flags. The module calls this function when
+/// the last validated peer leaves, on a failover to a path where the relay is
+/// primary, and on a close.
 fn cancel_sync(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
   cancel(state.sync_timer)
@@ -2717,12 +2795,13 @@ fn cancel_sync(cell: Cell(State)) -> Nil {
 }
 
 @target(javascript)
-/// Send one message to every peer that has completed the handshake.
+/// Send one message to every peer that completed the handshake.
 ///
-/// Deliberately not the transport's own broadcast: a data channel can be
-/// open before its `hello` has been validated, and a peer that has not
-/// proved it agrees about the room, the protocol, the compatibility tag
-/// and the root has no business receiving this document's deltas.
+/// This function is not the broadcast of the transport, and that choice is
+/// deliberate. A data channel can be open before the module checks its `hello`
+/// message. A peer that has not proved that it agrees about the room, the
+/// protocol, the compatibility tag, and the root must not receive the deltas of
+/// this document.
 fn peer_broadcast(cell: Cell(State), message: Message) -> Nil {
   let state = transport_js.get_cell(cell)
   case state.transport {
@@ -2739,10 +2818,11 @@ fn peer_broadcast(cell: Cell(State), message: Message) -> Nil {
 }
 
 @target(javascript)
-/// Report one status. Application code, and contained: an exception from
-/// a status handler must not skip a state request, suppress a readiness
-/// result, or abandon the peers after it. It is not re-reported, because
-/// the only channel it could be reported on is the one that just threw.
+/// Report one status. The handler is application code, and this function
+/// contains it. An exception from a status handler must not skip a state
+/// request, suppress a readiness result, or leave the peers after it. The
+/// function does not report that exception again, because the only channel for
+/// such a report is the channel that just threw.
 fn emit(cell: Cell(State), status: Status) -> Nil {
   let state = transport_js.get_cell(cell)
   contained(fn() { state.on_status(status) })
@@ -2753,9 +2833,9 @@ fn emit(cell: Cell(State), status: Status) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Deliver each event to the subscribers of its own address. The
-/// subscriber list is re-read per event, so a handler that unsubscribes
-/// is not called for the next one.
+/// Deliver each event to the subscribers of its own address. The function reads
+/// the subscriber list again for each event, so a handler that removes its
+/// subscription does not receive the next event.
 fn dispatch(cell: Cell(State), events: List(#(String, ChannelEvent))) -> Nil {
   list.each(events, fn(entry) {
     let #(address, event) = entry
@@ -2770,8 +2850,8 @@ fn dispatch(cell: Cell(State), events: List(#(String, ChannelEvent))) -> Nil {
 }
 
 @target(javascript)
-/// Subscribe to every event on one channel, whatever its kind. The typed
-/// per-kind wrappers below are the usual way in.
+/// Subscribe to every event on one channel, of every kind. The typed wrapper of
+/// each kind, below, is the usual entry point.
 pub fn subscribe(
   handle: Handle(kind),
   handler: fn(ChannelEvent) -> Nil,
@@ -2790,7 +2870,7 @@ pub fn subscribe(
 }
 
 @target(javascript)
-/// Remove a subscription. Idempotent.
+/// Remove a subscription. A second call has no more effect.
 pub fn unsubscribe(subscription: Subscription) -> Nil {
   let cell = subscription.cell
   let state = transport_js.get_cell(cell)
@@ -2907,23 +2987,25 @@ pub fn subscribe_text(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// The document's root, typed by the `CrdtKind` the config named.
+/// The root of the document, typed by the `CrdtKind` value that the config
+/// named.
 pub fn root(document: CrdtDocument(root)) -> Handle(root) {
   Handle(cell: document.cell, address: crdt_wire.root_address)
 }
 
 @target(javascript)
-/// A handle's channel address. `root` for the root; otherwise
-/// `<replica>:<counter>`, which names its creator.
+/// The channel address of a handle. The value is `root` for the root. For every
+/// other channel it is `<replica>:<counter>`, which names the creator of that
+/// channel.
 pub fn address(handle: Handle(kind)) -> String {
   handle.address
 }
 
 @target(javascript)
-/// Register a new channel of `kind` and announce it to every peer. The
-/// kind is checked against the eligibility boundary, so a channel that
-/// cannot merge without a sequencer is refused here rather than
-/// diverging later.
+/// Register a new channel of the kind `kind`, and announce it to every peer.
+/// The function checks that kind against the eligibility boundary. A channel
+/// that cannot merge without a sequencer is thus refused here, and the replicas
+/// do not diverge later.
 pub fn create_channel(
   document: CrdtDocument(root),
   kind: p2p.CrdtKind(kind),
@@ -2956,9 +3038,9 @@ pub fn create_channel(
 }
 
 @target(javascript)
-/// Take a typed handle onto an existing channel — one a peer announced,
-/// or one an imported snapshot carried. The address must be registered
-/// and its channel type must be exactly `kind`.
+/// Take a typed handle onto a channel that exists. That channel is one that a
+/// peer announced, or one that an imported snapshot carried. The address must be
+/// registered, and its channel type must be exactly `kind`.
 pub fn resolve_channel(
   document: CrdtDocument(root),
   kind: p2p.CrdtKind(kind),
@@ -2983,7 +3065,7 @@ pub fn resolve_channel(
 }
 
 @target(javascript)
-/// Every channel address this document holds, in canonical order.
+/// Every channel address that this document holds, in canonical order.
 pub fn addresses(document: CrdtDocument(root)) -> List(String) {
   crdt_core.descriptors(transport_js.get_cell(document.cell).document)
   |> list.map(fn(descriptor) { descriptor.address })
@@ -3005,8 +3087,8 @@ fn usable(cell: Cell(State), state: State) -> Result(Nil, P2pError) {
 }
 
 @target(javascript)
-/// Report a failed local operation on the status stream as well as
-/// returning it, so a status log is a complete account of the document.
+/// Report a local operation that failed, on the status stream, and also return
+/// that failure. A status log is thus a complete account of the document.
 fn fail(
   cell: Cell(State),
   outcome: Result(a, P2pError),
@@ -3045,8 +3127,9 @@ fn read(
 }
 
 @target(javascript)
-/// Author a local edit: merged into visible state immediately, broadcast
-/// to every open peer, and reported to this address's subscribers once.
+/// Write a local edit. The function merges it into the visible state
+/// immediately, broadcasts it to every open peer, and reports it to the
+/// subscribers of this address one time.
 fn mutate(
   handle: Handle(kind),
   edit: channel.P2pEdit,
@@ -3067,7 +3150,7 @@ fn mutate(
 // ── PN counter ───────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Add `amount` to the counter. Negative amounts decrement.
+/// Add `amount` to the counter. A negative amount decrements it.
 pub fn pn_counter_update(
   handle: Handle(schema.PnCounterChannel),
   amount: Int,
@@ -3105,8 +3188,8 @@ pub fn pn_counter_value(
 // ── OR-map ───────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Write a register value. Only valid on a `RegisterMode` map; a tally
-/// map returns the kernel's mode mismatch.
+/// Write a register value. This function is valid on a `RegisterMode` map only.
+/// A tally map returns the mode mismatch error of the kernel.
 pub fn or_map_set(
   handle: Handle(schema.OrMapChannel),
   key key: String,
@@ -3119,7 +3202,7 @@ pub fn or_map_set(
 }
 
 @target(javascript)
-/// Add to a tally. Only valid on a `TallyMode` map.
+/// Add to a tally. This function is valid on a `TallyMode` map only.
 pub fn or_map_increment(
   handle: Handle(schema.OrMapChannel),
   key key: String,
@@ -3149,7 +3232,7 @@ pub fn or_map_value(
 }
 
 @target(javascript)
-/// A tally key's value, or zero when the key is absent.
+/// The value of a tally key. The result is zero when the key is absent.
 pub fn or_map_tally(
   handle: Handle(schema.OrMapChannel),
   key key: String,
@@ -3390,7 +3473,7 @@ pub fn text_value(
 }
 
 @target(javascript)
-/// The text's current optimistic grapheme count.
+/// The current optimistic grapheme count of the text.
 pub fn text_length(
   handle: Handle(schema.TextChannel),
 ) -> Result(Int, P2pError) {
@@ -3402,9 +3485,9 @@ pub fn text_length(
 }
 
 @target(javascript)
-/// Create a stable anchor at the gap before the optimistic grapheme at
-/// `index`, biased with `bias_before`/`bias_after`. A typed error on an
-/// out-of-bounds index.
+/// Create a stable anchor at the gap before the optimistic grapheme at `index`.
+/// `bias_before` and `bias_after` set the bias. The result is a typed error when
+/// the index is out of bounds.
 pub fn text_anchor_at(
   handle: Handle(schema.TextChannel),
   index: Int,
@@ -3429,8 +3512,8 @@ pub fn text_anchor_at(
 }
 
 @target(javascript)
-/// Resolve an anchor to a current optimistic grapheme index. A typed error on
-/// a stale/unknown anchor target.
+/// Resolve an anchor to a current optimistic grapheme index. The result is a
+/// typed error when the anchor target is stale or unknown.
 pub fn text_resolve_anchor(
   handle: Handle(schema.TextChannel),
   anchor: TextAnchor,
@@ -3454,15 +3537,16 @@ pub fn text_resolve_anchor(
 }
 
 @target(javascript)
-/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
-/// need a handle since it carries no document state.
+/// An anchor at the start of the text. It always resolves to 0. The function is
+/// pure. It needs no handle, because the anchor carries no document state.
 pub fn text_start_anchor() -> TextAnchor {
   text_kernel.start_anchor()
 }
 
 @target(javascript)
-/// An anchor at the end of the text. Always resolves to the current grapheme
-/// length, tracking growth. Pure, like `text_start_anchor`.
+/// An anchor at the end of the text. It always resolves to the current grapheme
+/// count, and it moves as the text becomes longer. The function is pure, the
+/// same as `text_start_anchor`.
 pub fn text_end_anchor() -> TextAnchor {
   text_kernel.end_anchor()
 }
@@ -3474,8 +3558,8 @@ pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
 }
 
 @target(javascript)
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`. A
-/// typed error on malformed JSON.
+/// Decode an anchor from a JSON string that `text_anchor_to_json` produced. The
+/// result is a typed error for malformed JSON.
 pub fn text_anchor_from_json(
   json_string: String,
 ) -> Result(TextAnchor, P2pError) {
@@ -3518,15 +3602,17 @@ fn format_json_decode_error(error: json.DecodeError) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// The whole importable `crdt_core` snapshot: every channel's full CRDT
-/// state, authoring cursors included, in canonical order.
+/// The whole `crdt_core` snapshot that `import_snapshot` can read: the full
+/// CRDT state of every channel, with the authoring cursors, in canonical
+/// order.
 ///
-/// It is a `Result` because the alternative is worse. The bytes come from
-/// `canonical_json` and are re-read here to reach `gleam/json`'s value
-/// type, which has no raw constructor; the read cannot fail for anything
-/// this library can emit, but a public function that panicked — or worse,
-/// quietly handed back a snapshot with the undecodable parts turned to
-/// null — would be a snapshot nobody could trust.
+/// The function returns a `Result` value, because every other option is worse.
+/// The bytes come from `canonical_json`, and the function reads them again here
+/// to reach the value type of `gleam/json`, which has no raw constructor. That
+/// read cannot fail for anything that this library emits. But a public function
+/// that panicked would be worse, and a public function that quietly returned a
+/// snapshot with null in place of the parts that it could not decode would be
+/// worse still. No caller could trust such a snapshot.
 pub fn export_snapshot(document: CrdtDocument(root)) -> Result(Json, P2pError) {
   let state = transport_js.get_cell(document.cell)
   let raw = crdt_core.canonical_json(state.document)
@@ -3540,10 +3626,10 @@ pub fn export_snapshot(document: CrdtDocument(root)) -> Result(Json, P2pError) {
 @target(javascript)
 /// Merge an exported snapshot into a live document.
 ///
-/// Like the core import this is a join: local channels and local edits
-/// survive it. Subscriber events fan out exactly once, and a merged state on an
-/// attached document is handed to the existing anti-entropy / relay machinery
-/// rather than taking a new path here.
+/// This merge is a join, the same as the import in the core. The local channels
+/// and the local edits all stay. The subscriber events go out exactly one time.
+/// A merged state on an attached document goes to the existing anti-entropy and
+/// relay code, and it does not take a new path here.
 pub fn merge_snapshot(
   document: CrdtDocument(root),
   snapshot: Json,
@@ -3572,11 +3658,12 @@ pub fn merge_snapshot(
 }
 
 @target(javascript)
-/// Rebuild a document from an exported snapshot.
+/// Build a document again from an exported snapshot.
 ///
-/// Size, protocol version, room, compatibility tag, root type, and every
-/// channel's eligibility are checked before a single channel is loaded.
-/// The result is detached — pass it to `attach` to bring it online.
+/// The function checks the size, the protocol version, the room, the
+/// compatibility tag, the root type, and the eligibility of every channel,
+/// before it loads one channel. The result is detached. Give it to `attach` to
+/// bring it online.
 pub fn import_snapshot(
   config: Config(root),
   snapshot: Json,
@@ -3602,57 +3689,59 @@ pub fn room(document: CrdtDocument(root)) -> String {
 }
 
 @target(javascript)
-/// The signaling room this document belongs to. Alias of `room`, named for
-/// persistence storage keys.
+/// The signaling room that this document belongs to. This function is another
+/// name for `room`, and the name suits a key in persistent storage.
 pub fn room_id(document: CrdtDocument(root)) -> String {
   room(document)
 }
 
 @target(javascript)
-/// The application compatibility tag this document enforces.
+/// The compatibility tag of the application that this document applies.
 pub fn compatibility_tag(document: CrdtDocument(root)) -> String {
   crdt_core.compatibility(transport_js.get_cell(document.cell).document)
 }
 
 @target(javascript)
-/// This replica's authorship identity: the configured label with a
-/// per-connection random session id appended.
+/// The authorship identity of this replica: the label from the config, with a
+/// random session id for this connection after it.
 pub fn replica_id(document: CrdtDocument(root)) -> String {
   crdt_core.replica(transport_js.get_cell(document.cell).document)
 }
 
 @target(javascript)
-/// The application label, without the session id.
+/// The label of the application, without the session id.
 pub fn replica_label(document: CrdtDocument(root)) -> String {
   transport_js.get_cell(document.cell).label
 }
 
 @target(javascript)
-/// The canonical document digest. Two replicas holding the same logical
-/// and causal state share it, on either compile target.
+/// The canonical digest of the document. Two replicas that hold the same
+/// logical state and the same causal state get the same value, on either
+/// compile target.
 ///
-/// Computed once per document state and reused until the document moves,
-/// so reading it in a render loop costs a comparison rather than a hash
-/// of the whole document.
+/// The module computes this value one time for each document state, and it
+/// reuses that value until the document moves. To read it in a render loop thus
+/// costs one comparison, and not a hash of the whole document.
 pub fn digest(document: CrdtDocument(root)) -> String {
   document_digest(document.cell)
 }
 
 @target(javascript)
-/// How many times this document has canonicalized and hashed itself.
+/// The number of times that this document canonicalized and hashed itself.
 ///
-/// Diagnostic. Every digest this facade needs — the heartbeat, a peer's
-/// comparison, the relay's publication and attestation, and `digest`
-/// itself — is answered from one computation per document state, and this
-/// is what says so: it advances when the document has moved since the
-/// last digest, and does not when it has not.
+/// This function is a diagnostic. Every digest that this facade needs comes
+/// from one computation for each document state. Those digests are the
+/// heartbeat, the comparison against a peer, the publication and the
+/// attestation of the relay, and the `digest` function itself. This count
+/// reports that fact: it increases when the document moved after the last
+/// digest, and it does not increase when the document did not move.
 pub fn digest_computations(document: CrdtDocument(root)) -> Int {
   let state = transport_js.get_cell(document.cell)
   transport_js.get_cell(state.digest_cache).computations
 }
 
 @target(javascript)
-/// Peers that completed the `hello` handshake, sorted.
+/// The peers that completed the `hello` handshake, sorted.
 pub fn peers(document: CrdtDocument(root)) -> List(String) {
   greeted_peers(transport_js.get_cell(document.cell))
 }
@@ -3663,38 +3752,38 @@ pub fn peer_count(document: CrdtDocument(root)) -> Int {
 }
 
 @target(javascript)
-/// How far this replica is through joining its room. `Joining` until a
-/// peer has been validated, `WaitingForState` while a bootstrap
-/// `stateRequest` is outstanding, `Bootstrapped` once a room's state has
-/// merged. A diagnostic companion to `peer_count`.
+/// The progress of this replica through a join into its room. The value is
+/// `Joining` until a peer passes its checks, `WaitingForState` while a bootstrap
+/// `stateRequest` message has no answer, and `Bootstrapped` after the state of a
+/// room merges. This function is a diagnostic that pairs with `peer_count`.
 pub fn bootstrap_state(document: CrdtDocument(root)) -> BootstrapState {
   transport_js.get_cell(document.cell).bootstrap
 }
 
 @target(javascript)
-/// How many times a peer's anti-entropy digest told this replica it was
-/// behind and it asked for state — mesh partition-repair activity, as a
-/// running count. Zero on a document that has only ever agreed with its
-/// peers.
+/// The number of times that the anti-entropy digest of a peer told this replica
+/// that it was behind, and this replica then asked for the state. That number
+/// counts the partition-repair activity of the mesh. It is zero on a document
+/// that always agreed with its peers.
 pub fn repair_count(document: CrdtDocument(root)) -> Int {
   transport_js.get_cell(document.cell).repairs
 }
 
 @target(javascript)
-/// The last peer digest that matched this replica's own, if any — the
-/// most recent successful anti-entropy comparison. `None` until a peer
-/// has confirmed the two agree.
+/// The last peer digest that equalled the digest of this replica, if one
+/// exists. That value is the most recent successful anti-entropy comparison.
+/// The result is `None` until a peer confirms that the two agree.
 pub fn last_digest_match(document: CrdtDocument(root)) -> Option(String) {
   transport_js.get_cell(document.cell).last_match
 }
 
 @target(javascript)
-/// The readiness result this connection delivered, or `None` while it is
-/// still being waited for.
+/// The readiness result that this connection delivered. The value is `None`
+/// while the connection still waits for that result.
 ///
-/// Truthful about all three states, which a bare boolean cannot be: a
-/// document that failed to join and one that is still joining are not the
-/// same thing, and neither is ready.
+/// This function reports all three states correctly, and a plain boolean value
+/// cannot do that. A document that failed to join and a document that is still
+/// joining are two different conditions, and neither one is ready.
 pub fn readiness(
   document: CrdtDocument(root),
 ) -> Option(Result(Nil, P2pError)) {
@@ -3702,8 +3791,9 @@ pub fn readiness(
 }
 
 @target(javascript)
-/// Whether readiness has resolved at all, however it resolved. A closed
-/// document reads `True`: its result was delivered either way.
+/// Whether the readiness resolved at all, in either direction. A closed document
+/// gives `True`, because the module delivered its result in both
+/// conditions.
 pub fn readiness_resolved(document: CrdtDocument(root)) -> Bool {
   readiness(document) != None
 }
@@ -3714,17 +3804,17 @@ pub fn is_closed(document: CrdtDocument(root)) -> Bool {
 }
 
 @target(javascript)
-/// The policy this document was configured with.
+/// The policy that the config of this document names.
 pub fn policy(document: CrdtDocument(root)) -> TransportPolicy {
   transport_js.get_cell(document.cell).policy
 }
 
 @target(javascript)
-/// Where durable traffic is going right now.
+/// The path that the durable traffic takes now.
 ///
-/// `PeerToPeer` until a relay has merged, published, and matched digests;
-/// `PeerToPeer` again the instant one drops, before the fallback status
-/// is even emitted.
+/// The value is `PeerToPeer` until a relay merges, publishes, and matches the
+/// digests. It is `PeerToPeer` again at the moment that a relay drops, before
+/// the module emits the fallback status.
 pub fn effective_path(document: CrdtDocument(root)) -> TransportPath {
   transport_js.get_cell(document.cell).path
 }
@@ -3736,14 +3826,14 @@ pub fn relay_is_primary(document: CrdtDocument(root)) -> Bool {
 }
 
 @target(javascript)
-/// Whether a relay lane has been opened at all. `False` under `P2pOnly`,
-/// and under `Auto` with no sequencer configured.
+/// Whether the module opened a relay lane at all. The result is `False` under
+/// `P2pOnly`, and under `Auto` with no sequencer in the config.
 pub fn relay_attached_lane(document: CrdtDocument(root)) -> Bool {
   transport_js.get_cell(document.cell).relay != None
 }
 
 @target(javascript)
-/// A one-line rendering of a typed error, for status lines and logs.
+/// A typed error on one line, for a status line and for a log.
 pub fn describe_error(error: P2pError) -> String {
   let #(reason, detail) = error_parts(error)
   case detail {
@@ -3753,8 +3843,9 @@ pub fn describe_error(error: P2pError) -> String {
 }
 
 @target(javascript)
-/// The wire `reason`/`detail` pair a rejection is reported to a peer
-/// with. Stable strings: a peer logs them, and a test asserts on them.
+/// The `reason` and `detail` pair on the wire, which a refusal to a peer
+/// carries. These strings are stable. A peer logs them, and a test asserts on
+/// them.
 fn error_parts(error: P2pError) -> #(String, String) {
   case error {
     p2p.UnsupportedChannel(channel_type) -> #(
