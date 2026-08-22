@@ -676,11 +676,11 @@ function poison(room, from, index) {
 async function noSequencedLane() {
   const forbiddenModules = [
     "runtime_core",
-    "runtime_js",
+    "runtime",
     "summary_policy",
     "presence",
     "presence_js",
-    "watershed_js",
+    "watershed",
     "sluice",
   ];
   const forbiddenSymbols = ["handle_sequenced", "ack_local", "summary"];

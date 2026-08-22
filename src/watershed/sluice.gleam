@@ -39,9 +39,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 
 @target(erlang)
-import watershed
+import watershed_beam
 @target(erlang)
-import watershed/runtime
+import watershed/runtime_beam
 @target(erlang)
 import watershed/sluice/core
 
@@ -60,7 +60,7 @@ pub opaque type Sluice {
 
 @target(erlang)
 /// Start a sluice for one document. `tenant`/`document` name the logical
-/// document the way `watershed.connect` would.
+/// document the way `watershed_beam.connect` would.
 pub fn start(
   tenant tenant: String,
   document document: String,
@@ -80,16 +80,16 @@ pub fn start(
 }
 
 @target(erlang)
-/// Connect a fresh client, returning a real `watershed.Document`. The handshake
+/// Connect a fresh client, returning a real `watershed_beam.Document`. The handshake
 /// completes on the next `settle` (delivery is explicit), so callers connect
 /// every client, then `settle` once before editing.
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
-) -> Result(watershed.Document(root), String) {
+) -> Result(watershed_beam.Document(root), String) {
   let transport = sluice_transport(sluice.actor)
   case
-    watershed.connect_via(
+    watershed_beam.connect_via(
       tenant: sluice.tenant,
       document: sluice.document,
       user_id: user_id,
@@ -100,7 +100,7 @@ pub fn connect(
     Ok(document) -> {
       // Bind this document's runtime to the connection just registered, so
       // `settle` can barrier it and `pause` can target it.
-      let subject = watershed.runtime_subject(document)
+      let subject = watershed_beam.runtime_subject(document)
       let _ =
         process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
           Bind(subject, reply)
@@ -135,7 +135,7 @@ pub fn connect(
 /// the runtime run its whole reconnect — `ChannelClosed` → re-`connect` →
 /// `ChannelReady` → `connect_document` carrying `last_seen` — before `Bind`
 /// re-points the binding at the connection it just opened.
-pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
+pub fn reconnect(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
@@ -152,8 +152,8 @@ pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 ///
 /// The runtime keeps its core and sits in its reconnecting phase until
 /// `rejoin`.
-pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
-  let subject = watershed.runtime_subject(document)
+pub fn drop(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
+  let subject = watershed_beam.runtime_subject(document)
   let _ =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
       DropConn(subject, reply)
@@ -166,8 +166,8 @@ pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 /// fresh server-assigned client id.
 ///
 /// A no-op for a client that was not `drop`ped.
-pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
-  let subject = watershed.runtime_subject(document)
+pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
+  let subject = watershed_beam.runtime_subject(document)
   case
     process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
       TakeDropped(subject, reply)
@@ -178,7 +178,7 @@ pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
       on_close("sluice reconnect")
       // Flush the runtime: it must reach `connect_document` before `Bind` can
       // find the new connection as `last_registered`.
-      let _ = runtime.is_synced(subject)
+      let _ = runtime_beam.is_synced(subject)
       let _ =
         process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
           Bind(subject, reply)
@@ -214,8 +214,8 @@ pub fn step(sluice: Sluice) -> Bool {
 @target(erlang)
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered.
-pub fn pause(sluice: Sluice, document: watershed.Document(root)) -> Nil {
-  let subject = watershed.runtime_subject(document)
+pub fn pause(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
+  let subject = watershed_beam.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Pause(subject, reply)
   })
@@ -223,8 +223,8 @@ pub fn pause(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 
 @target(erlang)
 /// Release a paused client's held frames back into the deliverable queue.
-pub fn resume(sluice: Sluice, document: watershed.Document(root)) -> Nil {
-  let subject = watershed.runtime_subject(document)
+pub fn resume(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
+  let subject = watershed_beam.runtime_subject(document)
   process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
     Resume(subject, reply)
   })
@@ -278,7 +278,7 @@ fn barrier_all(sluice: Sluice) -> Nil {
   let subjects =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: Subjects)
   list.each(subjects, fn(subject) {
-    let _ = runtime.is_synced(subject)
+    let _ = runtime_beam.is_synced(subject)
     Nil
   })
 }
@@ -288,14 +288,14 @@ fn barrier_all(sluice: Sluice) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-fn sluice_transport(actor: Subject(Message)) -> runtime.Transport {
-  runtime.Transport(connect: fn(callbacks: runtime.TransportCallbacks) -> Nil {
+fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
+  runtime_beam.Transport(connect: fn(callbacks: runtime_beam.TransportCallbacks) -> Nil {
     let client_id =
       process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
         Register(callbacks.on_event, callbacks.on_close, reply)
       })
     let handle =
-      runtime.TransportHandle(
+      runtime_beam.TransportHandle(
         push: fn(event, payload) {
           process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
             Push(client_id, event, payload, reply)
@@ -324,26 +324,26 @@ type Message {
   /// sequence its `leave`, forget the connection, and hand its `on_close` back
   /// so the *caller* can fire it (calling into a runtime from inside this actor
   /// would invert the lock order this driver is built on).
-  DropConn(subject: Subject(runtime.Msg), reply: Subject(Result(Nil, Nil)))
+  DropConn(subject: Subject(runtime_beam.Msg), reply: Subject(Result(Nil, Nil)))
   /// Hand back a dropped runtime's `on_close` so the caller can fire it, which
   /// is what starts the rejoin. Kept out of `DropConn` so a test can sequence
   /// ops while the client is away.
   TakeDropped(
-    subject: Subject(runtime.Msg),
+    subject: Subject(runtime_beam.Msg),
     reply: Subject(Result(fn(String) -> Nil, Nil)),
   )
   /// Associate a runtime subject with the just-registered connection.
-  Bind(subject: Subject(runtime.Msg), reply: Subject(String))
+  Bind(subject: Subject(runtime_beam.Msg), reply: Subject(String))
   /// A client→server push (synchronous; the reply is the flush barrier).
   Push(client_id: String, event: String, payload: Json, reply: Subject(Nil))
   /// Pop one deliverable frame and deliver it; reply whether one was sent.
   TakeAndDeliver(reply: Subject(Bool))
-  Pause(subject: Subject(runtime.Msg), reply: Subject(Nil))
-  Resume(subject: Subject(runtime.Msg), reply: Subject(Nil))
+  Pause(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
+  Resume(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
   Advance(ms: Int, reply: Subject(Nil))
   SetPresenceSupported(supported: Bool, reply: Subject(Nil))
   /// The connected runtime subjects, for the caller's barrier sweep.
-  Subjects(reply: Subject(List(Subject(runtime.Msg))))
+  Subjects(reply: Subject(List(Subject(runtime_beam.Msg))))
 }
 
 @target(erlang)
@@ -351,10 +351,10 @@ type State {
   State(
     core: core.Sluice,
     conns: List(#(String, Conn)),
-    subjects: List(#(Subject(runtime.Msg), String)),
+    subjects: List(#(Subject(runtime_beam.Msg), String)),
     /// Runtimes whose socket has been taken away but which have not been let
     /// back yet, holding the `on_close` that starts their rejoin.
-    dropped: List(#(Subject(runtime.Msg), fn(String) -> Nil)),
+    dropped: List(#(Subject(runtime_beam.Msg), fn(String) -> Nil)),
     last_registered: Option(String),
   )
 }
@@ -524,8 +524,8 @@ fn to_dynamic(payload: Json) -> Dynamic {
 
 @target(erlang)
 fn client_id_of(
-  subjects: List(#(Subject(runtime.Msg), String)),
-  subject: Subject(runtime.Msg),
+  subjects: List(#(Subject(runtime_beam.Msg), String)),
+  subject: Subject(runtime_beam.Msg),
 ) -> Result(String, Nil) {
   case list.find(subjects, fn(pair) { pair.0 == subject }) {
     Ok(pair) -> Ok(pair.1)

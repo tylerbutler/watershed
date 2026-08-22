@@ -62,7 +62,7 @@ gleam test        # in-process: claim race, worker death, role handoff, release
 pnpm run smoke    # live server: the same claims end to end through floodgate
 ```
 
-The in-process tests drive two real `watershed_js` clients over the in-memory
+The in-process tests drive two real `watershed` clients over the in-memory
 `sluice_js`, whose `disconnect` sequences the same `"leave"` the server would.
 The smoke test is the one that proves floodgate itself emits that leave for a
 vanished socket — the single behaviour the in-process suite cannot vouch for.

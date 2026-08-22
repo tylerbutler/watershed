@@ -37,7 +37,7 @@ import watershed/browser
 import watershed/client_id
 import watershed/pact_map_kernel
 import watershed/summary_policy
-import watershed_js.{type Document, type OrSet, type PactMap}
+import watershed.{type Document, type OrSet, type PactMap}
 import watershed_lustre
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
@@ -290,7 +290,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// `ensure_*` dispatches its channel back as an `Ensured*` message; they
 /// assemble into `SharedState` once all five have arrived.
 fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     // A jam session writes a lot of small ops — a step toggle apiece — so this
     // is the example where an unsummarized log grows fastest and a later joiner
@@ -311,7 +311,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
       doc_schema.settings(),
       EnsuredSettings,
     ),
-    watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
       SharedChanged
     }),
   ])
@@ -483,7 +483,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     BpmCommitted ->
       case model.shared, tempo_locked(model), model.bpm_draft == model.bpm {
         Some(shared), False, False -> {
-          watershed_js.pact_map_set(
+          watershed.pact_map_set(
             shared.settings,
             bpm_key,
             json.int(model.bpm_draft),
@@ -542,12 +542,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// only while something is pending and stops as soon as it is not.
 fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
   let accepted =
-    watershed_js.pact_map_get(shared.settings, bpm_key)
+    watershed.pact_map_get(shared.settings, bpm_key)
     |> option.then(decode_bpm)
     |> option.unwrap(default_bpm)
 
   let proposal =
-    watershed_js.pact_map_pending(shared.settings, bpm_key)
+    watershed.pact_map_pending(shared.settings, bpm_key)
     |> option.then(fn(pending: pact_map_kernel.Pending) {
       case pending.value |> option.then(decode_bpm) {
         Some(bpm) ->
@@ -597,7 +597,7 @@ fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
 ///
 /// The one entry a reader *can* place is their own, and it is the one that
 /// changes what they do: "the room is waiting on you" is actionable, "the room
-/// is waiting on client 274880073" is trivia. `watershed_js.client_id` plus
+/// is waiting on client 274880073" is trivia. `watershed.client_id` plus
 /// `client_id.to_int` is the same derivation the runtime and the kernels use,
 /// so the comparison is exact rather than a guess.
 ///
@@ -613,7 +613,7 @@ fn client_label(model: Model, id: Int) -> String {
 
 fn own_client_id(model: Model) -> Option(Int) {
   model.doc
-  |> option.then(watershed_js.client_id)
+  |> option.then(watershed.client_id)
   |> option.map(client_id.to_int)
 }
 
@@ -707,9 +707,9 @@ fn toggle_at(model: Model, track_index: Int, step: Int) -> Nil {
     Some(shared), Some(track) -> {
       let set = track_set(shared, track)
       let key = int.to_string(step)
-      case watershed_js.or_set_contains(set, key) {
-        True -> watershed_js.or_set_remove(set, key)
-        False -> watershed_js.or_set_add(set, key)
+      case watershed.or_set_contains(set, key) {
+        True -> watershed.or_set_remove(set, key)
+        False -> watershed.or_set_add(set, key)
       }
     }
     _, _ -> Nil
@@ -735,10 +735,10 @@ fn snapshot(model: Model) -> Model {
     Some(shared) -> {
       let pattern =
         Pattern(
-          kick: watershed_js.or_set_values(shared.kick),
-          snare: watershed_js.or_set_values(shared.snare),
-          hat: watershed_js.or_set_values(shared.hat),
-          clap: watershed_js.or_set_values(shared.clap),
+          kick: watershed.or_set_values(shared.kick),
+          snare: watershed.or_set_values(shared.snare),
+          hat: watershed.or_set_values(shared.hat),
+          clap: watershed.or_set_values(shared.clap),
         )
       push_pattern(model.engine, pattern)
       Model(..model, pattern: pattern)

@@ -1,4 +1,4 @@
-//// Tests for watershed.dev_token — the public Erlang JWT helper.
+//// Tests for watershed_beam.dev_token — the public Erlang JWT helper.
 ////
 //// Validates that the function exists on the Erlang target and produces a
 //// well-formed HS256 JWT (three base64url segments separated by ".").
@@ -9,7 +9,7 @@ import gleam/string
 import startest/expect
 
 @target(erlang)
-import watershed
+import watershed_beam
 
 @target(erlang)
 const tenant_secret = "levee-dev-secret-change-in-production"
@@ -26,7 +26,7 @@ const user_id = "user-test"
 @target(erlang)
 pub fn dev_token_has_three_segments_test() {
   let token =
-    watershed.dev_token(
+    watershed_beam.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,
@@ -42,7 +42,7 @@ import gleam/list
 @target(erlang)
 pub fn dev_token_segments_are_nonempty_test() {
   let token =
-    watershed.dev_token(
+    watershed_beam.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,
@@ -57,14 +57,14 @@ pub fn dev_token_segments_are_nonempty_test() {
 @target(erlang)
 pub fn dev_token_header_is_hs256_jwt_test() {
   let t1 =
-    watershed.dev_token(
+    watershed_beam.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,
       user_id: user_id,
     )
   let t2 =
-    watershed.dev_token(
+    watershed_beam.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,

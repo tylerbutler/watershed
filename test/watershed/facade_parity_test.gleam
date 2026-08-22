@@ -356,7 +356,7 @@ const beam_only = ["runtime_subject"]
 const js_only = ["runtime_of", "diagnostics", "go_offline", "go_online"]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,
-/// `subscribe_*`) and nothing else; edits and reads stay on `watershed_js`.
+/// `subscribe_*`) and nothing else; edits and reads stay on `watershed`.
 /// Kinds it has not been given bindings for go here.
 ///
 /// Empty is the invariant, and the test below is two-sided about it: a new kind
@@ -371,14 +371,14 @@ const lustre_gaps: List(String) = []
 /// Every kind exposes every lifecycle, operation, and subscription name on the
 /// BEAM facade.
 pub fn beam_facade_covers_every_axis_test() {
-  let exports = exports_of("src/watershed.gleam")
+  let exports = exports_of("src/watershed_beam.gleam")
   missing_names(exports, kinds()) |> expect.to_equal([])
 }
 
 /// ...and the same on the JS facade. Kept as a separate test so a failure names
 /// which target regressed.
 pub fn js_facade_covers_every_axis_test() {
-  let exports = exports_of("src/watershed_js.gleam")
+  let exports = exports_of("src/watershed.gleam")
   missing_names(exports, kinds()) |> expect.to_equal([])
 }
 
@@ -386,8 +386,8 @@ pub fn js_facade_covers_every_axis_test() {
 /// escape hatches. This is the check that would have caught `SharedRichText`
 /// being absent from the JS facade for as long as it was.
 pub fn facades_agree_with_each_other_test() {
-  let beam = exports_of("src/watershed.gleam")
-  let js = exports_of("src/watershed_js.gleam")
+  let beam = exports_of("src/watershed_beam.gleam")
+  let js = exports_of("src/watershed.gleam")
 
   set.difference(beam, js)
   |> set.difference(set.from_list(beam_only))
@@ -421,8 +421,9 @@ pub fn lustre_gaps_are_exactly_as_documented_test() {
 /// A guard on this file itself: if the source were unreadable or the extraction
 /// broke, every assertion above would pass vacuously against an empty set.
 pub fn extraction_actually_finds_exports_test() {
-  { set.size(exports_of("src/watershed.gleam")) > 100 } |> expect.to_be_true()
-  { set.size(exports_of("src/watershed_js.gleam")) > 100 }
+  { set.size(exports_of("src/watershed_beam.gleam")) > 100 }
+  |> expect.to_be_true()
+  { set.size(exports_of("src/watershed.gleam")) > 100 }
   |> expect.to_be_true()
   { set.size(exports_of("watershed_lustre/src/watershed_lustre.gleam")) > 20 }
   |> expect.to_be_true()

@@ -48,7 +48,7 @@ import lustre/element/html
 import lustre/event
 
 import watershed/text_kernel
-import watershed_js.{
+import watershed.{
   type Document, type SharedText, type TextAnchor, type TypedMap,
 }
 import watershed_lustre
@@ -175,7 +175,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(editor), value -> {
           // An edit the textarea does not own. It needs no notification: the
           // channel's own event re-snapshots it a microtask later.
-          let result = watershed_js.text_append(textarea.channel(editor), value)
+          let result = watershed.text_append(textarea.channel(editor), value)
           let model =
             Model(..model, draft_append: "")
             |> refresh_anchor
@@ -194,7 +194,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let text = textarea.channel(editor)
           let index = textarea.length(editor)
           case
-            watershed_js.text_anchor_at(text, index, watershed_js.bias_before)
+            watershed.text_anchor_at(text, index, watershed.bias_before)
           {
             Ok(anchor) -> #(
               Model(..model, anchor: Some(anchor))
@@ -293,7 +293,7 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
 fn refresh_anchor(model: Model) -> Model {
   case model.editor, model.anchor {
     Some(editor), Some(anchor) ->
-      case watershed_js.text_resolve_anchor(textarea.channel(editor), anchor) {
+      case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {
         Ok(pos) -> Model(..model, anchor_pos: Some(pos))
         Error(_) -> Model(..model, anchor_pos: None)
       }

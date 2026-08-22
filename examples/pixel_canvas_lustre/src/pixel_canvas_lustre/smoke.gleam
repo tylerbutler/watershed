@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` clients against a live
+//// Headless smoke test: drive two `watershed` clients against a live
 //// floodgate dev server (`just integration-up`) from Node and assert that the
 //// canvas converges — the OR-map kernel in register mode, its wire codecs, the
 //// JS runtime, the Phoenix FFI transport, and the pure core, end to end.
@@ -24,7 +24,7 @@ import gleam/option.{type Option, Some}
 import gleam/string
 
 import watershed/or_map_kernel
-import watershed_js.{type Document, type OrMap, WatershedConfig}
+import watershed.{type Document, type OrMap, WatershedConfig}
 
 import pixel_canvas_lustre/doc_schema
 import pixel_canvas_lustre/grid
@@ -48,13 +48,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.CanvasDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -91,9 +91,9 @@ fn run_scenario(
   use <- delay(2000)
   log("smoke: ensuring the pixels channel on A")
 
-  watershed_js.ensure_or_map(
+  watershed.ensure_or_map(
     doc_a,
-    watershed_js.root_typed(doc_a),
+    watershed.root_typed(doc_a),
     doc_schema.pixels(),
     or_map_kernel.RegisterMode,
     fn(result) {
@@ -116,9 +116,9 @@ fn adopt_on_b(
   // B adopts the same channel rather than creating its own — `ensure_or_map`
   // resolves the handle A just published.
   use <- delay(1500)
-  watershed_js.ensure_or_map(
+  watershed.ensure_or_map(
     doc_b,
-    watershed_js.root_typed(doc_b),
+    watershed.root_typed(doc_b),
     doc_schema.pixels(),
     or_map_kernel.RegisterMode,
     fn(result) {
@@ -169,9 +169,9 @@ fn paint_scenario(
   // `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`. The runtime now
   // requests its own gap on the handshake, so coming back is checked here too.
   log("smoke: A goes offline and keeps painting")
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   use <- delay(500)
-  let held = watershed_js.diagnostics(doc_a).phase == "reconnecting"
+  let held = watershed.diagnostics(doc_a).phase == "reconnecting"
 
   let stroke = [20, 21, 22, 23]
   list.each(stroke, fn(x) { paint(a, x, 30, 6) })
@@ -185,7 +185,7 @@ fn paint_scenario(
   log("  A while offline: " <> diag(doc_a))
 
   log("smoke: A comes back")
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   use <- delay(3000)
   // Every cell of the offline stroke arrives, not just the last one — a flush
   // that dropped all but the newest write per key would still look like a
@@ -231,11 +231,11 @@ fn paint_scenario(
 }
 
 fn paint(pixels: OrMap, x: Int, y: Int, color: Int) -> Nil {
-  watershed_js.or_map_set(pixels, grid.encode(x, y), int.to_string(color))
+  watershed.or_map_set(pixels, grid.encode(x, y), int.to_string(color))
 }
 
 fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
-  case watershed_js.or_map_value(pixels, grid.encode(x, y)) {
+  case watershed.or_map_value(pixels, grid.encode(x, y)) {
     Some(or_map_kernel.Register(value)) -> Some(value)
     _ -> option.None
   }
@@ -244,7 +244,7 @@ fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
 /// A compact "how many cells, which colours" line for the failure message —
 /// dumping 4096 keys would bury the thing that went wrong.
 fn summarise(pixels: OrMap) -> String {
-  let keys = watershed_js.or_map_keys(pixels)
+  let keys = watershed.or_map_keys(pixels)
   int.to_string(list.length(keys))
   <> " cells ["
   <> string.join(list.take(list.sort(keys, string.compare), 6), " ")
@@ -252,7 +252,7 @@ fn summarise(pixels: OrMap) -> String {
 }
 
 fn diag(doc: Document(doc_schema.CanvasDoc)) -> String {
-  let d = watershed_js.diagnostics(doc)
+  let d = watershed.diagnostics(doc)
   d.phase
   <> " last_seen="
   <> opt_int(d.last_seen_sequence_number)

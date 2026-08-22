@@ -19,7 +19,7 @@ import gleeunit/should
 import doc_schema
 import release_readiness
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Claims, type Document}
+import watershed.{type Claims, type Document}
 
 const captain_key = "captain"
 
@@ -36,11 +36,11 @@ fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
   sluice_js.settle(sluice)
 
   let assert [first, ..] = docs
-  let assert Ok(seed) = watershed_js.create_claims(first)
-  watershed_js.set(
-    watershed_js.root(first),
+  let assert Ok(seed) = watershed.create_claims(first)
+  watershed.set(
+    watershed.root(first),
     captain_key,
-    watershed_js.claims_handle_of(seed),
+    watershed.claims_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
@@ -48,8 +48,8 @@ fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
     docs
     |> list.map(fn(doc: Document(doc_schema.Checklist)) {
       let assert Some(value) =
-        watershed_js.get(watershed_js.root(doc), captain_key)
-      let assert Ok(claims) = watershed_js.resolve_claims(doc, value)
+        watershed.get(watershed.root(doc), captain_key)
+      let assert Ok(claims) = watershed.resolve_claims(doc, value)
       claims
     })
   #(sluice, claims)
@@ -67,7 +67,7 @@ fn captain_of(claims: List(Claims), index: Int) -> Claims {
 /// Read the committed captain, exactly as `release_checklist_lustre.
 /// read_captain` decodes it.
 fn committed_captain(claims: Claims) -> Option(String) {
-  case watershed_js.get_claim(claims, captain_key) {
+  case watershed.get_claim(claims, captain_key) {
     Some(value) ->
       case json.parse(json.to_string(value), decode.string) {
         Ok(user_id) -> Some(user_id)
@@ -83,7 +83,7 @@ pub fn first_writer_wins_the_captain_seat_test() {
   let #(sluice, claims) = room("captain-first-writer", ["user-a", "user-b"])
 
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -98,7 +98,7 @@ pub fn a_second_claim_after_commit_is_rejected_test() {
   let #(sluice, claims) = room("captain-already-claimed", ["user-a", "user-b"])
 
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -108,7 +108,7 @@ pub fn a_second_claim_after_commit_is_rejected_test() {
   // B tries to claim a seat that is already taken. `try_set_claim` is
   // write-once: this must not disturb the committed captain.
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
@@ -126,19 +126,19 @@ pub fn concurrent_captain_claims_converge_on_one_winner_test() {
   // All three reach for the seat in the same instant — nobody has seen
   // anybody else's claim yet.
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
     )
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
     )
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 2),
       captain_key,
       json.string("user-c"),
@@ -188,7 +188,7 @@ pub fn compare_and_set_takes_the_seat_over_test() {
   let #(sluice, claims) = room("captain-takeover", ["user-a", "user-b"])
 
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -199,7 +199,7 @@ pub fn compare_and_set_takes_the_seat_over_test() {
   // B takes over — a compare-and-set against the committed entry B has
   // observed, not a fresh write-once claim.
   let _ =
-    watershed_js.compare_and_set_claim(
+    watershed.compare_and_set_claim(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
@@ -217,7 +217,7 @@ pub fn concurrent_takeover_attempts_converge_on_one_winner_test() {
     room("captain-takeover-race", ["user-a", "user-b", "user-c"])
 
   let _ =
-    watershed_js.try_set_claim(
+    watershed.try_set_claim(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -227,13 +227,13 @@ pub fn concurrent_takeover_attempts_converge_on_one_winner_test() {
   // B and C both observed A holding the seat, and both race to take it over
   // in the same instant.
   let _ =
-    watershed_js.compare_and_set_claim(
+    watershed.compare_and_set_claim(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
     )
   let _ =
-    watershed_js.compare_and_set_claim(
+    watershed.compare_and_set_claim(
       captain_of(claims, 2),
       captain_key,
       json.string("user-c"),

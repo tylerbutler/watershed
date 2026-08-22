@@ -9,7 +9,7 @@ import gleam/option.{type Option, Some}
 import gleam/string
 
 /// Whether `user_id` is the currently committed captain. `committed` is
-/// whatever `watershed_js.get_claim` on the `"captain"` key decoded to —
+/// whatever `watershed.get_claim` on the `"captain"` key decoded to —
 /// `None` until someone claims the seat.
 ///
 /// This is a UI convenience, not an authorization boundary: nothing in

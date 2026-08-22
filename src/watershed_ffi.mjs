@@ -1,4 +1,4 @@
-// Browser-side helpers for the JavaScript facade (`watershed_js`).
+// Browser-side helpers for the JavaScript facade (`watershed`).
 //
 // The declarative `ensure_*` bootstrap waits for sync and retries handle
 // resolution on a timer rather than blocking (the BEAM facade blocks instead).

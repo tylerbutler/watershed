@@ -4,12 +4,12 @@ import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 
 const send = `import gleam/json
-import watershed_js
+import watershed
 
 // Broadcast which card this teammate is focused on. Fire-and-forget:
 // nothing is stored, nothing is sequenced, no one converges on it.
 pub fn announce_focus(doc, card_id: String) {
-  watershed_js.submit_ripple(
+  watershed.submit_ripple(
     doc,
     ripple_type: "focus",
     content: json.object([#("card_id", json.string(card_id))]),
@@ -18,19 +18,19 @@ pub fn announce_focus(doc, card_id: String) {
 
 const recv = `import gleam/dynamic/decode
 import gleam/option.{Some}
-import watershed_js
+import watershed
 
 // React to every peer's ripples. \`ripple_client_id\` tells you who sent it;
 // the content is left as Dynamic for you to decode per type.
-watershed_js.subscribe_ripples(doc, fn(ripple) {
-  case watershed_js.ripple_type(ripple) {
+watershed.subscribe_ripples(doc, fn(ripple) {
+  case watershed.ripple_type(ripple) {
     Some("focus") -> {
       let decoded =
         decode.run(
-          watershed_js.ripple_content(ripple),
+          watershed.ripple_content(ripple),
           decode.at(["card_id"], decode.string),
         )
-      case decoded, watershed_js.ripple_client_id(ripple) {
+      case decoded, watershed.ripple_client_id(ripple) {
         Ok(card_id), Some(peer) -> move_peer_marker(peer, card_id)
         _, _ -> Nil
       }

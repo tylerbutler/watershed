@@ -25,7 +25,7 @@ import gleeunit/should
 
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document}
+import watershed.{type Document}
 
 import board
 import column.{type Column}
@@ -36,11 +36,11 @@ import note.{type Note, Note}
 /// One client's view of the five channels, mirroring the app's `SharedState`.
 type Channels {
   Channels(
-    notes: watershed_js.OrMap,
-    votes: watershed_js.OrMap,
-    went_well: watershed_js.SharedSequence,
-    to_improve: watershed_js.SharedSequence,
-    action_items: watershed_js.SharedSequence,
+    notes: watershed.OrMap,
+    votes: watershed.OrMap,
+    went_well: watershed.SharedSequence,
+    to_improve: watershed.SharedSequence,
+    action_items: watershed.SharedSequence,
   )
 }
 
@@ -59,19 +59,19 @@ fn room(
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root = watershed_js.root(doc_a)
+  let root = watershed.root(doc_a)
   let assert Ok(notes) =
-    watershed_js.create_or_map(doc_a, or_map_kernel.RegisterMode)
-  watershed_js.set(root, "notes", watershed_js.or_map_handle_of(notes))
+    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
+  watershed.set(root, "notes", watershed.or_map_handle_of(notes))
   let assert Ok(votes) =
-    watershed_js.create_or_map(doc_a, or_map_kernel.TallyMode)
-  watershed_js.set(root, "votes", watershed_js.or_map_handle_of(votes))
+    watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
+  watershed.set(root, "votes", watershed.or_map_handle_of(votes))
   list.each(column.all(), fn(col) {
-    let assert Ok(sequence) = watershed_js.create_sequence(doc_a)
-    watershed_js.set(
+    let assert Ok(sequence) = watershed.create_sequence(doc_a)
+    watershed.set(
       root,
       column.id(col),
-      watershed_js.sequence_handle_of(sequence),
+      watershed.sequence_handle_of(sequence),
     )
   })
   sluice_js.settle(sluice)
@@ -80,15 +80,15 @@ fn room(
 }
 
 fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
-  let root = watershed_js.root(doc)
-  let assert Some(notes_handle) = watershed_js.get(root, "notes")
-  let assert Ok(notes) = watershed_js.resolve_or_map(doc, notes_handle)
-  let assert Some(votes_handle) = watershed_js.get(root, "votes")
-  let assert Ok(votes) = watershed_js.resolve_or_map(doc, votes_handle)
+  let root = watershed.root(doc)
+  let assert Some(notes_handle) = watershed.get(root, "notes")
+  let assert Ok(notes) = watershed.resolve_or_map(doc, notes_handle)
+  let assert Some(votes_handle) = watershed.get(root, "votes")
+  let assert Ok(votes) = watershed.resolve_or_map(doc, votes_handle)
   let assert [went_well, to_improve, action_items] =
     list.map(column.all(), fn(col) {
-      let assert Some(handle) = watershed_js.get(root, column.id(col))
-      let assert Ok(sequence) = watershed_js.resolve_sequence(doc, handle)
+      let assert Some(handle) = watershed.get(root, column.id(col))
+      let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
       sequence
     })
   Channels(notes:, votes:, went_well:, to_improve:, action_items:)
@@ -97,7 +97,7 @@ fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
 fn sequence_for(
   channels: Channels,
   col: Column,
-) -> watershed_js.SharedSequence {
+) -> watershed.SharedSequence {
   case col {
     column.WentWell -> channels.went_well
     column.ToImprove -> channels.to_improve
@@ -110,12 +110,12 @@ fn sequence_for(
 fn add_note(channels: Channels, id: String, text: String, col: Column) -> Nil {
   let entry =
     Note(text: text, column: column.id(col), author: id, created: 1000)
-  watershed_js.or_map_set_json(channels.notes, id, note.to_json(entry))
+  watershed.or_map_set_json(channels.notes, id, note.to_json(entry))
   let sequence = sequence_for(channels, col)
   let assert Ok(Nil) =
-    watershed_js.sequence_insert(
+    watershed.sequence_insert(
       sequence,
-      watershed_js.sequence_length(sequence),
+      watershed.sequence_length(sequence),
       json.string(id),
     )
   Nil
@@ -131,8 +131,8 @@ fn board_of(channels: Channels) -> board.RenderedBoard {
   ])
 }
 
-fn note_entries(notes: watershed_js.OrMap) -> List(#(String, Note)) {
-  watershed_js.or_map_entries(notes)
+fn note_entries(notes: watershed.OrMap) -> List(#(String, Note)) {
+  watershed.or_map_entries(notes)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
@@ -141,8 +141,8 @@ fn note_entries(notes: watershed_js.OrMap) -> List(#(String, Note)) {
   })
 }
 
-fn vote_entries(votes: watershed_js.OrMap) -> List(#(String, Int)) {
-  watershed_js.or_map_entries(votes)
+fn vote_entries(votes: watershed.OrMap) -> List(#(String, Int)) {
+  watershed.or_map_entries(votes)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
@@ -151,8 +151,8 @@ fn vote_entries(votes: watershed_js.OrMap) -> List(#(String, Int)) {
   })
 }
 
-fn sequence_ids(sequence: watershed_js.SharedSequence) -> List(String) {
-  watershed_js.sequence_values(sequence)
+fn sequence_ids(sequence: watershed.SharedSequence) -> List(String) {
+  watershed.sequence_values(sequence)
   |> list.filter_map(fn(value) {
     json.parse(json.to_string(value), decode.string)
     |> result.replace_error(Nil)
@@ -161,7 +161,7 @@ fn sequence_ids(sequence: watershed_js.SharedSequence) -> List(String) {
 
 /// A note's converged tally, as the vote pill reads it.
 fn tally(channels: Channels, id: String) -> Int {
-  case watershed_js.or_map_value(channels.votes, id) {
+  case watershed.or_map_value(channels.votes, id) {
     Some(or_map_kernel.Tally(count)) -> count
     _ -> 0
   }
@@ -179,11 +179,11 @@ pub fn concurrent_adds_in_same_column_both_survive_test() {
   add_note(b, "note-b", "standup stayed short", column.WentWell)
   sluice_js.settle(sluice)
 
-  let keys_a = watershed_js.or_map_keys(a.notes) |> list.sort(string.compare)
+  let keys_a = watershed.or_map_keys(a.notes) |> list.sort(string.compare)
   keys_a |> should.equal(["note-a", "note-b"])
   keys_a
   |> should.equal(
-    watershed_js.or_map_keys(b.notes) |> list.sort(string.compare),
+    watershed.or_map_keys(b.notes) |> list.sort(string.compare),
   )
 
   board_of(a) |> should.equal(board_of(b))
@@ -203,8 +203,8 @@ pub fn concurrent_reorders_in_same_column_converge_test() {
   sluice_js.settle(sluice)
 
   // A pulls the last card to the top while B pushes the first to the bottom.
-  let assert Ok(Nil) = watershed_js.sequence_move(a.action_items, 2, 0)
-  let assert Ok(Nil) = watershed_js.sequence_move(b.action_items, 0, 2)
+  let assert Ok(Nil) = watershed.sequence_move(a.action_items, 2, 0)
+  let assert Ok(Nil) = watershed.sequence_move(b.action_items, 0, 2)
   sluice_js.settle(sluice)
 
   sequence_ids(a.action_items) |> should.equal(sequence_ids(b.action_items))
@@ -219,38 +219,38 @@ pub fn concurrent_reorders_in_same_column_converge_test() {
 /// The three-op move as the app performs it: sweep the id out of every
 /// sequence, append to the destination, rewrite the register last.
 fn move_note(channels: Channels, id: String, dest: Column) -> Nil {
-  case watershed_js.or_map_value(channels.notes, id) {
+  case watershed.or_map_value(channels.notes, id) {
     Some(or_map_kernel.Register(value)) -> {
       list.each(column.all(), fn(col) {
         remove_from_sequence(sequence_for(channels, col), id)
       })
       let sequence = sequence_for(channels, dest)
       let assert Ok(Nil) =
-        watershed_js.sequence_insert(
+        watershed.sequence_insert(
           sequence,
-          watershed_js.sequence_length(sequence),
+          watershed.sequence_length(sequence),
           json.string(id),
         )
       let moved = Note(..note.from_register(value), column: column.id(dest))
-      watershed_js.or_map_set_json(channels.notes, id, note.to_json(moved))
+      watershed.or_map_set_json(channels.notes, id, note.to_json(moved))
     }
     _ -> panic as "move_note: note not present"
   }
 }
 
 fn remove_from_sequence(
-  sequence: watershed_js.SharedSequence,
+  sequence: watershed.SharedSequence,
   id: String,
 ) -> Nil {
   let found =
-    watershed_js.sequence_values(sequence)
+    watershed.sequence_values(sequence)
     |> list.index_map(fn(value, index) { #(value, index) })
     |> list.find(fn(entry) {
       json.parse(json.to_string(entry.0), decode.string) == Ok(id)
     })
   case found {
     Ok(#(_, index)) -> {
-      let assert Ok(Nil) = watershed_js.sequence_delete(sequence, index)
+      let assert Ok(Nil) = watershed.sequence_delete(sequence, index)
       remove_from_sequence(sequence, id)
     }
     Error(Nil) -> Nil
@@ -283,7 +283,7 @@ pub fn late_joiner_sees_the_full_board_test() {
 
   add_note(a, "note-1", "pairing worked", column.WentWell)
   add_note(a, "note-2", "docs lag", column.ToImprove)
-  watershed_js.or_map_increment(a.votes, "note-1", 1)
+  watershed.or_map_increment(a.votes, "note-1", 1)
   sluice_js.settle(sluice)
   move_note(a, "note-2", column.ActionItems)
   sluice_js.settle(sluice)
@@ -311,16 +311,16 @@ pub fn edit_vs_delete_converges_test() {
   // rewrite only the text. B deletes exactly as the delete button does:
   // observed remove plus the sequence sweep.
   let assert Some(or_map_kernel.Register(value)) =
-    watershed_js.or_map_value(a.notes, "note-1")
+    watershed.or_map_value(a.notes, "note-1")
   let edited = Note(..note.from_register(value), text: "edited text")
-  watershed_js.or_map_set_json(a.notes, "note-1", note.to_json(edited))
-  watershed_js.or_map_remove(b.notes, "note-1")
+  watershed.or_map_set_json(a.notes, "note-1", note.to_json(edited))
+  watershed.or_map_remove(b.notes, "note-1")
   remove_from_sequence(b.went_well, "note-1")
   sluice_js.settle(sluice)
 
   // Tier 1 — the unconditional CRDT claim: whatever happens, both agree.
-  watershed_js.or_map_value(a.notes, "note-1")
-  |> should.equal(watershed_js.or_map_value(b.notes, "note-1"))
+  watershed.or_map_value(a.notes, "note-1")
+  |> should.equal(watershed.or_map_value(b.notes, "note-1"))
   board_of(a) |> should.equal(board_of(b))
 
   // Tier 2 — pins the OBSERVED outcome of a real run (2026-08-10), not a
@@ -330,7 +330,7 @@ pub fn edit_vs_delete_converges_test() {
   // edited text. Delete wins only when nobody is touching the note. If the
   // kernel's remove semantics ever change, this test documents the change.
   let assert Some(or_map_kernel.Register(survivor)) =
-    watershed_js.or_map_value(a.notes, "note-1")
+    watershed.or_map_value(a.notes, "note-1")
   note.from_register(survivor).text |> should.equal("edited text")
 
   // The app-level consequence: B's sequence sweep DID win (the edit never
@@ -355,8 +355,8 @@ pub fn concurrent_upvotes_sum_to_two_test() {
   add_note(a, "note-1", "ship week went smoothly", column.WentWell)
   sluice_js.settle(sluice)
 
-  watershed_js.or_map_increment(a.votes, "note-1", 1)
-  watershed_js.or_map_increment(b.votes, "note-1", 1)
+  watershed.or_map_increment(a.votes, "note-1", 1)
+  watershed.or_map_increment(b.votes, "note-1", 1)
   sluice_js.settle(sluice)
 
   tally(a, "note-1") |> should.equal(2)
@@ -370,13 +370,13 @@ pub fn concurrent_up_and_down_net_zero_test() {
   add_note(a, "note-1", "retro ran long", column.ToImprove)
   sluice_js.settle(sluice)
 
-  watershed_js.or_map_increment(a.votes, "note-1", 1)
-  watershed_js.or_map_increment(b.votes, "note-1", -1)
+  watershed.or_map_increment(a.votes, "note-1", 1)
+  watershed.or_map_increment(b.votes, "note-1", -1)
   sluice_js.settle(sluice)
 
   tally(a, "note-1") |> should.equal(0)
   tally(b, "note-1") |> should.equal(0)
   // Net zero is a value, not an absence: the key survives.
-  watershed_js.or_map_keys(a.votes) |> should.equal(["note-1"])
+  watershed.or_map_keys(a.votes) |> should.equal(["note-1"])
   board_of(a) |> should.equal(board_of(b))
 }

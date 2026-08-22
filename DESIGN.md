@@ -76,8 +76,8 @@ sections themselves get plain headings — no per-section eyebrows.
 - Panels and tables: 1px `--ink` borders, no border-radius, no shadows —
   everything sits flat on the sheet like printed linework.
 - Architecture cross-section: keep target-specific facades/runtimes/transports
-  in the left/right columns (`watershed`/`runtime`/`aquamarine` vs
-  `watershed_js`/`runtime_js`/`transport_js`); keep `runtime_core`, `channel`,
+  in the left/right columns (`watershed_beam`/`runtime_beam`/`aquamarine` vs
+  `watershed`/`runtime`/`transport_js`); keep `runtime_core`, `channel`,
   `wire`, and kernel modules in the shared bedrock layer.
 - "Stamps" (`.stamp`, `.pure-stamp`): mono uppercase in a 1.5px
   `currentColor` box, rotated ~2deg, like a hand inspection stamp.

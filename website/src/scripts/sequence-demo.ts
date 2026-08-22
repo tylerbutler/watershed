@@ -5,8 +5,8 @@
 // others resolve it. From there, edits are ordinary facade calls the sluice
 // sequences — the runtime owns optimistic apply, pending, and resubmit — so
 // the demo just issues inserts/moves/renames/deletes and reads values back.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime_js.mjs";
+import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";

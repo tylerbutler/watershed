@@ -1,13 +1,13 @@
 // Live SharedDirectory convergence demo: three real watershed documents share
 // one nested folder tree, driven through the in-memory sluice (see
 // ./demo/sluice-rig.ts for the shared orchestration). SharedDirectory isn't in
-// the JS facade yet, so this drives the runtime (`runtime_js`) directly: one
+// the JS facade yet, so this drives the runtime (`runtime`) directly: one
 // client creates the directory and attaches it under the root map; the others
 // resolve the handle. From there, folder/reading edits are ordinary runtime
 // calls the sluice sequences — the runtime owns optimistic apply, pending, and
 // resubmit, so the demo just issues edits and reads the tree back.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime_js.mjs";
+import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";

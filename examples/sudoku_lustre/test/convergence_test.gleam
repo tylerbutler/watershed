@@ -14,7 +14,7 @@ import gleam/string
 import gleeunit/should
 
 import watershed/sluice_js
-import watershed_js
+import watershed
 
 fn same_entries(
   a: List(#(String, json.Json)),
@@ -35,31 +35,31 @@ pub fn two_clients_converge_on_a_shared_map_test() {
   // Complete both handshakes before editing.
   sluice_js.settle(sluice)
 
-  let board_a = watershed_js.root(doc_a)
-  let board_b = watershed_js.root(doc_b)
+  let board_a = watershed.root(doc_a)
+  let board_b = watershed.root(doc_b)
 
   // Two players fill cells concurrently, including a same-cell race.
-  watershed_js.set(board_a, "r0c0", json.int(5))
-  watershed_js.set(board_b, "r1c1", json.int(3))
-  watershed_js.set(board_a, "r4c4", json.string("a"))
-  watershed_js.set(board_b, "r4c4", json.string("b"))
+  watershed.set(board_a, "r0c0", json.int(5))
+  watershed.set(board_b, "r1c1", json.int(3))
+  watershed.set(board_a, "r4c4", json.string("a"))
+  watershed.set(board_b, "r4c4", json.string("b"))
   sluice_js.settle(sluice)
 
   // Deterministically converged — no polling, no server.
-  watershed_js.get(board_a, "r0c0") |> should.equal(Some(json.int(5)))
-  watershed_js.get(board_b, "r1c1") |> should.equal(Some(json.int(3)))
+  watershed.get(board_a, "r0c0") |> should.equal(Some(json.int(5)))
+  watershed.get(board_b, "r1c1") |> should.equal(Some(json.int(3)))
   // Both players see the same winner for the contested cell.
-  watershed_js.get(board_a, "r4c4")
-  |> should.equal(watershed_js.get(board_b, "r4c4"))
-  same_entries(watershed_js.entries(board_a), watershed_js.entries(board_b))
+  watershed.get(board_a, "r4c4")
+  |> should.equal(watershed.get(board_b, "r4c4"))
+  same_entries(watershed.entries(board_a), watershed.entries(board_b))
   |> should.be_true
 
   // A third player joining later replays history to the same board.
   let doc_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
   same_entries(
-    watershed_js.entries(watershed_js.root(doc_c)),
-    watershed_js.entries(board_a),
+    watershed.entries(watershed.root(doc_c)),
+    watershed.entries(board_a),
   )
   |> should.be_true
 }

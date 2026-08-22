@@ -1,15 +1,23 @@
-//// Public API: connect to a floodgate document and edit its root SharedMap.
+//// Public JavaScript API: connect to a floodgate document and edit its root
+//// SharedMap from the browser. The BEAM counterpart is `watershed_beam`.
 ////
 //// ```gleam
-//// let assert Ok(doc) = watershed.connect(
-////   host: "localhost", port: 4000,
-////   tenant: "default", document: "dice",
-////   token: jwt, user_id: "user-1",
-//// )
+//// use token <- promise.map(watershed.dev_token(
+////   secret: "levee-dev-secret-change-in-production",
+////   tenant: "dev-tenant", document: "dice", user_id: "user-1",
+//// ))
+//// let doc =
+////   watershed.connect(
+////     WatershedConfig(
+////       url: "ws://localhost:4000/socket/websocket?vsn=2.0.0",
+////       tenant: "dev-tenant", document: "dice",
+////       token: token, user_id: "user-1",
+////     ),
+////     on_ready: fn(result) { ... },
+////   )
 //// let map = watershed.root(doc)
 //// watershed.set(map, "die", json.int(4))
-//// let value = watershed.get(map, "die")
-//// let events = watershed.subscribe(map)
+//// watershed.subscribe(map, fn(event) { ... })
 //// ```
 ////
 //// Reads are optimistic (local pending edits overlay the sequenced state);
@@ -23,352 +31,357 @@
 //// `watershed/schema` declaration. `ensure_*` seeds and adopts nested channels
 //// (maps, counters, OR-sets, claims, …) declaratively, and `subscribe_field` /
 //// `subscribe_counter` / `subscribe_typed` deliver narrowed, decoded events.
-//// See the "Typed maps" and "Typed channel fields" sections below.
+//// See [`examples/sudoku_lustre`](../examples/sudoku_lustre) for the full
+//// pattern. JavaScript target only.
 
-@target(erlang)
-import gleam/bit_array
-@target(erlang)
-import gleam/crypto
-@target(erlang)
+@target(javascript)
 import gleam/dict
-@target(erlang)
+@target(javascript)
 import gleam/dynamic.{type Dynamic}
-@target(erlang)
-import gleam/erlang/process.{type Subject}
-@target(erlang)
+@target(javascript)
+import gleam/javascript/promise.{type Promise}
+@target(javascript)
 import gleam/json.{type Json}
-@target(erlang)
+@target(javascript)
 import gleam/list
-@target(erlang)
+@target(javascript)
 import gleam/option.{type Option, None, Some}
-@target(erlang)
-import gleam/result
 
-@target(erlang)
-import lattice_sequence/sequence.{After, Before}
-
-@target(erlang)
+@target(javascript)
 import signet/types as token
-@target(erlang)
-import spillway/message.{type ConnectMessage, type SignalMessage, ConnectMessage}
-@target(erlang)
+@target(javascript)
+import spillway/message.{type SignalMessage, ConnectMessage}
+@target(javascript)
 import spillway/types.{Client, ClientCapabilities, ClientDetails, WriteMode}
 
-@target(erlang)
+@target(javascript)
+import gleam/result
+
+@target(javascript)
+import lattice_sequence/sequence.{After, Before}
+
+@target(javascript)
 import watershed/channel.{type ChannelEvent}
-@target(erlang)
+@target(javascript)
 import watershed/claims_kernel
-@target(erlang)
+@target(javascript)
 import watershed/counter_kernel
-@target(erlang)
+@target(javascript)
 import watershed/directory_kernel
-@target(erlang)
+@target(javascript)
 import watershed/g_set_kernel
-@target(erlang)
+@target(javascript)
 import watershed/git_storage.{type SummaryVersion}
-@target(erlang)
+@target(javascript)
 import watershed/handle
-@target(erlang)
+@target(javascript)
 import watershed/json_ot
-@target(erlang)
+@target(javascript)
 import watershed/json_ot_kernel
-@target(erlang)
+@target(javascript)
 import watershed/map_kernel
-@target(erlang)
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
-@target(erlang)
+@target(javascript)
 import watershed/or_set_kernel
-@target(erlang)
+@target(javascript)
 import watershed/ordered_collection_kernel
-@target(erlang)
+@target(javascript)
 import watershed/pact_map_kernel
-@target(erlang)
+@target(javascript)
 import watershed/pn_counter_kernel
-@target(erlang)
+@target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
-@target(erlang)
+@target(javascript)
 import watershed/rich_text
-@target(erlang)
+@target(javascript)
 import watershed/rich_text_kernel
-@target(erlang)
+@target(javascript)
 import watershed/runtime
-@target(erlang)
+@target(javascript)
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
   type FieldError,
 }
-@target(erlang)
+@target(javascript)
 import watershed/sequence_kernel
-@target(erlang)
+@target(javascript)
 import watershed/summary_policy
-@target(erlang)
+@target(javascript)
 import watershed/task_manager_kernel
-@target(erlang)
+@target(javascript)
 import watershed/text_kernel
-@target(erlang)
+@target(javascript)
+import watershed/transport_js
+@target(javascript)
 import watershed/two_p_set_kernel
-@target(erlang)
+@target(javascript)
 import watershed/wire/summary_blob.{type SummaryBlob}
 
-@target(erlang)
-/// The default Phoenix websocket mount for floodgate. `vsn=2.0.0` selects the
-/// V2 array frame serializer that the roost codec speaks.
-const socket_path = "/socket/websocket?vsn=2.0.0"
-
-@target(erlang)
-const call_timeout_ms = 5000
-
-@target(erlang)
-pub opaque type Document(root) {
-  Document(runtime: Subject(runtime.Msg))
-}
-
-@target(erlang)
-pub opaque type SharedMap {
-  SharedMap(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type SharedCounter {
-  SharedCounter(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type JsonOt {
-  JsonOt(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type SharedRichText {
-  SharedRichText(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type OrMap {
-  OrMap(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type OrSet {
-  OrSet(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type RegisterCollection {
-  RegisterCollection(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type Claims {
-  Claims(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type TaskManager {
-  TaskManager(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type GSet {
-  GSet(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type TwoPSet {
-  TwoPSet(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type SharedDirectory {
-  SharedDirectory(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type PnCounter {
-  PnCounter(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type PactMap {
-  PactMap(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type OrderedCollection {
-  OrderedCollection(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type SharedSequence {
-  SharedSequence(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-pub opaque type SharedText {
-  SharedText(runtime: Subject(runtime.Msg), address: String)
-}
-
-@target(erlang)
-/// A stable position in a `SharedText`'s optimistic string that survives
-/// concurrent edits and merges. Opaque so callers can't construct one
-/// without going through `text_anchor_at`, `text_start_anchor`,
-/// `text_end_anchor`, or `text_anchor_from_json`.
-pub type TextAnchor =
-  text_kernel.TextAnchor
-
-@target(erlang)
-/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
-/// gap. `bias_before` binds to the following grapheme (inserts at the gap
-/// push it right); `bias_after` binds to the preceding grapheme (inserts at
-/// the gap land after it). Re-exported so callers don't need a direct
-/// `lattice_sequence` dependency to build one.
-pub type Bias =
-  text_kernel.Bias
-
-@target(erlang)
-pub const bias_before: Bias = Before
-
-@target(erlang)
-pub const bias_after: Bias = After
-
-@target(erlang)
-/// Connect to a document, blocking until the handshake completes and the
-/// full op history has been replayed locally.
-pub fn connect(
-  host host: String,
-  port port: Int,
-  tenant tenant: String,
-  document document: String,
-  token token: String,
-  user_id user_id: String,
-) -> Result(Document(root), String) {
-  let connect_message =
-    build_connect_message(tenant, document, user_id, Some(token))
-
-  case
-    runtime.start(
-      host: host,
-      port: port,
-      path: socket_path,
-      tenant: tenant,
-      document: document,
-      connect_message: connect_message,
-    )
-  {
-    Error(_) -> Error("failed to start document runtime")
-    Ok(subject) ->
-      case runtime.await_ready(subject) {
-        Ok(Nil) -> Ok(Document(runtime: subject))
-        Error(reason) -> {
-          process.send(subject, runtime.Shutdown)
-          Error(reason)
-        }
-      }
-  }
-}
-
-@target(erlang)
-fn build_connect_message(
-  tenant: String,
-  document: String,
-  user_id: String,
-  token: option.Option(String),
-) -> ConnectMessage {
-  ConnectMessage(
-    tenant_id: tenant,
-    document_id: document,
-    token: token,
-    client: Client(
-      mode: WriteMode,
-      details: ClientDetails(
-        capabilities: ClientCapabilities(interactive: True),
-        client_type: Some("watershed"),
-        environment: None,
-        device: None,
-      ),
-      permission: [],
-      user: token.User(id: user_id, properties: dict.new()),
-      scopes: ["doc:read", "doc:write", "summary:write"],
-      timestamp: None,
-    ),
-    versions: ["^0.1.0"],
-    driver_version: None,
-    mode: WriteMode,
-    nonce: None,
-    epoch: None,
-    supported_features: None,
-    relay_user_agent: None,
+@target(javascript)
+/// Connection parameters for `connect`.
+pub type WatershedConfig {
+  WatershedConfig(
+    /// Phoenix socket URL, e.g.
+    /// `"ws://localhost:4000/socket/websocket?vsn=2.0.0"`. The `vsn=2.0.0`
+    /// query selects the V2 serializer.
+    url: String,
+    tenant: String,
+    document: String,
+    token: String,
+    user_id: String,
   )
 }
 
-@target(erlang)
-/// Connect through an injected transport — the seam the in-memory `sluice`
-/// test driver uses. Unlike `connect`, this does *not* block on the handshake:
-/// the sluice completes it on the first `settle`. Not for production use.
+@target(javascript)
+pub opaque type Document(root) {
+  Document(runtime: runtime.Runtime)
+}
+
+@target(javascript)
+/// Read-only connection and sequencing state for diagnostics and example UIs.
+pub type Diagnostics =
+  runtime.Diagnostics
+
+@target(javascript)
+pub opaque type SharedMap {
+  SharedMap(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedCounter {
+  SharedCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type OrMap {
+  OrMap(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type OrSet {
+  OrSet(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type RegisterCollection {
+  RegisterCollection(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type Claims {
+  Claims(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type TaskManager {
+  TaskManager(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type PnCounter {
+  PnCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type PactMap {
+  PactMap(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type OrderedCollection {
+  OrderedCollection(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedSequence {
+  SharedSequence(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedText {
+  SharedText(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+/// A stable position in a `SharedText`'s optimistic string that survives
+/// concurrent edits and merges. Opaque — construct one with `text_anchor_at`,
+/// `text_start_anchor`, or `text_end_anchor`, or decode one with
+/// `text_anchor_from_json`.
+pub type TextAnchor =
+  text_kernel.TextAnchor
+
+@target(javascript)
+/// Which grapheme a `TextAnchor` binds to across concurrent inserts at its
+/// gap. `Before` binds to the following grapheme (inserts at the gap push it
+/// right); `After` binds to the preceding grapheme (inserts at the gap land
+/// after it). Re-exported so callers don't need a direct `lattice_sequence`
+/// dependency to build one.
+pub type Bias =
+  text_kernel.Bias
+
+@target(javascript)
+pub const bias_before: Bias = Before
+
+@target(javascript)
+pub const bias_after: Bias = After
+
+@target(javascript)
+pub opaque type JsonOt {
+  JsonOt(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedRichText {
+  SharedRichText(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type GSet {
+  GSet(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type TwoPSet {
+  TwoPSet(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type SharedDirectory {
+  SharedDirectory(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+/// Connect to a document. Returns the handle immediately and invokes
+/// `on_ready` once the handshake and history replay complete (`Ok(Nil)`) or
+/// the connection is rejected (`Error(reason)`).
+pub fn connect(
+  config: WatershedConfig,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
+  let topic = "document:" <> config.tenant <> ":" <> config.document
+  let connect_message =
+    ConnectMessage(
+      tenant_id: config.tenant,
+      document_id: config.document,
+      token: Some(config.token),
+      client: Client(
+        mode: WriteMode,
+        details: ClientDetails(
+          capabilities: ClientCapabilities(interactive: True),
+          client_type: Some("watershed-js"),
+          environment: None,
+          device: None,
+        ),
+        permission: [],
+        user: token.User(id: config.user_id, properties: dict.new()),
+        scopes: ["doc:read", "doc:write", "summary:write"],
+        timestamp: None,
+      ),
+      versions: ["^0.1.0"],
+      driver_version: None,
+      mode: WriteMode,
+      nonce: None,
+      epoch: None,
+      supported_features: None,
+      relay_user_agent: None,
+    )
+
+  let runtime =
+    runtime.start(
+      url: config.url,
+      topic: topic,
+      connect_message: connect_message,
+      on_ready: on_ready,
+    )
+  Document(runtime: runtime)
+}
+
+@target(javascript)
+/// Connect through an injected transport — the seam the in-memory `sluice_js`
+/// test driver uses. `on_ready` still fires when the handshake completes, which
+/// the driver triggers by delivering the handshake frame on `settle`. Not for
+/// production use.
 pub fn connect_via(
   tenant tenant: String,
   document document: String,
   user_id user_id: String,
   transport transport: runtime.Transport,
-) -> Result(Document(root), String) {
-  let connect_message = build_connect_message(tenant, document, user_id, None)
-  case
-    runtime.start_with_transport(
-      host: "sluice",
-      port: 0,
-      connect_message: connect_message,
-      transport: transport,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
+  let connect_message =
+    ConnectMessage(
+      tenant_id: tenant,
+      document_id: document,
+      token: None,
+      client: Client(
+        mode: WriteMode,
+        details: ClientDetails(
+          capabilities: ClientCapabilities(interactive: True),
+          client_type: Some("watershed-js"),
+          environment: None,
+          device: None,
+        ),
+        permission: [],
+        user: token.User(id: user_id, properties: dict.new()),
+        scopes: ["doc:read", "doc:write", "summary:write"],
+        timestamp: None,
+      ),
+      versions: ["^0.1.0"],
+      driver_version: None,
+      mode: WriteMode,
+      nonce: None,
+      epoch: None,
+      supported_features: None,
+      relay_user_agent: None,
     )
-  {
-    Error(_) -> Error("failed to start document runtime")
-    Ok(subject) -> Ok(Document(runtime: subject))
-  }
+  Document(runtime: runtime.start_with_transport(
+    http_base_url: "sluice",
+    connect_message: connect_message,
+    transport: transport,
+    on_ready: on_ready,
+  ))
 }
 
-@target(erlang)
-/// The runtime actor behind a document. Exposed for the `sluice` test driver,
-/// which barriers the actor (a synchronous call flushes its mailbox) to make
-/// delivery deterministic. Not part of the app-facing API.
-pub fn runtime_subject(document: Document(root)) -> Subject(runtime.Msg) {
+@target(javascript)
+/// The runtime behind a document. Exposed for the `sluice_js` test driver, which
+/// keys paused clients by their runtime. Not part of the app-facing API.
+pub fn runtime_of(document: Document(root)) -> runtime.Runtime {
   document.runtime
 }
 
-@target(erlang)
+@target(javascript)
 /// The document's root map (channel address `"root"`).
 pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
-@target(erlang)
+@target(javascript)
 /// Create a new map channel. The map starts *detached* — local-only, its
 /// edits produce no ops — until its handle (`handle_of`) is first stored into
 /// an attached map, at which point the runtime attaches it (snapshot and all)
-/// and starts syncing its edits.
+/// and starts syncing its edits. Requires a ready connection (`on_ready`).
 pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateMap,
-  )
+  runtime.create_map(document.runtime)
   |> result.map(fn(address) {
     SharedMap(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 /// The Fluid handle marker referencing `map`, suitable for storing as a value
 /// in another map: `{"type": "__fluid_handle__", "url": "/<address>"}`.
 pub fn handle_of(map: SharedMap) -> Json {
   handle.encode_handle(map.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// Whether a value read from a map is a handle marker (see `resolve`).
 pub fn is_handle(value: Json) -> Bool {
   handle.parse_handle(value) != Error(Nil)
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve a handle value (from `get`/`entries`) to the SharedMap it
 /// references. Errors are retryable: a handle read from a remote value can be
 /// transiently unresolved while the referenced channel's attach op is still
@@ -380,62 +393,57 @@ pub fn resolve(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         SharedMap(runtime: document.runtime, address: address)
       })
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Typed maps
+// ── Typed maps ───────────────────────────────────────────────────────────────
 //
 // An opt-in, phantom-typed view over a SharedMap. `schema` is constrained by
 // inference the first time a `Field(schema, _)` is used against the map, so a
 // field from one schema cannot be applied to a map of another. Typing is a
 // decode boundary (remote peers may write anything), so reads return `Result`.
 // See `watershed/schema` for defining fields.
-// ─────────────────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 /// A SharedMap viewed through a schema `s`.
 pub opaque type TypedMap(s) {
   TypedMap(map: SharedMap)
 }
 
-@target(erlang)
+@target(javascript)
 /// View a raw map through a schema. The schema is chosen by how the result is
 /// used (or by annotation): `let players: TypedMap(Roster) = typed(map)`.
 pub fn typed(map: SharedMap) -> TypedMap(s) {
   TypedMap(map: map)
 }
 
-@target(erlang)
+@target(javascript)
 /// The underlying raw map, for dropping back to the untyped API.
 pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
   typed_map.map
 }
 
-@target(erlang)
+@target(javascript)
 /// The document's root map, viewed through the document's own schema.
 ///
 /// One tag per document. The tag comes from the `Document(root)` you pass, so
-/// it is fixed wherever your app writes the type concretely — the function
-/// that receives the connected document, or the state record holding it:
+/// it is fixed wherever your app writes the type concretely — the `Msg`
+/// constructor carrying the handle, or the `Model` field holding it:
 ///
 /// ```gleam
-/// fn run(doc: watershed.Document(GameRoot)) -> Nil
+/// GotHandle(Document(doc_schema.Survey))
 /// ```
 ///
 /// Every `root_typed` on that document then agrees, and a second schema at the
 /// root is a compile error rather than a silently shared key namespace.
 ///
-/// A caller generic in `root` may still call this, but an abstract tag has no
-/// fields, so it cannot read or write the root.
+/// A component generic in `root` may still call this, but an abstract tag has
+/// no fields, so it cannot read or write the root — which is what makes a
+/// nested panel structurally unable to reach past its own child map.
 ///
 /// `typed(root(document))` remains available and remains unchecked; it is the
 /// deliberate way to view the root through a foreign schema, and unlike the
@@ -444,7 +452,7 @@ pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
-@target(erlang)
+@target(javascript)
 /// Create a new (detached) map, viewed through a schema. Same lifecycle as
 /// `create_map`.
 pub fn create_typed_map(
@@ -453,19 +461,19 @@ pub fn create_typed_map(
   create_map(document) |> result.map(typed)
 }
 
-@target(erlang)
+@target(javascript)
 /// Optimistically write a typed field.
 pub fn set_field(typed_map: TypedMap(s), field: Field(s, a), value: a) -> Nil {
   set(typed_map.map, schema.field_key(field), schema.encode_value(field, value))
 }
 
-@target(erlang)
+@target(javascript)
 /// Optimistically delete a typed field.
 pub fn delete_field(typed_map: TypedMap(s), field: Field(s, a)) -> Nil {
   delete(typed_map.map, schema.field_key(field))
 }
 
-@target(erlang)
+@target(javascript)
 /// Read a typed field. `Ok(None)` when the key is absent; `Error(Invalid)`
 /// when the stored value does not decode to `a`.
 pub fn get_field(
@@ -478,7 +486,7 @@ pub fn get_field(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Read a typed field that is expected to exist. `Error(Missing)` when absent.
 pub fn get_required(
   typed_map: TypedMap(s),
@@ -491,13 +499,13 @@ pub fn get_required(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Whether a typed field is present (does not check that it decodes).
 pub fn has_field(typed_map: TypedMap(s), field: Field(s, a)) -> Bool {
   has(typed_map.map, schema.field_key(field))
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to a nested typed map under a child field.
 pub fn set_child(
   typed_map: TypedMap(s),
@@ -507,7 +515,7 @@ pub fn set_child(
   set(typed_map.map, schema.child_key(field), handle_of(child.map))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the nested typed map referenced by a child field. `Ok(None)` when
 /// the key is absent; errors from `resolve` (including transient
 /// not-yet-attached ones) are surfaced as-is and are retryable.
@@ -523,7 +531,7 @@ pub fn resolve_child(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Read the whole map as a typed record through a schema: one `Result`, after
 /// the schema's version and seal checks. See `watershed/schema`.
 pub fn read(
@@ -533,7 +541,7 @@ pub fn read(
   schema.decode_entries(map_schema, entries(typed_map.map))
 }
 
-@target(erlang)
+@target(javascript)
 /// Write a whole record through a schema, as per-key ops — so concurrent
 /// edits to sibling keys still merge (the record view is never a clobbering
 /// blob). Optional props that are `None` delete their key.
@@ -550,7 +558,7 @@ pub fn write(
   })
 }
 
-@target(erlang)
+@target(javascript)
 /// Stamp a versioned schema's version marker once (typically right after
 /// creating the map). A no-op for unversioned schemas.
 pub fn stamp(
@@ -563,7 +571,7 @@ pub fn stamp(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve every handle-valued key to a typed child map — the typed view of a
 /// dynamic collection (a map whose keys are not statically known, e.g. a
 /// roster keyed by id). Non-handle keys are skipped; each child's resolution
@@ -579,8 +587,7 @@ pub fn typed_children(
   })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Typed channel fields
+// ── Typed channel fields ─────────────────────────────────────────────────────
 //
 // Per-kind set/resolve pairs for `schema.ChannelField(s, kind)` — keys whose
 // value is a handle to a non-map channel. The phantom kind tag makes using a
@@ -589,9 +596,8 @@ pub fn typed_children(
 // type. Resolvers return `Ok(None)` when the key is absent; resolve errors
 // (including transient not-yet-attached ones) are surfaced as-is and are
 // retryable.
-// ─────────────────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 fn put_channel_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, kind),
@@ -600,7 +606,7 @@ fn put_channel_field(
   set(typed_map.map, schema.channel_field_key(field), handle_json)
 }
 
-@target(erlang)
+@target(javascript)
 fn get_channel_field(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -613,7 +619,7 @@ fn get_channel_field(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to an (untyped) nested map under a typed channel field.
 pub fn set_map_field(
   typed_map: TypedMap(s),
@@ -623,7 +629,7 @@ pub fn set_map_field(
   put_channel_field(typed_map, field, handle_of(map))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the map referenced by a typed channel field.
 pub fn resolve_map_field(
   document: Document(root),
@@ -633,7 +639,7 @@ pub fn resolve_map_field(
   get_channel_field(document, typed_map, field, resolve)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `counter` under a typed channel field.
 pub fn set_counter_field(
   typed_map: TypedMap(s),
@@ -643,7 +649,7 @@ pub fn set_counter_field(
   put_channel_field(typed_map, field, counter_handle_of(counter))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the counter referenced by a typed channel field.
 pub fn resolve_counter_field(
   document: Document(root),
@@ -653,47 +659,7 @@ pub fn resolve_counter_field(
   get_channel_field(document, typed_map, field, resolve_counter)
 }
 
-@target(erlang)
-/// Store a handle to `json_ot` under a typed channel field.
-pub fn set_json_ot_field(
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.JsonOtChannel),
-  json_ot: JsonOt,
-) -> Nil {
-  put_channel_field(typed_map, field, json_ot_handle_of(json_ot))
-}
-
-@target(erlang)
-/// Resolve the json0 channel referenced by a typed channel field.
-pub fn resolve_json_ot_field(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.JsonOtChannel),
-) -> Result(Option(JsonOt), String) {
-  get_channel_field(document, typed_map, field, resolve_json_ot)
-}
-
-@target(erlang)
-/// Store a handle to `rich_text` under a typed channel field.
-pub fn set_rich_text_field(
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.RichTextChannel),
-  rich_text: SharedRichText,
-) -> Nil {
-  put_channel_field(typed_map, field, rich_text_handle_of(rich_text))
-}
-
-@target(erlang)
-/// Resolve the rich-text channel referenced by a typed channel field.
-pub fn resolve_rich_text_field(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.RichTextChannel),
-) -> Result(Option(SharedRichText), String) {
-  get_channel_field(document, typed_map, field, resolve_rich_text)
-}
-
-@target(erlang)
+@target(javascript)
 /// Store a handle to `or_map` under a typed channel field.
 pub fn set_or_map_field(
   typed_map: TypedMap(s),
@@ -703,7 +669,7 @@ pub fn set_or_map_field(
   put_channel_field(typed_map, field, or_map_handle_of(or_map))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the OR-map referenced by a typed channel field.
 pub fn resolve_or_map_field(
   document: Document(root),
@@ -713,7 +679,7 @@ pub fn resolve_or_map_field(
   get_channel_field(document, typed_map, field, resolve_or_map)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `or_set` under a typed channel field.
 pub fn set_or_set_field(
   typed_map: TypedMap(s),
@@ -723,7 +689,7 @@ pub fn set_or_set_field(
   put_channel_field(typed_map, field, or_set_handle_of(or_set))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the OR-set referenced by a typed channel field.
 pub fn resolve_or_set_field(
   document: Document(root),
@@ -733,7 +699,7 @@ pub fn resolve_or_set_field(
   get_channel_field(document, typed_map, field, resolve_or_set)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn set_sequence_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
@@ -742,7 +708,7 @@ pub fn set_sequence_field(
   put_channel_field(typed_map, field, sequence_handle_of(sequence))
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_sequence_field(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -751,7 +717,7 @@ pub fn resolve_sequence_field(
   get_channel_field(document, typed_map, field, resolve_sequence)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `text` under a typed channel field.
 pub fn set_text_field(
   typed_map: TypedMap(s),
@@ -761,7 +727,7 @@ pub fn set_text_field(
   put_channel_field(typed_map, field, text_handle_of(text))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the text channel referenced by a typed channel field.
 pub fn resolve_text_field(
   document: Document(root),
@@ -771,7 +737,7 @@ pub fn resolve_text_field(
   get_channel_field(document, typed_map, field, resolve_text)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_register_collection_field(
   typed_map: TypedMap(s),
@@ -781,7 +747,7 @@ pub fn set_register_collection_field(
   put_channel_field(typed_map, field, register_collection_handle_of(collection))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the register collection referenced by a typed channel field.
 pub fn resolve_register_collection_field(
   document: Document(root),
@@ -791,7 +757,7 @@ pub fn resolve_register_collection_field(
   get_channel_field(document, typed_map, field, resolve_register_collection)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `claims` under a typed channel field.
 pub fn set_claims_field(
   typed_map: TypedMap(s),
@@ -801,7 +767,7 @@ pub fn set_claims_field(
   put_channel_field(typed_map, field, claims_handle_of(claims))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the claims channel referenced by a typed channel field.
 pub fn resolve_claims_field(
   document: Document(root),
@@ -811,7 +777,7 @@ pub fn resolve_claims_field(
   get_channel_field(document, typed_map, field, resolve_claims)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `manager` under a typed channel field.
 pub fn set_task_manager_field(
   typed_map: TypedMap(s),
@@ -821,7 +787,7 @@ pub fn set_task_manager_field(
   put_channel_field(typed_map, field, task_manager_handle_of(manager))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the task manager referenced by a typed channel field.
 pub fn resolve_task_manager_field(
   document: Document(root),
@@ -831,67 +797,7 @@ pub fn resolve_task_manager_field(
   get_channel_field(document, typed_map, field, resolve_task_manager)
 }
 
-@target(erlang)
-/// Store a handle to `set` under a typed channel field.
-pub fn set_g_set_field(
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.GSetChannel),
-  set: GSet,
-) -> Nil {
-  put_channel_field(typed_map, field, g_set_handle_of(set))
-}
-
-@target(erlang)
-/// Resolve the G-set referenced by a typed channel field.
-pub fn resolve_g_set_field(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.GSetChannel),
-) -> Result(Option(GSet), String) {
-  get_channel_field(document, typed_map, field, resolve_g_set)
-}
-
-@target(erlang)
-/// Store a handle to `set` under a typed channel field.
-pub fn set_two_p_set_field(
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.TwoPSetChannel),
-  set: TwoPSet,
-) -> Nil {
-  put_channel_field(typed_map, field, two_p_set_handle_of(set))
-}
-
-@target(erlang)
-/// Resolve the 2P-set referenced by a typed channel field.
-pub fn resolve_two_p_set_field(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.TwoPSetChannel),
-) -> Result(Option(TwoPSet), String) {
-  get_channel_field(document, typed_map, field, resolve_two_p_set)
-}
-
-@target(erlang)
-/// Store a handle to `dir` under a typed channel field.
-pub fn set_directory_field(
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.DirectoryChannel),
-  dir: SharedDirectory,
-) -> Nil {
-  put_channel_field(typed_map, field, directory_handle_of(dir))
-}
-
-@target(erlang)
-/// Resolve the directory referenced by a typed channel field.
-pub fn resolve_directory_field(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.DirectoryChannel),
-) -> Result(Option(SharedDirectory), String) {
-  get_channel_field(document, typed_map, field, resolve_directory)
-}
-
-@target(erlang)
+@target(javascript)
 /// Store a handle to `pn_counter` under a typed channel field.
 pub fn set_pn_counter_field(
   typed_map: TypedMap(s),
@@ -901,7 +807,7 @@ pub fn set_pn_counter_field(
   put_channel_field(typed_map, field, pn_counter_handle_of(pn_counter))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
   document: Document(root),
@@ -911,7 +817,7 @@ pub fn resolve_pn_counter_field(
   get_channel_field(document, typed_map, field, resolve_pn_counter)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `pact_map` under a typed channel field.
 pub fn set_pact_map_field(
   typed_map: TypedMap(s),
@@ -921,7 +827,7 @@ pub fn set_pact_map_field(
   put_channel_field(typed_map, field, pact_map_handle_of(pact_map))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the PactMap referenced by a typed channel field.
 pub fn resolve_pact_map_field(
   document: Document(root),
@@ -931,7 +837,7 @@ pub fn resolve_pact_map_field(
   get_channel_field(document, typed_map, field, resolve_pact_map)
 }
 
-@target(erlang)
+@target(javascript)
 /// Store a handle to `collection` under a typed channel field.
 pub fn set_ordered_collection_field(
   typed_map: TypedMap(s),
@@ -941,7 +847,7 @@ pub fn set_ordered_collection_field(
   put_channel_field(typed_map, field, ordered_collection_handle_of(collection))
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve the ordered collection referenced by a typed channel field.
 pub fn resolve_ordered_collection_field(
   document: Document(root),
@@ -951,56 +857,165 @@ pub fn resolve_ordered_collection_field(
   get_channel_field(document, typed_map, field, resolve_ordered_collection)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Declarative bootstrap (ensure_*)
+@target(javascript)
+/// Store a handle to `json_ot` under a typed channel field.
+pub fn set_json_ot_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  json_ot: JsonOt,
+) -> Nil {
+  put_channel_field(typed_map, field, json_ot_handle_of(json_ot))
+}
+
+@target(javascript)
+/// Resolve the json0 channel referenced by a typed channel field.
+pub fn resolve_json_ot_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+) -> Result(Option(JsonOt), String) {
+  get_channel_field(document, typed_map, field, resolve_json_ot)
+}
+
+@target(javascript)
+/// Store a handle to `rich_text` under a typed channel field.
+pub fn set_rich_text_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  rich_text: SharedRichText,
+) -> Nil {
+  put_channel_field(typed_map, field, rich_text_handle_of(rich_text))
+}
+
+@target(javascript)
+/// Resolve the rich-text channel referenced by a typed channel field.
+pub fn resolve_rich_text_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+) -> Result(Option(SharedRichText), String) {
+  get_channel_field(document, typed_map, field, resolve_rich_text)
+}
+
+@target(javascript)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_g_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  set: GSet,
+) -> Nil {
+  put_channel_field(typed_map, field, g_set_handle_of(set))
+}
+
+@target(javascript)
+/// Resolve the G-set referenced by a typed channel field.
+pub fn resolve_g_set_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+) -> Result(Option(GSet), String) {
+  get_channel_field(document, typed_map, field, resolve_g_set)
+}
+
+@target(javascript)
+/// Store a handle to `set` under a typed channel field.
+pub fn set_two_p_set_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  set: TwoPSet,
+) -> Nil {
+  put_channel_field(typed_map, field, two_p_set_handle_of(set))
+}
+
+@target(javascript)
+/// Resolve the 2P-set referenced by a typed channel field.
+pub fn resolve_two_p_set_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+) -> Result(Option(TwoPSet), String) {
+  get_channel_field(document, typed_map, field, resolve_two_p_set)
+}
+
+@target(javascript)
+/// Store a handle to `dir` under a typed channel field.
+pub fn set_directory_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  dir: SharedDirectory,
+) -> Nil {
+  put_channel_field(typed_map, field, directory_handle_of(dir))
+}
+
+@target(javascript)
+/// Resolve the directory referenced by a typed channel field.
+pub fn resolve_directory_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+) -> Result(Option(SharedDirectory), String) {
+  get_channel_field(document, typed_map, field, resolve_directory)
+}
+
+// ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
 //
 // Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
 // LWW winner if the key is already set, otherwise seed a candidate channel,
 // wait for sync, and adopt whichever handle the sequencer ordered first (losing
-// candidates stay attached but unreferenced — orphan GC is out of scope). This
-// subsumes the seed + wait-synced + bounded-retry-resolve loop every app used
-// to hand-roll. `ensure_field` is the set-if-absent primitive for plain values.
-// ─────────────────────────────────────────────────────────────────────────────
+// candidates stay attached but unreferenced — orphan GC is out of scope). The
+// browser cannot block, so each takes a `done` continuation and waits/retries
+// on a library-owned timer; the BEAM facade blocks and returns instead.
 
-@target(erlang)
+@target(javascript)
+@external(javascript, "./watershed_ffi.mjs", "set_timeout")
+fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
+
+@target(javascript)
 const resolve_retry_ms = 200
 
-@target(erlang)
+@target(javascript)
 const resolve_attempts = 25
 
-@target(erlang)
-/// Block until every local edit is acked (the confirmed root is stable),
-/// bounded by the resolve budget, then return regardless.
-fn await_synced(document: Document(root), attempts: Int) -> Nil {
+@target(javascript)
+/// Poll `is_synced` until the confirmed root is stable (bounded by the resolve
+/// budget), then invoke `next`.
+fn await_synced(
+  document: Document(root),
+  attempts: Int,
+  next: fn() -> Nil,
+) -> Nil {
   case attempts <= 0 || is_synced(document) {
-    True -> Nil
-    False -> {
-      process.sleep(resolve_retry_ms)
-      await_synced(document, attempts - 1)
-    }
+    True -> next()
+    False ->
+      set_timeout(
+        fn() { await_synced(document, attempts - 1, next) },
+        resolve_retry_ms,
+      )
   }
 }
 
-@target(erlang)
-/// Resolve a field to its channel, retrying while the handle is absent or the
-/// referenced channel's attach op is still in flight.
+@target(javascript)
+/// Resolve a field to its channel, retrying on a timer while the handle is
+/// absent or the referenced channel's attach op is still in flight.
 fn resolve_with_retry(
   resolve: fn() -> Result(Option(shared), String),
   attempts: Int,
-) -> Result(shared, String) {
+  done: fn(Result(shared, String)) -> Nil,
+) -> Nil {
   case resolve(), attempts {
-    Ok(Some(shared)), _ -> Ok(shared)
+    Ok(Some(shared)), _ -> done(Ok(shared))
     Ok(None), n if n <= 1 ->
-      Error("ensure: no channel handle appeared under the field")
-    Error(reason), n if n <= 1 -> Error(reason)
-    _, _ -> {
-      process.sleep(resolve_retry_ms)
-      resolve_with_retry(resolve, attempts - 1)
-    }
+      done(Error("ensure: no channel handle appeared under the field"))
+    Error(reason), n if n <= 1 -> done(Error(reason))
+    _, _ ->
+      set_timeout(
+        fn() { resolve_with_retry(resolve, attempts - 1, done) },
+        resolve_retry_ms,
+      )
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Adopt the channel under `key`: resolve the sequenced winner if the key is
 /// set, else `seed` a candidate, wait for sync, and resolve whatever won.
 fn ensure_channel(
@@ -1009,24 +1024,29 @@ fn ensure_channel(
   key: String,
   seed: fn() -> Result(Nil, String),
   resolve: fn() -> Result(Option(shared), String),
-) -> Result(shared, String) {
+  done: fn(Result(shared, String)) -> Nil,
+) -> Nil {
   case has(typed_map.map, key) {
-    True -> resolve_with_retry(resolve, resolve_attempts)
-    False -> {
-      use _ <- result.try(seed())
-      await_synced(document, resolve_attempts)
-      resolve_with_retry(resolve, resolve_attempts)
-    }
+    True -> resolve_with_retry(resolve, resolve_attempts, done)
+    False ->
+      case seed() {
+        Error(reason) -> done(Error(reason))
+        Ok(Nil) ->
+          await_synced(document, resolve_attempts, fn() {
+            resolve_with_retry(resolve, resolve_attempts, done)
+          })
+      }
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a nested (untyped) map exists under `field`.
 pub fn ensure_map(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.MapChannel),
-) -> Result(SharedMap, String) {
+  done: fn(Result(SharedMap, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1036,16 +1056,18 @@ pub fn ensure_map(
       set_map_field(typed_map, field, map)
     },
     fn() { resolve_map_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_counter(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.CounterChannel),
-) -> Result(SharedCounter, String) {
+  done: fn(Result(SharedCounter, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1055,55 +1077,19 @@ pub fn ensure_counter(
       set_counter_field(typed_map, field, counter)
     },
     fn() { resolve_counter_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
-/// Ensure a json0 channel exists under `field`.
-pub fn ensure_json_ot(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.JsonOtChannel),
-) -> Result(JsonOt, String) {
-  ensure_channel(
-    document,
-    typed_map,
-    schema.channel_field_key(field),
-    fn() {
-      use json_ot <- result.map(create_json_ot(document))
-      set_json_ot_field(typed_map, field, json_ot)
-    },
-    fn() { resolve_json_ot_field(document, typed_map, field) },
-  )
-}
-
-@target(erlang)
-/// Ensure a rich-text channel exists under `field`.
-pub fn ensure_rich_text(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.RichTextChannel),
-) -> Result(SharedRichText, String) {
-  ensure_channel(
-    document,
-    typed_map,
-    schema.channel_field_key(field),
-    fn() {
-      use rich_text <- result.map(create_rich_text(document))
-      set_rich_text_field(typed_map, field, rich_text)
-    },
-    fn() { resolve_rich_text_field(document, typed_map, field) },
-  )
-}
-
-@target(erlang)
+@target(javascript)
 /// Ensure an OR-map exists under `field`, seeding one in `mode` if absent.
 pub fn ensure_or_map(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrMapChannel),
   mode: OrMapMode,
-) -> Result(OrMap, String) {
+  done: fn(Result(OrMap, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1113,16 +1099,18 @@ pub fn ensure_or_map(
       set_or_map_field(typed_map, field, or_map)
     },
     fn() { resolve_or_map_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure an OR-set exists under `field`.
 pub fn ensure_or_set(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrSetChannel),
-) -> Result(OrSet, String) {
+  done: fn(Result(OrSet, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1132,15 +1120,17 @@ pub fn ensure_or_set(
       set_or_set_field(typed_map, field, or_set)
     },
     fn() { resolve_or_set_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 pub fn ensure_sequence(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.SequenceChannel),
-) -> Result(SharedSequence, String) {
+  done: fn(Result(SharedSequence, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1150,17 +1140,19 @@ pub fn ensure_sequence(
       set_sequence_field(typed_map, field, sequence)
     },
     fn() { resolve_sequence_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
-/// Ensure a text channel exists under `field`, seeding an empty one if the
-/// slot is empty.
+@target(javascript)
+/// Ensure a text channel exists under `field`, seeding one if the slot is
+/// empty.
 pub fn ensure_text(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TextChannel),
-) -> Result(SharedText, String) {
+  done: fn(Result(SharedText, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1170,16 +1162,18 @@ pub fn ensure_text(
       set_text_field(typed_map, field, text)
     },
     fn() { resolve_text_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a register collection exists under `field`.
 pub fn ensure_register_collection(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.RegisterCollectionChannel),
-) -> Result(RegisterCollection, String) {
+  done: fn(Result(RegisterCollection, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1189,16 +1183,18 @@ pub fn ensure_register_collection(
       set_register_collection_field(typed_map, field, registers)
     },
     fn() { resolve_register_collection_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a claims channel exists under `field`.
 pub fn ensure_claims(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.ClaimsChannel),
-) -> Result(Claims, String) {
+  done: fn(Result(Claims, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1208,16 +1204,18 @@ pub fn ensure_claims(
       set_claims_field(typed_map, field, claims)
     },
     fn() { resolve_claims_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a task manager exists under `field`.
 pub fn ensure_task_manager(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.TaskManagerChannel),
-) -> Result(TaskManager, String) {
+  done: fn(Result(TaskManager, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1227,73 +1225,18 @@ pub fn ensure_task_manager(
       set_task_manager_field(typed_map, field, tasks)
     },
     fn() { resolve_task_manager_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
-/// Ensure a grow-only set exists under `field`.
-pub fn ensure_g_set(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.GSetChannel),
-) -> Result(GSet, String) {
-  ensure_channel(
-    document,
-    typed_map,
-    schema.channel_field_key(field),
-    fn() {
-      use g_set <- result.map(create_g_set(document))
-      set_g_set_field(typed_map, field, g_set)
-    },
-    fn() { resolve_g_set_field(document, typed_map, field) },
-  )
-}
-
-@target(erlang)
-/// Ensure a two-phase set exists under `field`.
-pub fn ensure_two_p_set(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.TwoPSetChannel),
-) -> Result(TwoPSet, String) {
-  ensure_channel(
-    document,
-    typed_map,
-    schema.channel_field_key(field),
-    fn() {
-      use two_p_set <- result.map(create_two_p_set(document))
-      set_two_p_set_field(typed_map, field, two_p_set)
-    },
-    fn() { resolve_two_p_set_field(document, typed_map, field) },
-  )
-}
-
-@target(erlang)
-/// Ensure a directory exists under `field`.
-pub fn ensure_directory(
-  document: Document(root),
-  typed_map: TypedMap(s),
-  field: ChannelField(s, schema.DirectoryChannel),
-) -> Result(SharedDirectory, String) {
-  ensure_channel(
-    document,
-    typed_map,
-    schema.channel_field_key(field),
-    fn() {
-      use dir <- result.map(create_directory(document))
-      set_directory_field(typed_map, field, dir)
-    },
-    fn() { resolve_directory_field(document, typed_map, field) },
-  )
-}
-
-@target(erlang)
+@target(javascript)
 /// Ensure a PN-counter exists under `field`, seeding one if the slot is empty.
 pub fn ensure_pn_counter(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PnCounterChannel),
-) -> Result(PnCounter, String) {
+  done: fn(Result(PnCounter, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1303,16 +1246,18 @@ pub fn ensure_pn_counter(
       set_pn_counter_field(typed_map, field, pn_counter)
     },
     fn() { resolve_pn_counter_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure a PactMap exists under `field`.
 pub fn ensure_pact_map(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.PactMapChannel),
-) -> Result(PactMap, String) {
+  done: fn(Result(PactMap, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1322,16 +1267,18 @@ pub fn ensure_pact_map(
       set_pact_map_field(typed_map, field, pact_map)
     },
     fn() { resolve_pact_map_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Ensure an ordered collection exists under `field`.
 pub fn ensure_ordered_collection(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.OrderedCollectionChannel),
-) -> Result(OrderedCollection, String) {
+  done: fn(Result(OrderedCollection, String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1341,16 +1288,123 @@ pub fn ensure_ordered_collection(
       set_ordered_collection_field(typed_map, field, collection)
     },
     fn() { resolve_ordered_collection_field(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
+/// Ensure a json0 channel exists under `field`, seeding one if absent.
+pub fn ensure_json_ot(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.JsonOtChannel),
+  done: fn(Result(JsonOt, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use json_ot <- result.map(create_json_ot(document))
+      set_json_ot_field(typed_map, field, json_ot)
+    },
+    fn() { resolve_json_ot_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a rich-text channel exists under `field`, seeding one if absent.
+pub fn ensure_rich_text(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.RichTextChannel),
+  done: fn(Result(SharedRichText, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use rich_text <- result.map(create_rich_text(document))
+      set_rich_text_field(typed_map, field, rich_text)
+    },
+    fn() { resolve_rich_text_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a G-set exists under `field`, seeding one if absent.
+pub fn ensure_g_set(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GSetChannel),
+  done: fn(Result(GSet, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use set <- result.map(create_g_set(document))
+      set_g_set_field(typed_map, field, set)
+    },
+    fn() { resolve_g_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a 2P-set exists under `field`, seeding one if absent.
+pub fn ensure_two_p_set(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.TwoPSetChannel),
+  done: fn(Result(TwoPSet, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use set <- result.map(create_two_p_set(document))
+      set_two_p_set_field(typed_map, field, set)
+    },
+    fn() { resolve_two_p_set_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Ensure a directory exists under `field`, seeding one if absent.
+pub fn ensure_directory(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.DirectoryChannel),
+  done: fn(Result(SharedDirectory, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use dir <- result.map(create_directory(document))
+      set_directory_field(typed_map, field, dir)
+    },
+    fn() { resolve_directory_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
 /// Ensure a nested *typed* child map exists under a child field.
 pub fn ensure_child(
   document: Document(root),
   typed_map: TypedMap(s),
   field: ChildField(s, c),
-) -> Result(TypedMap(c), String) {
+  done: fn(Result(TypedMap(c), String)) -> Nil,
+) -> Nil {
   ensure_channel(
     document,
     typed_map,
@@ -1360,10 +1414,11 @@ pub fn ensure_child(
       set_child(typed_map, field, typed(child))
     },
     fn() { resolve_child(document, typed_map, field) },
+    done,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Set a plain typed field to `default` only if its key is currently absent.
 /// Concurrent racers all set; last-writer-wins on the key settles one value.
 pub fn ensure_field(
@@ -1377,35 +1432,29 @@ pub fn ensure_field(
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Counters
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Counters ─────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 /// Create a new counter channel. Same detached lifecycle as `create_map`:
 /// local-only until its handle (`counter_handle_of`) is first stored into an
-/// attached map.
+/// attached map. Requires a ready connection (`on_ready`).
 pub fn create_counter(
   document: Document(root),
 ) -> Result(SharedCounter, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateCounter,
-  )
+  runtime.create_counter(document.runtime)
   |> result.map(fn(address) {
     SharedCounter(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 /// The Fluid handle marker referencing `counter`, suitable for storing as a
 /// value in a map (see `handle_of`).
 pub fn counter_handle_of(counter: SharedCounter) -> Json {
   handle.encode_handle(counter.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// Resolve a handle value to the SharedCounter it references. Existence is
 /// checked, not channel type: resolving a non-counter yields a counter whose
 /// reads return `None`. Errors are retryable, as with `resolve`.
@@ -1416,254 +1465,81 @@ pub fn resolve_counter(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         SharedCounter(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Optimistically increment the counter (negative amounts decrement).
 pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
-  process.send(
-    counter.runtime,
-    runtime.IncrementCounter(counter.address, amount),
-  )
+  runtime.increment(counter.runtime, counter.address, amount)
 }
 
-@target(erlang)
+@target(javascript)
 /// The counter's current optimistic value, `None` when the address is not a
 /// counter channel.
 pub fn counter_value(counter: SharedCounter) -> Option(Int) {
-  process.call(counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetCounterValue(counter.address, reply)
+  runtime.counter_value(counter.runtime, counter.address)
+}
+
+@target(javascript)
+/// Register `handler` for a channel's events, invoking it only for the events
+/// `narrow` accepts — already decoded to the kind's own event type — so a
+/// subscriber never sees the 14-variant union. The per-kind `subscribe_*`
+/// functions wrap this.
+fn subscribe_narrowed(
+  runtime: runtime.Runtime,
+  address: String,
+  handler: fn(a) -> Nil,
+  narrow: fn(ChannelEvent) -> Option(a),
+) -> Nil {
+  runtime.subscribe(runtime, address, fn(event) {
+    case narrow(event) {
+      Some(inner) -> handler(inner)
+      None -> Nil
+    }
   })
 }
 
-@target(erlang)
-/// Subscribe to a channel's events, forwarding only the events `narrow`
-/// accepts — already decoded to the kind's own event type — to a fresh
-/// caller-owned subject. The per-kind `subscribe_*` functions wrap this so a
-/// subscriber sees only its channel's events, never the 14-variant union.
-fn subscribe_narrowed(
-  runtime_subject: Subject(runtime.Msg),
-  address: String,
-  narrow: fn(ChannelEvent) -> Option(a),
-) -> Subject(a) {
-  let subject = process.new_subject()
-  process.send(
-    runtime_subject,
-    runtime.Subscribe(address, fn(event) {
-      case narrow(event) {
-        Some(inner) -> process.send(subject, inner)
-        None -> Nil
-      }
-    }),
-  )
-  subject
-}
-
-@target(erlang)
-/// Subscribe the calling process to this counter's events, local and remote
-/// alike. The subject carries `counter_kernel.CounterEvent` — counter events
-/// only.
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// counter channel. The handler receives `counter_kernel.CounterEvent` —
+/// counter events only.
 pub fn subscribe_counter(
   counter: SharedCounter,
-) -> Subject(counter_kernel.CounterEvent) {
-  use event <- subscribe_narrowed(counter.runtime, counter.address)
+  handler: fn(counter_kernel.CounterEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
   case event {
     channel.CounterEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// JSON-OT (json0)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── OR-maps ──────────────────────────────────────────────────────────────────
 
-@target(erlang)
-/// Create a new json0 (JSON-OT) channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`json_ot_handle_of`) is first
-/// stored into an attached map.
-pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateJsonOt,
-  )
-  |> result.map(fn(address) {
-    JsonOt(runtime: document.runtime, address: address)
-  })
-}
-
-@target(erlang)
-/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
-/// value in a map (see `handle_of`).
-pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
-  handle.encode_handle(json_ot.address)
-}
-
-@target(erlang)
-/// Resolve a handle value to the JsonOt it references. Existence is
-/// checked, not channel type. Errors are retryable, as with `resolve`.
-pub fn resolve_json_ot(
-  document: Document(root),
-  value: Json,
-) -> Result(JsonOt, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
-    Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
-      |> result.map(fn(_) {
-        JsonOt(runtime: document.runtime, address: address)
-      })
-  }
-}
-
-@target(erlang)
-/// Optimistically submit a json0 op (a list of components) to the channel.
-pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
-  process.send(json_ot.runtime, runtime.SubmitJsonOt(json_ot.address, op))
-}
-
-@target(erlang)
-/// The json0 channel's current optimistic document, `None` when the address is
-/// not a json0 channel.
-pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
-  process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetJsonOtView(json_ot.address, reply)
-  })
-}
-
-@target(erlang)
-/// Subscribe the calling process to this json0 channel's events, local and
-/// remote alike.
-pub fn subscribe_json_ot(
-  json_ot: JsonOt,
-) -> Subject(json_ot_kernel.JsonOtEvent) {
-  use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
-  case event {
-    channel.JsonOtEvent(inner) -> Some(inner)
-    _ -> None
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared rich text
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Create a new rich-text channel. Same detached lifecycle as `create_map`.
-pub fn create_rich_text(
-  document: Document(root),
-) -> Result(SharedRichText, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateRichText,
-  )
-  |> result.map(fn(address) {
-    SharedRichText(runtime: document.runtime, address: address)
-  })
-}
-
-@target(erlang)
-/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
-/// value in a map (see `handle_of`).
-pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
-  handle.encode_handle(rich_text.address)
-}
-
-@target(erlang)
-/// Resolve a handle value to the SharedRichText it references. Existence is
-/// checked, not channel type. Errors are retryable, as with `resolve`.
-pub fn resolve_rich_text(
-  document: Document(root),
-  value: Json,
-) -> Result(SharedRichText, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
-    Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
-      |> result.map(fn(_) {
-        SharedRichText(runtime: document.runtime, address: address)
-      })
-  }
-}
-
-@target(erlang)
-/// Optimistically submit a rich-text delta to the channel.
-pub fn submit_rich_text(
-  rich_text: SharedRichText,
-  delta: rich_text.Delta,
-) -> Nil {
-  process.send(
-    rich_text.runtime,
-    runtime.SubmitRichText(rich_text.address, delta),
-  )
-}
-
-@target(erlang)
-/// The channel's current optimistic rich-text document, `None` when the address
-/// is not a rich-text channel.
-pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
-  process.call(rich_text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetRichTextView(rich_text.address, reply)
-  })
-}
-
-@target(erlang)
-/// Subscribe the calling process to this rich-text channel's local and remote
-/// change events.
-pub fn subscribe_rich_text(
-  rich_text: SharedRichText,
-) -> Subject(rich_text_kernel.RichTextEvent) {
-  use event <- subscribe_narrowed(rich_text.runtime, rich_text.address)
-  case event {
-    channel.RichTextEvent(inner) -> Some(inner)
-    _ -> None
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// OR-maps
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
+@target(javascript)
 /// Create a new OR-map channel in tally or register mode. Same detached
-/// lifecycle as `create_map`: local-only until its handle is stored into an
-/// attached container.
+/// lifecycle as `create_map`.
 pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
 ) -> Result(OrMap, String) {
-  process.call(document.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.CreateOrMap(mode, reply)
-  })
+  runtime.create_or_map(document.runtime, mode)
   |> result.map(fn(address) {
     OrMap(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_handle_of(or_map: OrMap) -> Json {
   handle.encode_handle(or_map.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_or_map(
   document: Document(root),
   value: Json,
@@ -1671,91 +1547,75 @@ pub fn resolve_or_map(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) { OrMap(runtime: document.runtime, address: address) })
   }
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_increment(or_map: OrMap, key: String, amount: Int) -> Nil {
-  process.send(
-    or_map.runtime,
-    runtime.IncrementOrMap(or_map.address, key, amount),
-  )
+  runtime.or_map_increment(or_map.runtime, or_map.address, key, amount)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_set(or_map: OrMap, key: String, value: String) -> Nil {
-  process.send(or_map.runtime, runtime.SetOrMapKey(or_map.address, key, value))
+  runtime.or_map_set(or_map.runtime, or_map.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
   or_map_set(or_map, key, json.to_string(value))
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
-  process.send(or_map.runtime, runtime.RemoveOrMapKey(or_map.address, key))
+  runtime.or_map_remove(or_map.runtime, or_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_value(or_map: OrMap, key: String) -> Option(OrMapValue) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrMapValue(or_map.address, key, reply)
-  })
+  runtime.or_map_value(or_map.runtime, or_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_entries(or_map: OrMap) -> List(#(String, OrMapValue)) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrMapEntries(or_map.address, reply)
-  })
+  runtime.or_map_entries(or_map.runtime, or_map.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_map_keys(or_map: OrMap) -> List(String) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrMapKeys(or_map.address, reply)
-  })
+  runtime.or_map_keys(or_map.runtime, or_map.address)
 }
 
-@target(erlang)
-pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
-  use event <- subscribe_narrowed(or_map.runtime, or_map.address)
+@target(javascript)
+pub fn subscribe_or_map(
+  or_map: OrMap,
+  handler: fn(or_map_kernel.OrMapEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
   case event {
     channel.OrMapEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// OR-sets
-// ─────────────────────────────────────────────────────────────────────────────
+// ── OR-sets ──────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 /// Create a new observed-remove set channel for string elements.
 pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateOrSet,
-  )
+  runtime.create_or_set(document.runtime)
   |> result.map(fn(address) {
     OrSet(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_set_handle_of(or_set: OrSet) -> Json {
   handle.encode_handle(or_set.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_or_set(
   document: Document(root),
   value: Json,
@@ -1763,75 +1623,61 @@ pub fn resolve_or_set(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) { OrSet(runtime: document.runtime, address: address) })
   }
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_set_add(or_set: OrSet, element: String) -> Nil {
-  process.send(or_set.runtime, runtime.AddOrSetElement(or_set.address, element))
+  runtime.or_set_add(or_set.runtime, or_set.address, element)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_set_remove(or_set: OrSet, element: String) -> Nil {
-  process.send(
-    or_set.runtime,
-    runtime.RemoveOrSetElement(or_set.address, element),
-  )
+  runtime.or_set_remove(or_set.runtime, or_set.address, element)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_set_contains(or_set: OrSet, element: String) -> Bool {
-  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.OrSetContains(or_set.address, element, reply)
-  })
+  runtime.or_set_contains(or_set.runtime, or_set.address, element)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn or_set_values(or_set: OrSet) -> List(String) {
-  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrSetValues(or_set.address, reply)
-  })
+  runtime.or_set_values(or_set.runtime, or_set.address)
 }
 
-@target(erlang)
-pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
-  use event <- subscribe_narrowed(or_set.runtime, or_set.address)
+@target(javascript)
+pub fn subscribe_or_set(
+  or_set: OrSet,
+  handler: fn(or_set_kernel.OrSetEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared sequences
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Shared sequences ──────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn create_sequence(
   document: Document(root),
 ) -> Result(SharedSequence, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateSequence,
-  )
+  runtime.create_sequence(document.runtime)
   |> result.map(fn(address) {
     SharedSequence(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn sequence_handle_of(sequence: SharedSequence) -> Json {
   handle.encode_handle(sequence.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_sequence(
   document: Document(root),
   value: Json,
@@ -1846,30 +1692,26 @@ pub fn resolve_sequence(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Insert `value` at zero-based `index`, from `0` through the sequence length.
 pub fn sequence_insert(
   sequence: SharedSequence,
   index: Int,
   value: Json,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.InsertSequenceItem(sequence.address, index, value, reply)
-  })
+  runtime.sequence_insert(sequence.runtime, sequence.address, index, value)
 }
 
-@target(erlang)
+@target(javascript)
 /// Delete the value at a zero-based `index`, from `0` through `length - 1`.
 pub fn sequence_delete(
   sequence: SharedSequence,
   index: Int,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DeleteSequenceItem(sequence.address, index, reply)
-  })
+  runtime.sequence_delete(sequence.runtime, sequence.address, index)
 }
 
-@target(erlang)
+@target(javascript)
 /// Move a value between zero-based indexes; the destination is evaluated after
 /// removing the source value.
 pub fn sequence_move(
@@ -1877,70 +1719,62 @@ pub fn sequence_move(
   from_index: Int,
   to_index: Int,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.MoveSequenceItem(sequence.address, from_index, to_index, reply)
-  })
+  runtime.sequence_move(
+    sequence.runtime,
+    sequence.address,
+    from_index,
+    to_index,
+  )
 }
 
-@target(erlang)
+@target(javascript)
 /// Replace the value at a zero-based `index` as one collaborative operation.
 pub fn sequence_replace(
   sequence: SharedSequence,
   index: Int,
   value: Json,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.ReplaceSequenceItem(sequence.address, index, value, reply)
-  })
+  runtime.sequence_replace(sequence.runtime, sequence.address, index, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn sequence_values(sequence: SharedSequence) -> List(Json) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetSequenceValues(sequence.address, reply)
-  })
+  runtime.sequence_values(sequence.runtime, sequence.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn sequence_length(sequence: SharedSequence) -> Int {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetSequenceLength(sequence.address, reply)
-  })
+  runtime.sequence_length(sequence.runtime, sequence.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn subscribe_sequence(
   sequence: SharedSequence,
-) -> Subject(sequence_kernel.SequenceEvent) {
-  use event <- subscribe_narrowed(sequence.runtime, sequence.address)
+  handler: fn(sequence_kernel.SequenceEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared text
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Shared text ───────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn create_text(document: Document(root)) -> Result(SharedText, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateText,
-  )
+  runtime.create_text(document.runtime)
   |> result.map(fn(address) {
     SharedText(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn text_handle_of(text: SharedText) -> Json {
   handle.encode_handle(text.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_text(
   document: Document(root),
   value: Json,
@@ -1955,72 +1789,59 @@ pub fn resolve_text(
   }
 }
 
-@target(erlang)
-/// Insert `value` at zero-based grapheme `index`, from `0` through the text
-/// length. Inserting `""` is a no-op: it returns `Ok(Nil)` without emitting
-/// an event or submitting a channel op.
+@target(javascript)
+/// Insert `value` at the optimistic grapheme `index`, from `0` through the
+/// text length. An empty `value` at a valid index is a no-op.
 pub fn text_insert(
   text: SharedText,
   index: Int,
   value: String,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.InsertText(text.address, index, value, reply)
-  })
+  runtime.text_insert(text.runtime, text.address, index, value)
 }
 
-@target(erlang)
-/// Delete the graphemes in `[start, end)`. An empty range (`start == end`)
-/// is a no-op.
+@target(javascript)
+/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
+/// a no-op.
 pub fn text_delete_range(
   text: SharedText,
   start: Int,
   end: Int,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DeleteRangeText(text.address, start, end, reply)
-  })
+  runtime.text_delete_range(text.runtime, text.address, start, end)
 }
 
-@target(erlang)
-/// Replace the graphemes in `[start, end)` with `value` as one
-/// collaborative operation. Replacing an empty range with `""` is a no-op.
+@target(javascript)
+/// Replace the graphemes in `[start, end)` with `value` as one collaborative
+/// operation. Only an empty range replaced with `""` is a no-op.
 pub fn text_replace_range(
   text: SharedText,
   start: Int,
   end: Int,
   value: String,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.ReplaceRangeText(text.address, start, end, value, reply)
-  })
+  runtime.text_replace_range(text.runtime, text.address, start, end, value)
 }
 
-@target(erlang)
-/// Append `value` to the end of the text. Appending `""` is a no-op.
+@target(javascript)
+/// Insert `value` at the end of the text. An empty `value` is a no-op.
 pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.AppendText(text.address, value, reply)
-  })
+  runtime.text_append(text.runtime, text.address, value)
 }
 
-@target(erlang)
+@target(javascript)
 /// The text's current optimistic visible string.
 pub fn text_value(text: SharedText) -> String {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetTextValue(text.address, reply)
-  })
+  runtime.text_value(text.runtime, text.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// The text's current optimistic grapheme count.
 pub fn text_length(text: SharedText) -> Int {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetTextLength(text.address, reply)
-  })
+  runtime.text_length(text.runtime, text.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// The graphemes in `[start, end)` of the text's optimistic string. An
 /// explicit error string when `start..end` is invalid.
 pub fn text_substring(
@@ -2028,104 +1849,94 @@ pub fn text_substring(
   start: Int,
   end: Int,
 ) -> Result(String, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetTextSubstring(text.address, start, end, reply)
-  })
+  runtime.text_substring(text.runtime, text.address, start, end)
 }
 
-@target(erlang)
-/// Create a stable anchor at the gap before/after the optimistic grapheme
-/// at `index`, per `bias` (see `bias_before`/`bias_after`). An explicit
-/// error string on an out-of-bounds index.
+@target(javascript)
+/// Create a stable anchor at the gap before the optimistic grapheme at
+/// `index`, biased with `bias_before`/`bias_after`. An explicit error string
+/// on an out-of-bounds index.
 pub fn text_anchor_at(
   text: SharedText,
   index: Int,
   bias: Bias,
 ) -> Result(TextAnchor, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.TextAnchorAt(text.address, index, bias, reply)
-  })
+  runtime.text_anchor_at(text.runtime, text.address, index, bias)
 }
 
-@target(erlang)
-/// Resolve an anchor to its current optimistic grapheme index. An explicit
-/// error string on a stale/unknown anchor target (the holder should
-/// re-anchor).
+@target(javascript)
+/// Resolve an anchor to a current optimistic grapheme index. An explicit
+/// error string on a stale/unknown anchor target.
 pub fn text_resolve_anchor(
   text: SharedText,
   anchor: TextAnchor,
 ) -> Result(Int, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.TextResolveAnchor(text.address, anchor, reply)
-  })
+  runtime.text_resolve_anchor(text.runtime, text.address, anchor)
 }
 
-@target(erlang)
-/// An anchor at the start of the text. Always resolves to `0`.
+@target(javascript)
+/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
+/// need a `SharedText` since it carries no document state.
 pub fn text_start_anchor() -> TextAnchor {
   runtime.text_start_anchor()
 }
 
-@target(erlang)
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth.
+@target(javascript)
+/// An anchor at the end of the text. Always resolves to the current grapheme
+/// length, tracking growth. Pure, like `text_start_anchor`.
 pub fn text_end_anchor() -> TextAnchor {
   runtime.text_end_anchor()
 }
 
-@target(erlang)
+@target(javascript)
 /// Encode an anchor as a self-describing JSON value, for example to travel
 /// through presence for shared cursors.
 pub fn text_anchor_to_json(anchor: TextAnchor) -> Json {
   runtime.text_anchor_to_json(anchor)
 }
 
-@target(erlang)
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
-/// An explicit error string on malformed JSON.
+@target(javascript)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`. An
+/// explicit error string on malformed JSON.
 pub fn text_anchor_from_json(
   json_string: String,
 ) -> Result(TextAnchor, String) {
   runtime.text_anchor_from_json(json_string)
 }
 
-@target(erlang)
-/// Subscribe the calling process to this text's events, local and remote
-/// alike. The subject carries `text_kernel.TextEvent` — text events only.
-pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
-  use event <- subscribe_narrowed(text.runtime, text.address)
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// text channel. The handler receives `text_kernel.TextEvent` — text events
+/// only.
+pub fn subscribe_text(
+  text: SharedText,
+  handler: fn(text_kernel.TextEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(text.runtime, text.address, handler)
   case event {
     channel.TextEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Register collections
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Register collections ─────────────────────────────────────────────────────
 
-@target(erlang)
-/// Create a new consensus register collection. Like other non-root channels it
-/// starts detached until its handle is stored in an attached map.
+@target(javascript)
 pub fn create_register_collection(
   document: Document(root),
 ) -> Result(RegisterCollection, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateRegisterCollection,
-  )
+  runtime.create_register_collection(document.runtime)
   |> result.map(fn(address) {
     RegisterCollection(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_collection_handle_of(collection: RegisterCollection) -> Json {
   handle.encode_handle(collection.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_register_collection(
   document: Document(root),
   value: Json,
@@ -2133,41 +1944,32 @@ pub fn resolve_register_collection(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         RegisterCollection(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_write(
   collection: RegisterCollection,
   key: String,
   value: Json,
 ) -> Nil {
-  process.send(
-    collection.runtime,
-    runtime.WriteRegister(collection.address, key, value),
-  )
+  runtime.register_write(collection.runtime, collection.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_read(
   collection: RegisterCollection,
   key: String,
   policy: ReadPolicy,
 ) -> Option(Json) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetRegisterValue(collection.address, key, policy, reply)
-  })
+  runtime.register_read(collection.runtime, collection.address, key, policy)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_get(
   collection: RegisterCollection,
   key: String,
@@ -2175,56 +1977,51 @@ pub fn register_get(
   register_read(collection, key, Atomic)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_versions(
   collection: RegisterCollection,
   key: String,
 ) -> Option(List(Json)) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetRegisterVersions(collection.address, key, reply)
-  })
+  runtime.register_versions(collection.runtime, collection.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn register_keys(collection: RegisterCollection) -> List(String) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetRegisterKeys(collection.address, reply)
-  })
+  runtime.register_keys(collection.runtime, collection.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn subscribe_register_collection(
   collection: RegisterCollection,
-) -> Subject(register_collection_kernel.RegisterEvent) {
-  use event <- subscribe_narrowed(collection.runtime, collection.address)
+  handler: fn(register_collection_kernel.RegisterEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(
+    collection.runtime,
+    collection.address,
+    handler,
+  )
   case event {
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Claims
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Claims ───────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn create_claims(document: Document(root)) -> Result(Claims, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateClaims,
-  )
+  runtime.create_claims(document.runtime)
   |> result.map(fn(address) {
     Claims(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn claims_handle_of(claims: Claims) -> Json {
   handle.encode_handle(claims.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_claims(
   document: Document(root),
   value: Json,
@@ -2232,18 +2029,14 @@ pub fn resolve_claims(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         Claims(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 pub fn try_set_claim(
   claims: Claims,
   key: String,
@@ -2252,7 +2045,7 @@ pub fn try_set_claim(
   runtime.try_set_claim(claims.runtime, claims.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn compare_and_set_claim(
   claims: Claims,
   key: String,
@@ -2261,49 +2054,46 @@ pub fn compare_and_set_claim(
   runtime.compare_and_set_claim(claims.runtime, claims.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn get_claim(claims: Claims, key: String) -> Option(Json) {
   runtime.get_claim(claims.runtime, claims.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn has_claim(claims: Claims, key: String) -> Bool {
   runtime.has_claim(claims.runtime, claims.address, key)
 }
 
-@target(erlang)
-pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
-  use event <- subscribe_narrowed(claims.runtime, claims.address)
+@target(javascript)
+pub fn subscribe_claims(
+  claims: Claims,
+  handler: fn(claims_kernel.ClaimEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
   case event {
     channel.ClaimsEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Task managers
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Task managers ─────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn create_task_manager(
   document: Document(root),
 ) -> Result(TaskManager, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateTaskManager,
-  )
+  runtime.create_task_manager(document.runtime)
   |> result.map(fn(address) {
     TaskManager(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn task_manager_handle_of(manager: TaskManager) -> Json {
   handle.encode_handle(manager.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_task_manager(
   document: Document(root),
   value: Json,
@@ -2311,18 +2101,14 @@ pub fn resolve_task_manager(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         TaskManager(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 pub fn volunteer_for_task(
   manager: TaskManager,
   task_id: String,
@@ -2330,12 +2116,12 @@ pub fn volunteer_for_task(
   runtime.task_manager_volunteer(manager.runtime, manager.address, task_id)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn abandon_task(manager: TaskManager, task_id: String) -> Nil {
   runtime.task_manager_abandon(manager.runtime, manager.address, task_id)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn complete_task(
   manager: TaskManager,
   task_id: String,
@@ -2343,393 +2129,52 @@ pub fn complete_task(
   runtime.task_manager_complete(manager.runtime, manager.address, task_id)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn task_assigned(manager: TaskManager, task_id: String) -> Bool {
   runtime.task_manager_assigned(manager.runtime, manager.address, task_id)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn task_queued(manager: TaskManager, task_id: String) -> Bool {
   runtime.task_manager_queued(manager.runtime, manager.address, task_id)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn task_queues(manager: TaskManager) -> List(#(String, List(Int))) {
   runtime.task_manager_queues(manager.runtime, manager.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn subscribe_task_manager(
   manager: TaskManager,
-) -> Subject(task_manager_kernel.TaskManagerEvent) {
-  use event <- subscribe_narrowed(manager.runtime, manager.address)
+  handler: fn(task_manager_kernel.TaskManagerEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
   case event {
     channel.TaskManagerEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Grow-only sets (G-Set)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── PN-counters ──────────────────────────────────────────────────────────────
 
-@target(erlang)
-/// Create a new grow-only set channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`g_set_handle_of`) is first
-/// stored into an attached map. Elements can only be added, never removed;
-/// concurrent adds always converge to the union.
-pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateGSet,
-  )
-  |> result.map(fn(address) {
-    GSet(runtime: document.runtime, address: address)
-  })
-}
-
-@target(erlang)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
-pub fn g_set_handle_of(set: GSet) -> Json {
-  handle.encode_handle(set.address)
-}
-
-@target(erlang)
-/// Resolve a handle value to the GSet it references. Errors are
-/// retryable, as with `resolve`.
-pub fn resolve_g_set(
-  document: Document(root),
-  value: Json,
-) -> Result(GSet, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
-    Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
-      |> result.map(fn(_) { GSet(runtime: document.runtime, address: address) })
-  }
-}
-
-@target(erlang)
-/// Optimistically add `element` to the set.
-pub fn g_set_add(set: GSet, element: String) -> Nil {
-  process.send(set.runtime, runtime.AddGSetElement(set.address, element))
-}
-
-@target(erlang)
-/// Whether `element` is present in the set's current optimistic state.
-pub fn g_set_contains(set: GSet, element: String) -> Bool {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GSetContains(set.address, element, reply)
-  })
-}
-
-@target(erlang)
-/// The set's current optimistic members.
-pub fn g_set_values(set: GSet) -> List(String) {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetGSetValues(set.address, reply)
-  })
-}
-
-@target(erlang)
-/// Subscribe the calling process to this set's events, local and remote alike.
-pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
-  use event <- subscribe_narrowed(set.runtime, set.address)
-  case event {
-    channel.GSetEvent(inner) -> Some(inner)
-    _ -> None
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Two-phase sets (2P-Set)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Create a new two-phase set channel. Same detached lifecycle as
-/// `create_map`: local-only until its handle (`two_p_set_handle_of`) is first
-/// stored into an attached map. A remove is a permanent tombstone: a removed
-/// element can never be made active again, so remove wins over a concurrent
-/// (re-)add.
-pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateTwoPSet,
-  )
-  |> result.map(fn(address) {
-    TwoPSet(runtime: document.runtime, address: address)
-  })
-}
-
-@target(erlang)
-/// The Fluid handle marker referencing `set`, suitable for storing as a value
-/// in a map (see `handle_of`).
-pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
-  handle.encode_handle(set.address)
-}
-
-@target(erlang)
-/// Resolve a handle value to the TwoPSet it references. Errors are
-/// retryable, as with `resolve`.
-pub fn resolve_two_p_set(
-  document: Document(root),
-  value: Json,
-) -> Result(TwoPSet, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
-    Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
-      |> result.map(fn(_) {
-        TwoPSet(runtime: document.runtime, address: address)
-      })
-  }
-}
-
-@target(erlang)
-/// Optimistically add `element` to the set. Adding a previously removed
-/// element records the add but never reactivates it.
-pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
-  process.send(set.runtime, runtime.AddTwoPSetElement(set.address, element))
-}
-
-@target(erlang)
-/// Optimistically remove `element` from the set. Removal is a permanent
-/// tombstone.
-pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
-  process.send(set.runtime, runtime.RemoveTwoPSetElement(set.address, element))
-}
-
-@target(erlang)
-/// Whether `element` is present in the set's current optimistic state.
-pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.TwoPSetContains(set.address, element, reply)
-  })
-}
-
-@target(erlang)
-/// The set's current optimistic members.
-pub fn two_p_set_values(set: TwoPSet) -> List(String) {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetTwoPSetValues(set.address, reply)
-  })
-}
-
-@target(erlang)
-/// Subscribe the calling process to this set's events, local and remote alike.
-pub fn subscribe_two_p_set(
-  set: TwoPSet,
-) -> Subject(two_p_set_kernel.TwoPSetEvent) {
-  use event <- subscribe_narrowed(set.runtime, set.address)
-  case event {
-    channel.TwoPSetEvent(inner) -> Some(inner)
-    _ -> None
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Directories (hierarchical maps)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Create a new directory channel: a hierarchical map keyed by absolute paths
-/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
-/// until its handle (`directory_handle_of`) is first stored into an attached
-/// map.
-pub fn create_directory(
-  document: Document(root),
-) -> Result(SharedDirectory, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateDirectory,
-  )
-  |> result.map(fn(address) {
-    SharedDirectory(runtime: document.runtime, address: address)
-  })
-}
-
-@target(erlang)
-/// The Fluid handle marker referencing `dir`, suitable for storing as a value
-/// in a map (see `handle_of`).
-pub fn directory_handle_of(dir: SharedDirectory) -> Json {
-  handle.encode_handle(dir.address)
-}
-
-@target(erlang)
-/// Resolve a handle value to the SharedDirectory it references. Errors are
-/// retryable, as with `resolve`.
-pub fn resolve_directory(
-  document: Document(root),
-  value: Json,
-) -> Result(SharedDirectory, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
-    Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
-      |> result.map(fn(_) {
-        SharedDirectory(runtime: document.runtime, address: address)
-      })
-  }
-}
-
-@target(erlang)
-/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
-/// `"/"`).
-pub fn directory_set(
-  dir: SharedDirectory,
-  path: String,
-  key: String,
-  value: Json,
-) -> Nil {
-  process.send(dir.runtime, runtime.DirectorySet(dir.address, path, key, value))
-}
-
-@target(erlang)
-/// Optimistically remove `key` from the subdirectory at `path`.
-pub fn directory_delete(
-  dir: SharedDirectory,
-  path: String,
-  key: String,
-) -> Nil {
-  process.send(dir.runtime, runtime.DirectoryDelete(dir.address, path, key))
-}
-
-@target(erlang)
-/// Optimistically remove every key from the subdirectory at `path`.
-pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
-  process.send(dir.runtime, runtime.DirectoryClear(dir.address, path))
-}
-
-@target(erlang)
-/// Optimistically create a subdirectory named `name` under `path`.
-pub fn directory_create_subdirectory(
-  dir: SharedDirectory,
-  path: String,
-  name: String,
-) -> Nil {
-  process.send(
-    dir.runtime,
-    runtime.DirectoryCreateSubdirectory(dir.address, path, name),
-  )
-}
-
-@target(erlang)
-/// Optimistically delete the subdirectory named `name` under `path` (and all
-/// of its contents).
-pub fn directory_delete_subdirectory(
-  dir: SharedDirectory,
-  path: String,
-  name: String,
-) -> Nil {
-  process.send(
-    dir.runtime,
-    runtime.DirectoryDeleteSubdirectory(dir.address, path, name),
-  )
-}
-
-@target(erlang)
-/// The current optimistic value at `key` in the subdirectory at `path`, `None`
-/// when absent.
-pub fn directory_get(
-  dir: SharedDirectory,
-  path: String,
-  key: String,
-) -> Option(Json) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DirectoryGet(dir.address, path, key, reply)
-  })
-}
-
-@target(erlang)
-/// The current optimistic `#(key, value)` entries in the subdirectory at
-/// `path`.
-pub fn directory_entries(
-  dir: SharedDirectory,
-  path: String,
-) -> List(#(String, Json)) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DirectoryEntries(dir.address, path, reply)
-  })
-}
-
-@target(erlang)
-/// The names of the immediate subdirectories under `path`.
-pub fn directory_subdirectories(
-  dir: SharedDirectory,
-  path: String,
-) -> List(String) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DirectorySubdirectories(dir.address, path, reply)
-  })
-}
-
-@target(erlang)
-/// Whether a subdirectory named `name` exists under `path`.
-pub fn directory_has_subdirectory(
-  dir: SharedDirectory,
-  path: String,
-  name: String,
-) -> Bool {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.DirectoryHasSubdirectory(dir.address, path, name, reply)
-  })
-}
-
-@target(erlang)
-/// Subscribe the calling process to this directory's events, local and remote
-/// alike.
-pub fn subscribe_directory(
-  dir: SharedDirectory,
-) -> Subject(directory_kernel.DirectoryEvent) {
-  use event <- subscribe_narrowed(dir.runtime, dir.address)
-  case event {
-    channel.DirectoryEvent(inner) -> Some(inner)
-    _ -> None
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PN-counters (increment and decrement)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Create a new PN-counter channel. Same detached lifecycle as `create_map`:
-/// local-only until its handle is stored into an attached container.
+@target(javascript)
+/// Create a new PN-counter channel. Same detached lifecycle as `create_map`.
 pub fn create_pn_counter(
   document: Document(root),
 ) -> Result(PnCounter, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreatePnCounter,
-  )
+  runtime.create_pn_counter(document.runtime)
   |> result.map(fn(address) {
     PnCounter(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn pn_counter_handle_of(pn_counter: PnCounter) -> Json {
   handle.encode_handle(pn_counter.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_pn_counter(
   document: Document(root),
   value: Json,
@@ -2737,71 +2182,61 @@ pub fn resolve_pn_counter(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         PnCounter(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Optimistically add `amount` (negative amounts decrement).
 pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
-  process.send(
-    pn_counter.runtime,
-    runtime.UpdatePnCounter(pn_counter.address, amount),
-  )
+  runtime.pn_counter_update(pn_counter.runtime, pn_counter.address, amount)
 }
 
-@target(erlang)
+@target(javascript)
 /// The counter's current optimistic value, `None` when the address is not a
 /// PN-counter channel.
 pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
-  process.call(pn_counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPnCounterValue(pn_counter.address, reply)
-  })
+  runtime.pn_counter_value(pn_counter.runtime, pn_counter.address)
 }
 
-@target(erlang)
-/// Subscribe the calling process to this PN-counter's local and remote change
-/// events.
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// PN-counter.
 pub fn subscribe_pn_counter(
   pn_counter: PnCounter,
-) -> Subject(pn_counter_kernel.PnCounterEvent) {
-  use event <- subscribe_narrowed(pn_counter.runtime, pn_counter.address)
+  handler: fn(pn_counter_kernel.PnCounterEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(
+    pn_counter.runtime,
+    pn_counter.address,
+    handler,
+  )
   case event {
     channel.PnCounterEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PactMaps (consensus map: writes are proposals settled by sequencing)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── PactMaps ─────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 /// Create a new PactMap channel. Same detached lifecycle as `create_map`.
 pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreatePactMap,
-  )
+  runtime.create_pact_map(document.runtime)
   |> result.map(fn(address) {
     PactMap(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn pact_map_handle_of(pact_map: PactMap) -> Json {
   handle.encode_handle(pact_map.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_pact_map(
   document: Document(root),
   value: Json,
@@ -2809,52 +2244,41 @@ pub fn resolve_pact_map(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         PactMap(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Propose `value` for `key`. Consensus, not optimistic: the value is `pending`
 /// until server sequencing accepts it.
 pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
-  process.send(
-    pact_map.runtime,
-    runtime.SetPactMap(pact_map.address, key, value),
-  )
+  runtime.pact_map_set(pact_map.runtime, pact_map.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 /// Propose a delete (tombstone) for `key`.
 pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
-  process.send(pact_map.runtime, runtime.DeletePactMap(pact_map.address, key))
+  runtime.pact_map_delete(pact_map.runtime, pact_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 /// The accepted value for `key`, `None` when pending, absent, or not a PactMap
 /// channel.
 pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPactMapValue(pact_map.address, key, reply)
-  })
+  runtime.pact_map_get(pact_map.runtime, pact_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 /// All keys with an accepted or pending pact.
 pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPactMapKeys(pact_map.address, reply)
-  })
+  runtime.pact_map_keys(pact_map.runtime, pact_map.address)
 }
 
-@target(erlang)
-/// Subscribe the calling process to this PactMap's consensus transitions:
+@target(javascript)
+/// Register a callback invoked for this PactMap's consensus transitions:
 /// `WentPending` when a proposal is sequenced and `WentAccepted` when its
 /// signoff list drains.
 ///
@@ -2863,23 +2287,22 @@ pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
 /// proposal landed, which is the one thing that distinguishes it from a map.
 pub fn subscribe_pact_map(
   pact_map: PactMap,
-) -> Subject(pact_map_kernel.PactMapEvent) {
-  use event <- subscribe_narrowed(pact_map.runtime, pact_map.address)
+  handler: fn(pact_map_kernel.PactMapEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
   case event {
     channel.PactMapEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Whether `key` currently has an unsettled (pending) proposal.
 pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPactMapPending(pact_map.address, key, reply)
-  })
+  runtime.pact_map_is_pending(pact_map.runtime, pact_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 /// The clients whose agreement `key` is still waiting on, `None` when nothing
 /// is pending.
 ///
@@ -2896,56 +2319,46 @@ pub fn pact_map_pending_signoffs(
   |> option.map(fn(pending) { pending.expected_signoffs })
 }
 
-@target(erlang)
+@target(javascript)
 /// The full pending proposal for `key` — the value awaiting agreement and the
 /// signoff list it is waiting on — `None` when nothing is pending.
 pub fn pact_map_pending(
   pact_map: PactMap,
   key: String,
 ) -> Option(pact_map_kernel.Pending) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPactMapPendingDetails(pact_map.address, key, reply)
-  })
+  runtime.pact_map_pending(pact_map.runtime, pact_map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 /// The accepted entry for `key`: the agreed value and the sequence number it
 /// settled at. `None` when the key is absent or still pending.
 pub fn pact_map_get_with_details(
   pact_map: PactMap,
   key: String,
 ) -> Option(pact_map_kernel.Accepted) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetPactMapAccepted(pact_map.address, key, reply)
-  })
+  runtime.pact_map_get_with_details(pact_map.runtime, pact_map.address, key)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Ordered collections (consensus work queue)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Ordered collections ──────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 /// Create a new ConsensusOrderedCollection channel. Same detached lifecycle as
 /// `create_map`.
 pub fn create_ordered_collection(
   document: Document(root),
 ) -> Result(OrderedCollection, String) {
-  process.call(
-    document.runtime,
-    waiting: call_timeout_ms,
-    sending: runtime.CreateOrderedCollection,
-  )
+  runtime.create_ordered_collection(document.runtime)
   |> result.map(fn(address) {
     OrderedCollection(runtime: document.runtime, address: address)
   })
 }
 
-@target(erlang)
+@target(javascript)
 pub fn ordered_collection_handle_of(collection: OrderedCollection) -> Json {
   handle.encode_handle(collection.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn resolve_ordered_collection(
   document: Document(root),
   value: Json,
@@ -2953,198 +2366,574 @@ pub fn resolve_ordered_collection(
   case handle.parse_handle(value) {
     Error(Nil) -> Error("value is not a handle marker")
     Ok(address) ->
-      process.call(
-        document.runtime,
-        waiting: call_timeout_ms,
-        sending: fn(reply) { runtime.ResolveAddress(address, reply) },
-      )
+      runtime.resolve_address(document.runtime, address)
       |> result.map(fn(_) {
         OrderedCollection(runtime: document.runtime, address: address)
       })
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Enqueue `value` at the tail of the collection.
 pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
-  process.send(
-    collection.runtime,
-    runtime.AddOrderedItem(collection.address, value),
-  )
+  runtime.ordered_add(collection.runtime, collection.address, value)
 }
 
-@target(erlang)
+@target(javascript)
 /// Acquire (lease) the head item, returning the acquire id used to `complete`
 /// or `release` it.
 pub fn ordered_acquire(collection: OrderedCollection) -> String {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.AcquireOrderedItem(collection.address, reply)
-  })
+  runtime.ordered_acquire(collection.runtime, collection.address)
 }
 
-@target(erlang)
-/// Like `ordered_acquire`, but also reports the acquire's consensus outcome on
-/// the returned `Subject`, exactly once: `AcquiredItem` when this client won
-/// the head, `QueueEmpty` when the queue had drained by the time the op
-/// sequenced (a losing acquire emits no event, so this is the loser's only
-/// signal), or `Aborted` when the document closes with the acquire in flight.
+@target(javascript)
+/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
+/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
+/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
+/// (a losing acquire emits no event, so this is the loser's only signal), or
+/// `Aborted` when the document closes with the acquire still in flight.
 pub fn ordered_acquire_with_outcome(
   collection: OrderedCollection,
-) -> #(String, Subject(ordered_collection_kernel.AcquireOutcome)) {
-  let outcome = process.new_subject()
-  let acquire_id =
-    process.call(
-      collection.runtime,
-      waiting: call_timeout_ms,
-      sending: fn(reply) {
-        runtime.AcquireOrderedItemWithOutcome(
-          collection.address,
-          outcome,
-          reply,
-        )
-      },
-    )
-  #(acquire_id, outcome)
+  on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+) -> String {
+  runtime.ordered_acquire_with_outcome(
+    collection.runtime,
+    collection.address,
+    on_outcome,
+  )
 }
 
-@target(erlang)
+@target(javascript)
 /// Complete an acquired item, removing it permanently.
 pub fn ordered_complete(
   collection: OrderedCollection,
   acquire_id: String,
 ) -> Nil {
-  process.send(
+  runtime.ordered_complete(
     collection.runtime,
-    runtime.CompleteOrderedItem(collection.address, acquire_id),
+    collection.address,
+    acquire_id,
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Release an acquired item back to the collection for another consumer.
 pub fn ordered_release(
   collection: OrderedCollection,
   acquire_id: String,
 ) -> Nil {
-  process.send(
-    collection.runtime,
-    runtime.ReleaseOrderedItem(collection.address, acquire_id),
-  )
+  runtime.ordered_release(collection.runtime, collection.address, acquire_id)
 }
 
-@target(erlang)
+@target(javascript)
 /// The number of items currently in the collection, `None` when the address is
 /// not an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrderedSize(collection.address, reply)
-  })
+  runtime.ordered_size(collection.runtime, collection.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// The queued (not-yet-acquired) values, front first.
 pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrderedQueue(collection.address, reply)
-  })
+  runtime.ordered_queue(collection.runtime, collection.address)
 }
 
-@target(erlang)
+@target(javascript)
 /// The currently-held jobs, keyed by acquire id (sorted).
 pub fn ordered_jobs(
   collection: OrderedCollection,
 ) -> List(#(String, ordered_collection_kernel.JobEntry)) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetOrderedJobs(collection.address, reply)
-  })
+  runtime.ordered_jobs(collection.runtime, collection.address)
 }
 
-@target(erlang)
-/// Subscribe the calling process to this ordered collection's queue events —
+@target(javascript)
+/// Register a callback invoked for this ordered collection's queue events —
 /// items added, acquired, completed, and released back on a client's departure.
 pub fn subscribe_ordered_collection(
   collection: OrderedCollection,
-) -> Subject(ordered_collection_kernel.OrderedEvent) {
-  use event <- subscribe_narrowed(collection.runtime, collection.address)
+  handler: fn(ordered_collection_kernel.OrderedEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(
+    collection.runtime,
+    collection.address,
+    handler,
+  )
   case event {
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-// ── Ripples (ephemeral presence signals) ─────────────────────────────────────
+// ── JSON-OT (json0) ──────────────────────────────────────────────────────────
 
-@target(erlang)
-/// A received ripple: an ephemeral, document-scoped broadcast. Non-sequenced
-/// and non-persisted — ideal for transient presence (cursors, selection,
-/// typing indicators) that must NOT live in a DDS.
-pub type Ripple =
-  SignalMessage
+@target(javascript)
+/// Create a new json0 channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`json_ot_handle_of`) is stored into an attached
+/// container.
+pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
+  runtime.create_json_ot(document.runtime)
+  |> result.map(fn(address) {
+    JsonOt(runtime: document.runtime, address: address)
+  })
+}
 
-@target(erlang)
-/// Broadcast an ephemeral ripple to every other connected client: a `type`
-/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
-/// catch-up. No-op until the first handshake assigns a client id.
-pub fn submit_ripple(
+@target(javascript)
+/// The Fluid handle marker referencing `json_ot`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn json_ot_handle_of(json_ot: JsonOt) -> Json {
+  handle.encode_handle(json_ot.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the JsonOt it references. Errors are retryable,
+/// as with `resolve`.
+pub fn resolve_json_ot(
   document: Document(root),
-  ripple_type ripple_type: String,
-  content content: Json,
+  value: Json,
+) -> Result(JsonOt, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        JsonOt(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically submit a json0 op (a list of components) to the channel.
+pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
+  runtime.submit_json_ot(json_ot.runtime, json_ot.address, op)
+}
+
+@target(javascript)
+/// The json0 channel's current optimistic document, `None` when the address is
+/// not a json0 channel.
+pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
+  runtime.json_ot_view(json_ot.runtime, json_ot.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this json0
+/// channel.
+pub fn subscribe_json_ot(
+  json_ot: JsonOt,
+  handler: fn(json_ot_kernel.JsonOtEvent) -> Nil,
 ) -> Nil {
-  process.send(document.runtime, runtime.SubmitRipple(ripple_type, content))
+  use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
+  case event {
+    channel.JsonOtEvent(inner) -> Some(inner)
+    _ -> None
+  }
 }
 
-@target(erlang)
-/// Subscribe the calling process to every inbound ripple on the document. The
-/// returned subject carries `Ripple` values, mirroring the per-channel
-/// `subscribe_*` functions.
-pub fn subscribe_ripples(document: Document(root)) -> Subject(Ripple) {
-  let subject = process.new_subject()
-  process.send(
-    document.runtime,
-    runtime.SubscribeRipple(fn(ripple) { process.send(subject, ripple) }),
-  )
-  subject
+// ── Shared rich text ─────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new rich-text channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`rich_text_handle_of`) is stored into an
+/// attached container.
+pub fn create_rich_text(
+  document: Document(root),
+) -> Result(SharedRichText, String) {
+  runtime.create_rich_text(document.runtime)
+  |> result.map(fn(address) {
+    SharedRichText(runtime: document.runtime, address: address)
+  })
 }
 
-@target(erlang)
-/// The ripple's `type` tag, if present.
-pub fn ripple_type(ripple: Ripple) -> Option(String) {
-  ripple.signal_type
+@target(javascript)
+/// The Fluid handle marker referencing `rich_text`, suitable for storing as a
+/// value in a map (see `handle_of`).
+pub fn rich_text_handle_of(rich_text: SharedRichText) -> Json {
+  handle.encode_handle(rich_text.address)
 }
 
-@target(erlang)
-/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
-pub fn ripple_content(ripple: Ripple) -> Dynamic {
-  ripple.content
+@target(javascript)
+/// Resolve a handle value to the SharedRichText it references. Existence is
+/// checked, not channel type. Errors are retryable, as with `resolve`.
+pub fn resolve_rich_text(
+  document: Document(root),
+  value: Json,
+) -> Result(SharedRichText, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedRichText(runtime: document.runtime, address: address)
+      })
+  }
 }
 
-@target(erlang)
-/// The sending client's id, if the server stamped one (`None` for
-/// server-originated ripples).
-pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
-  ripple.client_id
+@target(javascript)
+/// Optimistically submit a rich-text delta to the channel.
+pub fn submit_rich_text(
+  rich_text: SharedRichText,
+  delta: rich_text.Delta,
+) -> Nil {
+  runtime.submit_rich_text(rich_text.runtime, rich_text.address, delta)
 }
 
-@target(erlang)
-/// Close the connection and stop the runtime.
+@target(javascript)
+/// The channel's current optimistic rich-text document, `None` when the address
+/// is not a rich-text channel.
+pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
+  runtime.rich_text_view(rich_text.runtime, rich_text.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// rich-text channel.
+pub fn subscribe_rich_text(
+  rich_text: SharedRichText,
+  handler: fn(rich_text_kernel.RichTextEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
+  case event {
+    channel.RichTextEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Grow-only sets (G-Set) ───────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new grow-only set channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`g_set_handle_of`) is stored into an attached
+/// container.
+pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
+  runtime.create_g_set(document.runtime)
+  |> result.map(fn(address) {
+    GSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn g_set_handle_of(set: GSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the GSet it references. Errors are retryable, as
+/// with `resolve`.
+pub fn resolve_g_set(
+  document: Document(root),
+  value: Json,
+) -> Result(GSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) { GSet(runtime: document.runtime, address: address) })
+  }
+}
+
+@target(javascript)
+/// Optimistically add `element` to the set.
+pub fn g_set_add(set: GSet, element: String) -> Nil {
+  runtime.g_set_add(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn g_set_contains(set: GSet, element: String) -> Bool {
+  runtime.g_set_contains(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// The set's current optimistic members.
+pub fn g_set_values(set: GSet) -> List(String) {
+  runtime.g_set_values(set.runtime, set.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this set.
+pub fn subscribe_g_set(
+  set: GSet,
+  handler: fn(g_set_kernel.GSetEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(set.runtime, set.address, handler)
+  case event {
+    channel.GSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Two-phase sets (2P-Set) ──────────────────────────────────────────────────
+
+@target(javascript)
+/// Create a new two-phase set channel. Same detached lifecycle as `create_map`:
+/// local-only until its handle (`two_p_set_handle_of`) is stored into an
+/// attached map. A remove is a permanent tombstone: remove wins over a
+/// concurrent (re-)add.
+pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
+  runtime.create_two_p_set(document.runtime)
+  |> result.map(fn(address) {
+    TwoPSet(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `set`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn two_p_set_handle_of(set: TwoPSet) -> Json {
+  handle.encode_handle(set.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the TwoPSet it references. Errors are retryable,
+/// as with `resolve`.
+pub fn resolve_two_p_set(
+  document: Document(root),
+  value: Json,
+) -> Result(TwoPSet, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        TwoPSet(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically add `element` to the set. Adding a previously removed element
+/// records the add but never reactivates it.
+pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
+  runtime.two_p_set_add(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Optimistically remove `element` from the set. Removal is a permanent
+/// tombstone.
+pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
+  runtime.two_p_set_remove(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// Whether `element` is present in the set's current optimistic state.
+pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
+  runtime.two_p_set_contains(set.runtime, set.address, element)
+}
+
+@target(javascript)
+/// The set's current optimistic members.
+pub fn two_p_set_values(set: TwoPSet) -> List(String) {
+  runtime.two_p_set_values(set.runtime, set.address)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this set.
+pub fn subscribe_two_p_set(
+  set: TwoPSet,
+  handler: fn(two_p_set_kernel.TwoPSetEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(set.runtime, set.address, handler)
+  case event {
+    channel.TwoPSetEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+// ── Directories (hierarchical maps) ──────────────────────────────────────────
+
+@target(javascript)
+/// Create a new directory channel: a hierarchical map keyed by absolute paths
+/// (the root is `"/"`). Same detached lifecycle as `create_map`: local-only
+/// until its handle (`directory_handle_of`) is stored into an attached map.
+pub fn create_directory(
+  document: Document(root),
+) -> Result(SharedDirectory, String) {
+  runtime.create_directory(document.runtime)
+  |> result.map(fn(address) {
+    SharedDirectory(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// The Fluid handle marker referencing `dir`, suitable for storing as a value
+/// in a map (see `handle_of`).
+pub fn directory_handle_of(dir: SharedDirectory) -> Json {
+  handle.encode_handle(dir.address)
+}
+
+@target(javascript)
+/// Resolve a handle value to the SharedDirectory it references. Errors are
+/// retryable, as with `resolve`.
+pub fn resolve_directory(
+  document: Document(root),
+  value: Json,
+) -> Result(SharedDirectory, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        SharedDirectory(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Optimistically set `key` to `value` in the subdirectory at `path` (root is
+/// `"/"`).
+pub fn directory_set(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  runtime.directory_set(dir.runtime, dir.address, path, key, value)
+}
+
+@target(javascript)
+/// Optimistically remove `key` from the subdirectory at `path`.
+pub fn directory_delete(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Nil {
+  runtime.directory_delete(dir.runtime, dir.address, path, key)
+}
+
+@target(javascript)
+/// Optimistically remove every key from the subdirectory at `path`.
+pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
+  runtime.directory_clear(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// Optimistically create a subdirectory named `name` under `path`.
+pub fn directory_create_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  runtime.directory_create_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// Optimistically delete the subdirectory named `name` under `path` (and all
+/// of its contents).
+pub fn directory_delete_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Nil {
+  runtime.directory_delete_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// The current optimistic value at `key` in the subdirectory at `path`, `None`
+/// when absent.
+pub fn directory_get(
+  dir: SharedDirectory,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  runtime.directory_get(dir.runtime, dir.address, path, key)
+}
+
+@target(javascript)
+/// The current optimistic `#(key, value)` entries in the subdirectory at
+/// `path`.
+pub fn directory_entries(
+  dir: SharedDirectory,
+  path: String,
+) -> List(#(String, Json)) {
+  runtime.directory_entries(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// The names of the immediate subdirectories under `path`.
+pub fn directory_subdirectories(
+  dir: SharedDirectory,
+  path: String,
+) -> List(String) {
+  runtime.directory_subdirectories(dir.runtime, dir.address, path)
+}
+
+@target(javascript)
+/// Whether a subdirectory named `name` exists under `path`.
+pub fn directory_has_subdirectory(
+  dir: SharedDirectory,
+  path: String,
+  name: String,
+) -> Bool {
+  runtime.directory_has_subdirectory(dir.runtime, dir.address, path, name)
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this
+/// directory.
+pub fn subscribe_directory(
+  dir: SharedDirectory,
+  handler: fn(directory_kernel.DirectoryEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(dir.runtime, dir.address, handler)
+  case event {
+    channel.DirectoryEvent(inner) -> Some(inner)
+    _ -> None
+  }
+}
+
+@target(javascript)
 pub fn close(document: Document(root)) -> Nil {
-  process.send(document.runtime, runtime.Shutdown)
+  runtime.close(document.runtime)
 }
 
-@target(erlang)
-/// Fault-injection hook (primarily for tests): drop the current transport
-/// channel, forcing the runtime through its reconnect/reconcile path. Pending
-/// and in-flight edits are preserved and resubmitted after the reconnect.
+@target(javascript)
+/// Fault-injection hook (tests/demos): drop the socket to force the
+/// reconnect/reconcile path. Pending and in-flight edits are preserved.
 pub fn force_reconnect(document: Document(root)) -> Nil {
-  process.send(document.runtime, runtime.DropChannel)
+  runtime.force_reconnect(document.runtime)
 }
 
-@target(erlang)
+@target(javascript)
+/// Go offline and stay offline. The document keeps serving reads and accepting
+/// edits; they queue as pending and flush when `go_online` reconnects.
+///
+/// This is `force_reconnect` with a pause button. `force_reconnect` is away and
+/// back in one step, which leaves no window to edit in, and `close` cannot
+/// stand in for it either — that ends the runtime, so coming back means a fresh
+/// `connect` whose empty core has none of the edits made while away.
+///
+/// A no-op unless the document is connected, so a UI can bind this straight to
+/// a toggle:
+///
+/// ```gleam
+/// case offline {
+///   True -> watershed.go_offline(doc)
+///   False -> watershed.go_online(doc)
+/// }
+/// ```
+///
+/// While offline `diagnostics(doc).phase` reads `"reconnecting"`, and
+/// `in_flight_count` is the number of edits waiting to reach the server — which
+/// is what a "3 changes not yet saved" indicator wants.
+pub fn go_offline(document: Document(root)) -> Nil {
+  runtime.go_offline(document.runtime)
+}
+
+@target(javascript)
+/// Come back from `go_offline`, replaying the gap and flushing what was edited
+/// during it. A no-op unless the document is currently held offline.
+pub fn go_online(document: Document(root)) -> Nil {
+  runtime.go_online(document.runtime)
+}
+
+@target(javascript)
 /// This client's server-assigned id, `None` until the first handshake lands.
 ///
 /// The reason to want it is identity in *someone else's* list. Consensus
 /// kernels report membership as the integer ids they tie-break on — a
 /// `PactMap`'s `pact_map_pending_signoffs`, for instance — and without this
-/// there is no way to tell which entry is your own client. Convert with
+/// there is no way to tell which entry is your own tab. Convert with
 /// `watershed/client_id.to_int`, which is the same derivation the runtime and
 /// the kernels use, so the two are guaranteed to agree.
 ///
@@ -3162,16 +2951,77 @@ pub fn client_id(document: Document(root)) -> Option(String) {
   runtime.client_id(document.runtime)
 }
 
-@target(erlang)
+@target(javascript)
+/// An inbound ephemeral ripple. Ripples are document-scoped, non-sequenced,
+/// and non-persisted — ideal for transient presence (cursors, selection,
+/// typing indicators) that must NOT live in a DDS.
+pub type Ripple =
+  SignalMessage
+
+@target(javascript)
+/// Broadcast an ephemeral ripple to every other connected client: a `type`
+/// tag plus arbitrary JSON `content`. Fire-and-forget — no ordering, ack, or
+/// catch-up. No-op until the first handshake assigns a client id.
+pub fn submit_ripple(
+  document: Document(root),
+  ripple_type ripple_type: String,
+  content content: Json,
+) -> Nil {
+  runtime.send_ripple(document.runtime, ripple_type, content)
+}
+
+@target(javascript)
+/// Register a callback invoked for every inbound ripple on the document.
+pub fn subscribe_ripples(
+  document: Document(root),
+  handler: fn(Ripple) -> Nil,
+) -> Nil {
+  runtime.subscribe_ripples(document.runtime, handler)
+}
+
+@target(javascript)
+/// The ripple's `type` tag, if present.
+pub fn ripple_type(ripple: Ripple) -> Option(String) {
+  ripple.signal_type
+}
+
+@target(javascript)
+/// The ripple's JSON payload, left as `Dynamic` for the caller to decode.
+pub fn ripple_content(ripple: Ripple) -> Dynamic {
+  ripple.content
+}
+
+@target(javascript)
+/// The sending client's id, if the server stamped one (`None` for
+/// server-originated ripples).
+pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
+  ripple.client_id
+}
+
+@target(javascript)
+/// Whether the document is fully caught up: every local edit has been
+/// acknowledged by the server, so the confirmed state is complete and stable.
+/// Useful to wait for quiescence before summarizing.
+pub fn is_synced(document: Document(root)) -> Bool {
+  runtime.is_synced(document.runtime)
+}
+
+@target(javascript)
+/// Snapshot the document runtime's connection and sequencing state.
+pub fn diagnostics(document: Document(root)) -> Diagnostics {
+  runtime.diagnostics(document.runtime)
+}
+
+@target(javascript)
 /// Summarize the document's current confirmed state to floodgate storage so future
 /// clients can bootstrap from the snapshot instead of replaying the full op
-/// history. Returns the summary handle (git tree SHA). Requires the connection
-/// to be fully synced and the token to carry the `summary:write` scope.
-pub fn summarize(document: Document(root)) -> Result(String, String) {
+/// history. Resolves with the summary handle (git tree SHA). Requires the
+/// connection to be fully synced and the token to carry `summary:write`.
+pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime.summarize(document.runtime)
 }
 
-@target(erlang)
+@target(javascript)
 /// Let this client summarize the document on its own, per `policy`.
 ///
 /// Without this nothing ever summarizes and every joining client replays the
@@ -3193,14 +3043,14 @@ pub fn auto_summarize(
   runtime.auto_summarize(document.runtime, Some(policy))
 }
 
-@target(erlang)
+@target(javascript)
 /// Stop summarizing automatically. Any attempt already scheduled still
 /// re-checks before acting, and finds no policy.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime.auto_summarize(document.runtime, None)
 }
 
-@target(erlang)
+@target(javascript)
 /// How many ops have been sequenced past the newest summary this client knows
 /// about — the drift an automatic policy thresholds on, and what a joining
 /// client would have to replay on top of the checkpoint.
@@ -3210,15 +3060,7 @@ pub fn ops_since_summary(document: Document(root)) -> Int {
   runtime.ops_since_summary(document.runtime)
 }
 
-@target(erlang)
-/// Whether the document is fully caught up: every local edit has been
-/// acknowledged by the server, so the confirmed state is complete and stable.
-/// Useful to wait for quiescence before summarizing or handing off.
-pub fn is_synced(document: Document(root)) -> Bool {
-  runtime.is_synced(document.runtime)
-}
-
-@target(erlang)
+@target(javascript)
 /// List the document's stored summary versions, newest first — the client
 /// half of Fluid's `getVersions`. Each `summarize` call stores one version;
 /// the newest is what a fresh connection bootstraps from. Requires the token
@@ -3226,103 +3068,95 @@ pub fn is_synced(document: Document(root)) -> Bool {
 pub fn get_versions(
   document: Document(root),
   count count: Int,
-) -> Result(List(SummaryVersion), String) {
+) -> Promise(Result(List(SummaryVersion), String)) {
   runtime.get_versions(document.runtime, count)
 }
 
-@target(erlang)
+@target(javascript)
 /// Read the historical confirmed state a summary version captured, by its
-/// handle (from `get_versions` or a `summarize` return). Returns the stored
-/// snapshot blob — entries in insertion order plus the sequence number they
-/// were captured at. A point-in-time read: the live document is unaffected.
+/// handle (from `get_versions` or a `summarize` resolution). Returns the
+/// stored snapshot blob — entries in insertion order plus the sequence number
+/// they were captured at. A point-in-time read: the live document is
+/// unaffected.
 pub fn load_version(
   document: Document(root),
   handle handle: String,
-) -> Result(SummaryBlob, String) {
+) -> Promise(Result(SummaryBlob, String)) {
   runtime.load_version(document.runtime, handle)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Edits (optimistic: applied locally immediately, sequenced by the server)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Edits (optimistic) ───────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn set(map: SharedMap, key: String, value: Json) -> Nil {
-  process.send(map.runtime, runtime.Put(map.address, key, value))
+  runtime.set(map.runtime, map.address, key, value)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn delete(map: SharedMap, key: String) -> Nil {
-  process.send(map.runtime, runtime.Remove(map.address, key))
+  runtime.delete(map.runtime, map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn clear(map: SharedMap) -> Nil {
-  process.send(map.runtime, runtime.RemoveAll(map.address))
+  runtime.clear(map.runtime, map.address)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Reads
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Reads ────────────────────────────────────────────────────────────────────
 
-@target(erlang)
+@target(javascript)
 pub fn get(map: SharedMap, key: String) -> Option(Json) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetValue(map.address, key, reply)
-  })
+  runtime.get(map.runtime, map.address, key)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn has(map: SharedMap, key: String) -> Bool {
   get(map, key) != None
 }
 
-@target(erlang)
+@target(javascript)
 pub fn entries(map: SharedMap) -> List(#(String, Json)) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetEntries(map.address, reply)
-  })
+  runtime.entries(map.runtime, map.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn keys(map: SharedMap) -> List(String) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetKeys(map.address, reply)
-  })
+  runtime.keys(map.runtime, map.address)
 }
 
-@target(erlang)
+@target(javascript)
 pub fn size(map: SharedMap) -> Int {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime.GetSize(map.address, reply)
-  })
+  runtime.size(map.runtime, map.address)
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Events
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Events ───────────────────────────────────────────────────────────────────
 
-@target(erlang)
-/// Subscribe the calling process to this map's events. The returned subject
-/// receives a `map_kernel.MapEvent` — map events only — for every local and
-/// remote change to this channel.
-pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
-  use event <- subscribe_narrowed(map.runtime, map.address)
+@target(javascript)
+/// Register a callback invoked for every local and remote change to this map
+/// channel. The handler receives `map_kernel.MapEvent` — map events only.
+pub fn subscribe(
+  map: SharedMap,
+  handler: fn(map_kernel.MapEvent) -> Nil,
+) -> Nil {
+  use event <- subscribe_narrowed(map.runtime, map.address, handler)
   case event {
     channel.MapEvent(inner) -> Some(inner)
     _ -> None
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Subscribe to a typed map's whole-map events without dropping to the untyped
-/// API. Like `subscribe`, the subject receives narrowed `map_kernel.MapEvent`s;
+/// API. Like `subscribe`, `handler` receives narrowed `map_kernel.MapEvent`s;
 /// use `subscribe_field` instead to watch a single typed field.
-pub fn subscribe_typed(typed_map: TypedMap(s)) -> Subject(map_kernel.MapEvent) {
-  subscribe(typed_map.map)
+pub fn subscribe_typed(
+  typed_map: TypedMap(s),
+  handler: fn(map_kernel.MapEvent) -> Nil,
+) -> Nil {
+  subscribe(typed_map.map, handler)
 }
 
-@target(erlang)
+@target(javascript)
 /// Map a fanned-out channel event to a typed change for `field` (under `key`),
 /// or `None` when the event is for another key or channel kind.
 fn field_change(
@@ -3345,90 +3179,38 @@ fn field_change(
   }
 }
 
-@target(erlang)
+@target(javascript)
 /// Subscribe to changes of a single typed field. Each local or remote write to
-/// `field`'s key delivers a `FieldChange` with the new and previous values
-/// decoded at the boundary — `Error(Invalid)` when a peer wrote a value that
-/// does not match the field type. A `Cleared` on the map fans out as
-/// `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key previous.
+/// `field`'s key invokes `handler` with a `FieldChange` carrying the new and
+/// previous values decoded at the boundary — `Error(Invalid)` when a peer wrote
+/// a value that does not match the field type. A `Cleared` on the map fans out
+/// as `FieldChange(Ok(None), Ok(None), local)`; clears carry no per-key
+/// previous.
 pub fn subscribe_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
-) -> Subject(FieldChange(a)) {
+  handler: fn(FieldChange(a)) -> Nil,
+) -> Nil {
   let key = schema.field_key(field)
-  let subject = process.new_subject()
-  process.send(
-    typed_map.map.runtime,
-    runtime.Subscribe(typed_map.map.address, fn(event) {
-      case field_change(field, key, event) {
-        Some(change) -> process.send(subject, change)
-        None -> Nil
-      }
-    }),
-  )
-  subject
+  runtime.subscribe(typed_map.map.runtime, typed_map.map.address, fn(event) {
+    case field_change(field, key, event) {
+      Some(change) -> handler(change)
+      None -> Nil
+    }
+  })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dev JWT helper
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Demo helpers ─────────────────────────────────────────────────────────────
 
-@target(erlang)
-/// Mint an HS256 dev JWT for a floodgate server running in dev mode (`just server`).
-/// Matches the signature that `watershed_js.dev_token` produces on the JS
-/// target. **Do not use in production** — the secret must never be embedded in
-/// a deployed binary.
-///
-/// ```gleam
-/// let token = watershed.dev_token(
-///   secret: "levee-dev-secret-change-in-production",
-///   tenant: "dev-tenant", document: "dice", user_id: "user-1",
-/// )
-/// ```
+@target(javascript)
+/// Mint an HS256 dev JWT for `just server` (dev mode). Signed with Web
+/// Crypto, so the token resolves asynchronously. Do not use in production —
+/// the tenant secret must never reach the browser there.
 pub fn dev_token(
   secret secret: String,
   tenant tenant: String,
   document document: String,
   user_id user_id: String,
-) -> String {
-  let now = system_time(Second)
-  let header =
-    json.object([
-      #("alg", json.string("HS256")),
-      #("typ", json.string("JWT")),
-    ])
-  let payload =
-    json.object([
-      #("documentId", json.string(document)),
-      #("tenantId", json.string(tenant)),
-      #(
-        "scopes",
-        json.array(["doc:read", "doc:write", "summary:write"], json.string),
-      ),
-      #("user", json.object([#("id", json.string(user_id))])),
-      #("iat", json.int(now)),
-      #("exp", json.int(now + 3600)),
-      #("ver", json.string("1.0")),
-    ])
-  let signing_input =
-    base64url(<<json.to_string(header):utf8>>)
-    <> "."
-    <> base64url(<<json.to_string(payload):utf8>>)
-  let signature =
-    crypto.hmac(<<signing_input:utf8>>, crypto.Sha256, <<secret:utf8>>)
-  signing_input <> "." <> base64url(signature)
+) -> Promise(String) {
+  transport_js.mint_dev_token(secret, tenant, document, user_id)
 }
-
-@target(erlang)
-fn base64url(data: BitArray) -> String {
-  bit_array.base64_url_encode(data, False)
-}
-
-@target(erlang)
-type TimeUnit {
-  Second
-}
-
-@target(erlang)
-@external(erlang, "os", "system_time")
-fn system_time(unit: TimeUnit) -> Int

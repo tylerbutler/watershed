@@ -34,7 +34,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed_js.{
+import watershed.{
   type Claims, type Document, type OrSet, type SharedCounter, type SharedMap,
   type TypedMap,
 }
@@ -202,7 +202,7 @@ pub fn init(
       ),
       // Watch the panel's own map, not the document's root. Composed, the root
       // carries three other panels' handles and none of this panel's state.
-      watershed_lustre.subscribe(watershed_js.untyped(map), fn(_event) {
+      watershed_lustre.subscribe(watershed.untyped(map), fn(_event) {
         SharedChanged
       }),
     ]),
@@ -373,7 +373,7 @@ fn handle_key(model: Model, key: String) -> Model {
             True -> {
               case is_locked(model, row, col) {
                 True -> Nil
-                False -> watershed_js.delete(shared.cells, cell_key(row, col))
+                False -> watershed.delete(shared.cells, cell_key(row, col))
               }
               model
             }
@@ -387,9 +387,9 @@ fn handle_key(model: Model, key: String) -> Model {
 
 fn toggle_note(notes: OrSet, row: Int, col: Int, digit: Int) -> Nil {
   let key = note_key(row, col, digit)
-  case watershed_js.or_set_contains(notes, key) {
-    True -> watershed_js.or_set_remove(notes, key)
-    False -> watershed_js.or_set_add(notes, key)
+  case watershed.or_set_contains(notes, key) {
+    True -> watershed.or_set_remove(notes, key)
+    False -> watershed.or_set_add(notes, key)
   }
 }
 
@@ -400,10 +400,10 @@ fn set_cell(
   col: Int,
   digit: Int,
 ) -> Nil {
-  watershed_js.set(shared.cells, cell_key(row, col), json.int(digit))
+  watershed.set(shared.cells, cell_key(row, col), json.int(digit))
   case digit == puzzles.solution_at(puzzle, row, col) {
     True -> Nil
-    False -> watershed_js.increment(shared.mistakes, 1)
+    False -> watershed.increment(shared.mistakes, 1)
   }
 }
 
@@ -415,9 +415,9 @@ fn snapshot(model: Model) -> Model {
         ..model,
         puzzle: puzzle_from_map(model.map),
         cells: read_cells(shared.cells),
-        notes: watershed_js.or_set_values(shared.notes),
+        notes: watershed.or_set_values(shared.notes),
         givens: read_givens(shared.givens),
-        mistakes: watershed_js.counter_value(shared.mistakes)
+        mistakes: watershed.counter_value(shared.mistakes)
           |> option.unwrap(0),
       )
     None -> model
@@ -434,7 +434,7 @@ fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
       case given > 0 {
         True -> {
           let _ =
-            watershed_js.try_set_claim(
+            watershed.try_set_claim(
               claims,
               cell_key(row, col),
               json.int(given),
@@ -586,7 +586,7 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 /// showcase root. Reading `root_typed` here — as this did before the split —
 /// would look up the puzzle id in a map that holds four panel handles.
 fn puzzle_from_map(map: TypedMap(doc_schema.SudokuDoc)) -> Puzzle {
-  case watershed_js.get_field(map, doc_schema.puzzle()) {
+  case watershed.get_field(map, doc_schema.puzzle()) {
     Ok(Some(id)) -> puzzles.by_id(id) |> option.unwrap(puzzles.default_puzzle())
     _ -> puzzles.default_puzzle()
   }
@@ -594,7 +594,7 @@ fn puzzle_from_map(map: TypedMap(doc_schema.SudokuDoc)) -> Puzzle {
 
 fn read_cells(cells: SharedMap) -> List(#(String, Int)) {
   cells
-  |> watershed_js.entries
+  |> watershed.entries
   |> list.filter_map(fn(pair) {
     case json.parse(json.to_string(pair.1), decode.int) {
       Ok(digit) -> Ok(#(pair.0, digit))
@@ -607,7 +607,7 @@ fn read_givens(givens: Claims) -> List(#(String, Int)) {
   rows_and_cols()
   |> list.filter_map(fn(cell) {
     let key = cell_key(cell.0, cell.1)
-    case watershed_js.get_claim(givens, key) {
+    case watershed.get_claim(givens, key) {
       Some(value) ->
         case json.parse(json.to_string(value), decode.int) {
           Ok(digit) -> Ok(#(key, digit))

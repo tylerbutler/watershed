@@ -14,8 +14,8 @@
 // two copies of every Gleam class, and pattern matches (`instanceof`) across
 // copies fail; each demo therefore keeps to its own consistent world.
 import { register } from "../../../watershed_lustre/build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
-import * as watershed from "../../../watershed_lustre/build/dev/javascript/watershed/watershed_js.mjs";
-import * as runtime from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/runtime_js.mjs";
+import * as watershed from "../../../watershed_lustre/build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as sluice from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/sluice_js.mjs";
 
 const SEED =

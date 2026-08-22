@@ -9,8 +9,8 @@ one shared document.
 | Layer | dice_cli (Erlang) | dice_lustre (JS) |
 | --- | --- | --- |
 | Transport | aquamarine (gun/roost) | phoenix.js via FFI |
-| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks) |
-| Token | `watershed.dev_token` | `watershed_js.dev_token` |
+| Runtime | `runtime_beam` (OTP actor) | `runtime` (callbacks) |
+| Token | `watershed_beam.dev_token` | `watershed.dev_token` |
 | Pure core | `map_kernel` · `wire` · `runtime_core` (shared) | ← same |
 
 ## Prerequisites
@@ -30,12 +30,12 @@ gleam run
 
 The CLI:
 
-1. Mints a dev JWT via `watershed.dev_token`.
+1. Mints a dev JWT via `watershed_beam.dev_token`.
 2. Connects to `127.0.0.1:4000` (IPv4 literal — see note below).
 3. Subscribes to the root map's event `Subject`.
 4. Prints the current document state.
 5. Rolls `int.random(6) + 1` every 5 seconds, writing through
-   `watershed.delete` + `watershed.set`.
+   `watershed_beam.delete` + `watershed_beam.set`.
 6. Prints every local or remote event by looping on `process.receive` through a
    selector, then re-reads optimistic state with `get` and `entries`.
 7. Keeps running until you press Ctrl+C.

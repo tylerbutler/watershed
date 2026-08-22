@@ -5,13 +5,13 @@
 // rebases it past concurrent remote ops, and transforms inbound ops into head
 // context — concurrent list inserts at the same index are the star.
 //
-// json0 isn't in the JS facade yet, so this drives the runtime (`runtime_js`)
+// json0 isn't in the JS facade yet, so this drives the runtime (`runtime`)
 // directly: one client creates the channel, seeds the baseline into it while
 // detached, attaches it under the root map (the snapshot rides along), and the
 // others resolve the handle. Edits are then ordinary `submit_json_ot` calls the
 // sluice sequences; the runtime owns the transform/inflight/buffer machinery.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime_js.mjs";
+import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as jsonOt from "../../../build/dev/javascript/watershed/watershed/json_ot.mjs";
 import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";

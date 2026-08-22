@@ -45,7 +45,7 @@ import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/summary_policy
-import watershed_js.{type Document, type TypedMap}
+import watershed.{type Document, type TypedMap}
 import watershed_lustre
 
 import pixel_canvas_lustre/component as canvas_panel
@@ -180,7 +180,7 @@ type Model {
     /// Promoted out of the canvas panel: both describe the document, and
     /// neither can be scoped to a channel.
     offline: Bool,
-    diagnostics: Option(watershed_js.Diagnostics),
+    diagnostics: Option(watershed.Diagnostics),
     error: Option(String),
   )
 }
@@ -248,7 +248,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Model(
           ..model,
           doc: Some(doc),
-          diagnostics: Some(watershed_js.diagnostics(doc)),
+          diagnostics: Some(watershed.diagnostics(doc)),
         )
       #(
         model,
@@ -396,7 +396,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.doc {
         None -> #(model, effect.none())
         Some(doc) -> #(
-          Model(..model, diagnostics: Some(watershed_js.diagnostics(doc))),
+          Model(..model, diagnostics: Some(watershed.diagnostics(doc))),
           watershed_lustre.after(250, DiagnosticsTick),
         )
       }
@@ -484,7 +484,7 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
 /// race predates the showcase; what is new is running it four times per cold
 /// start instead of once.
 fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.auto_summarize(
       document: doc,

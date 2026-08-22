@@ -41,7 +41,7 @@ import gleam/string
 @target(javascript)
 import watershed/summary_policy
 @target(javascript)
-import watershed_js.{type Document, type SharedMap, WatershedConfig}
+import watershed.{type Document, type SharedMap, WatershedConfig}
 
 @target(javascript)
 const url = "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0"
@@ -119,27 +119,27 @@ fn reconnect_into_a_quiet_room() -> Promise(Bool) {
   use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("rq"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   use _ <- promise.await(sleep(teardown_ms))
 
   // The only write in the scenario, and it lands squarely in A's gap.
-  watershed_js.set(map_b, "from-b", json.bool(True))
+  watershed.set(map_b, "from-b", json.bool(True))
   use _ <- promise.await(sleep(teardown_ms))
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
 
   use caught_up <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_a, "from-b") == Some(json.bool(True))
+      watershed.get(map_a, "from-b") == Some(json.bool(True))
     }),
   )
 
   // Caught up is not the same as live. An edit made now has to reach the wire,
   // which it cannot do from the catching-up holding state.
-  watershed_js.set(map_a, "after", json.string("live"))
+  watershed.set(map_a, "after", json.string("live"))
   use live <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_b, "after") == Some(json.string("live"))
+      watershed.get(map_b, "after") == Some(json.string("live"))
     }),
   )
 
@@ -164,13 +164,13 @@ fn reconnect_with_nothing_missed() -> Promise(Bool) {
   use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("rn"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed_js.force_reconnect(doc_a)
+  watershed.force_reconnect(doc_a)
   use _ <- promise.await(sleep(teardown_ms))
 
-  watershed_js.set(map_a, "after", json.string("live"))
+  watershed.set(map_a, "after", json.string("live"))
   use live <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_b, "after") == Some(json.string("live"))
+      watershed.get(map_b, "after") == Some(json.string("live"))
     }),
   )
 
@@ -188,24 +188,24 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
   use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("of"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   use _ <- promise.await(sleep(teardown_ms))
-  let held = watershed_js.diagnostics(doc_a).phase == "reconnecting"
+  let held = watershed.diagnostics(doc_a).phase == "reconnecting"
 
-  watershed_js.set(map_a, "offline-a", json.string("a"))
-  watershed_js.set(map_b, "offline-b", json.string("b"))
+  watershed.set(map_a, "offline-a", json.string("a"))
+  watershed.set(map_b, "offline-b", json.string("b"))
   use _ <- promise.await(sleep(teardown_ms))
 
   // Held means held, in both directions.
   let isolated =
-    watershed_js.get(map_b, "offline-a") == None
-    && watershed_js.get(map_a, "offline-b") == None
+    watershed.get(map_b, "offline-a") == None
+    && watershed.get(map_a, "offline-b") == None
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   use merged <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_b, "offline-a") == Some(json.string("a"))
-      && watershed_js.get(map_a, "offline-b") == Some(json.string("b"))
+      watershed.get(map_b, "offline-a") == Some(json.string("a"))
+      && watershed.get(map_a, "offline-b") == Some(json.string("b"))
     }),
   )
 
@@ -229,7 +229,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   use #(document, doc_a, doc_b, map_a, map_b) <- promise.await(room_named("sm"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed_js.auto_summarize(
+  watershed.auto_summarize(
     doc_a,
     summary_policy.policy()
       |> summary_policy.with_threshold(4)
@@ -248,27 +248,27 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
 
   // A post-checkpoint edit, so the joiner applies a delta on top of the blob
   // rather than landing on it exactly.
-  watershed_js.set(map_a, "post", json.string("after-summary"))
+  watershed.set(map_a, "post", json.string("after-summary"))
   use delivered <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_b, "post") == Some(json.string("after-summary"))
+      watershed.get(map_b, "post") == Some(json.string("after-summary"))
     }),
   )
 
   use doc_c <- promise.await(connect_client(document, "user-c"))
-  let map_c = watershed_js.root(doc_c)
+  let map_c = watershed.root(doc_c)
   use joined <- promise.await(
     wait_until(fn() {
-      watershed_js.get(map_c, "post") == Some(json.string("after-summary"))
+      watershed.get(map_c, "post") == Some(json.string("after-summary"))
     }),
   )
   // It seeded from the checkpoint rather than replaying from zero: its drift
   // counts only what followed the summary it loaded.
   let from_checkpoint =
-    watershed_js.ops_since_summary(doc_c)
-    <= watershed_js.ops_since_summary(doc_a)
+    watershed.ops_since_summary(doc_c)
+    <= watershed.ops_since_summary(doc_a)
 
-  watershed_js.close(doc_c)
+  watershed.close(doc_c)
   finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
     #("settled", settled),
     #("summarized", summarized),
@@ -288,11 +288,11 @@ fn summarizes_within(
   attempts: Int,
   threshold: Int,
 ) -> Promise(Bool) {
-  case watershed_js.ops_since_summary(document) < threshold, attempts <= 0 {
+  case watershed.ops_since_summary(document) < threshold, attempts <= 0 {
     True, _ -> promise.resolve(True)
     False, True -> promise.resolve(False)
     False, False -> {
-      watershed_js.set(
+      watershed.set(
         map,
         "tick" <> int.to_string(attempts),
         json.int(attempts),
@@ -336,8 +336,8 @@ fn room_named(
     document,
     doc_a,
     doc_b,
-    watershed_js.root(doc_a),
-    watershed_js.root(doc_b),
+    watershed.root(doc_a),
+    watershed.root(doc_b),
   ))
 }
 
@@ -350,7 +350,7 @@ fn room_named(
 /// that lands is a race the scenarios cannot afford — the setup writes would be
 /// the thing under test rather than the reconnect.
 fn connect_client(document: String, user: String) -> Promise(Document(root)) {
-  use token <- promise.await(watershed_js.dev_token(
+  use token <- promise.await(watershed.dev_token(
     secret: secret,
     tenant: tenant,
     document: document,
@@ -358,7 +358,7 @@ fn connect_client(document: String, user: String) -> Promise(Document(root)) {
   ))
   let #(ready, resolve) = promise.start()
   let doc =
-    watershed_js.connect(
+    watershed.connect(
       WatershedConfig(
         url: url,
         tenant: tenant,
@@ -382,8 +382,8 @@ fn connect_client(document: String, user: String) -> Promise(Document(root)) {
 /// Establish the session and prove both sides are live before the scenario
 /// starts breaking things.
 fn settle(map_a: SharedMap, map_b: SharedMap) -> Promise(Bool) {
-  watershed_js.set(map_a, "k1", json.int(1))
-  wait_until(fn() { watershed_js.get(map_b, "k1") == Some(json.int(1)) })
+  watershed.set(map_a, "k1", json.int(1))
+  wait_until(fn() { watershed.get(map_b, "k1") == Some(json.int(1)) })
 }
 
 @target(javascript)
@@ -426,8 +426,8 @@ fn finish(
       log("    B: " <> diagnostics(doc_b))
     }
   }
-  watershed_js.close(doc_a)
-  watershed_js.close(doc_b)
+  watershed.close(doc_a)
+  watershed.close(doc_b)
   promise.resolve(passed)
 }
 
@@ -441,7 +441,7 @@ fn failed_checks(checks: List(#(String, Bool))) -> String {
 
 @target(javascript)
 fn diagnostics(doc: Document(root)) -> String {
-  let d = watershed_js.diagnostics(doc)
+  let d = watershed.diagnostics(doc)
   d.phase
   <> " last_seen="
   <> opt_int(d.last_seen_sequence_number)

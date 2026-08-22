@@ -2,7 +2,7 @@
 ////
 //// Every field is tagged with a phantom `schema` type, so it can only be used
 //// against a `TypedMap(schema)` of the matching shape (see
-//// `watershed`/`watershed_js`). Three kinds of key cover every value a map
+//// `watershed`/`watershed`). Three kinds of key cover every value a map
 //// can hold:
 ////
 //// - `Field(schema, a)` — a plain value: a key with a JSON encoder and a

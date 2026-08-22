@@ -47,7 +47,7 @@ import watershed/ordered_collection_kernel.{
 import watershed/presence
 import watershed/sequence_kernel
 import watershed/task_manager_kernel.{type TaskManagerEvent}
-import watershed_js.{
+import watershed.{
   type Document, type OrderedCollection, type SharedSequence, type TaskManager,
 }
 import watershed_lustre
@@ -259,9 +259,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model = case model.shared {
         Some(shared) -> {
           let _ =
-            watershed_js.sequence_insert(
+            watershed.sequence_insert(
               shared.done,
-              watershed_js.sequence_length(shared.done),
+              watershed.sequence_length(shared.done),
               value,
             )
           Model(..model, claim: Idle)
@@ -288,7 +288,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(shared) -> {
           let _outcome =
-            watershed_js.volunteer_for_task(shared.roles, dispatcher_role)
+            watershed.volunteer_for_task(shared.roles, dispatcher_role)
           // Assignment is not optimistic here: the generator starts when the
           // sequenced role state says this tab is the head.
           #(snapshot(model), effect.none())
@@ -299,7 +299,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.shared {
         None -> #(model, effect.none())
         Some(shared) -> {
-          watershed_js.abandon_task(shared.roles, dispatcher_role)
+          watershed.abandon_task(shared.roles, dispatcher_role)
           #(snapshot(model), effect.none())
         }
       }
@@ -309,7 +309,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(shared), True -> {
           let model = case list.length(model.queued) < max_queued {
             True -> {
-              watershed_js.ordered_add(
+              watershed.ordered_add(
                 shared.queue,
                 job.to_json(next_job(model)),
               )
@@ -363,7 +363,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     WorkDone(acquire_id) ->
       case model.shared, model.claim {
         Some(shared), Working(current, _) if current == acquire_id -> {
-          watershed_js.ordered_complete(shared.queue, acquire_id)
+          watershed.ordered_complete(shared.queue, acquire_id)
           #(model, effect.none())
         }
         _, _ -> #(model, effect.none())
@@ -372,7 +372,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ReleaseClicked ->
       case model.shared, model.claim {
         Some(shared), Working(acquire_id, _) -> {
-          watershed_js.ordered_release(shared.queue, acquire_id)
+          watershed.ordered_release(shared.queue, acquire_id)
           #(snapshot(Model(..model, claim: Idle)), effect.none())
         }
         _, _ -> #(model, effect.none())
@@ -381,7 +381,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 }
 
 fn bootstrap_effect(doc: Document(doc_schema.Dispatch)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_ordered_collection(
       doc,
@@ -409,7 +409,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
     None, PendingShared(Some(queue), Some(roles), Some(done)) -> {
       let shared = Shared(queue:, roles:, done:)
       let my_int = case model.doc {
-        Some(doc) -> watershed_js.client_id(doc) |> option.map(client_id.to_int)
+        Some(doc) -> watershed.client_id(doc) |> option.map(client_id.to_int)
         None -> None
       }
       let model = snapshot(Model(..model, shared: Some(shared), my_int: my_int))
@@ -434,7 +434,7 @@ fn snapshot(model: Model) -> Model {
     None -> model
     Some(shared) -> {
       let role_assignee =
-        watershed_js.task_queues(shared.roles)
+        watershed.task_queues(shared.roles)
         |> list.find(fn(entry) { entry.0 == dispatcher_role })
         |> fn(found) {
           case found {
@@ -444,18 +444,18 @@ fn snapshot(model: Model) -> Model {
         }
       Model(
         ..model,
-        queued: watershed_js.ordered_queue(shared.queue)
+        queued: watershed.ordered_queue(shared.queue)
           |> list.map(job.from_json),
-        in_progress: watershed_js.ordered_jobs(shared.queue)
+        in_progress: watershed.ordered_jobs(shared.queue)
           |> list.map(fn(entry) {
             let #(acquire_id, ordered_collection_kernel.JobEntry(value, owner)) =
               entry
             #(acquire_id, job.from_json(value), owner)
           }),
-        done: watershed_js.sequence_values(shared.done)
+        done: watershed.sequence_values(shared.done)
           |> list.map(job.from_json),
         role_assignee: role_assignee,
-        volunteered: watershed_js.task_queued(shared.roles, dispatcher_role),
+        volunteered: watershed.task_queued(shared.roles, dispatcher_role),
       )
     }
   }

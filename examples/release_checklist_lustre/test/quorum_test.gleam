@@ -20,7 +20,7 @@ import release_readiness
 import watershed/pact_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed/transport_js
-import watershed_js.{type Document, type OrSet, type PactMap}
+import watershed.{type Document, type OrSet, type PactMap}
 
 const target_key = "target"
 
@@ -51,11 +51,11 @@ fn room(name: String, clients: Int) -> Room {
   sluice_js.settle(sluice)
 
   let assert [first, ..] = docs
-  let assert Ok(seed) = watershed_js.create_pact_map(first)
-  watershed_js.set(
-    watershed_js.root(first),
+  let assert Ok(seed) = watershed.create_pact_map(first)
+  watershed.set(
+    watershed.root(first),
     target_key,
-    watershed_js.pact_map_handle_of(seed),
+    watershed.pact_map_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
@@ -63,8 +63,8 @@ fn room(name: String, clients: Int) -> Room {
     docs
     |> list.map(fn(doc) {
       let assert Some(value) =
-        watershed_js.get(watershed_js.root(doc), target_key)
-      let assert Ok(pact) = watershed_js.resolve_pact_map(doc, value)
+        watershed.get(watershed.root(doc), target_key)
+      let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
   let events = list.map(release, recorder)
@@ -76,7 +76,7 @@ fn room(name: String, clients: Int) -> Room {
 /// them can propose and read but never learn that a peer's proposal landed.
 fn recorder(pact: PactMap) -> fn() -> List(pact_map_kernel.PactMapEvent) {
   let seen = transport_js.new_cell([])
-  watershed_js.subscribe_pact_map(pact, fn(event) {
+  watershed.subscribe_pact_map(pact, fn(event) {
     transport_js.set_cell(seen, [event, ..transport_js.get_cell(seen)])
   })
   fn() { list.reverse(transport_js.get_cell(seen)) }
@@ -96,7 +96,7 @@ fn events_of(room: Room, index: Int) -> List(pact_map_kernel.PactMapEvent) {
 }
 
 fn propose(room: Room, from index: Int, target target: String) -> Nil {
-  watershed_js.pact_map_set(
+  watershed.pact_map_set(
     release_of(room, index),
     target_key,
     json.string(target),
@@ -104,7 +104,7 @@ fn propose(room: Room, from index: Int, target target: String) -> Nil {
 }
 
 fn target(room: Room, index: Int) -> Option(String) {
-  watershed_js.pact_map_get(release_of(room, index), target_key)
+  watershed.pact_map_get(release_of(room, index), target_key)
   |> option.map(fn(value) {
     let assert Ok(target) = json.parse(json.to_string(value), decode.string)
     target
@@ -117,19 +117,19 @@ fn target(room: Room, index: Int) -> Option(String) {
 /// OR-set, not a stand-in for it.
 fn checks_channel(room: Room) -> List(OrSet) {
   let assert [first, ..] = room.docs
-  let assert Ok(seed) = watershed_js.create_or_set(first)
-  watershed_js.set(
-    watershed_js.root(first),
+  let assert Ok(seed) = watershed.create_or_set(first)
+  watershed.set(
+    watershed.root(first),
     checks_key,
-    watershed_js.or_set_handle_of(seed),
+    watershed.or_set_handle_of(seed),
   )
   sluice_js.settle(room.sluice)
 
   room.docs
   |> list.map(fn(doc: Document(doc_schema.Checklist)) {
     let assert Some(value) =
-      watershed_js.get(watershed_js.root(doc), checks_key)
-    let assert Ok(set) = watershed_js.resolve_or_set(doc, value)
+      watershed.get(watershed.root(doc), checks_key)
+    let assert Ok(set) = watershed.resolve_or_set(doc, value)
     set
   })
 }
@@ -146,7 +146,7 @@ pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
   target(room, 0) |> should.equal(Some("v1.2.0"))
   target(room, 1) |> should.equal(Some("v1.2.0"))
   target(room, 2) |> should.equal(Some("v1.2.0"))
-  watershed_js.pact_map_is_pending(release_of(room, 0), target_key)
+  watershed.pact_map_is_pending(release_of(room, 0), target_key)
   |> should.be_false
 
   // And every replica saw both ends of the protocol, in order.
@@ -174,16 +174,16 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
   // Pending everywhere, and *stays* pending. This is the window a two-client
   // test cannot produce: with a broken `[self, author]` quorum the proposer
   // and the author are the same client here, so it would accept instantly.
-  watershed_js.pact_map_is_pending(release_of(room, 0), target_key)
+  watershed.pact_map_is_pending(release_of(room, 0), target_key)
   |> should.be_true
-  watershed_js.pact_map_is_pending(release_of(room, 1), target_key)
+  watershed.pact_map_is_pending(release_of(room, 1), target_key)
   |> should.be_true
   target(room, 0) |> should.equal(None)
 
   // The UI's "waiting on N of M" comes from here, and it must name the
   // client that has gone quiet rather than a bare spinner.
   let assert Some(waiting) =
-    watershed_js.pact_map_pending_signoffs(release_of(room, 0), target_key)
+    watershed.pact_map_pending_signoffs(release_of(room, 0), target_key)
   list.length(waiting) |> should.equal(1)
 
   // Bringing the tab back resolves it — nothing was lost, only waiting.
@@ -199,7 +199,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
   sluice_js.pause(room.sluice, nth(room.docs, 2))
   propose(room, from: 0, target: "v1.9.0")
   sluice_js.settle(room.sluice)
-  watershed_js.pact_map_is_pending(release_of(room, 0), target_key)
+  watershed.pact_map_is_pending(release_of(room, 0), target_key)
   |> should.be_true
 
   // The tab is closed rather than restored — a silent disconnect, not a
@@ -211,7 +211,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
 
   target(room, 0) |> should.equal(Some("v1.9.0"))
   target(room, 1) |> should.equal(Some("v1.9.0"))
-  watershed_js.pact_map_is_pending(release_of(room, 0), target_key)
+  watershed.pact_map_is_pending(release_of(room, 0), target_key)
   |> should.be_false
   events_of(room, 1)
   |> should.equal([
@@ -268,19 +268,19 @@ pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() {
   sluice_js.settle(room.sluice)
 
   let assert Some(value) =
-    watershed_js.get(watershed_js.root(doc_d), target_key)
-  let assert Ok(release_d) = watershed_js.resolve_pact_map(doc_d, value)
+    watershed.get(watershed.root(doc_d), target_key)
+  let assert Ok(release_d) = watershed.resolve_pact_map(doc_d, value)
 
-  watershed_js.pact_map_get(release_d, target_key)
+  watershed.pact_map_get(release_d, target_key)
   |> should.equal(Some(json.string("v1.2.0")))
-  watershed_js.pact_map_is_pending(release_d, target_key) |> should.be_false
-  watershed_js.pact_map_pending_signoffs(release_d, target_key)
+  watershed.pact_map_is_pending(release_d, target_key) |> should.be_false
+  watershed.pact_map_pending_signoffs(release_d, target_key)
   |> should.equal(None)
 
   // And the joiner is now a full member: the next proposal waits on it too.
   propose(room, from: 1, target: "v1.3.0")
   sluice_js.settle(room.sluice)
-  watershed_js.pact_map_get(release_d, target_key)
+  watershed.pact_map_get(release_d, target_key)
   |> should.equal(Some(json.string("v1.3.0")))
 }
 
@@ -293,7 +293,7 @@ pub fn a_reopened_check_does_not_clear_the_accepted_target_test() {
   let room = room("checklist-reopen-after-publish", 3)
   let assert [checks_a, checks_b, checks_c] = checks_channel(room)
 
-  watershed_js.or_set_add(checks_a, "tests_passing")
+  watershed.or_set_add(checks_a, "tests_passing")
   sluice_js.settle(room.sluice)
 
   propose(room, from: 0, target: "v1.0.0")
@@ -304,19 +304,19 @@ pub fn a_reopened_check_does_not_clear_the_accepted_target_test() {
 
   // Reopen the gate the app required before this proposal was allowed —
   // publication already happened, so the accepted target must not move.
-  watershed_js.or_set_remove(checks_a, "tests_passing")
+  watershed.or_set_remove(checks_a, "tests_passing")
   sluice_js.settle(room.sluice)
 
-  watershed_js.or_set_values(checks_b) |> should.equal([])
+  watershed.or_set_values(checks_b) |> should.equal([])
   target(room, 0) |> should.equal(Some("v1.0.0"))
   target(room, 1) |> should.equal(Some("v1.0.0"))
   target(room, 2) |> should.equal(Some("v1.0.0"))
-  watershed_js.pact_map_is_pending(release_of(room, 1), target_key)
+  watershed.pact_map_is_pending(release_of(room, 1), target_key)
   |> should.be_false
 
   // And the room genuinely is not ready to publish a different target until
   // every gate is complete again — read off the real, now-reopened OR-set.
-  release_readiness.all_checks_complete(watershed_js.or_set_values(checks_c), [
+  release_readiness.all_checks_complete(watershed.or_set_values(checks_c), [
     "tests_passing",
   ])
   |> should.be_false

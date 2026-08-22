@@ -1,4 +1,4 @@
-//// Headless smoke test: drive three `watershed_js` clients against a live
+//// Headless smoke test: drive three `watershed` clients against a live
 //// floodgate dev server (`just integration-up`) from Node and assert that
 //// the whole room converges end to end — the OR-set, Claims, and PactMap
 //// kernels, their wire codecs, the JS runtime, the Phoenix FFI transport, and
@@ -24,7 +24,7 @@ import gleam/option.{None, Some}
 import gleam/string
 
 import doc_schema
-import watershed_js.{
+import watershed.{
   type Claims, type Document, type OrSet, type PactMap, WatershedConfig,
 }
 
@@ -55,13 +55,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Checklist)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -107,9 +107,9 @@ fn bootstrap(
   label: String,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_or_set(
+  watershed.ensure_or_set(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.checks(),
     fn(result) {
       case result {
@@ -126,9 +126,9 @@ fn bootstrap_captain(
   checks: OrSet,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_claims(
+  watershed.ensure_claims(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.captain(),
     fn(result) {
       case result {
@@ -146,9 +146,9 @@ fn bootstrap_release(
   captain: Claims,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_pact_map(
+  watershed.ensure_pact_map(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.release(),
     fn(result) {
       case result {
@@ -188,10 +188,10 @@ fn start(
 fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
   log("smoke: A and B complete the checklist between them")
   list.each(["tests_passing", "security_review"], fn(id) {
-    watershed_js.or_set_add(a.checks, id)
+    watershed.or_set_add(a.checks, id)
   })
   list.each(["changelog_updated", "docs_updated"], fn(id) {
-    watershed_js.or_set_add(b.checks, id)
+    watershed.or_set_add(b.checks, id)
   })
 
   use <- delay(1500)
@@ -201,7 +201,7 @@ fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
 
   log("smoke: A claims the captain seat")
   let _ =
-    watershed_js.try_set_claim(a.captain, captain_key, json.string("user-a"))
+    watershed.try_set_claim(a.captain, captain_key, json.string("user-a"))
 
   use <- delay(1500)
   let captain_settled_on_b = read_captain(b.captain) == Ok("user-a")
@@ -209,13 +209,13 @@ fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
   log("  B sees captain: " <> string.inspect(read_captain(b.captain)))
 
   log("smoke: the captain publishes the release target")
-  watershed_js.pact_map_set(a.release, target_key, json.string("v1.0.0"))
+  watershed.pact_map_set(a.release, target_key, json.string("v1.0.0"))
 
   use <- delay(2500)
   let accepted_on_a = read_target(a.release) == Ok("v1.0.0")
   let accepted_on_b = read_target(b.release) == Ok("v1.0.0")
   let accepted_on_c = read_target(c.release) == Ok("v1.0.0")
-  let settled = !watershed_js.pact_map_is_pending(a.release, target_key)
+  let settled = !watershed.pact_map_is_pending(a.release, target_key)
   log("  C sees release target: " <> string.inspect(read_target(c.release)))
 
   case
@@ -257,18 +257,18 @@ fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
 
 /// Sorted, because an OR-set's read order carries no meaning.
 fn completed(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> list.sort(string.compare)
+  watershed.or_set_values(set) |> list.sort(string.compare)
 }
 
 fn read_captain(claims: Claims) -> Result(String, Nil) {
-  case watershed_js.get_claim(claims, captain_key) {
+  case watershed.get_claim(claims, captain_key) {
     Some(value) -> decode_string(value)
     None -> Error(Nil)
   }
 }
 
 fn read_target(release: PactMap) -> Result(String, Nil) {
-  case watershed_js.pact_map_get(release, target_key) {
+  case watershed.pact_map_get(release, target_key) {
     Some(value) -> decode_string(value)
     None -> Error(Nil)
   }

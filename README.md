@@ -42,8 +42,8 @@ also use it directly. Pin both to the same commit.
 ```gleam
 import gleam/erlang/process
 import gleam/json
-import watershed
 import watershed/channel.{type ChannelEvent}
+import watershed_beam
 
 type Msg {
   MapChanged(ChannelEvent)
@@ -52,7 +52,7 @@ type Msg {
 pub fn main() {
   // Blocks until the op history has replayed locally.
   let assert Ok(doc) =
-    watershed.connect(
+    watershed_beam.connect(
       host: "127.0.0.1",
       port: 4000,
       tenant: "flow-co",
@@ -60,24 +60,26 @@ pub fn main() {
       token: token,
       user_id: "ada",
     )
-  let board = watershed.root(doc)
-  let events = watershed.subscribe(board)
+  let board = watershed_beam.root(doc)
+  let events = watershed_beam.subscribe(board)
   let selector =
     process.new_selector()
     |> process.select_map(events, MapChanged)
 
   // Subscribe first: this local write emits immediately.
-  watershed.set(board, "title", json.string("Q3 sprint board"))
+  watershed_beam.set(board, "title", json.string("Q3 sprint board"))
 
   // The same subject also receives remote changes as they are applied.
   let MapChanged(_event) = process.selector_receive_forever(selector)
 }
 ```
 
-In the browser, `watershed_js.connect` takes a `WatershedConfig` and an
+The default `watershed` facade is for JavaScript. It takes a
+`WatershedConfig` and an
 `on_ready` callback instead of blocking, and delivers events to callbacks rather
-than a `Subject`. Everything below the facade is the same code. See the
-[connect guide](https://watershed.tylerbutler.com/guide/connect) for both.
+than a `Subject`. On the BEAM, import `watershed_beam` as shown above.
+Everything below the facade is the same code. See the [connect
+guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
 ## Data structures
 
@@ -96,7 +98,7 @@ merge rule, optimistic behaviour, and what it is best for.
 | Coordination | `Claims`, `TaskManager`, `Ordered collection`, `Register collection`, `Pact map` | ownership, work queues, and quorum agreement |
 
 Each has matching `create_*`, `ensure_*`, mutation, read, and `subscribe_*`
-functions on both the Erlang (`watershed`) and JavaScript (`watershed_js`)
+functions on both the Erlang (`watershed_beam`) and JavaScript (`watershed`)
 facades. For example:
 
 ```gleam
@@ -120,10 +122,10 @@ target-agnostic; only the transport and the runtime shell differ. Erlang-only
 modules are gated with `@target(erlang)`, so `gleam build --target javascript`
 compiles the core plus the JS runtime and nothing else.
 
-| Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
+| Layer | BEAM (`watershed_beam`) | Browser (`watershed`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
-| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
+| Runtime | `runtime_beam` (OTP actor) | `runtime` (callbacks + mutable cell) |
 | Core | kernels · `wire` · `runtime_core` | ← identical, shared |
 
 For Lustre apps, [`watershed_lustre`](watershed_lustre) binds the JS facade to
@@ -133,7 +135,7 @@ presence — so an app declares its wiring instead of hand-bridging callbacks in
 
 ## Durability boundary
 
-`watershed` / `watershed_js` are the **sequenced** line: once an op is accepted
+`watershed_beam` / `watershed` are the **sequenced** line: once an op is accepted
 by Floodgate (or another compatible service), durability lives there, and
 summaries shorten the replay for later joins.
 
@@ -214,7 +216,7 @@ of calls, not a timing accident.
 
 ```gleam
 import watershed/sluice_js
-import watershed_js
+import watershed
 
 pub fn two_clients_converge_test() {
   let sluice = sluice_js.start(tenant: "default", document: "demo")
@@ -222,10 +224,10 @@ pub fn two_clients_converge_test() {
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)                       // complete both handshakes
 
-  watershed_js.set(watershed_js.root(doc_a), "k", json.int(1))
+  watershed.set(watershed.root(doc_a), "k", json.int(1))
   sluice_js.settle(sluice)                       // deliver the edit everywhere
 
-  watershed_js.get(watershed_js.root(doc_b), "k")  // Some(json.int(1))
+  watershed.get(watershed.root(doc_b), "k")  // Some(json.int(1))
 }
 ```
 

@@ -38,7 +38,7 @@ post-edit value list for local and remote edits alike.
 
 ### Edits return `Result`, and that matters
 
-Unlike `watershed_js.set` on a map, every sequence mutation returns
+Unlike `watershed.set` on a map, every sequence mutation returns
 `Result(Nil, String)`. Index-addressed ops on a *shared* list can legitimately
 fail: a peer may delete the row out from under this tab between render and
 click. The app renders the runtime's own error message in a banner instead of

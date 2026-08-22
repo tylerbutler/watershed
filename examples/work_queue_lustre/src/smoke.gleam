@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` clients against a live
+//// Headless smoke test: drive two `watershed` clients against a live
 //// floodgate dev server (`just integration-up`) from Node and assert the two
 //// claims the dispatch board stands on, end to end through the real server:
 ////
@@ -23,7 +23,7 @@ import gleam/option.{Some}
 import doc_schema
 import watershed/ordered_collection_kernel.{type AcquireOutcome, AcquiredItem}
 import watershed/transport_js.{type Cell}
-import watershed_js.{
+import watershed.{
   type Document, type OrderedCollection, type TaskManager, WatershedConfig,
 }
 
@@ -52,13 +52,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Dispatch)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -112,12 +112,12 @@ fn dispatch_phase(
   roles_b: TaskManager,
 ) -> Nil {
   log("smoke: A volunteers as dispatcher and adds a job")
-  let _ = watershed_js.volunteer_for_task(roles_a, role)
-  watershed_js.ordered_add(queue_a, job("job-1"))
+  let _ = watershed.volunteer_for_task(roles_a, role)
+  watershed.ordered_add(queue_a, job("job-1"))
 
   use seeded <- wait_until(20, fn() {
-    watershed_js.ordered_queue(queue_b) == [job("job-1")]
-    && watershed_js.task_assigned(roles_a, role)
+    watershed.ordered_queue(queue_b) == [job("job-1")]
+    && watershed.task_assigned(roles_a, role)
   })
   case seeded {
     False -> fail("B never saw the dispatched job")
@@ -125,13 +125,13 @@ fn dispatch_phase(
       log("smoke: B claims the job")
       let outcomes = transport_js.new_cell([])
       let _id =
-        watershed_js.ordered_acquire_with_outcome(queue_b, fn(outcome) {
+        watershed.ordered_acquire_with_outcome(queue_b, fn(outcome) {
           transport_js.set_cell(outcomes, [outcome])
         })
       use claimed <- wait_until(20, fn() {
         case transport_js.get_cell(outcomes) {
           [AcquiredItem(acquire_id, _)] -> {
-            watershed_js.ordered_complete(queue_b, acquire_id)
+            watershed.ordered_complete(queue_b, acquire_id)
             True
           }
           _ -> False
@@ -141,9 +141,9 @@ fn dispatch_phase(
         False -> fail("B's claim never resolved to AcquiredItem")
         True -> {
           use cleared <- wait_until(20, fn() {
-            watershed_js.ordered_size(queue_a) == Some(0)
-            && watershed_js.ordered_jobs(queue_a) == []
-            && watershed_js.ordered_jobs(queue_b) == []
+            watershed.ordered_size(queue_a) == Some(0)
+            && watershed.ordered_jobs(queue_a) == []
+            && watershed.ordered_jobs(queue_b) == []
           })
           case cleared {
             False -> fail("the completed job never left both replicas")
@@ -166,39 +166,39 @@ fn kill_phase(
   roles_b: TaskManager,
 ) -> Nil {
   log("smoke: B queues as backup; A takes a job and dies mid-work")
-  let _ = watershed_js.volunteer_for_task(roles_b, role)
-  watershed_js.ordered_add(queue_a, job("job-2"))
-  let _id = watershed_js.ordered_acquire(queue_a)
+  let _ = watershed.volunteer_for_task(roles_b, role)
+  watershed.ordered_add(queue_a, job("job-2"))
+  let _id = watershed.ordered_acquire(queue_a)
 
   use held <- wait_until(20, fn() {
-    watershed_js.ordered_jobs(queue_b) != []
-    && watershed_js.task_queued(roles_b, role)
+    watershed.ordered_jobs(queue_b) != []
+    && watershed.task_queued(roles_b, role)
   })
   case held {
     False -> fail("A never held job-2 in B's replica")
     True -> {
       // Tear the socket down and keep it down — an ungraceful death, not a
       // clean leave. Everything after this is the server's doing.
-      watershed_js.force_reconnect(doc_a)
-      watershed_js.close(doc_a)
+      watershed.force_reconnect(doc_a)
+      watershed.close(doc_a)
       let _ = roles_a
       let _ = queue_a
 
       use recovered <- wait_until(leave_poll_attempts, fn() {
-        watershed_js.ordered_queue(queue_b) == [job("job-2")]
-        && watershed_js.ordered_jobs(queue_b) == []
-        && watershed_js.task_assigned(roles_b, role)
+        watershed.ordered_queue(queue_b) == [job("job-2")]
+        && watershed.ordered_jobs(queue_b) == []
+        && watershed.task_assigned(roles_b, role)
       })
       case recovered {
         False ->
           fail(
             "the server's leave never returned the job and the role to B "
             <> "(queue="
-            <> int.to_string(list_len(watershed_js.ordered_queue(queue_b)))
+            <> int.to_string(list_len(watershed.ordered_queue(queue_b)))
             <> " jobs="
-            <> int.to_string(list_len(watershed_js.ordered_jobs(queue_b)))
+            <> int.to_string(list_len(watershed.ordered_jobs(queue_b)))
             <> " dispatcher="
-            <> bool_str(watershed_js.task_assigned(roles_b, role))
+            <> bool_str(watershed.task_assigned(roles_b, role))
             <> ")",
           )
         True -> {
@@ -220,9 +220,9 @@ fn ensure_queue(
   who: String,
   then: fn(OrderedCollection) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_ordered_collection(
+  watershed.ensure_ordered_collection(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.queue(),
     fn(result) {
       case result {
@@ -238,9 +238,9 @@ fn ensure_roles(
   who: String,
   then: fn(TaskManager) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_task_manager(
+  watershed.ensure_task_manager(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.roles(),
     fn(result) {
       case result {

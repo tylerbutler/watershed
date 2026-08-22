@@ -14,7 +14,7 @@ import gleam/string
 import gleeunit/should
 
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type OrSet}
+import watershed.{type Document, type OrSet}
 
 /// The four track keys, in the order `drum_machine_lustre.tracks()` uses.
 const track_keys = ["kick", "snare", "hat", "clap"]
@@ -39,10 +39,10 @@ fn room(name: String) -> #(Sluice, Client, Client) {
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed_js.root(doc_a)
+  let root_a = watershed.root(doc_a)
   list.each(track_keys, fn(key) {
-    let assert Ok(set) = watershed_js.create_or_set(doc_a)
-    watershed_js.set(root_a, key, watershed_js.or_set_handle_of(set))
+    let assert Ok(set) = watershed.create_or_set(doc_a)
+    watershed.set(root_a, key, watershed.or_set_handle_of(set))
   })
   sluice_js.settle(sluice)
 
@@ -50,12 +50,12 @@ fn room(name: String) -> #(Sluice, Client, Client) {
 }
 
 fn client(doc: Document(doc_schema.Machine)) -> Client {
-  let root = watershed_js.root(doc)
+  let root = watershed.root(doc)
   let tracks =
     track_keys
     |> list.map(fn(key) {
-      let assert Some(value) = watershed_js.get(root, key)
-      let assert Ok(set) = watershed_js.resolve_or_set(doc, value)
+      let assert Some(value) = watershed.get(root, key)
+      let assert Ok(set) = watershed.resolve_or_set(doc, value)
       set
     })
   Client(tracks: tracks)
@@ -69,15 +69,15 @@ fn track(client: Client, index: Int) -> OrSet {
 /// Enabled steps, sorted — an OR-set is a set, so its read order carries no
 /// meaning and asserting on it would make the test flaky for no reason.
 fn steps(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> list.sort(string.compare)
+  watershed.or_set_values(set) |> list.sort(string.compare)
 }
 
 /// Toggle exactly as the app does: decided against the optimistic local state,
 /// which is what the person clicking can currently see.
 fn toggle(set: OrSet, step: String) -> Nil {
-  case watershed_js.or_set_contains(set, step) {
-    True -> watershed_js.or_set_remove(set, step)
-    False -> watershed_js.or_set_add(set, step)
+  case watershed.or_set_contains(set, step) {
+    True -> watershed.or_set_remove(set, step)
+    False -> watershed.or_set_add(set, step)
   }
 }
 
@@ -102,8 +102,8 @@ pub fn concurrently_enabling_the_same_step_is_not_a_conflict_test() {
 
   // Two people reaching for the same step is the most likely collision in the
   // app, and it must not produce a duplicate or a flicker.
-  watershed_js.or_set_add(track(a, 1), "4")
-  watershed_js.or_set_add(track(b, 1), "4")
+  watershed.or_set_add(track(a, 1), "4")
+  watershed.or_set_add(track(b, 1), "4")
   sluice_js.settle(sluice)
 
   steps(track(a, 1)) |> should.equal(["4"])
@@ -113,14 +113,14 @@ pub fn concurrently_enabling_the_same_step_is_not_a_conflict_test() {
 pub fn a_concurrent_enable_survives_a_disable_test() {
   let #(sluice, a, b) = room("drum-add-wins")
 
-  watershed_js.or_set_add(track(a, 0), "3")
+  watershed.or_set_add(track(a, 0), "3")
   sluice_js.settle(sluice)
 
   // Both edits happen before either is delivered, which is what makes them
   // concurrent: A turns the step off while B turns it on again. A's remove can
   // only carry the tags A knows about, so B's fresh tag survives it.
-  watershed_js.or_set_remove(track(a, 0), "3")
-  watershed_js.or_set_add(track(b, 0), "3")
+  watershed.or_set_remove(track(a, 0), "3")
+  watershed.or_set_add(track(b, 0), "3")
   sluice_js.settle(sluice)
 
   // Add-wins: the step is on. This is why the tracks are OR-sets — a TwoPSet
@@ -151,9 +151,9 @@ pub fn tracks_are_independent_test() {
   // The same step index on all four tracks: one channel per track means these
   // cannot interfere, and this is the test that would catch a shared channel.
   list.each([0, 1, 2, 3], fn(index) {
-    watershed_js.or_set_add(track(a, index), "5")
+    watershed.or_set_add(track(a, index), "5")
   })
-  watershed_js.or_set_remove(track(b, 1), "5")
+  watershed.or_set_remove(track(b, 1), "5")
   sluice_js.settle(sluice)
 
   steps(track(b, 0)) |> should.equal(["5"])
@@ -165,7 +165,7 @@ pub fn tracks_are_independent_test() {
 pub fn a_late_joiner_replays_the_pattern_test() {
   let #(sluice, a, _b) = room("drum-late-join")
 
-  list.each(["0", "8"], fn(step) { watershed_js.or_set_add(track(a, 0), step) })
+  list.each(["0", "8"], fn(step) { watershed.or_set_add(track(a, 0), step) })
   sluice_js.settle(sluice)
 
   // Someone walking in halfway through hears what the room is already playing.

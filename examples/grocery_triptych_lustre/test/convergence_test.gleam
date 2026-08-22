@@ -6,7 +6,7 @@ import gleeunit/should
 
 import doc_schema
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type GSet, type OrSet, type TwoPSet}
+import watershed.{type Document, type GSet, type OrSet, type TwoPSet}
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -30,39 +30,39 @@ fn room(name: String) -> #(Sluice, Client, Client) {
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed_js.root_typed(doc_a)
-  let assert Ok(grow_only) = watershed_js.create_g_set(doc_a)
-  watershed_js.set_g_set_field(root_a, doc_schema.grow_only(), grow_only)
-  let assert Ok(two_phase) = watershed_js.create_two_p_set(doc_a)
-  watershed_js.set_two_p_set_field(root_a, doc_schema.two_phase(), two_phase)
-  let assert Ok(observed) = watershed_js.create_or_set(doc_a)
-  watershed_js.set_or_set_field(root_a, doc_schema.observed(), observed)
+  let root_a = watershed.root_typed(doc_a)
+  let assert Ok(grow_only) = watershed.create_g_set(doc_a)
+  watershed.set_g_set_field(root_a, doc_schema.grow_only(), grow_only)
+  let assert Ok(two_phase) = watershed.create_two_p_set(doc_a)
+  watershed.set_two_p_set_field(root_a, doc_schema.two_phase(), two_phase)
+  let assert Ok(observed) = watershed.create_or_set(doc_a)
+  watershed.set_or_set_field(root_a, doc_schema.observed(), observed)
   sluice_js.settle(sluice)
 
   #(sluice, client(doc_a), client(doc_b))
 }
 
 fn client(doc: Document(doc_schema.Pantry)) -> Client {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   let assert Ok(Some(grow_only)) =
-    watershed_js.resolve_g_set_field(doc, root, doc_schema.grow_only())
+    watershed.resolve_g_set_field(doc, root, doc_schema.grow_only())
   let assert Ok(Some(two_phase)) =
-    watershed_js.resolve_two_p_set_field(doc, root, doc_schema.two_phase())
+    watershed.resolve_two_p_set_field(doc, root, doc_schema.two_phase())
   let assert Ok(Some(observed)) =
-    watershed_js.resolve_or_set_field(doc, root, doc_schema.observed())
+    watershed.resolve_or_set_field(doc, root, doc_schema.observed())
 
   Client(grow_only: grow_only, two_phase: two_phase, observed: observed)
 }
 
 fn add_everywhere(client: Client, item: String) -> Nil {
-  watershed_js.g_set_add(client.grow_only, item)
-  watershed_js.two_p_set_add(client.two_phase, item)
-  watershed_js.or_set_add(client.observed, item)
+  watershed.g_set_add(client.grow_only, item)
+  watershed.two_p_set_add(client.two_phase, item)
+  watershed.or_set_add(client.observed, item)
 }
 
 fn remove_shared(client: Client, item: String) -> Nil {
-  watershed_js.two_p_set_remove(client.two_phase, item)
-  watershed_js.or_set_remove(client.observed, item)
+  watershed.two_p_set_remove(client.two_phase, item)
+  watershed.or_set_remove(client.observed, item)
 }
 
 fn snapshot(client: Client) -> Snapshot {
@@ -91,15 +91,15 @@ fn expected(
 }
 
 fn g_set_values(set: GSet) -> List(String) {
-  watershed_js.g_set_values(set) |> sort_values
+  watershed.g_set_values(set) |> sort_values
 }
 
 fn two_p_set_values(set: TwoPSet) -> List(String) {
-  watershed_js.two_p_set_values(set) |> sort_values
+  watershed.two_p_set_values(set) |> sort_values
 }
 
 fn or_set_values(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> sort_values
+  watershed.or_set_values(set) |> sort_values
 }
 
 fn sort_values(values: List(String)) -> List(String) {
@@ -153,7 +153,7 @@ pub fn two_p_set_readd_stays_tombstoned_test() {
   sluice_js.settle(sluice)
   assert_both(client_a, client_b, expected(["milk"], [], []))
 
-  watershed_js.two_p_set_add(client_b.two_phase, "milk")
+  watershed.two_p_set_add(client_b.two_phase, "milk")
   sluice_js.settle(sluice)
 
   assert_both(client_a, client_b, expected(["milk"], [], []))
@@ -170,7 +170,7 @@ pub fn or_set_remove_then_readd_becomes_present_test() {
   sluice_js.settle(sluice)
   assert_both(client_a, client_b, expected(["milk"], [], []))
 
-  watershed_js.or_set_add(client_b.observed, "milk")
+  watershed.or_set_add(client_b.observed, "milk")
   sluice_js.settle(sluice)
 
   assert_both(client_a, client_b, expected(["milk"], [], ["milk"]))

@@ -249,7 +249,7 @@ it**. It renders `<watershed-textarea>` — the component wrapped as a custom
 element by
 [`watershed_lustre/textarea_element`](../../watershed_lustre/src/watershed_lustre/textarea_element.gleam)
 — and [`element_host.mjs`](element_host.mjs) is plain JavaScript: register the
-element, connect with the `watershed_js` facade, and hand over the channel as
+element, connect with the `watershed` facade, and hand over the channel as
 one property assignment.
 
 ```js

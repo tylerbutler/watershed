@@ -9,7 +9,7 @@ import gleeunit/should
 
 import doc_schema
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type OrSet}
+import watershed.{type Document, type OrSet}
 
 const checks_key = "checks"
 
@@ -28,11 +28,11 @@ fn room(name: String) -> #(Sluice, OrSet, OrSet) {
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let assert Ok(seed) = watershed_js.create_or_set(doc_a)
-  watershed_js.set(
-    watershed_js.root(doc_a),
+  let assert Ok(seed) = watershed.create_or_set(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
     checks_key,
-    watershed_js.or_set_handle_of(seed),
+    watershed.or_set_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
@@ -40,23 +40,23 @@ fn room(name: String) -> #(Sluice, OrSet, OrSet) {
 }
 
 fn checks_of(doc: Document(doc_schema.Checklist)) -> OrSet {
-  let assert Some(value) = watershed_js.get(watershed_js.root(doc), checks_key)
-  let assert Ok(set) = watershed_js.resolve_or_set(doc, value)
+  let assert Some(value) = watershed.get(watershed.root(doc), checks_key)
+  let assert Ok(set) = watershed.resolve_or_set(doc, value)
   set
 }
 
 /// Completed gate ids, sorted — an OR-set is a set, so its read order carries
 /// no meaning and asserting on it would make the test flaky for no reason.
 fn completed(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> list.sort(string.compare)
+  watershed.or_set_values(set) |> list.sort(string.compare)
 }
 
 /// Toggle exactly as the app does: decided against the optimistic local
 /// state, which is what the person clicking can currently see.
 fn toggle(set: OrSet, id: String) -> Nil {
-  case watershed_js.or_set_contains(set, id) {
-    True -> watershed_js.or_set_remove(set, id)
-    False -> watershed_js.or_set_add(set, id)
+  case watershed.or_set_contains(set, id) {
+    True -> watershed.or_set_remove(set, id)
+    False -> watershed.or_set_add(set, id)
   }
 }
 
@@ -78,8 +78,8 @@ pub fn concurrently_completing_the_same_gate_is_not_a_conflict_test() {
 
   // Two people reaching for the same gate is the most likely collision in
   // the app, and it must not produce a duplicate or a flicker.
-  watershed_js.or_set_add(a, "security_review")
-  watershed_js.or_set_add(b, "security_review")
+  watershed.or_set_add(a, "security_review")
+  watershed.or_set_add(b, "security_review")
   sluice_js.settle(sluice)
 
   completed(a) |> should.equal(["security_review"])
@@ -89,14 +89,14 @@ pub fn concurrently_completing_the_same_gate_is_not_a_conflict_test() {
 pub fn a_concurrent_completion_survives_a_reopen_test() {
   let #(sluice, a, b) = room("checklist-add-wins")
 
-  watershed_js.or_set_add(a, "docs_updated")
+  watershed.or_set_add(a, "docs_updated")
   sluice_js.settle(sluice)
 
   // Both edits happen before either is delivered, which is what makes them
   // concurrent: A reopens the gate while B completes it again. A's remove
   // can only carry the tags A knows about, so B's fresh tag survives it.
-  watershed_js.or_set_remove(a, "docs_updated")
-  watershed_js.or_set_add(b, "docs_updated")
+  watershed.or_set_remove(a, "docs_updated")
+  watershed.or_set_add(b, "docs_updated")
   sluice_js.settle(sluice)
 
   // Add-wins: the gate reads complete. This is why `checks` is an OR-set —
@@ -126,7 +126,7 @@ pub fn a_late_joiner_replays_the_checklist_test() {
   let #(sluice, a, _b) = room("checklist-late-join")
 
   list.each(["tests_passing", "docs_updated"], fn(id) {
-    watershed_js.or_set_add(a, id)
+    watershed.or_set_add(a, id)
   })
   sluice_js.settle(sluice)
 

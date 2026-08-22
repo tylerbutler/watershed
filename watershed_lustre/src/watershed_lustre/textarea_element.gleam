@@ -107,7 +107,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed_js.{type SharedText}
+import watershed.{type SharedText}
 
 import watershed_lustre/textarea
 

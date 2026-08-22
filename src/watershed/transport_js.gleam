@@ -14,7 +14,7 @@ import gleam/javascript/promise.{type Promise}
 pub type Channel
 
 @target(javascript)
-/// A mutable state cell used by `runtime_js` to hold its state machine.
+/// A mutable state cell used by `runtime` to hold its state machine.
 pub type Cell(a)
 
 @target(javascript)

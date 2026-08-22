@@ -1,6 +1,6 @@
 //// Lustre effect bindings for [watershed](https://github.com/tylerbutler/watershed).
 ////
-//// watershed's JS facade (`watershed_js`) is callback-shaped: `connect` takes
+//// watershed's JS facade (`watershed`) is callback-shaped: `connect` takes
 //// an `on_ready`, `subscribe` takes a handler, timers are hand-rolled FFI. A
 //// Lustre app has to bridge each of those into `dispatch`, and — because
 //// watershed delivers events synchronously, sometimes from inside a running
@@ -23,10 +23,10 @@
 //// }
 ////
 //// // after GotHandle(doc): subscribe to the root map
-//// watershed_lustre.subscribe(watershed_js.root(doc), fn(_) { MapChanged })
+//// watershed_lustre.subscribe(watershed.root(doc), fn(_) { MapChanged })
 //// ```
 ////
-//// Edits and reads stay on `watershed_js` (`set`, `get`, `entries`, …); this
+//// Edits and reads stay on `watershed` (`set`, `get`, `entries`, …); this
 //// package only wraps the callback-shaped surface. JavaScript target only.
 
 import gleam/javascript/promise
@@ -52,7 +52,7 @@ import watershed/pact_map_kernel
 import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/rich_text_kernel
-import watershed/runtime_js
+import watershed/runtime
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
 }
@@ -60,7 +60,7 @@ import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/two_p_set_kernel
-import watershed_js.{
+import watershed.{
   type Claims, type Document, type GSet, type JsonOt, type OrMap, type OrSet,
   type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
   type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
@@ -88,7 +88,7 @@ pub fn connect(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let doc =
-    watershed_js.connect(config, on_ready: fn(result) {
+    watershed.connect(config, on_ready: fn(result) {
       queue_microtask(fn() { dispatch(connected(result)) })
     })
   queue_microtask(fn() { dispatch(got_document(doc)) })
@@ -109,7 +109,7 @@ pub fn connect_dev(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _ = {
-    use token <- promise.map(watershed_js.dev_token(
+    use token <- promise.map(watershed.dev_token(
       secret: secret,
       tenant: tenant,
       document: document,
@@ -124,7 +124,7 @@ pub fn connect_dev(
         user_id: user_id,
       )
     let doc =
-      watershed_js.connect(config, on_ready: fn(result) {
+      watershed.connect(config, on_ready: fn(result) {
         queue_microtask(fn() { dispatch(connected(result)) })
       })
     queue_microtask(fn() { dispatch(got_document(doc)) })
@@ -134,7 +134,7 @@ pub fn connect_dev(
 
 // ── Subscriptions ────────────────────────────────────────────────────────────
 //
-// One per channel kind, mirroring `watershed_js`'s narrowed `subscribe_*`. Each
+// One per channel kind, mirroring `watershed`'s narrowed `subscribe_*`. Each
 // delivers the kind's own event type (never the 14-variant union), deferred to a
 // microtask before dispatch.
 
@@ -145,7 +145,7 @@ pub fn subscribe(
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe(map, fn(event) {
+  watershed.subscribe(map, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -158,7 +158,7 @@ pub fn subscribe_directory(
   to_msg to_msg: fn(directory_kernel.DirectoryEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_directory(directory, fn(event) {
+  watershed.subscribe_directory(directory, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -169,7 +169,7 @@ pub fn subscribe_counter(
   to_msg to_msg: fn(counter_kernel.CounterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_counter(counter, fn(event) {
+  watershed.subscribe_counter(counter, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -180,7 +180,7 @@ pub fn subscribe_or_map(
   to_msg to_msg: fn(or_map_kernel.OrMapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_or_map(or_map, fn(event) {
+  watershed.subscribe_or_map(or_map, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -191,7 +191,7 @@ pub fn subscribe_or_set(
   to_msg to_msg: fn(or_set_kernel.OrSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_or_set(or_set, fn(event) {
+  watershed.subscribe_or_set(or_set, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -203,7 +203,7 @@ pub fn subscribe_g_set(
   to_msg to_msg: fn(g_set_kernel.GSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_g_set(g_set, fn(event) {
+  watershed.subscribe_g_set(g_set, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -215,7 +215,7 @@ pub fn subscribe_two_p_set(
   to_msg to_msg: fn(two_p_set_kernel.TwoPSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_two_p_set(two_p_set, fn(event) {
+  watershed.subscribe_two_p_set(two_p_set, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -226,7 +226,7 @@ pub fn subscribe_pn_counter(
   to_msg to_msg: fn(pn_counter_kernel.PnCounterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_pn_counter(pn_counter, fn(event) {
+  watershed.subscribe_pn_counter(pn_counter, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -238,7 +238,7 @@ pub fn subscribe_pact_map(
   to_msg to_msg: fn(pact_map_kernel.PactMapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_pact_map(pact_map, fn(event) {
+  watershed.subscribe_pact_map(pact_map, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -249,7 +249,7 @@ pub fn subscribe_ordered_collection(
   to_msg to_msg: fn(ordered_collection_kernel.OrderedEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_ordered_collection(collection, fn(event) {
+  watershed.subscribe_ordered_collection(collection, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -267,7 +267,7 @@ pub fn ordered_acquire(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   let _acquire_id =
-    watershed_js.ordered_acquire_with_outcome(collection, fn(outcome) {
+    watershed.ordered_acquire_with_outcome(collection, fn(outcome) {
       queue_microtask(fn() { dispatch(to_msg(outcome)) })
     })
   Nil
@@ -279,7 +279,7 @@ pub fn subscribe_register_collection(
   to_msg to_msg: fn(register_collection_kernel.RegisterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_register_collection(collection, fn(event) {
+  watershed.subscribe_register_collection(collection, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -290,7 +290,7 @@ pub fn subscribe_claims(
   to_msg to_msg: fn(claims_kernel.ClaimEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_claims(claims, fn(event) {
+  watershed.subscribe_claims(claims, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -316,7 +316,7 @@ pub fn try_set_claim(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   deliver_claim_outcome(
-    watershed_js.try_set_claim(claims, key, value),
+    watershed.try_set_claim(claims, key, value),
     fn(outcome) { dispatch(to_msg(outcome)) },
   )
 }
@@ -334,7 +334,7 @@ pub fn compare_and_set_claim(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   deliver_claim_outcome(
-    watershed_js.compare_and_set_claim(claims, key, value),
+    watershed.compare_and_set_claim(claims, key, value),
     fn(outcome) { dispatch(to_msg(outcome)) },
   )
 }
@@ -353,22 +353,22 @@ pub fn compare_and_set_claim(
 /// caller would act on identically either way: something kept this attempt
 /// from ever reaching the wire.
 fn deliver_claim_outcome(
-  reply: runtime_js.ClaimSubmitReply,
+  reply: runtime.ClaimSubmitReply,
   resolve: fn(claims_kernel.ClaimOutcome) -> Nil,
 ) -> Nil {
   case reply {
-    runtime_js.Pending(outcome) -> {
+    runtime.Pending(outcome) -> {
       let _ =
         promise.map(outcome, fn(outcome) {
           queue_microtask(fn() { resolve(outcome) })
         })
       Nil
     }
-    runtime_js.AlreadyClaimed(current_value) ->
+    runtime.AlreadyClaimed(current_value) ->
       queue_microtask(fn() { resolve(claims_kernel.Lost(Some(current_value))) })
-    runtime_js.AlreadyPendingLocally ->
+    runtime.AlreadyPendingLocally ->
       queue_microtask(fn() { resolve(claims_kernel.Aborted) })
-    runtime_js.WrongChannelType ->
+    runtime.WrongChannelType ->
       queue_microtask(fn() { resolve(claims_kernel.Aborted) })
   }
 }
@@ -379,7 +379,7 @@ pub fn subscribe_task_manager(
   to_msg to_msg: fn(task_manager_kernel.TaskManagerEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_task_manager(manager, fn(event) {
+  watershed.subscribe_task_manager(manager, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -392,7 +392,7 @@ pub fn subscribe_sequence(
   to_msg to_msg: fn(sequence_kernel.SequenceEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_sequence(sequence, fn(event) {
+  watershed.subscribe_sequence(sequence, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -407,20 +407,20 @@ pub fn subscribe_text(
   to_msg to_msg: fn(text_kernel.TextEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_text(text, fn(event) {
+  watershed.subscribe_text(text, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
 
 /// Subscribe to a rich text channel. `to_msg` receives each local and remote
 /// `rich_text_kernel.RichTextChanged`, carrying the `Delta` that was applied —
-/// re-read the channel with `watershed_js.rich_text_view` to render.
+/// re-read the channel with `watershed.rich_text_view` to render.
 pub fn subscribe_rich_text(
   rich_text: SharedRichText,
   to_msg to_msg: fn(rich_text_kernel.RichTextEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_rich_text(rich_text, fn(event) {
+  watershed.subscribe_rich_text(rich_text, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -432,7 +432,7 @@ pub fn subscribe_json_ot(
   to_msg to_msg: fn(json_ot_kernel.JsonOtEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_json_ot(json_ot, fn(event) {
+  watershed.subscribe_json_ot(json_ot, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -444,7 +444,7 @@ pub fn subscribe_ripples(
   to_msg to_msg: fn(Ripple) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_ripples(document, fn(ripple) {
+  watershed.subscribe_ripples(document, fn(ripple) {
     queue_microtask(fn() { dispatch(to_msg(ripple)) })
   })
 }
@@ -460,7 +460,7 @@ pub fn subscribe_field(
   to_msg to_msg: fn(FieldChange(a)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_field(typed_map, field, fn(change) {
+  watershed.subscribe_field(typed_map, field, fn(change) {
     queue_microtask(fn() { dispatch(to_msg(change)) })
   })
 }
@@ -472,7 +472,7 @@ pub fn subscribe_typed(
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.subscribe_typed(typed_map, fn(event) {
+  watershed.subscribe_typed(typed_map, fn(event) {
     queue_microtask(fn() { dispatch(to_msg(event)) })
   })
 }
@@ -492,7 +492,7 @@ pub fn ensure_map(
   to_msg to_msg: fn(Result(SharedMap, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_map(document, typed_map, field, fn(result) {
+  watershed.ensure_map(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -505,7 +505,7 @@ pub fn ensure_directory(
   to_msg to_msg: fn(Result(SharedDirectory, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_directory(document, typed_map, field, fn(result) {
+  watershed.ensure_directory(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -518,7 +518,7 @@ pub fn ensure_counter(
   to_msg to_msg: fn(Result(SharedCounter, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_counter(document, typed_map, field, fn(result) {
+  watershed.ensure_counter(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -532,7 +532,7 @@ pub fn ensure_or_map(
   to_msg to_msg: fn(Result(OrMap, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_or_map(document, typed_map, field, mode, fn(result) {
+  watershed.ensure_or_map(document, typed_map, field, mode, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -545,7 +545,7 @@ pub fn ensure_or_set(
   to_msg to_msg: fn(Result(OrSet, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_or_set(document, typed_map, field, fn(result) {
+  watershed.ensure_or_set(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -558,7 +558,7 @@ pub fn ensure_g_set(
   to_msg to_msg: fn(Result(GSet, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_g_set(document, typed_map, field, fn(result) {
+  watershed.ensure_g_set(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -571,7 +571,7 @@ pub fn ensure_two_p_set(
   to_msg to_msg: fn(Result(TwoPSet, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_two_p_set(document, typed_map, field, fn(result) {
+  watershed.ensure_two_p_set(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -584,7 +584,7 @@ pub fn ensure_register_collection(
   to_msg to_msg: fn(Result(RegisterCollection, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_register_collection(
+  watershed.ensure_register_collection(
     document,
     typed_map,
     field,
@@ -600,7 +600,7 @@ pub fn ensure_claims(
   to_msg to_msg: fn(Result(Claims, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_claims(document, typed_map, field, fn(result) {
+  watershed.ensure_claims(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -613,7 +613,7 @@ pub fn ensure_task_manager(
   to_msg to_msg: fn(Result(TaskManager, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_task_manager(document, typed_map, field, fn(result) {
+  watershed.ensure_task_manager(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -626,7 +626,7 @@ pub fn ensure_pn_counter(
   to_msg to_msg: fn(Result(PnCounter, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_pn_counter(document, typed_map, field, fn(result) {
+  watershed.ensure_pn_counter(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -639,7 +639,7 @@ pub fn ensure_pact_map(
   to_msg to_msg: fn(Result(PactMap, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_pact_map(document, typed_map, field, fn(result) {
+  watershed.ensure_pact_map(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -652,7 +652,7 @@ pub fn ensure_ordered_collection(
   to_msg to_msg: fn(Result(OrderedCollection, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_ordered_collection(document, typed_map, field, fn(result) {
+  watershed.ensure_ordered_collection(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -665,7 +665,7 @@ pub fn ensure_sequence(
   to_msg to_msg: fn(Result(SharedSequence, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_sequence(document, typed_map, field, fn(result) {
+  watershed.ensure_sequence(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -678,7 +678,7 @@ pub fn ensure_text(
   to_msg to_msg: fn(Result(SharedText, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_text(document, typed_map, field, fn(result) {
+  watershed.ensure_text(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -692,7 +692,7 @@ pub fn ensure_rich_text(
   to_msg to_msg: fn(Result(SharedRichText, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_rich_text(document, typed_map, field, fn(result) {
+  watershed.ensure_rich_text(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -705,7 +705,7 @@ pub fn ensure_json_ot(
   to_msg to_msg: fn(Result(JsonOt, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_json_ot(document, typed_map, field, fn(result) {
+  watershed.ensure_json_ot(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -718,7 +718,7 @@ pub fn ensure_child(
   to_msg to_msg: fn(Result(TypedMap(c), String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed_js.ensure_child(document, typed_map, field, fn(result) {
+  watershed.ensure_child(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
@@ -732,7 +732,7 @@ pub fn ensure_field(
   default: a,
 ) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.ensure_field(typed_map, field, default)
+  watershed.ensure_field(typed_map, field, default)
 }
 
 // ── Timers & misc effects ──────────────────────────────────────────────────
@@ -753,7 +753,7 @@ pub fn submit_ripple(
   content content: Json,
 ) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.submit_ripple(
+  watershed.submit_ripple(
     document,
     ripple_type: ripple_type,
     content: content,
@@ -764,7 +764,7 @@ pub fn submit_ripple(
 /// reconnect/reconcile path. Pending and in-flight edits are preserved.
 pub fn force_reconnect(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.force_reconnect(document)
+  watershed.force_reconnect(document)
 }
 
 /// Go offline and stay there. Reads and edits keep working; the edits queue and
@@ -783,14 +783,14 @@ pub fn force_reconnect(document: Document(root)) -> Effect(msg) {
 /// ```
 pub fn go_offline(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.go_offline(document)
+  watershed.go_offline(document)
 }
 
 /// Come back from `go_offline`, replaying the gap and flushing what was edited
 /// during it. A no-op unless the document is currently held offline.
 pub fn go_online(document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.go_online(document)
+  watershed.go_online(document)
 }
 
 // ── Presence ─────────────────────────────────────────────────────────────────
@@ -859,11 +859,11 @@ pub fn auto_summarize(
   policy policy: summary_policy.Policy,
 ) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.auto_summarize(document, policy)
+  watershed.auto_summarize(document, policy)
 }
 
 /// Stop summarizing automatically.
 pub fn stop_auto_summarize(document document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed_js.stop_auto_summarize(document)
+  watershed.stop_auto_summarize(document)
 }

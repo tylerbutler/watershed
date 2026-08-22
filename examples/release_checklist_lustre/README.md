@@ -130,7 +130,7 @@ pnpm run smoke         # the same claims against a live floodgate server
   the accepted target without a false pending quorum, and a reopened gate
   leaving an already-accepted target untouched.
 
-`src/smoke.gleam` drives three real `watershed_js` clients against a live
+`src/smoke.gleam` drives three real `watershed` clients against a live
 floodgate server end to end: bootstraps all three channels on each client,
 completes the checklist across two of them, has one claim the captain seat,
 publishes a release target, and asserts every client converges on the same

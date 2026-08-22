@@ -33,11 +33,11 @@ import gleam/option.{type Option, None, Some}
 @target(javascript)
 import watershed/presence.{type Config, type Event, type Mode}
 @target(javascript)
-import watershed/runtime_js.{type PresenceFrame}
+import watershed/runtime.{type PresenceFrame}
 @target(javascript)
 import watershed/transport_js.{type Cell, type Scheduler}
 @target(javascript)
-import watershed_js.{type Document, type Ripple}
+import watershed.{type Document, type Ripple}
 
 @target(javascript)
 /// A running presence session. Stop it with `stop`.
@@ -52,7 +52,7 @@ type Driver(a) {
     /// for the document, so the root-schema tag on `Document(root)` stops at
     /// `start` instead of threading through `Driver` into the public
     /// `Handle(a)`.
-    runtime: runtime_js.Runtime,
+    runtime: runtime.Runtime,
     broadcast: fn(Json) -> Nil,
     config: Config(a),
     on_event: fn(Event(a)) -> Nil,
@@ -111,12 +111,12 @@ pub fn start_with_scheduler(
   on_event on_event: fn(Event(a)) -> Nil,
   scheduler scheduler: Scheduler,
 ) -> Handle(a) {
-  let runtime = watershed_js.runtime_of(document)
+  let runtime = watershed.runtime_of(document)
   let cell =
     transport_js.new_cell(Driver(
       runtime: runtime,
       broadcast: fn(content) {
-        watershed_js.submit_ripple(
+        watershed.submit_ripple(
           document,
           ripple_type: presence.ripple_type,
           content: content,
@@ -128,7 +128,7 @@ pub fn start_with_scheduler(
       meta: initial,
       mode: None,
       session: None,
-      key: runtime_js.user_id(runtime),
+      key: runtime.user_id(runtime),
       implementation: Unresolved,
       stopped: False,
     ))
@@ -136,8 +136,8 @@ pub fn start_with_scheduler(
   // Both subscriptions are registered up front and unconditionally. Neither can
   // be detached, so registering lazily would buy nothing; each is inert until
   // the matching implementation is chosen.
-  runtime_js.subscribe_presence(runtime, fn(frame) { on_frame(cell, frame) })
-  watershed_js.subscribe_ripples(document, fn(ripple) {
+  runtime.subscribe_presence(runtime, fn(frame) { on_frame(cell, frame) })
+  watershed.subscribe_ripples(document, fn(ripple) {
     on_ripple(cell, ripple)
   })
   Handle(cell)
@@ -178,7 +178,7 @@ pub fn stop(handle: Handle(a)) -> Nil {
     False -> {
       case driver.implementation {
         ServerPresence(_) ->
-          runtime_js.send_presence(
+          runtime.send_presence(
             runtime_of(driver),
             presence.event_leave,
             presence.encode_leave(),
@@ -221,10 +221,10 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
     True -> Nil
     False ->
       case frame {
-        runtime_js.PresenceSession(client_id, presence_v1) ->
+        runtime.PresenceSession(client_id, presence_v1) ->
           on_session(cell, client_id, presence_v1)
-        runtime_js.PresenceSessionLost -> on_session_lost(cell)
-        runtime_js.PresenceState(payload) ->
+        runtime.PresenceSessionLost -> on_session_lost(cell)
+        runtime.PresenceState(payload) ->
           case driver.implementation {
             ServerPresence(tracker) ->
               case
@@ -243,7 +243,7 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
               }
             _ -> Nil
           }
-        runtime_js.PresenceDiff(payload) ->
+        runtime.PresenceDiff(payload) ->
           case driver.implementation {
             ServerPresence(tracker) ->
               case
@@ -262,7 +262,7 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
               }
             _ -> Nil
           }
-        runtime_js.PresenceError(payload) ->
+        runtime.PresenceError(payload) ->
           case decode.run(payload, presence.presence_error_decoder()) {
             Error(_) -> Nil
             Ok(error) -> driver.on_event(presence.Failed(error))
@@ -407,7 +407,7 @@ fn commit_server(
 @target(javascript)
 fn push(cell: Cell(Driver(a)), event: String, meta: a) -> Nil {
   let driver = transport_js.get_cell(cell)
-  runtime_js.send_presence(
+  runtime.send_presence(
     runtime_of(driver),
     event,
     presence.encode_command(presence.config_encode(driver.config), meta),
@@ -415,7 +415,7 @@ fn push(cell: Cell(Driver(a)), event: String, meta: a) -> Nil {
 }
 
 @target(javascript)
-fn runtime_of(driver: Driver(a)) -> runtime_js.Runtime {
+fn runtime_of(driver: Driver(a)) -> runtime.Runtime {
   driver.runtime
 }
 
@@ -432,9 +432,9 @@ fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
   case driver.stopped, driver.implementation {
     False, RipplePresence(sessions, cancel) ->
       case
-        watershed_js.ripple_client_id(ripple),
+        watershed.ripple_client_id(ripple),
         decode.run(
-          watershed_js.ripple_content(ripple),
+          watershed.ripple_content(ripple),
           presence.ripple_decoder(decode: presence.config_decoder(driver.config)),
         )
       {

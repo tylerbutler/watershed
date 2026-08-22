@@ -1,9 +1,9 @@
-// Live Sudoku convergence demo: three real watershed_js documents editing one
+// Live Sudoku convergence demo: three real watershed documents editing one
 // shared root SharedMap, driven through the in-memory sluice (see
 // ./demo/sluice-rig.ts for the shared orchestration). No fake TS sequencer, no
 // server — a cell edit renders optimistically and pushes an op the sluice
 // sequences; delivery is paced one hop at a time and every replica converges.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
+import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
 

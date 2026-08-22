@@ -8,7 +8,7 @@ import gleam/option.{Some}
 import gleeunit/should
 
 import watershed/sluice_js
-import watershed_js
+import watershed
 
 pub fn two_teammates_converge_test() {
   let sluice = sluice_js.start(tenant: "flow-co", document: "flowboard")
@@ -16,29 +16,29 @@ pub fn two_teammates_converge_test() {
   let doc_b = sluice_js.connect(sluice, "boaz")
   sluice_js.settle(sluice)              // complete both handshakes
 
-  let board_a = watershed_js.root(doc_a)
-  let board_b = watershed_js.root(doc_b)
+  let board_a = watershed.root(doc_a)
+  let board_b = watershed.root(doc_b)
 
   // Concurrent card moves, including a same-card race.
-  watershed_js.set(board_a, "card-7", json.string("Doing"))
-  watershed_js.set(board_b, "card-9", json.string("Review"))
-  watershed_js.set(board_a, "card-4", json.string("Doing"))
-  watershed_js.set(board_b, "card-4", json.string("Done"))
+  watershed.set(board_a, "card-7", json.string("Doing"))
+  watershed.set(board_b, "card-9", json.string("Review"))
+  watershed.set(board_a, "card-4", json.string("Doing"))
+  watershed.set(board_b, "card-4", json.string("Done"))
   sluice_js.settle(sluice)              // deliver every edit everywhere
 
   // Uncontested writes land on both replicas.
-  watershed_js.get(board_b, "card-7")
+  watershed.get(board_b, "card-7")
   |> should.equal(Some(json.string("Doing")))
 
   // Both teammates agree on the contested card — deterministically,
   // no polling, no server, no timing accident.
-  watershed_js.get(board_a, "card-4")
-  |> should.equal(watershed_js.get(board_b, "card-4"))
+  watershed.get(board_a, "card-4")
+  |> should.equal(watershed.get(board_b, "card-4"))
 }`;
 
 const race = `// Script the race instead of hoping for a schedule: deliver frames on demand.
-watershed_js.set(watershed_js.root(doc_a), "card-4", json.string("Doing"))
-watershed_js.set(watershed_js.root(doc_b), "card-4", json.string("Done"))
+watershed.set(watershed.root(doc_a), "card-4", json.string("Doing"))
+watershed.set(watershed.root(doc_b), "card-4", json.string("Done"))
 
 sluice_js.step(sluice)     // deliver exactly one frame
 sluice_js.settle(sluice)   // then drain the rest to quiescence`;

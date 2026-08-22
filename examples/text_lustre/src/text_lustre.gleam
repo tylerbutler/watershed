@@ -57,7 +57,7 @@ import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/text_kernel
-import watershed_js.{type Document}
+import watershed.{type Document}
 import watershed_lustre
 import watershed_lustre/textarea
 
@@ -144,7 +144,7 @@ type Model {
     /// The component takes one too; a channel fans out to every subscriber.
     traced: Bool,
     user_id: String,
-    diagnostics: Option(watershed_js.Diagnostics),
+    diagnostics: Option(watershed.Diagnostics),
     diagnostic_log: List(String),
     /// The presence driver, once started, and the last cursor announced
     /// through it — kept so a re-announce only fires when it actually moved.
@@ -201,7 +201,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // optimistic edits but not yet for *creating* a channel. Start the
     // diagnostics poll and wait.
     GotHandle(doc) -> {
-      let diagnostics = watershed_js.diagnostics(doc)
+      let diagnostics = watershed.diagnostics(doc)
       let model =
         Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
         |> add_diagnostic(
@@ -223,7 +223,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(doc) -> {
           let #(editor, editor_effect) =
-            component.init(doc, watershed_js.root_typed(doc))
+            component.init(doc, watershed.root_typed(doc))
           #(
             Model(..model, editor: Some(editor)),
             effect.batch([
@@ -269,7 +269,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // re-renders itself off its own subscription.
     BodyChanged(event) -> {
       let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let detail = case diagnostics {
@@ -285,7 +285,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     DiagnosticsTick -> {
       let next = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -422,7 +422,7 @@ fn event_line(event: text_kernel.TextEvent) -> String {
   }
 }
 
-fn diagnostic_line(diagnostics: watershed_js.Diagnostics) -> String {
+fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
   <> diagnostics.phase
   <> " client="

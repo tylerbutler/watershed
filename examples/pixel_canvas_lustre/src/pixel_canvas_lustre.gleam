@@ -37,7 +37,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed_js.{type Document}
+import watershed.{type Document}
 import watershed_lustre
 
 import pixel_canvas_lustre/component
@@ -75,7 +75,7 @@ type Model {
     canvas: Option(component.Model),
     user_id: String,
     offline: Bool,
-    diagnostics: Option(watershed_js.Diagnostics),
+    diagnostics: Option(watershed.Diagnostics),
     last_error: Option(String),
   )
 }
@@ -125,7 +125,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(
         ..model,
         doc: Some(doc),
-        diagnostics: Some(watershed_js.diagnostics(doc)),
+        diagnostics: Some(watershed.diagnostics(doc)),
       ),
       watershed_lustre.after(250, DiagnosticsTick),
     )
@@ -137,7 +137,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(Model(..model, status: Ready), effect.none())
         Some(doc) -> {
           let #(canvas, canvas_effect) =
-            component.init(doc, watershed_js.root_typed(doc))
+            component.init(doc, watershed.root_typed(doc))
           #(
             Model(..model, status: Ready, canvas: Some(canvas)),
             effect.map(canvas_effect, Canvas),
@@ -165,7 +165,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.doc {
         None -> #(model, effect.none())
         Some(doc) -> #(
-          Model(..model, diagnostics: Some(watershed_js.diagnostics(doc))),
+          Model(..model, diagnostics: Some(watershed.diagnostics(doc))),
           watershed_lustre.after(250, DiagnosticsTick),
         )
       }

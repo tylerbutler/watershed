@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` SharedSequence clients
+//// Headless smoke test: drive two `watershed` SharedSequence clients
 //// against a live levee dev server (`just server`) from Node, asserting that
 //// concurrent reorders converge. This exercises the sequence kernel, the
 //// sequence wire codecs, the JS runtime, the Phoenix FFI transport, and the
@@ -17,7 +17,7 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/string
 
-import watershed_js.{type Document, type SharedSequence, WatershedConfig}
+import watershed.{type Document, type SharedSequence, WatershedConfig}
 
 import playlist_lustre/doc_schema
 import playlist_lustre/track.{Track}
@@ -41,13 +41,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.PlaylistDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -84,9 +84,9 @@ fn run_scenario(
   use <- delay(2000)
   log("smoke: ensuring the tracks sequence on A")
 
-  watershed_js.ensure_sequence(
+  watershed.ensure_sequence(
     doc_a,
-    watershed_js.root_typed(doc_a),
+    watershed.root_typed(doc_a),
     doc_schema.tracks(),
     fn(result) {
       case result {
@@ -112,9 +112,9 @@ fn seed_then_resolve(
 
   // Wait for A's attach + inserts to reach B, then resolve on B.
   use <- delay(2000)
-  watershed_js.ensure_sequence(
+  watershed.ensure_sequence(
     doc_b,
-    watershed_js.root_typed(doc_b),
+    watershed.root_typed(doc_b),
     doc_schema.tracks(),
     fn(result) {
       case result {
@@ -140,9 +140,9 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
   // A lifts track 0 to the end; destinations are interpreted after removal,
   // so index 2 is the tail of the 2-element list left behind.
   log("smoke: concurrent move on A, replace on B")
-  let move_result = watershed_js.sequence_move(seq_a, 0, 2)
+  let move_result = watershed.sequence_move(seq_a, 0, 2)
   let replace_result =
-    watershed_js.sequence_replace(
+    watershed.sequence_replace(
       seq_b,
       1,
       track.to_json(Track(
@@ -153,7 +153,7 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
     )
 
   // An index past the end must be refused rather than silently clamped.
-  let out_of_bounds = watershed_js.sequence_delete(seq_a, 99)
+  let out_of_bounds = watershed.sequence_delete(seq_a, 99)
 
   use <- delay(3000)
   let final_a = titles(seq_a)
@@ -216,9 +216,9 @@ fn insert_track(
 ) -> Nil {
   let entry = Track(title: title, artist: artist, added_by: "user-a")
   case
-    watershed_js.sequence_insert(
+    watershed.sequence_insert(
       sequence,
-      watershed_js.sequence_length(sequence),
+      watershed.sequence_length(sequence),
       track.to_json(entry),
     )
   {
@@ -228,7 +228,7 @@ fn insert_track(
 }
 
 fn titles(sequence: SharedSequence) -> List(String) {
-  watershed_js.sequence_values(sequence)
+  watershed.sequence_values(sequence)
   |> list.map(fn(value: Json) { track.from_json(value).title })
 }
 

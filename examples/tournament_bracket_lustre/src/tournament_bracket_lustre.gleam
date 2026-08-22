@@ -51,7 +51,7 @@ import watershed/presence_js.{type Handle}
 import watershed/register_collection_kernel.{
   type RegisterEvent, AtomicChanged, VersionChanged,
 }
-import watershed_js.{type Document, type RegisterCollection}
+import watershed.{type Document, type RegisterCollection}
 import watershed_lustre
 
 import bracket.{type MatchId, type MatchResult, type Slot, MatchResult}
@@ -182,7 +182,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// there is nothing to seed: an empty register collection *is* the correct
 /// starting state — no match has a result until someone reports one.
 fn bootstrap_effect(doc: Document(BracketDoc)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   watershed_lustre.ensure_register_collection(
     doc,
     root,
@@ -268,7 +268,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             |> option.from_result
             |> option.unwrap("")
           let value = match_result.to_json(MatchResult(winner:, score:))
-          watershed_js.register_write(matches, match_key, value)
+          watershed.register_write(matches, match_key, value)
           #(
             Model(..model, pending: set.insert(model.pending, match_key))
               |> log_line(

@@ -29,14 +29,14 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
 
       <div class="stratum split" data-reveal="settle">
         <div>
-          <h3>Facade: <code>watershed</code></h3>
+          <h3>Facade: <code>watershed_beam</code></h3>
           <p>
             Erlang API: blocking <code>connect</code>, OTP subject calls,
             map and counter handles, summaries, and subscriptions.
           </p>
         </div>
         <div>
-          <h3>Facade: <code>watershed_js</code></h3>
+          <h3>Facade: <code>watershed</code></h3>
           <p>
             JavaScript API: an immediate document handle, an
             <code>on_ready</code> callback, promises, and the same DDS operations.
@@ -50,14 +50,14 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
 
       <div class="stratum split" data-reveal="settle">
         <div>
-          <h3>Runtime: <code>runtime</code></h3>
+          <h3>Runtime: <code>runtime_beam</code></h3>
           <p>
             An OTP actor and receiver process handle calls, heartbeats, and
             reconnection.
           </p>
         </div>
         <div>
-          <h3>Runtime: <code>runtime_js</code></h3>
+          <h3>Runtime: <code>runtime</code></h3>
           <p>
             A callback shell uses a mutable cell and the same
             bootstrap, ordering, catch-up, and resubmit rules.
@@ -109,9 +109,9 @@ const waves = [wave(0.4), wave(2.1), wave(4.4)];
     </div>
 
     <p class="arch-note">
-      Target gates enforce this boundary. <code>watershed</code> and
-      <code>runtime</code> use <code>@target(erlang)</code>.
-      <code>watershed_js</code>, <code>runtime_js</code>, and
+      Target gates enforce this boundary. <code>watershed_beam</code> and
+      <code>runtime_beam</code> use <code>@target(erlang)</code>.
+      <code>watershed</code>, <code>runtime</code>, and
       <code>transport_js</code> use <code>@target(javascript)</code>. The browser
       demo runs the compiled core without a target gate.
     </p>

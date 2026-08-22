@@ -4,7 +4,7 @@
 // This is the custom-element wrapper's reason to exist: the nested MVU triple
 // needs a parent that holds a child model and routes messages, which only a
 // Lustre app can be. This page holds no model at all. It registers the
-// element, connects with the plain `watershed_js` facade, assigns the live
+// element, connects with the plain `watershed` facade, assigns the live
 // `SharedText` handle to the element's `channel` property, and from then on
 // speaks DOM: `change`/`error`/`cursor` events out, a `peers` property in.
 //
@@ -13,7 +13,7 @@
 // channel and a tab of each converges with shared cursors across the pair.
 
 import { register } from "./build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
-import * as watershed from "./build/dev/javascript/watershed/watershed_js.mjs";
+import * as watershed from "./build/dev/javascript/watershed/watershed.mjs";
 import * as presence_js from "./build/dev/javascript/watershed/watershed/presence_js.mjs";
 import * as presence from "./build/dev/javascript/watershed/watershed/presence.mjs";
 import * as decode from "./build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";

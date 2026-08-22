@@ -1,5 +1,5 @@
 //// Behavioural tests for `watershed_lustre.try_set_claim` and
-//// `compare_and_set_claim`: the bindings that turn a `runtime_js.ClaimSubmitReply`
+//// `compare_and_set_claim`: the bindings that turn a `runtime.ClaimSubmitReply`
 //// into a `claims_kernel.ClaimOutcome` message.
 ////
 //// The in-memory `watershed/sluice_js` stands in for a live floodgate server —
@@ -23,7 +23,7 @@ import lustre/effect.{type Effect}
 import watershed/claims_kernel
 import watershed/sluice_js
 import watershed/transport_js.{type Cell}
-import watershed_js.{type Claims}
+import watershed.{type Claims}
 import watershed_lustre
 
 const captain_key = "captain"
@@ -77,17 +77,17 @@ fn room() -> #(sluice_js.Sluice, Claims, Claims) {
   let doc_b = sluice_js.connect(sluice, "bob")
   sluice_js.settle(sluice)
 
-  let assert Ok(claims_a) = watershed_js.create_claims(doc_a)
-  watershed_js.set(
-    watershed_js.root(doc_a),
+  let assert Ok(claims_a) = watershed.create_claims(doc_a)
+  watershed.set(
+    watershed.root(doc_a),
     captain_key,
-    watershed_js.claims_handle_of(claims_a),
+    watershed.claims_handle_of(claims_a),
   )
   sluice_js.settle(sluice)
 
   let assert Some(handle) =
-    watershed_js.get(watershed_js.root(doc_b), captain_key)
-  let assert Ok(claims_b) = watershed_js.resolve_claims(doc_b, handle)
+    watershed.get(watershed.root(doc_b), captain_key)
+  let assert Ok(claims_b) = watershed.resolve_claims(doc_b, handle)
   #(sluice, claims_a, claims_b)
 }
 
@@ -149,7 +149,7 @@ pub fn try_set_claim_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
     sink,
   )
 
-  // `AlreadyClaimed` resolves synchronously inside `watershed_js.try_set_claim`
+  // `AlreadyClaimed` resolves synchronously inside `watershed.try_set_claim`
   // — the seat is already committed, so there is no wire round trip — but the
   // binding still defers the message to a microtask rather than dispatching
   // inside the effect.

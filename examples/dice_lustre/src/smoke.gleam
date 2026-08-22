@@ -1,6 +1,6 @@
-//// Headless smoke test: drive two `watershed_js` SharedMap clients against a
+//// Headless smoke test: drive two `watershed` SharedMap clients against a
 //// live levee dev server (`just server`) from Node, asserting convergence and
-//// reconnect safety. This exercises the JS runtime (`runtime_js`), the Phoenix
+//// reconnect safety. This exercises the JS runtime (`runtime`), the Phoenix
 //// FFI transport, the wire codecs, and the pure core — the whole JS stack.
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
@@ -14,7 +14,7 @@ import gleam/string
 
 import watershed/map_kernel
 import watershed/transport_js
-import watershed_js.{type Document, WatershedConfig}
+import watershed.{type Document, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -35,13 +35,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.DiceDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -74,8 +74,8 @@ fn run_scenario(
   doc_a: Document(doc_schema.DiceDoc),
   doc_b: Document(doc_schema.DiceDoc),
 ) -> Nil {
-  let map_a = watershed_js.root(doc_a)
-  let map_b = watershed_js.root(doc_b)
+  let map_a = watershed.root(doc_a)
+  let map_b = watershed.root(doc_b)
 
   // The runtime must commit an edit before notifying subscribers: a handler
   // that reads the map during the event must observe the just-applied value,
@@ -85,17 +85,17 @@ fn run_scenario(
   let remote_probe = transport_js.new_cell(False)
   // `subscribe` narrows to `map_kernel.MapEvent`, so we match the variant
   // directly. `ValueChanged` now also carries the new `value`, ignored here.
-  watershed_js.subscribe(map_a, fn(event) {
+  watershed.subscribe(map_a, fn(event) {
     case event {
       map_kernel.ValueChanged("local_probe", _, _, True) ->
         transport_js.set_cell(
           local_probe,
-          watershed_js.get(map_a, "local_probe") == Some(json.int(7)),
+          watershed.get(map_a, "local_probe") == Some(json.int(7)),
         )
       map_kernel.ValueChanged("remote_probe", _, _, False) ->
         transport_js.set_cell(
           remote_probe,
-          watershed_js.get(map_a, "remote_probe") == Some(json.int(9)),
+          watershed.get(map_a, "remote_probe") == Some(json.int(9)),
         )
       _ -> Nil
     }
@@ -105,28 +105,28 @@ fn run_scenario(
   // a same-key LWW race the server must resolve identically on both sides.
   use <- delay(2000)
   log("smoke: editing")
-  watershed_js.set(map_a, "local_probe", json.int(7))
-  watershed_js.set(map_b, "remote_probe", json.int(9))
-  watershed_js.set(map_a, "die", json.int(4))
-  watershed_js.set(map_b, "color", json.string("blue"))
-  watershed_js.set(map_a, "shared", json.string("from-a"))
-  watershed_js.set(map_b, "shared", json.string("from-b"))
+  watershed.set(map_a, "local_probe", json.int(7))
+  watershed.set(map_b, "remote_probe", json.int(9))
+  watershed.set(map_a, "die", json.int(4))
+  watershed.set(map_b, "color", json.string("blue"))
+  watershed.set(map_a, "shared", json.string("from-a"))
+  watershed.set(map_b, "shared", json.string("from-b"))
 
   // Drop A's socket mid-session; edits during reconnect must survive.
   use <- delay(800)
   log("smoke: forcing reconnect on A")
-  watershed_js.force_reconnect(doc_a)
-  watershed_js.set(map_a, "after_drop", json.bool(True))
-  watershed_js.delete(map_a, "die")
+  watershed.force_reconnect(doc_a)
+  watershed.set(map_a, "after_drop", json.bool(True))
+  watershed.delete(map_a, "die")
 
   use <- delay(3000)
-  let die = watershed_js.get(map_b, "die")
-  let color = watershed_js.get(map_a, "color")
-  let after = watershed_js.get(map_b, "after_drop")
-  let shared_a = watershed_js.get(map_a, "shared")
-  let shared_b = watershed_js.get(map_b, "shared")
-  let entries_a = watershed_js.entries(map_a)
-  let entries_b = watershed_js.entries(map_b)
+  let die = watershed.get(map_b, "die")
+  let color = watershed.get(map_a, "color")
+  let after = watershed.get(map_b, "after_drop")
+  let shared_a = watershed.get(map_a, "shared")
+  let shared_b = watershed.get(map_b, "shared")
+  let entries_a = watershed.entries(map_a)
+  let entries_b = watershed.entries(map_b)
 
   log("smoke: A entries = " <> inspect_entries(entries_a))
   log("smoke: B entries = " <> inspect_entries(entries_b))

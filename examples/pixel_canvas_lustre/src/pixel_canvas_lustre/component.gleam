@@ -31,7 +31,7 @@ import lustre/element/html
 import lustre/event
 
 import watershed/or_map_kernel
-import watershed_js.{type Document, type OrMap, type TypedMap}
+import watershed.{type Document, type OrMap, type TypedMap}
 import watershed_lustre
 
 import pixel_canvas_lustre/canvas.{type Canvas}
@@ -192,7 +192,7 @@ fn paint(model: Model, x: Int, y: Int) -> Model {
           case model.pixels {
             None -> model
             Some(pixels) -> {
-              watershed_js.or_map_set(
+              watershed.or_map_set(
                 pixels,
                 grid.encode(x, y),
                 int.to_string(model.color),
@@ -229,7 +229,7 @@ fn apply_event(model: Model, event: or_map_kernel.OrMapEvent) -> Nil {
 
 /// Every painted cell in the document, as `#(x, y, colour)`.
 fn existing_cells(pixels: OrMap) -> List(#(Int, Int, Int)) {
-  watershed_js.or_map_entries(pixels)
+  watershed.or_map_entries(pixels)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) ->

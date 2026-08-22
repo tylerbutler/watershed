@@ -45,7 +45,7 @@ import watershed/browser
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/pact_map_kernel
-import watershed_js.{type Claims, type Document, type OrSet, type PactMap}
+import watershed.{type Claims, type Document, type OrSet, type PactMap}
 import watershed_lustre
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
@@ -230,7 +230,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// `shared` still unset, which is how this bootstrap survives a reconnect
 /// without double-seeding anything.
 fn bootstrap_effect(doc: Document(doc_schema.Checklist)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(root, doc_schema.title(), "Release checklist"),
     watershed_lustre.ensure_or_set(
@@ -251,7 +251,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Checklist)) -> Effect(Msg) {
       doc_schema.release(),
       EnsuredRelease,
     ),
-    watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
       ChecksChanged
     }),
   ])
@@ -463,7 +463,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         )
       {
         Some(shared), True -> {
-          watershed_js.pact_map_set(
+          watershed.pact_map_set(
             shared.release,
             target_key,
             json.string(string.trim(model.target_draft)),
@@ -490,7 +490,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 /// Re-read the OR-set of completed gate ids into the model.
 fn read_checks(model: Model, shared: SharedState) -> Model {
-  Model(..model, completed: watershed_js.or_set_values(shared.checks))
+  Model(..model, completed: watershed.or_set_values(shared.checks))
 }
 
 /// Re-read the committed captain from the claims channel. Claims reads are
@@ -498,7 +498,7 @@ fn read_checks(model: Model, shared: SharedState) -> Model {
 /// local guess.
 fn read_captain(model: Model, shared: SharedState) -> Model {
   let captain =
-    watershed_js.get_claim(shared.captain, captain_key)
+    watershed.get_claim(shared.captain, captain_key)
     |> option.then(decode_string)
   Model(..model, captain: captain)
 }
@@ -513,11 +513,11 @@ fn read_captain(model: Model, shared: SharedState) -> Model {
 /// is armed only while something is pending and stops as soon as it is not.
 fn read_release(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
   let accepted =
-    watershed_js.pact_map_get(shared.release, target_key)
+    watershed.pact_map_get(shared.release, target_key)
     |> option.then(decode_string)
 
   let proposal =
-    watershed_js.pact_map_pending(shared.release, target_key)
+    watershed.pact_map_pending(shared.release, target_key)
     |> option.then(fn(pending: pact_map_kernel.Pending) {
       case pending.value |> option.then(decode_string) {
         Some(target) ->
@@ -581,9 +581,9 @@ fn decode_string(value: Json) -> Option(String) {
 /// OR-set add/remove race resolves by: the add's tombstone-clearing wins
 /// regardless of which op the kernel happens to apply first.
 fn toggle_check(shared: SharedState, id: String) -> Nil {
-  case watershed_js.or_set_contains(shared.checks, id) {
-    True -> watershed_js.or_set_remove(shared.checks, id)
-    False -> watershed_js.or_set_add(shared.checks, id)
+  case watershed.or_set_contains(shared.checks, id) {
+    True -> watershed.or_set_remove(shared.checks, id)
+    False -> watershed.or_set_add(shared.checks, id)
   }
 }
 
@@ -608,7 +608,7 @@ fn client_label(model: Model, id: Int) -> String {
 
 fn own_client_id(model: Model) -> Option(Int) {
   model.doc
-  |> option.then(watershed_js.client_id)
+  |> option.then(watershed.client_id)
   |> option.map(client_id.to_int)
 }
 

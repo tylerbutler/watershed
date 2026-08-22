@@ -16,7 +16,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import watershed/schema.{type Field}
-import watershed_js.{type Document}
+import watershed.{type Document}
 
 /// Two unrelated apps' root schemas.
 pub type Playlist
@@ -34,12 +34,12 @@ pub fn sudoku_title() -> Field(Sudoku, String) {
 /// The document is pinned to `Playlist` by this annotation, so the second read
 /// below cannot typecheck.
 pub fn read_both(doc: Document(Playlist)) {
-  let root = watershed_js.root_typed(doc)
-  let as_playlist = watershed_js.get_field(root, playlist_title())
+  let root = watershed.root_typed(doc)
+  let as_playlist = watershed.get_field(root, playlist_title())
 
   // Expected error: `root_typed` returns `TypedMap(Playlist)`, so a
   // `Field(Sudoku, _)` cannot be read against it.
-  let as_sudoku = watershed_js.get_field(root, sudoku_title())
+  let as_sudoku = watershed.get_field(root, sudoku_title())
 
   #(as_playlist, as_sudoku)
 }

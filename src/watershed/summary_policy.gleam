@@ -25,7 +25,7 @@
 //// there until the next edit. That edit summarizes; nothing is lost meanwhile.
 ////
 //// **It is off unless asked for.** `watershed.auto_summarize` /
-//// `watershed_js.auto_summarize` install a policy on a connected document;
+//// `watershed.auto_summarize` install a policy on a connected document;
 //// without one nothing summarizes, which is the behaviour every existing
 //// application already has.
 

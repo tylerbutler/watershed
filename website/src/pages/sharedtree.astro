@@ -65,7 +65,7 @@ view.initialize(
 const board = view.root; // typed Board, guaranteed to exist`;
 
 const gleamRoot = `fn bootstrap(doc: Document(doc_schema.Board)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     // Idempotent, and run by every client on every boot. Each one
     // seeds a candidate; the handle the sequencer ordered is adopted

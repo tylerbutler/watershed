@@ -14,7 +14,7 @@ import watershed/browser
 import watershed/g_set_kernel
 import watershed/or_set_kernel
 import watershed/two_p_set_kernel
-import watershed_js.{
+import watershed.{
   type Document, type GSet, type OrSet, type Ripple, type TwoPSet,
 }
 import watershed_lustre
@@ -236,7 +236,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 }
 
 fn bootstrap_effect(doc: Document(doc_schema.Pantry)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_g_set(
       doc,
@@ -353,9 +353,9 @@ fn refresh_snapshots(model: Model) -> Model {
 
 fn snapshots_of_shared(shared: SharedPantry) -> Snapshots {
   pantry_snapshot.from_values(
-    grow_only: watershed_js.g_set_values(shared.grow_only),
-    two_phase: watershed_js.two_p_set_values(shared.two_phase),
-    observed: watershed_js.or_set_values(shared.observed),
+    grow_only: watershed.g_set_values(shared.grow_only),
+    two_phase: watershed.two_p_set_values(shared.two_phase),
+    observed: watershed.or_set_values(shared.observed),
   )
 }
 
@@ -501,7 +501,7 @@ fn feedback_of_kind(kind: FeedbackKind, message: String) -> Feedback {
 
 fn own_client_id(model: Model) -> Option(String) {
   model.doc
-  |> option.then(watershed_js.client_id)
+  |> option.then(watershed.client_id)
 }
 
 fn seen_run_ids(model: Model) -> List(String) {
@@ -684,18 +684,18 @@ fn refresh_live_shared(model: Model) -> Result(Model, String) {
 fn resolve_live_shared(model: Model) -> Result(SharedPantry, String) {
   case model.doc {
     Some(doc) -> {
-      let root = watershed_js.root_typed(doc)
+      let root = watershed.root_typed(doc)
       use grow_only <- result.try(require_live_channel(
         "grow_only",
-        watershed_js.resolve_g_set_field(doc, root, doc_schema.grow_only()),
+        watershed.resolve_g_set_field(doc, root, doc_schema.grow_only()),
       ))
       use two_phase <- result.try(require_live_channel(
         "two_phase",
-        watershed_js.resolve_two_p_set_field(doc, root, doc_schema.two_phase()),
+        watershed.resolve_two_p_set_field(doc, root, doc_schema.two_phase()),
       ))
       use observed <- result.try(require_live_channel(
         "observed",
-        watershed_js.resolve_or_set_field(doc, root, doc_schema.observed()),
+        watershed.resolve_or_set_field(doc, root, doc_schema.observed()),
       ))
       Ok(SharedPantry(grow_only:, two_phase:, observed:))
     }
@@ -719,14 +719,14 @@ fn shared_add(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
   case model.shared {
     Some(shared) -> {
       let two_phase_was_present =
-        watershed_js.two_p_set_contains(shared.two_phase, item)
+        watershed.two_p_set_contains(shared.two_phase, item)
 
-      watershed_js.g_set_add(shared.grow_only, item)
-      watershed_js.two_p_set_add(shared.two_phase, item)
-      watershed_js.or_set_add(shared.observed, item)
+      watershed.g_set_add(shared.grow_only, item)
+      watershed.two_p_set_add(shared.two_phase, item)
+      watershed.or_set_add(shared.observed, item)
 
       let two_phase_is_present =
-        watershed_js.two_p_set_contains(shared.two_phase, item)
+        watershed.two_p_set_contains(shared.two_phase, item)
 
       #(
         refresh_snapshots(model),
@@ -742,15 +742,15 @@ fn shared_remove(model: Model, item: String) -> #(Model, #(Bool, Bool)) {
   case model.shared {
     Some(shared) -> {
       let two_phase_present =
-        watershed_js.two_p_set_contains(shared.two_phase, item)
-      let observed_present = watershed_js.or_set_contains(shared.observed, item)
+        watershed.two_p_set_contains(shared.two_phase, item)
+      let observed_present = watershed.or_set_contains(shared.observed, item)
 
       case two_phase_present {
-        True -> watershed_js.two_p_set_remove(shared.two_phase, item)
+        True -> watershed.two_p_set_remove(shared.two_phase, item)
         False -> Nil
       }
       case observed_present {
-        True -> watershed_js.or_set_remove(shared.observed, item)
+        True -> watershed.or_set_remove(shared.observed, item)
         False -> Nil
       }
 
@@ -795,9 +795,9 @@ fn apply_shared_remove(model: Model, item: String) -> Model {
 
         Some(shared) -> {
           let two_phase_present =
-            watershed_js.two_p_set_contains(shared.two_phase, item)
+            watershed.two_p_set_contains(shared.two_phase, item)
           let observed_present =
-            watershed_js.or_set_contains(shared.observed, item)
+            watershed.or_set_contains(shared.observed, item)
           let removable =
             triptych_actions.remove_action_available(
               two_phase_present,
@@ -1216,9 +1216,9 @@ fn handle_scenario_ripple(
 ) -> #(Model, Effect(Msg)) {
   case
     scenario_protocol.decode(
-      watershed_js.ripple_type(ripple),
-      watershed_js.ripple_content(ripple),
-      watershed_js.ripple_client_id(ripple),
+      watershed.ripple_type(ripple),
+      watershed.ripple_content(ripple),
+      watershed.ripple_client_id(ripple),
     )
   {
     Some(inbound) ->

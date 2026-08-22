@@ -30,7 +30,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 @target(javascript)
-import watershed/runtime_js
+import watershed/runtime
 @target(javascript)
 import watershed/sluice/core
 @target(javascript)
@@ -38,7 +38,7 @@ import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/wire/socket
 @target(javascript)
-import watershed_js
+import watershed
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -77,15 +77,15 @@ pub fn start(tenant tenant: String, document document: String) -> Sluice {
 }
 
 @target(javascript)
-/// Connect a fresh client, returning a real `watershed_js.Document`. The
+/// Connect a fresh client, returning a real `watershed.Document`. The
 /// handshake completes on the next `settle` (delivery is explicit).
 pub fn connect(
   sluice: Sluice,
   user_id user_id: String,
-) -> watershed_js.Document(root) {
+) -> watershed.Document(root) {
   let transport = make_transport(sluice.cell)
   let document =
-    watershed_js.connect_via(
+    watershed.connect_via(
       tenant: sluice.tenant,
       document: sluice.document,
       user_id: user_id,
@@ -95,7 +95,7 @@ pub fn connect(
   // Delayed work goes on the sluice's logical clock, so anything the runtime
   // schedules for itself — today, the automatic summarization policy's jitter
   // window — is driven by `advance` rather than by real elapsed time.
-  runtime_js.set_scheduler(watershed_js.runtime_of(document), scheduler(sluice))
+  runtime.set_scheduler(watershed.runtime_of(document), scheduler(sluice))
   // The runtime has now stored its transport handle, so it is safe to fire the
   // `on_join` that makes it push `connect_document`. (Firing during
   // `transport.connect` would run before the handle is stored.) We also bind the
@@ -109,7 +109,7 @@ pub fn connect(
         State(
           ..state,
           bindings: [
-            #(watershed_js.runtime_of(document), client_id),
+            #(watershed.runtime_of(document), client_id),
             ..state.bindings
           ],
           last_registered: None,
@@ -128,13 +128,13 @@ pub fn connect(
 @target(javascript)
 /// Hold a client's inbound frames until `resume` — its queued frames stay put
 /// while others are delivered, so a race can be scripted.
-pub fn pause(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
+pub fn pause(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.pause)
 }
 
 @target(javascript)
 /// Release a paused client's held frames back into the deliverable queue.
-pub fn resume(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
+pub fn resume(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.resume)
 }
 
@@ -149,7 +149,7 @@ pub fn resume(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
 /// so a pact still waits on it, which is exactly the stall being tested.
 pub fn disconnect(
   sluice: Sluice,
-  document: watershed_js.Document(root),
+  document: watershed.Document(root),
 ) -> Nil {
   apply_to_client(sluice, document, core.disconnect)
 }
@@ -177,7 +177,7 @@ pub fn disconnect(
 /// hands it a new identity.
 ///
 /// The handshake completes on the next `settle`, like `connect`.
-pub fn reconnect(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
+pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
@@ -194,9 +194,9 @@ pub fn reconnect(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
 ///
 /// The runtime keeps its core and sits in its reconnecting phase until
 /// `rejoin`.
-pub fn drop(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
+pub fn drop(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
-  case conn_for(state, watershed_js.runtime_of(document)) {
+  case conn_for(state, watershed.runtime_of(document)) {
     Error(_) -> Nil
     Ok(#(token, _)) -> drop_token(sluice.cell, token)
   }
@@ -207,7 +207,7 @@ pub fn drop(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
 ///
 /// The transport handle closes over its token and has no `Sluice` or
 /// `Document` to hand, so this is the form its `hold` needs — which is what
-/// makes `watershed_js.go_offline` work against the sluice and not just against
+/// makes `watershed.go_offline` work against the sluice and not just against
 /// a real socket.
 fn drop_token(cell: Cell(State), token: String) -> Nil {
   let state = transport_js.get_cell(cell)
@@ -233,9 +233,9 @@ fn drop_token(cell: Cell(State), token: String) -> Nil {
 /// fresh server-assigned client id.
 ///
 /// A no-op for a client that was not `drop`ped.
-pub fn rejoin(sluice: Sluice, document: watershed_js.Document(root)) -> Nil {
+pub fn rejoin(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
-  case conn_for(state, watershed_js.runtime_of(document)) {
+  case conn_for(state, watershed.runtime_of(document)) {
     Ok(#(token, _)) -> rejoin_token(sluice.cell, token)
     Error(_) -> Nil
   }
@@ -273,7 +273,7 @@ fn rejoin_token(cell: Cell(State), token: String) -> Nil {
 @target(javascript)
 fn conn_for(
   state: State,
-  runtime: runtime_js.Runtime,
+  runtime: runtime.Runtime,
 ) -> Result(#(String, Conn), Nil) {
   case token_of(state.bindings, runtime) {
     Error(_) -> Error(Nil)
@@ -288,11 +288,11 @@ fn conn_for(
 @target(javascript)
 fn apply_to_client(
   sluice: Sluice,
-  document: watershed_js.Document(root),
+  document: watershed.Document(root),
   change: fn(core.Sluice, String) -> core.Sluice,
 ) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
-  case client_id_of(state, watershed_js.runtime_of(document)) {
+  case client_id_of(state, watershed.runtime_of(document)) {
     Ok(client_id) ->
       transport_js.set_cell(
         sluice.cell,
@@ -369,11 +369,11 @@ pub fn pending(sluice: Sluice) -> Bool {
 /// fields of `step_info`), or `Error` if it isn't connected here.
 pub fn client_id(
   sluice: Sluice,
-  document: watershed_js.Document(root),
+  document: watershed.Document(root),
 ) -> Result(String, Nil) {
   client_id_of(
     transport_js.get_cell(sluice.cell),
-    watershed_js.runtime_of(document),
+    watershed.runtime_of(document),
   )
 }
 
@@ -526,9 +526,9 @@ fn op_meta(frame: core.Outbound) -> #(Int, String) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-fn make_transport(cell: Cell(State)) -> runtime_js.Transport {
-  runtime_js.Transport(
-    connect: fn(callbacks: runtime_js.TransportCallbacks) -> runtime_js.TransportHandle {
+fn make_transport(cell: Cell(State)) -> runtime.Transport {
+  runtime.Transport(
+    connect: fn(callbacks: runtime.TransportCallbacks) -> runtime.TransportHandle {
       let token =
         register(
           cell,
@@ -542,9 +542,9 @@ fn make_transport(cell: Cell(State)) -> runtime_js.Transport {
       // through `sluice_js.disconnect` / `drop`, because a test scripting a
       // race needs to sequence ops *between* the two halves of a reconnect.
       // `hold`/`resume` have no such external caller — they exist so
-      // `watershed_js.go_offline` behaves the same here as over a real socket,
+      // `watershed.go_offline` behaves the same here as over a real socket,
       // which is what lets an app test its own offline path.
-      runtime_js.TransportHandle(
+      runtime.TransportHandle(
         push: fn(event, payload) { push(cell, token, event, payload) },
         close: fn() { Nil },
         drop: fn() { Nil },
@@ -633,7 +633,7 @@ type State {
     conns: List(#(String, Conn)),
     /// Runtime → connection token, so `pause`/`resume` can target a document by
     /// identity (structural equality would deep-compare state cells).
-    bindings: List(#(runtime_js.Runtime, String)),
+    bindings: List(#(runtime.Runtime, String)),
     last_registered: Option(String),
     /// Timers scheduled against the logical clock: `#(due_at_ms, id, action)`.
     /// `advance` is what fires them, which is how a heartbeat or a TTL becomes
@@ -646,8 +646,8 @@ type State {
 @target(javascript)
 /// The connection token bound to a runtime.
 fn token_of(
-  bindings: List(#(runtime_js.Runtime, String)),
-  runtime: runtime_js.Runtime,
+  bindings: List(#(runtime.Runtime, String)),
+  runtime: runtime.Runtime,
 ) -> Result(String, Nil) {
   case list.find(bindings, fn(pair) { reference_equals(pair.0, runtime) }) {
     Ok(pair) -> Ok(pair.1)
@@ -659,7 +659,7 @@ fn token_of(
 /// The server-assigned id a runtime is currently known by.
 fn client_id_of(
   state: State,
-  runtime: runtime_js.Runtime,
+  runtime: runtime.Runtime,
 ) -> Result(String, Nil) {
   case token_of(state.bindings, runtime) {
     Error(_) -> Error(Nil)
@@ -673,7 +673,7 @@ fn client_id_of(
 
 @target(javascript)
 @external(javascript, "./sluice_ffi.mjs", "referenceEquals")
-fn reference_equals(a: runtime_js.Runtime, b: runtime_js.Runtime) -> Bool
+fn reference_equals(a: runtime.Runtime, b: runtime.Runtime) -> Bool
 
 @target(javascript)
 /// The connection the server currently knows by `client_id`. Frames are

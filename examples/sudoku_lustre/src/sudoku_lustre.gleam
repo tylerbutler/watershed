@@ -32,7 +32,7 @@ import lustre/event
 
 import sudoku_lustre/component
 import sudoku_lustre/doc_schema
-import watershed_js.{type Document}
+import watershed.{type Document}
 import watershed_lustre
 
 import watershed/browser
@@ -229,7 +229,7 @@ fn mount_board(
   model: Model,
   doc: Document(doc_schema.SudokuDoc),
 ) -> #(Model, Effect(Msg)) {
-  let #(board, board_effect) = component.init(doc, watershed_js.root_typed(doc))
+  let #(board, board_effect) = component.init(doc, watershed.root_typed(doc))
   #(
     push_peers(Model(..model, board: Some(board))),
     effect.map(board_effect, Board),
@@ -390,7 +390,7 @@ fn status_line(model: Model) -> Element(Msg) {
     Ready ->
       case model.doc {
         Some(doc) ->
-          case watershed_js.is_synced(doc) {
+          case watershed.is_synced(doc) {
             True -> "connected · synced · " <> puzzle
             False -> "connected · syncing… · " <> puzzle
           }

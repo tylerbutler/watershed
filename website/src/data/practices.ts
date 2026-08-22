@@ -121,7 +121,7 @@ fn with_relay(
       "The smallest browser example keeps a diagnostics line on screen and refreshes it on every event: connection phase, client ID, last-seen sequence number, in-flight and buffered operation counts, and the resubmit checkpoint. The README explains how to use each field during diagnosis.",
       "Include these fields in a synchronization error report. A fixed in_flight count, an increasing buffered count, or a phase that does not reach synced identifies a different runtime layer. Application state does not show these conditions.",
     ],
-    snippet: `fn diagnostic_line(diagnostics: watershed_js.Diagnostics) -> String {
+    snippet: `fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
   <> diagnostics.phase
   <> " client="
@@ -159,7 +159,7 @@ fn with_relay(
 BpmCommitted ->
   case model.shared, tempo_locked(model), model.bpm_draft == model.bpm {
     Some(shared), False, False -> {
-      watershed_js.pact_map_set(
+      watershed.pact_map_set(
         shared.settings,
         bpm_key,
         json.int(model.bpm_draft),
@@ -344,7 +344,7 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
     None -> #(Model(..model, status: Ready), effect.none())
     Some(doc) -> {
       let #(canvas, canvas_effect) =
-        component.init(doc, watershed_js.root_typed(doc))
+        component.init(doc, watershed.root_typed(doc))
       #(
         Model(..model, status: Ready, canvas: Some(canvas)),
         effect.map(canvas_effect, Canvas),
@@ -370,7 +370,7 @@ Connected(Error(reason)) -> #(
     ],
     snippet: `MoveDownClicked(index) -> #(
   mutate(model, "move", fn(seq) {
-    watershed_js.sequence_move(seq, index, index + 1)
+    watershed.sequence_move(seq, index, index + 1)
   }),
   effect.none(),
 )
@@ -495,7 +495,7 @@ let selector =
 /// and LWW settles a single handle — the loser is orphaned before anybody has
 /// interacted with it, and every tab converges on the same four handles.
 fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.auto_summarize(
       document: doc,
@@ -534,7 +534,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
       case given > 0 {
         True -> {
           let _ =
-            watershed_js.try_set_claim(
+            watershed.try_set_claim(
               claims,
               cell_key(row, col),
               json.int(given),
@@ -568,7 +568,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
 fn refresh_anchor(model: Model) -> Model {
   case model.editor, model.anchor {
     Some(editor), Some(anchor) ->
-      case watershed_js.text_resolve_anchor(textarea.channel(editor), anchor) {
+      case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {
         Ok(pos) -> Model(..model, anchor_pos: Some(pos))
         Error(_) -> Model(..model, anchor_pos: None)
       }
@@ -597,7 +597,7 @@ fn refresh_anchor(model: Model) -> Model {
         |> option.from_result
         |> option.unwrap("")
       let value = match_result.to_json(MatchResult(winner:, score:))
-      watershed_js.register_write(matches, match_key, value)
+      watershed.register_write(matches, match_key, value)
       #(
         Model(..model, pending: set.insert(model.pending, match_key)),
         effect.none(),
@@ -634,7 +634,7 @@ AtomicChanged(key, value, _local) -> {
   let queue_b = queue_of(doc_b)
   let payload = job("doomed")
 
-  watershed_js.ordered_add(queue_a, payload)
+  watershed.ordered_add(queue_a, payload)
   sluice_js.settle(sluice)
 
   let events_b = queue_events(queue_b)
@@ -650,8 +650,8 @@ AtomicChanged(key, value, _local) -> {
   transport_js.get_cell(events_b)
   |> list.contains(ordered_collection_kernel.Added(payload, False, False))
   |> should.be_true()
-  watershed_js.ordered_queue(queue_b) |> should.equal([payload])
-  watershed_js.ordered_jobs(queue_b) |> should.equal([])
+  watershed.ordered_queue(queue_b) |> should.equal([payload])
+  watershed.ordered_jobs(queue_b) |> should.equal([])
 }`,
     snippetLang: "gleam",
     snippetFile: "test/queue_semantics_test.gleam",

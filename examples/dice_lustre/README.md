@@ -10,10 +10,10 @@ It reuses the *same* pure core as the BEAM client (`watershed/map_kernel`,
 `watershed/wire`, `watershed/runtime_core`) — only the transport + runtime
 differ per target:
 
-| Layer | BEAM (`watershed`) | Browser (`watershed_js`) |
+| Layer | BEAM (`watershed_beam`) | Browser (`watershed`) |
 | --- | --- | --- |
 | Transport | aquamarine (gun / roost) | phoenix.js via FFI |
-| Runtime | `runtime` (OTP actor) | `runtime_js` (callbacks + mutable cell) |
+| Runtime | `runtime_beam` (OTP actor) | `runtime` (callbacks + mutable cell) |
 | Pure core | `map_kernel` · `wire` · `runtime_core` (shared, unchanged) | ← same |
 
 ## Run it

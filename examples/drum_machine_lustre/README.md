@@ -64,7 +64,7 @@ second proposal made while one is pending is rejected outright by the kernel
 slider would let a drag disappear with nothing on screen to explain it.
 
 The pending line names the clients it is waiting on, and marks the one that is
-**you** — `watershed_js.client_id` gives the connection's own id, and
+**you** — `watershed.client_id` gives the connection's own id, and
 `watershed/client_id.to_int` converts it with the same derivation the kernels
 use, so the match is exact. The other entries stay opaque numbers, which is
 honest: nothing in the document says who a peer is.

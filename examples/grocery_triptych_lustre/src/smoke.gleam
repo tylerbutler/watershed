@@ -4,7 +4,7 @@ import gleam/list
 import gleam/string
 
 import doc_schema
-import watershed_js.{
+import watershed.{
   type Document, type GSet, type OrSet, type TwoPSet, WatershedConfig,
 }
 
@@ -70,13 +70,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Pantry)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -338,9 +338,9 @@ fn ensure_grow_only(
   who: String,
   then: fn(GSet) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_g_set(
+  watershed.ensure_g_set(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.grow_only(),
     fn(result) {
       case result {
@@ -357,9 +357,9 @@ fn ensure_two_phase(
   who: String,
   then: fn(TwoPSet) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_two_p_set(
+  watershed.ensure_two_p_set(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.two_phase(),
     fn(result) {
       case result {
@@ -376,9 +376,9 @@ fn ensure_observed(
   who: String,
   then: fn(OrSet) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_or_set(
+  watershed.ensure_or_set(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.observed(),
     fn(result) {
       case result {
@@ -391,22 +391,22 @@ fn ensure_observed(
 }
 
 fn add_everywhere(client: Client, item: String) -> Nil {
-  watershed_js.g_set_add(client.grow_only, item)
-  watershed_js.two_p_set_add(client.two_phase, item)
-  watershed_js.or_set_add(client.observed, item)
+  watershed.g_set_add(client.grow_only, item)
+  watershed.two_p_set_add(client.two_phase, item)
+  watershed.or_set_add(client.observed, item)
 }
 
 fn root_channel_fields_present(doc: Document(doc_schema.Pantry)) -> Bool {
-  let root = watershed_js.untyped(watershed_js.root_typed(doc))
+  let root = watershed.untyped(watershed.root_typed(doc))
 
-  watershed_js.has(root, "grow_only")
-  && watershed_js.has(root, "two_phase")
-  && watershed_js.has(root, "observed")
+  watershed.has(root, "grow_only")
+  && watershed.has(root, "two_phase")
+  && watershed.has(root, "observed")
 }
 
 fn remove_shared(client: Client, item: String) -> Nil {
-  watershed_js.two_p_set_remove(client.two_phase, item)
-  watershed_js.or_set_remove(client.observed, item)
+  watershed.two_p_set_remove(client.two_phase, item)
+  watershed.or_set_remove(client.observed, item)
 }
 
 fn both_match(client_a: Client, client_b: Client, wanted: Snapshot) -> Bool {
@@ -434,15 +434,15 @@ fn expected(
 }
 
 fn g_set_values(set: GSet) -> List(String) {
-  watershed_js.g_set_values(set) |> sort_values
+  watershed.g_set_values(set) |> sort_values
 }
 
 fn two_p_set_values(set: TwoPSet) -> List(String) {
-  watershed_js.two_p_set_values(set) |> sort_values
+  watershed.two_p_set_values(set) |> sort_values
 }
 
 fn or_set_values(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> sort_values
+  watershed.or_set_values(set) |> sort_values
 }
 
 fn sort_values(values: List(String)) -> List(String) {

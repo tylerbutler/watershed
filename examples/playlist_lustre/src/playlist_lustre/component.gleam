@@ -28,7 +28,7 @@ import lustre/element/html
 import lustre/event
 
 import watershed/sequence_kernel
-import watershed_js.{type Document, type SharedSequence, type TypedMap}
+import watershed.{type Document, type SharedSequence, type TypedMap}
 import watershed_lustre
 
 import playlist_lustre/doc_schema
@@ -139,9 +139,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let entry =
             Track(title: title, artist: artist, added_by: model.user_id)
           let result =
-            watershed_js.sequence_insert(
+            watershed.sequence_insert(
               sequence,
-              watershed_js.sequence_length(sequence),
+              watershed.sequence_length(sequence),
               track.to_json(entry),
             )
           let model =
@@ -158,14 +158,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // the index between render and click — hence the Result.
     MoveUpClicked(index) -> #(
       mutate(model, "move", fn(seq) {
-        watershed_js.sequence_move(seq, index, index - 1)
+        watershed.sequence_move(seq, index, index - 1)
       }),
       effect.none(),
     )
 
     MoveDownClicked(index) -> #(
       mutate(model, "move", fn(seq) {
-        watershed_js.sequence_move(seq, index, index + 1)
+        watershed.sequence_move(seq, index, index + 1)
       }),
       effect.none(),
     )
@@ -180,7 +180,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let renamed = Track(..existing, title: bump_title(existing.title))
           #(
             mutate(model, "replace", fn(seq) {
-              watershed_js.sequence_replace(seq, index, track.to_json(renamed))
+              watershed.sequence_replace(seq, index, track.to_json(renamed))
             }),
             effect.none(),
           )
@@ -189,7 +189,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     RemoveClicked(index) -> #(
       mutate(model, "delete", fn(seq) {
-        watershed_js.sequence_delete(seq, index)
+        watershed.sequence_delete(seq, index)
       }),
       effect.none(),
     )
@@ -242,7 +242,7 @@ fn snapshot(model: Model) -> Model {
     Some(sequence) ->
       Model(
         ..model,
-        tracks: watershed_js.sequence_values(sequence)
+        tracks: watershed.sequence_values(sequence)
           |> list.map(track.from_json),
       )
   }

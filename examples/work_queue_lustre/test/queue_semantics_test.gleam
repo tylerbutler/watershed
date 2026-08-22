@@ -19,7 +19,7 @@ import watershed/ordered_collection_kernel.{
 import watershed/sluice_js.{type Sluice}
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed/transport_js.{type Cell}
-import watershed_js.{type Document, type OrderedCollection, type TaskManager}
+import watershed.{type Document, type OrderedCollection, type TaskManager}
 
 const role = "dispatcher"
 
@@ -36,34 +36,34 @@ fn room(
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed_js.root(doc_a)
-  let assert Ok(queue) = watershed_js.create_ordered_collection(doc_a)
-  watershed_js.set(
+  let root_a = watershed.root(doc_a)
+  let assert Ok(queue) = watershed.create_ordered_collection(doc_a)
+  watershed.set(
     root_a,
     "queue",
-    watershed_js.ordered_collection_handle_of(queue),
+    watershed.ordered_collection_handle_of(queue),
   )
-  let assert Ok(roles) = watershed_js.create_task_manager(doc_a)
-  watershed_js.set(root_a, "roles", watershed_js.task_manager_handle_of(roles))
+  let assert Ok(roles) = watershed.create_task_manager(doc_a)
+  watershed.set(root_a, "roles", watershed.task_manager_handle_of(roles))
   sluice_js.settle(sluice)
 
   #(sluice, doc_a, doc_b)
 }
 
 fn queue_of(doc: Document(doc_schema.Dispatch)) -> OrderedCollection {
-  let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "queue")
-  let assert Ok(queue) = watershed_js.resolve_ordered_collection(doc, handle)
+  let assert Some(handle) = watershed.get(watershed.root(doc), "queue")
+  let assert Ok(queue) = watershed.resolve_ordered_collection(doc, handle)
   queue
 }
 
 fn roles_of(doc: Document(doc_schema.Dispatch)) -> TaskManager {
-  let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "roles")
-  let assert Ok(roles) = watershed_js.resolve_task_manager(doc, handle)
+  let assert Some(handle) = watershed.get(watershed.root(doc), "roles")
+  let assert Ok(roles) = watershed.resolve_task_manager(doc, handle)
   roles
 }
 
 fn int_of(doc: Document(doc_schema.Dispatch)) -> Int {
-  let assert Some(id) = watershed_js.client_id(doc)
+  let assert Some(id) = watershed.client_id(doc)
   client_id.to_int(id)
 }
 
@@ -76,19 +76,19 @@ fn outcome_cell(
 ) -> #(Cell(List(AcquireOutcome)), String) {
   let cell = transport_js.new_cell([])
   let acquire_id =
-    watershed_js.ordered_acquire_with_outcome(queue, push(cell, _))
+    watershed.ordered_acquire_with_outcome(queue, push(cell, _))
   #(cell, acquire_id)
 }
 
 fn queue_events(queue: OrderedCollection) -> Cell(List(OrderedEvent)) {
   let cell = transport_js.new_cell([])
-  watershed_js.subscribe_ordered_collection(queue, push(cell, _))
+  watershed.subscribe_ordered_collection(queue, push(cell, _))
   cell
 }
 
 fn role_events(roles: TaskManager) -> Cell(List(TaskManagerEvent)) {
   let cell = transport_js.new_cell([])
-  watershed_js.subscribe_task_manager(roles, push(cell, _))
+  watershed.subscribe_task_manager(roles, push(cell, _))
   cell
 }
 
@@ -110,7 +110,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() {
   let queue_a = queue_of(doc_a)
   let queue_b = queue_of(doc_b)
 
-  watershed_js.ordered_add(queue_a, job("j1"))
+  watershed.ordered_add(queue_a, job("j1"))
   sluice_js.settle(sluice)
 
   // Both mint acquire ids synchronously — the id is not the win. The win is
@@ -135,10 +135,10 @@ pub fn two_claims_one_job_exactly_one_wins_test() {
 
   // Both replicas agree: queue drained, one held job, owned by exactly one of
   // the two clients.
-  watershed_js.ordered_size(queue_a) |> should.equal(Some(0))
-  watershed_js.ordered_queue(queue_b) |> should.equal([])
-  let jobs = watershed_js.ordered_jobs(queue_a)
-  jobs |> should.equal(watershed_js.ordered_jobs(queue_b))
+  watershed.ordered_size(queue_a) |> should.equal(Some(0))
+  watershed.ordered_queue(queue_b) |> should.equal([])
+  let jobs = watershed.ordered_jobs(queue_a)
+  jobs |> should.equal(watershed.ordered_jobs(queue_b))
   let assert [#(_, JobEntry(_, Some(owner)))] = jobs
   { owner == int_of(doc_a) || owner == int_of(doc_b) }
   |> should.be_true()
@@ -156,7 +156,7 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
   let queue_b = queue_of(doc_b)
   let payload = job("doomed")
 
-  watershed_js.ordered_add(queue_a, payload)
+  watershed.ordered_add(queue_a, payload)
   sluice_js.settle(sluice)
 
   let events_b = queue_events(queue_b)
@@ -164,7 +164,7 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
   sluice_js.settle(sluice)
   transport_js.get_cell(outcomes_a)
   |> should.equal([AcquiredItem(id_a, payload)])
-  watershed_js.ordered_jobs(queue_b)
+  watershed.ordered_jobs(queue_b)
   |> should.equal([#(id_a, JobEntry(payload, Some(int_of(doc_a))))])
 
   // The tab holding the job goes away without completing or releasing.
@@ -174,8 +174,8 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
   transport_js.get_cell(events_b)
   |> list.contains(ordered_collection_kernel.Added(payload, False, False))
   |> should.be_true()
-  watershed_js.ordered_queue(queue_b) |> should.equal([payload])
-  watershed_js.ordered_jobs(queue_b) |> should.equal([])
+  watershed.ordered_queue(queue_b) |> should.equal([payload])
+  watershed.ordered_jobs(queue_b) |> should.equal([])
 
   // The recovered job is workable, not a tombstone.
   let #(outcomes_b, id_b) = outcome_cell(queue_b)
@@ -194,18 +194,18 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() {
   let roles_a = roles_of(doc_a)
   let roles_b = roles_of(doc_b)
 
-  watershed_js.volunteer_for_task(roles_a, role)
+  watershed.volunteer_for_task(roles_a, role)
   sluice_js.settle(sluice)
 
   let events_b = role_events(roles_b)
-  watershed_js.volunteer_for_task(roles_b, role)
+  watershed.volunteer_for_task(roles_b, role)
   sluice_js.settle(sluice)
-  watershed_js.task_assigned(roles_b, role) |> should.be_false()
+  watershed.task_assigned(roles_b, role) |> should.be_false()
 
   sluice_js.disconnect(sluice, doc_a)
   sluice_js.settle(sluice)
 
-  watershed_js.task_assigned(roles_b, role) |> should.be_true()
+  watershed.task_assigned(roles_b, role) |> should.be_true()
   let events = transport_js.get_cell(events_b)
   events
   |> list.contains(task_manager_kernel.QueueChanged(
@@ -236,8 +236,8 @@ pub fn released_job_returns_to_the_tail_test() {
   let first = job("first")
   let second = job("second")
 
-  watershed_js.ordered_add(queue_a, first)
-  watershed_js.ordered_add(queue_a, second)
+  watershed.ordered_add(queue_a, first)
+  watershed.ordered_add(queue_a, second)
   sluice_js.settle(sluice)
 
   let events_b = queue_events(queue_b)
@@ -246,12 +246,12 @@ pub fn released_job_returns_to_the_tail_test() {
   transport_js.get_cell(outcomes_a)
   |> should.equal([AcquiredItem(id_a, first)])
 
-  watershed_js.ordered_release(queue_a, id_a)
+  watershed.ordered_release(queue_a, id_a)
   sluice_js.settle(sluice)
 
   transport_js.get_cell(events_b)
   |> list.contains(ordered_collection_kernel.Added(first, False, False))
   |> should.be_true()
-  watershed_js.ordered_queue(queue_b) |> should.equal([second, first])
-  watershed_js.ordered_jobs(queue_b) |> should.equal([])
+  watershed.ordered_queue(queue_b) |> should.equal([second, first])
+  watershed.ordered_jobs(queue_b) |> should.equal([])
 }

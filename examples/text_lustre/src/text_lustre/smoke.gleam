@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` SharedText clients against a
+//// Headless smoke test: drive two `watershed` SharedText clients against a
 //// live levee dev server (`just server`) from Node, asserting that concurrent
 //// grapheme-indexed edits converge. This exercises the text kernel, the text
 //// wire codecs, the JS runtime, the Phoenix FFI transport, and the pure core —
@@ -18,7 +18,7 @@ import gleam/int
 import gleam/javascript/promise.{type Promise}
 import gleam/string
 
-import watershed_js.{type Document, type SharedText, WatershedConfig}
+import watershed.{type Document, type SharedText, WatershedConfig}
 
 import text_lustre/doc_schema
 
@@ -52,13 +52,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.TextDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -95,9 +95,9 @@ fn run_scenario(
   use <- delay(2000)
   log("smoke: ensuring the body text on A")
 
-  watershed_js.ensure_text(
+  watershed.ensure_text(
     doc_a,
-    watershed_js.root_typed(doc_a),
+    watershed.root_typed(doc_a),
     doc_schema.body(),
     fn(result) {
       case result {
@@ -117,16 +117,16 @@ fn seed_then_resolve(
   text_a: SharedText,
 ) -> Nil {
   log("smoke: seeding text from A")
-  case watershed_js.text_insert(text_a, 0, seed_text) {
+  case watershed.text_insert(text_a, 0, seed_text) {
     Ok(Nil) -> Nil
     Error(reason) -> log("  seed insert failed: " <> reason)
   }
 
   // Wait for A's attach + insert to reach B, then resolve on B.
   use <- delay(2000)
-  watershed_js.ensure_text(
+  watershed.ensure_text(
     doc_b,
-    watershed_js.root_typed(doc_b),
+    watershed.root_typed(doc_b),
     doc_schema.body(),
     fn(result) {
       case result {
@@ -145,17 +145,17 @@ fn seed_then_resolve(
 /// pinned anchor that must track content inserted before it.
 fn concurrent_phase(text_a: SharedText, text_b: SharedText) -> Nil {
   use <- delay(500)
-  let seeded_a = watershed_js.text_value(text_a)
-  let seeded_b = watershed_js.text_value(text_b)
+  let seeded_a = watershed.text_value(text_a)
+  let seeded_b = watershed.text_value(text_b)
   log("smoke: seeded A = " <> seeded_a)
   log("smoke: seeded B = " <> seeded_b)
 
   // Pin an anchor on A at grapheme 5 (inside "Hello, world") before any edit,
   // then race concurrent inserts around it.
-  let anchor = watershed_js.text_anchor_at(text_a, 5, watershed_js.bias_before)
+  let anchor = watershed.text_anchor_at(text_a, 5, watershed.bias_before)
   let old_pos = case anchor {
     Ok(a) ->
-      case watershed_js.text_resolve_anchor(text_a, a) {
+      case watershed.text_resolve_anchor(text_a, a) {
         Ok(pos) -> pos
         Error(_) -> -1
       }
@@ -165,29 +165,29 @@ fn concurrent_phase(text_a: SharedText, text_b: SharedText) -> Nil {
 
   // Both clients edit in the same tick, before either op is sequenced.
   log("smoke: concurrent emoji-head on A, combining-tail on B")
-  let insert_a = watershed_js.text_insert(text_a, 0, head_insert)
+  let insert_a = watershed.text_insert(text_a, 0, head_insert)
   let insert_b =
-    watershed_js.text_insert(
+    watershed.text_insert(
       text_b,
-      watershed_js.text_length(text_b),
+      watershed.text_length(text_b),
       tail_insert,
     )
 
   // Exercise the append family and prove it survives the concurrent race.
-  let append_result = watershed_js.text_append(text_a, append_text)
+  let append_result = watershed.text_append(text_a, append_text)
 
   // An index past the end must be refused rather than silently clamped.
-  let out_of_bounds = watershed_js.text_insert(text_a, 9999, "x")
+  let out_of_bounds = watershed.text_insert(text_a, 9999, "x")
 
   use <- delay(3000)
-  let final_a = watershed_js.text_value(text_a)
-  let final_b = watershed_js.text_value(text_b)
+  let final_a = watershed.text_value(text_a)
+  let final_b = watershed.text_value(text_b)
   log("smoke: final A = " <> final_a)
   log("smoke: final B = " <> final_b)
 
   let new_pos = case anchor {
     Ok(a) ->
-      case watershed_js.text_resolve_anchor(text_a, a) {
+      case watershed.text_resolve_anchor(text_a, a) {
         Ok(pos) -> pos
         Error(_) -> -1
       }

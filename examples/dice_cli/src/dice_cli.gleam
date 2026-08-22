@@ -19,7 +19,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 
-import watershed
+import watershed_beam
 import watershed/map_kernel.{type MapEvent, ValueChanged}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -58,7 +58,7 @@ type DiceDoc
 
 pub fn main() {
   let token =
-    watershed.dev_token(
+    watershed_beam.dev_token(
       secret: tenant_secret,
       tenant: tenant,
       document: document_id,
@@ -68,7 +68,7 @@ pub fn main() {
   io.println("Connecting to " <> host <> ":" <> int.to_string(port) <> "…")
 
   case
-    watershed.connect(
+    watershed_beam.connect(
       host: host,
       port: port,
       tenant: tenant,
@@ -84,13 +84,13 @@ pub fn main() {
   }
 }
 
-fn run(doc: watershed.Document(DiceDoc)) -> Nil {
+fn run(doc: watershed_beam.Document(DiceDoc)) -> Nil {
   io.println("Connected. Subscribing to events…")
-  let map = watershed.root(doc)
-  let events = watershed.subscribe(map)
+  let map = watershed_beam.root(doc)
+  let events = watershed_beam.subscribe(map)
 
   // Print current state
-  let current = watershed.entries(map)
+  let current = watershed_beam.entries(map)
   case current {
     [] -> io.println("Document is empty.")
     entries -> {
@@ -121,7 +121,7 @@ fn run(doc: watershed.Document(DiceDoc)) -> Nil {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn event_loop(
-  map: watershed.SharedMap,
+  map: watershed_beam.SharedMap,
   selector: process.Selector(CliMsg),
   roll_due: process.Subject(Nil),
 ) -> Nil {
@@ -139,12 +139,12 @@ fn event_loop(
   }
 }
 
-fn roll(map: watershed.SharedMap) -> Nil {
+fn roll(map: watershed_beam.SharedMap) -> Nil {
   let roll = int.random(6) + 1
   io.println("CLI roll: " <> int.to_string(roll))
   // Exercise both edit paths the public API exposes for the example.
-  watershed.delete(map, die_key)
-  watershed.set(map, die_key, json.int(roll))
+  watershed_beam.delete(map, die_key)
+  watershed_beam.set(map, die_key, json.int(roll))
   print_die("Optimistic die", map)
 }
 
@@ -153,9 +153,9 @@ fn schedule_roll(roll_due: process.Subject(Nil), delay_ms: Int) -> Nil {
   Nil
 }
 
-fn print_snapshot(map: watershed.SharedMap) -> Nil {
+fn print_snapshot(map: watershed_beam.SharedMap) -> Nil {
   print_die("Current die", map)
-  let entries = watershed.entries(map)
+  let entries = watershed_beam.entries(map)
   case entries {
     [] -> io.println("  entries: (empty)")
     _ -> {
@@ -168,8 +168,8 @@ fn print_snapshot(map: watershed.SharedMap) -> Nil {
   }
 }
 
-fn print_die(label: String, map: watershed.SharedMap) -> Nil {
-  case watershed.get(map, die_key) {
+fn print_die(label: String, map: watershed_beam.SharedMap) -> Nil {
+  case watershed_beam.get(map, die_key) {
     None -> io.println(label <> ": (missing)")
     Some(v) -> io.println(label <> ": " <> json.to_string(v))
   }

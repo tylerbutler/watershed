@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` clients against a live
+//// Headless smoke test: drive two `watershed` clients against a live
 //// floodgate dev server (`just integration-up`) from Node and confirm a
 //// reported match converges — the register-collection kernel, its wire
 //// codecs, the JS runtime, and the Phoenix FFI transport, end to end.
@@ -13,7 +13,7 @@ import bracket
 import doc_schema
 import match_result
 import watershed/register_collection_kernel.{Atomic}
-import watershed_js.{type Document, type RegisterCollection, WatershedConfig}
+import watershed.{type Document, type RegisterCollection, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -65,13 +65,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.BracketDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -214,7 +214,7 @@ fn report_phase(
   matches_b: RegisterCollection,
 ) -> Nil {
   log("smoke: A reports the first quarterfinal")
-  watershed_js.register_write(
+  watershed.register_write(
     matches_a,
     "r1m1",
     match_result.to_json(bracket.MatchResult("Alaric", "3-1")),
@@ -238,9 +238,9 @@ fn ensure_matches(
   who: String,
   then: fn(RegisterCollection) -> Nil,
 ) -> Nil {
-  watershed_js.ensure_register_collection(
+  watershed.ensure_register_collection(
     doc,
-    watershed_js.root_typed(doc),
+    watershed.root_typed(doc),
     doc_schema.matches(),
     fn(result) {
       case result {
@@ -253,15 +253,15 @@ fn ensure_matches(
 }
 
 fn root_channel_field_present(doc: Document(doc_schema.BracketDoc)) -> Bool {
-  let root = watershed_js.untyped(watershed_js.root_typed(doc))
-  watershed_js.has(root, "matches")
+  let root = watershed.untyped(watershed.root_typed(doc))
+  watershed.has(root, "matches")
 }
 
 fn official(
   matches: RegisterCollection,
   key: String,
 ) -> option.Option(bracket.MatchResult) {
-  case watershed_js.register_read(matches, key, Atomic) {
+  case watershed.register_read(matches, key, Atomic) {
     Some(value) -> Some(match_result.from_json(value))
     option.None -> option.None
   }

@@ -22,7 +22,7 @@ import gleeunit/should
 import watershed/or_map_kernel
 import watershed/schema.{type ChildField}
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type TypedMap}
+import watershed.{type Document, type TypedMap}
 
 import pixel_canvas_lustre/doc_schema as canvas_schema
 import pixel_canvas_lustre/grid
@@ -51,7 +51,7 @@ fn room(name: String) -> #(Sluice, Document(doc_schema.Showcase)) {
 
 /// Seed one child map per declared key, the way `bootstrap_effect` does.
 fn seed_children(doc: Document(doc_schema.Showcase)) -> Nil {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   seed_child(doc, root, doc_schema.text())
   seed_child(doc, root, doc_schema.playlist())
   seed_child(doc, root, doc_schema.sudoku())
@@ -63,18 +63,18 @@ fn seed_child(
   root: TypedMap(doc_schema.Showcase),
   field: ChildField(doc_schema.Showcase, c),
 ) -> Nil {
-  let assert Ok(child) = watershed_js.create_map(doc)
-  watershed_js.set_child(root, field, watershed_js.typed(child))
+  let assert Ok(child) = watershed.create_map(doc)
+  watershed.set_child(root, field, watershed.typed(child))
 }
 
 /// The root's keys, sorted — what the root-purity assertion compares.
 fn root_keys(doc: Document(doc_schema.Showcase)) -> List(String) {
-  watershed_js.keys(watershed_js.root(doc)) |> list.sort(string.compare)
+  watershed.keys(watershed.root(doc)) |> list.sort(string.compare)
 }
 
 /// The root's handles, keyed, so two clients can be compared handle for handle.
 fn root_handles(doc: Document(doc_schema.Showcase)) -> List(#(String, String)) {
-  watershed_js.entries(watershed_js.root(doc))
+  watershed.entries(watershed.root(doc))
   |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
@@ -97,16 +97,16 @@ pub fn root_holds_exactly_the_declared_children_test() {
 /// Every declared key resolves to a map, not to a leftover scalar.
 pub fn every_child_key_resolves_to_a_map_test() {
   let #(_sluice, doc) = room("purity-resolves")
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
 
   let assert Ok(Some(_)) =
-    watershed_js.resolve_child(doc, root, doc_schema.text())
+    watershed.resolve_child(doc, root, doc_schema.text())
   let assert Ok(Some(_)) =
-    watershed_js.resolve_child(doc, root, doc_schema.playlist())
+    watershed.resolve_child(doc, root, doc_schema.playlist())
   let assert Ok(Some(_)) =
-    watershed_js.resolve_child(doc, root, doc_schema.sudoku())
+    watershed.resolve_child(doc, root, doc_schema.sudoku())
   let assert Ok(Some(_)) =
-    watershed_js.resolve_child(doc, root, doc_schema.canvas())
+    watershed.resolve_child(doc, root, doc_schema.canvas())
   Nil
 }
 
@@ -117,24 +117,24 @@ pub fn every_child_key_resolves_to_a_map_test() {
 /// different maps, and neither is a root key at all.
 pub fn panel_keys_do_not_leak_into_the_root_test() {
   let #(sluice, doc) = room("no-leak")
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
 
   let assert Ok(Some(text_map)) =
-    watershed_js.resolve_child(doc, root, doc_schema.text())
+    watershed.resolve_child(doc, root, doc_schema.text())
   let assert Ok(Some(sudoku_map)) =
-    watershed_js.resolve_child(doc, root, doc_schema.sudoku())
+    watershed.resolve_child(doc, root, doc_schema.sudoku())
 
-  watershed_js.set_field(text_map, text_schema.title(), "a document")
-  watershed_js.set_field(sudoku_map, sudoku_schema.title(), "a puzzle")
+  watershed.set_field(text_map, text_schema.title(), "a document")
+  watershed.set_field(sudoku_map, sudoku_schema.title(), "a puzzle")
   sluice_js.settle(sluice)
 
   // Both panels wrote a key called `title`. Neither reached the root, and
   // neither overwrote the other.
   root_keys(doc)
   |> should.equal(list.sort(doc_schema.keys(), string.compare))
-  watershed_js.get_field(text_map, text_schema.title())
+  watershed.get_field(text_map, text_schema.title())
   |> should.equal(Ok(Some("a document")))
-  watershed_js.get_field(sudoku_map, sudoku_schema.title())
+  watershed.get_field(sudoku_map, sudoku_schema.title())
   |> should.equal(Ok(Some("a puzzle")))
 }
 
@@ -178,15 +178,15 @@ pub fn playlist_converges_inside_its_child_map_test() {
   let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
 
   let assert Ok(_) =
-    watershed_js.sequence_insert(tracks_a, 0, json.string("first"))
+    watershed.sequence_insert(tracks_a, 0, json.string("first"))
   let assert Ok(_) =
-    watershed_js.sequence_insert(tracks_b, 0, json.string("second"))
+    watershed.sequence_insert(tracks_b, 0, json.string("second"))
   sluice_js.settle(sluice)
 
-  watershed_js.sequence_values(tracks_a)
+  watershed.sequence_values(tracks_a)
   |> list.map(json.to_string)
   |> should.equal(
-    watershed_js.sequence_values(tracks_b) |> list.map(json.to_string),
+    watershed.sequence_values(tracks_b) |> list.map(json.to_string),
   )
 }
 
@@ -199,8 +199,8 @@ pub fn canvas_converges_inside_its_child_map_test() {
   let #(sluice, doc_a, doc_b) = two_client_room("canvas-nested")
   let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
 
-  watershed_js.or_map_set(pixels_a, grid.encode(1, 1), "3")
-  watershed_js.or_map_set(pixels_b, grid.encode(2, 2), "4")
+  watershed.or_map_set(pixels_a, grid.encode(1, 1), "3")
+  watershed.or_map_set(pixels_b, grid.encode(2, 2), "4")
   sluice_js.settle(sluice)
 
   picture(pixels_a) |> should.equal(picture(pixels_b))
@@ -224,15 +224,15 @@ pub fn offline_partitions_every_panel_test() {
   let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
   let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
 
   // A writes to two different panels while partitioned; B writes to both too.
-  watershed_js.or_map_set(pixels_a, grid.encode(5, 5), "7")
+  watershed.or_map_set(pixels_a, grid.encode(5, 5), "7")
   let assert Ok(_) =
-    watershed_js.sequence_insert(tracks_a, 0, json.string("offline-track"))
-  watershed_js.or_map_set(pixels_b, grid.encode(9, 9), "2")
+    watershed.sequence_insert(tracks_a, 0, json.string("offline-track"))
+  watershed.or_map_set(pixels_b, grid.encode(9, 9), "2")
   let assert Ok(_) =
-    watershed_js.sequence_insert(tracks_b, 0, json.string("online-track"))
+    watershed.sequence_insert(tracks_b, 0, json.string("online-track"))
   sluice_js.settle(sluice)
 
   // The partition is document-wide: neither panel saw the other side. Each
@@ -251,20 +251,20 @@ pub fn offline_partitions_every_panel_test() {
   |> list.key_find(grid.encode(5, 5))
   |> should.be_error
   // Same for the playlist: A holds only its own row while partitioned.
-  watershed_js.sequence_values(tracks_a)
+  watershed.sequence_values(tracks_a)
   |> list.length
   |> should.equal(1)
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   // And so is the reconciliation: every panel converges, in one reconnect.
   picture(pixels_a) |> should.equal(picture(pixels_b))
   picture(pixels_a) |> list.length |> should.equal(2)
-  watershed_js.sequence_values(tracks_a)
+  watershed.sequence_values(tracks_a)
   |> list.map(json.to_string)
   |> should.equal(
-    watershed_js.sequence_values(tracks_b) |> list.map(json.to_string),
+    watershed.sequence_values(tracks_b) |> list.map(json.to_string),
   )
 }
 
@@ -286,25 +286,25 @@ fn canvas_channels(
   sluice: Sluice,
   doc_a: Document(doc_schema.Showcase),
   doc_b: Document(doc_schema.Showcase),
-) -> #(watershed_js.OrMap, watershed_js.OrMap) {
+) -> #(watershed.OrMap, watershed.OrMap) {
   let assert Ok(Some(map_a)) =
-    watershed_js.resolve_child(
+    watershed.resolve_child(
       doc_a,
-      watershed_js.root_typed(doc_a),
+      watershed.root_typed(doc_a),
       doc_schema.canvas(),
     )
   let assert Ok(Some(map_b)) =
-    watershed_js.resolve_child(
+    watershed.resolve_child(
       doc_b,
-      watershed_js.root_typed(doc_b),
+      watershed.root_typed(doc_b),
       doc_schema.canvas(),
     )
   let assert Ok(seed) =
-    watershed_js.create_or_map(doc_a, or_map_kernel.RegisterMode)
-  watershed_js.set(
-    watershed_js.untyped(map_a),
+    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
+  watershed.set(
+    watershed.untyped(map_a),
     "pixels",
-    watershed_js.or_map_handle_of(seed),
+    watershed.or_map_handle_of(seed),
   )
   sluice_js.settle(sluice)
   #(or_map_of(doc_a, map_a), or_map_of(doc_b, map_b))
@@ -313,10 +313,10 @@ fn canvas_channels(
 fn or_map_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(canvas_schema.CanvasDoc),
-) -> watershed_js.OrMap {
+) -> watershed.OrMap {
   let assert Some(handle) =
-    watershed_js.get(watershed_js.untyped(map), "pixels")
-  let assert Ok(pixels) = watershed_js.resolve_or_map(doc, handle)
+    watershed.get(watershed.untyped(map), "pixels")
+  let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
   pixels
 }
 
@@ -324,24 +324,24 @@ fn playlist_channels(
   sluice: Sluice,
   doc_a: Document(doc_schema.Showcase),
   doc_b: Document(doc_schema.Showcase),
-) -> #(watershed_js.SharedSequence, watershed_js.SharedSequence) {
+) -> #(watershed.SharedSequence, watershed.SharedSequence) {
   let assert Ok(Some(map_a)) =
-    watershed_js.resolve_child(
+    watershed.resolve_child(
       doc_a,
-      watershed_js.root_typed(doc_a),
+      watershed.root_typed(doc_a),
       doc_schema.playlist(),
     )
   let assert Ok(Some(map_b)) =
-    watershed_js.resolve_child(
+    watershed.resolve_child(
       doc_b,
-      watershed_js.root_typed(doc_b),
+      watershed.root_typed(doc_b),
       doc_schema.playlist(),
     )
-  let assert Ok(seed) = watershed_js.create_sequence(doc_a)
-  watershed_js.set(
-    watershed_js.untyped(map_a),
+  let assert Ok(seed) = watershed.create_sequence(doc_a)
+  watershed.set(
+    watershed.untyped(map_a),
     "tracks",
-    watershed_js.sequence_handle_of(seed),
+    watershed.sequence_handle_of(seed),
   )
   sluice_js.settle(sluice)
   #(sequence_of(doc_a, map_a), sequence_of(doc_b, map_b))
@@ -350,16 +350,16 @@ fn playlist_channels(
 fn sequence_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(playlist_schema.PlaylistDoc),
-) -> watershed_js.SharedSequence {
+) -> watershed.SharedSequence {
   let assert Some(handle) =
-    watershed_js.get(watershed_js.untyped(map), "tracks")
-  let assert Ok(sequence) = watershed_js.resolve_sequence(doc, handle)
+    watershed.get(watershed.untyped(map), "tracks")
+  let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
   sequence
 }
 
 /// The whole picture, sorted — the comparison the demo makes by eye.
-fn picture(pixels: watershed_js.OrMap) -> List(#(String, String)) {
-  watershed_js.or_map_entries(pixels)
+fn picture(pixels: watershed.OrMap) -> List(#(String, String)) {
+  watershed.or_map_entries(pixels)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, value))

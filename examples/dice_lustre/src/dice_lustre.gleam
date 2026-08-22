@@ -25,7 +25,7 @@ import lustre/event
 
 import watershed/browser
 import watershed/map_kernel
-import watershed_js.{type Document}
+import watershed.{type Document}
 import watershed_lustre
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -60,7 +60,7 @@ type Model {
     user_id: String,
     die: Option(String),
     entries: List(#(String, String)),
-    diagnostics: Option(watershed_js.Diagnostics),
+    diagnostics: Option(watershed.Diagnostics),
     diagnostic_log: List(String),
   )
 }
@@ -110,7 +110,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // both surface as `MapChanged`; the binding defers each dispatch so a local
     // edit made from inside `update` can't clobber the running cycle.
     GotHandle(doc) -> {
-      let diagnostics = watershed_js.diagnostics(doc)
+      let diagnostics = watershed.diagnostics(doc)
       let model =
         Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
         |> add_diagnostic(
@@ -119,7 +119,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       #(
         model,
         effect.batch([
-          watershed_lustre.subscribe(watershed_js.root(doc), MapChanged),
+          watershed_lustre.subscribe(watershed.root(doc), MapChanged),
           watershed_lustre.after(250, DiagnosticsTick),
         ]),
       )
@@ -141,7 +141,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // A map event fired (local or remote): refresh our view of the state.
     MapChanged(event) -> {
       let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let detail = case diagnostics {
@@ -157,7 +157,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     DiagnosticsTick -> {
       let next = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -173,7 +173,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let roll = 1 + int.random(6)
       case model.doc {
         Some(doc) ->
-          watershed_js.set(watershed_js.root(doc), die_key, json.int(roll))
+          watershed.set(watershed.root(doc), die_key, json.int(roll))
         None -> Nil
       }
       #(model, effect.none())
@@ -181,7 +181,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ClearClicked -> {
       case model.doc {
-        Some(doc) -> watershed_js.clear(watershed_js.root(doc))
+        Some(doc) -> watershed.clear(watershed.root(doc))
         None -> Nil
       }
       #(model, effect.none())
@@ -203,12 +203,12 @@ fn snapshot(model: Model) -> Model {
   case model.doc {
     None -> model
     Some(doc) -> {
-      let map = watershed_js.root(doc)
+      let map = watershed.root(doc)
       let die =
-        watershed_js.get(map, die_key)
+        watershed.get(map, die_key)
         |> option.map(json.to_string)
       let entries =
-        watershed_js.entries(map)
+        watershed.entries(map)
         |> list.map(fn(pair) { #(pair.0, json.to_string(pair.1)) })
       Model(..model, die: die, entries: entries)
     }
@@ -257,7 +257,7 @@ fn option_json(value: Option(json.Json)) -> String {
   }
 }
 
-fn diagnostic_line(diagnostics: watershed_js.Diagnostics) -> String {
+fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
   <> diagnostics.phase
   <> " client="

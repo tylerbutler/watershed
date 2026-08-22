@@ -10,7 +10,7 @@ import doc_schema
 import match_result
 import watershed/register_collection_kernel.{Atomic}
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type RegisterCollection}
+import watershed.{type Document, type RegisterCollection}
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -22,9 +22,9 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
   let doc_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed_js.root_typed(doc_a)
-  let assert Ok(matches) = watershed_js.create_register_collection(doc_a)
-  watershed_js.set_register_collection_field(
+  let root_a = watershed.root_typed(doc_a)
+  let assert Ok(matches) = watershed.create_register_collection(doc_a)
+  watershed.set_register_collection_field(
     root_a,
     doc_schema.matches(),
     matches,
@@ -35,9 +35,9 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
 }
 
 fn matches_for(doc: Document(doc_schema.BracketDoc)) -> RegisterCollection {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   let assert Ok(Some(matches)) =
-    watershed_js.resolve_register_collection_field(
+    watershed.resolve_register_collection_field(
       doc,
       root,
       doc_schema.matches(),
@@ -51,7 +51,7 @@ fn report(
   winner: String,
   score: String,
 ) -> Nil {
-  watershed_js.register_write(
+  watershed.register_write(
     matches,
     key,
     match_result.to_json(bracket.MatchResult(winner:, score:)),
@@ -62,7 +62,7 @@ fn official(
   matches: RegisterCollection,
   key: String,
 ) -> option.Option(bracket.MatchResult) {
-  case watershed_js.register_read(matches, key, Atomic) {
+  case watershed.register_read(matches, key, Atomic) {
     Some(value) -> Some(match_result.from_json(value))
     option.None -> option.None
   }
@@ -72,7 +72,7 @@ fn versions(
   matches: RegisterCollection,
   key: String,
 ) -> List(bracket.MatchResult) {
-  case watershed_js.register_versions(matches, key) {
+  case watershed.register_versions(matches, key) {
     Some(values) -> list.map(values, match_result.from_json)
     option.None -> []
   }

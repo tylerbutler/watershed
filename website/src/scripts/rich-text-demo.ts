@@ -8,7 +8,7 @@
 // and the generated `rich_text` codec to a real Quill instance through the
 // approved ./demo/rich-text-adapter.js; it never reimplements OT or transform.
 //
-// Everything DDS-shaped goes through `watershed_js` — create/resolve, submit,
+// Everything DDS-shaped goes through `watershed` — create/resolve, submit,
 // view, subscribe, and the handle round-trip. `rich_text` is imported for its
 // delta/selection codec only, which is public API in the same sense
 // `watershed/json_ot` is: the facade's own signatures are written in its types
@@ -38,7 +38,7 @@
 //     entry is already post-edit by the time it lands here; `applyChange`
 //     is called with `authorSelectionAlreadyApplied: true` so the adapter
 //     leaves that one cached entry alone instead of double-shifting it.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed_js.mjs";
+import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
 import * as richText from "../../../build/dev/javascript/watershed/watershed/rich_text.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
@@ -197,7 +197,7 @@ const IMAGE_DATA_URI =
       "</svg>",
   );
 
-/** The facade's opaque `SharedRichText`; only watershed_js reads inside it. */
+/** The facade's opaque `SharedRichText`; only watershed reads inside it. */
 type SharedRichText = unknown;
 
 function h(client: RigClient): SharedRichText {

@@ -1,9 +1,9 @@
 //// Headless smoke test for the watershed presence driver: drive two
-//// `watershed_js` clients against a live levee dev server (`just server`) from
+//// `watershed` clients against a live levee dev server (`just server`) from
 //// Node and assert that a presence payload announced by one client reaches the
 //// other's roster via `watershed/presence_js`. This exercises the full ripple
 //// path end-to-end — the transport FFI `signal` listener + `submitSignal` push,
-//// `runtime_js` send/receive, the `wire/socket` codecs, and the presence driver
+//// `runtime` send/receive, the `wire/socket` codecs, and the presence driver
 //// (heartbeat, envelope decode, roster fold, `on_change`).
 ////
 //// Run via `smoke/run.mjs`, which supplies a WebSocket global.
@@ -18,7 +18,7 @@ import sudoku_lustre/doc_schema
 import watershed/presence
 import watershed/presence_js
 import watershed/transport_js
-import watershed_js.{type Document, WatershedConfig}
+import watershed.{type Document, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -58,13 +58,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.SudokuDoc)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,

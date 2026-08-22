@@ -10,7 +10,7 @@
 //// joining sparse deltas, so a client that paints while disconnected does not
 //// replay its ops on return — the two states *join*. That is the claim the
 //// offline toggle exists to demonstrate, and it is asserted here through the
-//// same `watershed_js.go_offline` the button calls.
+//// same `watershed.go_offline` the button calls.
 ////
 //// The canvas FFI is deliberately untested: it is pure rendering, and these
 //// tests cover the state it renders from.
@@ -24,7 +24,7 @@ import pixel_canvas_lustre/doc_schema
 
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
-import watershed_js.{type Document, type OrMap}
+import watershed.{type Document, type OrMap}
 
 import pixel_canvas_lustre/grid
 
@@ -51,11 +51,11 @@ fn room(
   sluice_js.settle(sluice)
 
   let assert Ok(seed) =
-    watershed_js.create_or_map(doc_a, or_map_kernel.RegisterMode)
-  watershed_js.set(
-    watershed_js.root(doc_a),
+    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
+  watershed.set(
+    watershed.root(doc_a),
     "pixels",
-    watershed_js.or_map_handle_of(seed),
+    watershed.or_map_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
@@ -63,19 +63,19 @@ fn room(
 }
 
 fn pixels_of(doc: Document(doc_schema.CanvasDoc)) -> OrMap {
-  let assert Some(handle) = watershed_js.get(watershed_js.root(doc), "pixels")
-  let assert Ok(pixels) = watershed_js.resolve_or_map(doc, handle)
+  let assert Some(handle) = watershed.get(watershed.root(doc), "pixels")
+  let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
   pixels
 }
 
 /// Paint a cell exactly as the app does.
 fn paint(pixels: OrMap, x: Int, y: Int, color: Int) -> Nil {
-  watershed_js.or_map_set(pixels, grid.encode(x, y), int.to_string(color))
+  watershed.or_map_set(pixels, grid.encode(x, y), int.to_string(color))
 }
 
 /// The palette index at a cell, as the app reads it back.
 fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
-  case watershed_js.or_map_value(pixels, grid.encode(x, y)) {
+  case watershed.or_map_value(pixels, grid.encode(x, y)) {
     Some(or_map_kernel.Register(value)) -> Some(value)
     _ -> option.None
   }
@@ -83,7 +83,7 @@ fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
 
 /// The whole picture, sorted — the comparison the demo makes by eye.
 fn picture(pixels: OrMap) -> List(#(String, String)) {
-  watershed_js.or_map_entries(pixels)
+  watershed.or_map_entries(pixels)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, value))
@@ -135,7 +135,7 @@ pub fn erasing_writes_a_colour_rather_than_removing_a_key_test() {
   paint(a, 5, 5, 0)
   sluice_js.settle(sluice)
   color_at(b, 5, 5) |> should.equal(Some("0"))
-  watershed_js.or_map_keys(b)
+  watershed.or_map_keys(b)
   |> list.contains(grid.encode(5, 5))
   |> should.be_true
 }
@@ -158,7 +158,7 @@ pub fn a_late_joiner_replays_the_picture_test() {
 pub fn regions_painted_while_offline_join_on_reconnect_test() {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-join")
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   sluice_js.settle(sluice)
 
   // Both keep painting, in different places, neither hearing the other.
@@ -170,7 +170,7 @@ pub fn regions_painted_while_offline_join_on_reconnect_test() {
   color_at(a, 1, 0) |> should.equal(Some("4"))
   color_at(b, 1, 0) |> should.equal(option.None)
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   // The union, on both — by join, with no rebase and no replay.
@@ -182,14 +182,14 @@ pub fn regions_painted_while_offline_join_on_reconnect_test() {
 pub fn a_cell_contested_across_an_offline_window_converges_test() {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-contested")
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   sluice_js.settle(sluice)
 
   paint(a, 8, 8, 4)
   paint(b, 8, 8, 12)
   sluice_js.settle(sluice)
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   // Same claim as the live collision, across a much wider window: the demo may
@@ -205,7 +205,7 @@ pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() {
   paint(a, 0, 2, 4)
   sluice_js.settle(sluice)
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   sluice_js.settle(sluice)
 
   // A drag's worth of cells, not one cell repainted: this is the shape an
@@ -215,7 +215,7 @@ pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() {
   sluice_js.settle(sluice)
   color_at(b, 4, 2) |> should.equal(option.None)
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   list.each(stroke, fn(x) { color_at(b, x, 2) |> should.equal(Some("11")) })
@@ -226,7 +226,7 @@ pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() {
 pub fn repainting_one_cell_offline_converges_test() {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-repaint")
 
-  watershed_js.go_offline(doc_a)
+  watershed.go_offline(doc_a)
   sluice_js.settle(sluice)
 
   // Going back over a cell you have already painted, while away.
@@ -240,7 +240,7 @@ pub fn repainting_one_cell_offline_converges_test() {
   list.each([5, 6, 7, 11], fn(color) { paint(a, 2, 2, color) })
   sluice_js.settle(sluice)
 
-  watershed_js.go_online(doc_a)
+  watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   color_at(a, 2, 2) |> should.equal(color_at(b, 2, 2))

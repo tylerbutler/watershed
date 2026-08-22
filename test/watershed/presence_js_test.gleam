@@ -1,4 +1,4 @@
-//// Driver-level presence tests: real `watershed_js` documents over the
+//// Driver-level presence tests: real `watershed` documents over the
 //// in-memory `sluice_js`, exercising both implementations end to end.
 ////
 //// The heartbeat and TTL run on the sluice's *logical* clock via
@@ -25,7 +25,7 @@ import watershed/sluice_js
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
-import watershed_js
+import watershed
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -60,7 +60,7 @@ type Log =
 @target(javascript)
 fn track(
   sluice: sluice_js.Sluice,
-  document: watershed_js.Document(root),
+  document: watershed.Document(root),
   config: presence.Config(Panel),
   initial: Panel,
 ) -> #(presence_js.Handle(Panel), Log) {
@@ -405,7 +405,7 @@ pub fn raw_ripples_stay_independent_of_presence_test() {
   let #(_b, log_b) = track(sluice, bob, config(), Panel("text"))
 
   let seen = transport_js.new_cell(0)
-  watershed_js.subscribe_ripples(bob, fn(_ripple) {
+  watershed.subscribe_ripples(bob, fn(_ripple) {
     transport_js.set_cell(seen, transport_js.get_cell(seen) + 1)
   })
   sluice_js.settle(sluice)
@@ -415,7 +415,7 @@ pub fn raw_ripples_stay_independent_of_presence_test() {
   let before = list.length(events(log_b))
   before |> expect.to_not_equal(0)
 
-  watershed_js.submit_ripple(
+  watershed.submit_ripple(
     alice,
     ripple_type: "confetti",
     content: json.object([#("kind", json.string("confetti"))]),

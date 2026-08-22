@@ -16,7 +16,7 @@ import doc_schema
 import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
-import watershed_js.{type Document, type SharedCounter, type SharedMap}
+import watershed.{type Document, type SharedCounter, type SharedMap}
 import watershed_lustre
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -123,7 +123,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 }
 
 fn bootstrap_effect(doc: Document(doc_schema.Board)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     watershed_lustre.ensure_field(root, doc_schema.title(), "Sprint board"),
     watershed_lustre.ensure_map(doc, root, doc_schema.cards(), EnsuredCards),
@@ -133,7 +133,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Board)) -> Effect(Msg) {
       doc_schema.wip_breaches(),
       EnsuredBreaches,
     ),
-    watershed_lustre.subscribe(watershed_js.root(doc), fn(_event) {
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
       SharedChanged
     }),
   ])
@@ -203,7 +203,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     MoveCard(card_id, column) -> {
       case model.cards_channel {
-        Some(cards) -> watershed_js.set(cards, card_id, json.string(column))
+        Some(cards) -> watershed.set(cards, card_id, json.string(column))
         None -> Nil
       }
       #(model, effect.none())
@@ -211,7 +211,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     ReportBreach -> {
       case model.breaches_channel {
-        Some(breaches) -> watershed_js.increment(breaches, 1)
+        Some(breaches) -> watershed.increment(breaches, 1)
         None -> Nil
       }
       #(model, effect.none())
@@ -242,7 +242,7 @@ fn snapshot(model: Model) -> Model {
   let #(title, error) = case model.doc {
     Some(doc) ->
       case
-        watershed_js.get_field(watershed_js.root_typed(doc), doc_schema.title())
+        watershed.get_field(watershed.root_typed(doc), doc_schema.title())
       {
         Ok(Some(title)) -> #(title, model.error)
         Ok(None) -> #(model.title, model.error)
@@ -253,14 +253,14 @@ fn snapshot(model: Model) -> Model {
 
   let cards = case model.cards_channel {
     Some(channel) ->
-      watershed_js.entries(channel)
+      watershed.entries(channel)
       |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
     None -> model.cards
   }
 
   let breaches = case model.breaches_channel {
     Some(channel) ->
-      watershed_js.counter_value(channel)
+      watershed.counter_value(channel)
       |> option.unwrap(model.breaches)
     None -> model.breaches
   }

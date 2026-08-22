@@ -21,7 +21,7 @@
 //// - identical        → `NoChange`
 ////
 //// All indices are grapheme indices into the *old* string, exactly what
-//// `watershed_js.text_insert` / `text_delete_range` / `text_replace_range`
+//// `watershed.text_insert` / `text_delete_range` / `text_replace_range`
 //// expect. The result is deterministic and never a whole-document replace when a
 //// narrower op exists.
 

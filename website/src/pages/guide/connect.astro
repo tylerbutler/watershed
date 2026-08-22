@@ -5,8 +5,8 @@ import { watershedCodeTheme } from "../../styles/code-theme";
 
 const beam = `import gleam/erlang/process
 import gleam/json
-import watershed
 import watershed/channel.{type ChannelEvent}
+import watershed_beam
 
 type Msg {
   MapChanged(ChannelEvent)
@@ -15,7 +15,7 @@ type Msg {
 pub fn main() {
   // Blocks until the op history has replayed locally.
   let assert Ok(doc) =
-    watershed.connect(
+    watershed_beam.connect(
       host: "127.0.0.1",
       port: 4000,
       tenant: "flow-co",
@@ -23,14 +23,14 @@ pub fn main() {
       token: token,
       user_id: "ada",
     )
-  let board = watershed.root(doc)
-  let events = watershed.subscribe(board)
+  let board = watershed_beam.root(doc)
+  let events = watershed_beam.subscribe(board)
   let selector =
     process.new_selector()
     |> process.select_map(events, MapChanged)
 
   // Subscribe first: this local write emits immediately.
-  watershed.set(board, "title", json.string("Q3 sprint board"))
+  watershed_beam.set(board, "title", json.string("Q3 sprint board"))
 
   // The same subject also receives remote changes as they are applied.
   let MapChanged(_event) = process.selector_receive_forever(selector)
@@ -38,7 +38,7 @@ pub fn main() {
 
 const js = `import gleam/io
 import gleam/json
-import watershed_js.{WatershedConfig}
+import watershed.{WatershedConfig}
 
 pub fn main() {
   let config =
@@ -52,14 +52,14 @@ pub fn main() {
 
   // Returns immediately; on_ready fires after handshake + history replay.
   let doc =
-    watershed_js.connect(config, on_ready: fn(result) {
+    watershed.connect(config, on_ready: fn(result) {
       case result {
         Ok(Nil) -> io.println("synced")
         Error(reason) -> io.println("rejected: " <> reason)
       }
     })
 
-  let board = watershed_js.root(doc)
+  let board = watershed.root(doc)
 }`;
 ---
 
@@ -96,8 +96,8 @@ pub fn main() {
       <input type="radio" name="target" id="t-beam" checked />
       <input type="radio" name="target" id="t-js" />
       <div class="g-tab-row" role="tablist" aria-label="Target">
-        <label for="t-beam">BEAM · <code>watershed</code></label>
-        <label for="t-js">Browser · <code>watershed_js</code></label>
+        <label for="t-beam">BEAM · <code>watershed_beam</code></label>
+        <label for="t-js">Browser · <code>watershed</code></label>
       </div>
       <div class="g-tab-panels">
         <figure class="g-code g-panel g-panel-beam">

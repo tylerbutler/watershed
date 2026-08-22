@@ -1,7 +1,7 @@
 //// The browser-facing CRDT facade: one peer-to-peer document, typed
 //// handles onto its channels, and nothing that needs a server.
 ////
-//// This is the p2p counterpart of `watershed_js`, and it is deliberately
+//// This is the p2p counterpart of `watershed`, and it is deliberately
 //// a *separate* vocabulary. Every type here — `CrdtDocument`, `Handle`,
 //// `CrdtConnection` — is opaque and shares no constructor with the
 //// sequenced facade, so a p2p handle cannot be passed to a function that

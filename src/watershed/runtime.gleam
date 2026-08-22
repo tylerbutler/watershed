@@ -1,113 +1,84 @@
-//// Runtime actor: one per document connection.
+//// JavaScript runtime for the SharedMap client — the browser counterpart of
+//// the Erlang `watershed/runtime_beam` OTP actor.
 ////
-//// Owns the kernel-bearing `runtime_core` state and the subscriber list.
-//// The aquamarine channel is owned by a dedicated receiver process (the
-//// transport only delivers to the process that opened it); the receiver
-//// forwards every inbound frame to this actor, while pushes are safe from
-//// the actor itself.
+//// Same responsibilities (handshake, CSN/RSN stamping, inbound ordering,
+//// gap catch-up, reconnect/reconcile, event fan-out) driving the *same* pure
+//// core (`runtime_core`/`wire`/`map_kernel`), but with no OTP: state lives in
+//// a mutable cell and the Phoenix transport delivers events via callbacks.
 ////
-//// Resilience (M4):
-////
-//// - **Gaps** — out-of-order ops are buffered by `runtime_core`, which asks
-////   us to `requestOps` an in-band catch-up; the buffer drains as it fills.
-//// - **Reconnect** — a mid-session channel close (or a retryable nack)
-////   rejoins and re-handshakes with a fresh client_id, passing
-////   `lastSeenSequenceNumber` so the server pushes just the delta. Old ops
-////   still in flight are reconciled against the catch-up stream and the
-////   remainder resubmitted with fresh CSNs once we reach the reconnect
-////   checkpoint. Edits made while (re)connecting are applied optimistically
-////   and their push is deferred to that resubmit.
-//// - **Nacks** — fatal ones (bad scope, size, hard limit) crash the actor;
-////   everything else reconnects and reconciles.
-//// - **Heartbeat** — a periodic `noop` advances the server's MSN while idle.
+//// JavaScript target only (gated with `@target(javascript)`).
 
-@target(erlang)
+@target(javascript)
 import gleam/dict.{type Dict}
-@target(erlang)
+@target(javascript)
 import gleam/dynamic.{type Dynamic}
-@target(erlang)
+@target(javascript)
 import gleam/dynamic/decode
-@target(erlang)
-import gleam/erlang/process.{type Subject}
-@target(erlang)
+@target(javascript)
 import gleam/int
-@target(erlang)
+@target(javascript)
+import gleam/javascript/promise.{type Promise}
+@target(javascript)
 import gleam/json.{type Json}
-@target(erlang)
+@target(javascript)
 import gleam/list
-@target(erlang)
+@target(javascript)
 import gleam/option.{type Option, None, Some}
-@target(erlang)
-import gleam/otp/actor
-@target(erlang)
-import gleam/result
-@target(erlang)
+@target(javascript)
 import gleam/string
+@target(javascript)
+import gleam/uri
 
-@target(erlang)
-import aquamarine
-@target(erlang)
-import aquamarine/channel.{type Channel}
-@target(erlang)
-import aquamarine/phoenix
-
-@target(erlang)
+@target(javascript)
 import spillway/message.{
-  type ConnectMessage, type SignalMessage, type SummaryContext,
+  type ConnectMessage, type ConnectedMessage, type SignalMessage,
+  type SummaryContext,
 }
-@target(erlang)
+@target(javascript)
 import spillway/nack.{type Nack}
-@target(erlang)
+@target(javascript)
 import spillway/types.{type SequencedDocumentMessage}
 
-@target(erlang)
+@target(javascript)
 import watershed/channel.{
-  type ChannelEvent, type ChannelInit, type Resolution, AcquireResolved,
-  ClaimResolved, InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt,
-  InitMap, InitOrMap, InitOrSet, InitOrderedCollection, InitPactMap,
-  InitPnCounter, InitRegisterCollection, InitRichText, InitSequence,
-  InitTaskManager, InitText, InitTwoPSet, SequenceChannel, TextChannel,
-} as _watershed_channel
-@target(erlang)
+  type ChannelEvent, type Resolution, AcquireResolved, ClaimResolved,
+}
+@target(javascript)
 import watershed/claims_kernel
-@target(erlang)
+@target(javascript)
 import watershed/git_storage
-@target(erlang)
+@target(javascript)
 import watershed/ids
-@target(erlang)
+@target(javascript)
 import watershed/json_ot
-@target(erlang)
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
-@target(erlang)
+@target(javascript)
 import watershed/ordered_collection_kernel
-
+@target(javascript)
 import watershed/pact_map_kernel
-@target(erlang)
+@target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy}
-@target(erlang)
+@target(javascript)
 import watershed/rich_text
-@target(erlang)
+@target(javascript)
 import watershed/runtime_core
-@target(erlang)
+@target(javascript)
 import watershed/summary_policy
-@target(erlang)
+@target(javascript)
 import watershed/task_manager_kernel
-@target(erlang)
+@target(javascript)
 import watershed/text_kernel
-@target(erlang)
+@target(javascript)
+import watershed/transport_js.{type Cell}
+@target(javascript)
 import watershed/wire
-@target(erlang)
+@target(javascript)
 import watershed/wire/socket
-@target(erlang)
+@target(javascript)
 import watershed/wire/summary_blob
 
-@target(erlang)
-const connect_timeout_ms = 10_000
-
-@target(erlang)
-const heartbeat_interval_ms = 30_000
-
-@target(erlang)
+@target(javascript)
 /// Server nacks submissions above 100 ops; chunk resubmits to stay under it.
 const max_ops_per_submission = 100
 
@@ -115,401 +86,61 @@ const max_ops_per_submission = 100
 // Transport seam
 //
 // The runtime talks to floodgate through an injectable `Transport` rather than
-// calling aquamarine directly. The default transport (`aquamarine_transport`)
-// reproduces the historical behavior exactly; the in-memory hub (see
-// `watershed/hub`) supplies an alternate transport so app authors can run
-// deterministic multi-client tests with no server. Every concrete link type
-// (an aquamarine `Channel`, a hub subject) is captured inside the closures of
-// a `TransportHandle`, so no connection-specific type leaks into `State`/`Msg`
-// or the public facade.
+// calling `transport_js` directly, so the in-memory hub (see `watershed/hub`)
+// can supply an alternate transport for deterministic app tests. The concrete
+// link (a phoenix `Channel`, a hub cell) is captured inside the closures of a
+// `TransportHandle`, so no connection-specific type leaks into `State`.
 // ─────────────────────────────────────────────────────────────────────────────
 
-@target(erlang)
-/// A live connection's outbound operations. Each function closes over the
-/// concrete link, so the runtime holds `TransportHandle` without naming the
-/// transport it came from. `push` carries the wire event name and its JSON
-/// payload; `close` is an intentional teardown; `drop` forces a reconnect
-/// (for the real transport the two coincide).
+@target(javascript)
+/// A live connection's outbound operations. `push` carries the wire event and
+/// its JSON payload; `close` tears the connection down; `drop` forces the
+/// reconnect path (for phoenix, a socket drop that auto-rejoins).
+///
+/// `hold` and `resume` are `drop` split in two. `drop` is away-and-back in one
+/// step, which is the right shape for fault injection and the wrong one for an
+/// offline mode: there is no window in the middle to edit in. A held connection
+/// stays held until `resume`, and because the runtime keeps its core either way,
+/// edits made in that window are still there to flush on the rejoin.
 pub type TransportHandle {
   TransportHandle(
     push: fn(String, Json) -> Nil,
     close: fn() -> Nil,
     drop: fn() -> Nil,
+    hold: fn() -> Nil,
+    resume: fn() -> Nil,
   )
 }
 
-@target(erlang)
-/// How a transport reports lifecycle and inbound frames back to the runtime
-/// actor. The default transport drives these from its receiver process; the
-/// hub drives them synchronously on delivery.
+@target(javascript)
+/// How a transport reports inbound frames and (re)join/close lifecycle back to
+/// the runtime. Phoenix drives these from its socket; the hub drives them on
+/// explicit delivery.
 pub type TransportCallbacks {
   TransportCallbacks(
-    /// The channel joined and is ready to push. Carries the handle used for
-    /// all subsequent outbound frames.
-    on_ready: fn(TransportHandle) -> Nil,
-    /// An inbound frame: the wire event name and its still-`Dynamic` payload.
     on_event: fn(String, Dynamic) -> Nil,
-    /// The initial connect/join failed; the runtime treats this as fatal.
-    on_fail: fn(String) -> Nil,
-    /// A ready session closed; the runtime enters its reconnect path.
-    on_close: fn(String) -> Nil,
+    /// Fires on every successful (re)join — also the re-handshake hook.
+    on_join: fn() -> Nil,
+    on_close: fn() -> Nil,
   )
 }
 
-@target(erlang)
-/// A pluggable connection to a floodgate-shaped server. `connect` establishes the
-/// link (spawning whatever process it needs) and drives the callbacks; it
-/// returns immediately, never blocking the actor.
+@target(javascript)
+/// A pluggable connection to a floodgate-shaped server. `connect` opens the link,
+/// wires the callbacks, and returns the handle used for outbound frames.
 pub type Transport {
-  Transport(connect: fn(TransportCallbacks) -> Nil)
+  Transport(connect: fn(TransportCallbacks) -> TransportHandle)
 }
 
-@target(erlang)
+@target(javascript)
 pub type ClaimSubmitReply {
-  Pending(outcome: Subject(claims_kernel.ClaimOutcome))
+  Pending(outcome: Promise(claims_kernel.ClaimOutcome))
   AlreadyClaimed(current_value: Json)
   AlreadyPendingLocally
   WrongChannelType
 }
 
-@target(erlang)
-pub type Msg {
-  Heartbeat
-  /// A jittered wake-up from the automatic summarization policy. Carries no
-  /// state: the decision is re-taken against the core as it is on arrival, so
-  /// a peer's summary landing in the window makes this a no-op.
-  MaybeSummarize
-  /// Install or clear the automatic summarization policy. `None` turns it off.
-  SetAutoSummary(policy: Option(summary_policy.Policy))
-  /// Ops sequenced past the newest checkpoint this client knows of.
-  OpsSinceSummary(reply: Subject(Int))
-  // Receiver-process lifecycle
-  ChannelReady(TransportHandle)
-  ChannelFailed(String)
-  Inbound(event: String, payload: Dynamic)
-  ChannelClosed(String)
-  // Local edits
-  Put(address: String, key: String, value: Json)
-  Remove(address: String, key: String)
-  RemoveAll(address: String)
-  IncrementCounter(address: String, amount: Int)
-  UpdatePnCounter(address: String, amount: Int)
-  SetPactMap(address: String, key: String, value: Json)
-  DeletePactMap(address: String, key: String)
-  AddOrderedItem(address: String, value: Json)
-  AcquireOrderedItem(address: String, reply: Subject(String))
-  /// Like `AcquireOrderedItem`, but `outcome` also receives the acquire's
-  /// consensus result once the op sequences (or immediately when detached).
-  AcquireOrderedItemWithOutcome(
-    address: String,
-    outcome: Subject(ordered_collection_kernel.AcquireOutcome),
-    reply: Subject(String),
-  )
-  CompleteOrderedItem(address: String, acquire_id: String)
-  ReleaseOrderedItem(address: String, acquire_id: String)
-  InsertSequenceItem(
-    address: String,
-    index: Int,
-    value: Json,
-    reply: Subject(Result(Nil, String)),
-  )
-  DeleteSequenceItem(
-    address: String,
-    index: Int,
-    reply: Subject(Result(Nil, String)),
-  )
-  MoveSequenceItem(
-    address: String,
-    from_index: Int,
-    to_index: Int,
-    reply: Subject(Result(Nil, String)),
-  )
-  ReplaceSequenceItem(
-    address: String,
-    index: Int,
-    value: Json,
-    reply: Subject(Result(Nil, String)),
-  )
-  /// Insert `value` at zero-based grapheme `index`. Empty edits
-  /// (`value == ""`) are true no-ops: they succeed without producing an
-  /// event or an outbound op.
-  InsertText(
-    address: String,
-    index: Int,
-    value: String,
-    reply: Subject(Result(Nil, String)),
-  )
-  /// Delete the graphemes in `[start, end)`. An empty range is a no-op.
-  DeleteRangeText(
-    address: String,
-    start: Int,
-    end: Int,
-    reply: Subject(Result(Nil, String)),
-  )
-  /// Replace the graphemes in `[start, end)` with `value` as one
-  /// collaborative operation. Replacing an empty range with `""` is a
-  /// no-op.
-  ReplaceRangeText(
-    address: String,
-    start: Int,
-    end: Int,
-    value: String,
-    reply: Subject(Result(Nil, String)),
-  )
-  /// Append `value` to the end of the text. Appending `""` is a no-op.
-  AppendText(
-    address: String,
-    value: String,
-    reply: Subject(Result(Nil, String)),
-  )
-  SubmitJsonOt(address: String, components: json_ot.Op)
-  SubmitRichText(address: String, delta: rich_text.Delta)
-  IncrementOrMap(address: String, key: String, amount: Int)
-  SetOrMapKey(address: String, key: String, value: String)
-  RemoveOrMapKey(address: String, key: String)
-  AddOrSetElement(address: String, element: String)
-  RemoveOrSetElement(address: String, element: String)
-  AddGSetElement(address: String, element: String)
-  AddTwoPSetElement(address: String, element: String)
-  RemoveTwoPSetElement(address: String, element: String)
-  WriteRegister(address: String, key: String, value: Json)
-  VolunteerTask(
-    address: String,
-    task_id: String,
-    reply: Subject(task_manager_kernel.VolunteerOutcome),
-  )
-  AbandonTask(address: String, task_id: String)
-  CompleteTask(
-    address: String,
-    task_id: String,
-    reply: Subject(Result(Nil, String)),
-  )
-  TrySetClaim(
-    address: String,
-    key: String,
-    value: Json,
-    outcome: Subject(claims_kernel.ClaimOutcome),
-    reply: Subject(ClaimSubmitReply),
-  )
-  CompareAndSetClaim(
-    address: String,
-    key: String,
-    value: Json,
-    outcome: Subject(claims_kernel.ClaimOutcome),
-    reply: Subject(ClaimSubmitReply),
-  )
-  /// Create a new detached map channel: local-only until its handle is first
-  /// stored into an attached map. Replies with the generated address.
-  CreateMap(reply: Subject(Result(String, String)))
-  /// Create a new detached counter channel, same lifecycle as `CreateMap`.
-  CreateCounter(reply: Subject(Result(String, String)))
-  /// Create a new detached PN-counter channel, same lifecycle as `CreateMap`.
-  CreatePnCounter(reply: Subject(Result(String, String)))
-  /// Create a new detached PactMap (consensus map) channel, same lifecycle as
-  /// `CreateMap`.
-  CreatePactMap(reply: Subject(Result(String, String)))
-  /// Create a new detached ConsensusOrderedCollection channel, same lifecycle
-  /// as `CreateMap`.
-  CreateOrderedCollection(reply: Subject(Result(String, String)))
-  CreateSequence(reply: Subject(Result(String, String)))
-  /// Create a new detached text channel, same lifecycle as `CreateMap`.
-  CreateText(reply: Subject(Result(String, String)))
-  /// Create a new detached OR-map channel in the requested value mode.
-  CreateOrMap(mode: OrMapMode, reply: Subject(Result(String, String)))
-  CreateOrSet(reply: Subject(Result(String, String)))
-  CreateGSet(reply: Subject(Result(String, String)))
-  CreateTwoPSet(reply: Subject(Result(String, String)))
-  CreateRegisterCollection(reply: Subject(Result(String, String)))
-  CreateClaims(reply: Subject(Result(String, String)))
-  CreateJsonOt(reply: Subject(Result(String, String)))
-  CreateRichText(reply: Subject(Result(String, String)))
-  CreateTaskManager(reply: Subject(Result(String, String)))
-  /// Whether a channel exists at `address` (attached or detached). Errors are
-  /// retryable — a foreign attach may still be in flight.
-  ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
-  ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
-  ResolveText(address: String, reply: Subject(Result(Nil, String)))
-  /// Summarize the current confirmed state to floodgate storage, replying with the
-  /// summary handle (git tree SHA) on success.
-  Summarize(reply: Subject(Result(String, String)))
-  /// List the document's stored summary versions, newest first.
-  GetVersions(
-    count: Int,
-    reply: Subject(Result(List(git_storage.SummaryVersion), String)),
-  )
-  /// Read the historical snapshot a summary version captured, by its handle.
-  LoadVersion(
-    handle: String,
-    reply: Subject(Result(summary_blob.SummaryBlob, String)),
-  )
-  // Reads
-  GetValue(address: String, key: String, reply: Subject(Option(Json)))
-  /// The counter's optimistic value, `None` when the address is missing or
-  /// not a counter channel.
-  GetCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The PN-counter's optimistic value, `None` when the address is missing or
-  /// not a pn-counter channel.
-  GetPnCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The PactMap's accepted value for `key`, `None` when pending, absent, or
-  /// not a PactMap channel.
-  GetPactMapValue(address: String, key: String, reply: Subject(Option(Json)))
-  /// All keys with an accepted or pending pact in the PactMap at `address`.
-  GetPactMapKeys(address: String, reply: Subject(List(String)))
-  /// Whether `key` has a pending (proposed but not-yet-accepted) value.
-  GetPactMapPending(address: String, key: String, reply: Subject(Bool))
-  /// The pending proposal for `key` — value plus the signoff list it is waiting
-  /// on — `None` when nothing is pending or the address is not a PactMap.
-  GetPactMapPendingDetails(
-    address: String,
-    key: String,
-    reply: Subject(Option(pact_map_kernel.Pending)),
-  )
-  /// The accepted entry (value + sequence number) for `key`, `None` when the
-  /// key has no accepted value.
-  GetPactMapAccepted(
-    address: String,
-    key: String,
-    reply: Subject(Option(pact_map_kernel.Accepted)),
-  )
-  /// The number of queued (not-yet-acquired) items in the ordered collection at
-  /// `address`, `None` when missing or not an ordered-collection channel.
-  GetOrderedSize(address: String, reply: Subject(Option(Int)))
-  /// The queued (not-yet-acquired) values at `address`, front first.
-  GetOrderedQueue(address: String, reply: Subject(List(Json)))
-  /// The currently-held jobs at `address`, keyed by acquire id (sorted).
-  GetOrderedJobs(
-    address: String,
-    reply: Subject(List(#(String, ordered_collection_kernel.JobEntry))),
-  )
-  /// The json0 channel's optimistic document, `None` when the address is missing
-  /// or not a json0 channel.
-  GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
-  /// The rich-text channel's optimistic document, `None` when the address is
-  /// missing or not a rich-text channel.
-  GetRichTextView(address: String, reply: Subject(Option(rich_text.Document)))
-  GetOrMapValue(
-    address: String,
-    key: String,
-    reply: Subject(Option(OrMapValue)),
-  )
-  GetOrMapEntries(address: String, reply: Subject(List(#(String, OrMapValue))))
-  GetOrMapKeys(address: String, reply: Subject(List(String)))
-  OrSetContains(address: String, element: String, reply: Subject(Bool))
-  GetOrSetValues(address: String, reply: Subject(List(String)))
-  GSetContains(address: String, element: String, reply: Subject(Bool))
-  GetGSetValues(address: String, reply: Subject(List(String)))
-  GetSequenceValues(address: String, reply: Subject(List(Json)))
-  GetSequenceLength(address: String, reply: Subject(Int))
-  /// The text channel's current optimistic visible string, `""` when the
-  /// address is missing or not a text channel.
-  GetTextValue(address: String, reply: Subject(String))
-  /// The text channel's current optimistic grapheme count, `0` when the
-  /// address is missing or not a text channel.
-  GetTextLength(address: String, reply: Subject(Int))
-  /// The graphemes in `[start, end)` of the text channel's optimistic
-  /// string. An explicit error string when `start..end` is invalid, the
-  /// address is missing, or the address is not a text channel.
-  GetTextSubstring(
-    address: String,
-    start: Int,
-    end: Int,
-    reply: Subject(Result(String, String)),
-  )
-  /// Create a stable anchor at the gap before/after the optimistic
-  /// grapheme at `index`, per `bias`. An explicit error string on an
-  /// out-of-bounds index, a missing address, or a non-text channel.
-  TextAnchorAt(
-    address: String,
-    index: Int,
-    bias: text_kernel.Bias,
-    reply: Subject(Result(text_kernel.TextAnchor, String)),
-  )
-  /// Resolve an anchor to its current optimistic grapheme index. An
-  /// explicit error string on a stale/unknown anchor target, a missing
-  /// address, or a non-text channel.
-  TextResolveAnchor(
-    address: String,
-    anchor: text_kernel.TextAnchor,
-    reply: Subject(Result(Int, String)),
-  )
-  TwoPSetContains(address: String, element: String, reply: Subject(Bool))
-  GetTwoPSetValues(address: String, reply: Subject(List(String)))
-  DirectorySet(address: String, path: String, key: String, value: Json)
-  DirectoryDelete(address: String, path: String, key: String)
-  DirectoryClear(address: String, path: String)
-  DirectoryCreateSubdirectory(address: String, path: String, name: String)
-  DirectoryDeleteSubdirectory(address: String, path: String, name: String)
-  CreateDirectory(reply: Subject(Result(String, String)))
-  DirectoryGet(
-    address: String,
-    path: String,
-    key: String,
-    reply: Subject(Option(Json)),
-  )
-  DirectoryEntries(
-    address: String,
-    path: String,
-    reply: Subject(List(#(String, Json))),
-  )
-  DirectorySubdirectories(
-    address: String,
-    path: String,
-    reply: Subject(List(String)),
-  )
-  DirectoryHasSubdirectory(
-    address: String,
-    path: String,
-    name: String,
-    reply: Subject(Bool),
-  )
-  GetRegisterValue(
-    address: String,
-    key: String,
-    policy: ReadPolicy,
-    reply: Subject(Option(Json)),
-  )
-  GetRegisterVersions(
-    address: String,
-    key: String,
-    reply: Subject(Option(List(Json))),
-  )
-  GetRegisterKeys(address: String, reply: Subject(List(String)))
-  GetClaim(address: String, key: String, reply: Subject(Option(Json)))
-  HasClaim(address: String, key: String, reply: Subject(Bool))
-  TaskAssigned(address: String, task_id: String, reply: Subject(Bool))
-  TaskQueued(address: String, task_id: String, reply: Subject(Bool))
-  TaskQueues(address: String, reply: Subject(List(#(String, List(Int)))))
-  GetEntries(address: String, reply: Subject(List(#(String, Json))))
-  GetKeys(address: String, reply: Subject(List(String)))
-  GetSize(address: String, reply: Subject(Int))
-  /// Whether every local edit has been acknowledged (in-flight queue empty),
-  /// so the confirmed state is complete and stable.
-  IsSynced(reply: Subject(Bool))
-  /// The server-assigned client id, `None` before the first handshake.
-  ClientId(reply: Subject(Option(String)))
-  /// Broadcast an ephemeral, document-scoped ripple (`type` tag + arbitrary
-  /// JSON content). Fire-and-forget: no ordering, ack, or catch-up. A no-op
-  /// until the handshake assigns a client id.
-  SubmitRipple(ripple_type: String, content: Json)
-  /// Register a subscriber invoked for every inbound ripple on the document.
-  SubscribeRipple(subscriber: fn(SignalMessage) -> Nil)
-  /// Push a presence-lane command (`joinPresence`, `updatePresence`,
-  /// `leavePresence`). Unlike a ripple this needs no client id: the payload
-  /// carries no identity, because the server derives key and session from the
-  /// authenticated connection.
-  SubmitPresence(event: String, payload: Json)
-  /// Register a subscriber invoked for every presence-lane frame.
-  SubscribePresence(subscriber: fn(PresenceFrame) -> Nil)
-  // Lifecycle
-  Subscribe(address: String, subscriber: fn(ChannelEvent) -> Nil)
-  AwaitReady(reply: Subject(Result(Nil, String)))
-  /// Fault-injection hook (tests): drop the live channel to force the
-  /// runtime through its reconnect/reconcile path.
-  DropChannel
-  Shutdown
-}
-
-@target(erlang)
+@target(javascript)
 /// One ordered inbox for the presence lane, carrying both data frames and the
 /// connection lifecycle a presence driver has to react to.
 ///
@@ -530,32 +161,30 @@ pub type PresenceFrame {
   PresenceSessionLost
 }
 
-@target(erlang)
+@target(javascript)
 type Phase {
-  Connecting(waiters: List(Subject(Result(Nil, String))))
-  /// Socket down and re-handshaking; holds the pre-reconnect core so its
-  /// kernel/pending/in-flight survive the round trip.
+  Connecting
+  /// Socket down and re-handshaking; holds the pre-reconnect core.
   Reconnecting(core: runtime_core.Core)
-  /// Connected. `resubmit_at` is `Some(checkpoint)` while a reconnect is
-  /// still catching up to the point where un-acked ops can be resubmitted,
-  /// and `None` once fully synced.
+  /// Connected. `resubmit_at` is `Some(checkpoint)` while a reconnect is still
+  /// catching up to where un-acked ops can be resubmitted, `None` once synced.
   Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
 
-@target(erlang)
+@target(javascript)
 type State {
   State(
-    // `host`/`port` are retained for the REST summary API (git-storage), which
-    // shares floodgate's origin. The websocket path/topic/join payload now live
-    // inside the transport closure.
-    host: String,
-    port: Int,
     connect_message: ConnectMessage,
-    transport: Transport,
+    /// HTTP(S) base URL for git-storage (summary) calls, derived from the
+    /// Phoenix socket URL. floodgate serves both the socket and REST from one
+    /// origin.
+    http_base_url: String,
     channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    /// Ephemeral-ripple subscribers. Ripples are document-scoped and
+    /// non-sequenced, so they fan out independently of the op event stream.
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
     /// Presence-lane subscribers. Like ripples, presence is unsequenced and
     /// never touches the core.
@@ -565,1612 +194,342 @@ type State {
     /// capability parked there would outlive the connection that negotiated it
     /// and could claim support on a server that has none.
     supported_features: Dict(String, Dynamic),
-    claim_waiters: Dict(#(String, String), Subject(claims_kernel.ClaimOutcome)),
+    claim_waiters: Dict(
+      #(String, String),
+      fn(claims_kernel.ClaimOutcome) -> Nil,
+    ),
     /// Pending ordered-collection acquires awaiting their sequenced outcome,
     /// keyed by `#(address, acquire_id)`.
     acquire_waiters: Dict(
       #(String, String),
-      Subject(ordered_collection_kernel.AcquireOutcome),
+      fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
     ),
+    on_ready: fn(Result(Nil, String)) -> Nil,
+    ready_fired: Bool,
     /// The automatic summarization policy, `None` unless an application asked
     /// for one. On `State` rather than the core because it is a property of
     /// this client's configuration, not of the document.
     auto_summary: Option(summary_policy.Policy),
-    /// Whether a `MaybeSummarize` wake-up is already scheduled. Without it a
-    /// busy document arms a fresh timer on every sequenced op.
+    /// Whether a summarization wake-up is already scheduled. Without it a busy
+    /// document arms a fresh timer on every sequenced op.
     summary_armed: Bool,
-    self: Subject(Msg),
+    /// How delayed work is scheduled. Real `setTimeout` in production; the
+    /// in-memory hub swaps in its logical clock so the policy's jitter window
+    /// can be driven by `sluice_js.advance` instead of elapsed time.
+    scheduler: transport_js.Scheduler,
   )
 }
 
-@target(erlang)
-/// Start a document runtime against a live floodgate: spawns the actor and the
-/// channel receiver process, then returns the actor subject. Callers should
-/// `AwaitReady` (via `process.call`) before editing.
+@target(javascript)
+/// Opaque handle to a running document runtime.
+pub opaque type Runtime {
+  Runtime(cell: Cell(State))
+}
+
+@target(javascript)
+/// Read-only runtime state intended for diagnostics and example tooling.
+pub type Diagnostics {
+  Diagnostics(
+    phase: String,
+    client_id: Option(String),
+    last_seen_sequence_number: Option(Int),
+    next_client_sequence_number: Option(Int),
+    in_flight_count: Int,
+    buffered_out_of_order_count: Int,
+    resubmit_checkpoint: Option(Int),
+    synced: Bool,
+    /// Ops sequenced past the newest checkpoint this client knows of — the
+    /// drift an automatic summarization policy thresholds on, and what a
+    /// joining client would replay on top of that checkpoint.
+    ops_since_summary: Int,
+    /// Whether an automatic summarization attempt is scheduled and waiting out
+    /// its jitter window. Always `False` without a policy installed.
+    summary_pending: Bool,
+  )
+}
+
+@target(javascript)
+/// Start a runtime: open the Phoenix socket, join the topic, and begin the
+/// handshake. `on_ready` fires once with `Ok(Nil)` when the document has
+/// bootstrapped, or `Error(reason)` if the connection is rejected.
 pub fn start(
-  host host: String,
-  port port: Int,
-  path path: String,
-  tenant tenant: String,
-  document document: String,
+  url url: String,
+  topic topic: String,
   connect_message connect_message: ConnectMessage,
-) -> Result(Subject(Msg), actor.StartError) {
-  let topic = "document:" <> tenant <> ":" <> document
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Runtime {
   let join_payload = case connect_message.token {
     Some(token) -> json.object([#("token", json.string(token))])
     None -> json.object([])
   }
   start_with_transport(
-    host: host,
-    port: port,
+    http_base_url: http_base_from_socket_url(url),
     connect_message: connect_message,
-    transport: aquamarine_transport(host, port, path, topic, join_payload),
+    transport: phoenix_transport(url, topic, join_payload),
+    on_ready: on_ready,
   )
 }
 
-@target(erlang)
-/// Start a document runtime against an arbitrary transport. Used by the live
-/// `start` (aquamarine) and by the in-memory hub test driver. `host`/`port`
-/// only feed the REST summary API and may be placeholders for transports that
-/// don't serve one.
+@target(javascript)
+/// Start a runtime against an arbitrary transport. Used by the live `start`
+/// (phoenix) and by the in-memory hub test driver. `http_base_url` only feeds
+/// the REST summary API and may be a placeholder for transports without one.
 pub fn start_with_transport(
-  host host: String,
-  port port: Int,
+  http_base_url http_base_url: String,
   connect_message connect_message: ConnectMessage,
   transport transport: Transport,
-) -> Result(Subject(Msg), actor.StartError) {
-  actor.new_with_initialiser(1000, fn(self) {
-    let state =
-      State(
-        host: host,
-        port: port,
-        connect_message: connect_message,
-        transport: transport,
-        channel: None,
-        phase: Connecting([]),
-        subscribers: [],
-        ripple_subscribers: [],
-        presence_subscribers: [],
-        supported_features: dict.new(),
-        claim_waiters: dict.new(),
-        acquire_waiters: dict.new(),
-        auto_summary: None,
-        summary_armed: False,
-        self: self,
-      )
-    let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
-    connect_transport(transport, self)
-    Ok(actor.initialised(state) |> actor.returning(self))
-  })
-  |> actor.on_message(handle)
-  |> actor.start
-  |> result.map(fn(started) { started.data })
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Runtime {
+  let cell =
+    transport_js.new_cell(State(
+      connect_message: connect_message,
+      http_base_url: http_base_url,
+      channel: None,
+      phase: Connecting,
+      subscribers: [],
+      ripple_subscribers: [],
+      presence_subscribers: [],
+      supported_features: dict.new(),
+      claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
+      on_ready: on_ready,
+      ready_fired: False,
+      auto_summary: None,
+      summary_armed: False,
+      scheduler: transport_js.real_scheduler(),
+    ))
+
+  let handle =
+    transport.connect(
+      TransportCallbacks(
+        on_event: fn(event, payload) { on_event(cell, event, payload) },
+        on_join: fn() { on_join(cell) },
+        on_close: fn() { on_close(cell) },
+      ),
+    )
+
+  cell_set(cell, State(..cell_get(cell), channel: Some(handle)))
+  Runtime(cell: cell)
 }
 
-@target(erlang)
-/// Block until the handshake completes (or fails).
-pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
-}
-
-@target(erlang)
-pub fn resolve_sequence(
-  runtime: Subject(Msg),
-  address: String,
-) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    ResolveSequence(address, reply)
-  })
-}
-
-@target(erlang)
-pub fn resolve_text(
-  runtime: Subject(Msg),
-  address: String,
-) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    ResolveText(address, reply)
-  })
-}
-
-@target(erlang)
-/// An anchor at the start of the text. Always resolves to `0`. Pure — no
-/// actor round trip since it carries no document state.
-pub fn text_start_anchor() -> text_kernel.TextAnchor {
-  runtime_core.text_start_anchor()
-}
-
-@target(erlang)
-/// An anchor at the end of the text. Always resolves to the current
-/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
-pub fn text_end_anchor() -> text_kernel.TextAnchor {
-  runtime_core.text_end_anchor()
-}
-
-@target(erlang)
-/// Encode an anchor as a self-describing JSON value, for example to travel
-/// through presence for shared cursors. Pure.
-pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
-  runtime_core.text_anchor_to_json(anchor)
-}
-
-@target(erlang)
-/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
-/// An explicit error string on malformed JSON. Pure.
-pub fn text_anchor_from_json(
-  json_string: String,
-) -> Result(text_kernel.TextAnchor, String) {
-  runtime_core.text_anchor_from_json(json_string)
-}
-
-@target(erlang)
-/// Summarize the current confirmed state to floodgate storage. Returns the summary
-/// handle (git tree SHA) on success. Requires the connection to be fully synced
-/// and the token to carry the `summary:write` scope.
-pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: Summarize)
-}
-
-@target(erlang)
-/// Install (or with `None`, clear) the automatic summarization policy.
-pub fn auto_summarize(
-  runtime: Subject(Msg),
-  policy: Option(summary_policy.Policy),
-) -> Nil {
-  process.send(runtime, SetAutoSummary(policy))
-}
-
-@target(erlang)
-/// How far the document has drifted past the newest checkpoint this client
-/// knows of. Zero before the first handshake.
-pub fn ops_since_summary(runtime: Subject(Msg)) -> Int {
-  process.call(runtime, waiting: connect_timeout_ms, sending: OpsSinceSummary)
-}
-
-@target(erlang)
-/// Whether the client is caught up: every local edit has been acknowledged by
-/// the server, so the confirmed state is complete and stable.
-pub fn is_synced(runtime: Subject(Msg)) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
-}
-
-@target(erlang)
-/// The server-assigned client id for this connection, `None` before the first
-/// handshake completes.
-///
-/// It survives a reconnect only in the sense that there is always *a* current
-/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
-/// assigns, which may differ from the previous one. Callers holding it across
-/// a disconnect must re-read rather than cache.
-pub fn client_id(runtime: Subject(Msg)) -> Option(String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: ClientId)
-}
-
-@target(erlang)
-fn client_id_of(state: State) -> Option(String) {
-  case state.phase {
-    Ready(core, _) -> Some(core.client_id)
-    Reconnecting(core) -> Some(core.client_id)
-    _ -> None
-  }
-}
-
-@target(erlang)
-pub fn try_set_claim(
-  runtime: Subject(Msg),
-  address: String,
-  key: String,
-  value: Json,
-) -> ClaimSubmitReply {
-  let outcome = process.new_subject()
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TrySetClaim(address, key, value, outcome, reply)
-  })
-}
-
-@target(erlang)
-pub fn compare_and_set_claim(
-  runtime: Subject(Msg),
-  address: String,
-  key: String,
-  value: Json,
-) -> ClaimSubmitReply {
-  let outcome = process.new_subject()
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    CompareAndSetClaim(address, key, value, outcome, reply)
-  })
-}
-
-@target(erlang)
-pub fn get_claim(
-  runtime: Subject(Msg),
-  address: String,
-  key: String,
-) -> Option(Json) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    GetClaim(address, key, reply)
-  })
-}
-
-@target(erlang)
-pub fn has_claim(runtime: Subject(Msg), address: String, key: String) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    HasClaim(address, key, reply)
-  })
-}
-
-@target(erlang)
-pub fn task_manager_volunteer(
-  runtime: Subject(Msg),
-  address: String,
-  task_id: String,
-) -> task_manager_kernel.VolunteerOutcome {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    VolunteerTask(address, task_id, reply)
-  })
-}
-
-@target(erlang)
-pub fn task_manager_abandon(
-  runtime: Subject(Msg),
-  address: String,
-  task_id: String,
-) -> Nil {
-  process.send(runtime, AbandonTask(address, task_id))
-}
-
-@target(erlang)
-pub fn task_manager_complete(
-  runtime: Subject(Msg),
-  address: String,
-  task_id: String,
-) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    CompleteTask(address, task_id, reply)
-  })
-}
-
-@target(erlang)
-pub fn task_manager_assigned(
-  runtime: Subject(Msg),
-  address: String,
-  task_id: String,
-) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskAssigned(address, task_id, reply)
-  })
-}
-
-@target(erlang)
-pub fn task_manager_queued(
-  runtime: Subject(Msg),
-  address: String,
-  task_id: String,
-) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskQueued(address, task_id, reply)
-  })
-}
-
-@target(erlang)
-pub fn task_manager_queues(
-  runtime: Subject(Msg),
-  address: String,
-) -> List(#(String, List(Int))) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskQueues(address, reply)
-  })
-}
-
-@target(erlang)
-/// List the document's stored summary versions, newest first (the client half
-/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
-pub fn get_versions(
-  runtime: Subject(Msg),
-  count: Int,
-) -> Result(List(git_storage.SummaryVersion), String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    GetVersions(count, reply)
-  })
-}
-
-@target(erlang)
-/// Read the historical snapshot a summary version captured, by its handle
-/// (from `get_versions` or a `summarize` return). The live document is
-/// unaffected — this is a point-in-time read of the stored blob.
-pub fn load_version(
-  runtime: Subject(Msg),
-  handle: String,
-) -> Result(summary_blob.SummaryBlob, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    LoadVersion(handle, reply)
-  })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Receiver process / transport wiring
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Ask the transport to connect, routing its lifecycle callbacks into actor
-/// messages. Called at startup and on every reconnect.
-fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
-  transport.connect(
-    TransportCallbacks(
-      on_ready: fn(handle) { process.send(runtime, ChannelReady(handle)) },
-      on_event: fn(event, payload) {
-        process.send(runtime, Inbound(event, payload))
-      },
-      on_fail: fn(reason) { process.send(runtime, ChannelFailed(reason)) },
-      on_close: fn(reason) { process.send(runtime, ChannelClosed(reason)) },
-    ),
-  )
-}
-
-@target(erlang)
-/// The default transport: a dedicated receiver process owning one aquamarine
-/// channel. `connect` joins (blocking in its own process), announces the
-/// handle, then pumps inbound frames until the channel closes.
-fn aquamarine_transport(
-  host: String,
-  port: Int,
-  path: String,
+@target(javascript)
+/// The default transport: a phoenix socket over `transport_js`. Phoenix
+/// auto-rejoins after a socket drop, re-firing `on_join`, so the runtime never
+/// re-invokes `connect`.
+fn phoenix_transport(
+  url: String,
   topic: String,
   join_payload: Json,
 ) -> Transport {
-  Transport(connect: fn(callbacks: TransportCallbacks) -> Nil {
-    let _ =
-      process.spawn_unlinked(fn() {
-        case
-          aquamarine.connect(
-            host: host,
-            port: port,
-            path: path,
-            topic: topic,
-            payload: join_payload,
-            codec: phoenix.codec(),
-          )
-        {
-          Error(err) -> callbacks.on_fail(string.inspect(err))
-          Ok(channel) -> {
-            callbacks.on_ready(aquamarine_handle(channel))
-            aquamarine_receive_loop(channel, callbacks)
-          }
-        }
-      })
-    Nil
-  })
-}
-
-@target(erlang)
-fn aquamarine_handle(channel: Channel) -> TransportHandle {
-  let teardown = fn() {
-    let _ = aquamarine.close(channel)
-    Nil
-  }
-  TransportHandle(
-    push: fn(event, payload) { aquamarine_push(channel, event, payload) },
-    // A live aquamarine channel has no distinct "drop" — closing it triggers
-    // the same receiver error that drives reconnect.
-    close: teardown,
-    drop: teardown,
-  )
-}
-
-@target(erlang)
-fn aquamarine_receive_loop(
-  channel: Channel,
-  callbacks: TransportCallbacks,
-) -> Nil {
-  case aquamarine.receive(channel) {
-    Ok(incoming) -> {
-      callbacks.on_event(incoming.event, incoming.payload)
-      aquamarine_receive_loop(channel, callbacks)
-    }
-    Error(err) -> callbacks.on_close(string.inspect(err))
-  }
-}
-
-@target(erlang)
-fn aquamarine_push(channel: Channel, event: String, payload: Json) -> Nil {
-  case aquamarine.push(channel, event, payload) {
-    Ok(Nil) -> Nil
-    Error(err) -> panic as { "channel push failed: " <> string.inspect(err) }
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Actor
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
-  case msg {
-    Heartbeat -> {
-      let _ = process.send_after(state.self, heartbeat_interval_ms, Heartbeat)
-      case state.phase, state.channel {
-        Ready(core, None), Some(channel) ->
-          push(
-            channel,
-            "noop",
-            socket.encode_noop(
-              core.client_id,
-              reference_sequence_number: core.last_seen_sn,
-            ),
-          )
-        _, _ -> Nil
-      }
-      actor.continue(state)
-    }
-
-    OpsSinceSummary(reply) -> {
-      process.send(reply, read(state, 0, runtime_core.ops_since_summary))
-      actor.continue(state)
-    }
-
-    SetAutoSummary(policy) ->
-      // Arming waits for the next sequenced op rather than happening here: a
-      // document that is already past the threshold when the policy is
-      // installed is the common case on a busy document, and the op path is
-      // the one place that knows the phase has settled.
-      actor.continue(State(..state, auto_summary: policy))
-
-    MaybeSummarize -> {
-      let state = State(..state, summary_armed: False)
-      case state.phase, state.channel, state.auto_summary {
-        Ready(core, None), Some(channel), Some(policy) ->
-          case runtime_core.wants_summary(core, policy) {
-            // A peer summarized while we waited, or a local edit went out.
-            // Either way the reason to summarize is gone.
-            False -> actor.continue(state)
-            True ->
-              case do_summarize(state, core, channel) {
-                Ok(#(core, _handle)) ->
-                  actor.continue(State(..state, phase: Ready(core, None)))
-                // A summarize op carries no ack, so there is nothing to
-                // reconcile on failure: the checkpoint simply did not move,
-                // and the next sequenced op arms another attempt.
-                Error(_reason) -> actor.continue(state)
-              }
-          }
-        _, _, _ -> actor.continue(state)
-      }
-    }
-
-    ChannelReady(channel) -> {
-      let last_seen = case state.phase {
-        Reconnecting(core) -> Some(core.last_seen_sn)
-        _ -> None
-      }
-      push(
-        channel,
-        "connect_document",
-        socket.encode_connect_document(state.connect_message, last_seen),
+  Transport(connect: fn(callbacks: TransportCallbacks) -> TransportHandle {
+    let channel =
+      transport_js.connect(
+        url: url,
+        topic: topic,
+        join_payload: json.to_string(join_payload),
+        on_event: callbacks.on_event,
+        on_join: callbacks.on_join,
+        on_close: callbacks.on_close,
       )
-      actor.continue(State(..state, channel: Some(channel)))
-    }
-
-    ChannelFailed(reason) ->
-      actor.continue(fail(state, "channel connect failed: " <> reason))
-
-    ChannelClosed(reason) ->
-      case state.phase {
-        Ready(core, _) -> actor.continue(begin_reconnect(state, core))
-        Reconnecting(core) -> actor.continue(begin_reconnect(state, core))
-        _ -> actor.continue(fail(state, "channel closed: " <> reason))
-      }
-
-    Inbound(event, payload) -> handle_inbound(state, event, payload)
-
-    Put(address, key, value) ->
-      edit(state, fn(core) { runtime_core.set(core, address, key, value) })
-    Remove(address, key) ->
-      edit(state, fn(core) { runtime_core.delete(core, address, key) })
-    RemoveAll(address) ->
-      edit(state, fn(core) { runtime_core.clear(core, address) })
-    IncrementCounter(address, amount) ->
-      edit(state, fn(core) { runtime_core.increment(core, address, amount) })
-    UpdatePnCounter(address, amount) ->
-      edit(state, fn(core) {
-        runtime_core.pn_counter_update(core, address, amount)
-      })
-    SetPactMap(address, key, value) ->
-      edit(state, fn(core) {
-        runtime_core.pact_map_set(core, address, key, value)
-      })
-    DeletePactMap(address, key) ->
-      edit(state, fn(core) { runtime_core.pact_map_delete(core, address, key) })
-    AddOrderedItem(address, value) ->
-      edit(state, fn(core) { runtime_core.ordered_add(core, address, value) })
-    AcquireOrderedItem(address, reply) ->
-      handle_ordered_acquire(state, address, reply)
-    AcquireOrderedItemWithOutcome(address, outcome, reply) ->
-      handle_ordered_acquire_with_outcome(state, address, outcome, reply)
-    CompleteOrderedItem(address, acquire_id) ->
-      edit(state, fn(core) {
-        runtime_core.ordered_complete(core, address, acquire_id)
-      })
-    ReleaseOrderedItem(address, acquire_id) ->
-      edit(state, fn(core) {
-        runtime_core.ordered_release(core, address, acquire_id)
-      })
-    InsertSequenceItem(address, index, value, reply) ->
-      edit_sequence_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.sequence_insert(core, address, index, value) },
-        "sequence insert",
-      )
-    DeleteSequenceItem(address, index, reply) ->
-      edit_sequence_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.sequence_delete(core, address, index) },
-        "sequence delete",
-      )
-    MoveSequenceItem(address, from_index, to_index, reply) ->
-      edit_sequence_with_result(
-        state,
-        reply,
-        fn(core) {
-          runtime_core.sequence_move(core, address, from_index, to_index)
-        },
-        "sequence move",
-      )
-    ReplaceSequenceItem(address, index, value, reply) ->
-      edit_sequence_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.sequence_replace(core, address, index, value) },
-        "sequence replace",
-      )
-    InsertText(address, index, value, reply) ->
-      edit_text_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.text_insert(core, address, index, value) },
-        "text insert",
-      )
-    DeleteRangeText(address, start, end, reply) ->
-      edit_text_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.text_delete_range(core, address, start, end) },
-        "text delete_range",
-      )
-    ReplaceRangeText(address, start, end, value, reply) ->
-      edit_text_with_result(
-        state,
-        reply,
-        fn(core) {
-          runtime_core.text_replace_range(core, address, start, end, value)
-        },
-        "text replace_range",
-      )
-    AppendText(address, value, reply) ->
-      edit_text_with_result(
-        state,
-        reply,
-        fn(core) { runtime_core.text_append(core, address, value) },
-        "text append",
-      )
-    SubmitJsonOt(address, components) ->
-      edit(state, fn(core) {
-        runtime_core.submit_json_ot(core, address, components)
-      })
-    SubmitRichText(address, delta) ->
-      edit(state, fn(core) {
-        runtime_core.submit_rich_text(core, address, delta)
-      })
-    IncrementOrMap(address, key, amount) ->
-      edit(state, fn(core) {
-        runtime_core.or_map_increment(core, address, key, amount)
-      })
-    SetOrMapKey(address, key, value) ->
-      edit(state, fn(core) {
-        runtime_core.or_map_set(core, address, key, value, now_ms())
-      })
-    RemoveOrMapKey(address, key) ->
-      edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
-    AddOrSetElement(address, element) ->
-      edit(state, fn(core) { runtime_core.or_set_add(core, address, element) })
-    RemoveOrSetElement(address, element) ->
-      edit(state, fn(core) {
-        runtime_core.or_set_remove(core, address, element)
-      })
-    AddGSetElement(address, element) ->
-      edit(state, fn(core) { runtime_core.g_set_add(core, address, element) })
-    AddTwoPSetElement(address, element) ->
-      edit(state, fn(core) {
-        runtime_core.two_p_set_add(core, address, element)
-      })
-    RemoveTwoPSetElement(address, element) ->
-      edit(state, fn(core) {
-        runtime_core.two_p_set_remove(core, address, element)
-      })
-    WriteRegister(address, key, value) ->
-      edit(state, fn(core) {
-        runtime_core.register_write(core, address, key, value)
-      })
-    VolunteerTask(address, task_id, reply) ->
-      handle_task_volunteer(state, address, task_id, reply)
-    AbandonTask(address, task_id) ->
-      edit(state, fn(core) {
-        runtime_core.task_manager_abandon(core, address, task_id)
-      })
-    CompleteTask(address, task_id, reply) ->
-      handle_task_complete(state, address, task_id, reply)
-    TrySetClaim(address, key, value, outcome, reply) ->
-      handle_claim_submit(state, address, key, outcome, reply, fn(core) {
-        runtime_core.try_set_claim(core, address, key, value)
-      })
-    CompareAndSetClaim(address, key, value, outcome, reply) ->
-      handle_claim_submit(state, address, key, outcome, reply, fn(core) {
-        runtime_core.compare_and_set_claim(core, address, key, value)
-      })
-
-    CreateMap(reply) -> create_channel(state, reply, InitMap, "create_map")
-    CreateCounter(reply) ->
-      create_channel(state, reply, InitCounter, "create_counter")
-    CreatePnCounter(reply) ->
-      create_channel(state, reply, InitPnCounter, "create_pn_counter")
-    CreatePactMap(reply) ->
-      create_channel(state, reply, InitPactMap, "create_pact_map")
-    CreateOrderedCollection(reply) ->
-      create_channel(
-        state,
-        reply,
-        InitOrderedCollection,
-        "create_ordered_collection",
-      )
-    CreateOrMap(mode, reply) ->
-      create_channel(state, reply, InitOrMap(mode), "create_or_map")
-    CreateOrSet(reply) ->
-      create_channel(state, reply, InitOrSet, "create_or_set")
-    CreateGSet(reply) -> create_channel(state, reply, InitGSet, "create_g_set")
-    CreateSequence(reply) ->
-      create_channel(state, reply, InitSequence, "create_sequence")
-    CreateText(reply) -> create_channel(state, reply, InitText, "create_text")
-    CreateDirectory(reply) ->
-      create_channel(state, reply, InitDirectory, "create_directory")
-    DirectorySet(address, path, key, value) ->
-      edit(state, fn(core) {
-        runtime_core.directory_set(core, address, path, key, value)
-      })
-    DirectoryDelete(address, path, key) ->
-      edit(state, fn(core) {
-        runtime_core.directory_delete(core, address, path, key)
-      })
-    DirectoryClear(address, path) ->
-      edit(state, fn(core) { runtime_core.directory_clear(core, address, path) })
-    DirectoryCreateSubdirectory(address, path, name) ->
-      edit(state, fn(core) {
-        runtime_core.directory_create_subdirectory(core, address, path, name)
-      })
-    DirectoryDeleteSubdirectory(address, path, name) ->
-      edit(state, fn(core) {
-        runtime_core.directory_delete_subdirectory(core, address, path, name)
-      })
-    CreateTwoPSet(reply) ->
-      create_channel(state, reply, InitTwoPSet, "create_two_p_set")
-    CreateRegisterCollection(reply) ->
-      create_channel(
-        state,
-        reply,
-        InitRegisterCollection,
-        "create_register_collection",
-      )
-    CreateClaims(reply) ->
-      create_channel(state, reply, InitClaims, "create_claims")
-    CreateJsonOt(reply) ->
-      create_channel(state, reply, InitJsonOt, "create_json_ot")
-    CreateRichText(reply) ->
-      create_channel(state, reply, InitRichText, "create_rich_text")
-    CreateTaskManager(reply) ->
-      create_channel(state, reply, InitTaskManager, "create_task_manager")
-
-    ResolveAddress(address, reply) -> {
-      let known = read(state, False, runtime_core.has_channel(_, address))
-      let result = case known {
-        True -> Ok(Nil)
-        False ->
-          Error(
-            "unresolved handle: no channel at address "
-            <> address
-            <> " (a foreign attach may still be in flight; retry)",
-          )
-      }
-      process.send(reply, result)
-      actor.continue(state)
-    }
-    ResolveSequence(address, reply) -> {
-      process.send(reply, resolve_sequence_address(state, address))
-      actor.continue(state)
-    }
-    ResolveText(address, reply) -> {
-      process.send(reply, resolve_text_address(state, address))
-      actor.continue(state)
-    }
-
-    Summarize(reply) -> handle_summarize(state, reply)
-
-    GetVersions(count, reply) -> {
-      process.send(reply, fetch_document_versions(state, count))
-      actor.continue(state)
-    }
-    LoadVersion(handle, reply) -> {
-      process.send(reply, fetch_version_blob(state, handle))
-      actor.continue(state)
-    }
-
-    GetValue(address, key, reply) -> {
-      process.send(reply, read(state, None, runtime_core.get(_, address, key)))
-      actor.continue(state)
-    }
-    GetCounterValue(address, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.counter_value(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetPnCounterValue(address, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.pn_counter_value(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetPactMapValue(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.pact_map_get(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    GetPactMapKeys(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.pact_map_keys(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetPactMapPending(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.pact_map_is_pending(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    GetPactMapPendingDetails(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.pact_map_pending(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    GetPactMapAccepted(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.pact_map_get_with_details(
-          _,
-          address,
-          key,
-        )),
-      )
-      actor.continue(state)
-    }
-    GetOrderedSize(address, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.ordered_size(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetOrderedQueue(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.ordered_queue(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetOrderedJobs(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.ordered_jobs(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetJsonOtView(address, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.json_ot_view(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetRichTextView(address, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.rich_text_view(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetOrMapValue(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.or_map_value(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    GetOrMapEntries(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.or_map_entries(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetOrMapKeys(address, reply) -> {
-      process.send(reply, read(state, [], runtime_core.or_map_keys(_, address)))
-      actor.continue(state)
-    }
-    OrSetContains(address, element, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.or_set_contains(_, address, element)),
-      )
-      actor.continue(state)
-    }
-    GetOrSetValues(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.or_set_values(_, address)),
-      )
-      actor.continue(state)
-    }
-    GSetContains(address, element, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.g_set_contains(_, address, element)),
-      )
-      actor.continue(state)
-    }
-    GetGSetValues(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.g_set_values(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetSequenceValues(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.sequence_values(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetSequenceLength(address, reply) -> {
-      process.send(
-        reply,
-        read(state, 0, runtime_core.sequence_length(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetTextValue(address, reply) -> {
-      process.send(reply, read(state, "", runtime_core.text_value(_, address)))
-      actor.continue(state)
-    }
-    GetTextLength(address, reply) -> {
-      process.send(reply, read(state, 0, runtime_core.text_length(_, address)))
-      actor.continue(state)
-    }
-    GetTextSubstring(address, start, end, reply) -> {
-      process.send(
-        reply,
-        read(
-          state,
-          Error("text substring requires a ready document connection"),
-          runtime_core.text_substring(_, address, start, end),
-        ),
-      )
-      actor.continue(state)
-    }
-    TextAnchorAt(address, index, bias, reply) -> {
-      process.send(
-        reply,
-        read(
-          state,
-          Error("text anchor_at requires a ready document connection"),
-          runtime_core.text_anchor_at(_, address, index, bias),
-        ),
-      )
-      actor.continue(state)
-    }
-    TextResolveAnchor(address, anchor, reply) -> {
-      process.send(
-        reply,
-        read(
-          state,
-          Error("text resolve_anchor requires a ready document connection"),
-          runtime_core.text_resolve_anchor(_, address, anchor),
-        ),
-      )
-      actor.continue(state)
-    }
-    DirectoryGet(address, path, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.directory_get(_, address, path, key)),
-      )
-      actor.continue(state)
-    }
-    DirectoryEntries(address, path, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.directory_entries(_, address, path)),
-      )
-      actor.continue(state)
-    }
-    DirectorySubdirectories(address, path, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.directory_subdirectories(_, address, path)),
-      )
-      actor.continue(state)
-    }
-    DirectoryHasSubdirectory(address, path, name, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.directory_has_subdirectory(
-          _,
-          address,
-          path,
-          name,
-        )),
-      )
-      actor.continue(state)
-    }
-    TwoPSetContains(address, element, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.two_p_set_contains(_, address, element)),
-      )
-      actor.continue(state)
-    }
-    GetTwoPSetValues(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.two_p_set_values(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetRegisterValue(address, key, policy, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.register_read(_, address, key, policy)),
-      )
-      actor.continue(state)
-    }
-    GetRegisterVersions(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.register_versions(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    GetRegisterKeys(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.register_keys(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetClaim(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, None, runtime_core.get_claim(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    HasClaim(address, key, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.has_claim(_, address, key)),
-      )
-      actor.continue(state)
-    }
-    TaskAssigned(address, task_id, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.task_manager_assigned(
-          _,
-          address,
-          task_id,
-        )),
-      )
-      actor.continue(state)
-    }
-    TaskQueued(address, task_id, reply) -> {
-      process.send(
-        reply,
-        read(state, False, runtime_core.task_manager_queued(_, address, task_id)),
-      )
-      actor.continue(state)
-    }
-    TaskQueues(address, reply) -> {
-      process.send(
-        reply,
-        read(state, [], runtime_core.task_manager_queues(_, address)),
-      )
-      actor.continue(state)
-    }
-    GetEntries(address, reply) -> {
-      process.send(reply, read(state, [], runtime_core.entries(_, address)))
-      actor.continue(state)
-    }
-    GetKeys(address, reply) -> {
-      process.send(reply, read(state, [], runtime_core.keys(_, address)))
-      actor.continue(state)
-    }
-    GetSize(address, reply) -> {
-      process.send(reply, read(state, 0, runtime_core.size(_, address)))
-      actor.continue(state)
-    }
-    IsSynced(reply) -> {
-      process.send(reply, read(state, False, runtime_core.is_synced))
-      actor.continue(state)
-    }
-
-    ClientId(reply) -> {
-      process.send(reply, client_id_of(state))
-      actor.continue(state)
-    }
-
-    Subscribe(address, subscriber) ->
-      actor.continue(
-        State(..state, subscribers: [
-          #(address, subscriber),
-          ..state.subscribers
-        ]),
-      )
-
-    SubmitRipple(ripple_type, content) -> {
-      // Fire-and-forget: push straight to the channel, no kernel/in-flight
-      // bookkeeping. No-op until a handshake has assigned a client id.
-      case state.channel, client_id_of(state) {
-        Some(channel), Some(client_id) ->
-          push(
-            channel,
-            "submitSignal",
-            socket.encode_submit_ripple(
-              client_id: client_id,
-              ripple_type: ripple_type,
-              content: content,
-            ),
-          )
-        _, _ -> Nil
-      }
-      actor.continue(state)
-    }
-
-    SubscribeRipple(subscriber) ->
-      actor.continue(
-        State(..state, ripple_subscribers: [
-          subscriber,
-          ..state.ripple_subscribers
-        ]),
-      )
-
-    SubmitPresence(event, payload) -> {
-      case state.channel {
-        Some(channel) -> push(channel, event, payload)
-        None -> Nil
-      }
-      actor.continue(state)
-    }
-
-    SubscribePresence(subscriber) ->
-      actor.continue(
-        State(..state, presence_subscribers: [
-          subscriber,
-          ..state.presence_subscribers
-        ]),
-      )
-
-    AwaitReady(reply) ->
-      case state.phase {
-        Ready(_, _) -> {
-          process.send(reply, Ok(Nil))
-          actor.continue(state)
-        }
-        Failed(reason) -> {
-          process.send(reply, Error(reason))
-          actor.continue(state)
-        }
-        Connecting(waiters) ->
-          actor.continue(State(..state, phase: Connecting([reply, ..waiters])))
-        // A reconnect can only start after we were Ready, i.e. after
-        // await_ready already returned; treat as ready.
-        Reconnecting(_) -> {
-          process.send(reply, Ok(Nil))
-          actor.continue(state)
-        }
-      }
-
-    DropChannel ->
-      case state.phase {
-        // Reuse the retryable-nack path: close the channel and enter the
-        // reconnecting phase; the receiver's ChannelClosed drives the rejoin.
-        Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
-        _ -> actor.continue(state)
-      }
-
-    Shutdown -> {
-      let state = abort_outcome_waiters(state)
-      case state.channel {
-        Some(channel) -> channel.close()
-        None -> Nil
-      }
-      actor.stop()
-    }
-  }
-}
-
-@target(erlang)
-/// Create a detached channel of the given type, replying with its generated
-/// address. Detached channels are pure local state, so this works in any
-/// connected-ish phase.
-fn create_channel(
-  state: State,
-  reply: Subject(Result(String, String)),
-  init: ChannelInit,
-  verb: String,
-) -> actor.Next(State, Msg) {
-  case state.phase {
-    Ready(core, resubmit_at) -> {
-      let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
-      process.send(reply, Ok(address))
-      actor.continue(State(..state, phase: Ready(core, resubmit_at)))
-    }
-    Reconnecting(core) -> {
-      let address = ids.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
-      process.send(reply, Ok(address))
-      actor.continue(State(..state, phase: Reconnecting(core)))
-    }
-    _ -> {
-      process.send(
-        reply,
-        Error(verb <> " requires a ready document connection"),
-      )
-      actor.continue(state)
-    }
-  }
-}
-
-@target(erlang)
-fn resolve_sequence_address(
-  state: State,
-  address: String,
-) -> Result(Nil, String) {
-  case state.phase {
-    Ready(core, _) | Reconnecting(core) ->
-      runtime_core.require_channel_type(core, address, SequenceChannel)
-      |> result.map_error(string.inspect)
-    _ -> Error("resolve_sequence requires a ready document connection")
-  }
-}
-
-@target(erlang)
-fn resolve_text_address(state: State, address: String) -> Result(Nil, String) {
-  case state.phase {
-    Ready(core, _) | Reconnecting(core) ->
-      runtime_core.require_channel_type(core, address, TextChannel)
-      |> result.map_error(string.inspect)
-    _ -> Error("resolve_text requires a ready document connection")
-  }
-}
-
-@target(erlang)
-fn handle_inbound(
-  state: State,
-  event: String,
-  payload: Dynamic,
-) -> actor.Next(State, Msg) {
-  case event {
-    "connect_document_success" -> {
-      let connected =
-        require(
-          decode.run(payload, socket.connected_message_decoder()),
-          "connect_document_success payload",
-        )
-      // Record what this connection negotiated before anything acts on it, and
-      // on both paths — a reconnect may land on a different node with a
-      // different answer.
-      let state =
-        State(..state, supported_features: connected.supported_features)
-      case state.phase {
-        Connecting(_) -> {
-          let summary = case connected.summary_context {
-            None -> None
-            Some(ctx) ->
-              case fetch_summary(state, ctx) {
-                Ok(summary) -> Some(summary)
-                Error(reason) -> panic as { "summary load failed: " <> reason }
-              }
-          }
-          case runtime_core.bootstrap(connected, summary: summary) {
-            Ok(bootstrapped) -> {
-              let core = complete_bootstrap(state, bootstrapped)
-              notify_waiters(state.phase, Ok(Nil))
-              notify_presence_session(state, core)
-              actor.continue(State(..state, phase: Ready(core, None)))
-            }
-            Error(core_error) ->
-              panic as { "bootstrap failed: " <> string.inspect(core_error) }
-          }
-        }
-        Reconnecting(core) -> {
-          let core = runtime_core.adopt_reconnect(core, connected)
-          let checkpoint =
-            option.unwrap(
-              connected.checkpoint_sequence_number,
-              core.last_seen_sn,
-            )
-          // Ask for the gap. Nothing else will: no server pushes it unprompted,
-          // and the reactive `requestOps` in the `"op"` handler below needs an
-          // op to react to. See `runtime_core.catch_up_from`.
-          maybe_request_ops(
-            state.channel,
-            runtime_core.catch_up_from(core, checkpoint),
-          )
-          // Presence is unsequenced, so it does not wait for the op catch-up
-          // `settle_reconnect` may still be pending — rejoining now is both
-          // correct and the fastest way back to a roster.
-          notify_presence_session(state, core)
-          settle_reconnect(state, core, checkpoint)
-        }
-        // A late duplicate success; nothing to do.
-        _ -> actor.continue(state)
-      }
-    }
-
-    "connect_document_error" -> {
-      let connect_error =
-        require(
-          decode.run(payload, socket.connect_error_decoder()),
-          "connect_document_error payload",
-        )
-      actor.continue(fail(state, connect_error.message))
-    }
-
-    "op" ->
-      case state.phase {
-        Ready(core, resubmit_at) -> {
-          let #(core, events, resolutions, request_from, released) =
-            apply_ops(core, op_message(payload))
-          let state = resolve_claim_waiters(state, resolutions)
-          let state = resolve_acquire_waiters(state, resolutions)
-          fan_out(state.subscribers, events)
-          maybe_request_ops(state.channel, request_from)
-          case resubmit_at {
-            // Mid-reconnect: the ops a kernel just released are already in the
-            // in-flight queue, and `settle_reconnect` is about to restamp that
-            // whole queue with fresh client sequence numbers and send it.
-            // Sending them here as well would put two copies of each on the
-            // wire — the server sequences both, the client only expects the
-            // restamped one, and the stale ack fails the FIFO match. Every
-            // other submit path already gates on `resubmit_at`; this one is
-            // the only route by which an op reaches the wire without the
-            // application asking, which is why only the consensus kernels
-            // (whose `Accept`s are released, not submitted) could trip it.
-            Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
-            None -> {
-              send_outbound(state.channel, core.client_id, released)
-              actor.continue(arm_summary(
-                State(..state, phase: Ready(core, None)),
-                core,
-              ))
-            }
-          }
-        }
-        // Ops before/without a connected session (or while reconnecting)
-        // carry no state we can trust; ignore them.
-        _ -> actor.continue(state)
-      }
-
-    "nack" -> {
-      let nacks =
-        require(decode.run(payload, socket.nacks_decoder()), "nack payload")
-      case list.any(nacks, nack_is_fatal) {
-        True ->
-          panic as { "fatal nack from server: " <> string.inspect(payload) }
-        False ->
-          case state.phase {
-            Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
-            // Already tearing the channel down; the pending reconnect covers it.
-            _ -> actor.continue(state)
-          }
-      }
-    }
-
-    // Ephemeral ripple broadcast: fan out to ripple subscribers. Malformed
-    // payloads are dropped silently — ripples are best-effort.
-    "signal" -> {
-      case decode.run(payload, socket.ripple_message_decoder()) {
-        Error(_) -> Nil
-        Ok(ripple) ->
-          list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
-      }
-      actor.continue(state)
-    }
-
-    "presence_state" -> {
-      notify_presence(state, PresenceState(payload))
-      actor.continue(state)
-    }
-
-    "presence_diff" -> {
-      notify_presence(state, PresenceDiff(payload))
-      actor.continue(state)
-    }
-
-    "presence_error" -> {
-      notify_presence(state, PresenceError(payload))
-      actor.continue(state)
-    }
-
-    // Summary events, pongs: not part of the v1 surface.
-    _ -> actor.continue(state)
-  }
-}
-
-@target(erlang)
-/// Resubmit un-acked ops once catch-up has reached the reconnect checkpoint;
-/// otherwise stay in the catching-up state until more ops arrive.
-fn settle_reconnect(
-  state: State,
-  core: runtime_core.Core,
-  checkpoint: Int,
-) -> actor.Next(State, Msg) {
-  case core.last_seen_sn >= checkpoint {
-    True -> {
-      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
-      send_outbound(state.channel, core.client_id, outbound)
-      actor.continue(State(..state, phase: Ready(core, None)))
-    }
-    False ->
-      actor.continue(State(..state, phase: Ready(core, Some(checkpoint))))
-  }
-}
-
-@target(erlang)
-fn op_message(payload: Dynamic) -> List(SequencedDocumentMessage) {
-  let message =
-    require(decode.run(payload, socket.op_message_decoder()), "op payload")
-  message.ops
-}
-
-@target(erlang)
-fn apply_ops(
-  core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
-) -> #(
-  runtime_core.Core,
-  List(#(String, ChannelEvent)),
-  List(#(String, Resolution)),
-  Option(Int),
-  List(wire.OutboundOp),
-) {
-  do_apply_ops(core, ops, [], [], None, [])
-}
-
-@target(erlang)
-fn do_apply_ops(
-  core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
-  events: List(List(#(String, ChannelEvent))),
-  resolutions: List(List(#(String, Resolution))),
-  request_from: Option(Int),
-  released: List(wire.OutboundOp),
-) -> #(
-  runtime_core.Core,
-  List(#(String, ChannelEvent)),
-  List(#(String, Resolution)),
-  Option(Int),
-  List(wire.OutboundOp),
-) {
-  case ops {
-    [] -> #(
-      core,
-      list.reverse(events) |> list.flatten,
-      list.reverse(resolutions) |> list.flatten,
-      request_from,
-      released,
+    TransportHandle(
+      push: fn(event, payload) {
+        transport_js.push(channel, event, json.to_string(payload))
+      },
+      close: fn() { transport_js.close(channel) },
+      drop: fn() { transport_js.drop_socket(channel) },
+      hold: fn() { transport_js.hold_socket(channel) },
+      resume: fn() { transport_js.resume_socket(channel) },
     )
-    [op, ..rest] ->
-      case runtime_core.handle_sequenced(core, op) {
-        Ok(#(core, ingested)) ->
-          do_apply_ops(
-            core,
-            rest,
-            [ingested.events, ..events],
-            [ingested.resolutions, ..resolutions],
-            option.or(request_from, ingested.request_ops_from),
-            list.append(released, ingested.outbound),
-          )
-        Error(core_error) ->
-          panic as {
-            "sequenced op processing failed: " <> string.inspect(core_error)
-          }
-      }
-  }
-}
-
-@target(erlang)
-fn handle_claim_submit(
-  state: State,
-  address: String,
-  key: String,
-  outcome: Subject(claims_kernel.ClaimOutcome),
-  reply: Subject(ClaimSubmitReply),
-  operate: fn(runtime_core.Core) ->
-    Result(runtime_core.ClaimSubmitResult, runtime_core.CoreError),
-) -> actor.Next(State, Msg) {
-  case state.phase {
-    Ready(core, resubmit_at) ->
-      case operate(core) {
-        Error(runtime_core.WrongChannelType(..)) -> {
-          process.send(reply, WrongChannelType)
-          actor.continue(state)
-        }
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
-        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
-          process.send(reply, AlreadyClaimed(current_value))
-          actor.continue(state)
-        }
-        Ok(runtime_core.ClaimAlreadyPendingLocally) -> {
-          process.send(reply, AlreadyPendingLocally)
-          actor.continue(state)
-        }
-        Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
-          process.send(reply, Pending(outcome))
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              outcome,
-              immediate_outcome,
-            )
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
-          }
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
-        }
-      }
-
-    Reconnecting(core) ->
-      case operate(core) {
-        Error(runtime_core.WrongChannelType(..)) -> {
-          process.send(reply, WrongChannelType)
-          actor.continue(state)
-        }
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
-        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
-          process.send(reply, AlreadyClaimed(current_value))
-          actor.continue(state)
-        }
-        Ok(runtime_core.ClaimAlreadyPendingLocally) -> {
-          process.send(reply, AlreadyPendingLocally)
-          actor.continue(state)
-        }
-        Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
-          process.send(reply, Pending(outcome))
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              outcome,
-              immediate_outcome,
-            )
-          actor.continue(State(..state, phase: Reconnecting(core)))
-        }
-      }
-
-    _ -> panic as "claim submit before the document connection is ready"
-  }
-}
-
-@target(erlang)
-fn register_claim_waiter(
-  state: State,
-  address: String,
-  key: String,
-  waiter: Subject(claims_kernel.ClaimOutcome),
-  immediate_outcome: Option(claims_kernel.ClaimOutcome),
-) -> State {
-  case immediate_outcome {
-    Some(outcome) -> {
-      process.send(waiter, outcome)
-      state
-    }
-    None ->
-      State(
-        ..state,
-        claim_waiters: dict.insert(state.claim_waiters, #(address, key), waiter),
-      )
-  }
-}
-
-@target(erlang)
-fn resolve_claim_waiters(
-  state: State,
-  resolutions: List(#(String, Resolution)),
-) -> State {
-  let claim_waiters =
-    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
-      let #(address, resolution) = item
-      case resolution {
-        ClaimResolved(key, outcome) ->
-          case dict.get(acc, #(address, key)) {
-            Ok(waiter) -> {
-              process.send(waiter, outcome)
-              dict.delete(acc, #(address, key))
-            }
-            Error(_) -> acc
-          }
-        _ -> acc
-      }
-    })
-  State(..state, claim_waiters: claim_waiters)
-}
-
-@target(erlang)
-fn abort_outcome_waiters(state: State) -> State {
-  dict.values(state.claim_waiters)
-  |> list.each(fn(waiter) { process.send(waiter, claims_kernel.Aborted) })
-  dict.values(state.acquire_waiters)
-  |> list.each(fn(waiter) {
-    process.send(waiter, ordered_collection_kernel.Aborted)
   })
-  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
 }
 
-@target(erlang)
-/// Mint an acquire id, submit the `Acquire` op, and reply with the id so the
-/// caller can later complete/release the job. The acquired item itself arrives
-/// via the sequenced `Acquired` event (the queue is non-optimistic).
-fn handle_ordered_acquire(
-  state: State,
+// ─────────────────────────────────────────────────────────────────────────────
+// Public edits / reads / events
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn set(runtime: Runtime, address: String, key: String, value: Json) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.set(core, address, key, value) })
+}
+
+@target(javascript)
+pub fn delete(runtime: Runtime, address: String, key: String) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.delete(core, address, key) })
+}
+
+@target(javascript)
+pub fn clear(runtime: Runtime, address: String) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.clear(core, address) })
+}
+
+@target(javascript)
+pub fn get(runtime: Runtime, address: String, key: String) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.get(_, address, key))
+}
+
+@target(javascript)
+pub fn entries(runtime: Runtime, address: String) -> List(#(String, Json)) {
+  read(runtime.cell, [], runtime_core.entries(_, address))
+}
+
+@target(javascript)
+pub fn keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.keys(_, address))
+}
+
+@target(javascript)
+pub fn size(runtime: Runtime, address: String) -> Int {
+  read(runtime.cell, 0, runtime_core.size(_, address))
+}
+
+@target(javascript)
+pub fn has(runtime: Runtime, address: String, key: String) -> Bool {
+  get(runtime, address, key) != None
+}
+
+@target(javascript)
+/// Optimistically increment the counter at `address` (negative amounts
+/// decrement).
+pub fn increment(runtime: Runtime, address: String, amount: Int) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.increment(core, address, amount) })
+}
+
+@target(javascript)
+/// The counter's optimistic value, `None` when the address is missing or
+/// not a counter channel.
+pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.counter_value(_, address))
+}
+
+@target(javascript)
+/// Optimistically apply a signed update to the PN-counter at `address`
+/// (negative amounts decrement).
+pub fn pn_counter_update(
+  runtime: Runtime,
   address: String,
-  reply: Subject(String),
-) -> actor.Next(State, Msg) {
+  amount: Int,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pn_counter_update(core, address, amount)
+  })
+}
+
+@target(javascript)
+/// The PN-counter's optimistic value, `None` when the address is missing or
+/// not a pn-counter channel.
+pub fn pn_counter_value(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.pn_counter_value(_, address))
+}
+
+@target(javascript)
+/// Propose `value` for `key` in the PactMap at `address`. Consensus, not
+/// optimistic: the value takes effect only once the `Set` sequences (and its
+/// automatic `Accept` follow-up settles the quorum).
+pub fn pact_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pact_map_set(core, address, key, value)
+  })
+}
+
+@target(javascript)
+/// Propose a delete (tombstone) for `key` in the PactMap at `address`.
+pub fn pact_map_delete(runtime: Runtime, address: String, key: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.pact_map_delete(core, address, key)
+  })
+}
+
+@target(javascript)
+/// The PactMap's accepted value for `key`, `None` when pending, absent, or not
+/// a PactMap channel.
+pub fn pact_map_get(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.pact_map_get(_, address, key))
+}
+
+@target(javascript)
+/// All keys with an accepted or pending pact in the PactMap at `address`.
+pub fn pact_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.pact_map_keys(_, address))
+}
+
+@target(javascript)
+/// Whether `key` has a pending (proposed but not-yet-accepted) value.
+pub fn pact_map_is_pending(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.pact_map_is_pending(_, address, key))
+}
+
+@target(javascript)
+/// The pending proposal for `key` — value plus the signoff list it is waiting
+/// on — `None` when nothing is pending.
+pub fn pact_map_pending(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Pending) {
+  read(runtime.cell, None, runtime_core.pact_map_pending(_, address, key))
+}
+
+@target(javascript)
+/// The accepted entry (value + sequence number) for `key`, `None` when the key
+/// has no accepted value.
+pub fn pact_map_get_with_details(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(pact_map_kernel.Accepted) {
+  read(runtime.cell, None, runtime_core.pact_map_get_with_details(
+    _,
+    address,
+    key,
+  ))
+}
+
+@target(javascript)
+/// Append `value` to the ordered collection at `address`. Non-optimistic when
+/// attached (takes effect on sequencing); a detached channel adds immediately.
+pub fn ordered_add(runtime: Runtime, address: String, value: Json) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.ordered_add(core, address, value) })
+}
+
+@target(javascript)
+/// Acquire the head of the ordered collection at `address`, returning the minted
+/// acquire id for the later `ordered_complete`/`ordered_release`. The acquired
+/// item arrives via the `Acquired` event (the queue is non-optimistic).
+pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
   let acquire_id = ids.uuid_v4()
-  process.send(reply, acquire_id)
-  edit(state, fn(core) {
+  edit(runtime.cell, fn(core) {
     runtime_core.ordered_acquire(core, address, acquire_id)
   })
+  acquire_id
 }
 
-@target(erlang)
-/// Like `handle_ordered_acquire`, but registers `outcome` to receive the
-/// acquire's consensus result: immediately for a detached channel, on the
-/// `AcquireResolved` resolution when the op sequences, or `Aborted` when the
-/// document closes with the acquire still in flight.
-fn handle_ordered_acquire_with_outcome(
-  state: State,
+@target(javascript)
+/// Like `ordered_acquire`, but also reports the acquire's consensus outcome.
+/// `on_outcome` fires exactly once: `AcquiredItem` when this client won the
+/// head, `QueueEmpty` when the queue had drained by the time the op sequenced
+/// (a losing acquire emits no event, so this is the loser's only signal), or
+/// `Aborted` when the document closes with the acquire still in flight. A
+/// detached channel resolves immediately.
+pub fn ordered_acquire_with_outcome(
+  runtime: Runtime,
   address: String,
-  outcome: Subject(ordered_collection_kernel.AcquireOutcome),
-  reply: Subject(String),
-) -> actor.Next(State, Msg) {
+  on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
+) -> String {
   let acquire_id = ids.uuid_v4()
-  process.send(reply, acquire_id)
+  let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) ->
       case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
@@ -2182,16 +541,19 @@ fn handle_ordered_acquire_with_outcome(
               state,
               address,
               acquire_id,
-              outcome,
+              on_outcome,
               immediate_outcome,
             )
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+          acquire_id
         }
       }
     Reconnecting(core) ->
@@ -2204,31 +566,1923 @@ fn handle_ordered_acquire_with_outcome(
               state,
               address,
               acquire_id,
-              outcome,
+              on_outcome,
               immediate_outcome,
             )
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
+          acquire_id
         }
       }
     _ -> {
-      process.send(outcome, ordered_collection_kernel.Aborted)
-      actor.continue(state)
+      on_outcome(ordered_collection_kernel.Aborted)
+      acquire_id
     }
   }
 }
 
-@target(erlang)
+@target(javascript)
+/// Complete the held job `acquire_id` in the ordered collection at `address`.
+pub fn ordered_complete(
+  runtime: Runtime,
+  address: String,
+  acquire_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.ordered_complete(core, address, acquire_id)
+  })
+}
+
+@target(javascript)
+/// Release the held job `acquire_id` back to the ordered collection at `address`.
+pub fn ordered_release(
+  runtime: Runtime,
+  address: String,
+  acquire_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.ordered_release(core, address, acquire_id)
+  })
+}
+
+@target(javascript)
+/// The number of queued (not-yet-acquired) items at `address`, `None` when
+/// missing or not an ordered-collection channel.
+pub fn ordered_size(runtime: Runtime, address: String) -> Option(Int) {
+  read(runtime.cell, None, runtime_core.ordered_size(_, address))
+}
+
+@target(javascript)
+/// The queued (not-yet-acquired) values at `address`, front first.
+pub fn ordered_queue(runtime: Runtime, address: String) -> List(Json) {
+  read(runtime.cell, [], runtime_core.ordered_queue(_, address))
+}
+
+@target(javascript)
+/// The currently-held jobs at `address`, keyed by acquire id (sorted).
+pub fn ordered_jobs(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, ordered_collection_kernel.JobEntry)) {
+  read(runtime.cell, [], runtime_core.ordered_jobs(_, address))
+}
+
+@target(javascript)
+/// Optimistically submit a json0 op to the channel at `address`.
+pub fn submit_json_ot(
+  runtime: Runtime,
+  address: String,
+  components: json_ot.Op,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.submit_json_ot(core, address, components)
+  })
+}
+
+@target(javascript)
+/// The json0 channel's optimistic document, `None` when the address is missing
+/// or not a json0 channel.
+pub fn json_ot_view(
+  runtime: Runtime,
+  address: String,
+) -> Option(json_ot.JsonValue) {
+  read(runtime.cell, None, runtime_core.json_ot_view(_, address))
+}
+
+@target(javascript)
+/// Optimistically submit a rich-text delta to the channel at `address`.
+pub fn submit_rich_text(
+  runtime: Runtime,
+  address: String,
+  delta: rich_text.Delta,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.submit_rich_text(core, address, delta)
+  })
+}
+
+@target(javascript)
+/// The rich-text channel's optimistic document, `None` when the address is
+/// missing or not a rich-text channel.
+pub fn rich_text_view(
+  runtime: Runtime,
+  address: String,
+) -> Option(rich_text.Document) {
+  read(runtime.cell, None, runtime_core.rich_text_view(_, address))
+}
+
+@target(javascript)
+pub fn or_map_increment(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  amount: Int,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_increment(core, address, key, amount)
+  })
+}
+
+@target(javascript)
+pub fn or_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_set(core, address, key, value, transport_js.now_ms())
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove(runtime: Runtime, address: String, key: String) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.or_map_remove(core, address, key) })
+}
+
+@target(javascript)
+pub fn or_map_value(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(OrMapValue) {
+  read(runtime.cell, None, runtime_core.or_map_value(_, address, key))
+}
+
+@target(javascript)
+pub fn or_map_entries(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, OrMapValue)) {
+  read(runtime.cell, [], runtime_core.or_map_entries(_, address))
+}
+
+@target(javascript)
+pub fn or_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.or_map_keys(_, address))
+}
+
+@target(javascript)
+pub fn or_set_add(runtime: Runtime, address: String, element: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_set_add(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn or_set_remove(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_set_remove(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn or_set_contains(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.or_set_contains(_, address, element))
+}
+
+@target(javascript)
+pub fn or_set_values(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.or_set_values(_, address))
+}
+
+@target(javascript)
+pub fn g_set_add(runtime: Runtime, address: String, element: String) -> Nil {
+  edit(runtime.cell, fn(core) { runtime_core.g_set_add(core, address, element) })
+}
+
+@target(javascript)
+pub fn g_set_contains(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.g_set_contains(_, address, element))
+}
+
+@target(javascript)
+pub fn g_set_values(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.g_set_values(_, address))
+}
+
+@target(javascript)
+pub fn sequence_insert(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_insert(core, address, index, value)
+  })
+}
+
+@target(javascript)
+pub fn sequence_delete(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_delete(core, address, index)
+  })
+}
+
+@target(javascript)
+pub fn sequence_move(
+  runtime: Runtime,
+  address: String,
+  from_index: Int,
+  to_index: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_move(core, address, from_index, to_index)
+  })
+}
+
+@target(javascript)
+pub fn sequence_replace(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: Json,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.sequence_replace(core, address, index, value)
+  })
+}
+
+@target(javascript)
+pub fn sequence_values(runtime: Runtime, address: String) -> List(Json) {
+  read(runtime.cell, [], runtime_core.sequence_values(_, address))
+}
+
+@target(javascript)
+pub fn sequence_length(runtime: Runtime, address: String) -> Int {
+  read(runtime.cell, 0, runtime_core.sequence_length(_, address))
+}
+
+// ── SharedText ───────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Insert `value` at the optimistic grapheme `index`. An empty `value` at a
+/// valid index is a no-op: `Ok(Nil)` with no outbound effect (see
+/// `text_kernel` module docs).
+pub fn text_insert(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_insert(core, address, index, value)
+  })
+}
+
+@target(javascript)
+/// Delete the graphemes in `[start, end)`. An empty range at valid bounds is
+/// a no-op.
+pub fn text_delete_range(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_delete_range(core, address, start, end)
+  })
+}
+
+@target(javascript)
+/// Replace the graphemes in `[start, end)` with `value`. Only an empty range
+/// replaced with `""` is a no-op.
+pub fn text_replace_range(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_replace_range(core, address, start, end, value)
+  })
+}
+
+@target(javascript)
+/// Insert `value` at the end of the text. An empty `value` is a no-op.
+pub fn text_append(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_text_with_result(runtime.cell, fn(core) {
+    runtime_core.text_append(core, address, value)
+  })
+}
+
+@target(javascript)
+/// The text channel's current optimistic visible string, `""` when the
+/// address is missing or not a text channel.
+pub fn text_value(runtime: Runtime, address: String) -> String {
+  read(runtime.cell, "", runtime_core.text_value(_, address))
+}
+
+@target(javascript)
+/// The text channel's current optimistic grapheme count, `0` when the
+/// address is missing or not a text channel.
+pub fn text_length(runtime: Runtime, address: String) -> Int {
+  read(runtime.cell, 0, runtime_core.text_length(_, address))
+}
+
+@target(javascript)
+/// The graphemes in `[start, end)` of the text channel's optimistic string.
+pub fn text_substring(
+  runtime: Runtime,
+  address: String,
+  start: Int,
+  end: Int,
+) -> Result(String, String) {
+  read(
+    runtime.cell,
+    Error("text_substring requires a ready document connection"),
+    runtime_core.text_substring(_, address, start, end),
+  )
+}
+
+@target(javascript)
+/// Create a stable anchor at the gap at `index`; `bias` selects which
+/// adjacent grapheme the anchor binds to (`Before` binds to the following
+/// grapheme, `After` to the preceding one).
+pub fn text_anchor_at(
+  runtime: Runtime,
+  address: String,
+  index: Int,
+  bias: text_kernel.Bias,
+) -> Result(text_kernel.TextAnchor, String) {
+  read(
+    runtime.cell,
+    Error("text_anchor_at requires a ready document connection"),
+    runtime_core.text_anchor_at(_, address, index, bias),
+  )
+}
+
+@target(javascript)
+/// Resolve an anchor to a current optimistic grapheme index.
+pub fn text_resolve_anchor(
+  runtime: Runtime,
+  address: String,
+  anchor: text_kernel.TextAnchor,
+) -> Result(Int, String) {
+  read(
+    runtime.cell,
+    Error("text_resolve_anchor requires a ready document connection"),
+    runtime_core.text_resolve_anchor(_, address, anchor),
+  )
+}
+
+@target(javascript)
+/// An anchor at the start of the text. Always resolves to 0. Pure — doesn't
+/// need a `Runtime`/address since it carries no document state.
+pub fn text_start_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_start_anchor()
+}
+
+@target(javascript)
+/// An anchor at the end of the text. Always resolves to the current
+/// grapheme length, tracking growth. Pure, like `text_start_anchor`.
+pub fn text_end_anchor() -> text_kernel.TextAnchor {
+  runtime_core.text_end_anchor()
+}
+
+@target(javascript)
+/// Encode an anchor as a self-describing JSON value, for example to travel
+/// through presence for shared cursors.
+pub fn text_anchor_to_json(anchor: text_kernel.TextAnchor) -> Json {
+  runtime_core.text_anchor_to_json(anchor)
+}
+
+@target(javascript)
+/// Decode an anchor from a JSON string produced by `text_anchor_to_json`.
+pub fn text_anchor_from_json(
+  json_string: String,
+) -> Result(text_kernel.TextAnchor, String) {
+  runtime_core.text_anchor_from_json(json_string)
+}
+
+// ── SharedDirectory ─────────────────────────────────────────────────────────
+
+@target(javascript)
+pub fn create_directory(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitDirectory, "create_directory")
+}
+
+@target(javascript)
+pub fn directory_set(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_set(core, address, path, key, value)
+  })
+}
+
+@target(javascript)
+pub fn directory_delete(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_delete(core, address, path, key)
+  })
+}
+
+@target(javascript)
+pub fn directory_clear(runtime: Runtime, address: String, path: String) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_clear(core, address, path)
+  })
+}
+
+@target(javascript)
+pub fn directory_create_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_create_subdirectory(core, address, path, name)
+  })
+}
+
+@target(javascript)
+pub fn directory_delete_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.directory_delete_subdirectory(core, address, path, name)
+  })
+}
+
+@target(javascript)
+pub fn directory_get(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.directory_get(_, address, path, key))
+}
+
+@target(javascript)
+pub fn directory_entries(
+  runtime: Runtime,
+  address: String,
+  path: String,
+) -> List(#(String, Json)) {
+  read(runtime.cell, [], runtime_core.directory_entries(_, address, path))
+}
+
+@target(javascript)
+pub fn directory_subdirectories(
+  runtime: Runtime,
+  address: String,
+  path: String,
+) -> List(String) {
+  read(runtime.cell, [], runtime_core.directory_subdirectories(_, address, path))
+}
+
+@target(javascript)
+pub fn directory_has_subdirectory(
+  runtime: Runtime,
+  address: String,
+  path: String,
+  name: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.directory_has_subdirectory(
+    _,
+    address,
+    path,
+    name,
+  ))
+}
+
+@target(javascript)
+pub fn two_p_set_add(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.two_p_set_add(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn two_p_set_remove(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.two_p_set_remove(core, address, element)
+  })
+}
+
+@target(javascript)
+pub fn two_p_set_contains(
+  runtime: Runtime,
+  address: String,
+  element: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.two_p_set_contains(_, address, element))
+}
+
+@target(javascript)
+pub fn two_p_set_values(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.two_p_set_values(_, address))
+}
+
+@target(javascript)
+pub fn register_write(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.register_write(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn register_read(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  policy: ReadPolicy,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.register_read(_, address, key, policy))
+}
+
+@target(javascript)
+pub fn register_versions(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(List(Json)) {
+  read(runtime.cell, None, runtime_core.register_versions(_, address, key))
+}
+
+@target(javascript)
+pub fn register_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.register_keys(_, address))
+}
+
+@target(javascript)
+pub fn get_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Option(Json) {
+  read(runtime.cell, None, runtime_core.get_claim(_, address, key))
+}
+
+@target(javascript)
+pub fn has_claim(runtime: Runtime, address: String, key: String) -> Bool {
+  read(runtime.cell, False, runtime_core.has_claim(_, address, key))
+}
+
+@target(javascript)
+pub fn try_set_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  claim_submit(runtime.cell, address, key, fn(core) {
+    runtime_core.try_set_claim(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn compare_and_set_claim(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: Json,
+) -> ClaimSubmitReply {
+  claim_submit(runtime.cell, address, key, fn(core) {
+    runtime_core.compare_and_set_claim(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn task_manager_volunteer(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> task_manager_kernel.VolunteerOutcome {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound, outcome)) -> {
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          outcome
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.task_manager_volunteer(core, address, task_id) {
+        Error(core_error) ->
+          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound, outcome)) -> {
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          outcome
+        }
+      }
+    _ -> task_manager_kernel.DisconnectedBeforeAssignment
+  }
+}
+
+@target(javascript)
+pub fn task_manager_abandon(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.task_manager_abandon(core, address, task_id)
+  })
+}
+
+@target(javascript)
+pub fn task_manager_complete(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case runtime_core.task_manager_complete(core, address, task_id) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) ->
+          Error("task is not assigned: " <> task_id)
+        Error(core_error) ->
+          panic as { "complete_task failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, outbound)) -> {
+          cell_set(
+            runtime.cell,
+            State(..state, phase: Ready(core, resubmit_at)),
+          )
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
+          }
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+      }
+    Reconnecting(core) ->
+      case runtime_core.task_manager_complete(core, address, task_id) {
+        Error(runtime_core.TaskNotAssigned(_, task_id)) ->
+          Error("task is not assigned: " <> task_id)
+        Error(core_error) ->
+          panic as { "complete_task failed: " <> string.inspect(core_error) }
+        Ok(#(core, events, _outbound)) -> {
+          cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          fan_out(state.subscribers, events)
+          Ok(Nil)
+        }
+      }
+    _ -> Error("complete_task requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn task_manager_assigned(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.task_manager_assigned(
+    _,
+    address,
+    task_id,
+  ))
+}
+
+@target(javascript)
+pub fn task_manager_queued(
+  runtime: Runtime,
+  address: String,
+  task_id: String,
+) -> Bool {
+  read(runtime.cell, False, runtime_core.task_manager_queued(
+    _,
+    address,
+    task_id,
+  ))
+}
+
+@target(javascript)
+pub fn task_manager_queues(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, List(Int))) {
+  read(runtime.cell, [], runtime_core.task_manager_queues(_, address))
+}
+
+@target(javascript)
+/// Create a new detached map channel: local-only until its handle is first
+/// stored into an attached map. Returns the generated address.
+pub fn create_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitMap, "create_map")
+}
+
+@target(javascript)
+/// Create a new detached counter channel, same lifecycle as `create_map`.
+pub fn create_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitCounter, "create_counter")
+}
+
+@target(javascript)
+/// Create a new detached PN-counter channel, same lifecycle as `create_map`.
+pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitPnCounter, "create_pn_counter")
+}
+
+@target(javascript)
+/// Create a new detached PactMap (consensus map) channel, same lifecycle as
+/// `create_map`.
+pub fn create_pact_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitPactMap, "create_pact_map")
+}
+
+@target(javascript)
+/// Create a new detached ConsensusOrderedCollection channel, same lifecycle as
+/// `create_map`.
+pub fn create_ordered_collection(runtime: Runtime) -> Result(String, String) {
+  create_channel(
+    runtime,
+    channel.InitOrderedCollection,
+    "create_ordered_collection",
+  )
+}
+
+@target(javascript)
+pub fn create_or_map(
+  runtime: Runtime,
+  mode: OrMapMode,
+) -> Result(String, String) {
+  create_channel(runtime, channel.InitOrMap(mode), "create_or_map")
+}
+
+@target(javascript)
+pub fn create_or_set(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitOrSet, "create_or_set")
+}
+
+@target(javascript)
+pub fn create_g_set(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitGSet, "create_g_set")
+}
+
+@target(javascript)
+pub fn create_sequence(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitSequence, "create_sequence")
+}
+
+@target(javascript)
+/// Create a new detached text channel, same lifecycle as `create_map`.
+pub fn create_text(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitText, "create_text")
+}
+
+@target(javascript)
+pub fn create_two_p_set(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitTwoPSet, "create_two_p_set")
+}
+
+@target(javascript)
+pub fn create_register_collection(runtime: Runtime) -> Result(String, String) {
+  create_channel(
+    runtime,
+    channel.InitRegisterCollection,
+    "create_register_collection",
+  )
+}
+
+@target(javascript)
+pub fn create_claims(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitClaims, "create_claims")
+}
+
+@target(javascript)
+/// Create a new detached json0 channel, same lifecycle as `create_map`.
+pub fn create_json_ot(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitJsonOt, "create_json_ot")
+}
+
+@target(javascript)
+/// Create a new detached rich-text channel, same lifecycle as `create_map`.
+pub fn create_rich_text(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitRichText, "create_rich_text")
+}
+
+@target(javascript)
+pub fn create_task_manager(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitTaskManager, "create_task_manager")
+}
+
+@target(javascript)
+fn claim_submit(
+  cell: Cell(State),
+  address: String,
+  key: String,
+  operate: fn(runtime_core.Core) ->
+    Result(runtime_core.ClaimSubmitResult, runtime_core.CoreError),
+) -> ClaimSubmitReply {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
+          AlreadyClaimed(current_value)
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
+        Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
+          let #(promise_outcome, resolve_outcome) = promise.start()
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              resolve_outcome,
+              immediate_outcome,
+            )
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
+          }
+          Pending(promise_outcome)
+        }
+      }
+    Reconnecting(core) ->
+      case operate(core) {
+        Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
+        Error(core_error) ->
+          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
+          AlreadyClaimed(current_value)
+        Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
+        Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
+          let #(promise_outcome, resolve_outcome) = promise.start()
+          let state =
+            register_claim_waiter(
+              state,
+              address,
+              key,
+              resolve_outcome,
+              immediate_outcome,
+            )
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          Pending(promise_outcome)
+        }
+      }
+    _ -> WrongChannelType
+  }
+}
+
+@target(javascript)
+fn create_channel(
+  runtime: Runtime,
+  init: channel.ChannelInit,
+  verb: String,
+) -> Result(String, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, resubmit_at) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address, init)
+      cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
+      Ok(address)
+    }
+    Reconnecting(core) -> {
+      let address = ids.uuid_v4()
+      let core = runtime_core.create_detached(core, address, init)
+      cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      Ok(address)
+    }
+    _ -> Error(verb <> " requires a ready document connection")
+  }
+}
+
+@target(javascript)
+/// Whether a channel exists at `address` (attached or detached). Errors are
+/// retryable — a foreign attach may still be in flight.
+pub fn resolve_address(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  case read(runtime.cell, False, runtime_core.has_channel(_, address)) {
+    True -> Ok(Nil)
+    False ->
+      Error(
+        "unresolved handle: no channel at address "
+        <> address
+        <> " (a foreign attach may still be in flight; retry)",
+      )
+  }
+}
+
+@target(javascript)
+pub fn resolve_sequence(
+  runtime: Runtime,
+  address: String,
+) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case
+        runtime_core.require_channel_type(
+          core,
+          address,
+          channel.SequenceChannel,
+        )
+      {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("resolve_sequence requires a ready document connection")
+  }
+}
+
+@target(javascript)
+pub fn resolve_text(runtime: Runtime, address: String) -> Result(Nil, String) {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case
+        runtime_core.require_channel_type(core, address, channel.TextChannel)
+      {
+        Ok(Nil) -> Ok(Nil)
+        Error(error) -> Error(string.inspect(error))
+      }
+    _ -> Error("resolve_text requires a ready document connection")
+  }
+}
+
+@target(javascript)
+/// Register a callback invoked for every local and remote event on the
+/// channel at `address`.
+pub fn subscribe(
+  runtime: Runtime,
+  address: String,
+  handler: fn(ChannelEvent) -> Nil,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  cell_set(
+    runtime.cell,
+    State(..state, subscribers: [#(address, handler), ..state.subscribers]),
+  )
+}
+
+@target(javascript)
+/// The server-assigned client id for this connection, `None` before the first
+/// handshake completes.
+///
+/// It survives a reconnect only in the sense that there is always *a* current
+/// id: `adopt_reconnect` replaces it with whatever the fresh handshake
+/// assigns, which may differ from the previous one. Callers holding it across
+/// a disconnect must re-read rather than cache.
+pub fn client_id(runtime: Runtime) -> Option(String) {
+  client_id_of(cell_get(runtime.cell))
+}
+
+@target(javascript)
+fn client_id_of(state: State) -> Option(String) {
+  case state.phase {
+    Ready(core, _) -> Some(core.client_id)
+    Reconnecting(core) -> Some(core.client_id)
+    _ -> None
+  }
+}
+
+@target(javascript)
+/// Broadcast an ephemeral, document-scoped ripple (`type` + arbitrary JSON
+/// `content`). Ripples are non-sequenced and non-persisted — fire-and-forget,
+/// with no ack, resubmit, or catch-up. A no-op until the client has a
+/// server-assigned client id (i.e. before the first handshake completes).
+pub fn send_ripple(
+  runtime: Runtime,
+  ripple_type: String,
+  content: Json,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.channel, client_id_of(state) {
+    Some(channel), Some(client_id) ->
+      push_json(
+        channel,
+        "submitSignal",
+        socket.encode_submit_ripple(
+          client_id: client_id,
+          ripple_type: ripple_type,
+          content: content,
+        ),
+      )
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Register a callback invoked for every inbound ephemeral ripple on the
+/// document. Content is left as `Dynamic` for the caller to decode.
+pub fn subscribe_ripples(
+  runtime: Runtime,
+  handler: fn(SignalMessage) -> Nil,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  cell_set(
+    runtime.cell,
+    State(..state, ripple_subscribers: [handler, ..state.ripple_subscribers]),
+  )
+}
+
+@target(javascript)
+/// Push a presence-lane command (`joinPresence`, `updatePresence`,
+/// `leavePresence`). A no-op before the channel exists.
+///
+/// Unlike `send_ripple` this does not wait for a client id: presence payloads
+/// carry no identity at all, because the server derives key and session from
+/// the authenticated connection.
+pub fn send_presence(runtime: Runtime, event: String, payload: Json) -> Nil {
+  case cell_get(runtime.cell).channel {
+    Some(channel) -> push_json(channel, event, payload)
+    None -> Nil
+  }
+}
+
+@target(javascript)
+/// Register a callback for every presence-lane frame, data and lifecycle alike.
+/// Payloads are left as `Dynamic` for the typed driver to decode.
+pub fn subscribe_presence(
+  runtime: Runtime,
+  handler: fn(PresenceFrame) -> Nil,
+) -> Nil {
+  let state = cell_get(runtime.cell)
+  cell_set(
+    runtime.cell,
+    State(..state, presence_subscribers: [handler, ..state.presence_subscribers]),
+  )
+}
+
+@target(javascript)
+/// Whether the *current* connection's handshake advertised `presence_v1`.
+/// False before the first handshake settles.
+pub fn supports_presence(runtime: Runtime) -> Bool {
+  socket.supports_feature(
+    cell_get(runtime.cell).supported_features,
+    socket.feature_presence_v1,
+  )
+}
+
+@target(javascript)
+/// The authenticated user id this runtime connected as. Server presence derives
+/// the presence key from the same value; ripple mode reads it here so the two
+/// implementations key their rosters identically.
+pub fn user_id(runtime: Runtime) -> String {
+  cell_get(runtime.cell).connect_message.client.user.id
+}
+
+@target(javascript)
+/// Fault-injection hook: drop the socket to force the reconnect/reconcile path.
+pub fn force_reconnect(runtime: Runtime) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.channel {
+    Ready(core, _), Some(channel) -> {
+      cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(runtime.cell, state.phase)
+      channel.drop()
+    }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Go offline and stay there: hold the connection down while the document keeps
+/// accepting edits locally. `go_online` brings it back.
+///
+/// The phase parks at `Reconnecting`, which is a state the runtime already
+/// serves fully — reads and edits both work, edits accumulate as pending, and
+/// the rejoin handshake carries `last_seen` and flushes them. Nothing here is a
+/// new state machine; the only new thing is that the socket does not come back
+/// on its own.
+///
+/// This is what an offline toggle needs and neither neighbouring hook provides.
+/// `force_reconnect` is away-and-back with no window in between, and `close` is
+/// terminal — reconnecting after it means a fresh runtime, whose empty core has
+/// none of the edits made in the meantime.
+pub fn go_offline(runtime: Runtime) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.channel {
+    Ready(core, _), Some(channel) -> {
+      cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(runtime.cell, state.phase)
+      channel.hold()
+    }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Come back from `go_offline`. A no-op unless the connection is held, so a UI
+/// can bind this to a toggle without tracking the phase itself.
+pub fn go_online(runtime: Runtime) -> Nil {
+  let state = cell_get(runtime.cell)
+  case state.phase, state.channel {
+    Reconnecting(_), Some(channel) -> channel.resume()
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+pub fn close(runtime: Runtime) -> Nil {
+  let state = abort_outcome_waiters(cell_get(runtime.cell))
+  cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
+  notify_session_lost(runtime.cell, state.phase)
+  case state.channel {
+    Some(channel) -> channel.close()
+    None -> Nil
+  }
+}
+
+@target(javascript)
+/// Whether the document is fully caught up: every local edit has been
+/// acknowledged by the server, so the confirmed state is complete and stable.
+pub fn is_synced(runtime: Runtime) -> Bool {
+  case cell_get(runtime.cell).phase {
+    Ready(core, None) -> runtime_core.is_synced(core)
+    _ -> False
+  }
+}
+
+@target(javascript)
+/// Snapshot connection and sequencing state for diagnostics. This does not
+/// mutate the runtime and is safe to poll from a debug UI.
+pub fn diagnostics(runtime: Runtime) -> Diagnostics {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Connecting ->
+      Diagnostics(
+        phase: "connecting",
+        client_id: None,
+        last_seen_sequence_number: None,
+        next_client_sequence_number: None,
+        in_flight_count: 0,
+        buffered_out_of_order_count: 0,
+        resubmit_checkpoint: None,
+        synced: False,
+        ops_since_summary: 0,
+        summary_pending: False,
+      )
+    Reconnecting(core) ->
+      diagnostics_from_core(core, "reconnecting", None, False, state)
+    Ready(core, Some(checkpoint)) ->
+      diagnostics_from_core(core, "catching-up", Some(checkpoint), False, state)
+    Ready(core, None) ->
+      diagnostics_from_core(
+        core,
+        "ready",
+        None,
+        runtime_core.is_synced(core),
+        state,
+      )
+    Failed(reason) ->
+      Diagnostics(
+        phase: "failed: " <> reason,
+        client_id: None,
+        last_seen_sequence_number: None,
+        next_client_sequence_number: None,
+        in_flight_count: 0,
+        buffered_out_of_order_count: 0,
+        resubmit_checkpoint: None,
+        synced: False,
+        ops_since_summary: 0,
+        summary_pending: False,
+      )
+  }
+}
+
+@target(javascript)
+fn diagnostics_from_core(
+  core: runtime_core.Core,
+  phase: String,
+  checkpoint: Option(Int),
+  synced: Bool,
+  state: State,
+) -> Diagnostics {
+  Diagnostics(
+    phase: phase,
+    client_id: Some(core.client_id),
+    last_seen_sequence_number: Some(core.last_seen_sn),
+    next_client_sequence_number: Some(core.next_csn),
+    in_flight_count: list.length(core.in_flight),
+    buffered_out_of_order_count: list.length(core.out_of_order),
+    resubmit_checkpoint: checkpoint,
+    synced: synced,
+    ops_since_summary: runtime_core.ops_since_summary(core),
+    summary_pending: state.summary_armed,
+  )
+}
+
+@target(javascript)
+/// Replace the runtime's scheduler. A test seam for the in-memory hub, which
+/// binds delayed work to its logical clock; production runtimes keep the real
+/// `setTimeout` they start with. Safe to call any time before the first
+/// sequenced op, which is the earliest anything can be scheduled.
+pub fn set_scheduler(
+  runtime: Runtime,
+  scheduler: transport_js.Scheduler,
+) -> Nil {
+  cell_set(runtime.cell, State(..cell_get(runtime.cell), scheduler: scheduler))
+}
+
+@target(javascript)
+/// Install (or with `None`, clear) the automatic summarization policy.
+pub fn auto_summarize(
+  runtime: Runtime,
+  policy: Option(summary_policy.Policy),
+) -> Nil {
+  // Arming waits for the next sequenced op rather than happening here: the op
+  // path is the one place that knows the phase has settled, and a document
+  // already past the threshold is the common case on a busy room.
+  cell_set(runtime.cell, State(..cell_get(runtime.cell), auto_summary: policy))
+}
+
+@target(javascript)
+/// How far the document has drifted past the newest checkpoint this client
+/// knows of. Zero before the first handshake.
+pub fn ops_since_summary(runtime: Runtime) -> Int {
+  case cell_get(runtime.cell).phase {
+    Ready(core, _) | Reconnecting(core) -> runtime_core.ops_since_summary(core)
+    _ -> 0
+  }
+}
+
+@target(javascript)
+/// Schedule a summarization attempt if the policy wants one and none is
+/// already pending.
+///
+/// The delay is what keeps a room cheap. Every client crosses the threshold on
+/// the same op; each waits a different, id-derived interval; the first summary
+/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
+/// room re-checks on wake and stands down. A lost race costs one redundant
+/// upload and nothing else.
+fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
+  let state = cell_get(cell)
+  case state.auto_summary, state.summary_armed {
+    Some(policy), False ->
+      case runtime_core.wants_summary(core, policy) {
+        False -> Nil
+        True -> {
+          cell_set(cell, State(..state, summary_armed: True))
+          let _ =
+            state.scheduler.schedule(
+              fn() { attempt_summary(cell) },
+              runtime_core.summary_jitter_ms(core, policy),
+            )
+          Nil
+        }
+      }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// The policy's wake-up: re-take the decision against the core as it is now,
+/// because a peer's summary landing in the jitter window is exactly what this
+/// is waiting to find out about.
+fn attempt_summary(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  cell_set(cell, State(..state, summary_armed: False))
+  case state.phase, state.auto_summary {
+    Ready(core, None), Some(policy) ->
+      case runtime_core.wants_summary(core, policy) {
+        False -> Nil
+        True -> {
+          // A summarize op carries no ack, so there is nothing to reconcile on
+          // failure: the checkpoint did not move, and the next sequenced op
+          // arms another attempt.
+          let _ = summarize(Runtime(cell: cell))
+          Nil
+        }
+      }
+    _, _ -> Nil
+  }
+}
+
+@target(javascript)
+/// Summarize the document's current confirmed state to floodgate storage so future
+/// clients can bootstrap from the snapshot instead of replaying the full op
+/// history. Resolves with the summary handle (git tree SHA). Requires the
+/// connection to be fully synced and the token to carry `summary:write`.
+///
+/// Uploading is asynchronous, so the returned Promise settles once the blob is
+/// stored and the summarize op has been pushed. The summarize op's sequence
+/// number is drawn from the live core at push time (not at upload start) so a
+/// concurrent local edit can't collide with it.
+pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
+  let cell = runtime.cell
+  let state = cell_get(cell)
+  case state.phase, state.channel {
+    Ready(core, None), Some(_) ->
+      case state.connect_message.token {
+        None -> promise.resolve(Error("summarize requires an auth token"))
+        Some(token) ->
+          case runtime_core.is_synced(core) {
+            False ->
+              promise.resolve(Error(
+                "summarize requires the client to be caught up; retry once "
+                <> "in-flight edits have been acknowledged",
+              ))
+            True ->
+              git_storage.upload_summary(
+                base_url: state.http_base_url,
+                tenant: state.connect_message.tenant_id,
+                token: token,
+                sequence_number: core.last_seen_sn,
+                members: runtime_core.summary_members(core),
+                channels: runtime_core.summary_channels(core),
+              )
+              |> promise.map(fn(result) {
+                case result {
+                  Error(reason) -> Error(reason)
+                  Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+                }
+              })
+          }
+      }
+    _, _ ->
+      promise.resolve(Error(
+        "summarize is only available once the connection is fully synced",
+      ))
+  }
+}
+
+@target(javascript)
+/// List the document's stored summary versions, newest first (the client half
+/// of Fluid's `getVersions`). Requires the token to carry `doc:read`.
+pub fn get_versions(
+  runtime: Runtime,
+  count: Int,
+) -> Promise(Result(List(git_storage.SummaryVersion), String)) {
+  let state = cell_get(runtime.cell)
+  case state.connect_message.token {
+    None -> promise.resolve(Error("listing versions requires an auth token"))
+    Some(token) ->
+      git_storage.fetch_versions(
+        base_url: state.http_base_url,
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        document: state.connect_message.document_id,
+        count: count,
+      )
+  }
+}
+
+@target(javascript)
+/// Read the historical snapshot a summary version captured, by its handle
+/// (from `get_versions` or a `summarize` resolution). The live document is
+/// unaffected — this is a point-in-time read of the stored blob.
+pub fn load_version(
+  runtime: Runtime,
+  handle: String,
+) -> Promise(Result(summary_blob.SummaryBlob, String)) {
+  let state = cell_get(runtime.cell)
+  case state.connect_message.token {
+    None -> promise.resolve(Error("loading a version requires an auth token"))
+    Some(token) ->
+      git_storage.fetch_summary(
+        base_url: state.http_base_url,
+        tenant: state.connect_message.tenant_id,
+        token: token,
+        handle: handle,
+      )
+  }
+}
+
+@target(javascript)
+/// Stamp the summarize op referencing the uploaded snapshot tree and push it.
+/// Re-reads the live state so the op is built from the current core, keeping
+/// its client sequence number strictly increasing past any edits that landed
+/// during the async upload.
+fn finish_summarize(
+  cell: Cell(State),
+  tree_sha: String,
+) -> Result(String, String) {
+  let state = cell_get(cell)
+  case state.phase, state.channel {
+    Ready(core, None), Some(channel) -> {
+      let #(core, outbound) =
+        runtime_core.build_summarize(
+          core,
+          handle: tree_sha,
+          message: "watershed summary",
+          head: tree_sha,
+        )
+      push_json(
+        channel,
+        "submitOp",
+        socket.encode_submit_op(core.client_id, [[outbound]]),
+      )
+      cell_set(cell, State(..state, phase: Ready(core, None)))
+      Ok(tree_sha)
+    }
+    _, _ -> Error("connection changed during summarize; retry")
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transport callbacks
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+/// (Re)join succeeded: (re)send `connect_document`. On the initial join this
+/// starts the handshake; on a Phoenix auto-rejoin it re-handshakes with our
+/// last-seen SN so the server pushes just the delta.
+fn on_join(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  case state.channel {
+    None -> Nil
+    Some(channel) ->
+      case state.phase {
+        Connecting -> push_connect(channel, state.connect_message, None)
+        Reconnecting(core) ->
+          push_connect(channel, state.connect_message, Some(core.last_seen_sn))
+        Ready(core, _) -> {
+          // Rejoin without an intervening close event; treat as reconnect.
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
+          notify_session_lost(cell, state.phase)
+          push_connect(channel, state.connect_message, Some(core.last_seen_sn))
+        }
+        Failed(_) -> Nil
+      }
+  }
+}
+
+@target(javascript)
+fn on_close(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  case state.phase {
+    // Preserve the core so kernel/pending/in-flight survive the reconnect.
+    Ready(core, _) | Reconnecting(core) -> {
+      cell_set(cell, State(..state, phase: Reconnecting(core)))
+      notify_session_lost(cell, state.phase)
+    }
+    // Not yet connected: Phoenix will retry the join, which re-fires on_join.
+    _ -> Nil
+  }
+}
+
+@target(javascript)
+fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
+  case event {
+    "connect_document_success" -> on_connect_success(cell, payload)
+    "connect_document_error" -> on_connect_error(cell, payload)
+    "op" -> on_op(cell, payload)
+    "nack" -> on_nack(cell, payload)
+    "signal" -> on_ripple(cell, payload)
+    "presence_state" -> notify_presence(cell, PresenceState(payload))
+    "presence_diff" -> notify_presence(cell, PresenceDiff(payload))
+    "presence_error" -> notify_presence(cell, PresenceError(payload))
+    _ -> Nil
+  }
+}
+
+@target(javascript)
+fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.connected_message_decoder()) {
+    Error(_) -> fail(cell, "malformed connect_document_success payload")
+    Ok(connected) -> {
+      // Record what this connection negotiated before anything acts on it, and
+      // on both paths — a reconnect may land on a different node with a
+      // different answer.
+      cell_set(
+        cell,
+        State(
+          ..cell_get(cell),
+          supported_features: connected.supported_features,
+        ),
+      )
+      let state = cell_get(cell)
+      case state.phase {
+        Connecting ->
+          // A never-summarized document bootstraps synchronously from
+          // `initialMessages`. A summarized document first fetches its summary
+          // blob over HTTP (async), then bootstraps seeded from that state.
+          case connected.summary_context {
+            None -> finish_bootstrap(cell, connected, None)
+            Some(ctx) ->
+              load_summary_then_bootstrap(cell, state, connected, ctx)
+          }
+        Reconnecting(core) -> {
+          let core = runtime_core.adopt_reconnect(core, connected)
+          let checkpoint =
+            option.unwrap(
+              connected.checkpoint_sequence_number,
+              core.last_seen_sn,
+            )
+          // Ask for the gap. Nothing else will: no server pushes it unprompted,
+          // and the reactive `requestOps` in `on_op` needs an op to react to.
+          // See `runtime_core.catch_up_from`.
+          maybe_request_ops(
+            state.channel,
+            runtime_core.catch_up_from(core, checkpoint),
+          )
+          settle_reconnect(cell, core, checkpoint)
+          // Presence is unsequenced, so it does not wait for the op catch-up
+          // `settle_reconnect` may still be pending — rejoining now is both
+          // correct and the fastest way back to a roster.
+          notify_presence_session(cell, core)
+        }
+        _ -> Nil
+      }
+    }
+  }
+}
+
+@target(javascript)
+/// Fetch the summary blob referenced by `ctx`, then bootstrap the core seeded
+/// from it. Real-time ops that arrive during the async fetch are dropped while
+/// still `Connecting`, but the gap they create is self-healing: the first op
+/// after bootstrap that is non-contiguous triggers a `requestOps` catch-up.
+fn load_summary_then_bootstrap(
+  cell: Cell(State),
+  state: State,
+  connected: ConnectedMessage,
+  ctx: SummaryContext,
+) -> Nil {
+  case state.connect_message.token {
+    None -> fail(cell, "loading a summarized document requires an auth token")
+    Some(token) -> {
+      let _ =
+        git_storage.fetch_summary(
+          base_url: state.http_base_url,
+          tenant: state.connect_message.tenant_id,
+          token: token,
+          handle: ctx.handle,
+        )
+        |> promise.map(fn(result) {
+          case result {
+            Error(reason) -> fail(cell, "summary load failed: " <> reason)
+            Ok(blob) ->
+              // `ctx` locates the blob; the blob says what it holds and when
+              // it was captured. See `runtime_core.summary_from_blob` for why
+              // the context's sequence number is deliberately not the load
+              // point.
+              finish_bootstrap(
+                cell,
+                connected,
+                Some(runtime_core.summary_from_blob(blob)),
+              )
+          }
+        })
+      Nil
+    }
+  }
+}
+
+@target(javascript)
+/// Bootstrap the core (optionally seeded from a summary) and fire `on_ready`.
+fn finish_bootstrap(
+  cell: Cell(State),
+  connected: ConnectedMessage,
+  summary: Option(runtime_core.Summary),
+) -> Nil {
+  case runtime_core.bootstrap(connected, summary: summary) {
+    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
+    Error(err) -> fail(cell, "bootstrap failed: " <> string.inspect(err))
+  }
+}
+
+@target(javascript)
+/// Complete a bootstrap step: ready the document, or page the missing history
+/// prefix from the deltas REST endpoint (async, possibly several rounds) and
+/// resume. Bootstrap must not complete on a gapped history, so any failure
+/// here drives the cell to `Failed`.
+fn continue_bootstrap(
+  cell: Cell(State),
+  bootstrapped: runtime_core.Bootstrapped,
+) -> Nil {
+  case bootstrapped {
+    runtime_core.Complete(core) -> {
+      cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
+      fire_ready(cell, Ok(Nil))
+      // The one completion point shared by the synchronous and
+      // summary-fetching bootstrap paths.
+      notify_presence_session(cell, core)
+    }
+    runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
+      let state = cell_get(cell)
+      case state.connect_message.token {
+        None -> fail(cell, "history catch-up requires an auth token")
+        Some(token) -> {
+          let _ =
+            git_storage.fetch_deltas(
+              base_url: state.http_base_url,
+              tenant: state.connect_message.tenant_id,
+              token: token,
+              document: state.connect_message.document_id,
+              from: from,
+              to: to,
+            )
+            |> promise.map(fn(result) {
+              case result {
+                Error(reason) ->
+                  fail(cell, "history catch-up failed: " <> reason)
+                Ok(deltas) ->
+                  case
+                    runtime_core.resume_bootstrap(
+                      core,
+                      checkpoint: checkpoint,
+                      deltas: deltas,
+                    )
+                  {
+                    Ok(next) -> continue_bootstrap(cell, next)
+                    Error(err) ->
+                      fail(cell, "bootstrap failed: " <> string.inspect(err))
+                  }
+              }
+            })
+          Nil
+        }
+      }
+    }
+  }
+}
+
+@target(javascript)
+fn on_connect_error(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.connect_error_decoder()) {
+    Ok(err) -> fail(cell, err.message)
+    Error(_) -> fail(cell, "connect_document_error")
+  }
+}
+
+@target(javascript)
+fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, resubmit_at) ->
+      case decode.run(payload, socket.op_message_decoder()) {
+        Error(_) -> fail(cell, "malformed op payload")
+        Ok(message) ->
+          case apply_ops(core, message.ops) {
+            Ok(#(core, events, resolutions, request_from, released)) -> {
+              let state = resolve_claim_waiters(state, resolutions)
+              let state = resolve_acquire_waiters(state, resolutions)
+              // Commit the new core before fan-out (see fan_out's contract).
+              case resubmit_at {
+                Some(checkpoint) -> {
+                  cell_set(cell, state)
+                  settle_reconnect(cell, core, checkpoint)
+                }
+                None -> cell_set(cell, State(..state, phase: Ready(core, None)))
+              }
+              fan_out(state.subscribers, events)
+              maybe_request_ops(state.channel, request_from)
+              case resubmit_at {
+                // Mid-reconnect these are already in the in-flight queue, and
+                // `settle_reconnect` restamps that whole queue with fresh
+                // client sequence numbers and sends it. Sending them here as
+                // well puts two copies of each on the wire; the server
+                // sequences both and the stale ack fails the FIFO match.
+                Some(_) -> Nil
+                None -> send_outbound(state.channel, core.client_id, released)
+              }
+              case resubmit_at {
+                Some(_) -> Nil
+                None -> arm_summary(cell, core)
+              }
+            }
+            Error(core_error) ->
+              fail(
+                cell,
+                "sequenced op processing failed: " <> string.inspect(core_error),
+              )
+          }
+      }
+    // Ops before a connected session (or while reconnecting) carry no state
+    // we can trust; ignore them.
+    _ -> Nil
+  }
+}
+
+@target(javascript)
+fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.nacks_decoder()) {
+    Error(_) -> fail(cell, "malformed nack payload")
+    Ok(nacks) ->
+      case list.any(nacks, nack_is_fatal) {
+        True -> fail(cell, "fatal nack from server")
+        False -> {
+          let state = cell_get(cell)
+          case state.phase, state.channel {
+            Ready(core, _), Some(channel) -> {
+              cell_set(cell, State(..state, phase: Reconnecting(core)))
+              notify_session_lost(cell, state.phase)
+              channel.drop()
+            }
+            _, _ -> Nil
+          }
+        }
+      }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State machine helpers (ported from the erlang runtime)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+fn settle_reconnect(
+  cell: Cell(State),
+  core: runtime_core.Core,
+  checkpoint: Int,
+) -> Nil {
+  let state = cell_get(cell)
+  case core.last_seen_sn >= checkpoint {
+    True -> {
+      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
+      send_outbound(state.channel, core.client_id, outbound)
+      cell_set(cell, State(..state, phase: Ready(core, None)))
+    }
+    False ->
+      cell_set(cell, State(..state, phase: Ready(core, Some(checkpoint))))
+  }
+}
+
+@target(javascript)
+fn apply_ops(
+  core: runtime_core.Core,
+  ops: List(SequencedDocumentMessage),
+) -> Result(
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    Option(Int),
+    List(wire.OutboundOp),
+  ),
+  runtime_core.CoreError,
+) {
+  do_apply_ops(core, ops, [], [], None, [])
+}
+
+@target(javascript)
+fn do_apply_ops(
+  core: runtime_core.Core,
+  ops: List(SequencedDocumentMessage),
+  events: List(List(#(String, ChannelEvent))),
+  resolutions: List(List(#(String, Resolution))),
+  request_from: Option(Int),
+  released: List(wire.OutboundOp),
+) -> Result(
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    Option(Int),
+    List(wire.OutboundOp),
+  ),
+  runtime_core.CoreError,
+) {
+  case ops {
+    [] ->
+      Ok(#(
+        core,
+        list.reverse(events) |> list.flatten,
+        list.reverse(resolutions) |> list.flatten,
+        request_from,
+        released,
+      ))
+    [op, ..rest] ->
+      case runtime_core.handle_sequenced(core, op) {
+        Ok(#(core, ingested)) ->
+          do_apply_ops(
+            core,
+            rest,
+            [ingested.events, ..events],
+            [ingested.resolutions, ..resolutions],
+            option.or(request_from, ingested.request_ops_from),
+            list.append(released, ingested.outbound),
+          )
+        Error(core_error) -> Error(core_error)
+      }
+  }
+}
+
+@target(javascript)
+fn register_claim_waiter(
+  state: State,
+  address: String,
+  key: String,
+  resolve_outcome: fn(claims_kernel.ClaimOutcome) -> Nil,
+  immediate_outcome: Option(claims_kernel.ClaimOutcome),
+) -> State {
+  case immediate_outcome {
+    Some(outcome) -> {
+      resolve_outcome(outcome)
+      state
+    }
+    None ->
+      State(
+        ..state,
+        claim_waiters: dict.insert(
+          state.claim_waiters,
+          #(address, key),
+          resolve_outcome,
+        ),
+      )
+  }
+}
+
+@target(javascript)
+fn resolve_claim_waiters(
+  state: State,
+  resolutions: List(#(String, Resolution)),
+) -> State {
+  let claim_waiters =
+    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
+      let #(address, resolution) = item
+      case resolution {
+        ClaimResolved(key, outcome) ->
+          case dict.get(acc, #(address, key)) {
+            Ok(resolve_outcome) -> {
+              resolve_outcome(outcome)
+              dict.delete(acc, #(address, key))
+            }
+            Error(_) -> acc
+          }
+        _ -> acc
+      }
+    })
+  State(..state, claim_waiters: claim_waiters)
+}
+
+@target(javascript)
+fn abort_outcome_waiters(state: State) -> State {
+  dict.values(state.claim_waiters)
+  |> list.each(fn(resolve_outcome) { resolve_outcome(claims_kernel.Aborted) })
+  dict.values(state.acquire_waiters)
+  |> list.each(fn(resolve_outcome) {
+    resolve_outcome(ordered_collection_kernel.Aborted)
+  })
+  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
+}
+
+@target(javascript)
 fn register_acquire_waiter(
   state: State,
   address: String,
   acquire_id: String,
-  waiter: Subject(ordered_collection_kernel.AcquireOutcome),
+  resolve_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
   immediate_outcome: Option(ordered_collection_kernel.AcquireOutcome),
 ) -> State {
   case immediate_outcome {
     Some(outcome) -> {
-      process.send(waiter, outcome)
+      resolve_outcome(outcome)
       state
     }
     None ->
@@ -2237,13 +2491,13 @@ fn register_acquire_waiter(
         acquire_waiters: dict.insert(
           state.acquire_waiters,
           #(address, acquire_id),
-          waiter,
+          resolve_outcome,
         ),
       )
   }
 }
 
-@target(erlang)
+@target(javascript)
 fn resolve_acquire_waiters(
   state: State,
   resolutions: List(#(String, Resolution)),
@@ -2254,8 +2508,8 @@ fn resolve_acquire_waiters(
       case resolution {
         AcquireResolved(acquire_id, outcome) ->
           case dict.get(acc, #(address, acquire_id)) {
-            Ok(waiter) -> {
-              process.send(waiter, outcome)
+            Ok(resolve_outcome) -> {
+              resolve_outcome(outcome)
               dict.delete(acc, #(address, acquire_id))
             }
             Error(_) -> acc
@@ -2266,83 +2520,32 @@ fn resolve_acquire_waiters(
   State(..state, acquire_waiters: acquire_waiters)
 }
 
-@target(erlang)
-fn handle_task_volunteer(
-  state: State,
-  address: String,
-  task_id: String,
-  reply: Subject(task_manager_kernel.VolunteerOutcome),
-) -> actor.Next(State, Msg) {
-  case state.phase {
-    Ready(core, resubmit_at) ->
-      case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
-        Ok(#(core, events, outbound, outcome)) -> {
-          process.send(reply, outcome)
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
-          }
-          fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
-        }
-      }
-    Reconnecting(core) ->
-      case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
-        Ok(#(core, events, _outbound, outcome)) -> {
-          process.send(reply, outcome)
-          fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
-        }
-      }
-    _ -> panic as "task volunteer before the document connection is ready"
-  }
-}
-
-@target(erlang)
-fn handle_task_complete(
-  state: State,
-  address: String,
-  task_id: String,
-  reply: Subject(Result(Nil, String)),
-) -> actor.Next(State, Msg) {
-  edit_with_result(
-    state,
-    reply,
-    fn(core) { runtime_core.task_manager_complete(core, address, task_id) },
-    "complete_task",
-  )
-}
-
-@target(erlang)
+@target(javascript)
 fn edit(
-  state: State,
+  cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
       #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
       runtime_core.CoreError,
     ),
-) -> actor.Next(State, Msg) {
+) -> Nil {
+  let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
       case operate(core) {
         Error(core_error) ->
           panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, outbound)) -> {
+          // Commit the new core before fan-out (see fan_out's contract).
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
           // Push immediately only when fully synced with a live channel;
           // otherwise the op stays in-flight and `resubmit` sends it once, so a
           // reconnect can't drop or duplicate it.
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            _ -> Nil
           }
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
       }
     }
@@ -2351,234 +2554,108 @@ fn edit(
         Error(core_error) ->
           panic as { "local edit failed: " <> string.inspect(core_error) }
         Ok(#(core, events, _outbound)) -> {
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
     }
-    // Edits are only reachable through handles returned after await_ready,
-    // so this is either a race with a failure or API misuse.
-    _ -> panic as "edit before the document connection is ready"
+    // Edits before ready are dropped (the demo gates edits behind on_ready).
+    _ -> Nil
   }
 }
 
-@target(erlang)
+@target(javascript)
 fn edit_sequence_with_result(
-  state: State,
-  reply: Subject(Result(Nil, String)),
+  cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
       #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
       runtime_core.CoreError,
     ),
-  verb: String,
-) -> actor.Next(State, Msg) {
+) -> Result(Nil, String) {
+  let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
       case operate(core) {
         Ok(#(core, events, outbound)) -> {
-          process.send(reply, Ok(Nil))
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+          Ok(Nil)
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
-          process.send(reply, Error(detail))
-          actor.continue(state)
-        }
-        Error(error) -> {
-          process.send(
-            reply,
-            Error(verb <> " failed: " <> string.inspect(error)),
-          )
-          actor.continue(state)
-        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
       case operate(core) {
         Ok(#(core, events, _outbound)) -> {
-          process.send(reply, Ok(Nil))
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
+          Ok(Nil)
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
-          process.send(reply, Error(detail))
-          actor.continue(state)
-        }
-        Error(error) -> {
-          process.send(
-            reply,
-            Error(verb <> " failed: " <> string.inspect(error)),
-          )
-          actor.continue(state)
-        }
+        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
       }
-    _ -> {
-      process.send(
-        reply,
-        Error(verb <> " before the document connection is ready"),
-      )
-      actor.continue(state)
-    }
+    _ -> Error("sequence edit before the document connection is ready")
   }
 }
 
-@target(erlang)
+@target(javascript)
 fn edit_text_with_result(
-  state: State,
-  reply: Subject(Result(Nil, String)),
+  cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
       #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
       runtime_core.CoreError,
     ),
-  verb: String,
-) -> actor.Next(State, Msg) {
+) -> Result(Nil, String) {
+  let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
       case operate(core) {
         Ok(#(core, events, outbound)) -> {
-          process.send(reply, Ok(Nil))
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
+          cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          case resubmit_at {
+            None -> send_outbound(state.channel, core.client_id, outbound)
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+          Ok(Nil)
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> {
-          process.send(reply, Error(detail))
-          actor.continue(state)
-        }
-        Error(error) -> {
-          process.send(
-            reply,
-            Error(verb <> " failed: " <> string.inspect(error)),
-          )
-          actor.continue(state)
-        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
       case operate(core) {
         Ok(#(core, events, _outbound)) -> {
-          process.send(reply, Ok(Nil))
+          cell_set(cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
+          Ok(Nil)
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> {
-          process.send(reply, Error(detail))
-          actor.continue(state)
-        }
-        Error(error) -> {
-          process.send(
-            reply,
-            Error(verb <> " failed: " <> string.inspect(error)),
-          )
-          actor.continue(state)
-        }
+        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(error) -> Error(string.inspect(error))
       }
-    _ -> {
-      process.send(
-        reply,
-        Error(verb <> " before the document connection is ready"),
-      )
-      actor.continue(state)
-    }
+    _ -> Error("text edit before the document connection is ready")
   }
 }
 
-@target(erlang)
-fn edit_with_result(
-  state: State,
-  reply: Subject(Result(Nil, String)),
-  operate: fn(runtime_core.Core) ->
-    Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
-      runtime_core.CoreError,
-    ),
-  verb: String,
-) -> actor.Next(State, Msg) {
-  case state.phase {
-    Ready(core, resubmit_at) -> {
-      case operate(core) {
-        Error(runtime_core.TaskNotAssigned(_, task_id)) -> {
-          process.send(reply, Error("task is not assigned: " <> task_id))
-          actor.continue(state)
-        }
-        Error(core_error) ->
-          panic as { verb <> " failed: " <> string.inspect(core_error) }
-        Ok(#(core, events, outbound)) -> {
-          process.send(reply, Ok(Nil))
-          case resubmit_at, state.channel {
-            None, Some(channel) ->
-              send_outbound(Some(channel), core.client_id, outbound)
-            _, _ -> Nil
-          }
-          fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
-        }
-      }
-    }
-    Reconnecting(core) -> {
-      case operate(core) {
-        Error(runtime_core.TaskNotAssigned(_, task_id)) -> {
-          process.send(reply, Error("task is not assigned: " <> task_id))
-          actor.continue(state)
-        }
-        Error(core_error) ->
-          panic as { verb <> " failed: " <> string.inspect(core_error) }
-        Ok(#(core, events, _outbound)) -> {
-          process.send(reply, Ok(Nil))
-          fan_out(state.subscribers, events)
-          actor.continue(State(..state, phase: Reconnecting(core)))
-        }
-      }
-    }
-    _ -> panic as { verb <> " before the document connection is ready" }
-  }
-}
-
-@target(erlang)
-fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
-  case state.phase {
+@target(javascript)
+fn read(
+  cell: Cell(State),
+  default: t,
+  extract: fn(runtime_core.Core) -> t,
+) -> t {
+  case cell_get(cell).phase {
     Ready(core, _) -> extract(core)
     Reconnecting(core) -> extract(core)
     _ -> default
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Reconnect helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Enter the reconnecting phase after a channel close: drop the dead channel
-/// and spawn a fresh receiver, which will re-handshake with our last-seen SN.
-fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
-  connect_transport(state.transport, state.self)
-  notify_session_lost(state)
-  State(..state, channel: None, phase: Reconnecting(core))
-}
-
-@target(erlang)
-/// Retryable nack: close the channel and enter the reconnecting phase. The
-/// receiver's resulting `ChannelClosed` drives the actual reconnect, so we
-/// don't spawn a second receiver here.
-fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
-  case state.channel {
-    Some(channel) -> channel.close()
-    None -> Nil
-  }
-  notify_session_lost(state)
-  State(..state, channel: None, phase: Reconnecting(core))
-}
-
-@target(erlang)
+@target(javascript)
 fn nack_is_fatal(item: Nack) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
@@ -2587,238 +2664,36 @@ fn nack_is_fatal(item: Nack) -> Bool {
   }
 }
 
-@target(erlang)
+// ─────────────────────────────────────────────────────────────────────────────
+// IO helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+@target(javascript)
+fn push_connect(
+  channel: TransportHandle,
+  connect_message: ConnectMessage,
+  last_seen: Option(Int),
+) -> Nil {
+  push_json(
+    channel,
+    "connect_document",
+    socket.encode_connect_document(connect_message, last_seen),
+  )
+}
+
+@target(javascript)
 fn maybe_request_ops(
   channel: Option(TransportHandle),
   request_from: Option(Int),
 ) -> Nil {
   case channel, request_from {
     Some(channel), Some(from) ->
-      push(channel, "requestOps", socket.encode_request_ops(from: from))
+      push_json(channel, "requestOps", socket.encode_request_ops(from: from))
     _, _ -> Nil
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Summaries
-// ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Schedule a summarization attempt if the policy wants one and none is
-/// already pending.
-///
-/// The delay is what keeps a room cheap. Every client crosses the threshold on
-/// the same op; each waits a different, id-derived interval; the first summary
-/// to be sequenced advances `last_summary_sn` everywhere, and the rest of the
-/// room re-checks in `MaybeSummarize` and stands down. A lost race costs one
-/// redundant upload and nothing else.
-fn arm_summary(state: State, core: runtime_core.Core) -> State {
-  case state.auto_summary, state.summary_armed {
-    Some(policy), False ->
-      case runtime_core.wants_summary(core, policy) {
-        False -> state
-        True -> {
-          let _ =
-            process.send_after(
-              state.self,
-              runtime_core.summary_jitter_ms(core, policy),
-              MaybeSummarize,
-            )
-          State(..state, summary_armed: True)
-        }
-      }
-    _, _ -> state
-  }
-}
-
-@target(erlang)
-fn handle_summarize(
-  state: State,
-  reply: Subject(Result(String, String)),
-) -> actor.Next(State, Msg) {
-  // Summarizing is only well-defined while fully synced with a live channel:
-  // the confirmed state is stable and the summarize op can go out immediately.
-  case state.phase, state.channel {
-    Ready(core, None), Some(channel) ->
-      case do_summarize(state, core, channel) {
-        Ok(#(core, tree_sha)) -> {
-          process.send(reply, Ok(tree_sha))
-          actor.continue(State(..state, phase: Ready(core, None)))
-        }
-        Error(reason) -> {
-          process.send(reply, Error(reason))
-          actor.continue(state)
-        }
-      }
-    _, _ -> {
-      process.send(
-        reply,
-        Error("summarize is only available once the connection is fully synced"),
-      )
-      actor.continue(state)
-    }
-  }
-}
-
-@target(erlang)
-/// Upload the confirmed state as a summary blob, then stamp and push the
-/// summarize op referencing it. Returns the updated core and the tree SHA.
-fn do_summarize(
-  state: State,
-  core: runtime_core.Core,
-  channel: TransportHandle,
-) -> Result(#(runtime_core.Core, String), String) {
-  use token <- result.try(option.to_result(
-    state.connect_message.token,
-    "summarize requires an auth token",
-  ))
-  use _ <- result.try(case runtime_core.is_synced(core) {
-    True -> Ok(Nil)
-    False ->
-      Error(
-        "summarize requires the client to be caught up; retry once "
-        <> "in-flight edits have been acknowledged",
-      )
-  })
-  use tree_sha <- result.try(git_storage.upload_summary(
-    base_url: http_base_url(state),
-    tenant: state.connect_message.tenant_id,
-    token: token,
-    sequence_number: core.last_seen_sn,
-    members: runtime_core.summary_members(core),
-    channels: runtime_core.summary_channels(core),
-  ))
-  let #(core, outbound) =
-    runtime_core.build_summarize(
-      core,
-      handle: tree_sha,
-      message: "watershed summary",
-      head: tree_sha,
-    )
-  push(
-    channel,
-    "submitOp",
-    socket.encode_submit_op(core.client_id, [[outbound]]),
-  )
-  Ok(#(core, tree_sha))
-}
-
-@target(erlang)
-/// Close any gap between the bootstrap seed point and the earliest op the
-/// server pushed in-band by paging the missing prefix from the deltas REST
-/// endpoint until the history is contiguous. Bootstrap must not complete on
-/// a gapped history, so any failure here is fatal.
-fn complete_bootstrap(
-  state: State,
-  bootstrapped: runtime_core.Bootstrapped,
-) -> runtime_core.Core {
-  case bootstrapped {
-    runtime_core.Complete(core) -> core
-    runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
-      let deltas = case fetch_missing_deltas(state, from, to) {
-        Ok(deltas) -> deltas
-        Error(reason) -> panic as { "history catch-up failed: " <> reason }
-      }
-      case
-        runtime_core.resume_bootstrap(
-          core,
-          checkpoint: checkpoint,
-          deltas: deltas,
-        )
-      {
-        Ok(next) -> complete_bootstrap(state, next)
-        Error(core_error) ->
-          panic as { "bootstrap failed: " <> string.inspect(core_error) }
-      }
-    }
-  }
-}
-
-@target(erlang)
-fn fetch_missing_deltas(
-  state: State,
-  from: Int,
-  to: Int,
-) -> Result(List(SequencedDocumentMessage), String) {
-  case state.connect_message.token {
-    None -> Error("history catch-up requires an auth token")
-    Some(token) ->
-      git_storage.fetch_deltas(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        document: state.connect_message.document_id,
-        from: from,
-        to: to,
-      )
-  }
-}
-
-@target(erlang)
-fn fetch_document_versions(
-  state: State,
-  count: Int,
-) -> Result(List(git_storage.SummaryVersion), String) {
-  case state.connect_message.token {
-    None -> Error("listing versions requires an auth token")
-    Some(token) ->
-      git_storage.fetch_versions(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        document: state.connect_message.document_id,
-        count: count,
-      )
-  }
-}
-
-@target(erlang)
-fn fetch_version_blob(
-  state: State,
-  handle: String,
-) -> Result(summary_blob.SummaryBlob, String) {
-  case state.connect_message.token {
-    None -> Error("loading a version requires an auth token")
-    Some(token) ->
-      git_storage.fetch_summary(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        handle: handle,
-      )
-  }
-}
-
-@target(erlang)
-fn fetch_summary(
-  state: State,
-  ctx: SummaryContext,
-) -> Result(runtime_core.Summary, String) {
-  case state.connect_message.token {
-    None -> Error("loading a summarized document requires an auth token")
-    Some(token) ->
-      git_storage.fetch_summary(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        handle: ctx.handle,
-      )
-      // `ctx` locates the blob; the blob says what it holds and when it was
-      // captured. See `runtime_core.summary_from_blob` for why the context's
-      // sequence number is deliberately not the load point.
-      |> result.map(runtime_core.summary_from_blob)
-  }
-}
-
-@target(erlang)
-/// The HTTP(S) base URL for git-storage calls, derived from the socket host
-/// and port. floodgate serves both the Phoenix socket and the REST API from the
-/// same origin.
-fn http_base_url(state: State) -> String {
-  "http://" <> state.host <> ":" <> int.to_string(state.port)
-}
-
-@target(erlang)
+@target(javascript)
 fn send_outbound(
   channel: Option(TransportHandle),
   client_id: String,
@@ -2828,20 +2703,50 @@ fn send_outbound(
     _, [] -> Nil
     Some(channel), _ ->
       list.each(list.sized_chunk(outbound, max_ops_per_submission), fn(chunk) {
-        push(channel, "submitOp", socket.encode_submit_op(client_id, [chunk]))
+        push_json(
+          channel,
+          "submitOp",
+          socket.encode_submit_op(client_id, [chunk]),
+        )
       })
     None, _ -> Nil
   }
 }
 
-@target(erlang)
-fn push(channel: TransportHandle, event: String, payload: Json) -> Nil {
+@target(javascript)
+fn push_json(channel: TransportHandle, event: String, payload: Json) -> Nil {
   channel.push(event, payload)
 }
 
-@target(erlang)
+@target(javascript)
+/// Derive the HTTP(S) base URL for git-storage calls from the Phoenix socket
+/// URL, e.g. `ws://localhost:4000/socket/websocket?vsn=2.0.0` →
+/// `http://localhost:4000`. `wss` maps to `https`; everything else to `http`.
+fn http_base_from_socket_url(url: String) -> String {
+  case uri.parse(url) {
+    Ok(parsed) -> {
+      let scheme = case parsed.scheme {
+        Some("wss") | Some("https") -> "https"
+        _ -> "http"
+      }
+      let host = option.unwrap(parsed.host, "localhost")
+      let port = case parsed.port {
+        Some(p) -> ":" <> int.to_string(p)
+        None -> ""
+      }
+      scheme <> "://" <> host <> port
+    }
+    Error(_) -> url
+  }
+}
+
+@target(javascript)
 /// Route each address-tagged event to the subscribers registered for that
 /// channel address.
+///
+/// Contract: callers must commit the updated core to the cell before fanning
+/// out, so a handler that reads the map during the event observes the
+/// just-applied state (local edits, remote ops, and reconnects alike).
 fn fan_out(
   subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
   events: List(#(String, ChannelEvent)),
@@ -2857,25 +2762,33 @@ fn fan_out(
   })
 }
 
-@target(erlang)
-fn fail(state: State, reason: String) -> State {
-  let state = abort_outcome_waiters(state)
-  notify_waiters(state.phase, Error(reason))
-  notify_session_lost(state)
-  State(..state, phase: Failed(reason))
+@target(javascript)
+/// Fan an inbound ephemeral `signal` broadcast out to ripple subscribers.
+/// (The wire event is Fluid's `"signal"`; we surface it as a *ripple*.)
+/// Malformed payloads are dropped silently — ripples are best-effort.
+fn on_ripple(cell: Cell(State), payload: Dynamic) -> Nil {
+  case decode.run(payload, socket.ripple_message_decoder()) {
+    Error(_) -> Nil
+    Ok(ripple) -> {
+      let state = cell_get(cell)
+      list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
+    }
+  }
 }
 
-@target(erlang)
-fn notify_presence(state: State, frame: PresenceFrame) -> Nil {
+@target(javascript)
+fn notify_presence(cell: Cell(State), frame: PresenceFrame) -> Nil {
+  let state = cell_get(cell)
   list.each(state.presence_subscribers, fn(handler) { handler(frame) })
 }
 
-@target(erlang)
+@target(javascript)
 /// Announce a settled handshake, carrying the id and capability a driver needs
 /// to (re)join.
-fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
+fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
+  let state = cell_get(cell)
   notify_presence(
-    state,
+    cell,
     PresenceSession(
       client_id: core.client_id,
       presence_v1: socket.supports_feature(
@@ -2886,44 +2799,44 @@ fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
   )
 }
 
-@target(erlang)
+@target(javascript)
 /// Announce that a live session ended, but only when one was live: a socket
 /// that never reached `Ready`, or one already known to be down, has no presence
 /// to lose and must not report losing it twice.
-fn notify_session_lost(state: State) -> Nil {
-  case state.phase {
-    Ready(_, _) -> notify_presence(state, PresenceSessionLost)
+fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
+  case previous {
+    Ready(_, _) -> notify_presence(cell, PresenceSessionLost)
     _ -> Nil
   }
 }
 
-@target(erlang)
-fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
-  case phase {
-    Connecting(waiters) -> list.each(waiters, process.send(_, result))
-    _ -> Nil
+@target(javascript)
+fn fail(cell: Cell(State), reason: String) -> Nil {
+  let state = abort_outcome_waiters(cell_get(cell))
+  fire_ready(cell, Error(reason))
+  cell_set(cell, State(..state, phase: Failed(reason)))
+  notify_session_lost(cell, state.phase)
+}
+
+@target(javascript)
+/// Fire the one-shot `on_ready` callback exactly once.
+fn fire_ready(cell: Cell(State), result: Result(Nil, String)) -> Nil {
+  let state = cell_get(cell)
+  case state.ready_fired {
+    True -> Nil
+    False -> {
+      cell_set(cell, State(..state, ready_fired: True))
+      state.on_ready(result)
+    }
   }
 }
 
-@target(erlang)
-fn require(result: Result(t, e), context: String) -> t {
-  case result {
-    Ok(value) -> value
-    Error(err) ->
-      panic as { "failed to decode " <> context <> ": " <> string.inspect(err) }
-  }
+@target(javascript)
+fn cell_get(cell: Cell(State)) -> State {
+  transport_js.get_cell(cell)
 }
 
-@target(erlang)
-fn now_ms() -> Int {
-  system_time(Millisecond)
+@target(javascript)
+fn cell_set(cell: Cell(State), state: State) -> Nil {
+  transport_js.set_cell(cell, state)
 }
-
-@target(erlang)
-type TimeUnit {
-  Millisecond
-}
-
-@target(erlang)
-@external(erlang, "os", "system_time")
-fn system_time(unit: TimeUnit) -> Int

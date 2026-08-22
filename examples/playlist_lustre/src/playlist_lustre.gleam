@@ -46,7 +46,7 @@ import lustre/event
 
 import watershed/browser
 import watershed/sequence_kernel
-import watershed_js.{type Document}
+import watershed.{type Document}
 import watershed_lustre
 
 import playlist_lustre/component
@@ -86,7 +86,7 @@ type Model {
     /// The component takes one too; a channel fans out to every subscriber.
     traced: Bool,
     user_id: String,
-    diagnostics: Option(watershed_js.Diagnostics),
+    diagnostics: Option(watershed.Diagnostics),
     diagnostic_log: List(String),
   )
 }
@@ -134,7 +134,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The handle arrives before the handshake completes, so it can be retained
     // for diagnostics but cannot create the tracks sequence yet.
     GotHandle(doc) -> {
-      let diagnostics = watershed_js.diagnostics(doc)
+      let diagnostics = watershed.diagnostics(doc)
       let model =
         Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
         |> add_diagnostic(
@@ -153,7 +153,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(doc) -> {
           let #(playlist, playlist_effect) =
-            component.init(doc, watershed_js.root_typed(doc), model.user_id)
+            component.init(doc, watershed.root_typed(doc), model.user_id)
           #(
             Model(..model, playlist: Some(playlist)),
             effect.map(playlist_effect, Playlist),
@@ -183,7 +183,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // re-renders itself off its own subscription.
     TracksChanged(event) -> {
       let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let detail = case diagnostics {
@@ -199,7 +199,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     DiagnosticsTick -> {
       let next = case model.doc {
-        Some(doc) -> Some(watershed_js.diagnostics(doc))
+        Some(doc) -> Some(watershed.diagnostics(doc))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -268,7 +268,7 @@ fn event_line(event: sequence_kernel.SequenceEvent) -> String {
   }
 }
 
-fn diagnostic_line(diagnostics: watershed_js.Diagnostics) -> String {
+fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
   <> diagnostics.phase
   <> " client="

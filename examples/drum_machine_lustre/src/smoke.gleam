@@ -1,4 +1,4 @@
-//// Headless smoke test: drive two `watershed_js` clients against a live
+//// Headless smoke test: drive two `watershed` clients against a live
 //// floodgate dev server (`just integration-up`) from Node and assert that the
 //// pattern converges — the OR-set kernel, the OR-set wire codecs, the JS
 //// runtime, the Phoenix FFI transport, and the pure core, end to end.
@@ -21,7 +21,7 @@ import gleam/string
 
 import doc_schema
 import watershed/summary_policy
-import watershed_js.{type Document, type OrSet, WatershedConfig}
+import watershed.{type Document, type OrSet, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -42,13 +42,13 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Machine)) {
-  use token <- promise.map(watershed_js.dev_token(
+  use token <- promise.map(watershed.dev_token(
     secret,
     tenant,
     document,
     user,
   ))
-  watershed_js.connect(
+  watershed.connect(
     WatershedConfig(
       url: url,
       tenant: tenant,
@@ -92,14 +92,14 @@ fn run_scenario(
     summary_policy.policy()
     |> summary_policy.with_threshold(6)
     |> summary_policy.with_jitter_ms(0)
-  watershed_js.auto_summarize(doc_a, policy)
-  watershed_js.auto_summarize(doc_b, policy)
+  watershed.auto_summarize(doc_a, policy)
+  watershed.auto_summarize(doc_b, policy)
 
   log("smoke: ensuring the kick track on A")
 
-  watershed_js.ensure_or_set(
+  watershed.ensure_or_set(
     doc_a,
-    watershed_js.root_typed(doc_a),
+    watershed.root_typed(doc_a),
     doc_schema.kick(),
     fn(result) {
       case result {
@@ -121,9 +121,9 @@ fn adopt_on_b(
   // B adopts the same channel rather than creating its own — `ensure_or_set`
   // resolves the handle A just published.
   use <- delay(1500)
-  watershed_js.ensure_or_set(
+  watershed.ensure_or_set(
     doc_b,
-    watershed_js.root_typed(doc_b),
+    watershed.root_typed(doc_b),
     doc_schema.kick(),
     fn(result) {
       case result {
@@ -144,7 +144,7 @@ fn toggle_scenario(
 ) -> Nil {
   log("smoke: A programs four-on-the-floor")
   list.each(["0", "4", "8", "12"], fn(step) {
-    watershed_js.or_set_add(kick_a, step)
+    watershed.or_set_add(kick_a, step)
   })
 
   use <- delay(1500)
@@ -154,8 +154,8 @@ fn toggle_scenario(
   // B removes a step it can see; A concurrently re-enables the same step. The
   // enable must survive.
   log("smoke: B disables step 4 while A re-enables it")
-  watershed_js.or_set_remove(kick_b, "4")
-  watershed_js.or_set_add(kick_a, "4")
+  watershed.or_set_remove(kick_b, "4")
+  watershed.or_set_add(kick_a, "4")
 
   use <- delay(1500)
   let converged = steps(kick_a) == steps(kick_b)
@@ -164,17 +164,17 @@ fn toggle_scenario(
   // And a plain toggle round-trips through the server, which is the one thing
   // every tab in the demo depends on.
   log("smoke: A toggles step 2 on, then off")
-  watershed_js.or_set_add(kick_a, "2")
+  watershed.or_set_add(kick_a, "2")
   use <- delay(1000)
   let on = list.contains(steps(kick_b), "2")
-  watershed_js.or_set_remove(kick_a, "2")
+  watershed.or_set_remove(kick_a, "2")
   use <- delay(1000)
   let off = !list.contains(steps(kick_b), "2")
 
   // A reconnect must not resurrect or drop anything: the pattern after the
   // handshake replays is the pattern before it.
   let before = steps(kick_a)
-  watershed_js.force_reconnect(doc_a)
+  watershed.force_reconnect(doc_a)
   use <- delay(2500)
   let survived_reconnect = steps(kick_a) == before && steps(kick_b) == before
 
@@ -182,7 +182,7 @@ fn toggle_scenario(
   // been written without anything here asking for one. The observable is the
   // client's own drift falling back below the ops it has authored.
   use <- delay(1500)
-  let summarized = watershed_js.ops_since_summary(doc_a) < 6
+  let summarized = watershed.ops_since_summary(doc_a) < 6
 
   case
     seeded
@@ -228,7 +228,7 @@ fn toggle_scenario(
 
 /// Sorted, because an OR-set's read order carries no meaning.
 fn steps(set: OrSet) -> List(String) {
-  watershed_js.or_set_values(set) |> list.sort(string.compare)
+  watershed.or_set_values(set) |> list.sort(string.compare)
 }
 
 fn bool_str(b: Bool) -> String {

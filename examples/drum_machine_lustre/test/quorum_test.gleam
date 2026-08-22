@@ -19,7 +19,7 @@ import gleeunit/should
 import watershed/pact_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed/transport_js
-import watershed_js.{type Document, type PactMap}
+import watershed.{type Document, type PactMap}
 
 const bpm_key = "bpm"
 
@@ -48,11 +48,11 @@ fn room(name: String, clients: Int) -> Room {
   sluice_js.settle(sluice)
 
   let assert [first, ..] = docs
-  let assert Ok(seed) = watershed_js.create_pact_map(first)
-  watershed_js.set(
-    watershed_js.root(first),
+  let assert Ok(seed) = watershed.create_pact_map(first)
+  watershed.set(
+    watershed.root(first),
     "settings",
-    watershed_js.pact_map_handle_of(seed),
+    watershed.pact_map_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
@@ -60,8 +60,8 @@ fn room(name: String, clients: Int) -> Room {
     docs
     |> list.map(fn(doc) {
       let assert Some(value) =
-        watershed_js.get(watershed_js.root(doc), "settings")
-      let assert Ok(pact) = watershed_js.resolve_pact_map(doc, value)
+        watershed.get(watershed.root(doc), "settings")
+      let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
   let events = list.map(settings, recorder)
@@ -73,7 +73,7 @@ fn room(name: String, clients: Int) -> Room {
 /// them can propose and read but never learn that a peer's proposal landed.
 fn recorder(pact: PactMap) -> fn() -> List(pact_map_kernel.PactMapEvent) {
   let seen = transport_js.new_cell([])
-  watershed_js.subscribe_pact_map(pact, fn(event) {
+  watershed.subscribe_pact_map(pact, fn(event) {
     transport_js.set_cell(seen, [event, ..transport_js.get_cell(seen)])
   })
   fn() { list.reverse(transport_js.get_cell(seen)) }
@@ -93,11 +93,11 @@ fn events_of(room: Room, index: Int) -> List(pact_map_kernel.PactMapEvent) {
 }
 
 fn propose(room: Room, from index: Int, bpm bpm: Int) -> Nil {
-  watershed_js.pact_map_set(settings_of(room, index), bpm_key, json.int(bpm))
+  watershed.pact_map_set(settings_of(room, index), bpm_key, json.int(bpm))
 }
 
 fn tempo(room: Room, index: Int) -> Option(Int) {
-  watershed_js.pact_map_get(settings_of(room, index), bpm_key)
+  watershed.pact_map_get(settings_of(room, index), bpm_key)
   |> option.map(fn(value) {
     let assert Ok(bpm) = json.parse(json.to_string(value), decode.int)
     bpm
@@ -116,7 +116,7 @@ pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
   tempo(room, 0) |> should.equal(Some(132))
   tempo(room, 1) |> should.equal(Some(132))
   tempo(room, 2) |> should.equal(Some(132))
-  watershed_js.pact_map_is_pending(settings_of(room, 0), bpm_key)
+  watershed.pact_map_is_pending(settings_of(room, 0), bpm_key)
   |> should.be_false
 
   // And every replica saw both ends of the protocol, in order.
@@ -144,16 +144,16 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
   // Pending everywhere, and *stays* pending. This is the window a two-client
   // test cannot produce: with the old `[self, author]` quorum the proposer and
   // the author are the same client here, so it accepted instantly.
-  watershed_js.pact_map_is_pending(settings_of(room, 0), bpm_key)
+  watershed.pact_map_is_pending(settings_of(room, 0), bpm_key)
   |> should.be_true
-  watershed_js.pact_map_is_pending(settings_of(room, 1), bpm_key)
+  watershed.pact_map_is_pending(settings_of(room, 1), bpm_key)
   |> should.be_true
   tempo(room, 0) |> should.equal(None)
 
   // The UI's "waiting on N of M" comes from here, and it must name the client
   // that has gone quiet rather than a bare spinner.
   let assert Some(waiting) =
-    watershed_js.pact_map_pending_signoffs(settings_of(room, 0), bpm_key)
+    watershed.pact_map_pending_signoffs(settings_of(room, 0), bpm_key)
   list.length(waiting) |> should.equal(1)
 
   // Bringing the tab back resolves it — nothing was lost, it was only waiting.
@@ -169,7 +169,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
   sluice_js.pause(room.sluice, nth(room.docs, 2))
   propose(room, from: 0, bpm: 108)
   sluice_js.settle(room.sluice)
-  watershed_js.pact_map_is_pending(settings_of(room, 0), bpm_key)
+  watershed.pact_map_is_pending(settings_of(room, 0), bpm_key)
   |> should.be_true
 
   // The tab is closed rather than restored. A signoff list is not a deadlock:
@@ -180,7 +180,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
 
   tempo(room, 0) |> should.equal(Some(108))
   tempo(room, 1) |> should.equal(Some(108))
-  watershed_js.pact_map_is_pending(settings_of(room, 0), bpm_key)
+  watershed.pact_map_is_pending(settings_of(room, 0), bpm_key)
   |> should.be_false
   events_of(room, 1)
   |> should.equal([
@@ -240,19 +240,19 @@ pub fn a_late_joiner_reads_the_agreed_tempo_test() {
   sluice_js.settle(room.sluice)
 
   let assert Some(value) =
-    watershed_js.get(watershed_js.root(doc_d), "settings")
-  let assert Ok(settings_d) = watershed_js.resolve_pact_map(doc_d, value)
+    watershed.get(watershed.root(doc_d), "settings")
+  let assert Ok(settings_d) = watershed.resolve_pact_map(doc_d, value)
 
-  watershed_js.pact_map_get(settings_d, bpm_key)
+  watershed.pact_map_get(settings_d, bpm_key)
   |> should.equal(Some(json.int(128)))
-  watershed_js.pact_map_is_pending(settings_d, bpm_key) |> should.be_false
-  watershed_js.pact_map_pending_signoffs(settings_d, bpm_key)
+  watershed.pact_map_is_pending(settings_d, bpm_key) |> should.be_false
+  watershed.pact_map_pending_signoffs(settings_d, bpm_key)
   |> should.equal(None)
 
   // And the joiner is now a full member: the next proposal waits on it too.
   propose(room, from: 1, bpm: 96)
   sluice_js.settle(room.sluice)
-  watershed_js.pact_map_get(settings_d, bpm_key)
+  watershed.pact_map_get(settings_d, bpm_key)
   |> should.equal(Some(json.int(96)))
 }
 
@@ -268,18 +268,18 @@ pub fn tempo_is_agreed_while_the_pattern_is_not_test() {
 
   // ...while the steps everyone can hear keep flowing between the clients
   // that are still talking, because nothing about them requires agreement.
-  let assert Ok(kick) = watershed_js.create_or_set(nth(room.docs, 0))
-  watershed_js.set(
-    watershed_js.root(nth(room.docs, 0)),
+  let assert Ok(kick) = watershed.create_or_set(nth(room.docs, 0))
+  watershed.set(
+    watershed.root(nth(room.docs, 0)),
     "kick",
-    watershed_js.or_set_handle_of(kick),
+    watershed.or_set_handle_of(kick),
   )
   sluice_js.settle(room.sluice)
-  watershed_js.or_set_add(kick, "0")
+  watershed.or_set_add(kick, "0")
   sluice_js.settle(room.sluice)
 
   let assert Some(value) =
-    watershed_js.get(watershed_js.root(nth(room.docs, 1)), "kick")
-  let assert Ok(kick_b) = watershed_js.resolve_or_set(nth(room.docs, 1), value)
-  watershed_js.or_set_values(kick_b) |> should.equal(["0"])
+    watershed.get(watershed.root(nth(room.docs, 1)), "kick")
+  let assert Ok(kick_b) = watershed.resolve_or_set(nth(room.docs, 1), value)
+  watershed.or_set_values(kick_b) |> should.equal(["0"])
 }

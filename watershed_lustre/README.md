@@ -6,7 +6,7 @@ client meets the UI framework, so a Lustre app *declares* its connection and
 subscriptions instead of hand-wiring watershed's callbacks into `dispatch`.
 
 ```gleam
-import watershed_js
+import watershed
 import watershed_lustre
 
 fn init(_) {
@@ -24,7 +24,7 @@ fn update(model, msg) {
     GotHandle(doc) -> #(
       Model(..model, doc: Some(doc)),
       // local + remote edits arrive as MapChanged
-      watershed_lustre.subscribe(watershed_js.root(doc), fn(_) { MapChanged }),
+      watershed_lustre.subscribe(watershed.root(doc), fn(_) { MapChanged }),
     )
     // …
   }
@@ -47,7 +47,7 @@ fn update(model, msg) {
 ## API
 
 Every effect takes the app's own `fn(...) -> msg` constructors; edits and reads
-stay on `watershed_js` (`set`, `get`, `entries`, `increment`, …) — this package
+stay on `watershed` (`set`, `get`, `entries`, `increment`, …) — this package
 only wraps the callback-shaped surface.
 
 **Connect**
@@ -103,7 +103,7 @@ turns it off. Off unless installed.
 
 `watershed_lustre/crdt` is the Lustre surface for the peer-to-peer facade
 (`watershed/crdt_js`), the same way the effects above wrap the sequenced
-`watershed_js`. A document's channels merge directly between browser tabs over
+`watershed`. A document's channels merge directly between browser tabs over
 WebRTC data channels — there is no document server, and nothing sequences an
 edit. The bindings keep the package's discipline: they schedule and defer, the
 app owns its `Msg` vocabulary, so an app never hand-writes an `effect.from`

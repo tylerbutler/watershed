@@ -21,9 +21,9 @@ player map ─┬─ "name"
 
 API surface demonstrated on top of what `dice_cli` covers:
 
-- `watershed.create_map` — detached maps, populated locally before attach
-- `watershed.handle_of` — storing a map handle as a value in another map
-- `watershed.resolve` — turning a handle read from a peer back into a
+- `watershed_beam.create_map` — detached maps, populated locally before attach
+- `watershed_beam.handle_of` — storing a map handle as a value in another map
+- `watershed_beam.resolve` — turning a handle read from a peer back into a
   `SharedMap` (with retries, since a remote handle can be transiently
   unresolvable while its attach op is in flight)
 - One selector fanning in events from *many* subscriptions: the roster map

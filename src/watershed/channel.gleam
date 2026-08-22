@@ -9,7 +9,7 @@
 //// - `wire/ops`: add the channel-op wire codec.
 //// - `channel`: extend summary payload encode/decode
 ////   (`encode_snapshot`/`snapshot_decoder`).
-//// - `runtime` and `runtime_js`: add actor/runtime verbs for edits + reads.
+//// - `runtime_beam` and `runtime`: add actor/runtime verbs for edits + reads.
 //// - fuzz model: extend generators/oracles for the new channel behavior.
 ////
 //// Kernels stay pure and runtime-unaware; this module only wraps them.

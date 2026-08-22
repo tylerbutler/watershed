@@ -1,5 +1,5 @@
 // JS transport for the watershed SharedMap client, built on the official
-// Phoenix JS client. The Gleam `runtime_js` module drives the pure core
+// Phoenix JS client. The Gleam `runtime` module drives the pure core
 // (`runtime_core`/`wire`/`map_kernel`) over this shim — no OTP, no aquamarine.
 //
 // `phoenix` is an *optional peer dependency*: only the real (browser) transport

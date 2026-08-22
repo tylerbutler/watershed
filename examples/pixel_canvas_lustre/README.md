@@ -82,7 +82,7 @@ device-pixel-ratio arithmetic anywhere.
 
 ## The offline toggle
 
-"Go offline" calls `watershed_js.go_offline`, which holds the socket down —
+"Go offline" calls `watershed.go_offline`, which holds the socket down —
 distinct from `force_reconnect`, which is away-and-back in one step and leaves no
 window to edit in, and from `close`, which is terminal. The document keeps
 serving reads and accepting edits while held; the status line shows

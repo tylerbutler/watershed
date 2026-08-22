@@ -2,7 +2,7 @@
 //// (`watershed/crdt_js`).
 ////
 //// This is the p2p counterpart of the sequenced bindings in
-//// `watershed_lustre`. `crdt_js` is callback-shaped the same way `watershed_js`
+//// `watershed_lustre`. `crdt_js` is callback-shaped the same way `watershed`
 //// is — `connect` takes an `on_ready` and an `on_status`, `subscribe` takes a
 //// handler, mutations broadcast to peers and fan an event back to the same
 //// document's subscribers synchronously, sometimes from inside a running
@@ -24,7 +24,7 @@
 //// effects in `watershed_lustre`: `watershed_lustre.subscribe_pn_counter` binds
 //// a server-sequenced `PnCounter`, `watershed_lustre/crdt.subscribe_pn_counter`
 //// binds a peer-to-peer one. The two take different, non-interchangeable handle
-//// types (`watershed_js.PnCounter` vs `crdt_js.Handle(PnCounterChannel)`), so a
+//// types (`watershed.PnCounter` vs `crdt_js.Handle(PnCounterChannel)`), so a
 //// qualified import (`import watershed_lustre/crdt`) reads unambiguously and the
 //// compiler rejects a handle passed to the wrong stack.
 ////

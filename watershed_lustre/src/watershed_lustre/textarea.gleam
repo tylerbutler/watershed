@@ -1,4 +1,4 @@
-//// A `<textarea>` bound to a [`SharedText`](watershed_js) channel.
+//// A `<textarea>` bound to a [`SharedText`](watershed) channel.
 ////
 //// Wiring a textarea to a text CRDT looks trivial and isn't. The `input` event
 //// hands you the *whole* new value, so the naïve bridge writes it back as one
@@ -155,7 +155,7 @@ import lustre/event
 import watershed/crdt_js.{type Handle, type Subscription}
 import watershed/schema
 import watershed/text_kernel
-import watershed_js.{type Bias, type SharedText, type TextAnchor}
+import watershed.{type Bias, type SharedText, type TextAnchor}
 
 import watershed_lustre
 import watershed_lustre/crdt
@@ -912,7 +912,7 @@ pub fn cursor(model: Editor(channel)) -> Option(Cursor) {
 /// Encode a cursor for the wire.
 ///
 /// The anchors travel as embedded JSON strings, which is the shape
-/// `watershed_js.text_anchor_from_json` reads back.
+/// `watershed.text_anchor_from_json` reads back.
 pub fn cursor_to_json(cursor: Cursor) -> Json {
   json.object([
     #("start", json.string(anchor_json(cursor.start))),
@@ -921,7 +921,7 @@ pub fn cursor_to_json(cursor: Cursor) -> Json {
 }
 
 fn anchor_json(anchor: TextAnchor) -> String {
-  json.to_string(watershed_js.text_anchor_to_json(anchor))
+  json.to_string(watershed.text_anchor_to_json(anchor))
 }
 
 /// Decode a cursor produced by [`cursor_to_json`](#cursor_to_json), for nesting
@@ -935,11 +935,11 @@ pub fn cursor_decoder() -> Decoder(Cursor) {
 
 fn anchor_decoder() -> Decoder(TextAnchor) {
   use encoded <- decode.then(decode.string)
-  case watershed_js.text_anchor_from_json(encoded) {
+  case watershed.text_anchor_from_json(encoded) {
     Ok(anchor) -> decode.success(anchor)
     // A malformed anchor is one peer's cursor, not a reason to drop the whole
     // roster — the zero value is discarded by `decode`'s error path anyway.
-    Error(_) -> decode.failure(watershed_js.text_start_anchor(), "TextAnchor")
+    Error(_) -> decode.failure(watershed.text_start_anchor(), "TextAnchor")
   }
 }
 
@@ -1003,7 +1003,7 @@ fn locate(model: Editor(channel)) -> Editor(channel) {
 }
 
 /// The channel the component is bound to, for edits it does not own —
-/// `text_append`, anchors, or anything else on `watershed_js`. Mutating it
+/// `text_append`, anchors, or anything else on `watershed`. Mutating it
 /// directly is safe: the subscription re-snapshots the model.
 pub fn channel(model: Editor(channel)) -> channel {
   model.channel
@@ -1136,13 +1136,13 @@ fn anchors(
   end: Int,
 ) -> Option(#(TextAnchor, TextAnchor)) {
   let head_bias = case start == end {
-    True -> watershed_js.bias_after
-    False -> watershed_js.bias_before
+    True -> watershed.bias_after
+    False -> watershed.bias_before
   }
 
   case
     model.backend.anchor_at(model.channel, start, head_bias),
-    model.backend.anchor_at(model.channel, end, watershed_js.bias_after)
+    model.backend.anchor_at(model.channel, end, watershed.bias_after)
   {
     Some(head), Some(tail) -> Some(#(head, tail))
     _, _ -> None
@@ -1259,25 +1259,25 @@ fn new_instance() -> String {
 fn sequenced_backend() -> Backend(SharedText) {
   Backend(
     snapshot: fn(channel) {
-      Ok(#(watershed_js.text_value(channel), watershed_js.text_length(channel)))
+      Ok(#(watershed.text_value(channel), watershed.text_length(channel)))
     },
     insert: fn(channel, index, value) {
-      watershed_js.text_insert(channel, index, value)
+      watershed.text_insert(channel, index, value)
     },
     delete_range: fn(channel, start, end) {
-      watershed_js.text_delete_range(channel, start, end)
+      watershed.text_delete_range(channel, start, end)
     },
     replace_range: fn(channel, start, end, value) {
-      watershed_js.text_replace_range(channel, start, end, value)
+      watershed.text_replace_range(channel, start, end, value)
     },
     anchor_at: fn(channel, index, bias) {
-      case watershed_js.text_anchor_at(channel, index, bias) {
+      case watershed.text_anchor_at(channel, index, bias) {
         Ok(anchor) -> Some(anchor)
         Error(_) -> None
       }
     },
     resolve_anchor: fn(channel, anchor) {
-      case watershed_js.text_resolve_anchor(channel, anchor) {
+      case watershed.text_resolve_anchor(channel, anchor) {
         Ok(index) -> Some(index)
         Error(_) -> None
       }

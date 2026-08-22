@@ -41,7 +41,7 @@ import watershed/or_map_kernel
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/summary_policy
-import watershed_js.{type Document, type OrMap, type SharedSequence}
+import watershed.{type Document, type OrMap, type SharedSequence}
 import watershed_lustre
 
 import board.{type NoteCard}
@@ -305,7 +305,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// passes the wrong mode silently adopts whatever the channel was created
 /// with, surfacing only later as a runtime ModeMismatch.
 fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
-  let root = watershed_js.root_typed(doc)
+  let root = watershed.root_typed(doc)
   effect.batch([
     // A retro writes many small ops (a card, a vote apiece); summarizing keeps
     // a late joiner's catch-up in band instead of replaying the whole log.
@@ -534,12 +534,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               author: model.user_id,
               created: created,
             )
-          watershed_js.or_map_set_json(shared.notes, id, note.to_json(entry))
+          watershed.or_map_set_json(shared.notes, id, note.to_json(entry))
           let sequence = sequence_for(shared, col)
           let result =
-            watershed_js.sequence_insert(
+            watershed.sequence_insert(
               sequence,
-              watershed_js.sequence_length(sequence),
+              watershed.sequence_length(sequence),
               json.string(id),
             )
           let model =
@@ -583,7 +583,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.shared {
         None -> #(model, effect.none())
         Some(shared) -> {
-          watershed_js.or_map_increment(shared.votes, id, 1)
+          watershed.or_map_increment(shared.votes, id, 1)
           let model =
             Model(
               ..model,
@@ -597,7 +597,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.shared {
         None -> #(model, effect.none())
         Some(shared) -> {
-          watershed_js.or_map_increment(shared.votes, id, -1)
+          watershed.or_map_increment(shared.votes, id, -1)
           let model =
             Model(
               ..model,
@@ -610,7 +610,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     EditClicked(id) -> {
       let current = case model.shared {
         Some(shared) ->
-          case watershed_js.or_map_value(shared.notes, id) {
+          case watershed.or_map_value(shared.notes, id) {
             Some(or_map_kernel.Register(value)) ->
               Some(note.from_register(value).text)
             _ -> None
@@ -641,10 +641,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     EditSaved ->
       case model.editing, model.shared {
         Some(#(id, text)), Some(shared) -> {
-          case watershed_js.or_map_value(shared.notes, id) {
+          case watershed.or_map_value(shared.notes, id) {
             Some(or_map_kernel.Register(value)) -> {
               let edited = Note(..note.from_register(value), text: text)
-              watershed_js.or_map_set_json(
+              watershed.or_map_set_json(
                 shared.notes,
                 id,
                 note.to_json(edited),
@@ -672,7 +672,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.shared {
         None -> #(model, effect.none())
         Some(shared) -> {
-          watershed_js.or_map_remove(shared.notes, id)
+          watershed.or_map_remove(shared.notes, id)
           list.each(column.all(), fn(col) {
             remove_from_sequence(sequence_for(shared, col), id)
           })
@@ -798,7 +798,7 @@ fn move_within(model: Model, col: Column, id: String, step: Int) -> Model {
                 Some(to) ->
                   record(
                     model,
-                    watershed_js.sequence_move(sequence, from, to),
+                    watershed.sequence_move(sequence, from, to),
                     "move",
                   )
                 // The neighbour is an unsequenced tail card; there is no
@@ -808,11 +808,11 @@ fn move_within(model: Model, col: Column, id: String, step: Int) -> Model {
             _, None, _ -> {
               let at = case step < 0 {
                 True -> 0
-                False -> watershed_js.sequence_length(sequence)
+                False -> watershed.sequence_length(sequence)
               }
               record(
                 model,
-                watershed_js.sequence_insert(sequence, at, json.string(id)),
+                watershed.sequence_insert(sequence, at, json.string(id)),
                 "repair insert",
               )
             }
@@ -852,7 +852,7 @@ fn apply_card_drop(
   id: String,
   target: DropTarget,
 ) -> Model {
-  case watershed_js.or_map_value(shared.notes, id) {
+  case watershed.or_map_value(shared.notes, id) {
     Some(or_map_kernel.Register(value)) -> {
       let dragged = note.from_register(value)
       let dest = case target {
@@ -860,7 +860,7 @@ fn apply_card_drop(
         // Dropping on a card lands in the column that card's *register* puts
         // it in — the same authority the render rule uses.
         OnCard(target_id) if target_id != id ->
-          case watershed_js.or_map_value(shared.notes, target_id) {
+          case watershed.or_map_value(shared.notes, target_id) {
             Some(or_map_kernel.Register(target_value)) ->
               column.from_id(note.from_register(target_value).column)
             _ -> Error(Nil)
@@ -875,18 +875,18 @@ fn apply_card_drop(
           })
           let sequence = sequence_for(shared, dest_col)
           let at = case target {
-            AtColumnEnd(_) -> watershed_js.sequence_length(sequence)
+            AtColumnEnd(_) -> watershed.sequence_length(sequence)
             OnCard(target_id) ->
               index_of_id(sequence, target_id)
-              |> result.unwrap(watershed_js.sequence_length(sequence))
+              |> result.unwrap(watershed.sequence_length(sequence))
           }
           let result =
-            watershed_js.sequence_insert(sequence, at, json.string(id))
+            watershed.sequence_insert(sequence, at, json.string(id))
           case dragged.column == column.id(dest_col) {
             True -> Nil
             False -> {
               let moved = Note(..dragged, column: column.id(dest_col))
-              watershed_js.or_map_set_json(
+              watershed.or_map_set_json(
                 shared.notes,
                 id,
                 note.to_json(moved),
@@ -904,7 +904,7 @@ fn apply_card_drop(
 
 /// The raw index of a note id in a sequence, garbage entries included.
 fn index_of_id(sequence: SharedSequence, id: String) -> Result(Int, Nil) {
-  watershed_js.sequence_values(sequence)
+  watershed.sequence_values(sequence)
   |> list.index_map(fn(value, index) { #(value, index) })
   |> list.find(fn(entry) {
     json.parse(json.to_string(entry.0), decode.string) == Ok(id)
@@ -916,7 +916,7 @@ fn index_of_id(sequence: SharedSequence, id: String) -> Result(Int, Nil) {
 fn remove_from_sequence(sequence: SharedSequence, id: String) -> Nil {
   case index_of_id(sequence, id) {
     Ok(index) -> {
-      let _ = watershed_js.sequence_delete(sequence, index)
+      let _ = watershed.sequence_delete(sequence, index)
       remove_from_sequence(sequence, id)
     }
     Error(Nil) -> Nil
@@ -962,7 +962,7 @@ fn snapshot(model: Model) -> Model {
 }
 
 fn note_entries(notes: OrMap) -> List(#(String, Note)) {
-  watershed_js.or_map_entries(notes)
+  watershed.or_map_entries(notes)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
@@ -972,7 +972,7 @@ fn note_entries(notes: OrMap) -> List(#(String, Note)) {
 }
 
 fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
-  watershed_js.or_map_entries(votes)
+  watershed.or_map_entries(votes)
   |> list.filter_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
@@ -983,7 +983,7 @@ fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
 
 /// A column sequence holds JSON-encoded note ids; skip anything else.
 fn sequence_ids(sequence: SharedSequence) -> List(String) {
-  watershed_js.sequence_values(sequence)
+  watershed.sequence_values(sequence)
   |> list.filter_map(fn(value) {
     json.parse(json.to_string(value), decode.string)
     |> result.replace_error(Nil)
