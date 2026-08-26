@@ -27,8 +27,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed/sequence_kernel
 import watershed.{type Document, type SharedSequence, type TypedMap}
+import watershed/sequence_kernel
 import watershed_lustre
 
 import playlist_lustre/doc_schema
@@ -188,9 +188,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     RemoveClicked(index) -> #(
-      mutate(model, "delete", fn(seq) {
-        watershed.sequence_delete(seq, index)
-      }),
+      mutate(model, "delete", fn(seq) { watershed.sequence_delete(seq, index) }),
       effect.none(),
     )
   }

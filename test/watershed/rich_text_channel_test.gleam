@@ -174,7 +174,7 @@ pub fn rich_text_snapshot_decoder_rejects_non_insert_only_operations_test() {
 // ── attach vs. persisted snapshot ───────────────────────────────────────────
 
 pub fn rich_text_attach_snapshot_includes_pending_persisted_excludes_it_test() {
-  let kernel = rich_text_kernel.new(0)
+  let kernel = rich_text_kernel.new()
   let a = delta("[{\"insert\":\"A\"}]")
   let assert Ok(#(kernel, _, _)) = rich_text_kernel.submit(kernel, a, 0)
   let state = channel.RichTextState(kernel)
@@ -186,7 +186,7 @@ pub fn rich_text_attach_snapshot_includes_pending_persisted_excludes_it_test() {
 }
 
 pub fn rich_text_attach_state_reconstructs_from_snapshot_test() {
-  let kernel = rich_text_kernel.new(0)
+  let kernel = rich_text_kernel.new()
   let a = delta("[{\"insert\":\"A\"}]")
   let assert Ok(#(kernel, _, _)) = rich_text_kernel.submit(kernel, a, 0)
   let state = channel.RichTextState(kernel)
@@ -233,7 +233,7 @@ pub fn rich_text_submit_canonicalizes_before_wire_round_trip_test() {
   let assert Ok(raw) = rich_text.delta_retain(raw, 1, attributes)
   let canonical = delta("[{\"retain\":1},{\"delete\":1}]")
   let kernel =
-    rich_text_kernel.from_document(0, document("[{\"insert\":\"ABC\"}]"))
+    rich_text_kernel.from_document(document("[{\"insert\":\"ABC\"}]"))
   let assert Ok(#(kernel, Some(wire_op), _)) =
     rich_text_kernel.submit(kernel, raw, 0)
 
@@ -266,7 +266,7 @@ pub fn rich_text_same_snapshot_requires_canonical_document_equality_test() {
 // ── apply_remote / ack_local / take_outbound dispatch ───────────────────────
 
 pub fn rich_text_apply_remote_dispatch_test() {
-  let state = channel.RichTextState(rich_text_kernel.new(1))
+  let state = channel.RichTextState(rich_text_kernel.new())
   let op =
     channel.RichTextOp(rich_text_kernel.RichTextWireOp(
       0,
@@ -293,7 +293,7 @@ pub fn rich_text_apply_remote_dispatch_test() {
 }
 
 pub fn rich_text_ack_local_dispatch_uses_no_meta_test() {
-  let kernel = rich_text_kernel.new(0)
+  let kernel = rich_text_kernel.new()
   let a = delta("[{\"insert\":\"A\"}]")
   let assert Ok(#(kernel, Some(wire_op), _)) =
     rich_text_kernel.submit(kernel, a, 0)
@@ -314,7 +314,7 @@ pub fn rich_text_ack_local_dispatch_uses_no_meta_test() {
 }
 
 pub fn rich_text_take_outbound_drains_buffered_op_test() {
-  let kernel = rich_text_kernel.new(0)
+  let kernel = rich_text_kernel.new()
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"retain\":1},{\"insert\":\"B\"}]")
   let assert Ok(#(kernel, Some(wire_a), _)) =
@@ -377,7 +377,7 @@ pub fn rich_text_discovers_handles_in_embeds_and_attributes_test() {
       "hi",
       rich_text.attributes([#("link", handle_value("attr-child"))]),
     )
-  let kernel = rich_text_kernel.from_document(0, document)
+  let kernel = rich_text_kernel.from_document(document)
 
   channel.handle_addresses(channel.RichTextState(kernel))
   |> expect.to_equal(["embed-child", "attr-child"])

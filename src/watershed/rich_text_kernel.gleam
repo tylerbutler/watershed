@@ -4,6 +4,14 @@
 //// kernel keeps one local operation in flight at most, and it composes the
 //// later edits into `buffer`. The kernel can thus transform every received
 //// operation through a complete concurrency window.
+////
+//// The transform side comes from the sequence order, and not from an
+//// identity. rich-text reverses the side convention of json0, so the
+//// operation with the larger sequence number is `Left`, and the other
+//// operation is `Right`. An insert of the operation that sequenced first thus
+//// comes first. A pending local operation always sequences after every
+//// operation that the kernel processes now, so it is always `Left`. The
+//// module doc of `ot_client` describes why an identity does not work here.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -13,7 +21,6 @@ import watershed/rich_text
 
 pub type RichTextState {
   RichTextState(
-    self: Int,
     sequenced: rich_text.Document,
     log: List(ot_client.LogEntry(rich_text.Delta)),
     inflight: Option(rich_text.Delta),
@@ -36,14 +43,13 @@ pub type KernelError {
 }
 
 /// Start with an empty rich-text document.
-pub fn new(self: Int) -> RichTextState {
-  from_document(self, rich_text.empty_document())
+pub fn new() -> RichTextState {
+  from_document(rich_text.empty_document())
 }
 
 /// Start from a confirmed initial document.
-pub fn from_document(self: Int, document: rich_text.Document) -> RichTextState {
+pub fn from_document(document: rich_text.Document) -> RichTextState {
   RichTextState(
-    self: self,
     sequenced: document,
     log: [],
     inflight: None,
@@ -52,9 +58,9 @@ pub fn from_document(self: Int, document: rich_text.Document) -> RichTextState {
   )
 }
 
-/// Restore a sequenced-only summary under the supplied client identity.
-pub fn from_summary(self: Int, document: rich_text.Document) -> RichTextState {
-  from_document(self, document)
+/// Restore a sequenced-only summary.
+pub fn from_summary(document: rich_text.Document) -> RichTextState {
+  from_document(document)
 }
 
 /// A summary never includes optimistic local edits.
@@ -155,7 +161,6 @@ pub fn apply_remote(
   state: RichTextState,
   wire: RichTextWireOp,
   seq: Int,
-  author: Int,
   msn: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
   use head_delta <- result.try(
@@ -164,9 +169,7 @@ pub fn apply_remote(
       wire.ref_seq,
       seq,
       wire.delta,
-      fn(current, entry) {
-        transform(current, entry.op, side_of(author, entry.author))
-      },
+      fn(current, entry) { transform(current, entry.op, rich_text.Left) },
     ),
   )
   use sequenced <- result.try(apply_op(state.sequenced, head_delta))
@@ -174,29 +177,21 @@ pub fn apply_remote(
     ot_client.rebase_pending(
       state.inflight,
       head_delta,
-      fn(local, remote) {
-        transform(local, remote, side_of(state.self, author))
-      },
-      fn(remote, local) {
-        transform(remote, local, side_of(author, state.self))
-      },
+      fn(local, remote) { transform(local, remote, rich_text.Left) },
+      fn(remote, local) { transform(remote, local, rich_text.Right) },
     ),
   )
   use #(buffer, remote_after_buffer) <- result.try(
     ot_client.rebase_pending(
       state.buffer,
       remote_after_inflight,
-      fn(local, remote) {
-        transform(local, remote, side_of(state.self, author))
-      },
-      fn(remote, local) {
-        transform(remote, local, side_of(author, state.self))
-      },
+      fn(local, remote) { transform(local, remote, rich_text.Left) },
+      fn(remote, local) { transform(remote, local, rich_text.Right) },
     ),
   )
   let log =
     ot_client.gc_log(
-      list.append(state.log, [ot_client.LogEntry(seq, author, head_delta)]),
+      list.append(state.log, [ot_client.LogEntry(seq, head_delta)]),
       msn,
     )
   let state =
@@ -225,7 +220,7 @@ pub fn ack_local(
       use sequenced <- result.try(apply_op(state.sequenced, inflight))
       let log =
         ot_client.gc_log(
-          list.append(state.log, [ot_client.LogEntry(seq, state.self, inflight)]),
+          list.append(state.log, [ot_client.LogEntry(seq, inflight)]),
           msn,
         )
       let #(next_inflight, outbound) =
@@ -233,7 +228,6 @@ pub fn ack_local(
       Ok(
         #(
           RichTextState(
-            ..state,
             sequenced: sequenced,
             log: log,
             inflight: next_inflight,
@@ -254,14 +248,4 @@ pub fn take_outbound(
 ) -> #(RichTextState, Option(RichTextWireOp)) {
   let #(outbound, taken) = ot_client.take_pending(state.outbound)
   #(RichTextState(..state, outbound: outbound), taken)
-}
-
-/// rich-text reverses the transform-side convention of json0. Thus an author
-/// with a lower number must use `Right` when the kernel transforms past an
-/// author with a higher number.
-fn side_of(author_x: Int, author_y: Int) -> rich_text.Side {
-  case ot_client.author_precedes(author_x, author_y) {
-    True -> rich_text.Right
-    False -> rich_text.Left
-  }
 }

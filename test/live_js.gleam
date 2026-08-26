@@ -39,9 +39,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 @target(javascript)
-import watershed/summary_policy
-@target(javascript)
 import watershed.{type Document, type SharedMap, WatershedConfig}
+@target(javascript)
+import watershed/summary_policy
 
 @target(javascript)
 const url = "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0"
@@ -129,9 +129,7 @@ fn reconnect_into_a_quiet_room() -> Promise(Bool) {
   watershed.go_online(doc_a)
 
   use caught_up <- promise.await(
-    wait_until(fn() {
-      watershed.get(map_a, "from-b") == Some(json.bool(True))
-    }),
+    wait_until(fn() { watershed.get(map_a, "from-b") == Some(json.bool(True)) }),
   )
 
   // Caught up is not the same as live. An edit made now has to reach the wire,
@@ -265,8 +263,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   // It seeded from the checkpoint rather than replaying from zero: its drift
   // counts only what followed the summary it loaded.
   let from_checkpoint =
-    watershed.ops_since_summary(doc_c)
-    <= watershed.ops_since_summary(doc_a)
+    watershed.ops_since_summary(doc_c) <= watershed.ops_since_summary(doc_a)
 
   watershed.close(doc_c)
   finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
@@ -292,11 +289,7 @@ fn summarizes_within(
     True, _ -> promise.resolve(True)
     False, True -> promise.resolve(False)
     False, False -> {
-      watershed.set(
-        map,
-        "tick" <> int.to_string(attempts),
-        json.int(attempts),
-      )
+      watershed.set(map, "tick" <> int.to_string(attempts), json.int(attempts))
       use _ <- promise.await(sleep(200))
       summarizes_within(document, map, attempts - 1, threshold)
     }

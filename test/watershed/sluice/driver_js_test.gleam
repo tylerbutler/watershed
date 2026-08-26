@@ -16,6 +16,8 @@ import gleam/string
 import startest/expect
 
 @target(javascript)
+import watershed
+@target(javascript)
 import watershed/client_id
 @target(javascript)
 import watershed/ordered_collection_kernel
@@ -37,8 +39,6 @@ import watershed/summary_policy
 import watershed/text_kernel
 @target(javascript)
 import watershed/transport_js
-@target(javascript)
-import watershed
 
 @target(javascript)
 type SequenceFields
@@ -230,10 +230,8 @@ pub fn ensure_sequence_adopts_stored_field_test() {
   let doc_b = sluice_js.connect(sluice, "user-b")
   let field: schema.ChannelField(SequenceFields, schema.SequenceChannel) =
     schema.channel_field("items")
-  let root_a: watershed.TypedMap(SequenceFields) =
-    watershed.root_typed(doc_a)
-  let root_b: watershed.TypedMap(SequenceFields) =
-    watershed.root_typed(doc_b)
+  let root_a: watershed.TypedMap(SequenceFields) = watershed.root_typed(doc_a)
+  let root_b: watershed.TypedMap(SequenceFields) = watershed.root_typed(doc_b)
   sluice_js.settle(sluice)
 
   let assert Ok(sequence_a) = watershed.create_sequence(doc_a)
@@ -274,8 +272,7 @@ pub fn shared_sequence_converges_test() {
 
   let assert Some(sequence_handle) =
     watershed.get(watershed.root(doc_b), "items")
-  let assert Ok(sequence_b) =
-    watershed.resolve_sequence(doc_b, sequence_handle)
+  let assert Ok(sequence_b) = watershed.resolve_sequence(doc_b, sequence_handle)
   case
     watershed.resolve_sequence(
       doc_b,
@@ -397,22 +394,14 @@ pub fn shared_text_converges_test() {
 
   let assert Ok(text_a) = watershed.create_text(doc_a)
   let assert Ok(Nil) = watershed.text_insert(text_a, 0, "base")
-  watershed.set(
-    watershed.root(doc_a),
-    "doc",
-    watershed.text_handle_of(text_a),
-  )
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
-  let assert Some(text_handle) =
-    watershed.get(watershed.root(doc_b), "doc")
+  let assert Some(text_handle) = watershed.get(watershed.root(doc_b), "doc")
   let assert Ok(text_b) = watershed.resolve_text(doc_b, text_handle)
   // A map handle does not resolve as text.
   case
-    watershed.resolve_text(
-      doc_b,
-      watershed.handle_of(watershed.root(doc_b)),
-    )
+    watershed.resolve_text(doc_b, watershed.handle_of(watershed.root(doc_b)))
   {
     Error(_) -> Nil
     Ok(_) -> panic as "expected map handle resolution to fail for SharedText"
@@ -459,8 +448,7 @@ pub fn shared_text_converges_test() {
   // A late joiner replays history and lands on the same text.
   let doc_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
-  let assert Some(handle_for_c) =
-    watershed.get(watershed.root(doc_c), "doc")
+  let assert Some(handle_for_c) = watershed.get(watershed.root(doc_c), "doc")
   let assert Ok(text_c) = watershed.resolve_text(doc_c, handle_for_c)
   watershed.text_value(text_c)
   |> expect.to_equal(watershed.text_value(text_a))
@@ -481,13 +469,8 @@ pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
   let combining_e = "e\u{0301}"
   let family =
     "👩" <> "\u{200D}" <> "👩" <> "\u{200D}" <> "👧" <> "\u{200D}" <> "👦"
-  let assert Ok(Nil) =
-    watershed.text_insert(text_a, 0, combining_e <> family)
-  watershed.set(
-    watershed.root(doc_a),
-    "doc",
-    watershed.text_handle_of(text_a),
-  )
+  let assert Ok(Nil) = watershed.text_insert(text_a, 0, combining_e <> family)
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
   let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
@@ -550,11 +533,7 @@ pub fn shared_text_no_op_edits_do_not_submit_test() {
 
   let assert Ok(text_a) = watershed.create_text(doc_a)
   let assert Ok(Nil) = watershed.text_insert(text_a, 0, "hello")
-  watershed.set(
-    watershed.root(doc_a),
-    "doc",
-    watershed.text_handle_of(text_a),
-  )
+  watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
   let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
@@ -702,8 +681,7 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   // Once accepted there is nothing left to sign off, and the accepted entry
   // carries the sequence number the pact settled at.
   watershed.pact_map_pending_signoffs(pact_a, "bpm") |> expect.to_equal(None)
-  let assert Some(accepted) =
-    watershed.pact_map_get_with_details(pact_a, "bpm")
+  let assert Some(accepted) = watershed.pact_map_get_with_details(pact_a, "bpm")
   { accepted.sequence_number > 0 } |> expect.to_be_true()
 }
 
@@ -760,9 +738,7 @@ pub fn client_id_matches_the_id_kernels_report_test() {
   sluice_js.resume(sluice, doc_c)
   sluice_js.settle(sluice)
   let assert Some(id_c_now) = watershed.client_id(doc_c)
-  let waiting_on_me = case
-    watershed.pact_map_pending_signoffs(pact_c, "bpm")
-  {
+  let waiting_on_me = case watershed.pact_map_pending_signoffs(pact_c, "bpm") {
     Some(ids) -> list.contains(ids, client_id.to_int(id_c_now))
     None -> False
   }
@@ -866,8 +842,7 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
   )
   sluice_js.settle(sluice)
   let assert Some(handle) = watershed.get(watershed.root(doc_b), "jobs")
-  let assert Ok(queue_b) =
-    watershed.resolve_ordered_collection(doc_b, handle)
+  let assert Ok(queue_b) = watershed.resolve_ordered_collection(doc_b, handle)
 
   let seen = transport_js.new_cell([])
   watershed.subscribe_ordered_collection(queue_b, fn(event) {
@@ -901,8 +876,7 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
   )
   sluice_js.settle(sluice)
   let assert Some(handle) = watershed.get(watershed.root(doc_b), "jobs")
-  let assert Ok(queue_b) =
-    watershed.resolve_ordered_collection(doc_b, handle)
+  let assert Ok(queue_b) = watershed.resolve_ordered_collection(doc_b, handle)
 
   let seen_a = transport_js.new_cell([])
   watershed.subscribe_ordered_collection(queue_a, fn(event) {
@@ -1037,8 +1011,7 @@ pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
   // longer in the room — and must land on the same queue A holds.
   let doc_d = sluice_js.connect(sluice, "user-late")
   sluice_js.settle(sluice)
-  let assert Some(handle_d) =
-    watershed.get(watershed.root(doc_d), "roles")
+  let assert Some(handle_d) = watershed.get(watershed.root(doc_d), "roles")
   let assert Ok(tm_d) = watershed.resolve_task_manager(doc_d, handle_d)
 
   watershed.task_queues(tm_d)
@@ -1177,8 +1150,7 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) =
-    watershed.get(watershed.root(doc_b), "settings")
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
 
@@ -1237,8 +1209,7 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) =
-    watershed.get(watershed.root(doc_b), "settings")
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(_) = watershed.resolve_pact_map(doc_c, handle)
 

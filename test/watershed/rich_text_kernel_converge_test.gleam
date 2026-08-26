@@ -57,8 +57,8 @@ fn put(sim: Sim, id: Int, client: Client) -> Sim {
 fn new_sim() -> Sim {
   Sim(
     ids()
-      |> list.map(fn(id) {
-        Client(kernel.from_document(id, initial_document()), 0, [])
+      |> list.map(fn(_id) {
+        Client(kernel.from_document(initial_document()), 0, [])
       }),
     [],
   )
@@ -191,13 +191,7 @@ fn deliver_one(sim: Sim, id: Int) -> Sim {
         }
         False -> {
           let assert Ok(#(state, _)) =
-            kernel.apply_remote(
-              client.state,
-              entry.wire,
-              entry.seq,
-              entry.author,
-              min,
-            )
+            kernel.apply_remote(client.state, entry.wire, entry.seq, min)
           put(
             sim,
             id,

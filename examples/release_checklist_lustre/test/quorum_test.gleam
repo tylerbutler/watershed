@@ -17,10 +17,10 @@ import gleeunit/should
 import doc_schema
 import gleam/dynamic/decode
 import release_readiness
+import watershed.{type Document, type OrSet, type PactMap}
 import watershed/pact_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed/transport_js
-import watershed.{type Document, type OrSet, type PactMap}
 
 const target_key = "target"
 
@@ -62,8 +62,7 @@ fn room(name: String, clients: Int) -> Room {
   let release =
     docs
     |> list.map(fn(doc) {
-      let assert Some(value) =
-        watershed.get(watershed.root(doc), target_key)
+      let assert Some(value) = watershed.get(watershed.root(doc), target_key)
       let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
@@ -127,8 +126,7 @@ fn checks_channel(room: Room) -> List(OrSet) {
 
   room.docs
   |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-    let assert Some(value) =
-      watershed.get(watershed.root(doc), checks_key)
+    let assert Some(value) = watershed.get(watershed.root(doc), checks_key)
     let assert Ok(set) = watershed.resolve_or_set(doc, value)
     set
   })
@@ -267,8 +265,7 @@ pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() {
   let doc_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Some(value) =
-    watershed.get(watershed.root(doc_d), target_key)
+  let assert Some(value) = watershed.get(watershed.root(doc_d), target_key)
   let assert Ok(release_d) = watershed.resolve_pact_map(doc_d, value)
 
   watershed.pact_map_get(release_d, target_key)

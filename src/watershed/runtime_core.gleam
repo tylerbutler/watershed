@@ -1929,7 +1929,7 @@ pub fn directory_set(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  directory_storage_edit(core, address, fn(kernel) {
+  directory_storage_edit(core, address, Some(value), fn(kernel) {
     directory_kernel.set(kernel, path, key, value)
   })
 }
@@ -1943,7 +1943,7 @@ pub fn directory_delete(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  directory_storage_edit(core, address, fn(kernel) {
+  directory_storage_edit(core, address, None, fn(kernel) {
     directory_kernel.delete(kernel, path, key)
   })
 }
@@ -1956,7 +1956,7 @@ pub fn directory_clear(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
 ) {
-  directory_storage_edit(core, address, fn(kernel) {
+  directory_storage_edit(core, address, None, fn(kernel) {
     directory_kernel.clear(kernel, path)
   })
 }
@@ -1996,6 +1996,7 @@ pub fn directory_delete_subdirectory(
 fn directory_storage_edit(
   core: Core,
   address: String,
+  dependency_value: Option(Json),
   run: fn(directory_kernel.DirectoryState) ->
     Result(
       #(
@@ -2028,19 +2029,27 @@ fn directory_storage_edit(
           )
         Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
       }
-    Ok(Attached(kernel)) ->
+    Ok(Attached(kernel)) -> {
       case run(kernel) {
-        Ok(#(kernel, events, op, message_id)) ->
-          Ok(stamp_attached(
-            core,
-            address,
-            channel.DirectoryState(kernel),
-            tag_directory_events(address, events),
-            channel.DirectoryOp(op, message_id),
-            channel.DirectoryMeta(message_id),
-          ))
+        Ok(#(kernel, events, op, message_id)) -> {
+          let #(core, attach_outbound) = case dependency_value {
+            Some(value) -> attach_dependencies(core, value)
+            None -> #(core, [])
+          }
+          let #(core, events, outbound) =
+            stamp_attached(
+              core,
+              address,
+              channel.DirectoryState(kernel),
+              tag_directory_events(address, events),
+              channel.DirectoryOp(op, message_id),
+              channel.DirectoryMeta(message_id),
+            )
+          Ok(#(core, events, list.append(attach_outbound, outbound)))
+        }
         Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
       }
+    }
   }
 }
 

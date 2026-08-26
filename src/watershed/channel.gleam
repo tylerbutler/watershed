@@ -33,7 +33,6 @@ import lattice_sets/or_set.{type ORSet}
 import lattice_sets/two_p_set.{type TwoPSet}
 import lattice_text/text.{type Text}
 import watershed/claims_kernel
-import watershed/client_id
 import watershed/counter_kernel
 import watershed/directory_kernel
 import watershed/g_set_kernel
@@ -466,13 +465,12 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitClaims -> ClaimsState(claims_kernel.new())
     InitTaskManager -> TaskManagerState(task_manager_kernel.new())
     InitPactMap -> PactMapState(pact_map_kernel.new())
-    InitJsonOt -> JsonOtState(json_ot_kernel.new(client_id.to_int(replica)))
+    InitJsonOt -> JsonOtState(json_ot_kernel.new())
     InitDirectory -> DirectoryState(directory_kernel.new())
     InitOrderedCollection ->
       OrderedCollectionState(ordered_collection_kernel.new())
     InitSequence -> SequenceState(sequence_kernel.new(replica_id.new(replica)))
-    InitRichText ->
-      RichTextState(rich_text_kernel.new(client_id.to_int(replica)))
+    InitRichText -> RichTextState(rich_text_kernel.new())
     InitText -> TextState(text_kernel.new(replica_id.new(replica)))
   }
 }
@@ -509,8 +507,7 @@ pub fn from_snapshot(
       TaskManagerState(task_manager_kernel.from_summary(queues))
     PactMapSnapshot(entries) ->
       PactMapState(pact_map_kernel.from_summary(entries))
-    JsonOtSnapshot(doc) ->
-      JsonOtState(json_ot_kernel.from_summary(client_id.to_int(replica), doc))
+    JsonOtSnapshot(doc) -> JsonOtState(json_ot_kernel.from_summary(doc))
     DirectorySnapshot(summary) ->
       DirectoryState(directory_kernel.from_summary(summary))
     OrderedCollectionSnapshot(queue, jobs) ->
@@ -521,10 +518,7 @@ pub fn from_snapshot(
         replica_id.new(replica),
       ))
     RichTextSnapshot(document) ->
-      RichTextState(rich_text_kernel.from_summary(
-        client_id.to_int(replica),
-        document,
-      ))
+      RichTextState(rich_text_kernel.from_summary(document))
     TextSummary(state) ->
       TextState(text_kernel.from_sequenced(state, replica_id.new(replica)))
   }
@@ -715,15 +709,7 @@ pub fn apply_remote(
     }
     PactMapState(kernel), PactMapOp(op) -> apply_pact_map(kernel, op, meta)
     JsonOtState(kernel), JsonOtOp(op) ->
-      case
-        json_ot_kernel.apply_remote(
-          kernel,
-          op,
-          meta.seq,
-          meta.author,
-          meta.min_seq,
-        )
-      {
+      case json_ot_kernel.apply_remote(kernel, op, meta.seq, meta.min_seq) {
         Ok(#(kernel, events)) ->
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), []))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
@@ -757,15 +743,7 @@ pub fn apply_remote(
       Ok(#(SequenceState(kernel), list.map(events, SequenceEvent), []))
     }
     RichTextState(kernel), RichTextOp(op) ->
-      case
-        rich_text_kernel.apply_remote(
-          kernel,
-          op,
-          meta.seq,
-          meta.author,
-          meta.min_seq,
-        )
-      {
+      case rich_text_kernel.apply_remote(kernel, op, meta.seq, meta.min_seq) {
         Ok(#(kernel, events)) ->
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), []))
         Error(rich_text_kernel.UnexpectedAck(detail)) ->

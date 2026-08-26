@@ -434,11 +434,7 @@ fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
       case given > 0 {
         True -> {
           let _ =
-            watershed.try_set_claim(
-              claims,
-              cell_key(row, col),
-              json.int(given),
-            )
+            watershed.try_set_claim(claims, cell_key(row, col), json.int(given))
           Nil
         }
         False -> Nil

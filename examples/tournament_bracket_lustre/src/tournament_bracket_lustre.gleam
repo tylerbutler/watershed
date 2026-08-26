@@ -45,13 +45,13 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document, type RegisterCollection}
 import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/register_collection_kernel.{
   type RegisterEvent, AtomicChanged, VersionChanged,
 }
-import watershed.{type Document, type RegisterCollection}
 import watershed_lustre
 
 import bracket.{type MatchId, type MatchResult, type Slot, MatchResult}

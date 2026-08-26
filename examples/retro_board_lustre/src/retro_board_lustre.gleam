@@ -36,12 +36,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document, type OrMap, type SharedSequence}
 import watershed/browser
 import watershed/or_map_kernel
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/summary_policy
-import watershed.{type Document, type OrMap, type SharedSequence}
 import watershed_lustre
 
 import board.{type NoteCard}
@@ -644,11 +644,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           case watershed.or_map_value(shared.notes, id) {
             Some(or_map_kernel.Register(value)) -> {
               let edited = Note(..note.from_register(value), text: text)
-              watershed.or_map_set_json(
-                shared.notes,
-                id,
-                note.to_json(edited),
-              )
+              watershed.or_map_set_json(shared.notes, id, note.to_json(edited))
               Nil
             }
             // The note was deleted while this tab was editing. Saving anyway
@@ -880,17 +876,12 @@ fn apply_card_drop(
               index_of_id(sequence, target_id)
               |> result.unwrap(watershed.sequence_length(sequence))
           }
-          let result =
-            watershed.sequence_insert(sequence, at, json.string(id))
+          let result = watershed.sequence_insert(sequence, at, json.string(id))
           case dragged.column == column.id(dest_col) {
             True -> Nil
             False -> {
               let moved = Note(..dragged, column: column.id(dest_col))
-              watershed.or_map_set_json(
-                shared.notes,
-                id,
-                note.to_json(moved),
-              )
+              watershed.or_map_set_json(shared.notes, id, note.to_json(moved))
             }
           }
           record(model, result, "move to " <> column.label(dest_col))

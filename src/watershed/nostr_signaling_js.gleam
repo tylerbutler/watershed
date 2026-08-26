@@ -290,11 +290,15 @@ fn open_window(
     False -> report_roster(cell, on_signal)
     True -> {
       let timer =
-        transport_js.set_timer(fn() { report_roster(cell, on_signal) }, window_ms)
+        transport_js.set_timer(
+          fn() { report_roster(cell, on_signal) },
+          window_ms,
+        )
       let state = transport_js.get_cell(cell)
       case state.roster || state.failed || state.closed {
         True -> transport_js.clear_timer(timer)
-        False -> transport_js.set_cell(cell, State(..state, window: Some(timer)))
+        False ->
+          transport_js.set_cell(cell, State(..state, window: Some(timer)))
       }
     }
   }
@@ -464,7 +468,10 @@ fn deliver(
 @target(javascript)
 fn note(cell: Cell(State), peer: String) -> Nil {
   let state = transport_js.get_cell(cell)
-  transport_js.set_cell(cell, State(..state, seen: set.insert(state.seen, peer)))
+  transport_js.set_cell(
+    cell,
+    State(..state, seen: set.insert(state.seen, peer)),
+  )
 }
 
 @target(javascript)
@@ -472,7 +479,10 @@ fn note(cell: Cell(State), peer: String) -> Nil {
 /// is not a member now. The census must not add it again.
 fn forget(cell: Cell(State), peer: String) -> Nil {
   let state = transport_js.get_cell(cell)
-  transport_js.set_cell(cell, State(..state, seen: set.delete(state.seen, peer)))
+  transport_js.set_cell(
+    cell,
+    State(..state, seen: set.delete(state.seen, peer)),
+  )
 }
 
 @target(javascript)

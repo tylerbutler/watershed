@@ -22,9 +22,9 @@ import gleam/string
 import gleeunit/should
 import pixel_canvas_lustre/doc_schema
 
+import watershed.{type Document, type OrMap}
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
-import watershed.{type Document, type OrMap}
 
 import pixel_canvas_lustre/grid
 

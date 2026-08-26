@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · JSON workspace</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, sans-serif;
+        display: grid;
+        place-items: start center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 2rem 1rem;
+      }
+      .workspace { width: min(96vw, 56rem); }
+      h1 { font-size: 1.5rem; font-weight: 600; margin-bottom: 0.25rem; }
+      .status, .hint, .error { font-size: 0.85rem; opacity: 0.7; }
+      .error { color: crimson; opacity: 1; }
+      .toolbar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin: 1rem 0; }
+      button {
+        padding: 0.4rem 0.7rem;
+        border-radius: 0.5rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        font: inherit;
+      }
+      button:hover, button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      input[type="text"], input:not([type]) {
+        padding: 0.35rem 0.5rem;
+        border-radius: 0.4rem;
+        border: 1px solid currentColor;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      .breadcrumbs { display: flex; gap: 0.35rem; flex-wrap: wrap; font-size: 0.9rem; margin: 0.75rem 0; }
+      .breadcrumbs button { padding: 0.15rem 0.5rem; }
+      .tree-rows { list-style: none; padding: 0; margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.3rem; }
+      .tree-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.5rem;
+        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+      }
+      .tree-row .name { flex: 1; text-align: left; background: none; border: none; color: inherit; font: inherit; cursor: pointer; }
+      .tree-row.corrupt { border-color: crimson; color: crimson; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.05rem 0.45rem;
+        border-radius: 999px;
+        border: 1px solid currentColor;
+        font-size: 0.75rem;
+      }
+      .chip .dot { width: 0.5rem; height: 0.5rem; border-radius: 999px; }
+      .create-row { display: flex; gap: 0.4rem; margin: 0.5rem 0; }
+      .editor { margin-top: 1.25rem; padding-top: 0.75rem; border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+      .banner { background: color-mix(in srgb, crimson 15%, transparent); border: 1px solid crimson; border-radius: 0.5rem; padding: 0.5rem 0.75rem; margin: 0.5rem 0; }
+      .json-members, .json-members.readonly { list-style: none; padding-left: 1.1rem; margin: 0.25rem 0; border-left: 1px dashed color-mix(in srgb, currentColor 30%, transparent); }
+      .json-member { display: flex; align-items: center; gap: 0.4rem; margin: 0.2rem 0; }
+      .json-key { font-weight: 600; min-width: 5rem; }
+      .json-array { padding-left: 1.1rem; margin: 0.25rem 0; }
+      .json-scalar-input { min-width: 8rem; }
+      .add-key-form { display: flex; gap: 0.35rem; align-items: center; margin: 0.3rem 0 0.3rem 1.1rem; }
+      .roster { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.75rem 0; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { main } from "./dist/json_workspace_lustre.mjs";
+      main();
+    </script>
+  </body>
+</html>

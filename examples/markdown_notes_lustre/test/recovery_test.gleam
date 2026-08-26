@@ -61,7 +61,8 @@ fn seeded_document() -> #(CrdtDocument(OrMapChannel), Channels) {
     )
   let assert Ok(document) = crdt_js.new_document(config)
   let channels = bootstrap(document)
-  let _ = create_note(document, channels, "field notes", "# field notes\nhello\n")
+  let _ =
+    create_note(document, channels, "field notes", "# field notes\nhello\n")
   #(document, channels)
 }
 
@@ -111,9 +112,8 @@ fn smoke(name: String) {
 
 fn note_button(name: String) {
   query.element(
-    matching:
-      query.data("smoke", "note-open")
-      |> query.and(query.data("note-name", name)),
+    matching: query.data("smoke", "note-open")
+    |> query.and(query.data("note-name", name)),
   )
 }
 
@@ -136,11 +136,13 @@ pub fn save_failure_locks_mutations_but_keeps_remote_rendering_test() {
 
   let gated =
     simulation
-    |> simulate.message(markdown_notes_lustre.PersistenceStatusChanged(
-      persist_controller_js.SaveFailed(
-        persist_js.StorageFailure("IndexedDB write failed"),
+    |> simulate.message(
+      markdown_notes_lustre.PersistenceStatusChanged(
+        persist_controller_js.SaveFailed(persist_js.StorageFailure(
+          "IndexedDB write failed",
+        )),
       ),
-    ))
+    )
 
   let view = simulate.view(gated)
   view |> find(smoke("create-note-input")) |> should_be_disabled
@@ -154,8 +156,7 @@ pub fn save_failure_locks_mutations_but_keeps_remote_rendering_test() {
   view |> find(smoke("recovery-replace")) |> should_be_enabled
 
   let _ = create_note(document, channels, "remote", "# remote\n")
-  let refreshed =
-    gated |> simulate.message(markdown_notes_lustre.RootChanged)
+  let refreshed = gated |> simulate.message(markdown_notes_lustre.RootChanged)
 
   let _ = simulate.view(refreshed) |> find(note_button("remote"))
   Nil
@@ -166,14 +167,16 @@ pub fn recovery_success_clears_the_gate_and_marks_saved_test() {
 
   let recovered =
     simulation
-    |> simulate.message(markdown_notes_lustre.LocalPersistence(
-      crdt.PersistenceFailed(
-        persist_js.SnapshotDecodeFailure("stored snapshot is not valid JSON"),
+    |> simulate.message(
+      markdown_notes_lustre.LocalPersistence(
+        crdt.PersistenceFailed(persist_js.SnapshotDecodeFailure(
+          "stored snapshot is not valid JSON",
+        )),
       ),
-    ))
-    |> simulate.message(markdown_notes_lustre.RecoveryReplaceFinished(
-      Ok("digest-123"),
-    ))
+    )
+    |> simulate.message(
+      markdown_notes_lustre.RecoveryReplaceFinished(Ok("digest-123")),
+    )
 
   let view = simulate.view(recovered)
   case query.find(in: view, matching: smoke("recovery-banner")) {

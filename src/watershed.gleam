@@ -2464,11 +2464,7 @@ pub fn ordered_complete(
   collection: OrderedCollection,
   acquire_id: String,
 ) -> Nil {
-  runtime.ordered_complete(
-    collection.runtime,
-    collection.address,
-    acquire_id,
-  )
+  runtime.ordered_complete(collection.runtime, collection.address, acquire_id)
 }
 
 @target(javascript)
@@ -2841,7 +2837,8 @@ pub fn resolve_directory(
 
 @target(javascript)
 /// Set `key` to `value` in the subdirectory at `path`, optimistically. The root
-/// path is `"/"`.
+/// path is `"/"`. This function attaches each detached channel referenced by
+/// `value` before it submits the directory operation.
 pub fn directory_set(
   dir: SharedDirectory,
   path: String,

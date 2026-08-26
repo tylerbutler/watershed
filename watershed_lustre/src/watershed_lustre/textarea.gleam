@@ -180,10 +180,10 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Bias, type SharedText, type TextAnchor}
 import watershed/crdt_js.{type Handle, type Subscription}
 import watershed/schema
 import watershed/text_kernel
-import watershed.{type Bias, type SharedText, type TextAnchor}
 
 import watershed_lustre
 import watershed_lustre/crdt

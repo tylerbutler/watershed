@@ -53,11 +53,11 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document}
 import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/text_kernel
-import watershed.{type Document}
 import watershed_lustre
 import watershed_lustre/textarea
 

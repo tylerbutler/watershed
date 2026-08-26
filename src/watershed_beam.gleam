@@ -1718,7 +1718,10 @@ pub fn or_map_increment(or_map: OrMap, key: String, amount: Int) -> Nil {
 
 @target(erlang)
 pub fn or_map_set(or_map: OrMap, key: String, value: String) -> Nil {
-  process.send(or_map.runtime, runtime_beam.SetOrMapKey(or_map.address, key, value))
+  process.send(
+    or_map.runtime,
+    runtime_beam.SetOrMapKey(or_map.address, key, value),
+  )
 }
 
 @target(erlang)
@@ -1802,7 +1805,10 @@ pub fn resolve_or_set(
 
 @target(erlang)
 pub fn or_set_add(or_set: OrSet, element: String) -> Nil {
-  process.send(or_set.runtime, runtime_beam.AddOrSetElement(or_set.address, element))
+  process.send(
+    or_set.runtime,
+    runtime_beam.AddOrSetElement(or_set.address, element),
+  )
 }
 
 @target(erlang)
@@ -2533,14 +2539,20 @@ pub fn resolve_two_p_set(
 /// Add `element` to the set, optimistically. Adding a previously removed
 /// element records the add but never reactivates it.
 pub fn two_p_set_add(set: TwoPSet, element: String) -> Nil {
-  process.send(set.runtime, runtime_beam.AddTwoPSetElement(set.address, element))
+  process.send(
+    set.runtime,
+    runtime_beam.AddTwoPSetElement(set.address, element),
+  )
 }
 
 @target(erlang)
 /// Remove `element` from the set, optimistically. A remove writes a permanent
 /// tombstone.
 pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
-  process.send(set.runtime, runtime_beam.RemoveTwoPSetElement(set.address, element))
+  process.send(
+    set.runtime,
+    runtime_beam.RemoveTwoPSetElement(set.address, element),
+  )
 }
 
 @target(erlang)
@@ -2623,14 +2635,18 @@ pub fn resolve_directory(
 
 @target(erlang)
 /// Set `key` to `value` in the subdirectory at `path`, optimistically. The root
-/// path is `"/"`.
+/// path is `"/"`. This function attaches each detached channel referenced by
+/// `value` before it submits the directory operation.
 pub fn directory_set(
   dir: SharedDirectory,
   path: String,
   key: String,
   value: Json,
 ) -> Nil {
-  process.send(dir.runtime, runtime_beam.DirectorySet(dir.address, path, key, value))
+  process.send(
+    dir.runtime,
+    runtime_beam.DirectorySet(dir.address, path, key, value),
+  )
 }
 
 @target(erlang)
@@ -2640,7 +2656,10 @@ pub fn directory_delete(
   path: String,
   key: String,
 ) -> Nil {
-  process.send(dir.runtime, runtime_beam.DirectoryDelete(dir.address, path, key))
+  process.send(
+    dir.runtime,
+    runtime_beam.DirectoryDelete(dir.address, path, key),
+  )
 }
 
 @target(erlang)
@@ -2869,7 +2888,10 @@ pub fn pact_map_set(pact_map: PactMap, key: String, value: Json) -> Nil {
 @target(erlang)
 /// Propose a delete for `key`. A delete writes a tombstone.
 pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
-  process.send(pact_map.runtime, runtime_beam.DeletePactMap(pact_map.address, key))
+  process.send(
+    pact_map.runtime,
+    runtime_beam.DeletePactMap(pact_map.address, key),
+  )
 }
 
 @target(erlang)
@@ -3135,7 +3157,10 @@ pub fn submit_ripple(
   ripple_type ripple_type: String,
   content content: Json,
 ) -> Nil {
-  process.send(document.runtime, runtime_beam.SubmitRipple(ripple_type, content))
+  process.send(
+    document.runtime,
+    runtime_beam.SubmitRipple(ripple_type, content),
+  )
 }
 
 @target(erlang)

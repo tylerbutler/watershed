@@ -41,12 +41,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.PlaylistDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

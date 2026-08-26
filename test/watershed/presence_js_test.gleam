@@ -17,6 +17,8 @@ import gleam/option.{type Option, None, Some}
 import startest/expect
 
 @target(javascript)
+import watershed
+@target(javascript)
 import watershed/presence
 @target(javascript)
 import watershed/presence_js
@@ -24,8 +26,6 @@ import watershed/presence_js
 import watershed/sluice_js
 @target(javascript)
 import watershed/transport_js
-@target(javascript)
-import watershed
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

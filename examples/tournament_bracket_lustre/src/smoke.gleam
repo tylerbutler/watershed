@@ -12,8 +12,8 @@ import gleam/option.{Some}
 import bracket
 import doc_schema
 import match_result
-import watershed/register_collection_kernel.{Atomic}
 import watershed.{type Document, type RegisterCollection, WatershedConfig}
+import watershed/register_collection_kernel.{Atomic}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -65,12 +65,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.BracketDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

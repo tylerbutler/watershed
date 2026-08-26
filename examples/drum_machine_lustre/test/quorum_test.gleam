@@ -16,10 +16,10 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
+import watershed.{type Document, type PactMap}
 import watershed/pact_map_kernel
 import watershed/sluice_js.{type Sluice}
 import watershed/transport_js
-import watershed.{type Document, type PactMap}
 
 const bpm_key = "bpm"
 
@@ -59,8 +59,7 @@ fn room(name: String, clients: Int) -> Room {
   let settings =
     docs
     |> list.map(fn(doc) {
-      let assert Some(value) =
-        watershed.get(watershed.root(doc), "settings")
+      let assert Some(value) = watershed.get(watershed.root(doc), "settings")
       let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
@@ -239,8 +238,7 @@ pub fn a_late_joiner_reads_the_agreed_tempo_test() {
   let doc_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Some(value) =
-    watershed.get(watershed.root(doc_d), "settings")
+  let assert Some(value) = watershed.get(watershed.root(doc_d), "settings")
   let assert Ok(settings_d) = watershed.resolve_pact_map(doc_d, value)
 
   watershed.pact_map_get(settings_d, bpm_key)

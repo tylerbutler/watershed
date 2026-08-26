@@ -55,12 +55,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Checklist)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,
@@ -200,8 +195,7 @@ fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
   log("  C sees checks: " <> string.join(completed(c.checks), ","))
 
   log("smoke: A claims the captain seat")
-  let _ =
-    watershed.try_set_claim(a.captain, captain_key, json.string("user-a"))
+  let _ = watershed.try_set_claim(a.captain, captain_key, json.string("user-a"))
 
   use <- delay(1500)
   let captain_settled_on_b = read_captain(b.captain) == Ok("user-a")

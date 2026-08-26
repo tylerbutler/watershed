@@ -12,6 +12,7 @@ import gleam/list
 import gleam/option.{Some}
 import gleeunit/should
 
+import watershed.{type Document, type OrderedCollection, type TaskManager}
 import watershed/client_id
 import watershed/ordered_collection_kernel.{
   type AcquireOutcome, type OrderedEvent, AcquiredItem, JobEntry,
@@ -19,7 +20,6 @@ import watershed/ordered_collection_kernel.{
 import watershed/sluice_js.{type Sluice}
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed/transport_js.{type Cell}
-import watershed.{type Document, type OrderedCollection, type TaskManager}
 
 const role = "dispatcher"
 
@@ -38,11 +38,7 @@ fn room(
 
   let root_a = watershed.root(doc_a)
   let assert Ok(queue) = watershed.create_ordered_collection(doc_a)
-  watershed.set(
-    root_a,
-    "queue",
-    watershed.ordered_collection_handle_of(queue),
-  )
+  watershed.set(root_a, "queue", watershed.ordered_collection_handle_of(queue))
   let assert Ok(roles) = watershed.create_task_manager(doc_a)
   watershed.set(root_a, "roles", watershed.task_manager_handle_of(roles))
   sluice_js.settle(sluice)
@@ -75,8 +71,7 @@ fn outcome_cell(
   queue: OrderedCollection,
 ) -> #(Cell(List(AcquireOutcome)), String) {
   let cell = transport_js.new_cell([])
-  let acquire_id =
-    watershed.ordered_acquire_with_outcome(queue, push(cell, _))
+  let acquire_id = watershed.ordered_acquire_with_outcome(queue, push(cell, _))
   #(cell, acquire_id)
 }
 

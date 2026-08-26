@@ -27,10 +27,14 @@
 //// the next one, so no window contains an op from the same author. It is thus
 //// correct to transform an incoming op past *every* logged op in its window.
 ////
-//// `side` comes from the identity of the author, which is design decision 4.
-//// For any pair of ops, the client with the smaller id is `Lft`. Every replica
-//// thus breaks an insert-at-the-same-index tie in the same way, and TP1
-//// convergence holds.
+//// `side` comes from the sequence order, not from an identity. The op with
+//// the larger sequence number is `Rgt`, and the other op is `Lft`. A pending
+//// local op has no sequence number yet, but it always sequences after every
+//// op that the kernel processes now, so it is always `Rgt`. Every replica
+//// reads one total order, so every replica breaks the same
+//// insert-at-the-same-index tie in the same way, and TP1 convergence holds.
+//// The module doc of `ot_client` describes why an identity does not work
+//// here.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -51,8 +55,6 @@ type LogEntry =
 /// in-flight op, and a composed buffer of the later optimistic edits.
 pub type JsonOtState {
   JsonOtState(
-    /// The sequencing identity of this client, for the `side` tie-break.
-    self: Int,
     /// The server-confirmed document, with every sequenced op applied in
     /// order.
     sequenced: JsonValue,
@@ -103,15 +105,14 @@ pub type KernelError {
 // Construction / summary round-trip
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A new kernel for the client `self`, over an empty object document.
-pub fn new(self: Int) -> JsonOtState {
-  from_value(self, json_ot.VObject([]))
+/// A new kernel over an empty object document.
+pub fn new() -> JsonOtState {
+  from_value(json_ot.VObject([]))
 }
 
 /// A new kernel with an initial document value.
-pub fn from_value(self: Int, doc: JsonValue) -> JsonOtState {
+pub fn from_value(doc: JsonValue) -> JsonOtState {
   JsonOtState(
-    self: self,
     sequenced: doc,
     log: [],
     inflight: None,
@@ -120,11 +121,11 @@ pub fn from_value(self: Int, doc: JsonValue) -> JsonOtState {
   )
 }
 
-/// Load a state that contains sequenced data only, from a stored summary,
-/// under the identity `self`. A summary never contains a local edit, and the
-/// concurrency window starts empty.
-pub fn from_summary(self: Int, doc: JsonValue) -> JsonOtState {
-  from_value(self, doc)
+/// Load a state that contains sequenced data only, from a stored summary. A
+/// summary never contains a local edit, and the concurrency window starts
+/// empty.
+pub fn from_summary(doc: JsonValue) -> JsonOtState {
+  from_value(doc)
 }
 
 /// The confirmed document that a summary captures. It contains the sequenced
@@ -227,18 +228,21 @@ pub fn submit(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Apply a sequenced op that another client wrote. `seq` is its sequence
-/// number, `author` is its client id, and `msn` is the minimum sequence number,
-/// which the log garbage collection uses.
+/// number, and `msn` is the minimum sequence number, which the log garbage
+/// collection uses.
 ///
 /// The kernel transforms the op into head context past every op that sequenced
 /// in `(ref_seq, seq)`. No op in that window can come from the same author,
 /// because one op is in flight at most, so the window has no gap. The kernel
 /// then applies the op, logs it, and rebases `inflight` and `buffer` past it.
+///
+/// The incoming op sequenced after every op in its window, so it is `Rgt`
+/// there. It sequenced before `inflight` and before `buffer`, which are not
+/// sequenced yet, so it is `Lft` against each of them.
 pub fn apply_remote(
   state: JsonOtState,
   wire: JsonOtWireOp,
   seq: Int,
-  author: Int,
   msn: Int,
 ) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
   use op_head <- result.try(
@@ -247,7 +251,7 @@ pub fn apply_remote(
       wire.ref_seq,
       seq,
       wire.components,
-      fn(current, e) { transform(current, e.op, side_of(author, e.author)) },
+      fn(current, e) { transform(current, e.op, Rgt) },
     ),
   )
   use sequenced <- result.try(apply_op(state.sequenced, op_head))
@@ -257,31 +261,20 @@ pub fn apply_remote(
     ot_client.rebase_pending(
       state.inflight,
       op_head,
-      fn(local, remote) {
-        transform(local, remote, side_of(state.self, author))
-      },
-      fn(remote, local) {
-        transform(remote, local, side_of(author, state.self))
-      },
+      fn(local, remote) { transform(local, remote, Rgt) },
+      fn(remote, local) { transform(remote, local, Lft) },
     ),
   )
   use #(buffer, _remote_after_buffer) <- result.try(
     ot_client.rebase_pending(
       state.buffer,
       remote_after_inflight,
-      fn(local, remote) {
-        transform(local, remote, side_of(state.self, author))
-      },
-      fn(remote, local) {
-        transform(remote, local, side_of(author, state.self))
-      },
+      fn(local, remote) { transform(local, remote, Rgt) },
+      fn(remote, local) { transform(remote, local, Lft) },
     ),
   )
   let log =
-    ot_client.gc_log(
-      list.append(state.log, [LogEntry(seq, author, op_head)]),
-      msn,
-    )
+    ot_client.gc_log(list.append(state.log, [LogEntry(seq, op_head)]), msn)
   let state =
     JsonOtState(
       ..state,
@@ -322,16 +315,12 @@ pub fn ack_local(
     Some(inflight) -> {
       use sequenced <- result.try(apply_op(state.sequenced, inflight))
       let log =
-        ot_client.gc_log(
-          list.append(state.log, [LogEntry(seq, state.self, inflight)]),
-          msn,
-        )
+        ot_client.gc_log(list.append(state.log, [LogEntry(seq, inflight)]), msn)
       // Release the buffer as the next in-flight op, if any.
       let #(next_inflight, to_send) =
         ot_client.promote_buffer(state.buffer, seq, JsonOtWireOp)
       let state =
         JsonOtState(
-          ..state,
           sequenced: sequenced,
           log: log,
           inflight: next_inflight,
@@ -357,17 +346,6 @@ pub fn take_outbound(
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-/// The transform side for `x` when the kernel transforms it past a `y` that
-/// another client wrote. The op whose author has the smaller id is `Lft`. The
-/// rule is symmetric and replicated, so every client breaks the same tie in the
-/// same way.
-fn side_of(author_x: Int, author_y: Int) -> Side {
-  case ot_client.author_precedes(author_x, author_y) {
-    True -> Lft
-    False -> Rgt
-  }
-}
 
 fn events_for(op: Op, local: Bool) -> List(JsonOtEvent) {
   list.map(op, fn(component) { DocChanged(component.path, local) })

@@ -18,8 +18,8 @@ import gleeunit/should
 
 import doc_schema
 import release_readiness
-import watershed/sluice_js.{type Sluice}
 import watershed.{type Claims, type Document}
+import watershed/sluice_js.{type Sluice}
 
 const captain_key = "captain"
 
@@ -47,8 +47,7 @@ fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
   let claims =
     docs
     |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-      let assert Some(value) =
-        watershed.get(watershed.root(doc), captain_key)
+      let assert Some(value) = watershed.get(watershed.root(doc), captain_key)
       let assert Ok(claims) = watershed.resolve_claims(doc, value)
       claims
     })

@@ -13,10 +13,10 @@ import lustre/element/html
 import lustre/event
 
 import doc_schema
+import watershed.{type Document, type SharedCounter, type SharedMap}
 import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
-import watershed.{type Document, type SharedCounter, type SharedMap}
 import watershed_lustre
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -133,9 +133,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Board)) -> Effect(Msg) {
       doc_schema.wip_breaches(),
       EnsuredBreaches,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
-      SharedChanged
-    }),
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { SharedChanged }),
   ])
 }
 
@@ -241,9 +239,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn snapshot(model: Model) -> Model {
   let #(title, error) = case model.doc {
     Some(doc) ->
-      case
-        watershed.get_field(watershed.root_typed(doc), doc_schema.title())
-      {
+      case watershed.get_field(watershed.root_typed(doc), doc_schema.title()) {
         Ok(Some(title)) -> #(title, model.error)
         Ok(None) -> #(model.title, model.error)
         Error(_) -> #(model.title, Some("The shared title is not a string."))

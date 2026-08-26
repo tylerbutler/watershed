@@ -33,11 +33,11 @@ import lustre/event
 
 import audio
 import doc_schema
+import watershed.{type Document, type OrSet, type PactMap}
 import watershed/browser
 import watershed/client_id
 import watershed/pact_map_kernel
 import watershed/summary_policy
-import watershed.{type Document, type OrSet, type PactMap}
 import watershed_lustre
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
@@ -311,9 +311,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
       doc_schema.settings(),
       EnsuredSettings,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
-      SharedChanged
-    }),
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { SharedChanged }),
   ])
 }
 

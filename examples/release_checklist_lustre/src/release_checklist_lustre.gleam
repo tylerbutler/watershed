@@ -41,11 +41,11 @@ import lustre/event
 
 import doc_schema
 import release_readiness
+import watershed.{type Claims, type Document, type OrSet, type PactMap}
 import watershed/browser
 import watershed/claims_kernel
 import watershed/client_id
 import watershed/pact_map_kernel
-import watershed.{type Claims, type Document, type OrSet, type PactMap}
 import watershed_lustre
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
@@ -251,9 +251,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Checklist)) -> Effect(Msg) {
       doc_schema.release(),
       EnsuredRelease,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) {
-      ChecksChanged
-    }),
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { ChecksChanged }),
   ])
 }
 

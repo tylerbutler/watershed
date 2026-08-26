@@ -20,10 +20,10 @@ import gleam/option.{Some}
 
 import lustre/effect.{type Effect}
 
+import watershed.{type Claims}
 import watershed/claims_kernel
 import watershed/sluice_js
 import watershed/transport_js.{type Cell}
-import watershed.{type Claims}
 import watershed_lustre
 
 const captain_key = "captain"
@@ -85,8 +85,7 @@ fn room() -> #(sluice_js.Sluice, Claims, Claims) {
   )
   sluice_js.settle(sluice)
 
-  let assert Some(handle) =
-    watershed.get(watershed.root(doc_b), captain_key)
+  let assert Some(handle) = watershed.get(watershed.root(doc_b), captain_key)
   let assert Ok(claims_b) = watershed.resolve_claims(doc_b, handle)
   #(sluice, claims_a, claims_b)
 }

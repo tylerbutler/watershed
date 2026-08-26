@@ -35,9 +35,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-import watershed_beam
 import watershed/map_kernel.{type MapEvent, Cleared, ValueChanged}
 import watershed/schema.{type ChildField, type Field}
+import watershed_beam
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 //
@@ -199,7 +199,8 @@ pub fn main() {
       io.println("Connection failed: " <> reason)
     }
     Ok(doc) -> {
-      let root: watershed_beam.TypedMap(GameRoot) = watershed_beam.root_typed(doc)
+      let root: watershed_beam.TypedMap(GameRoot) =
+        watershed_beam.root_typed(doc)
 
       // The root map carries plain typed values alongside the roster handle.
       case watershed_beam.get_field(root, game()) {
@@ -227,7 +228,10 @@ pub fn main() {
       let roll_due = process.new_subject()
       let selector =
         process.new_selector()
-        |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)
+        |> process.select_map(
+          watershed_beam.subscribe_typed(roster),
+          RosterChanged,
+        )
         |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)
         |> process.select_map(roll_due, fn(_) { RollDue })
 

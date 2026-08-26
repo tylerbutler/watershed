@@ -15,10 +15,10 @@ import gleam/json.{type Json}
 import gleam/list
 import sudoku_lustre/doc_schema
 
+import watershed.{type Document, WatershedConfig}
 import watershed/presence
 import watershed/presence_js
 import watershed/transport_js
-import watershed.{type Document, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -58,12 +58,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.SudokuDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

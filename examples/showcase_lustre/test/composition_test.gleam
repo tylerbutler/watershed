@@ -19,10 +19,10 @@ import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
+import watershed.{type Document, type TypedMap}
 import watershed/or_map_kernel
 import watershed/schema.{type ChildField}
 import watershed/sluice_js.{type Sluice}
-import watershed.{type Document, type TypedMap}
 
 import pixel_canvas_lustre/doc_schema as canvas_schema
 import pixel_canvas_lustre/grid
@@ -99,8 +99,7 @@ pub fn every_child_key_resolves_to_a_map_test() {
   let #(_sluice, doc) = room("purity-resolves")
   let root = watershed.root_typed(doc)
 
-  let assert Ok(Some(_)) =
-    watershed.resolve_child(doc, root, doc_schema.text())
+  let assert Ok(Some(_)) = watershed.resolve_child(doc, root, doc_schema.text())
   let assert Ok(Some(_)) =
     watershed.resolve_child(doc, root, doc_schema.playlist())
   let assert Ok(Some(_)) =
@@ -314,8 +313,7 @@ fn or_map_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(canvas_schema.CanvasDoc),
 ) -> watershed.OrMap {
-  let assert Some(handle) =
-    watershed.get(watershed.untyped(map), "pixels")
+  let assert Some(handle) = watershed.get(watershed.untyped(map), "pixels")
   let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
   pixels
 }
@@ -351,8 +349,7 @@ fn sequence_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(playlist_schema.PlaylistDoc),
 ) -> watershed.SharedSequence {
-  let assert Some(handle) =
-    watershed.get(watershed.untyped(map), "tracks")
+  let assert Some(handle) = watershed.get(watershed.untyped(map), "tracks")
   let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
   sequence
 }

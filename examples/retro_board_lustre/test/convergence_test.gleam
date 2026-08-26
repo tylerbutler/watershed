@@ -23,9 +23,9 @@ import gleam/result
 import gleam/string
 import gleeunit/should
 
+import watershed.{type Document}
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
-import watershed.{type Document}
 
 import board
 import column.{type Column}
@@ -63,16 +63,11 @@ fn room(
   let assert Ok(notes) =
     watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
   watershed.set(root, "notes", watershed.or_map_handle_of(notes))
-  let assert Ok(votes) =
-    watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
+  let assert Ok(votes) = watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
   watershed.set(root, "votes", watershed.or_map_handle_of(votes))
   list.each(column.all(), fn(col) {
     let assert Ok(sequence) = watershed.create_sequence(doc_a)
-    watershed.set(
-      root,
-      column.id(col),
-      watershed.sequence_handle_of(sequence),
-    )
+    watershed.set(root, column.id(col), watershed.sequence_handle_of(sequence))
   })
   sluice_js.settle(sluice)
 
@@ -94,10 +89,7 @@ fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
   Channels(notes:, votes:, went_well:, to_improve:, action_items:)
 }
 
-fn sequence_for(
-  channels: Channels,
-  col: Column,
-) -> watershed.SharedSequence {
+fn sequence_for(channels: Channels, col: Column) -> watershed.SharedSequence {
   case col {
     column.WentWell -> channels.went_well
     column.ToImprove -> channels.to_improve
@@ -182,9 +174,7 @@ pub fn concurrent_adds_in_same_column_both_survive_test() {
   let keys_a = watershed.or_map_keys(a.notes) |> list.sort(string.compare)
   keys_a |> should.equal(["note-a", "note-b"])
   keys_a
-  |> should.equal(
-    watershed.or_map_keys(b.notes) |> list.sort(string.compare),
-  )
+  |> should.equal(watershed.or_map_keys(b.notes) |> list.sort(string.compare))
 
   board_of(a) |> should.equal(board_of(b))
   board_of(a).went_well |> list.length |> should.equal(2)
@@ -238,10 +228,7 @@ fn move_note(channels: Channels, id: String, dest: Column) -> Nil {
   }
 }
 
-fn remove_from_sequence(
-  sequence: watershed.SharedSequence,
-  id: String,
-) -> Nil {
+fn remove_from_sequence(sequence: watershed.SharedSequence, id: String) -> Nil {
   let found =
     watershed.sequence_values(sequence)
     |> list.index_map(fn(value, index) { #(value, index) })

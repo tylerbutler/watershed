@@ -13,8 +13,8 @@ import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
-import watershed/sluice_js
 import watershed
+import watershed/sluice_js
 
 fn same_entries(
   a: List(#(String, json.Json)),

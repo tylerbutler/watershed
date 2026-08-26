@@ -44,9 +44,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document}
 import watershed/browser
 import watershed/sequence_kernel
-import watershed.{type Document}
 import watershed_lustre
 
 import playlist_lustre/component

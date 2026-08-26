@@ -8,16 +8,6 @@ import startest/expect
 import watershed/ot_client.{LogEntry}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Deterministic author precedence
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub fn author_precedes_smaller_id_wins_test() {
-  ot_client.author_precedes(1, 2) |> expect.to_equal(True)
-  ot_client.author_precedes(2, 1) |> expect.to_equal(False)
-  ot_client.author_precedes(5, 5) |> expect.to_equal(False)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Concurrency-window transform (to_head_context)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -34,11 +24,11 @@ pub fn to_head_context_folds_window_in_seq_order_test() {
   // Log entries deliberately out of order; the window (ref_seq=1, seq=5)
   // should only include seq 2, 3, 4, folded oldest-first.
   let log = [
-    LogEntry(seq: 3, author: 9, op: []),
-    LogEntry(seq: 1, author: 9, op: []),
-    LogEntry(seq: 4, author: 9, op: []),
-    LogEntry(seq: 2, author: 9, op: []),
-    LogEntry(seq: 5, author: 9, op: []),
+    LogEntry(seq: 3, op: []),
+    LogEntry(seq: 1, op: []),
+    LogEntry(seq: 4, op: []),
+    LogEntry(seq: 2, op: []),
+    LogEntry(seq: 5, op: []),
   ]
   ot_client.to_head_context(log, 1, 5, [], record_seq)
   |> expect.to_equal(Ok([4, 3, 2]))
@@ -47,9 +37,9 @@ pub fn to_head_context_folds_window_in_seq_order_test() {
 pub fn to_head_context_excludes_boundary_entries_test() {
   // Entries at exactly ref_seq or seq are excluded (strict window).
   let log = [
-    LogEntry(seq: 1, author: 0, op: []),
-    LogEntry(seq: 2, author: 0, op: []),
-    LogEntry(seq: 3, author: 0, op: []),
+    LogEntry(seq: 1, op: []),
+    LogEntry(seq: 2, op: []),
+    LogEntry(seq: 3, op: []),
   ]
   ot_client.to_head_context(log, 1, 3, [], record_seq)
   |> expect.to_equal(Ok([2]))
@@ -61,7 +51,7 @@ pub fn to_head_context_empty_window_returns_op_unchanged_test() {
 }
 
 pub fn to_head_context_propagates_transform_error_test() {
-  let log = [LogEntry(seq: 2, author: 0, op: [])]
+  let log = [LogEntry(seq: 2, op: [])]
   let fail = fn(_current: List(Int), _entry: ot_client.LogEntry(List(Int))) {
     Error(Nil)
   }
@@ -109,16 +99,16 @@ pub fn rebase_pending_propagates_advance_error_test() {
 
 pub fn gc_log_retains_only_entries_above_msn_test() {
   let log = [
-    LogEntry(seq: 1, author: 0, op: Nil),
-    LogEntry(seq: 2, author: 0, op: Nil),
-    LogEntry(seq: 3, author: 0, op: Nil),
+    LogEntry(seq: 1, op: Nil),
+    LogEntry(seq: 2, op: Nil),
+    LogEntry(seq: 3, op: Nil),
   ]
   ot_client.gc_log(log, 2)
-  |> expect.to_equal([LogEntry(seq: 3, author: 0, op: Nil)])
+  |> expect.to_equal([LogEntry(seq: 3, op: Nil)])
 }
 
 pub fn gc_log_keeps_everything_when_msn_is_zero_test() {
-  let log = [LogEntry(seq: 1, author: 0, op: Nil)]
+  let log = [LogEntry(seq: 1, op: Nil)]
   ot_client.gc_log(log, 0) |> expect.to_equal(log)
 }
 

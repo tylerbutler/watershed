@@ -23,9 +23,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document}
 import watershed/browser
 import watershed/map_kernel
-import watershed.{type Document}
 import watershed_lustre
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -172,8 +172,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     RollClicked -> {
       let roll = 1 + int.random(6)
       case model.doc {
-        Some(doc) ->
-          watershed.set(watershed.root(doc), die_key, json.int(roll))
+        Some(doc) -> watershed.set(watershed.root(doc), die_key, json.int(roll))
         None -> Nil
       }
       #(model, effect.none())

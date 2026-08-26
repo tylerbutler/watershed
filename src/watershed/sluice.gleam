@@ -43,11 +43,11 @@ import gleam/option.{type Option, None, Some}
 import gleam/otp/actor
 
 @target(erlang)
-import watershed_beam
-@target(erlang)
 import watershed/runtime_beam
 @target(erlang)
 import watershed/sluice/core
+@target(erlang)
+import watershed_beam
 
 @target(erlang)
 const call_timeout_ms = 5000
@@ -142,7 +142,10 @@ pub fn connect(
 /// `connect`, then `ChannelReady`, then a `connect_document` that carries
 /// `last_seen`. Only then does `Bind` point the binding at the connection that
 /// the runtime opened.
-pub fn reconnect(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
+pub fn reconnect(
+  sluice: Sluice,
+  document: watershed_beam.Document(root),
+) -> Nil {
   drop(sluice, document)
   rejoin(sluice, document)
 }
@@ -302,23 +305,25 @@ fn barrier_all(sluice: Sluice) -> Nil {
 
 @target(erlang)
 fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
-  runtime_beam.Transport(connect: fn(callbacks: runtime_beam.TransportCallbacks) -> Nil {
-    let client_id =
-      process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
-        Register(callbacks.on_event, callbacks.on_close, reply)
-      })
-    let handle =
-      runtime_beam.TransportHandle(
-        push: fn(event, payload) {
-          process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
-            Push(client_id, event, payload, reply)
-          })
-        },
-        close: fn() { Nil },
-        drop: fn() { Nil },
-      )
-    callbacks.on_ready(handle)
-  })
+  runtime_beam.Transport(
+    connect: fn(callbacks: runtime_beam.TransportCallbacks) -> Nil {
+      let client_id =
+        process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
+          Register(callbacks.on_event, callbacks.on_close, reply)
+        })
+      let handle =
+        runtime_beam.TransportHandle(
+          push: fn(event, payload) {
+            process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
+              Push(client_id, event, payload, reply)
+            })
+          },
+          close: fn() { Nil },
+          drop: fn() { Nil },
+        )
+      callbacks.on_ready(handle)
+    },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

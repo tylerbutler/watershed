@@ -21,11 +21,11 @@ import gleam/json.{type Json}
 import gleam/option.{Some}
 
 import doc_schema
-import watershed/ordered_collection_kernel.{type AcquireOutcome, AcquiredItem}
-import watershed/transport_js.{type Cell}
 import watershed.{
   type Document, type OrderedCollection, type TaskManager, WatershedConfig,
 }
+import watershed/ordered_collection_kernel.{type AcquireOutcome, AcquiredItem}
+import watershed/transport_js.{type Cell}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -52,12 +52,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Dispatch)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

@@ -12,9 +12,9 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
 
+import watershed.{type Document, WatershedConfig}
 import watershed/map_kernel
 import watershed/transport_js
-import watershed.{type Document, WatershedConfig}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -35,12 +35,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.DiceDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

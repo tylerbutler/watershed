@@ -39,6 +39,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{
+  type Document, type OrderedCollection, type SharedSequence, type TaskManager,
+}
 import watershed/browser
 import watershed/client_id
 import watershed/ordered_collection_kernel.{
@@ -47,9 +50,6 @@ import watershed/ordered_collection_kernel.{
 import watershed/presence
 import watershed/sequence_kernel
 import watershed/task_manager_kernel.{type TaskManagerEvent}
-import watershed.{
-  type Document, type OrderedCollection, type SharedSequence, type TaskManager,
-}
 import watershed_lustre
 
 import doc_schema
@@ -309,10 +309,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(shared), True -> {
           let model = case list.length(model.queued) < max_queued {
             True -> {
-              watershed.ordered_add(
-                shared.queue,
-                job.to_json(next_job(model)),
-              )
+              watershed.ordered_add(shared.queue, job.to_json(next_job(model)))
               Model(..model, job_counter: model.job_counter + 1)
             }
             False -> model

@@ -10,13 +10,13 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{
+  type Document, type GSet, type OrSet, type Ripple, type TwoPSet,
+}
 import watershed/browser
 import watershed/g_set_kernel
 import watershed/or_set_kernel
 import watershed/two_p_set_kernel
-import watershed.{
-  type Document, type GSet, type OrSet, type Ripple, type TwoPSet,
-}
 import watershed_lustre
 
 import doc_schema

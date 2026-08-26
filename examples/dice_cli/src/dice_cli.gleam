@@ -19,8 +19,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 
-import watershed_beam
 import watershed/map_kernel.{type MapEvent, ValueChanged}
+import watershed_beam
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 

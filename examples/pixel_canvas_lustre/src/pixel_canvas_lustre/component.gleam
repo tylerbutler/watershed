@@ -30,8 +30,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed/or_map_kernel
 import watershed.{type Document, type OrMap, type TypedMap}
+import watershed/or_map_kernel
 import watershed_lustre
 
 import pixel_canvas_lustre/canvas.{type Canvas}

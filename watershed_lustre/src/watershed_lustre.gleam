@@ -41,6 +41,13 @@ import watershed/presence
 import watershed/presence_js
 import watershed/summary_policy
 
+import watershed.{
+  type Claims, type Document, type GSet, type JsonOt, type OrMap, type OrSet,
+  type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
+  type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
+  type SharedRichText, type SharedSequence, type SharedText, type TaskManager,
+  type TwoPSet, type TypedMap, type WatershedConfig, WatershedConfig,
+}
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/directory_kernel
@@ -62,13 +69,6 @@ import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/two_p_set_kernel
-import watershed.{
-  type Claims, type Document, type GSet, type JsonOt, type OrMap, type OrSet,
-  type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
-  type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
-  type SharedRichText, type SharedSequence, type SharedText, type TaskManager,
-  type TwoPSet, type TypedMap, type WatershedConfig, WatershedConfig,
-}
 
 @external(javascript, "./watershed_lustre_ffi.mjs", "queue_microtask")
 fn queue_microtask(action: fn() -> Nil) -> Nil
@@ -608,12 +608,9 @@ pub fn ensure_register_collection(
   to_msg to_msg: fn(Result(RegisterCollection, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.ensure_register_collection(
-    document,
-    typed_map,
-    field,
-    fn(result) { queue_microtask(fn() { dispatch(to_msg(result)) }) },
-  )
+  watershed.ensure_register_collection(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
 }
 
 /// Make sure that a claims channel exists under `field`.
@@ -781,11 +778,7 @@ pub fn submit_ripple(
   content content: Json,
 ) -> Effect(msg) {
   use _dispatch <- effect.from
-  watershed.submit_ripple(
-    document,
-    ripple_type: ripple_type,
-    content: content,
-  )
+  watershed.submit_ripple(document, ripple_type: ripple_type, content: content)
 }
 
 /// A hook that injects a fault, for a test or a demo. It closes the socket, so

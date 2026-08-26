@@ -23,8 +23,8 @@ import gleam/list
 import gleam/option.{type Option, Some}
 import gleam/string
 
-import watershed/or_map_kernel
 import watershed.{type Document, type OrMap, WatershedConfig}
+import watershed/or_map_kernel
 
 import pixel_canvas_lustre/doc_schema
 import pixel_canvas_lustre/grid
@@ -48,12 +48,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.CanvasDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

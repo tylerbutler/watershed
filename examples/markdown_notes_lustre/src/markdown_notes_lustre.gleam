@@ -340,7 +340,11 @@ fn split_list(raw: String) -> List(String) {
 }
 
 fn ice_servers() {
-  case split_list(query("ice", "")), query("iceUser", ""), query("icePass", "") {
+  case
+    split_list(query("ice", "")),
+    query("iceUser", ""),
+    query("icePass", "")
+  {
     // NAT traversal with nothing deployed, to match the signaling default.
     [], _, _ -> p2p_transport_js.public_stun_servers()
     urls, "", _ -> [p2p_transport_js.ice_server(urls: urls)]

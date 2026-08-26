@@ -52,8 +52,8 @@ type Sim {
 fn new_sim(doc: JsonValue) -> Sim {
   Sim(
     clients: ids()
-      |> list.map(fn(id) {
-        ClientSim(kernel.from_value(id, doc), delivered: 0, outbox: [])
+      |> list.map(fn(_id) {
+        ClientSim(kernel.from_value(doc), delivered: 0, outbox: [])
       }),
     log: [],
   )
@@ -183,15 +183,7 @@ fn do_deliver_one(sim: Sim, id: Int) -> Sim {
             }
           }
         False ->
-          case
-            kernel.apply_remote(
-              c.state,
-              entry.wire,
-              entry.seq,
-              entry.author,
-              min,
-            )
-          {
+          case kernel.apply_remote(c.state, entry.wire, entry.seq, min) {
             Error(e) -> panic as { "apply_remote failed: " <> string.inspect(e) }
             Ok(#(state, _events)) ->
               put(

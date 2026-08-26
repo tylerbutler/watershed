@@ -5,8 +5,8 @@ import gleeunit
 import gleeunit/should
 
 import doc_schema
-import watershed/sluice_js.{type Sluice}
 import watershed.{type Document, type GSet, type OrSet, type TwoPSet}
+import watershed/sluice_js.{type Sluice}
 
 pub fn main() -> Nil {
   gleeunit.main()

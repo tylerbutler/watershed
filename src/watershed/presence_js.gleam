@@ -31,13 +31,13 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 @target(javascript)
+import watershed.{type Document, type Ripple}
+@target(javascript)
 import watershed/presence.{type Config, type Event, type Mode}
 @target(javascript)
 import watershed/runtime.{type PresenceFrame}
 @target(javascript)
 import watershed/transport_js.{type Cell, type Scheduler}
-@target(javascript)
-import watershed.{type Document, type Ripple}
 
 @target(javascript)
 /// A running presence session. Stop it with `stop`.
@@ -139,9 +139,7 @@ pub fn start_with_scheduler(
   // be detached, so registering lazily would buy nothing; each is inert until
   // the matching implementation is chosen.
   runtime.subscribe_presence(runtime, fn(frame) { on_frame(cell, frame) })
-  watershed.subscribe_ripples(document, fn(ripple) {
-    on_ripple(cell, ripple)
-  })
+  watershed.subscribe_ripples(document, fn(ripple) { on_ripple(cell, ripple) })
   Handle(cell)
 }
 

@@ -8,8 +8,8 @@ import gleam/string
 import gleeunit/should
 
 import doc_schema
-import watershed/sluice_js.{type Sluice}
 import watershed.{type Document, type OrSet}
+import watershed/sluice_js.{type Sluice}
 
 const checks_key = "checks"
 

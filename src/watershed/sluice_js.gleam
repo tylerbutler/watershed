@@ -30,6 +30,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 @target(javascript)
+import watershed
+@target(javascript)
 import watershed/runtime
 @target(javascript)
 import watershed/sluice/core
@@ -37,8 +39,6 @@ import watershed/sluice/core
 import watershed/transport_js.{type Cell}
 @target(javascript)
 import watershed/wire/socket
-@target(javascript)
-import watershed
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -152,10 +152,7 @@ pub fn resume(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 /// it waited on is no longer in the room. `pause` cannot replace this
 /// function. A paused client is still a member, so a pact still waits on it,
 /// and that stall is the condition under test.
-pub fn disconnect(
-  sluice: Sluice,
-  document: watershed.Document(root),
-) -> Nil {
+pub fn disconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
   apply_to_client(sluice, document, core.disconnect)
 }
 
@@ -676,10 +673,7 @@ fn token_of(
 
 @target(javascript)
 /// The current id that the server assigned to a runtime.
-fn client_id_of(
-  state: State,
-  runtime: runtime.Runtime,
-) -> Result(String, Nil) {
+fn client_id_of(state: State, runtime: runtime.Runtime) -> Result(String, Nil) {
   case token_of(state.bindings, runtime) {
     Error(_) -> Error(Nil)
     Ok(token) ->

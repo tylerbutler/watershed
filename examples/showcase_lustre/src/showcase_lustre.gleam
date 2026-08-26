@@ -41,11 +41,11 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document, type TypedMap}
 import watershed/browser
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/summary_policy
-import watershed.{type Document, type TypedMap}
 import watershed_lustre
 
 import pixel_canvas_lustre/component as canvas_panel

@@ -8,9 +8,9 @@ import gleeunit/should
 import bracket
 import doc_schema
 import match_result
+import watershed.{type Document, type RegisterCollection}
 import watershed/register_collection_kernel.{Atomic}
 import watershed/sluice_js.{type Sluice}
-import watershed.{type Document, type RegisterCollection}
 
 pub fn main() -> Nil {
   gleeunit.main()
@@ -24,11 +24,7 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
 
   let root_a = watershed.root_typed(doc_a)
   let assert Ok(matches) = watershed.create_register_collection(doc_a)
-  watershed.set_register_collection_field(
-    root_a,
-    doc_schema.matches(),
-    matches,
-  )
+  watershed.set_register_collection_field(root_a, doc_schema.matches(), matches)
   sluice_js.settle(sluice)
 
   #(sluice, matches, matches_for(doc_b))
@@ -37,11 +33,7 @@ fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
 fn matches_for(doc: Document(doc_schema.BracketDoc)) -> RegisterCollection {
   let root = watershed.root_typed(doc)
   let assert Ok(Some(matches)) =
-    watershed.resolve_register_collection_field(
-      doc,
-      root,
-      doc_schema.matches(),
-    )
+    watershed.resolve_register_collection_field(doc, root, doc_schema.matches())
   matches
 }
 

@@ -29,26 +29,34 @@
 //// procedure. `to_head_context` and `rebase_pending` below depend on that
 //// invariant: the window that they fold over has no gap, because it contains
 //// no entry from the same author.
+////
+//// ## The transform side comes from the sequence order
+////
+//// A transform of two concurrent ops needs a tie-break, which the algebras
+//// here call the `Side`. Every replica must give the same side to the same
+//// pair of ops, or the replicas do not converge.
+////
+//// The tie-break is the sequence order: **the op with the larger sequence
+//// number is the later op**, and the other op is the earlier op. Each kernel
+//// maps those two roles onto the `Side` values of its own algebra. The
+//// sequencer supplies one total order to every replica, so this rule is the
+//// same at every replica, and it needs no identity.
+////
+//// The rule holds for a pending local op, which has no sequence number yet.
+//// A client receives the sequenced stream in order, so an op that the client
+//// did not send, or did send but is not acked, always sequences after every
+//// op that the client processes now. A pending op is thus always the later
+//// op.
+////
+//// An identity is not usable for this tie-break. The client id of a replica
+//// changes on a reconnect, so an op can go on the wire under one id after the
+//// author already rebased it under another id. The two replicas then give
+//// opposite sides to the same pair, and the document forks.
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/result
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Deterministic author precedence
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A deterministic tie-break between two authors. The result is `True` when
-/// `author_x` comes before `author_y`, which is when its client id is smaller.
-///
-/// The function is symmetric and replicated, so every replica breaks the same
-/// insert-at-the-same-index tie in the same way. A kernel maps the result onto
-/// the `Side` type of its own algebra, for example the `Lft` and `Rgt` values
-/// of json0.
-pub fn author_precedes(author_x: Int, author_y: Int) -> Bool {
-  author_x < author_y
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Concurrency-window transform
@@ -58,14 +66,14 @@ pub fn author_precedes(author_x: Int, author_y: Int) -> Bool {
 /// already transformed it into the context that it was applied in, which is
 /// the head context at its `seq`.
 pub type LogEntry(op) {
-  LogEntry(seq: Int, author: Int, op: op)
+  LogEntry(seq: Int, op: op)
 }
 
 /// Fold an incoming op past every logged entry that sequenced inside its
 /// `(ref_seq, seq)` window, in seq order. The function uses
-/// `transform_against` to advance the op past each entry. The closure of the
-/// kernel must derive its own `Side` value from `author_precedes`, applied to
-/// the incoming author and to `entry.author`.
+/// `transform_against` to advance the op past each entry. The incoming op has
+/// a larger sequence number than every entry in the window, so the closure of
+/// the kernel must give the incoming op the side of the later op.
 ///
 /// The one-op-in-flight invariant means that no entry in the window has the
 /// author of the incoming op. The window thus has no gap, and this function
@@ -103,6 +111,11 @@ fn seq_compare(a: Int, b: Int) -> order.Order {
 /// remote op advanced past it. The next pending layer must transform against
 /// that advanced remote op, and so must the visible remote event of the
 /// kernel.
+///
+/// The pending local op sequences after the remote op, because the client
+/// reads the sequenced stream in order. The `rebase_local` closure must thus
+/// give the local op the side of the later op, and `advance_remote` must give
+/// the remote op the side of the earlier op.
 ///
 /// The local result is `None` when there is no pending op to rebase. The
 /// function then returns the remote op without a change.

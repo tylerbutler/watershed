@@ -20,8 +20,8 @@ import gleam/list
 import gleam/string
 
 import doc_schema
-import watershed/summary_policy
 import watershed.{type Document, type OrSet, WatershedConfig}
+import watershed/summary_policy
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -42,12 +42,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.Machine)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,

@@ -195,6 +195,31 @@ pub fn attached_directory_emits_ops_and_reads_test() {
   |> expect.to_equal(Some(json.string("recorded")))
 }
 
+pub fn directory_set_attaches_handle_dependencies_test() {
+  let core =
+    bootstrap(id_a)
+    |> runtime_core.create_detached(dir, channel.InitDirectory)
+  let #(core, _) =
+    expect_ok(runtime_core.set(core, "root", "tree", handle.encode_handle(dir)))
+  let core = runtime_core.create_detached(core, "document", channel.InitJsonOt)
+
+  let assert #(_core, [attach_op, set_op]) =
+    expect_ok(runtime_core.directory_set(
+      core,
+      dir,
+      "/",
+      "config",
+      handle.encode_handle("document"),
+    ))
+
+  json.to_string(attach_op.contents)
+  |> string.contains("\"type\":\"attach\"")
+  |> expect.to_be_true()
+  json.to_string(set_op.contents)
+  |> string.contains("\"type\":\"dirSet\"")
+  |> expect.to_be_true()
+}
+
 /// A directory summary survives a JSON snapshot round-trip through the
 /// channel codec (attach payload / summary blob `data`).
 pub fn directory_snapshot_round_trips_test() {

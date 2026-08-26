@@ -47,10 +47,8 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
+import watershed.{type Document, type SharedText, type TextAnchor, type TypedMap}
 import watershed/text_kernel
-import watershed.{
-  type Document, type SharedText, type TextAnchor, type TypedMap,
-}
 import watershed_lustre
 import watershed_lustre/textarea
 
@@ -193,9 +191,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Some(editor) -> {
           let text = textarea.channel(editor)
           let index = textarea.length(editor)
-          case
-            watershed.text_anchor_at(text, index, watershed.bias_before)
-          {
+          case watershed.text_anchor_at(text, index, watershed.bias_before) {
             Ok(anchor) -> #(
               Model(..model, anchor: Some(anchor))
                 |> refresh_anchor

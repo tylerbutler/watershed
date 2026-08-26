@@ -52,12 +52,7 @@ fn connect_client(
   document: String,
   user: String,
 ) -> Promise(Document(doc_schema.TextDoc)) {
-  use token <- promise.map(watershed.dev_token(
-    secret,
-    tenant,
-    document,
-    user,
-  ))
+  use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
       url: url,
@@ -167,11 +162,7 @@ fn concurrent_phase(text_a: SharedText, text_b: SharedText) -> Nil {
   log("smoke: concurrent emoji-head on A, combining-tail on B")
   let insert_a = watershed.text_insert(text_a, 0, head_insert)
   let insert_b =
-    watershed.text_insert(
-      text_b,
-      watershed.text_length(text_b),
-      tail_insert,
-    )
+    watershed.text_insert(text_b, watershed.text_length(text_b), tail_insert)
 
   // Exercise the append family and prove it survives the concurrent race.
   let append_result = watershed.text_append(text_a, append_text)

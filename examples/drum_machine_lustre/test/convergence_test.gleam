@@ -13,8 +13,8 @@ import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
-import watershed/sluice_js.{type Sluice}
 import watershed.{type Document, type OrSet}
+import watershed/sluice_js.{type Sluice}
 
 /// The four track keys, in the order `drum_machine_lustre.tracks()` uses.
 const track_keys = ["kick", "snare", "hat", "clap"]

@@ -9,7 +9,7 @@ Candidate example apps for `examples/`, kept here so they survive between sessio
 - `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, **shipped, GT1–GT6**, `examples/grocery_triptych_lustre/`
 - `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, **shipped, WQ1–WQ7**, `examples/work_queue_lustre/`
 - `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
-- `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, JW1–JW7, zero prerequisites; retires the "one site only" row's directory/JSON OT entry
+- `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, **shipped, JW1–JW7**, `examples/json_workspace_lustre/`; retired the "one site only" row's directory/JSON OT entry
 - `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, RR1–RR8, zero prerequisites; retires the "one site only" row's `SharedRichText` entry
 
 And the gaps those plans surfaced have their own plan:
@@ -27,11 +27,11 @@ Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026
 
 | State | Kinds |
 |---|---|
-| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist) |
-| One site only | `SharedDirectory` + `JsonOt` (website pages only), `SharedRichText` (website only) |
+| Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist), `SharedDirectory` + `JsonOt` (JSON workspace) |
+| One site only | `SharedRichText` (website only) |
 | **No demo** | none |
 
-`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over. Every kind now has at least one example — the remaining gaps are the "one site only" row (getting `SharedDirectory`, `JsonOt`, and `SharedRichText` proper Lustre examples) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
+`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
 
 ## Two corrections worth not re-learning
 
@@ -159,7 +159,8 @@ Good filler work, but it makes an existing example more complicated rather than 
 
 ### Collaborative JSON workspace: `SharedDirectory` + `JsonOt` + presence
 
-→ Promoted to `docs/plans/2026-08-19-json-workspace-demo-plan.md` (JW1–JW7).
+→ Shipped as `docs/plans/2026-08-19-json-workspace-demo-plan.md` (JW1–JW7),
+`examples/json_workspace_lustre/`.
 
 A project tree whose directories contain named JSON documents. Selecting a
 document opens a structured property editor, and presence shows which path each
@@ -169,10 +170,10 @@ today.
 
 This is the smaller alternative to the spreadsheet. It demonstrates directory
 creation, deletion, and recreation plus concurrent JSON edits without formula
-evaluation, dependency graphs, or a grid widget. The payoff test should combine
-the two important races: recreate a directory while another client still holds
+evaluation, dependency graphs, or a grid widget. The payoff test combines the
+two important races: recreate a directory while another client still holds
 its old instance, and edit separate paths in one JSON document before
-reconnecting.
+reconnecting — both pinned in `test/convergence_test.gleam`.
 
 **Prerequisites:** none. FP5 shipped the Lustre directory and JSON OT effects.
 **Cost:** medium.
