@@ -135,7 +135,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       doesn’t decode is ignored — one teammate on a bad build should not empty
       the roster. A server without presence support, or one that rejects the
       join, is a message on screen. Neither of them stops the board: notes and
-      votes keep working, because presence was never load-bearing.
+      votes keep working because the board does not depend on presence.
     </p>
     <figure class="g-code">
       <Code code={remotePeers} lang="gleam" theme={watershedCodeTheme} />

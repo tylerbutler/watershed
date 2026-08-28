@@ -32,7 +32,7 @@ const models = [
     gloss: "Converges by a merge function, no order required.",
     body: [
       "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge. No central authority is needed to referee.",
-      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count. The structure carries that safety itself; an order-based DDS relies on the runtime deduping by sequence number.",
+      "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count. Commutativity, associativity, and idempotence provide that safety; an order-based DDS relies on the runtime deduping by sequence number.",
     ],
     tradeoff:
       "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones.",

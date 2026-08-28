@@ -229,7 +229,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // ledger before it is sequenced, so the value flashes magenta on edit.
     ormap() {
       setNote(
-        "OR-map — add-wins, observed-remove. Each stockpile carries its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
+        "OR-map — add-wins, observed-remove. Each stockpile has its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
       );
     },
     // Claims are non-optimistic (see renderClaims in demo.js): a filed claim

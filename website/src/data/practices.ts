@@ -290,7 +290,7 @@ pub fn should_acknowledge(
     example: "grocery_triptych_lustre",
     rule: "Pull decision logic out of update into pure modules, and let most of the suite need no doc, no sluice, no server.",
     body: [
-      "The triptych carries the repo's largest pure-logic suite (around a thousand lines across protocol, scenario-state, and guard tests), because everything that decides was extracted from everything that performs. The 23-line refresh guard below is the smallest specimen: a generation counter that drops stale coalesced refreshes.",
+      "The triptych has the repo's largest pure-logic suite (around a thousand lines across protocol, scenario-state, and guard tests), because everything that decides was extracted from everything that performs. The 23-line refresh guard below is the smallest specimen: a generation counter that drops stale coalesced refreshes.",
       "The payoff is proportion: the expensive convergence and browser smoke tests are reserved for claims only they can make, while every branch of the decision logic runs as ordinary unit tests.",
     ],
     snippet: `pub type State {

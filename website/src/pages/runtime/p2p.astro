@@ -30,7 +30,7 @@ let config =
       resolves concurrent writes. A <strong>CRDT document</strong> drops that
       assumption: browsers discover one another over WebRTC, edit while
       disconnected, reconnect in any order, and converge once they exchange
-      state. The structures involved carry their own merge rule rather than
+      state. The structures involved define their own merge rule instead of
       depending on somebody stamping a sequence number. The clap
       counter in <a href={`/examples#clap_counter_lustre`}>the examples
       index</a> is this running with the sequencer never in the picture at
