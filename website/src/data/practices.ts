@@ -12,7 +12,7 @@
 // all of them, not their home.
 // ──────────────────────────────────────────────────────────────────────────
 import { examples, type Example } from "./examples";
-import { steps, type StepSlug } from "./guide";
+import { allSteps, type StepSlug } from "./guide";
 
 export interface Practice {
   /** Anchor slug, on the guide step this practice is filed under. */
@@ -139,7 +139,7 @@ fn with_relay(
   {
     id: "quorum-pending-roster",
     title: "Propose on release, render the pending signoff",
-    step: "structures",
+    step: "votes",
     example: "drum_machine_lustre",
     rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
     body: [
@@ -175,7 +175,7 @@ BpmCommitted ->
   {
     id: "realtime-out-of-band",
     title: "Keep latency-critical loops out of the update path",
-    step: "ripples",
+    step: "presence",
     example: "drum_machine_lustre",
     rule: "A real-time loop reads a plain snapshot the app pushes to it; it never calls back into the application.",
     body: [
@@ -213,7 +213,7 @@ BpmCommitted ->
   {
     id: "presence-idiom",
     title: "The minimal presence idiom",
-    step: "ripples",
+    step: "presence",
     example: "flowboard_lustre",
     rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
     body: [
@@ -254,7 +254,7 @@ fn remote_entries(
   {
     id: "protocol-on-ripples",
     title: "Ride an application protocol on ripples",
-    step: "ripples",
+    step: "presence",
     example: "grocery_triptych_lustre",
     rule: "Coordination that should die with the session gets its own message envelope on ripples, never a document channel.",
     body: [
@@ -326,7 +326,7 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
   {
     id: "ffi-surface",
     title: "Hand a rendering surface to FFI, and bootstrap on Connected",
-    step: "ui",
+    step: "connect",
     example: "pixel_canvas_lustre",
     rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
     body: [
@@ -355,7 +355,7 @@ Connected(Error(reason)) -> #(
   {
     id: "fallible-edits",
     title: "Fallible edits render; never assert on a mutation",
-    step: "ui",
+    step: "notes",
     example: "playlist_lustre",
     rule: "Every index-addressed edit returns a Result, because a peer can delete the row between render and click.",
     body: [
@@ -396,7 +396,7 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
   {
     id: "authoritative-channel",
     title: "When a move is not atomic, crown one channel authoritative",
-    step: "schema",
+    step: "notes",
     example: "retro_board_lustre",
     rule: "A cross-channel move cannot be transactional, so pick the channel that wins and reconcile at render time.",
     body: [
@@ -447,7 +447,7 @@ fn render_column(
   {
     id: "stamp-schema",
     title: "Stamp the schema; refuse bad reads",
-    step: "schema",
+    step: "notes",
     example: "scoreboard_cli",
     rule: "Seed a detached typed map in one write, stamp its schema version, then attach, so incompatible layouts fail at read time instead of silently.",
     body: [
@@ -477,7 +477,7 @@ let selector =
   {
     id: "typedmap-panels",
     title: "Panels take a TypedMap, never a root",
-    step: "schema",
+    step: "connect",
     example: "showcase_lustre",
     rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
     body: [
@@ -513,7 +513,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
   {
     id: "claims-seeding",
     title: "Seed idempotently with Claims",
-    step: "schema",
+    step: "connect",
     example: "sudoku_lustre",
     rule: "When every client must agree on initial data, let every client run the same seeding loop through first-writer-wins claims.",
     body: [
@@ -550,7 +550,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
   {
     id: "anchors-not-offsets",
     title: "Anchors, not offsets",
-    step: "structures",
+    step: "notes",
     example: "text_lustre",
     rule: "Never store a text position as an integer: hold an anchor and re-resolve it after every edit.",
     body: [
@@ -575,7 +575,7 @@ fn refresh_anchor(model: Model) -> Model {
   {
     id: "unsettled-writes",
     title: "Show writes that have not settled",
-    step: "ui",
+    step: "votes",
     example: "tournament_bracket_lustre",
     rule: "When a structure is not optimistic, say so in the UI: pending until the event that proves the write sequenced.",
     body: [
@@ -693,11 +693,11 @@ for (const practice of practices) {
 
 /** guide step slug → the practices filed under it, in catalog order. */
 export const practicesByStep: Record<StepSlug, Practice[]> = Object.fromEntries(
-  steps.map((step) => [
+  allSteps.map((step) => [
     step.slug,
     practices.filter((practice) => practice.step === step.slug),
   ]),
-);
+) as Record<StepSlug, Practice[]>;
 
 /** Deep link to a practice, on the guide step that renders it. */
 export function practiceHref(practice: Practice): string {

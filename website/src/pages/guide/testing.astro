@@ -2,141 +2,219 @@
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
 
-const test = `import gleam/json
-import gleam/option.{Some}
-import gleeunit/should
+const room = excerpt(convergenceSource, "fn room(", "fn channels_of(");
+const boardOf = excerpt(convergenceSource, "fn board_of(");
+const addRace = excerpt(
+  convergenceSource,
+  "pub fn concurrent_adds_keep_both_notes_test(",
+);
+const voteRace = excerpt(
+  convergenceSource,
+  "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
+);
 
-import watershed/sluice_js
-import watershed
+const scripted = `// Two adds, then deliver one frame at a time instead of draining.
+board_ops.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
+board_ops.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
 
-pub fn two_teammates_converge_test() {
-  let sluice = sluice_js.start(tenant: "flow-co", document: "flowboard")
-  let doc_a = sluice_js.connect(sluice, "ada")
-  let doc_b = sluice_js.connect(sluice, "boaz")
-  sluice_js.settle(sluice)              // complete both handshakes
-
-  let board_a = watershed.root(doc_a)
-  let board_b = watershed.root(doc_b)
-
-  // Concurrent card moves, including a same-card race.
-  watershed.set(board_a, "card-7", json.string("Doing"))
-  watershed.set(board_b, "card-9", json.string("Review"))
-  watershed.set(board_a, "card-4", json.string("Doing"))
-  watershed.set(board_b, "card-4", json.string("Done"))
-  sluice_js.settle(sluice)              // deliver every edit everywhere
-
-  // Uncontested writes land on both replicas.
-  watershed.get(board_b, "card-7")
-  |> should.equal(Some(json.string("Doing")))
-
-  // Both teammates agree on the contested card — deterministically,
-  // no polling, no server, no timing accident.
-  watershed.get(board_a, "card-4")
-  |> should.equal(watershed.get(board_b, "card-4"))
-}`;
-
-const race = `// Script the race instead of hoping for a schedule: deliver frames on demand.
-watershed.set(watershed.root(doc_a), "card-4", json.string("Doing"))
-watershed.set(watershed.root(doc_b), "card-4", json.string("Done"))
-
-sluice_js.step(sluice)     // deliver exactly one frame
+sluice_js.step(sluice)     // deliver exactly one queued frame
+// ... assert the half-delivered board here ...
 sluice_js.settle(sluice)   // then drain the rest to quiescence`;
+
+const layout = `retro_tutorial_lustre/
+├── gleam.toml                      dependencies and the javascript target
+├── package.json                    pnpm build / pnpm serve
+├── pnpm-workspace.yaml
+├── build.mjs                       esbuild bundle for the browser
+├── index.html                      mount point and all of the styling
+├── src/
+│   ├── doc_schema.gleam            step 02 · title, notes, votes
+│   ├── note.gleam                  step 03 · the note record and its codec
+│   ├── board.gleam                 step 03 · pure canonical snapshot
+│   ├── board_ops.gleam             steps 03 and 04 · the shared writes
+│   └── retro_tutorial_lustre.gleam every sheet · connection, update, view
+└── test/
+    ├── note_codec_test.gleam       round trips, including malformed payloads
+    ├── board_test.gleam            ordering, tally joins, unfiled notes
+    └── convergence_test.gleam      this sheet · the two races`;
 ---
 
 <GuideLayout
   slug="testing"
-  description="Step six of the watershed build guide: the sluice is an in-memory sequencer that runs the production client runtime over an injected transport, so you can write deterministic multi-client convergence tests with explicit delivery and no infrastructure."
+  description="Step six of the watershed build guide: the sluice is an in-memory sequencer running the production client runtime over an injected transport, so the two races from step one become ordinary gleam test assertions with no server, no browser, and no timing luck."
 >
   <div class="g-block">
-    <h2>Prove convergence without a server</h2>
+    <h2>Close the loop you opened</h2>
     <p>
-      A multiplayer app’s core claim is that every client ends up in the same
-      state. Testing that used to mean two browser tabs and a live server. The
-      <strong>sluice</strong> replaces both with a deterministic,
-      single-process sequencer and transport.
+      Step 01 showed you two races and told you they were already checked in.
+      This is where you write them. The board now has everything they need — a
+      register OR-map of notes, a tally OR-map of votes, and one module of shared
+      writes — so the only missing piece is a way to run two clients without
+      running two clients.
     </p>
     <p>
-      The sluice runs the production runtime with the same codecs, pending
-      queues, resubmit, and reconnect catch-up over an injected transport. It
-      also uses the same sequencing module as the server.
-      It exercises the production client paths without claiming to reproduce
-      floodgate’s storage, authentication, or network boundary.
+      The <strong>sluice</strong> is that piece: an in-memory sequencer and
+      transport that runs the production client runtime, with the same codecs,
+      pending queues, resubmit, and reconnect catch-up, and the same sequencing
+      module the server uses. It exercises the real client paths. It does not
+      claim to reproduce floodgate’s storage, authentication, or network
+      boundary — keep a live smoke test for those.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>Delivery is explicit</h2>
+    <h2>Nothing is delivered until you say so</h2>
     <p>
-      The trick that makes convergence testable is that nothing is delivered
-      to clients until you say so. Client submissions are processed and
-      sequenced synchronously; their resulting inbound frames remain queued.
-      <code>settle</code> drains those frames to quiescence, while
-      <code>step</code> delivers one queued frame. This separates server order
-      from the order in which each replica observes it.
+      That is the whole trick. A client’s submission is processed and sequenced
+      synchronously, but the inbound frames it produces sit in a queue.
+      <code>settle</code> drains them to quiescence; <code>step</code> delivers
+      exactly one. Server order and the order each replica observes it become two
+      separate things you control.
+    </p>
+    <p>
+      So a room is: one sluice, two connected documents, a settle to finish both
+      handshakes, the channels created on A, and a second settle so B can resolve
+      the same handles from the root map.
     </p>
     <span class="g-file">test/convergence_test.gleam</span>
     <figure class="g-code">
-      <Code code={test} lang="gleam" theme={watershedCodeTheme} />
+      <Code code={room} lang="gleam" theme={watershedCodeTheme} />
     </figure>
+    <p>
+      Neither settle is decoration. Drop the second one and B is looking at a
+      root map with no channel handles in it yet, so <code>channels_of</code>
+      fails on a board that is merely early rather than broken.
+    </p>
   </div>
 
   <div class="g-block">
-    <h2>Script the race</h2>
+    <h2>Assert on the board, not on the map</h2>
     <p>
-      When you need to inspect an intermediate state,
-      <code>step</code> advances one inbound frame at a time. It does not
-      reorder operations already sequenced; submission call order determines
-      that order in sluice:
-    </p>
-    <p>
-      Name the concurrency claim your app’s story depends on and script
-      <em>that</em> race. A generic two-client test can pass while the actual
-      story is broken. Reserve live smoke tests for the network and browser
-      boundaries sluice does not reproduce.
+      The tests read through <code>board_ops.snapshot</code> — the same function
+      the UI renders from. That is deliberate. Asserting on raw OR-map entries
+      would pass while the board that people actually look at was sorting its
+      columns differently on each replica.
     </p>
     <figure class="g-code">
-      <Code code={race} lang="gleam" theme={watershedCodeTheme} />
+      <Code code={boardOf} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Which is why <code>board_ops</code> exists as its own module: a test that
+      reimplements the write it is testing proves the reimplementation works.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The two races, as tests</h2>
+    <p>
+      Both notes survive because they were never in the same slot. Both
+      assertions matter: <code>board_a |> should.equal(board_b)</code> is
+      convergence, and the count and the two lookups are the claim that
+      convergence didn’t happen by throwing one note away.
+    </p>
+    <figure class="g-code">
+      <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Then three votes across two clients, settling at <code>+1</code>. Same
+      shape, same settle, and no <code>sleep</code> anywhere — this is a
+      deterministic assertion, not a race you hope resolves before the timeout.
+    </p>
+    <figure class="g-code">
+      <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>More controls.</strong> Both <code>sluice</code> and
-        <code>sluice_js</code> provide <code>pause</code> /
-        <code>resume</code> to hold one client’s inbound frames, and
-        <code>advance(ms)</code> moves the sequencer’s logical clock for frame
-        timestamps. Presence uses the target runtime’s wall clock. JavaScript
-        also exposes <code>step_info</code> with delivery metadata for
-        visualizations and scripted assertions.
+        <strong>Name the race your story depends on.</strong> A generic
+        two-client convergence test can pass while the thing your users care
+        about is broken. These two are here because they are the two promises the
+        board makes: nothing you type disappears, and nothing you vote is lost.
       </p>
     </div>
   </div>
 
   <div class="g-block">
-    <h2>That’s the loop</h2>
+    <h3>Deepening: script the intermediate state</h3>
     <p>
-      Connect a document, give it a typed schema, choose a merge model per slot,
-      add ripples for the ephemeral tier, wire it to Lustre, and lock the whole
-      thing down with deterministic convergence tests. Flowboard is small, but
-      the structure matches a production watershed app.
+      When you want to inspect a board mid-flight — one note delivered, the other
+      still in the queue — <code>step</code> advances one inbound frame at a
+      time. It does not reorder anything already sequenced; submission call order
+      decides that.
+    </p>
+    <figure class="g-code">
+      <Code code={scripted} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>More controls.</strong> Both <code>sluice</code> and
+        <code>sluice_js</code> provide <code>pause</code> / <code>resume</code>
+        {" "}to hold one client’s inbound frames, and <code>advance(ms)</code> to
+        move the sequencer’s logical clock for frame timestamps. Presence uses
+        the target runtime’s wall clock instead. JavaScript also exposes
+        <code>step_info</code> with delivery metadata, which is how the demo on
+        step 01 draws its op log.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>The finished project</h2>
+    <p>
+      Six sheets, one source tree. Everything the procedure built, in the order
+      it built it:
+    </p>
+    <figure class="g-code">
+      <Code code={layout} lang="text" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Every snippet in this guide that comes from the project is quoted from
+      these files at build time, so what you read here and what compiles cannot
+      drift. The complete source is in{" "}
+      <a href="https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre">
+        <code>examples/retro_tutorial_lustre</code></a>, and it is meant to be
+      copied out and renamed.
+    </p>
+    <figure class="g-code">
+      <Code
+        code={`cd examples/retro_tutorial_lustre
+gleam test`}
+        lang="sh"
+        theme={watershedCodeTheme}
+      />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Where to go when this board gets too small</h2>
+    <p>
+      The tutorial stops on purpose. It has no sequences, no drag and drop, no
+      cross-column moves, no edit or delete, and no vote budgets — every one of
+      those is a genuinely harder problem, and stacking them here would have
+      buried the two races the board exists to explain.
     </p>
     <p>
-      The <a href="/examples">example gallery</a> maps this loop onto thirteen
-      complete browser applications, each with its structures, its payoff race,
-      and a checked-in run guide.
+      The <a href="/examples#retro_board_lustre">advanced retro board</a> is the
+      same idea with the hard parts left in: five channels, ordered columns on a
+      sequence, cross-channel moves that render honestly rather than pretending
+      to be atomic, and edit and delete flows. It is the next thing to read.
     </p>
     <p>
-      Prefer the raw files? The{" "}
-      <a href="https://github.com/tylerbutler/watershed/tree/main/examples">
-      examples directory</a> remains the source of truth.
+      Beyond it, the <a href="/examples">example gallery</a> maps this loop onto
+      thirteen complete browser applications, and the{" "}
+      <a href="/structures">field atlas</a> has a page per structure with its
+      merge rule and its best-fit uses.
     </p>
   </div>
 
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Write multi-client convergence tests that run under <code>gleam test</code>
-      with no infrastructure: deterministic, scriptable, and exercising the same
-      code that runs in production.
+      Run <code>gleam test</code> and get <code>8 passed, no failures</code> in
+      about a second: two convergence races, the board’s ordering and joins, and
+      the note codec — no server, no browser, no timing luck.
     </p>
   </div>
 </GuideLayout>

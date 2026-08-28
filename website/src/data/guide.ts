@@ -21,55 +21,96 @@ export interface GuideStep {
 export const steps = [
   {
     n: "01",
-    slug: "connect",
-    title: "Connect a document",
-    goal: "Join a named, server-sequenced document and read its root map.",
-    surface: "watershed.connect · root · set · subscribe",
+    slug: "race",
+    title: "Run the race",
+    goal: "Watch two replicas disagree, then agree, before you write a line of it.",
+    surface: "sluice · or_map_set · or_map_increment",
   },
   {
     n: "02",
+    slug: "connect",
+    title: "Connect the board",
+    goal: "Join a live document, seed its two channels, and render an empty board.",
+    surface: "connect_dev · root_typed · ensure_or_map · subscribe",
+  },
+  {
+    n: "03",
+    slug: "notes",
+    title: "Notes that survive a tie",
+    goal: "Write whole notes into a register OR-map so two simultaneous adds both live.",
+    surface: "RegisterMode · or_map_set_json · or_map_entries",
+  },
+  {
+    n: "04",
+    slug: "votes",
+    title: "Votes that add up",
+    goal: "Send signed deltas to a tally OR-map so concurrent votes sum instead of clobbering.",
+    surface: "TallyMode · or_map_increment · Tally",
+  },
+  {
+    n: "05",
+    slug: "presence",
+    title: "Who is reading what",
+    goal: "Publish the focused note as presence, where it expires instead of accumulating.",
+    surface: "presence.config · watershed_lustre.presence · update_presence",
+  },
+  {
+    n: "06",
+    slug: "testing",
+    title: "Pin the races",
+    goal: "Replay both step-01 races under gleam test, deterministically, with no server.",
+    surface: "sluice_js · start · settle · step",
+  },
+] as const satisfies readonly GuideStep[];
+
+/**
+ * Sheets the six-step procedure replaced. They still resolve so their URLs do
+ * not 404 before the redirects land, but they are out of the ledger, out of
+ * the stepper, and out of the site nav. Delete this list with the pages.
+ */
+export const retiredSteps = [
+  {
+    n: "—",
     slug: "schema",
     title: "Model it with a schema",
     goal: "Declare the document's shape once and read and write through it.",
     surface: "schema.field · channel_field · ensure_* · typed",
   },
   {
-    n: "03",
+    n: "—",
     slug: "structures",
     title: "Choose your structures",
     goal: "Pick a merge model per slot: which conflicts you can tolerate, and where.",
     surface: "SharedMap · OR-map · SharedCounter",
   },
   {
-    n: "04",
+    n: "—",
     slug: "ripples",
     title: "Ephemeral signals",
     goal: "Broadcast presence and reactions that never touch the document's state.",
     surface: "submit_ripple · subscribe_ripples",
   },
   {
-    n: "05",
+    n: "—",
     slug: "ui",
     title: "Wire it to your UI",
     goal: "Declare sync as Lustre effects instead of hand-bridging callbacks.",
     surface: "watershed_lustre · connect · ensure_* · presence",
   },
-  {
-    n: "06",
-    slug: "testing",
-    title: "Test convergence",
-    goal: "Prove two clients converge, deterministically, with no server running.",
-    surface: "sluice · connect · settle · step",
-  },
 ] as const satisfies readonly GuideStep[];
 
-/** Slug of a build-guide step, e.g. `"schema"`. */
-export type StepSlug = (typeof steps)[number]["slug"];
+/** Every sheet that resolves under /guide, current or retired. */
+export const allSteps: readonly GuideStep[] = [...steps, ...retiredSteps];
+
+/** Slug of any /guide sheet, e.g. `"notes"`. */
+export type StepSlug =
+  | (typeof steps)[number]["slug"]
+  | (typeof retiredSteps)[number]["slug"];
 
 /** name → step, for cross-links. */
 export const stepBySlug: Record<StepSlug, GuideStep> = Object.fromEntries(
-  steps.map((s) => [s.slug, s]),
-);
+  allSteps.map((s) => [s.slug, s]),
+) as Record<StepSlug, GuideStep>;
 
 /** The step before/after `slug` in build order, or null at the ends. */
 export function neighbours(slug: StepSlug): {

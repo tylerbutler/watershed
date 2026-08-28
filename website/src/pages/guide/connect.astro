@@ -2,237 +2,270 @@
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt, section } from "../../lib/excerpt";
+import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+import schemaSource from "../../../../examples/retro_tutorial_lustre/src/doc_schema.gleam?raw";
+import gleamToml from "../../../../examples/retro_tutorial_lustre/gleam.toml?raw";
 
-const beam = `import gleam/erlang/process
-import gleam/json
-import watershed/channel.{type ChannelEvent}
+const devConstants = section(
+  appSource,
+  "/// These dev constants match",
+  "pub fn main(",
+);
+const start = excerpt(appSource, "pub fn main(");
+const connectEffect = excerpt(appSource, "fn init(");
+const readiness = section(
+  appSource,
+  "    GotDocument(doc) -> {",
+  "    EnsuredNotes(Ok(notes)) ->",
+);
+const bootstrap = excerpt(appSource, "fn bootstrap_effect(");
+const assemble = excerpt(appSource, "fn assemble(");
+
+const beam = `import gleam/erlang/process.{type Subject}
+import watershed/map_kernel
 import watershed_beam
 
-type Msg {
-  MapChanged(ChannelEvent)
-}
+// Blocks until the op history has replayed locally, then hands back the
+// document — natural inside an OTP process, impossible on the event loop.
+let assert Ok(doc) =
+  watershed_beam.connect(
+    host: "127.0.0.1",
+    port: 4000,
+    tenant: "dev-tenant",
+    document: "retro-tutorial",
+    token: token,
+    user_id: "ada",
+  )
 
-pub fn main() {
-  // Blocks until the op history has replayed locally.
-  let assert Ok(doc) =
-    watershed_beam.connect(
-      host: "127.0.0.1",
-      port: 4000,
-      tenant: "flow-co",
-      document: "flowboard",
-      token: token,
-      user_id: "ada",
-    )
-  let board = watershed_beam.root(doc)
-  let events = watershed_beam.subscribe(board)
-  let selector =
-    process.new_selector()
-    |> process.select_map(events, MapChanged)
+// Root-map changes arrive as a Subject you select on, not as a callback.
+let events: Subject(map_kernel.MapEvent) =
+  watershed_beam.subscribe(watershed_beam.root(doc))`;
 
-  // Subscribe first: this local write emits immediately.
-  watershed_beam.set(board, "title", json.string("Q3 sprint board"))
-
-  // The same subject also receives remote changes as they are applied.
-  let MapChanged(_event) = process.selector_receive_forever(selector)
-}`;
-
-const js = `import gleam/io
-import gleam/json
-import watershed.{WatershedConfig}
-
-pub fn main() {
-  let config =
-    WatershedConfig(
-      url: "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0",
-      tenant: "flow-co",
-      document: "flowboard",
-      token: token,
-      user_id: "ada",
-    )
-
-  // Returns immediately; on_ready fires after handshake + history replay.
-  let doc =
-    watershed.connect(config, on_ready: fn(result) {
-      case result {
-        Ok(Nil) -> io.println("synced")
-        Error(reason) -> io.println("rejected: " <> reason)
-      }
-    })
-
-  let board = watershed.root(doc)
-}`;
+const layout = `retro_tutorial_lustre/
+├── gleam.toml
+├── package.json
+├── pnpm-workspace.yaml
+├── build.mjs
+├── index.html
+├── src/
+│   ├── doc_schema.gleam            ← this sheet
+│   ├── note.gleam                  ← step 03
+│   ├── board.gleam                 ← step 03
+│   ├── board_ops.gleam             ← steps 03 and 04
+│   └── retro_tutorial_lustre.gleam ← every sheet
+└── test/
+    ├── note_codec_test.gleam
+    ├── board_test.gleam
+    └── convergence_test.gleam      ← step 06`;
 ---
 
 <GuideLayout
   slug="connect"
-  description="Step one of the watershed build guide: connect to a named, server-sequenced document, read its root map, and understand the optimistic-then-sequenced edit model, on both the BEAM and browser targets."
+  description="Step two of the watershed build guide: connect the tutorial retro board to a live document, treat the handle and the handshake as two separate events, and seed its register and tally OR-maps with ensure_or_map before the first render."
 >
   <div class="g-block">
-    <h2>A document is a named container of channels</h2>
+    <h2>The races were real; the sequencer wasn’t</h2>
     <p>
-      Everything watershed synchronises belongs to a <strong>document</strong>:
-      a server-sequenced container addressed by a <code>tenant</code> and a
-      <code>document</code> id. Every client that connects to the same pair joins
-      the same live state. Flowboard’s teammates all open
-      <code>flow-co / flowboard</code>.
+      Everything you watched on the last sheet ran inside one browser tab.
+      Real replicas need someone to decide the order they all agree on, and
+      that is what a <strong>document</strong> is: a server-sequenced container
+      addressed by a <code>tenant</code> and a <code>document</code> id. Every
+      client that opens the same pair joins the same live state.
     </p>
     <p>
-      Connecting replays the document’s op history so you start from the current
-      converged state, then keeps the connection open to stream every subsequent
-      change (yours and everyone else’s) in one server-assigned order.
+      Connecting replays the document’s op history, so you start from the
+      current converged state rather than an empty board, then holds the
+      connection open to stream every later change — yours and everyone
+      else’s — in one server-assigned order.
     </p>
+    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={devConstants} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={start} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        <code>document_on_navigate</code> reads <code>?document=</code> from the
+        URL, or mints a name and puts it there — so two tabs share a board by
+        sharing the link
+      </figcaption>
+    </figure>
   </div>
 
   <div class="g-block">
-    <h2>Connect</h2>
+    <h2>Connecting is a declared effect, not a callback</h2>
     <p>
-      watershed is BEAM-first, and the same pure core compiles to the browser.
-      The facades share structure operations, but each target still constrains
-      the connection and subscription APIs. Pick your target:
+      The browser facade speaks in callbacks: <code>on_ready</code>, subscription
+      handlers, presence events. Bridged into Lustre by hand, each one has to
+      <code>dispatch</code> — and dispatching from inside <code>update</code>
+      clobbers the model you are in the middle of returning.{" "}
+      <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
+      <code>watershed_lustre</code></a> does that bridging once, correctly, so
+      your <code>init</code> returns a connection the way it returns any other
+      effect.
     </p>
-
-    <div class="g-tabs">
-      <input type="radio" name="target" id="t-beam" checked />
-      <input type="radio" name="target" id="t-js" />
-      <div class="g-tab-row" role="tablist" aria-label="Target">
-        <label for="t-beam">BEAM · <code>watershed_beam</code></label>
-        <label for="t-js">Browser · <code>watershed</code></label>
-      </div>
-      <div class="g-tab-panels">
-        <figure class="g-code g-panel g-panel-beam">
-          <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
-          <figcaption class="annot">
-            src/flowboard.gleam · erlang target
-          </figcaption>
-        </figure>
-        <figure class="g-code g-panel g-panel-js">
-          <Code code={js} lang="gleam" theme={watershedCodeTheme} />
-          <figcaption class="annot">
-            src/flowboard.gleam · javascript target
-          </figcaption>
-        </figure>
-      </div>
-    </div>
-
+    <figure class="g-code">
+      <Code code={connectEffect} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
     <div class="g-note">
       <p>
-        <strong>The one real difference.</strong> On the BEAM,
-        <code>connect</code> blocks and returns <code>Result(Document, _)</code>
-        once history has replayed: natural inside an OTP process. In the
-        browser it returns immediately and calls <code>on_ready</code> when the
-        handshake completes, because you cannot block the event loop. Keep the
-        handle when it arrives (it is fine for diagnostics and document-scoped
-        services), but attach or ensure channels only after
-        <code>on_ready</code> reports <code>Ok</code>. Treating handle-arrival
-        and readiness as one event is a first-load race. Map
-        subscriptions differ too: BEAM returns an OTP
-        <code>Subject(MapEvent)</code>; the browser facade registers a callback
-        directly. Step 05 hands the browser pattern to Lustre as effects.
+        <strong><code>connect_dev</code> is for your laptop.</strong> It mints a
+        dev token in the browser from a shared secret, which is exactly what you
+        want against <code>just integration-up</code> and exactly what you do not
+        want in production. There, issue the token from a backend and call
+        <code>watershed_lustre.connect</code> instead. The rest of this sheet is
+        identical either way.
       </p>
     </div>
   </div>
 
   <div class="g-block">
-    <h2>Read the root, write optimistically</h2>
+    <h2>The handle and the handshake are two different events</h2>
     <p>
-      Every document has a root <code>SharedMap</code> at address
-      <code>"root"</code>; get it with <code>root(doc)</code>. It reads like
-      an ordinary map: <code>set</code>, <code>get</code>, <code>subscribe</code>.
-      There is no merge callback to write and no conflict handler to forget.
+      Notice that <code>connect_dev</code> names <em>two</em> messages.
+      <code>got_document</code> fires as soon as the handle exists;
+      <code>connected</code> fires when the handshake and history replay are
+      done. Treating those as one event is a first-load race: you get a
+      <code>Document</code> that is not yet synced, seed channels against it, and
+      wonder why the board flickers.
     </p>
     <p>
-      A <code>set</code> applies to your local replica <em>immediately</em> and
-      emits a local subscription event, so subscribe before you make edits.
-      Remote writes emit when the runtime applies them to your replica. Both
-      event origins should re-read the visible state through the same render
-      path. A server acknowledgement may emit nothing when it does not change
-      that visible state.
+      So the tutorial app keeps both, and bootstraps on whichever arrives
+      second. That is the whole reason for the double <code>case</code> below.
+    </p>
+    <figure class="g-code">
+      <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Seed the channels with <code>ensure_or_map</code></h2>
+    <p>
+      A fresh document is empty. Two people opening a new board at the same
+      moment both want to create the <code>notes</code> map; exactly one must
+      win and the other must adopt the winner.
+      <code>ensure_or_map</code> collapses that create-race-retry dance into a
+      declaration: from the field alone it seeds the channel if it is absent and
+      resolves the existing one if it is not.
     </p>
     <p>
-      The server still assigns the order that resolves concurrent writes.
-      Subscriptions tell your app when its local view changed; sequencing tells
-      replicas which value wins. For a map, the last sequenced write wins per
-      key.
+      The schema file is the only place key strings live. Two channel fields, one
+      plain field, and a phantom <code>BoardDoc</code> tag that scopes all three
+      to this document — read a field against the wrong document and it is a
+      compile error, not a runtime surprise.
     </p>
+    <span class="g-file">src/doc_schema.gleam</span>
+    <figure class="g-code">
+      <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
     <p>
-      Storing a plain string under <code>"title"</code> works, but you don’t want
-      raw key strings sprinkled through an app. Next we give the document a
-      typed shape, so keys and their types are declared in one place.
+      The two modes are the two races from step 01, declared.
+      <code>RegisterMode</code> stores a string per key, which is where whole
+      notes go in step 03. <code>TallyMode</code> stores a signed integer per key,
+      which is where votes go in step 04. The mode is fixed when the channel is
+      created, so this is the moment you choose.
     </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Render only when both channels are home</h2>
+    <p>
+      Each <code>ensure_or_map</code> dispatches its own handle back, and they do
+      not arrive together. Rendering from a half-assembled board would mean a
+      notes list with no vote totals, so the app holds the handles in a
+      <code>PendingShared</code> pair and does nothing until both are in.
+    </p>
+    <figure class="g-code">
+      <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      The subscriptions come last, and they matter more than they look.
+      A subscription fires on <em>subsequent</em> change and never replays what
+      is already there — which is why <code>assemble</code> takes a snapshot in
+      the same breath. Skip that and the board boots empty and stays empty until
+      someone else types.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>One message for both origins.</strong> A local edit and a remote
+        edit both dispatch <code>SharedChanged</code>, and both re-read the board
+        through one render path. There is no “my write” branch, because the
+        moment you write one you start maintaining two versions of the truth.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h3>Deepening: the same thing on the BEAM</h3>
+    <p>
+      watershed is BEAM-first and the same pure core compiles to the browser.
+      Structure operations are identical; only the connection and subscription
+      shapes differ, and they differ because the runtimes do.
+    </p>
+    <figure class="g-code">
+      <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        watershed_beam · for comparison only, the tutorial stays in the browser
+      </figcaption>
+    </figure>
+    <p>
+      On the BEAM there is no readiness race to design around: <code>connect</code>
+      {" "}blocks, so a handle you hold is a handle that has replayed. That is the
+      one real difference, and it is why the browser path needs the two-message
+      pattern above.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Run it</h2>
+    <p>
+      Here is the whole project, so you know where each later sheet is putting
+      its file. Nothing below <code>src/</code> exists yet except the schema and
+      the app shell.
+    </p>
+    <figure class="g-code">
+      <Code code={layout} lang="text" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      watershed is not published to Hex yet, so the two <code>path</code>
+      dependencies resolve because this example lives in <code>examples/</code>
+      inside a watershed checkout. In your own project take both as git
+      dependencies pinned to a commit; the{" "}
+      <a href="https://github.com/tylerbutler/watershed#install">README</a> gives
+      the exact lines.
+    </p>
+    <span class="g-file">gleam.toml</span>
+    <figure class="g-code">
+      <Code code={gleamToml} lang="toml" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Start a floodgate development server on port <code>4000</code> with{" "}
+      <code>just integration-up</code>, then:
+    </p>
+    <figure class="g-code">
+      <Code
+        code={`cd examples/retro_tutorial_lustre
+pnpm install
+pnpm build
+pnpm serve      # http://localhost:8080`}
+        lang="sh"
+        theme={watershedCodeTheme}
+      />
+    </figure>
   </div>
 
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Open a live document from either target and read and write its root map,
-      with local edits rendering instantly and converging in server order.
+      Open <code>http://localhost:8080</code> and read the status line:
+      <code>connected · board ready · 0 notes</code>. The document is live and
+      both channels are attached — there is just nothing in them yet. Step 03
+      fixes that.
     </p>
   </div>
 </GuideLayout>
-
-<style>
-  /* target toggle — radios styled as printed cells, like the demo picker.
-     Pure CSS: the checked radio reveals its panel and inks its label. */
-  .g-tabs {
-    margin-top: var(--space-lg);
-  }
-
-  .g-tabs input {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .g-tab-row {
-    display: flex;
-    gap: 0;
-    border: 1px solid var(--ink);
-    width: fit-content;
-    max-width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .g-tab-row label {
-    padding: 0.5rem 1rem;
-    font-family: var(--font-mono);
-    font-size: var(--text-annot);
-    color: var(--muted);
-    cursor: pointer;
-    user-select: none;
-    transition:
-      background var(--dur-feedback) var(--ease-out-quart),
-      color var(--dur-feedback) var(--ease-out-quart);
-  }
-
-  .g-tab-row label:first-of-type {
-    border-right: 1px solid var(--hairline);
-  }
-
-  .g-tab-row label code {
-    font-size: 1em;
-    color: inherit;
-  }
-
-  #t-beam:checked ~ .g-tab-row label[for="t-beam"],
-  #t-js:checked ~ .g-tab-row label[for="t-js"] {
-    background: var(--ink);
-    color: var(--bg);
-  }
-
-  #t-beam:focus-visible ~ .g-tab-row label[for="t-beam"],
-  #t-js:focus-visible ~ .g-tab-row label[for="t-js"] {
-    outline: 2px solid var(--overprint);
-    outline-offset: 2px;
-  }
-
-  .g-panel {
-    display: none;
-  }
-
-  #t-beam:checked ~ .g-tab-panels .g-panel-beam,
-  #t-js:checked ~ .g-tab-panels .g-panel-js {
-    display: block;
-  }
-</style>

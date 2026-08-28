@@ -1,0 +1,151 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+import GuideRaceDemo from "../../components/GuideRaceDemo.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
+
+const addRace = excerpt(
+  convergenceSource,
+  "pub fn concurrent_adds_keep_both_notes_test(",
+);
+
+const voteRace = excerpt(
+  convergenceSource,
+  "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
+);
+---
+
+<GuideLayout
+  slug="race"
+  description="Step one of the watershed build guide: run the two concurrency races the tutorial retro board has to survive — a tie between two note adds, and three votes cast at once on one note — then read the checked-in tests that pin both outcomes."
+>
+  <GuideRaceDemo slot="wide" />
+
+  <div class="g-block">
+    <h2>Start from the thing that breaks</h2>
+    <p>
+      Most build guides start with a connection string. This one starts with the
+      two moments where a retro board stops being a list and starts being a
+      distributed system — because every sheet after this one exists to survive
+      one of them.
+    </p>
+    <p>
+      The rig above runs two real <code>watershed</code> documents against the
+      in-memory <strong>sluice</strong>. Nothing is mocked: the same OR-map
+      operations you’ll write in step 03 and step 04 go through the same client
+      runtime, with delivery held back so you can watch it happen.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Race one: the tie nobody wins</h2>
+    <p>
+      Two people type into <em>Went well</em> in the same second and hit Add.
+      Both notes are new, neither knows about the other, and there is no
+      sensible answer to “which one did they mean?” — because they meant both.
+    </p>
+    <p>
+      Store the board as a plain map keyed by column and you get one note. Not
+      because the map is broken: a map with one key per column just <em>is</em>
+      a single slot, and last-write-wins is doing exactly what it says. The fix
+      is the key, not the merge. Give every note its own id in an
+      <strong>OR-map</strong>, and the two adds are not even in conflict.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Race two: the vote you can’t find afterwards</h2>
+    <p>
+      Now one standing note, three votes in flight: Client A upvotes, Client B
+      upvotes, Client B changes their mind and downvotes. Three operations, and
+      only one honest total.
+    </p>
+    <p>
+      Read the count, add one, write the count back, and you have written the
+      classic distributed-systems bug: two clients read <code>0</code>, both
+      write <code>1</code>, and one vote is gone with nothing to show for it.
+      A <strong>tally</strong> ships the <code>+1</code> instead of the
+      <code>1</code>. Addition commutes, so the order the sequencer picks stops
+      mattering — the arithmetic lands the same either way. The demo settles at
+      <code>+1</code> whichever way you run it.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>Want it staged even more sharply?</strong> The{" "}
+        <a href="/counter-bug">counter bug</a> page runs the losing version
+        first, on purpose, then fixes it. It’s the same argument with the
+        failure left in.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Both races are already checked in</h2>
+    <p>
+      A demo you can’t re-run is a claim, not evidence. Both races above are
+      tests in the tutorial project, and they run under <code>gleam test</code>
+      in about a second with no server anywhere. Step 06 is where you write
+      them; here they’re just proof that the rest of the procedure has to hold
+      up.
+    </p>
+    <span class="g-file">test/convergence_test.gleam</span>
+    <figure class="g-code">
+      <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">retro_tutorial_lustre · add race</figcaption>
+    </figure>
+    <figure class="g-code">
+      <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">retro_tutorial_lustre · vote race</figcaption>
+    </figure>
+    <p>
+      Both start with the same <code>room</code> helper: one sluice, two
+      connected documents, a title, a register OR-map, a tally OR-map. Step 06
+      unpacks it.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>What you’re about to build</h2>
+    <p>
+      One small application, <strong>retro_tutorial_lustre</strong>, carried
+      through all six sheets. Three fixed columns, sticky notes with a vote
+      count, and a roster showing who is reading which note. Every step adds one
+      capability to the same source tree, and every step ends somewhere you can
+      run.
+    </p>
+    <figure class="g-code">
+      <Code
+        code={`document · retro-tutorial
+├── title           String field           the board name, "Sprint retro"
+├── notes           OR-map · RegisterMode  note id → the whole note as JSON
+├── votes           OR-map · TallyMode     note id → a signed total
+└── ↯ focused_note  presence               who is reading which note`}
+        lang="text"
+        theme={watershedCodeTheme}
+      />
+    </figure>
+    <p>
+      It stays deliberately small. There are no sequences, no drag and drop, no
+      cross-column moves, no edit or delete, and no vote budgets. When you want
+      those, the <a href="/examples#retro_board_lustre">advanced retro board</a>
+      {" "}is the same idea with five channels and the harder interactions.
+    </p>
+    <p>
+      You’ll need the <a href="https://gleam.run/getting-started/">Gleam
+      toolchain</a> and, from step 02 on, a{" "}
+      <a href="https://floodgate.tylerbutler.com">floodgate</a> server. The last
+      sheet needs neither a server nor a browser.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Name the two concurrency claims this project has to keep — concurrent adds
+      both survive, concurrent votes sum — and point at the checked-in test that
+      proves each one.
+    </p>
+  </div>
+</GuideLayout>

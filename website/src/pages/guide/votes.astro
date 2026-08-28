@@ -1,0 +1,167 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt, section } from "../../lib/excerpt";
+import boardOpsSource from "../../../../examples/retro_tutorial_lustre/src/board_ops.gleam?raw";
+import boardSource from "../../../../examples/retro_tutorial_lustre/src/board.gleam?raw";
+import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+import boardTestSource from "../../../../examples/retro_tutorial_lustre/test/board_test.gleam?raw";
+
+const voteOps = excerpt(
+  boardOpsSource,
+  "pub fn upvote(",
+  "pub fn downvote(",
+  "fn change_votes(",
+);
+const readVotes = excerpt(boardOpsSource, "fn vote_entries(");
+const attach = excerpt(boardSource, "fn card(");
+const voteClicks = section(
+  appSource,
+  "    UpvoteClicked(id) ->",
+  "    FocusClicked(id) -> {",
+);
+const orphanTest = excerpt(
+  boardTestSource,
+  "pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test(",
+);
+
+const lossy = `// The version that loses a vote: a plain number in a SharedMap.
+// Two clients read 4, both write 5, and the second write is not wrong —
+// it is just the last one.
+let current = read_total(board, id)
+watershed.set(board, id, json.int(current + 1))`;
+---
+
+<GuideLayout
+  slug="votes"
+  description="Step four of the watershed build guide: put vote totals in a TallyMode OR-map so each key is a PN counter, ship signed deltas instead of computed totals, and let concurrent votes sum instead of overwriting each other."
+>
+  <div class="g-block">
+    <h2>The bug is in the read, not the write</h2>
+    <p>
+      Step 01’s second race: <code>+1</code>, <code>+1</code>, <code>-1</code> on
+      one note, settling at <code>+1</code>. It looks like arithmetic because it
+      is arithmetic — right up until you implement it the obvious way.
+    </p>
+    <figure class="g-code">
+      <Code code={lossy} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Nothing there is careless. It reads, adds, writes. But <em>read</em> is the
+      problem: by the time the write is sequenced, the value it was computed from
+      is stale, and the newer write silently replaces the older one’s work. Two
+      votes go in, one total comes out, and no error is raised anywhere — the
+      lost vote leaves no trace at all.
+    </p>
+    <p>
+      Ship the <code>+1</code> instead of the <code>5</code>. Addition commutes,
+      so the sequencer’s order stops mattering: whichever way the deltas land,
+      the total is the same. That is what a tally is.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>Watch it lose, once.</strong> The{" "}
+        <a href="/counter-bug">counter bug</a> page runs the losing version and
+        the fix against the same race, live. Reading about a dropped write is
+        not the same as watching one disappear.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2><code>TallyMode</code>: a counter per key</h2>
+    <p>
+      You already made this choice back in step 02, when
+      <code>ensure_or_map</code> got <code>TallyMode</code> for the
+      <code>votes</code> channel. That mode makes every key in the map a
+      PN counter: a leaf that accepts signed deltas and merges by summing them,
+      never by picking a winner.
+    </p>
+    <p>
+      Which makes the vote API three lines long, and negative deltas fall out for
+      free. Down-voting is not a special case — it is a <code>-1</code>.
+    </p>
+    <span class="g-file">src/board_ops.gleam</span>
+    <figure class="g-code">
+      <Code code={voteOps} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={voteClicks} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Both branches re-snapshot immediately. The delta applies to your local
+      replica the moment you click, so the number moves under your finger and
+      then stays put when the sequencer confirms it — the local guess and the
+      sequenced result agree, because commutative arithmetic can’t disagree with
+      itself.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Two channels, one board</h2>
+    <p>
+      Notes and votes are separate channels, keyed the same way. Reading the
+      votes map is the mirror of reading the notes map: every leaf is a
+      <code>Tally</code>, and anything else means the channel was created in the
+      wrong mode.
+    </p>
+    <span class="g-file">src/board_ops.gleam</span>
+    <figure class="g-code">
+      <Code code={readVotes} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      The board joins them by note id when it builds each card. A note with no
+      tally shows <code>0</code> rather than nothing, so a fresh note and a note
+      voted back down to zero look the same — which is what a reader expects.
+    </p>
+    <span class="g-file">src/board.gleam</span>
+    <figure class="g-code">
+      <Code code={attach} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Two channels means two clocks.</strong> A vote can be sequenced
+        before the note it belongs to has reached your replica. The join is a
+        lookup, not an invariant, so the orphan tally simply has nothing to
+        attach to yet — and appears the moment the note lands. Design the read
+        so that being briefly out of step is boring.
+      </p>
+    </div>
+    <span class="g-file">test/board_test.gleam</span>
+    <figure class="g-code">
+      <Code code={orphanTest} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        the tally for a note that isn’t there renders nowhere and breaks nothing
+      </figcaption>
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h3>Deepening: what a tally deliberately can’t do</h3>
+    <p>
+      A tally converges because it refuses to answer questions about
+      <em>who</em>. It has no per-voter record, so it can’t enforce one vote per
+      person, can’t give you a vote budget, and can’t tell you whether a total of
+      <code>2</code> means two people or one person clicking twice.
+    </p>
+    <p>
+      Those are real features and they need a different structure: an{" "}
+      <a href="/structures/sets#orset">OR-set</a> of voter ids per note, or the{" "}
+      <a href="/structures/coordination">coordination family</a> when the
+      question is “who holds this” rather than “how many”. Reach for them when
+      you need them, and not before — a tally that fits is worth more than a
+      quorum that doesn’t.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Open two tabs, hammer <code>+1</code> and <code>-1</code> on the same note
+      from both, and get an honest total every time — the same
+      <code>+1</code> the step-01 race settles on, now on a live server.
+    </p>
+  </div>
+</GuideLayout>

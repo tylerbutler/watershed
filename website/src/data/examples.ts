@@ -50,7 +50,7 @@ export const examples: Example[] = [
     name: "Flowboard",
     group: "foundation",
     summary:
-      "The complete application from the build guide: typed bootstrap, shared cards, a counter, and presence.",
+      "A shared kanban board: typed bootstrap, shared cards, a counter, and presence.",
     structures: ["SharedMap", "SharedCounter", "Presence"],
     payoff:
       "Local and remote card moves pass through one declared Lustre effect loop.",

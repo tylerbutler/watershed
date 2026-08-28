@@ -1,0 +1,180 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt, section } from "../../lib/excerpt";
+import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+
+const payload = excerpt(
+  appSource,
+  "pub type BoardPresence {",
+  "fn encode_presence(",
+  "fn presence_decoder(",
+);
+const presenceEffect = excerpt(
+  appSource,
+  "fn presence_effect(",
+  "fn current_presence(",
+);
+const announce = excerpt(appSource, "fn announce_focus(");
+const focusClicked = section(
+  appSource,
+  "    FocusClicked(id) -> {",
+  "    PresenceStarted(handle) -> {",
+);
+const presenceEvents = section(
+  appSource,
+  "    PresenceEvent(event) ->",
+  "    ReconnectClicked ->",
+);
+const remotePeers = excerpt(appSource, "fn remote_peers(");
+const focusNames = excerpt(appSource, "fn focus_names(");
+---
+
+<GuideLayout
+  slug="presence"
+  description="Step five of the watershed build guide: publish the note a teammate is reading through the presence tier, where it expires with the connection, instead of storing it in the document where it would be sequenced, summarised, and replayed forever."
+>
+  <div class="g-block">
+    <h2>Some facts should be allowed to expire</h2>
+    <p>
+      Notes and votes both had to survive: that was the whole argument of the
+      last two sheets. “Ada is reading this card right now” is the opposite kind
+      of fact. Put it in the document and it gets sequenced, summarised, and
+      replayed to whoever opens the board next Tuesday, long after it stopped
+      being true.
+    </p>
+    <p>
+      watershed’s answer is a second tier that runs alongside your channels.
+      <strong>Ripples</strong> are the raw form: document-scoped broadcasts to
+      every other connected client, with no order, no storage, and no
+      convergence, on purpose. <strong>Presence</strong> is the roster built on
+      top, and it is the one you want here — because a raw ripple leaves a peer’s
+      last marker stuck on screen after they close the tab.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Declare what a teammate broadcasts</h2>
+    <p>
+      A presence payload is a record you own, with an encoder and a decoder.
+      The tutorial’s is three fields: a colour, a short name, and the note this
+      person is looking at — <code>None</code> when they are looking at the board
+      as a whole.
+    </p>
+    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={payload} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Note the <code>optional_field</code> on the way in. A peer running last
+      week’s build might not send <code>focused_note</code> at all, and the
+      roster should shrug at that rather than drop the peer.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>One effect owns the heartbeat</h2>
+    <p>
+      <code>watershed_lustre.presence</code> is a single effect that starts the
+      driver, hands back a <code>Handle</code> to keep in the model, and
+      dispatches roster events as they arrive. You do not write a heartbeat, a
+      TTL, or a reaper.
+    </p>
+    <figure class="g-code">
+      <Code code={presenceEffect} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Two implementations, one API.</strong> Where the server offers
+        connection-backed presence, it tracks each socket directly: a late
+        joiner gets the whole roster at once and a dropped connection removes
+        its entry immediately. Where it doesn’t, presence falls back to
+        heartbeating over ripples and expiring peers on a TTL. The
+        <a href="/runtime/presence">runtime note</a> covers which you get and
+        what changes when it’s the fallback.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Publishing a change is republishing the whole payload</h2>
+    <p>
+      Presence is state, not a stream of edits. Focusing a note updates the local
+      model, then re-announces the current payload in full — so there is exactly
+      one function that says what this client looks like to everyone else, and no
+      way for the announced state and the real state to drift.
+    </p>
+    <figure class="g-code">
+      <Code code={announce} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={focusClicked} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Clicking the focused note again clears the focus, which is why the label
+      flips between <code>Focus</code> and <code>Focused</code>. The button is a
+      toggle over one <code>Option</code>, not two separate messages.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The roster arrives as events, including the bad ones</h2>
+    <p>
+      <code>State</code> is the full roster; <code>Changed</code> carries the
+      delta and the full roster, and the tutorial re-renders from the roster in
+      both cases rather than trying to patch. Rendering the whole list is cheap
+      and it cannot get out of sync.
+    </p>
+    <figure class="g-code">
+      <Code code={presenceEvents} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      The failure arms are the interesting part. A single peer whose payload
+      doesn’t decode is ignored — one teammate on a bad build should not empty
+      the roster. A server without presence support, or one that rejects the
+      join, is a message on screen. Neither of them stops the board: notes and
+      votes keep working, because presence was never load-bearing.
+    </p>
+    <figure class="g-code">
+      <Code code={remotePeers} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Your own entry is in that roster too. Filtering it out by session means the
+      chip row can render “you” once, deliberately, instead of showing you twice
+      and calling it a bug report.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h3>Deepening: presence is a read model over both tiers</h3>
+    <p>
+      The highlight on a card is where the two tiers meet. The note id comes from
+      the durable channel; the “who is looking at it” comes from the ephemeral
+      one; the card is a join over both, computed at render time.
+    </p>
+    <figure class="g-code">
+      <Code code={focusNames} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      A peer can be focused on a note that hasn’t reached your replica yet. The
+      board says “a note that has not synced yet” rather than inventing a card,
+      and corrects itself when the note lands. If you take one habit from this
+      sheet, take that one: let the ephemeral tier point at durable state, never
+      duplicate it.
+    </p>
+    <p>
+      High-frequency signals — cursor motion, a typing indicator — stay as raw
+      ripples. Presence is for membership and the slower status attached to it.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Click <strong>Focus</strong> in one tab and watch the card light up in the
+      other, with the roster naming who is on it — then close the tab and watch
+      the marker leave on its own.
+    </p>
+  </div>
+</GuideLayout>

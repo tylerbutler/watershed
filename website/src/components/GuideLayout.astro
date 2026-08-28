@@ -27,6 +27,10 @@ const { prev, next } = neighbours(slug);
     </div>
   </header>
 
+  <!-- Full-bleed slot for a demo rig, which brings its own frame and must not
+       inherit .doc-body prose styling. -->
+  <slot name="wide" />
+
   <main class="doc-body">
     <slot />
     <FieldNotes step={slug} />
@@ -55,10 +59,10 @@ const { prev, next } = neighbours(slug);
       ) : (
         <a
           class="g-step-cell g-step-next"
-          href="https://github.com/tylerbutler/watershed/tree/main/examples"
+          href="/examples#retro_board_lustre"
         >
-          <span class="annot">Examples →</span>
-          <span class="g-step-title">Test the app</span>
+          <span class="annot">Next build →</span>
+          <span class="g-step-title">The advanced retro board</span>
         </a>
       )
     }

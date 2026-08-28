@@ -1,0 +1,172 @@
+---
+import { Code } from "astro:components";
+import GuideLayout from "../../components/GuideLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt, section } from "../../lib/excerpt";
+import noteSource from "../../../../examples/retro_tutorial_lustre/src/note.gleam?raw";
+import boardSource from "../../../../examples/retro_tutorial_lustre/src/board.gleam?raw";
+import boardOpsSource from "../../../../examples/retro_tutorial_lustre/src/board_ops.gleam?raw";
+import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+
+const noteRecord = excerpt(noteSource, "pub type Note {", "pub fn id(");
+const codec = excerpt(
+  noteSource,
+  "pub fn to_json(",
+  "pub fn from_register(",
+);
+const addNote = excerpt(boardOpsSource, "pub fn add_note(");
+const readNotes = excerpt(boardOpsSource, "fn note_entries(");
+const ordering = excerpt(
+  boardSource,
+  "fn notes_in_column(",
+  "fn by_created_then_id(",
+);
+const unfiled = excerpt(boardSource, "fn unfiled(");
+const addClicked = section(
+  appSource,
+  "    // These watershed mutations apply synchronously.",
+  "    UpvoteClicked(id) ->",
+);
+---
+
+<GuideLayout
+  slug="notes"
+  description="Step three of the watershed build guide: give every sticky note its own id in a RegisterMode OR-map, encode the whole note as one JSON register, and read it back through a decoder that keeps a malformed payload visible instead of crashing the board."
+>
+  <div class="g-block">
+    <h2>Give the tie somewhere to go</h2>
+    <p>
+      Step 01’s first race had two people adding a note to <em>Went well</em> at
+      the same instant. The reason a naive board loses one of them is not a bad
+      merge rule — it’s a bad key. One key per column means one slot, and one
+      slot can only hold one thing.
+    </p>
+    <p>
+      So the notes channel is keyed by <strong>note</strong>, not by column, in
+      an <a href="/structures/maps#ormap">OR-map</a> running in
+      <code>RegisterMode</code>. Two concurrent adds write two different keys.
+      There is no conflict left to resolve, and both notes survive because
+      nothing ever asked them to compete.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The whole note is one register</h2>
+    <p>
+      A <code>RegisterMode</code> leaf holds a string. That is the constraint the
+      mode gives you, and the tutorial takes it literally: a note is encoded to
+      JSON on the way in and decoded on the way out. Text, column, author, and a
+      creation stamp travel together as one value.
+    </p>
+    <p>
+      Which means the column lives <em>inside</em> the note. That is the trade:
+      moving a note between columns is one whole-note write, so two people
+      moving the same note at once resolve last-write-wins on that note. The
+      tutorial doesn’t offer moves at all, and this is why. The{" "}
+      <a href="/examples#retro_board_lustre">advanced retro board</a> splits the
+      column into its own authoritative channel to get honest moves back.
+    </p>
+    <span class="g-file">src/note.gleam</span>
+    <figure class="g-code">
+      <Code code={noteRecord} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={codec} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>A peer can write anything.</strong> The typed layer is a decode
+        boundary, not a schema the server enforces — an older build, or a stale
+        summary, can put any string in that register. So
+        <code>from_register</code> has no error arm to forget: a payload that
+        doesn’t decode becomes a visible placeholder card. A card you can see
+        beats an exception that takes the whole board down.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Adding a note is one map write</h2>
+    <p>
+      With the id scheme and the codec in place, adding a note is unremarkable,
+      which is the point. Mint an id, encode, set. The nonce is there because two
+      notes from one author can land in the same millisecond.
+    </p>
+    <span class="g-file">src/board_ops.gleam</span>
+    <figure class="g-code">
+      <Code code={addNote} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      <code>board_ops</code> exists so the UI and the tests call the identical
+      write. A test that exercises its own copy of the mutation proves the copy
+      works. Step 06 leans on this hard.
+    </p>
+    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
+    <figure class="g-code">
+      <Code code={addClicked} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Reading back: entries in, board out</h2>
+    <p>
+      <code>or_map_entries</code> hands you every live key with its leaf. In a
+      register map every leaf is a <code>Register</code>, and the
+      <code>let assert</code> below says so out loud: a <code>Tally</code> here
+      would mean the channel was created in the wrong mode, which is a setup bug
+      in your own bootstrap, not user data to route around.
+    </p>
+    <span class="g-file">src/board_ops.gleam</span>
+    <figure class="g-code">
+      <Code code={readNotes} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      From there the board is a pure function. Group by the column register,
+      sort by <code>(created, id)</code>, and every replica renders the same
+      order — including the two tied notes from step 01, where the created stamps
+      match and the id breaks the tie identically everywhere.
+    </p>
+    <span class="g-file">src/board.gleam</span>
+    <figure class="g-code">
+      <Code code={ordering} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Sort by content, never by arrival.</strong> Two replicas receive
+        the same operations in the same sequenced order, but their local lists
+        are not a rendering contract. Deriving the order from the note’s own
+        fields is what makes “both clients show the same board” a thing you can
+        assert.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h3>Deepening: the column you don’t recognise</h3>
+    <p>
+      Three columns are hardcoded, so what happens when a note arrives filed
+      under <code>parking_lot</code> — a column a newer build added, or a
+      register that came back as the placeholder? Dropping it would be the worst
+      option available: the note is real, someone typed it, and it would vanish
+      with no trace.
+    </p>
+    <figure class="g-code">
+      <Code code={unfiled} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Unknown columns land in <code>unfiled</code> and render in their own
+      section. It costs one small function and it is the difference between a
+      forward compatible board and a lossy one.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">You can now</span>
+    <p>
+      Open the board in two tabs, add notes from both in the same second, and
+      watch every tab settle on the same list in the same order — with a vote
+      count of <code>0</code> under each one, because nothing can move it yet.
+      Step 04 makes those numbers real.
+    </p>
+  </div>
+</GuideLayout>
