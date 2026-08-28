@@ -112,9 +112,10 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       <Code code={focusClicked} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Clicking the focused note again clears the focus, which is why the label
-      flips between <code>Focus</code> and <code>Focused</code>. The button is a
-      toggle over one <code>Option</code>, not two separate messages.
+      Clicking a note toggles that id in <code>model.focus</code>; the clear
+      branch drops it back to <code>None</code>. Both republish through
+      <code>announce_focus</code>, which is why the UI can flip between
+      <code>Focus</code> and <code>Focused</code> without a second presence path.
     </p>
   </div>
 
@@ -157,11 +158,11 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       <Code code={focusNames} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      A peer can be focused on a note that hasn’t reached your replica yet. The
-      board says “a note that has not synced yet” rather than inventing a card,
-      and corrects itself when the note lands. If you take one habit from this
-      sheet, take that one: let the ephemeral tier point at durable state, never
-      duplicate it.
+      The note id comes from the durable channel; the names come from the
+      ephemeral roster; <code>focus_names</code> joins both at render time,
+      combining your local focus with any peers on the same id. If you take one
+      habit from this sheet, take that one: let the ephemeral tier point at
+      durable state, never duplicate it.
     </p>
     <p>
       High-frequency signals — cursor motion, a typing indicator — stay as raw
