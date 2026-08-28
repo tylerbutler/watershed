@@ -46,14 +46,14 @@ export const exampleGroups: {
 
 export const examples: Example[] = [
   {
-    id: "flowboard_lustre",
-    name: "Flowboard",
+    id: "retro_tutorial_lustre",
+    name: "Retro board (tutorial)",
     group: "foundation",
     summary:
-      "A shared kanban board: typed bootstrap, shared cards, a counter, and presence.",
-    structures: ["SharedMap", "SharedCounter", "Presence"],
+      "The board the build guide assembles: notes in a register OR-map, votes in a tally OR-map, and presence on the focused note.",
+    structures: ["OrMap", "Presence"],
     payoff:
-      "Local and remote card moves pass through one declared Lustre effect loop.",
+      "Two people adding notes at once both keep theirs, and two votes on one note add up instead of overwriting.",
   },
   {
     id: "dice_lustre",
@@ -127,10 +127,10 @@ export const examples: Example[] = [
   },
   {
     id: "retro_board_lustre",
-    name: "Retro board",
+    name: "Retro board (full)",
     group: "composition",
     summary:
-      "A five-channel sticky-note wall with add-wins notes, conflict-free vote tallies, ordered columns, and presence.",
+      "What the tutorial board grows into: a five-channel sticky-note wall with add-wins notes, conflict-free vote tallies, ordered columns, and presence.",
     structures: ["OrMap", "SharedSequence", "Presence"],
     payoff:
       "Concurrent notes and votes survive; cross-channel moves render honestly without pretending to be atomic.",

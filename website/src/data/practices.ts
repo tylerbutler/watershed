@@ -12,7 +12,7 @@
 // all of them, not their home.
 // ──────────────────────────────────────────────────────────────────────────
 import { examples, type Example } from "./examples";
-import { allSteps, type StepSlug } from "./guide";
+import { steps, type StepSlug } from "./guide";
 
 export interface Practice {
   /** Anchor slug, on the guide step this practice is filed under. */
@@ -214,28 +214,26 @@ BpmCommitted ->
     id: "presence-idiom",
     title: "The minimal presence idiom",
     step: "presence",
-    example: "flowboard_lustre",
+    example: "retro_tutorial_lustre",
     rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
     body: [
-      "Flowboard is the guide's worked example, and its presence wiring is the template the larger apps elaborate. A single effect declares the driver with an encoder/decoder pair, and the roster callback filters out the local session before the model ever sees it.",
+      "The tutorial retro board is the guide's worked example, and its presence wiring is the template the larger apps elaborate. A single effect declares the driver with an encoder/decoder pair, and the roster helper filters out the local session before the model ever sees it.",
       "Presence state includes the local session by design; the filtering is an application decision, made once, at the edge. Every peer cursor and avatar stack in the other examples is this same dozen lines with a richer payload.",
     ],
     snippet: `fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.Board),
+  doc: Document(doc_schema.BoardDoc),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
     document: doc,
     config: presence.config(encode_presence, presence_decoder()),
-    initial: BoardPresence(card: model.focus),
+    initial: current_presence(model),
     started: PresenceStarted,
     on_event: PresenceEvent,
   )
 }
 
-/// Everyone but this teammate. Presence state includes the local session by
-/// design, so the roster is filtered here rather than in the driver.
-fn remote_entries(
+fn remote_peers(
   model: Model,
   entries: List(presence.PresenceEntry(BoardPresence)),
 ) -> List(presence.PresenceEntry(BoardPresence)) {
@@ -249,7 +247,7 @@ fn remote_entries(
   }
 }`,
     snippetLang: "gleam",
-    snippetFile: "src/flowboard_lustre.gleam",
+    snippetFile: "src/retro_tutorial_lustre.gleam",
   },
   {
     id: "protocol-on-ripples",
@@ -693,7 +691,7 @@ for (const practice of practices) {
 
 /** guide step slug → the practices filed under it, in catalog order. */
 export const practicesByStep: Record<StepSlug, Practice[]> = Object.fromEntries(
-  allSteps.map((step) => [
+  steps.map((step) => [
     step.slug,
     practices.filter((practice) => practice.step === step.slug),
   ]),

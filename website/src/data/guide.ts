@@ -63,53 +63,12 @@ export const steps = [
   },
 ] as const satisfies readonly GuideStep[];
 
-/**
- * Sheets the six-step procedure replaced. They still resolve so their URLs do
- * not 404 before the redirects land, but they are out of the ledger, out of
- * the stepper, and out of the site nav. Delete this list with the pages.
- */
-export const retiredSteps = [
-  {
-    n: "—",
-    slug: "schema",
-    title: "Model it with a schema",
-    goal: "Declare the document's shape once and read and write through it.",
-    surface: "schema.field · channel_field · ensure_* · typed",
-  },
-  {
-    n: "—",
-    slug: "structures",
-    title: "Choose your structures",
-    goal: "Pick a merge model per slot: which conflicts you can tolerate, and where.",
-    surface: "SharedMap · OR-map · SharedCounter",
-  },
-  {
-    n: "—",
-    slug: "ripples",
-    title: "Ephemeral signals",
-    goal: "Broadcast presence and reactions that never touch the document's state.",
-    surface: "submit_ripple · subscribe_ripples",
-  },
-  {
-    n: "—",
-    slug: "ui",
-    title: "Wire it to your UI",
-    goal: "Declare sync as Lustre effects instead of hand-bridging callbacks.",
-    surface: "watershed_lustre · connect · ensure_* · presence",
-  },
-] as const satisfies readonly GuideStep[];
-
-/** Every sheet that resolves under /guide, current or retired. */
-export const allSteps: readonly GuideStep[] = [...steps, ...retiredSteps];
-
 /** Slug of any /guide sheet, e.g. `"notes"`. */
-export type StepSlug =
-  | (typeof steps)[number]["slug"]
-  | (typeof retiredSteps)[number]["slug"];
+export type StepSlug = (typeof steps)[number]["slug"];
 
 /** name → step, for cross-links. */
 export const stepBySlug: Record<StepSlug, GuideStep> = Object.fromEntries(
-  allSteps.map((s) => [s.slug, s]),
+  steps.map((s) => [s.slug, s]),
 ) as Record<StepSlug, GuideStep>;
 
 /** The step before/after `slug` in build order, or null at the ends. */

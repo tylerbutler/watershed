@@ -4,16 +4,17 @@ import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
 import { watershedCodeTheme } from "../styles/code-theme";
 
-// Both columns model the same document — Flowboard, the kanban board the build
-// guide assembles. The Gleam side is adapted from code that compiles today
-// (examples/flowboard_lustre, examples/scoreboard_cli, examples/sudoku_lustre);
-// the TypeScript side uses only APIs the Fluid Framework docs publish.
+// Both columns model the same document: a sprint board with cards and a
+// counter. The Gleam side is adapted from code that compiles today
+// (examples/retro_board_lustre, examples/scoreboard_cli,
+// examples/sudoku_lustre); the TypeScript side uses only APIs the Fluid
+// Framework docs publish.
 
 const tsDeclare = `import { SchemaFactory } from "fluid-framework";
 
 // This id is written into the document. It becomes the *stored* schema,
 // and from here on the service enforces it.
-const sf = new SchemaFactory("com.example.flowboard");
+const sf = new SchemaFactory("com.example.sprintboard");
 
 class Card extends sf.object("Card", {
   title: sf.string,
@@ -331,7 +332,7 @@ const rows = [
         <p>
           <strong>Both columns below model the same board.</strong> The Gleam is
           adapted from examples that compile today:
-          <code>flowboard_lustre</code>, <code>scoreboard_cli</code>,
+          <code>retro_board_lustre</code>, <code>scoreboard_cli</code>,
           <code>sudoku_lustre</code>. The TypeScript uses only APIs the Fluid
           Framework documentation publishes.
         </p>
@@ -427,7 +428,7 @@ const rows = [
         against an enforced stored schema, it is noise. If an old tab, a stale
         summary, or a second application can reach the same document, it is the
         one place a multiplayer app gets to decide what to do about
-        disagreement. The <a href="/guide/schema">build guide</a> works through
+        disagreement. The <a href="/guide/notes">build guide</a> works through
         it in context.
       </p>
     </div>
@@ -644,7 +645,7 @@ const rows = [
     <div class="st-guide-inner">
       <h2 id="st-guide-title">Further reading</h2>
       <div class="st-cta">
-        <a class="cta-primary" href="/guide/schema">The schema step</a>
+        <a class="cta-primary" href="/guide/notes">The decode boundary →</a>
         <a class="cta-quiet" href="/models">DDS · CRDT · OT →</a>
         <a class="cta-quiet" href="/structures">The field atlas →</a>
         <a
