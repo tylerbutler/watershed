@@ -83,7 +83,7 @@ Also worth knowing: watershed converges state, not time, so clients are **not** 
 
 Message log as an append-only sequence, reactions as an `OrMap` (`message_id:emoji` → tally), typing indicators as ripples.
 
-The clearest possible illustration of **durable ops vs ephemeral ripples**: typing indicators evaporate and are never in the summary, messages are never lost. That distinction is currently explained only in prose on `/guide/ripples`. Chat is also the most relatable collaborative app there is, which matters for a landing-page demo.
+The clearest possible illustration of **durable ops vs ephemeral ripples**: typing indicators evaporate and are never in the summary, messages are never lost. That distinction is currently explained only in prose on `/guide/presence`. Chat is also the most relatable collaborative app there is, which matters for a landing-page demo.
 
 **Prerequisites:** none.
 **Cost:** low-medium. Overlaps the retro board heavily on `OrMap` tally usage — build it after, and only if the reaction/ripple contrast is worth a second app.
@@ -230,7 +230,7 @@ browser renders each change.
 
 This makes the target-independence claim visible. The current CLI and browser
 examples use separate applications, so visitors must infer that both runtimes
-can join the same room. Reusing the Flowboard schema would avoid inventing
+can join the same room. Reusing the retro tutorial schema would avoid inventing
 another domain and keep the new code focused on transport and runtime parity.
 
 The payoff check starts one sluice or live floodgate room, connects one client
