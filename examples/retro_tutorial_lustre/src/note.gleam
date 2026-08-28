@@ -19,6 +19,7 @@ pub type Note {
 }
 
 /// Stable note identity. Edits and votes use this id for the life of the note.
+/// The nonce keeps two notes from one author distinct in one ms tick.
 pub fn id(author: String, created: Int, nonce: Int) -> String {
   "note-"
   <> author

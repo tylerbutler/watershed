@@ -105,7 +105,6 @@ pub fn find_card(snapshot: Snapshot, id: String) -> Result(NoteCard, Nil) {
   ]
   |> list.flatten
   |> list.find(fn(card) { card.id == id })
-  |> result.replace_error(Nil)
 }
 
 pub fn note_count(snapshot: Snapshot) -> Int {
@@ -117,17 +116,6 @@ pub fn note_count(snapshot: Snapshot) -> Int {
   ]
   |> list.flatten
   |> list.length
-}
-
-pub fn total_occurrences(snapshot: Snapshot, id: String) -> Int {
-  [
-    snapshot.went_well,
-    snapshot.to_improve,
-    snapshot.action_items,
-    snapshot.unfiled,
-  ]
-  |> list.flatten
-  |> list.count(fn(card) { card.id == id })
 }
 
 fn notes_in_column(

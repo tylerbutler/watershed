@@ -32,10 +32,10 @@ import board.{type Column, type NoteCard}
 import doc_schema
 import note.{type Note, Note}
 
+/// These dev constants match `just integration-up`.
+/// Change them when you point the example at another server.
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
-
 const tenant = "dev-tenant"
-
 const tenant_secret = "levee-dev-secret-change-in-production"
 
 pub fn main() {
@@ -282,6 +282,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
+    // These watershed mutations apply synchronously.
+    // The subscriptions deliver the render message `SharedChanged`.
+    // These branches do not need Lustre effect wrappers.
     AddClicked(column) -> {
       let text = string.trim(draft_for(model, column))
       case text, model.shared {
@@ -445,7 +448,7 @@ fn view(model: Model) -> Element(Msg) {
         html.h1([], [html.text(model.board.title)]),
         html.p([class("status")], [html.text(status_text(model))]),
       ]),
-      html.div([class("card-actions")], [
+      html.div([class("masthead-actions")], [
         html.button(
           [event.on_click(FocusCleared), disabled(model.focus == None)],
           [
