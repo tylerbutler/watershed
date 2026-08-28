@@ -254,7 +254,7 @@ const clients = [
     color: var(--muted);
   }
 
-  .gr-notes {
+  .gr-board :global(.gr-notes) {
     list-style: none;
     margin: 0;
     padding: var(--space-md);
@@ -262,7 +262,7 @@ const clients = [
     gap: var(--space-sm);
   }
 
-  .gr-note {
+  .gr-board :global(.gr-note) {
     padding: 0.85rem 0.9rem;
     border: 1px solid var(--ink);
     background: var(--bg);
@@ -275,24 +275,24 @@ const clients = [
       transform var(--dur-feedback) var(--ease-out-quart);
   }
 
-  .gr-note.is-sequenced {
+  .gr-board :global(.gr-note.is-sequenced) {
     color: var(--ink);
   }
 
-  .gr-note.is-note-pending {
+  .gr-board :global(.gr-note.is-note-pending) {
     color: var(--overprint-deep);
     background: var(--overprint-faint);
     border-color: var(--overprint);
     transform: rotate(-0.4deg);
   }
 
-  .gr-note-text {
+  .gr-board :global(.gr-note-text) {
     margin: 0;
     line-height: 1.45;
     font-weight: 550;
   }
 
-  .gr-note-meta {
+  .gr-board :global(.gr-note-meta) {
     display: flex;
     flex-wrap: wrap;
     justify-content: space-between;
@@ -301,13 +301,13 @@ const clients = [
     color: var(--muted);
   }
 
-  .gr-vote-wrap {
+  .gr-board :global(.gr-vote-wrap) {
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
   }
 
-  .gr-vote {
+  .gr-board :global(.gr-vote) {
     min-width: 3ch;
     padding: 0.15rem 0.5rem;
     border: 1px solid var(--hairline);
@@ -319,13 +319,13 @@ const clients = [
     text-align: center;
   }
 
-  .gr-vote.k-pending {
+  .gr-board :global(.gr-vote.k-pending) {
     color: var(--overprint-deep);
     border-color: var(--overprint);
     background: var(--overprint-faint);
   }
 
-  .gr-vote.k-seq {
+  .gr-board :global(.gr-vote.k-seq) {
     color: var(--ink);
     border-color: var(--ink);
   }
@@ -584,7 +584,7 @@ const clients = [
       align-items: flex-start;
     }
 
-    .gr-note-meta {
+    .gr-board :global(.gr-note-meta) {
       align-items: flex-start;
     }
   }
