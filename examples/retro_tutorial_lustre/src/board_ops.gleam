@@ -1,7 +1,7 @@
-//// Shared board ops for the tutorial example.
+//// Shared board helpers for the tutorial example.
 ////
-//// The UI and the deterministic tests build the same pure ops here.
-//// One apply step writes them to the real shared maps.
+//// The UI and the deterministic tests call these same map writes.
+//// Each helper takes only the channel it needs.
 
 import gleam/list
 
@@ -11,18 +11,14 @@ import watershed/or_map_kernel
 import board.{type Column}
 import note.{type Note, Note}
 
-pub type Operation {
-  PutNote(id: String, note: Note)
-  ChangeVotes(id: String, amount: Int)
-}
-
 pub fn add_note(
+  notes: OrMap,
   author: String,
   text: String,
   column: Column,
   created: Int,
   nonce: Int,
-) -> #(String, Operation) {
+) -> String {
   let id = note.id(author, created, nonce)
   let entry =
     Note(
@@ -31,45 +27,42 @@ pub fn add_note(
       author: author,
       created: created,
     )
-  #(id, PutNote(id, entry))
+  watershed.or_map_set_json(notes, id, note.to_json(entry))
+  id
 }
 
-pub fn upvote(id: String) -> Operation {
-  ChangeVotes(id, 1)
+pub fn upvote(votes: OrMap, id: String) -> Nil {
+  change_votes(votes, id, 1)
 }
 
-pub fn downvote(id: String) -> Operation {
-  ChangeVotes(id, -1)
+pub fn downvote(votes: OrMap, id: String) -> Nil {
+  change_votes(votes, id, -1)
 }
 
-pub fn apply(notes: OrMap, votes: OrMap, operation: Operation) -> Nil {
-  case operation {
-    PutNote(id, entry) ->
-      watershed.or_map_set_json(notes, id, note.to_json(entry))
-    ChangeVotes(id, amount) -> watershed.or_map_increment(votes, id, amount)
-  }
+fn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {
+  watershed.or_map_increment(votes, id, amount)
 }
 
+/// Read the board from the shared channels.
+///
+/// `notes` must be a RegisterMode OR-map and `votes` must be a TallyMode
+/// OR-map. A wrong mode is a setup bug, not user data to ignore.
 pub fn snapshot(title: String, notes: OrMap, votes: OrMap) -> board.Snapshot {
   board.snapshot(title, note_entries(notes), vote_entries(votes))
 }
 
 fn note_entries(notes: OrMap) -> List(#(String, Note)) {
   watershed.or_map_entries(notes)
-  |> list.filter_map(fn(entry) {
-    case entry.1 {
-      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
-      or_map_kernel.Tally(_) -> Error(Nil)
-    }
+  |> list.map(fn(entry) {
+    let assert or_map_kernel.Register(value) = entry.1
+    #(entry.0, note.from_register(value))
   })
 }
 
 fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
   watershed.or_map_entries(votes)
-  |> list.filter_map(fn(entry) {
-    case entry.1 {
-      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
-      or_map_kernel.Register(_) -> Error(Nil)
-    }
+  |> list.map(fn(entry) {
+    let assert or_map_kernel.Tally(count) = entry.1
+    #(entry.0, count)
   })
 }

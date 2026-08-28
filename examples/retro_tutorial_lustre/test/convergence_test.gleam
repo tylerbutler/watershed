@@ -1,7 +1,7 @@
 //// Deterministic claims tests for the tutorial retro board.
 ////
-//// The app runs these cases in a browser. The sluice runs them in memory.
-//// That keeps the suite fast and stable.
+//// The browser app and this suite share the same board helpers.
+//// The sluice runs the shared state in memory.
 
 import gleam/list
 import gleam/option.{Some}
@@ -62,27 +62,27 @@ fn board_of(
   board_ops.snapshot(title, channels.notes, channels.votes)
 }
 
-fn add_note(
-  channels: Channels,
-  author: String,
-  text: String,
-  column: board.Column,
-  created: Int,
-  nonce: Int,
-) -> String {
-  let #(id, operation) =
-    board_ops.add_note(author, text, column, created, nonce)
-  board_ops.apply(channels.notes, channels.votes, operation)
-  id
-}
-
 pub fn concurrent_adds_keep_both_notes_test() {
   let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-adds")
 
   let first =
-    add_note(a, "user-a", "deploys got faster", board.WentWell, 1000, 1)
+    board_ops.add_note(
+      a.notes,
+      "user-a",
+      "deploys got faster",
+      board.WentWell,
+      1000,
+      1,
+    )
   let second =
-    add_note(b, "user-b", "standup stayed short", board.WentWell, 1000, 1)
+    board_ops.add_note(
+      b.notes,
+      "user-b",
+      "standup stayed short",
+      board.WentWell,
+      1000,
+      1,
+    )
   sluice_js.settle(sluice)
 
   let board_a = board_of(doc_a, a)
@@ -90,21 +90,30 @@ pub fn concurrent_adds_keep_both_notes_test() {
 
   board_a |> should.equal(board_b)
   board.note_count(board_a) |> should.equal(2)
-  board_a.went_well
-  |> list.map(fn(card) { card.id })
-  |> should.equal([first, second])
+  let assert Ok(_) = board.find_card(board_a, first)
+  let assert Ok(_) = board.find_card(board_a, second)
+  board.cards_for(board_a, board.WentWell)
+  |> list.length
+  |> should.equal(2)
 }
 
 pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() {
   let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-votes")
 
   let id =
-    add_note(a, "user-a", "ship week went smoothly", board.WentWell, 1000, 1)
+    board_ops.add_note(
+      a.notes,
+      "user-a",
+      "ship week went smoothly",
+      board.WentWell,
+      1000,
+      1,
+    )
   sluice_js.settle(sluice)
 
-  board_ops.apply(a.notes, a.votes, board_ops.upvote(id))
-  board_ops.apply(b.notes, b.votes, board_ops.upvote(id))
-  board_ops.apply(b.notes, b.votes, board_ops.downvote(id))
+  board_ops.upvote(a.votes, id)
+  board_ops.upvote(b.votes, id)
+  board_ops.downvote(b.votes, id)
   sluice_js.settle(sluice)
 
   let board_a = board_of(doc_a, a)

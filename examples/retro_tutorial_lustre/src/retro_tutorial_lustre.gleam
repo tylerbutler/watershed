@@ -294,15 +294,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, None -> #(model, effect.none())
         _, Some(shared) -> {
           let created = transport_js.now_ms()
-          let #(_, operation) =
+          let _ =
             board_ops.add_note(
+              shared.notes,
               model.user_id,
               text,
               column,
               created,
               int.random(10_000),
             )
-          board_ops.apply(shared.notes, shared.votes, operation)
           let model =
             Model(
               ..model,
@@ -316,7 +316,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UpvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_ops.apply(shared.notes, shared.votes, board_ops.upvote(id))
+          board_ops.upvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -325,7 +325,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     DownvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_ops.apply(shared.notes, shared.votes, board_ops.downvote(id))
+          board_ops.downvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
