@@ -29,13 +29,15 @@ import watershed/transport_js
 import watershed_lustre
 
 import board.{type Column, type NoteCard}
+import board_ops
 import doc_schema
-import note.{type Note, Note}
 
 /// These dev constants match `just integration-up`.
 /// Change them when you point the example at another server.
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
+
 const tenant = "dev-tenant"
+
 const tenant_secret = "levee-dev-secret-change-in-production"
 
 pub fn main() {
@@ -292,15 +294,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, None -> #(model, effect.none())
         _, Some(shared) -> {
           let created = transport_js.now_ms()
-          let id = note.id(model.user_id, created, int.random(10_000))
-          let entry =
-            Note(
-              text: text,
-              column: board.column_id(column),
-              author: model.user_id,
-              created: created,
+          let #(_, operation) =
+            board_ops.add_note(
+              model.user_id,
+              text,
+              column,
+              created,
+              int.random(10_000),
             )
-          watershed.or_map_set_json(shared.notes, id, note.to_json(entry))
+          board_ops.apply(shared.notes, shared.votes, operation)
           let model =
             Model(
               ..model,
@@ -314,7 +316,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UpvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          watershed.or_map_increment(shared.votes, id, 1)
+          board_ops.apply(shared.notes, shared.votes, board_ops.upvote(id))
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -323,7 +325,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     DownvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          watershed.or_map_increment(shared.votes, id, -1)
+          board_ops.apply(shared.notes, shared.votes, board_ops.downvote(id))
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -405,36 +407,11 @@ fn snapshot(model: Model) -> Model {
   }
 
   let board_state = case model.shared {
-    Some(shared) ->
-      board.snapshot(
-        title,
-        note_entries(shared.notes),
-        vote_entries(shared.votes),
-      )
+    Some(shared) -> board_ops.snapshot(title, shared.notes, shared.votes)
     None -> board.empty(title)
   }
 
   Model(..model, board: board_state, last_error: error)
-}
-
-fn note_entries(notes: OrMap) -> List(#(String, Note)) {
-  watershed.or_map_entries(notes)
-  |> list.filter_map(fn(entry) {
-    case entry.1 {
-      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
-      or_map_kernel.Tally(_) -> Error(Nil)
-    }
-  })
-}
-
-fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
-  watershed.or_map_entries(votes)
-  |> list.filter_map(fn(entry) {
-    case entry.1 {
-      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
-      or_map_kernel.Register(_) -> Error(Nil)
-    }
-  })
 }
 
 fn draft_for(model: Model, column: Column) -> String {
