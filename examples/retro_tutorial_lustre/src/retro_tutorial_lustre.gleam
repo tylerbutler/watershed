@@ -1,0 +1,700 @@
+//// Small collaborative retro board for the tutorial track.
+////
+//// This example keeps one root field (`title`), one RegisterMode OR-map for
+//// notes, one TallyMode OR-map for votes, and presence for the focused note.
+//// It omits sequences, drag and drop, edit/delete, and vote budgets.
+
+import gleam/dict.{type Dict}
+import gleam/dynamic/decode
+import gleam/int
+import gleam/json
+import gleam/list
+import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/string
+
+import lustre
+import lustre/attribute.{class, disabled, placeholder, value}
+import lustre/effect.{type Effect}
+import lustre/element.{type Element}
+import lustre/element/html
+import lustre/event
+
+import watershed.{type Document, type OrMap}
+import watershed/browser
+import watershed/or_map_kernel
+import watershed/presence
+import watershed/presence_js.{type Handle}
+import watershed/transport_js
+import watershed_lustre
+
+import board.{type Column, type NoteCard}
+import doc_schema
+import note.{type Note, Note}
+
+const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
+
+const tenant = "dev-tenant"
+
+const tenant_secret = "levee-dev-secret-change-in-production"
+
+pub fn main() {
+  let app = lustre.application(init, update, view)
+  let document = browser.document_on_navigate("retro-tutorial")
+  let assert Ok(_) = lustre.start(app, "#app", document)
+  Nil
+}
+
+pub type BoardPresence {
+  BoardPresence(color: String, name: String, focused_note: Option(String))
+}
+
+fn encode_presence(presence: BoardPresence) -> json.Json {
+  json.object([
+    #("color", json.string(presence.color)),
+    #("name", json.string(presence.name)),
+    #("focused_note", case presence.focused_note {
+      Some(id) -> json.string(id)
+      None -> json.null()
+    }),
+  ])
+}
+
+fn presence_decoder() -> decode.Decoder(BoardPresence) {
+  use color <- decode.field("color", decode.string)
+  use name <- decode.field("name", decode.string)
+  use focused_note <- decode.optional_field(
+    "focused_note",
+    None,
+    decode.optional(decode.string),
+  )
+  decode.success(BoardPresence(color:, name:, focused_note:))
+}
+
+type Status {
+  Connecting
+  Ready
+  Failed(reason: String)
+}
+
+type SharedState {
+  SharedState(notes: OrMap, votes: OrMap)
+}
+
+type PendingShared {
+  PendingShared(notes: Option(OrMap), votes: Option(OrMap))
+}
+
+type Model {
+  Model(
+    status: Status,
+    doc: Option(Document(doc_schema.BoardDoc)),
+    shared: Option(SharedState),
+    pending: PendingShared,
+    user_id: String,
+    color: String,
+    focus: Option(String),
+    presence: Option(Handle(BoardPresence)),
+    peers: List(presence.PresenceEntry(BoardPresence)),
+    board: board.Snapshot,
+    drafts: Dict(String, String),
+    last_error: Option(String),
+  )
+}
+
+type Msg {
+  GotDocument(Document(doc_schema.BoardDoc))
+  Connected(Result(Nil, String))
+  EnsuredNotes(Result(OrMap, String))
+  EnsuredVotes(Result(OrMap, String))
+  SharedChanged
+  DraftChanged(Column, String)
+  AddClicked(Column)
+  UpvoteClicked(String)
+  DownvoteClicked(String)
+  FocusClicked(String)
+  FocusCleared
+  PresenceStarted(Handle(BoardPresence))
+  PresenceEvent(presence.Event(BoardPresence))
+  ReconnectClicked
+}
+
+fn init(document: String) -> #(Model, Effect(Msg)) {
+  let user_id = "web-" <> int.to_string(1000 + int.random(9000))
+  let model =
+    Model(
+      status: Connecting,
+      doc: None,
+      shared: None,
+      pending: PendingShared(None, None),
+      user_id: user_id,
+      color: presence.color_for(user_id),
+      focus: None,
+      presence: None,
+      peers: [],
+      board: board.empty("Sprint retro"),
+      drafts: dict.new(),
+      last_error: None,
+    )
+
+  #(
+    model,
+    watershed_lustre.connect_dev(
+      url: socket_url,
+      tenant: tenant,
+      secret: tenant_secret,
+      document: document,
+      user_id: user_id,
+      got_document: GotDocument,
+      connected: Connected,
+    ),
+  )
+}
+
+fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
+  let root = watershed.root_typed(doc)
+  effect.batch([
+    watershed_lustre.ensure_field(root, doc_schema.title(), "Sprint retro"),
+    watershed_lustre.ensure_or_map(
+      doc,
+      root,
+      doc_schema.notes(),
+      or_map_kernel.RegisterMode,
+      EnsuredNotes,
+    ),
+    watershed_lustre.ensure_or_map(
+      doc,
+      root,
+      doc_schema.votes(),
+      or_map_kernel.TallyMode,
+      EnsuredVotes,
+    ),
+    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { SharedChanged }),
+  ])
+}
+
+fn presence_effect(
+  model: Model,
+  doc: Document(doc_schema.BoardDoc),
+) -> Effect(Msg) {
+  watershed_lustre.presence(
+    document: doc,
+    config: presence.config(encode_presence, presence_decoder()),
+    initial: current_presence(model),
+    started: PresenceStarted,
+    on_event: PresenceEvent,
+  )
+}
+
+fn current_presence(model: Model) -> BoardPresence {
+  BoardPresence(
+    color: model.color,
+    name: presence.short_name(model.user_id),
+    focused_note: model.focus,
+  )
+}
+
+fn announce_focus(model: Model) -> Effect(Msg) {
+  case model.presence {
+    Some(handle) ->
+      watershed_lustre.update_presence(handle, current_presence(model))
+    None -> effect.none()
+  }
+}
+
+fn assemble(model: Model) -> #(Model, Effect(Msg)) {
+  case model.shared, model.pending {
+    None, PendingShared(Some(notes), Some(votes)) -> {
+      let shared = SharedState(notes:, votes:)
+      let model = snapshot(Model(..model, shared: Some(shared)))
+      #(
+        model,
+        effect.batch([
+          watershed_lustre.subscribe_or_map(shared.notes, fn(_) {
+            SharedChanged
+          }),
+          watershed_lustre.subscribe_or_map(shared.votes, fn(_) {
+            SharedChanged
+          }),
+        ]),
+      )
+    }
+    _, _ -> #(model, effect.none())
+  }
+}
+
+fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
+  case msg {
+    GotDocument(doc) -> {
+      let model = Model(..model, doc: Some(doc))
+      let presence_start = presence_effect(model, doc)
+      case model.status, model.shared {
+        Ready, None -> #(
+          model,
+          effect.batch([bootstrap_effect(doc), presence_start]),
+        )
+        _, _ -> #(model, presence_start)
+      }
+    }
+
+    Connected(Ok(_)) -> {
+      let model = Model(..model, status: Ready)
+      case model.doc, model.shared {
+        Some(doc), None -> #(model, bootstrap_effect(doc))
+        _, _ -> #(model, effect.none())
+      }
+    }
+
+    Connected(Error(reason)) -> #(
+      Model(..model, status: Failed(reason), last_error: Some(reason)),
+      effect.none(),
+    )
+
+    EnsuredNotes(Ok(notes)) ->
+      Model(
+        ..model,
+        pending: PendingShared(..model.pending, notes: Some(notes)),
+      )
+      |> assemble
+    EnsuredNotes(Error(reason)) -> #(
+      Model(..model, last_error: Some("notes channel failed: " <> reason)),
+      effect.none(),
+    )
+
+    EnsuredVotes(Ok(votes)) ->
+      Model(
+        ..model,
+        pending: PendingShared(..model.pending, votes: Some(votes)),
+      )
+      |> assemble
+    EnsuredVotes(Error(reason)) -> #(
+      Model(..model, last_error: Some("votes channel failed: " <> reason)),
+      effect.none(),
+    )
+
+    SharedChanged -> #(snapshot(model), effect.none())
+
+    DraftChanged(column, text) -> #(
+      Model(
+        ..model,
+        drafts: dict.insert(model.drafts, board.column_id(column), text),
+      ),
+      effect.none(),
+    )
+
+    AddClicked(column) -> {
+      let text = string.trim(draft_for(model, column))
+      case text, model.shared {
+        "", _ -> #(model, effect.none())
+        _, None -> #(model, effect.none())
+        _, Some(shared) -> {
+          let created = transport_js.now_ms()
+          let id = note.id(model.user_id, created, int.random(10_000))
+          let entry =
+            Note(
+              text: text,
+              column: board.column_id(column),
+              author: model.user_id,
+              created: created,
+            )
+          watershed.or_map_set_json(shared.notes, id, note.to_json(entry))
+          let model =
+            Model(
+              ..model,
+              drafts: dict.delete(model.drafts, board.column_id(column)),
+            )
+          #(snapshot(model), effect.none())
+        }
+      }
+    }
+
+    UpvoteClicked(id) ->
+      case model.shared {
+        Some(shared) -> {
+          watershed.or_map_increment(shared.votes, id, 1)
+          #(snapshot(model), effect.none())
+        }
+        None -> #(model, effect.none())
+      }
+
+    DownvoteClicked(id) ->
+      case model.shared {
+        Some(shared) -> {
+          watershed.or_map_increment(shared.votes, id, -1)
+          #(snapshot(model), effect.none())
+        }
+        None -> #(model, effect.none())
+      }
+
+    FocusClicked(id) -> {
+      let focus = case model.focus {
+        Some(current) if current == id -> None
+        _ -> Some(id)
+      }
+      let model = Model(..model, focus: focus)
+      #(model, announce_focus(model))
+    }
+
+    FocusCleared -> {
+      let model = Model(..model, focus: None)
+      #(model, announce_focus(model))
+    }
+
+    PresenceStarted(handle) -> {
+      let model = Model(..model, presence: Some(handle))
+      #(model, announce_focus(model))
+    }
+
+    PresenceEvent(event) ->
+      case event {
+        presence.State(entries) | presence.Changed(_, entries) -> #(
+          Model(..model, peers: remote_peers(model, entries)),
+          effect.none(),
+        )
+        presence.Failed(presence.DecodeFailed(_, _)) -> #(model, effect.none())
+        presence.Failed(presence.UnsupportedPresence) -> #(
+          Model(
+            ..model,
+            last_error: Some("presence unavailable on this server"),
+          ),
+          effect.none(),
+        )
+        presence.Failed(presence.Rejected(_, message)) -> #(
+          Model(..model, last_error: Some("presence rejected: " <> message)),
+          effect.none(),
+        )
+      }
+
+    ReconnectClicked ->
+      case model.doc {
+        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+        None -> #(model, effect.none())
+      }
+  }
+}
+
+fn remote_peers(
+  model: Model,
+  entries: List(presence.PresenceEntry(BoardPresence)),
+) -> List(presence.PresenceEntry(BoardPresence)) {
+  case model.presence {
+    Some(handle) ->
+      case presence_js.local_session(handle) {
+        Some(session) -> presence.remote_entries(entries, session)
+        None -> entries
+      }
+    None -> entries
+  }
+}
+
+fn snapshot(model: Model) -> Model {
+  let #(title, error) = case model.doc {
+    Some(doc) ->
+      case watershed.get_field(watershed.root_typed(doc), doc_schema.title()) {
+        Ok(Some(title)) -> #(title, model.last_error)
+        Ok(None) -> #(model.board.title, model.last_error)
+        Error(_) -> #(
+          model.board.title,
+          Some("The shared title is not a string."),
+        )
+      }
+    None -> #(model.board.title, model.last_error)
+  }
+
+  let board_state = case model.shared {
+    Some(shared) ->
+      board.snapshot(
+        title,
+        note_entries(shared.notes),
+        vote_entries(shared.votes),
+      )
+    None -> board.empty(title)
+  }
+
+  Model(..model, board: board_state, last_error: error)
+}
+
+fn note_entries(notes: OrMap) -> List(#(String, Note)) {
+  watershed.or_map_entries(notes)
+  |> list.filter_map(fn(entry) {
+    case entry.1 {
+      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
+      or_map_kernel.Tally(_) -> Error(Nil)
+    }
+  })
+}
+
+fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
+  watershed.or_map_entries(votes)
+  |> list.filter_map(fn(entry) {
+    case entry.1 {
+      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
+      or_map_kernel.Register(_) -> Error(Nil)
+    }
+  })
+}
+
+fn draft_for(model: Model, column: Column) -> String {
+  dict.get(model.drafts, board.column_id(column)) |> result.unwrap("")
+}
+
+fn view(model: Model) -> Element(Msg) {
+  html.main([class("shell")], [
+    html.header([class("masthead")], [
+      html.div([], [
+        html.h1([], [html.text(model.board.title)]),
+        html.p([class("status")], [html.text(status_text(model))]),
+      ]),
+      html.div([class("card-actions")], [
+        html.button(
+          [event.on_click(FocusCleared), disabled(model.focus == None)],
+          [
+            html.text("Clear focus"),
+          ],
+        ),
+        html.button([event.on_click(ReconnectClicked)], [
+          html.text("Force reconnect"),
+        ]),
+      ]),
+    ]),
+    error_view(model.last_error),
+    html.div([class("top-row")], [presence_view(model), focused_view(model)]),
+    html.div(
+      [class("board")],
+      list.map(board.all_columns(), fn(column) { column_view(model, column) }),
+    ),
+    unfiled_view(model),
+    html.p([class("hint")], [
+      html.text(
+        "Open the same document in a second tab. Add notes in both tabs, vote on them, and click Focus to watch presence follow the note.",
+      ),
+    ]),
+  ])
+}
+
+fn status_text(model: Model) -> String {
+  let connection = case model.status {
+    Connecting -> "connecting…"
+    Ready -> "connected"
+    Failed(reason) -> "failed: " <> reason
+  }
+  let channels = case model.shared {
+    Some(_) -> "board ready"
+    None -> "channels " <> int.to_string(pending_count(model.pending)) <> "/2"
+  }
+  connection
+  <> " · "
+  <> channels
+  <> " · "
+  <> int.to_string(board.note_count(model.board))
+  <> " notes"
+}
+
+fn pending_count(pending: PendingShared) -> Int {
+  [option.is_some(pending.notes), option.is_some(pending.votes)]
+  |> list.count(fn(ready) { ready })
+}
+
+fn presence_view(model: Model) -> Element(Msg) {
+  let self_chip =
+    chip(presence.short_name(model.user_id) <> " (you)", model.color)
+  let peer_chips =
+    model.peers
+    |> list.map(fn(peer) { chip(peer.meta.name, peer.meta.color) })
+
+  let copy = case model.peers {
+    [] -> "No other teammates connected."
+    peers ->
+      peers |> list.map(peer_status(model.board, _)) |> string.join(" · ")
+  }
+
+  html.section([class("presence")], [
+    html.h2([], [html.text("Presence")]),
+    html.p([class("peer-copy")], [html.text(copy)]),
+    html.div([class("roster"), attribute.aria_label("Participants online")], [
+      self_chip,
+      ..peer_chips
+    ]),
+  ])
+}
+
+fn peer_status(
+  board_state: board.Snapshot,
+  peer: presence.PresenceEntry(BoardPresence),
+) -> String {
+  peer.meta.name
+  <> case peer.meta.focused_note {
+    Some(id) -> " is focused on " <> focus_label(board_state, id)
+    None -> " is connected"
+  }
+}
+
+fn focused_view(model: Model) -> Element(Msg) {
+  let text = case model.focus {
+    Some(id) -> "You are focused on " <> focus_label(model.board, id) <> "."
+    None -> "Focus a note to publish lightweight presence to other tabs."
+  }
+  html.section([class("focus-panel")], [
+    html.h2([], [html.text("Focused note")]),
+    html.p([class("focus-copy")], [html.text(text)]),
+  ])
+}
+
+fn focus_label(board_state: board.Snapshot, id: String) -> String {
+  case board.find_card(board_state, id) {
+    Ok(card) -> preview(card.note.text)
+    Error(Nil) -> "a note that has not synced yet"
+  }
+}
+
+fn preview(text: String) -> String {
+  let clean = string.trim(text)
+  case clean {
+    "" -> "(blank note)"
+    _ ->
+      case string.length(clean) > 36 {
+        True -> string.slice(clean, 0, 36) <> "…"
+        False -> clean
+      }
+  }
+}
+
+fn chip(name: String, color: String) -> Element(Msg) {
+  html.span(
+    [
+      class("chip"),
+      attribute.style("border-color", color),
+      attribute.style("color", color),
+    ],
+    [
+      html.span([class("dot"), attribute.style("background", color)], []),
+      html.text(name),
+    ],
+  )
+}
+
+fn error_view(error: Option(String)) -> Element(Msg) {
+  html.p([class("error")], [html.text(option.unwrap(error, ""))])
+}
+
+fn column_view(model: Model, column: Column) -> Element(Msg) {
+  let draft = draft_for(model, column)
+  let cards = board.cards_for(model.board, column)
+  let list_view = case cards {
+    [] -> html.p([class("empty")], [html.text("No notes yet.")])
+    _ ->
+      html.ul(
+        [class("cards")],
+        list.map(cards, fn(card) { note_view(model, card) }),
+      )
+  }
+
+  html.section([class("column")], [
+    html.h2([], [html.text(board.column_label(column))]),
+    html.p([class("column-copy")], [html.text(board.column_hint(column))]),
+    html.div([class("compose")], [
+      html.input([
+        placeholder(board.column_hint(column)),
+        value(draft),
+        event.on_input(fn(text) { DraftChanged(column, text) }),
+        attribute.aria_label("New note for " <> board.column_label(column)),
+      ]),
+      html.button(
+        [event.on_click(AddClicked(column)), disabled(string.trim(draft) == "")],
+        [html.text("Add")],
+      ),
+    ]),
+    list_view,
+  ])
+}
+
+fn note_view(model: Model, card: NoteCard) -> Element(Msg) {
+  let focused = focus_names(model, card.id)
+  let focus_class = case focused {
+    [] -> ""
+    _ -> " focused"
+  }
+  let focus_line = case focused {
+    [] -> html.text("")
+    names ->
+      html.p([class("focus-line")], [
+        html.text("Focused by " <> string.join(names, ", ")),
+      ])
+  }
+
+  html.li([], [
+    html.article([class("card" <> focus_class)], [
+      html.p([class("card-text")], [html.text(card.note.text)]),
+      html.div([class("card-meta")], [
+        html.span([class("author")], [html.text(card.note.author)]),
+        html.span([class("tally")], [
+          html.text("votes " <> int.to_string(card.votes)),
+        ]),
+      ]),
+      html.div([class("card-actions")], [
+        html.button(
+          [
+            event.on_click(UpvoteClicked(card.id)),
+            attribute.aria_label("Upvote note"),
+          ],
+          [html.text("+1")],
+        ),
+        html.button(
+          [
+            event.on_click(DownvoteClicked(card.id)),
+            attribute.aria_label("Downvote note"),
+          ],
+          [html.text("-1")],
+        ),
+        html.button([event.on_click(FocusClicked(card.id))], [
+          html.text(focus_button_label(model, card.id)),
+        ]),
+      ]),
+      focus_line,
+    ]),
+  ])
+}
+
+fn focus_button_label(model: Model, id: String) -> String {
+  case model.focus {
+    Some(current) if current == id -> "Focused"
+    _ -> "Focus"
+  }
+}
+
+fn focus_names(model: Model, id: String) -> List(String) {
+  let local = case model.focus {
+    Some(current) if current == id -> [
+      presence.short_name(model.user_id) <> " (you)",
+    ]
+    _ -> []
+  }
+  let peers =
+    model.peers
+    |> list.filter_map(fn(peer) {
+      case peer.meta.focused_note {
+        Some(current) if current == id -> Ok(peer.meta.name)
+        _ -> Error(Nil)
+      }
+    })
+  list.append(local, peers)
+}
+
+fn unfiled_view(model: Model) -> Element(Msg) {
+  case model.board.unfiled {
+    [] -> html.text("")
+    notes ->
+      html.section([class("unfiled")], [
+        html.h2([], [html.text("Unfiled notes")]),
+        html.p([class("column-copy")], [
+          html.text(
+            "Notes stay visible here if their column id is unknown or unreadable.",
+          ),
+        ]),
+        html.ul(
+          [class("cards")],
+          list.map(notes, fn(card) { note_view(model, card) }),
+        ),
+      ])
+  }
+}
