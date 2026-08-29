@@ -38,54 +38,18 @@ watershed.set(board, id, json.int(current + 1))`;
   description="Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
 >
   <div class="g-block">
-    <h2>The bug is in the read, not the write</h2>
-    <p>
-      Step 01’s second race: <code>+1</code>, <code>+1</code>, <code>-1</code> on
-      one note, settling at <code>+1</code>. It looks like arithmetic because it
-      is arithmetic — right up until you implement it the obvious way.
-    </p>
-    <figure class="g-code">
-      <Code code={lossy} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <p>
-      Nothing here is careless — it reads, adds one, writes the result back.
-      But <em>read</em> is the problem: by the time your write reaches the
-      server, the number it was based on is already out of date, because
-      someone else’s write got there first. The newer write silently overwrites
-      the older one’s work. Two votes go in, one total comes out, and no error
-      appears anywhere — the lost vote just vanishes without a trace.
-    </p>
-    <p>
-      Ship the <code>+1</code> instead of the <code>5</code> — send the change,
-      not the number you think the total should become. Addition doesn’t care
-      what order it happens in, so it stops mattering who the server heard from
-      first: however the changes arrive, they add up to the same total. That is
-      what a tally is.
-    </p>
-    <div class="g-note">
-      <p>
-        <strong>Watch it lose, once.</strong> The{" "}
-        <a href="/counter-bug">counter bug</a> page runs the losing version and
-        the fix against the same race, live. Reading about a dropped write is
-        not the same as watching one disappear.
-      </p>
-    </div>
-  </div>
-
-  <div class="g-block">
     <h2><code>TallyMode</code>: a counter per key</h2>
     <p>
-      You already made this choice back in step 02, when{" "}
-      <code>ensure_or_map</code> created the <code>votes</code> channel with{" "}
-      <code>TallyMode</code>. That mode turns every key in the map into what’s
-      sometimes called a PN counter, short for “positive-negative counter”: a
-      value that only accepts changes — plus one, minus one — and combines them
-      by adding them up, never by picking one write as the winner.
+      You already created the <code>votes</code> channel back in step 01, when{" "}
+      <code>ensure_or_map</code> set it up with <code>TallyMode</code>. That
+      mode turns every key in the map into what’s sometimes called a PN
+      counter, short for “positive-negative counter”: a value that only
+      accepts changes — plus one, minus one — and combines them by adding them
+      up, never by picking one write as the winner.
     </p>
     <p>
-      Which is what makes the vote API three lines long, and why downvoting
-      needs no special handling — it’s just a <code>-1</code>, not a separate
-      code path.
+      The vote API is three lines long. An upvote sends <code>+1</code>; a
+      downvote sends <code>-1</code>.
     </p>
     <span class="g-file">src/board_ops.gleam</span>
     <figure class="g-code">
@@ -99,9 +63,35 @@ watershed.set(board, id, json.int(current + 1))`;
       Both branches re-read the board immediately after writing. The change
       applies to your own copy the moment you click, so the number moves right
       away under your finger — and then stays put once the server confirms it,
-      because your local guess and the server’s final answer always agree.
-      Addition doesn’t disagree with itself, no matter what order things
-      actually happened in.
+      because adding the same changes in a different order produces the same
+      total.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Why not read, add one, write back?</h2>
+    <p>
+      A simpler-looking approach stores the total as a plain number and
+      updates it like this:
+    </p>
+    <figure class="g-code">
+      <Code code={lossy} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      It reads, adds one, writes the result back. <em>Read</em> is the
+      problem: by the time your write reaches the server, the number it was
+      based on is already out of date, because someone else’s write got there
+      first. The newer write silently overwrites the older one’s work. Two
+      votes go in, one total comes out, and no error appears anywhere — the
+      lost vote just vanishes without a trace. The <code>+1</code> tally above
+      avoids this because it sends the change, not the number you think the
+      total should become — however the changes arrive, they add up to the
+      same total.
+    </p>
+    <p>
+      The <a href="/counter-bug">counter bug</a> page runs the losing version
+      and the fix against the same two clicks, live, if you’d rather watch it
+      happen than read about it.
     </p>
   </div>
 
@@ -172,7 +162,7 @@ watershed.set(board, id, json.int(current + 1))`;
     <p>
       Open two tabs, hammer <code>+1</code> and <code>-1</code> on the same note
       from both, and get an honest total every time — the same
-      <code>+1</code> the step-01 race settles on, now on a live server.
+      <code>+1</code> you expect, even when all three clicks overlap.
     </p>
   </div>
 </GuideLayout>

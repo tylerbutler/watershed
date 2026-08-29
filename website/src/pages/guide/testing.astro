@@ -31,10 +31,10 @@ const layout = `retro_tutorial_lustre/
 ├── build.mjs                       esbuild bundle for the browser
 ├── index.html                      mount point and all of the styling
 ├── src/
-│   ├── doc_schema.gleam            step 02 · title, notes, votes
-│   ├── note.gleam                  step 03 · the note record and its codec
-│   ├── board.gleam                 step 03 · pure canonical snapshot
-│   ├── board_ops.gleam             steps 03 and 04 · the shared writes
+│   ├── doc_schema.gleam            step 01 · title, notes, votes
+│   ├── note.gleam                  step 02 · the note record and its codec
+│   ├── board.gleam                 step 02 · pure canonical snapshot
+│   ├── board_ops.gleam             steps 02 and 04 · the shared writes
 │   └── retro_tutorial_lustre.gleam every sheet · connection, update, view
 └── test/
     ├── note_codec_test.gleam       round trips, including malformed payloads
@@ -44,38 +44,32 @@ const layout = `retro_tutorial_lustre/
 
 <GuideLayout
   slug="testing"
-  description="Step six of the watershed build guide: the sluice runs the real client code against a fake network you control by hand, so the two races from step one become ordinary gleam test assertions — no server, no browser, no timing luck."
+  description="Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
 >
   <div class="g-block">
-    <h2>Close the loop you opened</h2>
+    <h2>Run two clients in one test</h2>
     <p>
-      Step 01 showed you two races and told you they were already checked in.
-      This is where you write them. The board now has everything they need — a
-      register OR-map of notes, a tally OR-map of votes, and one module of shared
-      writes — so the only missing piece is a way to run two clients without
-      running two clients.
+      The <strong>sluice</strong> lets a test create two documents and choose
+      when each message arrives. Use it to repeat the two-tab checks without
+      opening a browser or starting a server.
     </p>
     <p>
-      The <strong>sluice</strong> is that piece: an in-memory stand-in for the
-      trip between client and server. It plugs into the same client code as
-      production — the same encoding and decoding, queuing and retry logic,
-      catch-up after reconnecting, and ordering rules. It runs the real client
-      code end to end. It doesn’t open real network connections or reproduce
-      floodgate’s storage and login, so keep a live smoke test against a real
-      server for those.
+      It plugs into the same client code as production, including encoding,
+      queues, retries, reconnecting, and message order. It doesn’t open a real
+      network connection or reproduce floodgate’s storage and login.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>Nothing is delivered until you say so</h2>
+    <h2>Choose when messages arrive</h2>
     <p>
-      That is the whole trick. When a client submits something, it’s processed
-      and given its place in the order right away — but the messages that
-      result from it sit in a queue instead of arriving immediately.
-      <code>settle</code> drains that queue until nothing’s left to deliver;
-      <code>step</code> delivers exactly one message and stops. That splits
-      “the order the server decided on” and “the order each client actually
-      sees it in” into two separate things you control by hand.
+      When a client submits something, it’s processed and given its place in
+      the order right away — but the messages that result from it sit in a
+      queue instead of arriving immediately. <code>settle</code> drains that
+      queue until nothing’s left to deliver; <code>step</code> delivers
+      exactly one message and stops. That splits “the order the server decided
+      on” and “the order each client actually sees it in” into two separate
+      things you control by hand.
     </p>
     <p>
       So setting up a test room means: one sluice, two documents connecting to
@@ -115,34 +109,34 @@ const layout = `retro_tutorial_lustre/
   </div>
 
   <div class="g-block">
-    <h2>The two races, as tests</h2>
+    <h2>Both races, written as tests</h2>
     <p>
-      Both notes survive because they were never competing for the same slot.
-      Both assertions in the test matter:{" "}
-      <code>board_a |> should.equal(board_b)</code> checks that both tabs ended
-      up showing the identical board. The note count and the two lookups check
-      something different — that they didn’t end up identical by both losing
-      the same note.
+      The add race checks two things:{" "}
+      <code>board_a |> should.equal(board_b)</code> confirms both tabs ended
+      up showing the identical board, and the note count plus the two lookups
+      confirm they didn’t end up identical by both losing the same note.
     </p>
     <figure class="g-code">
       <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Then three votes across two clients, settling at <code>+1</code>. Same
-      shape, same settle call, and no <code>sleep</code> anywhere in sight —
-      the test doesn’t wait and hope the timing works out, it calls
-      <code>settle</code> and gets the same answer every single time.
+      The vote race sends three votes across two clients and checks they
+      settle at <code>+1</code>. Same shape, same settle call, and no{" "}
+      <code>sleep</code> anywhere in sight — the test doesn’t wait and hope
+      the timing works out, it calls <code>settle</code> and gets the same
+      answer every single time.
     </p>
     <figure class="g-code">
       <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>Name the race your story depends on.</strong> A generic test
-        that just checks both tabs end up looking the same can still pass
-        while the thing your users actually care about is broken. These two
-        tests exist because they are the two promises the board makes:
-        nothing you type disappears, and nothing you vote is lost.
+        <strong>Assert on the specific outcome, not just equality.</strong> A
+        test that only checks both tabs end up looking the same can still
+        pass while the thing users actually care about is broken — for
+        example, if both tabs agreed by losing the same note. These two tests
+        each check the specific outcome that matters: nothing you type
+        disappears, and nothing you vote is lost.
       </p>
     </div>
   </div>
@@ -167,7 +161,7 @@ const layout = `retro_tutorial_lustre/
         forward for message timestamps. Presence works differently — it uses
         the real system clock instead. The JavaScript version also exposes
         <code>step_info</code> with details about each delivery, which is how
-        the demo back on step 01 draws its log of what happened.
+        the demo back on step 03 draws its log of what happened.
       </p>
     </div>
   </div>
@@ -204,8 +198,8 @@ gleam test`}
     <p>
       The tutorial stops on purpose. It has no sequences, no drag and drop, no
       cross-column moves, no edit or delete, and no vote budgets — every one of
-      those is a genuinely harder problem, and stacking them here would have
-      buried the two races the board exists to explain.
+      those is a genuinely harder problem, and adding them here would have made
+      the board harder to learn from, not more useful as an example.
     </p>
     <p>
       The <a href="/examples#retro_board_lustre">advanced retro board</a> is the

@@ -1,157 +1,37 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import GuideRaceDemo from "../../components/GuideRaceDemo.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
-import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
-
-const addRace = excerpt(
-  convergenceSource,
-  "pub fn concurrent_adds_keep_both_notes_test(",
-);
-
-const voteRace = excerpt(
-  convergenceSource,
-  "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
-);
 ---
 
 <GuideLayout
   slug="race"
-  description="Step one of the watershed build guide: watch what happens when two people add a note at the same instant, and when three votes land on one note at once — then read the tests that prove both come out right."
+  description="Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board."
 >
-  <GuideRaceDemo slot="wide" />
-
   <div class="g-block">
-    <h2>Start from the thing that breaks</h2>
+    <h2>Add notes from both tabs at once</h2>
     <p>
-      Most build guides start with a connection string. This one starts with the
-      two moments where a shared retro board stops being a plain list — because
-      now two people can touch it at the same time, over the network, and
-      nobody is standing there to say who went first. Every sheet after this
-      one exists to survive one of those two moments.
+      Open the board in two tabs. In each one, type a different note into{" "}
+      <em>Went well</em> and click Add in both at the same moment.
     </p>
     <p>
-      The rig above runs two real <code>watershed</code> documents against the
-      <strong>sluice</strong>, a stand-in for the network that lets you hold
-      messages back and release them by hand instead of at network speed.
-      Nothing here is faked: it’s the same map writes you’ll write in step 03
-      and step 04, running through the same client code, just slowed down
-      enough to watch.
+      Both notes show up, in both tabs, in the same order. Nothing is lost.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>Race one: the tie nobody wins</h2>
+    <h2>Each note uses a different key</h2>
     <p>
-      Two people type into <em>Went well</em> in the same second and hit Add.
-      Both notes are new, neither one knows the other exists, and there’s no
-      good answer to “which one did they mean?” — because they meant both.
+      Notes are keyed by note id in an <strong>OR-map</strong>, so two adds
+      write two different keys — there’s nothing for them to collide over.
     </p>
     <p>
-      Store the board as a plain map keyed by column, and you get one note
-      back, not two. The map isn’t broken: a map with one key per column only
-      has one slot per column, so the second note simply overwrites the first
-      — that’s what “last write wins” means. The fix isn’t a smarter merge,
-      it’s a better key. Give every note its own id in an <strong>OR-map</strong>{" "}
-      — a map built so that two different keys can never collide — and the two
-      adds aren’t even in conflict with each other.
+      Store the board as a plain map keyed by column instead, and you’d get
+      one note back, not two: a map with one key per column has one slot per
+      column, so the second note overwrites the first — that’s what
+      “last write wins” means. Keying by note id means there’s no shared slot
+      to overwrite.
     </p>
   </div>
 
-  <div class="g-block">
-    <h2>Race two: the vote you can’t find afterwards</h2>
-    <p>
-      Now one standing note, three votes in flight: Client A upvotes, Client B
-      upvotes, Client B changes their mind and downvotes. Three separate clicks,
-      and only one honest total should come out the other end.
-    </p>
-    <p>
-      Read the count, add one, write the count back — and you’ve just written a
-      bug that trips up almost every shared counter: both clients read
-      <code>0</code>, both write <code>1</code>, and one vote is gone with
-      nothing to show for it — no error, no warning, just a wrong number.
-      A <strong>tally</strong> avoids this by sending the change instead of the
-      new total — it ships <code>+1</code>, not <code>1</code>. Adding numbers
-      doesn’t care what order they show up in, so it stops mattering who the
-      server heard from first — the arithmetic lands the same either way. The
-      demo settles at <code>+1</code> however you run it.
-    </p>
-    <div class="g-note">
-      <p>
-        <strong>Want it staged even more sharply?</strong> The{" "}
-        <a href="/counter-bug">counter bug</a> page runs the losing version
-        first, on purpose, then fixes it. It’s the same argument with the
-        failure left in.
-      </p>
-    </div>
-  </div>
-
-  <div class="g-block">
-    <h2>Both races are already checked in</h2>
-    <p>
-      A demo you can’t re-run is a claim, not evidence. Both races above are
-      tests in the tutorial project, and they run under <code>gleam test</code>
-      in about a second with no server anywhere. Step 06 is where you write
-      them; here they’re just proof that the rest of the procedure has to hold
-      up.
-    </p>
-    <span class="g-file">test/convergence_test.gleam</span>
-    <figure class="g-code">
-      <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">retro_tutorial_lustre · add race</figcaption>
-    </figure>
-    <figure class="g-code">
-      <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">retro_tutorial_lustre · vote race</figcaption>
-    </figure>
-    <p>
-      Both start with the same <code>room</code> helper: one sluice, two
-      connected documents, a title, a register OR-map, a tally OR-map. Step 06
-      unpacks it.
-    </p>
-  </div>
-
-  <div class="g-block">
-    <h2>What you’re about to build</h2>
-    <p>
-      You build one small application, <strong>retro_tutorial_lustre</strong>,
-      across all six sheets. Three fixed columns, sticky notes with a vote count,
-      and a roster showing who is reading which note. Every step adds one
-      capability to the same source tree, and every step ends somewhere you can run.
-    </p>
-    <figure class="g-code">
-      <Code
-        code={`document · retro-tutorial
-├── title           String field           the board name, "Sprint retro"
-├── notes           OR-map · RegisterMode  note id → the whole note as JSON
-├── votes           OR-map · TallyMode     note id → a signed total
-└── ↯ focused_note  presence               who is reading which note`}
-        lang="text"
-        theme={watershedCodeTheme}
-      />
-    </figure>
-    <p>
-      It stays deliberately small. There are no sequences, no drag and drop, no
-      cross-column moves, no edit or delete, and no vote budgets. When you want
-      those, the <a href="/examples#retro_board_lustre">advanced retro board</a>
-      {" "}is the same idea with five channels and the harder interactions.
-    </p>
-    <p>
-      You’ll need the <a href="https://gleam.run/getting-started/">Gleam
-      toolchain</a> and, from step 02 on, a{" "}
-      <a href="https://floodgate.tylerbutler.com">floodgate</a> server. The last
-      sheet needs neither a server nor a browser.
-    </p>
-  </div>
-
-  <div class="g-out">
-    <span class="annot">You can now</span>
-    <p>
-      Run <code>cd examples/retro_tutorial_lustre && gleam test</code> and watch
-      <code>8 passed, no failures</code> pin both claims before you build the
-      rest of the board.
-    </p>
-  </div>
+  <GuideRaceDemo notesOnly />
 </GuideLayout>

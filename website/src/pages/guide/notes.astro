@@ -31,22 +31,15 @@ const addClicked = section(
 
 <GuideLayout
   slug="notes"
-  description="Step three of the watershed build guide: give every sticky note its own id so two people can add notes at once without a collision, store the whole note as one JSON value, and read it back through a decoder that shows a broken note instead of crashing the board."
+  description="Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
 >
   <div class="g-block">
-    <h2>Give the tie somewhere to go</h2>
+    <h2>Each note gets its own id</h2>
     <p>
-      Step 01’s first race had two people adding a note to <em>Went well</em> at
-      the same instant. The reason a naive board loses one of them is not a bad
-      merge rule — it’s a bad key. One key per column means one slot, and one
-      slot can only hold one thing.
-    </p>
-    <p>
-      So the notes channel is keyed by <strong>note</strong>, not by column, in
-      an <a href="/structures/maps#ormap">OR-map</a> running in
-      <code>RegisterMode</code>. Two concurrent adds write two different keys.
-      There is no conflict left to resolve, and both notes survive because
-      nothing ever asked them to compete.
+      The notes channel is an <a href="/structures/maps#ormap">OR-map</a>{" "}
+      running in <code>RegisterMode</code>, keyed by <strong>note id</strong>,
+      not by column. Every key holds exactly one note, so adding one never
+      touches another — even if two people add notes at the same instant.
     </p>
   </div>
 
@@ -91,11 +84,9 @@ const addClicked = section(
   <div class="g-block">
     <h2>Adding a note is one map write</h2>
     <p>
-      With the id scheme and the encoding in place, adding a note is
-      unremarkable, which is the point. Mint an id, encode the note, write it
-      to the map. The nonce — a small random number added just to keep ids
-      unique — is there because two notes from one author can land in the same
-      millisecond.
+      Mint an id, encode the note, write it to the map. The nonce — a small
+      random number added just to keep ids unique — is there because two notes
+      from one author can land in the same millisecond.
     </p>
     <span class="g-file">src/board_ops.gleam</span>
     <figure class="g-code">
@@ -105,7 +96,7 @@ const addClicked = section(
       <code>board_ops</code> exists so the UI and the tests call the exact same
       write function, not two separate copies of the same logic. If a test
       reimplemented the write instead of calling it, all that would prove is
-      that the reimplementation agrees with itself. Step 06 leans on this hard.
+      that the reimplementation agrees with itself. Step 06 depends on this.
     </p>
     <span class="g-file">src/retro_tutorial_lustre.gleam</span>
     <figure class="g-code">
@@ -133,9 +124,8 @@ const addClicked = section(
       side effects, no network calls, data in and data out. Group notes by
       their column field, sort by <code>(created, id)</code>, and every
       replica — every open tab, running the same code — renders the same
-      order. That includes the two tied notes from step 01: their creation
-      timestamps match exactly, so the id breaks the tie, identically,
-      everywhere.
+      order. If two notes ever get the same creation timestamp, the id breaks
+      the tie, identically, everywhere.
     </p>
     <span class="g-file">src/board.gleam</span>
     <figure class="g-code">
@@ -175,10 +165,9 @@ const addClicked = section(
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Open the board in two tabs, add notes from both in the same second, and
-      watch every tab settle on the same list in the same order — with a vote
-      count of <code>0</code> under each one, because nothing can move it yet.
-      Step 04 makes those numbers real.
+      Open the board in two tabs, add a note in one, and watch it appear in
+      the other — with a vote count of <code>0</code> under it, because
+      nothing can move it yet. Step 04 makes those numbers real.
     </p>
   </div>
 </GuideLayout>

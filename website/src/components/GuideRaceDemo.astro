@@ -1,4 +1,10 @@
 ---
+interface Props {
+  notesOnly?: boolean;
+}
+
+const { notesOnly = false } = Astro.props;
+
 const clients = [
   { id: "a", name: "Client A" },
   { id: "b", name: "Client B" },
@@ -11,21 +17,17 @@ const clients = [
   aria-labelledby="guide-race-title"
 >
   <div class="gr-head" data-reveal="rise">
-    <h2 id="guide-race-title">See the race before you build it.</h2>
+    <h2 id="guide-race-title">
+      {notesOnly ? "Run the same add on a controlled clock" : "Run both edits on a controlled clock"}
+    </h2>
     <p>
-      This guide’s retro board is not a merge sketch. Two real
-      <code>watershed</code> documents talk to the in-memory <code>sluice</code>
-      and run the same two OR-map rules the later sheets wire into the tutorial
-      project: whole notes in one register OR-map, vote totals in one tally
-      OR-map.
+      Two <code>watershed</code> documents connect to the in-memory{" "}
+      <code>sluice</code>. Click the add button to send one note from each
+      board at the same time.
     </p>
     <p class="gr-hint">
-      Press one race, then watch the colors do the arguing. A local add or tally
-      shows up in <strong class="k-pending">magenta</strong> while it is still
-      pending on that replica. Once the sequencer stamps it, every replica inks
-      the same board. The note race keeps both cards; the vote race throws
-      <code>+1</code>, <code>+1</code>, and <code>-1</code> at one note and
-      settles at <code>+1</code>. Reset between runs.
+      Magenta marks an edit that is waiting for the server. Once the server
+      accepts it, the note turns black on both boards. Both notes remain.
     </p>
   </div>
 
@@ -97,7 +99,7 @@ const clients = [
     <button type="button" class="race-btn" data-guide-race-add disabled>
       Add two notes at once
     </button>
-    <button type="button" class="race-btn" data-guide-race-votes disabled>
+    <button type="button" class="race-btn" data-guide-race-votes disabled hidden={notesOnly}>
       Cast three votes
     </button>
     <button
@@ -117,8 +119,9 @@ const clients = [
   </div>
 
   <p class="gr-controls-hint">
-    Each button runs one clean race. Reset restores the standing note so the
-    other race starts from the same board.
+    {notesOnly
+      ? "Reset restores the starting board."
+      : "Each button runs one clean race. Reset restores the starting board."}
   </p>
 
   <noscript>

@@ -51,9 +51,9 @@ const layout = `retro_tutorial_lustre/
 ├── index.html
 ├── src/
 │   ├── doc_schema.gleam            ← this sheet
-│   ├── note.gleam                  ← step 03
-│   ├── board.gleam                 ← step 03
-│   ├── board_ops.gleam             ← steps 03 and 04
+│   ├── note.gleam                  ← step 02
+│   ├── board.gleam                 ← step 02
+│   ├── board_ops.gleam             ← steps 02 and 04
 │   └── retro_tutorial_lustre.gleam ← every sheet
 └── test/
     ├── note_codec_test.gleam
@@ -63,19 +63,17 @@ const layout = `retro_tutorial_lustre/
 
 <GuideLayout
   slug="connect"
-  description="Step two of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+  description="Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
 >
   <div class="g-block">
-    <h2>The races were real; nothing was keeping order yet</h2>
+    <h2>Connect to a live document</h2>
     <p>
-      Everything you watched on the last sheet ran inside one browser tab, so
-      there was no real race — you controlled the timing yourself. With real
-      replicas, separate tabs or separate computers, somebody has to referee
-      the order edits land in. That referee is the server, and the thing it
-      referees is a <strong>document</strong>: one shared board, addressed by a{" "}
+      A watershed <strong>document</strong> is one shared board, addressed by a{" "}
       <code>tenant</code> id and a <code>document</code> id. The tenant id
       groups documents; the document id picks one board in that group. Any
-      client that opens the same pair of names joins the same live board.
+      client that opens the same pair of names joins the same live board —
+      open the same link in two tabs and you’re looking at the same board in
+      both.
     </p>
     <p>
       Connecting does two things. First it catches you up: the server replays
@@ -149,40 +147,40 @@ const layout = `retro_tutorial_lustre/
   </div>
 
   <div class="g-block">
-    <h2>Seed the channels with <code>ensure_or_map</code></h2>
+    <h2>Define the board’s fields</h2>
     <p>
-      A brand-new document starts out empty. If two people open a new board at
-      the exact same moment, both of their apps try to create the notes map —
-      and exactly one of those attempts has to become the real one, with the
-      other simply adopting whichever one won.
-      <code>ensure_or_map</code> handles that for you: give it a field name,
-      and it either creates the map if nothing’s there yet, or hands you back
-      the one that already exists. Either way you get a usable map, with no
-      retry logic to write yourself.
+      The schema lists the shared fields in a document. This board has a
+      <code>title</code> string and two maps named <code>notes</code> and{" "}
+      <code>votes</code>. A named shared map is called a{" "}
+      <strong>channel</strong>.
     </p>
     <p>
-      From here on, we’ll call a named, shared field inside a document a{" "}
-      <strong>channel</strong> — <code>notes</code> and <code>votes</code> are
-      both channels. The schema file is the only place their key strings live.
-      Two channels, one plain string field, and a <code>BoardDoc</code> marker
-      baked into the types — it costs nothing at runtime, but it ties all three
-      fields to this one document, so reading a field against the wrong
-      document is a compile error, not a surprise while the app is running.
+      Keep these names in one file instead of repeating strings throughout the
+      app. The <code>BoardDoc</code> type also prevents code from using one of
+      these fields with a different kind of document.
     </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
       <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
     </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Create the shared maps</h2>
+    <p>
+      A new document starts empty. <code>ensure_or_map</code> creates a map if
+      it is missing and returns the existing map if another client created it
+      first. Both clients can open a new board at the same time and get the
+      same maps.
+    </p>
     <span class="g-file">src/retro_tutorial_lustre.gleam</span>
     <figure class="g-code">
       <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      The two modes are the two races from step 01, made concrete.
-      <code>RegisterMode</code> stores one string per key — that’s where whole
-      notes go in step 03. <code>TallyMode</code> stores one signed number per
-      key — that’s where votes go in step 04. The mode is fixed the moment the
-      channel is created, so this is where you choose it.
+      <code>RegisterMode</code> stores one string per key for notes.{" "}
+      <code>TallyMode</code> stores one signed number per key for votes. You
+      choose the mode when you create the channel.
     </p>
   </div>
 
@@ -285,7 +283,7 @@ pnpm serve      # http://localhost:8080`}
     <p>
       Open <code>http://localhost:8080</code> and read the status line:
       <code>connected · board ready · 0 notes</code>. The document is live and
-      both channels are attached — there is just nothing in them yet. Step 03
+      both channels are attached — there is just nothing in them yet. Step 02
       fixes that.
     </p>
   </div>

@@ -1,13 +1,12 @@
 ---
 import Sheet from "../../layouts/Sheet.astro";
 import Ecosystem from "../../components/Ecosystem.astro";
-import GuideRaceDemo from "../../components/GuideRaceDemo.astro";
 import { steps } from "../../data/guide";
 ---
 
 <Sheet
   title="watershed — build guide"
-  description="A six-step field procedure for building a multiplayer retro board on watershed: watch the two races it has to survive, connect a live document, add notes that survive a tie, votes that add up, presence that clears itself, and tests that prove all of it, every time."
+  description="Build a multiplayer retro board on watershed: connect two tabs, add notes and votes, show who is reading, and test simultaneous edits."
 >
   <header class="gi-hero">
     <div class="gi-hero-inner">
@@ -16,15 +15,12 @@ import { steps } from "../../data/guide";
       </p>
       <h1>Build a multiplayer app,<br /><em>step by step.</em></h1>
       <p class="lede">
-        The rest of this site shows <em>what</em> watershed’s structures are and
-        how every copy of one ends up agreeing, no matter what order the edits
-        arrive in. This guide is the build procedure — and it starts at the
-        two moments a shared retro board stops being a plain list: the moment
-        two people can edit it at the same time, with no one in charge of who
-        goes first.
+        Build a shared retro board in Gleam. Connect two browser tabs, add a
+        note, and watch it appear in both. Then add votes, show who is reading,
+        and test what happens when two people edit at once.
       </p>
       <div class="cta-row">
-        <a class="cta-primary" href="/guide/race">Start · 01 Run the race →</a>
+        <a class="cta-primary" href="/guide/connect">Start · 01 Connect the board →</a>
         <a class="cta-quiet" href="/structures">Browse the structures ↓</a>
       </div>
     </div>
@@ -38,25 +34,23 @@ import { steps } from "../../data/guide";
           <p>
             One app runs the whole way through: a <strong>sprint retro
             board</strong>. Three columns of sticky notes, a vote count on each
-            one, and a roster showing who is reading what. It stays small on
-            purpose — a title, notes, votes, presence — so every step adds one
-            working capability to the same codebase rather than a new toy.
+            one, and a roster showing who is reading what. Each step adds one
+            working piece — a title, notes, votes, presence — to the same
+            codebase.
           </p>
           <p>
-            Small is not the same as toy. Two people adding a note in the same
-            second, and two people voting on the same note at once, are the
-            exact races that break a naive implementation. The demo below runs
-            both before you write anything.
+            Once notes work, you’ll open the board in two tabs and add notes
+            from both at the same instant. Both notes survive, and you’ll see
+            why. Votes get the same treatment: build the count first, then
+            look at the mistake it avoids.
           </p>
           <p class="gi-prereq">
             You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}
-            and, from step 02 on, a{" "}
-            <a href="https://floodgate.tylerbutler.com">floodgate</a> server.
-            The last step needs neither: it proves both races come out right
-            with nothing running at all. The guide quotes{" "}
+            throughout, and a <a href="https://floodgate.tylerbutler.com">floodgate</a>{" "}
+            server for the first five steps. The last step needs no server. Each
+            code sample comes from{" "}
             <a href="https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre">
-            the checked-in project</a> at build time, so what you read and what
-            compiles can’t drift apart.
+            the complete tutorial project</a>.
           </p>
         </div>
         <figure class="gi-doc" aria-label="The retro board document shape">
@@ -70,8 +64,6 @@ import { steps } from "../../data/guide";
         </figure>
       </div>
     </section>
-
-    <GuideRaceDemo />
 
     <section class="gi-ledger" aria-labelledby="gi-ledger-title">
       <div class="gi-ledger-head">
