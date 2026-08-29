@@ -26,8 +26,9 @@ const beam = `import gleam/erlang/process.{type Subject}
 import watershed/map_kernel
 import watershed_beam
 
-// Blocks until the op history has replayed locally, then hands back the
-// document — natural inside an OTP process, impossible on the event loop.
+// Blocks until the document's full history has replayed locally, then
+// hands back the document — fine inside an OTP process, but it would
+// freeze everything in a browser tab.
 let assert Ok(doc) =
   watershed_beam.connect(
     host: "127.0.0.1",
@@ -62,22 +63,26 @@ const layout = `retro_tutorial_lustre/
 
 <GuideLayout
   slug="connect"
-  description="Step two of the watershed build guide: connect the tutorial retro board to a live document, treat the handle and the handshake as two separate events, and seed its register and tally OR-maps with ensure_or_map before the first render."
+  description="Step two of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
 >
   <div class="g-block">
-    <h2>The races were real; the sequencer wasn’t</h2>
+    <h2>The races were real; nothing was keeping order yet</h2>
     <p>
-      Everything you watched on the last sheet ran inside one browser tab.
-      Real replicas need someone to decide the order they all agree on, and
-      that is what a <strong>document</strong> is: a server-sequenced container
-      addressed by a <code>tenant</code> and a <code>document</code> id. Every
-      client that opens the same pair joins the same live state.
+      Everything you watched on the last sheet ran inside one browser tab, so
+      there was no real race — you controlled the timing yourself. With real
+      replicas, separate tabs or separate computers, somebody has to referee
+      the order edits land in. That referee is the server, and the thing it
+      referees is a <strong>document</strong>: one shared board, addressed by a{" "}
+      <code>tenant</code> id and a <code>document</code> id. The tenant id
+      groups documents; the document id picks one board in that group. Any
+      client that opens the same pair of names joins the same live board.
     </p>
     <p>
-      Connecting replays the document’s op history, so you start from the
-      current converged state rather than an empty board, then holds the
-      connection open to stream every later change — yours and everyone
-      else’s — in one server-assigned order.
+      Connecting does two things. First it catches you up: the server replays
+      the board’s whole history of edits, so you land on the current state
+      instead of an empty one. Then it keeps the line open, streaming every
+      later edit — yours and everyone else’s — in the single order the server
+      assigns.
     </p>
     <span class="g-file">src/retro_tutorial_lustre.gleam</span>
     <figure class="g-code">
@@ -96,14 +101,16 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>Connecting is a declared effect, not a callback</h2>
     <p>
-      The browser facade speaks in callbacks: <code>on_ready</code>, subscription
-      handlers, presence events. Bridged into Lustre by hand, each one has to
-      <code>dispatch</code> — and dispatching from inside <code>update</code>
-      clobbers the model you are in the middle of returning.{" "}
+      The browser side of watershed talks in callbacks: <code>on_ready</code>,
+      subscription handlers, presence events. If you wired those into Lustre by
+      hand, each one would need to fire off a message on its own — and firing a
+      message from inside <code>update</code>, while <code>update</code> is
+      still assembling the model you’re about to return, quietly overwrites
+      that half-built model with a stale one.{" "}
       <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
-      <code>watershed_lustre</code></a> does that bridging once, correctly, so
-      your <code>init</code> returns a connection the way it returns any other
-      effect.
+      <code>watershed_lustre</code></a> does that wiring once, correctly, so
+      your <code>init</code> just returns the connection as one more effect —
+      the same way it returns any other effect in Lustre.
     </p>
     <figure class="g-code">
       <Code code={connectEffect} lang="gleam" theme={watershedCodeTheme} />
@@ -123,16 +130,18 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>The handle and the handshake are two different events</h2>
     <p>
-      Notice that <code>connect_dev</code> names <em>two</em> messages.
-      <code>got_document</code> fires as soon as the handle exists;
-      <code>connected</code> fires when the handshake and history replay are
-      done. Treating those as one event is a first-load race: you get a
-      <code>Document</code> that is not yet synced, seed channels against it, and
-      wonder why the board flickers.
+      Notice that <code>connect_dev</code> fires two separate messages.
+      <code>got_document</code> arrives the moment you have something to hold
+      onto — a reference to the document, before it’s caught up. <code>connected</code>{" "}
+      arrives later, once the server has finished replaying history and you’re
+      actually in sync. Treat those as the same moment and you get a subtle
+      bug on first load: you start building on a document that looks ready but
+      hasn’t caught up yet, and wonder why the board flickers or shows nothing.
     </p>
     <p>
-      So the tutorial app keeps both, and bootstraps on whichever arrives
-      second. That is the whole reason for the double <code>case</code> below.
+      So the tutorial app keeps both messages separate, and only starts
+      building the board once whichever one arrives second has shown up. That
+      is the whole reason for the double <code>case</code> below.
     </p>
     <figure class="g-code">
       <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
@@ -142,18 +151,23 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>Seed the channels with <code>ensure_or_map</code></h2>
     <p>
-      A fresh document is empty. Two people opening a new board at the same
-      moment both want to create the <code>notes</code> map; exactly one must
-      win and the other must adopt the winner.
-      <code>ensure_or_map</code> collapses that create-race-retry dance into a
-      declaration: from the field alone it seeds the channel if it is absent and
-      resolves the existing one if it is not.
+      A brand-new document starts out empty. If two people open a new board at
+      the exact same moment, both of their apps try to create the notes map —
+      and exactly one of those attempts has to become the real one, with the
+      other simply adopting whichever one won.
+      <code>ensure_or_map</code> handles that for you: give it a field name,
+      and it either creates the map if nothing’s there yet, or hands you back
+      the one that already exists. Either way you get a usable map, with no
+      retry logic to write yourself.
     </p>
     <p>
-      The schema file is the only place key strings live. Two channel fields, one
-      plain field, and a phantom <code>BoardDoc</code> tag that scopes all three
-      to this document — read a field against the wrong document and it is a
-      compile error, not a runtime surprise.
+      From here on, we’ll call a named, shared field inside a document a{" "}
+      <strong>channel</strong> — <code>notes</code> and <code>votes</code> are
+      both channels. The schema file is the only place their key strings live.
+      Two channels, one plain string field, and a <code>BoardDoc</code> marker
+      baked into the types — it costs nothing at runtime, but it ties all three
+      fields to this one document, so reading a field against the wrong
+      document is a compile error, not a surprise while the app is running.
     </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
@@ -164,31 +178,33 @@ const layout = `retro_tutorial_lustre/
       <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      The two modes are the two races from step 01, declared.
-      <code>RegisterMode</code> stores a string per key, which is where whole
-      notes go in step 03. <code>TallyMode</code> stores a signed integer per key,
-      which is where votes go in step 04. The mode is fixed when the channel is
-      created, so this is the moment you choose.
+      The two modes are the two races from step 01, made concrete.
+      <code>RegisterMode</code> stores one string per key — that’s where whole
+      notes go in step 03. <code>TallyMode</code> stores one signed number per
+      key — that’s where votes go in step 04. The mode is fixed the moment the
+      channel is created, so this is where you choose it.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Render only when both channels are home</h2>
     <p>
-      Each <code>ensure_or_map</code> dispatches its own handle back, and they do
-      not arrive together. Rendering from a half-assembled board would mean a
-      notes list with no vote totals, so the app holds the handles in a
-      <code>PendingShared</code> pair and does nothing until both are in.
+      Each call to <code>ensure_or_map</code> hands its map back separately,
+      and the two don’t arrive together. Render as soon as one shows up and
+      you’d get a notes list with no vote totals for a moment, so instead the
+      app holds both results in a <code>PendingShared</code> pair and waits to
+      render anything until both channels are in.
     </p>
     <figure class="g-code">
       <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      The subscriptions come last, and they matter more than they look.
-      A subscription fires on <em>subsequent</em> change and never replays what
-      is already there — which is why <code>assemble</code> takes a snapshot in
-      the same breath. Skip that and the board boots empty and stays empty until
-      someone else types.
+      The subscriptions come last, and they matter more than they look. A
+      subscription only tells you about changes that happen <em>after</em> you
+      subscribe — it never replays what’s already in the map. That’s why{" "}
+      <code>assemble</code> takes a snapshot of the current state in the same
+      breath that it subscribes. Skip the snapshot, and the board boots up
+      empty and stays empty until someone else happens to type.
     </p>
     <div class="g-note">
       <p>
@@ -203,9 +219,11 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h3>Deepening: the same thing on the BEAM</h3>
     <p>
-      watershed is BEAM-first and the same pure core compiles to the browser.
-      Structure operations are identical; only the connection and subscription
-      shapes differ, and they differ because the runtimes do.
+      watershed is built BEAM-first — the BEAM is the Erlang virtual machine
+      that Gleam also targets on the server — and the same core logic compiles
+      to the browser too. The map operations are identical either way; only the
+      connecting and subscribing look different, because the two runtimes work
+      differently.
     </p>
     <figure class="g-code">
       <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
@@ -214,10 +232,13 @@ const layout = `retro_tutorial_lustre/
       </figcaption>
     </figure>
     <p>
-      On the BEAM there is no readiness race to design around: <code>connect</code>
-      {" "}blocks, so a handle you hold is a handle that has replayed. That is the
-      one real difference, and it is why the browser path needs the two-message
-      pattern above.
+      On the BEAM, there’s no two-message dance to design around:{" "}
+      <code>connect</code> simply pauses your code until the document has
+      fully caught up, so by the time you’re holding a handle, it’s already
+      synced. That’s the one real difference between the two runtimes — and
+      it’s exactly why the browser path above needs the two-message pattern:
+      JavaScript can’t pause and wait the way an OTP process (an
+      Erlang-style lightweight process) can.
     </p>
   </div>
 

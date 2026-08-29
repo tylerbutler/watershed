@@ -7,7 +7,7 @@ import { steps } from "../../data/guide";
 
 <Sheet
   title="watershed — build guide"
-  description="A six-step field procedure for building a multiplayer retro board on watershed: run the two races it has to survive, connect a live document, add notes that survive a tie, votes that add up, presence that expires, and deterministic convergence tests."
+  description="A six-step field procedure for building a multiplayer retro board on watershed: watch the two races it has to survive, connect a live document, add notes that survive a tie, votes that add up, presence that clears itself, and tests that prove all of it, every time."
 >
   <header class="gi-hero">
     <div class="gi-hero-inner">
@@ -17,9 +17,11 @@ import { steps } from "../../data/guide";
       <h1>Build a multiplayer app,<br /><em>step by step.</em></h1>
       <p class="lede">
         The rest of this site shows <em>what</em> watershed’s structures are and
-        how they converge. This guide is the build procedure — and it starts at
-        the two moments a shared retro board stops being a list and starts being
-        a distributed system.
+        how every copy of one ends up agreeing, no matter what order the edits
+        arrive in. This guide is the build procedure — and it starts at the
+        two moments a shared retro board stops being a plain list: the moment
+        two people can edit it at the same time, with no one in charge of who
+        goes first.
       </p>
       <div class="cta-row">
         <a class="cta-primary" href="/guide/race">Start · 01 Run the race →</a>
@@ -50,8 +52,8 @@ import { steps } from "../../data/guide";
             You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}
             and, from step 02 on, a{" "}
             <a href="https://floodgate.tylerbutler.com">floodgate</a> server.
-            The last step needs neither: it proves both races converge with
-            nothing running at all. The guide quotes{" "}
+            The last step needs neither: it proves both races come out right
+            with nothing running at all. The guide quotes{" "}
             <a href="https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre">
             the checked-in project</a> at build time, so what you read and what
             compiles can’t drift apart.

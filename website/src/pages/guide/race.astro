@@ -19,7 +19,7 @@ const voteRace = excerpt(
 
 <GuideLayout
   slug="race"
-  description="Step one of the watershed build guide: run the two concurrency races the tutorial retro board has to survive — a tie between two note adds, and three votes cast at once on one note — then read the checked-in tests that pin both outcomes."
+  description="Step one of the watershed build guide: watch what happens when two people add a note at the same instant, and when three votes land on one note at once — then read the tests that prove both come out right."
 >
   <GuideRaceDemo slot="wide" />
 
@@ -27,15 +27,18 @@ const voteRace = excerpt(
     <h2>Start from the thing that breaks</h2>
     <p>
       Most build guides start with a connection string. This one starts with the
-      two moments where a retro board stops being a list and starts being a
-      distributed system — because every sheet after this one exists to survive
-      one of them.
+      two moments where a shared retro board stops being a plain list — because
+      now two people can touch it at the same time, over the network, and
+      nobody is standing there to say who went first. Every sheet after this
+      one exists to survive one of those two moments.
     </p>
     <p>
       The rig above runs two real <code>watershed</code> documents against the
-      in-memory <strong>sluice</strong>. Nothing is mocked: the same OR-map
-      operations you’ll write in step 03 and step 04 go through the same client
-      runtime, with delivery held back so you can watch it happen.
+      <strong>sluice</strong>, a stand-in for the network that lets you hold
+      messages back and release them by hand instead of at network speed.
+      Nothing here is faked: it’s the same map writes you’ll write in step 03
+      and step 04, running through the same client code, just slowed down
+      enough to watch.
     </p>
   </div>
 
@@ -43,15 +46,17 @@ const voteRace = excerpt(
     <h2>Race one: the tie nobody wins</h2>
     <p>
       Two people type into <em>Went well</em> in the same second and hit Add.
-      Both notes are new, neither knows about the other, and there is no
-      sensible answer to “which one did they mean?” — because they meant both.
+      Both notes are new, neither one knows the other exists, and there’s no
+      good answer to “which one did they mean?” — because they meant both.
     </p>
     <p>
-      Store the board as a plain map keyed by column and you get one note. Not
-      because the map is broken: a map with one key per column just <em>is</em>
-      a single slot, and last-write-wins is doing exactly what it says. The fix
-      is the key, not the merge. Give every note its own id in an
-      <strong>OR-map</strong>, and the two adds are not even in conflict.
+      Store the board as a plain map keyed by column, and you get one note
+      back, not two. The map isn’t broken: a map with one key per column only
+      has one slot per column, so the second note simply overwrites the first
+      — that’s what “last write wins” means. The fix isn’t a smarter merge,
+      it’s a better key. Give every note its own id in an <strong>OR-map</strong>{" "}
+      — a map built so that two different keys can never collide — and the two
+      adds aren’t even in conflict with each other.
     </p>
   </div>
 
@@ -59,17 +64,19 @@ const voteRace = excerpt(
     <h2>Race two: the vote you can’t find afterwards</h2>
     <p>
       Now one standing note, three votes in flight: Client A upvotes, Client B
-      upvotes, Client B changes their mind and downvotes. Three operations, and
-      only one honest total.
+      upvotes, Client B changes their mind and downvotes. Three separate clicks,
+      and only one honest total should come out the other end.
     </p>
     <p>
-      Read the count, add one, write the count back, and you have written the
-      classic distributed-systems bug: two clients read <code>0</code>, both
-      write <code>1</code>, and one vote is gone with nothing to show for it.
-      A <strong>tally</strong> ships the <code>+1</code> instead of the
-      <code>1</code>. Addition commutes, so the order the sequencer picks stops
-      mattering — the arithmetic lands the same either way. The demo settles at
-      <code>+1</code> whichever way you run it.
+      Read the count, add one, write the count back — and you’ve just written a
+      bug that trips up almost every shared counter: both clients read
+      <code>0</code>, both write <code>1</code>, and one vote is gone with
+      nothing to show for it — no error, no warning, just a wrong number.
+      A <strong>tally</strong> avoids this by sending the change instead of the
+      new total — it ships <code>+1</code>, not <code>1</code>. Adding numbers
+      doesn’t care what order they show up in, so it stops mattering who the
+      server heard from first — the arithmetic lands the same either way. The
+      demo settles at <code>+1</code> however you run it.
     </p>
     <div class="g-note">
       <p>

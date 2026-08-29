@@ -33,24 +33,28 @@ const focusNames = excerpt(appSource, "fn focus_names(");
 
 <GuideLayout
   slug="presence"
-  description="Step five of the watershed build guide: publish the note a teammate is reading through the presence tier, where it expires with the connection, instead of storing it in the document where it would be sequenced, summarised, and replayed forever."
+  description="Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out the moment someone disconnects, instead of storing it in the document where it would stick around forever."
 >
   <div class="g-block">
     <h2>Some facts should be allowed to expire</h2>
     <p>
-      Notes and votes both had to survive: that was the whole argument of the
-      last two sheets. “Ada is reading this card right now” is the opposite kind
-      of fact. Put it in the document and it gets sequenced, summarised, and
-      replayed to whoever opens the board next Tuesday, long after it stopped
-      being true.
+      Notes and votes both had to survive — that was the whole argument of the
+      last two sheets. “Ada is reading this card right now” is the opposite
+      kind of fact. Put it in the document, and it becomes permanent right
+      along with everything else: ordered by the server, folded into the
+      board’s saved state, and played back to whoever opens the board next
+      Tuesday — long after it stopped being true.
     </p>
     <p>
-      watershed’s answer is a second tier that runs alongside your channels.
-      <strong>Ripples</strong> are the raw form: document-scoped broadcasts to
-      every other connected client, with no order, no storage, and no
-      convergence, on purpose. <strong>Presence</strong> is the roster built on
-      top, and it is the one you want here — because a raw ripple leaves a peer’s
-      last marker stuck on screen after they close the tab.
+      watershed’s answer is a second system that runs alongside your channels,
+      built for facts that shouldn’t stick around.
+      <strong>Ripples</strong> are the raw form: a message broadcast to every
+      other client connected to this document right now, with no ordering
+      guarantee and nothing saved anywhere — on purpose.
+      <strong>Presence</strong> is the roster built on top of ripples, and it’s
+      the one you want here, because a raw ripple would leave a peer’s last
+      marker stuck on screen even after they close the tab; presence knows how
+      to clear itself when someone leaves.
     </p>
   </div>
 
@@ -67,32 +71,35 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       <Code code={payload} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Note the <code>optional_field</code> on the way in. A peer running last
-      week’s build might not send <code>focused_note</code> at all, and the
-      roster should shrug at that rather than drop the peer.
+      Note the <code>optional_field</code> on the way in. Someone running last
+      week’s version of the app might not send <code>focused_note</code> at
+      all, and the roster should shrug that off instead of dropping them
+      entirely.
     </p>
   </div>
 
   <div class="g-block">
-    <h2>One effect owns the heartbeat</h2>
+    <h2>One effect handles all of it</h2>
     <p>
-      <code>watershed_lustre.presence</code> is a single effect that starts the
-      driver, hands back a <code>Handle</code> to keep in the model, and
-      dispatches roster events as they arrive. You do not write a heartbeat, a
-      TTL, or a reaper.
+      <code>watershed_lustre.presence</code> is a single effect that starts
+      everything running, hands back a <code>Handle</code> to keep in your
+      model, and dispatches roster events as they arrive. You don’t write any
+      of the plumbing yourself: no heartbeat (a periodic “I’m still here”
+      ping), no expiry timer, and no cleanup process to remove people who
+      disappeared without saying goodbye.
     </p>
     <figure class="g-code">
       <Code code={presenceEffect} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>Two implementations, one API.</strong> Where the server offers
-        connection-backed presence, it tracks each socket directly: a late
-        joiner gets the whole roster at once and a dropped connection removes
-        its entry immediately. Where it doesn’t, presence falls back to
-        heartbeating over ripples and expiring peers on a TTL. The
-        <a href="/runtime/presence">runtime note</a> covers which you get and
-        what changes when it’s the fallback.
+        <strong>Two implementations, one API.</strong> Where the server can
+        track each connection directly, it does: a late joiner gets the whole
+        roster at once, and closing a tab removes that entry immediately.
+        Where it can’t, presence falls back to sending its own heartbeat over
+        ripples and expiring anyone who’s gone quiet for too long. The{" "}
+        <a href="/runtime/presence">runtime note</a> covers which one you get
+        and what changes when it’s the fallback.
       </p>
     </div>
   </div>
@@ -122,20 +129,22 @@ const focusNames = excerpt(appSource, "fn focus_names(");
   <div class="g-block">
     <h2>The roster arrives as events, including the bad ones</h2>
     <p>
-      <code>State</code> is the full roster; <code>Changed</code> carries the
-      delta and the full roster, and the tutorial re-renders from the roster in
-      both cases rather than trying to patch. Rendering the whole list is cheap
-      and it cannot get out of sync.
+      <code>State</code> is the full roster; <code>Changed</code> carries what
+      changed plus the full roster anyway, and the tutorial re-renders from the
+      whole roster either way, instead of trying to patch it in place. Redrawing
+      the whole list is cheap, and it can never end up out of sync with reality.
     </p>
     <figure class="g-code">
       <Code code={presenceEvents} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      The failure arms are the interesting part. A single peer whose payload
-      doesn’t decode is ignored — one teammate on a bad build should not empty
-      the roster. A server without presence support, or one that rejects the
-      join, is a message on screen. Neither of them stops the board: notes and
-      votes keep working because the board does not depend on presence.
+      The interesting part is what happens when something goes wrong. If one
+      teammate’s presence data doesn’t decode, that single entry is ignored — a
+      person on a broken build shouldn’t wipe out everyone else’s roster. If
+      the server doesn’t support presence at all, or rejects your attempt to
+      join, you get a message on screen instead of a crash. Either way, the
+      board itself keeps working: notes and votes don’t depend on presence, so
+      losing presence never takes them down.
     </p>
     <figure class="g-code">
       <Code code={remotePeers} lang="gleam" theme={watershedCodeTheme} />
@@ -148,25 +157,27 @@ const focusNames = excerpt(appSource, "fn focus_names(");
   </div>
 
   <div class="g-block">
-    <h3>Deepening: presence is a read model over both tiers</h3>
+    <h3>Deepening: one highlight, built from two systems</h3>
     <p>
-      The highlight on a card is where the two tiers meet. The note id comes from
-      the durable channel; the “who is looking at it” comes from the ephemeral
-      one; the card is a join over both, computed at render time.
+      The highlight you see on a card is where the two systems meet. The
+      note’s id comes from the permanent channel — the document. Who’s looking
+      at it comes from the temporary one — presence. The card combines both,
+      freshly, every time it’s drawn.
     </p>
     <figure class="g-code">
       <Code code={focusNames} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      The note id comes from the durable channel; the names come from the
-      ephemeral roster; <code>focus_names</code> joins both at render time,
-      combining your local focus with any peers on the same id. If you take one
-      habit from this sheet, take that one: let the ephemeral tier point at
-      durable state, never duplicate it.
+      Same idea, now with the actual function: <code>focus_names</code> combines
+      your own local focus with anyone else’s whose focused note matches this
+      card, at render time. If you take one habit from this sheet, take that
+      one — let the temporary system point at permanent state, never copy it.
     </p>
     <p>
-      High-frequency signals — cursor motion, a typing indicator — stay as raw
-      ripples. Presence is for membership and the slower status attached to it.
+      Fast-changing signals — cursor position, a typing indicator — stay as
+      raw ripples instead. Presence is for who’s here and the slower-changing
+      status attached to that, not for anything that updates many times a
+      second.
     </p>
   </div>
 

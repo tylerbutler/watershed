@@ -16,13 +16,13 @@ const voteRace = excerpt(
   "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
 );
 
-const scripted = `// Two adds, then deliver one frame at a time instead of draining.
+const scripted = `// Two adds, then deliver one message at a time instead of all at once.
 board_ops.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
 board_ops.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
 
-sluice_js.step(sluice)     // deliver exactly one queued frame
+sluice_js.step(sluice)     // deliver exactly one queued message
 // ... assert the half-delivered board here ...
-sluice_js.settle(sluice)   // then drain the rest to quiescence`;
+sluice_js.settle(sluice)   // then deliver everything else that's left`;
 
 const layout = `retro_tutorial_lustre/
 ├── gleam.toml                      dependencies and the javascript target
@@ -44,7 +44,7 @@ const layout = `retro_tutorial_lustre/
 
 <GuideLayout
   slug="testing"
-  description="Step six of the watershed build guide: the sluice is an in-memory sequencer running the production client runtime over an injected transport, so the two races from step one become ordinary gleam test assertions with no server, no browser, and no timing luck."
+  description="Step six of the watershed build guide: the sluice runs the real client code against a fake network you control by hand, so the two races from step one become ordinary gleam test assertions — no server, no browser, no timing luck."
 >
   <div class="g-block">
     <h2>Close the loop you opened</h2>
@@ -56,82 +56,93 @@ const layout = `retro_tutorial_lustre/
       running two clients.
     </p>
     <p>
-      The <strong>sluice</strong> is that piece: an in-memory sequencer and
-      transport that runs the production client runtime, with the same codecs,
-      pending queues, resubmit, and reconnect catch-up, and the same sequencing
-      module the server uses. It exercises the real client paths. It does not
-      claim to reproduce floodgate’s storage, authentication, or network
-      boundary — keep a live smoke test for those.
+      The <strong>sluice</strong> is that piece: an in-memory stand-in for the
+      trip between client and server. It plugs into the same client code as
+      production — the same encoding and decoding, queuing and retry logic,
+      catch-up after reconnecting, and ordering rules. It runs the real client
+      code end to end. It doesn’t open real network connections or reproduce
+      floodgate’s storage and login, so keep a live smoke test against a real
+      server for those.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Nothing is delivered until you say so</h2>
     <p>
-      That is the whole trick. A client’s submission is processed and sequenced
-      synchronously, but the inbound frames it produces sit in a queue.
-      <code>settle</code> drains them to quiescence; <code>step</code> delivers
-      exactly one. Server order and the order each replica observes it become two
-      separate things you control.
+      That is the whole trick. When a client submits something, it’s processed
+      and given its place in the order right away — but the messages that
+      result from it sit in a queue instead of arriving immediately.
+      <code>settle</code> drains that queue until nothing’s left to deliver;
+      <code>step</code> delivers exactly one message and stops. That splits
+      “the order the server decided on” and “the order each client actually
+      sees it in” into two separate things you control by hand.
     </p>
     <p>
-      So a room is: one sluice, two connected documents, a settle to finish both
-      handshakes, the channels created on A, and a second settle so B can resolve
-      the same handles from the root map.
+      So setting up a test room means: one sluice, two documents connecting to
+      it, one settle to let both handshakes finish, the channels created on
+      client A, and a second settle so client B can pick up those same
+      channels from the shared root map.
     </p>
     <span class="g-file">test/convergence_test.gleam</span>
     <figure class="g-code">
       <Code code={room} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Neither settle is decoration. Drop the second one and B is looking at a
-      root map with no channel handles in it yet, so <code>channels_of</code>
-      fails on a board that is merely early rather than broken.
+      Neither settle call is decoration. Skip the second one, and client B is
+      looking at a root map that doesn’t have those channels in it yet — so{" "}
+      <code>channels_of</code> fails, not because anything is broken, but
+      because you asked too early.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Assert on the board, not on the map</h2>
     <p>
-      The tests read through <code>board_ops.snapshot</code> — the same function
-      the UI renders from. That is deliberate. Asserting on raw OR-map entries
-      would pass while the board that people actually look at was sorting its
-      columns differently on each replica.
+      The tests read the board through <code>board_ops.snapshot</code> — the
+      exact same function the UI renders from. That is deliberate. If the
+      tests instead asserted directly on the raw map entries, they could pass
+      while the actual board people look at was sorting its columns
+      differently on each tab.
     </p>
     <figure class="g-code">
       <Code code={boardOf} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Which is why <code>board_ops</code> exists as its own module: a test that
-      reimplements the write it is testing proves the reimplementation works.
+      This is exactly why <code>board_ops</code> exists as its own module: if
+      a test reimplemented the write instead of calling the real one, all it
+      would prove is that the copy agrees with itself.
     </p>
   </div>
 
   <div class="g-block">
     <h2>The two races, as tests</h2>
     <p>
-      Both notes survive because they were never in the same slot. Both
-      assertions matter: <code>board_a |> should.equal(board_b)</code> is
-      convergence, and the count and the two lookups are the claim that
-      convergence didn’t happen by throwing one note away.
+      Both notes survive because they were never competing for the same slot.
+      Both assertions in the test matter:{" "}
+      <code>board_a |> should.equal(board_b)</code> checks that both tabs ended
+      up showing the identical board. The note count and the two lookups check
+      something different — that they didn’t end up identical by both losing
+      the same note.
     </p>
     <figure class="g-code">
       <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
       Then three votes across two clients, settling at <code>+1</code>. Same
-      shape, same settle, and no <code>sleep</code> anywhere — this is a
-      deterministic assertion, not a race you hope resolves before the timeout.
+      shape, same settle call, and no <code>sleep</code> anywhere in sight —
+      the test doesn’t wait and hope the timing works out, it calls
+      <code>settle</code> and gets the same answer every single time.
     </p>
     <figure class="g-code">
       <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>Name the race your story depends on.</strong> A generic
-        two-client convergence test can pass while the thing your users care
-        about is broken. These two are here because they are the two promises the
-        board makes: nothing you type disappears, and nothing you vote is lost.
+        <strong>Name the race your story depends on.</strong> A generic test
+        that just checks both tabs end up looking the same can still pass
+        while the thing your users actually care about is broken. These two
+        tests exist because they are the two promises the board makes:
+        nothing you type disappears, and nothing you vote is lost.
       </p>
     </div>
   </div>
@@ -139,10 +150,10 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h3>Deepening: script the intermediate state</h3>
     <p>
-      When you want to inspect a board mid-flight — one note delivered, the other
-      still in the queue — <code>step</code> advances one inbound frame at a
-      time. It does not reorder anything already sequenced; submission call order
-      decides that.
+      When you want to inspect a board mid-flight — one note delivered, the
+      other still waiting — <code>step</code> advances one message at a time.
+      It doesn’t change the order things were already assigned; the order you
+      called the submit functions in decides that.
     </p>
     <figure class="g-code">
       <Code code={scripted} lang="gleam" theme={watershedCodeTheme} />
@@ -151,11 +162,12 @@ const layout = `retro_tutorial_lustre/
       <p>
         <strong>More controls.</strong> Both <code>sluice</code> and
         <code>sluice_js</code> provide <code>pause</code> / <code>resume</code>
-        {" "}to hold one client’s inbound frames, and <code>advance(ms)</code> to
-        move the sequencer’s logical clock for frame timestamps. Presence uses
-        the target runtime’s wall clock instead. JavaScript also exposes
-        <code>step_info</code> with delivery metadata, which is how the demo on
-        step 01 draws its op log.
+        {" "}to hold back one client’s messages specifically, and{" "}
+        <code>advance(ms)</code> to move the sluice’s own internal clock
+        forward for message timestamps. Presence works differently — it uses
+        the real system clock instead. The JavaScript version also exposes
+        <code>step_info</code> with details about each delivery, which is how
+        the demo back on step 01 draws its log of what happened.
       </p>
     </div>
   </div>

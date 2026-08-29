@@ -35,7 +35,7 @@ watershed.set(board, id, json.int(current + 1))`;
 
 <GuideLayout
   slug="votes"
-  description="Step four of the watershed build guide: put vote totals in a TallyMode OR-map so each key is a PN counter, ship signed deltas instead of computed totals, and let concurrent votes sum instead of overwriting each other."
+  description="Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
 >
   <div class="g-block">
     <h2>The bug is in the read, not the write</h2>
@@ -48,16 +48,19 @@ watershed.set(board, id, json.int(current + 1))`;
       <Code code={lossy} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Nothing there is careless. It reads, adds, writes. But <em>read</em> is the
-      problem: by the time the write is sequenced, the value it was computed from
-      is stale, and the newer write silently replaces the older one’s work. Two
-      votes go in, one total comes out, and no error is raised anywhere — the
-      lost vote leaves no trace at all.
+      Nothing here is careless — it reads, adds one, writes the result back.
+      But <em>read</em> is the problem: by the time your write reaches the
+      server, the number it was based on is already out of date, because
+      someone else’s write got there first. The newer write silently overwrites
+      the older one’s work. Two votes go in, one total comes out, and no error
+      appears anywhere — the lost vote just vanishes without a trace.
     </p>
     <p>
-      Ship the <code>+1</code> instead of the <code>5</code>. Addition commutes,
-      so the sequencer’s order stops mattering: whichever way the deltas land,
-      the total is the same. That is what a tally is.
+      Ship the <code>+1</code> instead of the <code>5</code> — send the change,
+      not the number you think the total should become. Addition doesn’t care
+      what order it happens in, so it stops mattering who the server heard from
+      first: however the changes arrive, they add up to the same total. That is
+      what a tally is.
     </p>
     <div class="g-note">
       <p>
@@ -72,15 +75,17 @@ watershed.set(board, id, json.int(current + 1))`;
   <div class="g-block">
     <h2><code>TallyMode</code>: a counter per key</h2>
     <p>
-      You already made this choice back in step 02, when
-      <code>ensure_or_map</code> got <code>TallyMode</code> for the
-      <code>votes</code> channel. That mode makes every key in the map a
-      PN counter: a leaf that accepts signed deltas and merges by summing them,
-      never by picking a winner.
+      You already made this choice back in step 02, when{" "}
+      <code>ensure_or_map</code> created the <code>votes</code> channel with{" "}
+      <code>TallyMode</code>. That mode turns every key in the map into what’s
+      sometimes called a PN counter, short for “positive-negative counter”: a
+      value that only accepts changes — plus one, minus one — and combines them
+      by adding them up, never by picking one write as the winner.
     </p>
     <p>
-      Which makes the vote API three lines long, and negative deltas fall out for
-      free. Down-voting is not a special case — it is a <code>-1</code>.
+      Which is what makes the vote API three lines long, and why downvoting
+      needs no special handling — it’s just a <code>-1</code>, not a separate
+      code path.
     </p>
     <span class="g-file">src/board_ops.gleam</span>
     <figure class="g-code">
@@ -91,21 +96,22 @@ watershed.set(board, id, json.int(current + 1))`;
       <Code code={voteClicks} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      Both branches re-snapshot immediately. The delta applies to your local
-      replica the moment you click, so the number moves under your finger and
-      then stays put when the sequencer confirms it — the local guess and the
-      sequenced result agree, because commutative arithmetic can’t disagree with
-      itself.
+      Both branches re-read the board immediately after writing. The change
+      applies to your own copy the moment you click, so the number moves right
+      away under your finger — and then stays put once the server confirms it,
+      because your local guess and the server’s final answer always agree.
+      Addition doesn’t disagree with itself, no matter what order things
+      actually happened in.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Two channels, one board</h2>
     <p>
-      Notes and votes are separate channels, keyed the same way. Reading the
-      votes map is the mirror of reading the notes map: every leaf is a
-      <code>Tally</code>, and anything else means the channel was created in the
-      wrong mode.
+      Notes and votes are separate channels, keyed the same way, by note id.
+      Reading the votes map mirrors reading the notes map: every value comes
+      back as a <code>Tally</code>, and anything else would mean the channel
+      was set up in the wrong mode.
     </p>
     <span class="g-file">src/board_ops.gleam</span>
     <figure class="g-code">
@@ -122,11 +128,14 @@ watershed.set(board, id, json.int(current + 1))`;
     </figure>
     <div class="g-note">
       <p>
-        <strong>Two channels means two clocks.</strong> A vote can be sequenced
-        before the note it belongs to has reached your replica. The join is a
-        lookup, not an invariant, so the orphan tally simply has nothing to
-        attach to yet — and appears the moment the note lands. Design the read
-        so that being briefly out of step is boring.
+        <strong>Two channels means two clocks.</strong> A vote can arrive at
+        your tab before the note it belongs to does — they travel on separate
+        channels, so there’s no guarantee they show up in the order you’d
+        expect. Looking up a note for a given vote is just a lookup, not a
+        promise that the note is already there, so an orphaned tally simply
+        has nothing to attach to for a moment — and appears the instant the
+        note catches up. Design the read so that being briefly out of step is
+        boring, not broken.
       </p>
     </div>
     <span class="g-file">test/board_test.gleam</span>
@@ -141,18 +150,20 @@ watershed.set(board, id, json.int(current + 1))`;
   <div class="g-block">
     <h3>Deepening: what a tally deliberately can’t do</h3>
     <p>
-      A tally converges because it refuses to answer questions about
-      <em>who</em>. It has no per-voter record, so it can’t enforce one vote per
-      person, can’t give you a vote budget, and can’t tell you whether a total of
-      <code>2</code> means two people or one person clicking twice.
+      A tally settles on the same total everywhere, no matter what order the
+      votes arrive in — and it manages that by refusing to answer questions
+      about <em>who</em>. It has no per-voter record, so it can’t enforce one
+      vote per person, can’t give you a vote budget, and can’t tell you whether
+      a total of <code>2</code> means two people voted or one person clicked
+      twice.
     </p>
     <p>
-      Those are real features and they need a different structure: an{" "}
+      Those are real features, and they need a different structure: an{" "}
       <a href="/structures/sets#orset">OR-set</a> of voter ids per note, or the{" "}
       <a href="/structures/coordination">coordination family</a> when the
       question is “who holds this” rather than “how many”. Add them only when
-      the question demands it. A tally that fits is worth more than a quorum
-      that doesn’t.
+      the question actually demands it — a tally that fits is worth more than
+      a fancier structure that doesn’t.
     </p>
   </div>
 
