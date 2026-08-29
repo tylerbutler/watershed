@@ -981,12 +981,15 @@ pub fn resolve_directory_field(
 
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
 //
-// Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
-// LWW winner if the key is already set, otherwise seed a candidate channel,
-// wait for sync, and adopt whichever handle the sequencer ordered first (losing
-// candidates stay attached but unreferenced — orphan GC is out of scope). The
-// browser cannot block, so each takes a `done` continuation and waits/retries
-// on a library-owned timer; the BEAM facade blocks and returns instead.
+// Each `ensure_*` gives a typed slot a channel: adopt the handle already
+// under the key, or seed a candidate, wait for the caller's own write to
+// sync, and resolve the handle visible under the key at that point. The
+// field is last-writer-wins, and `ensure_*` does not coordinate across
+// clients: a concurrent client's later write can still replace the field
+// after this call resolves. Losing candidates stay attached but
+// unreferenced — orphan GC is out of scope. The browser cannot block, so
+// each takes a `done` continuation and waits/retries on a library-owned
+// timer; the BEAM facade blocks and returns instead.
 
 @target(javascript)
 @external(javascript, "./watershed_ffi.mjs", "set_timeout")
@@ -1039,10 +1042,11 @@ fn resolve_with_retry(
 }
 
 @target(javascript)
-/// Adopt the channel under `key`. If the key holds a value, the function
-/// resolves the sequenced winner. If the key is empty, the function calls `seed`
-/// to create a candidate, waits for the synchronization, and then resolves the
-/// channel that won.
+/// Adopt the channel under `key`. If the key already holds a value, the
+/// function resolves the handle currently there. If the key is empty, the
+/// function calls `seed` to create a candidate, waits for the caller's own
+/// write to sync, and then resolves the handle the field shows at that
+/// point. A later write from another client can still replace the field.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),

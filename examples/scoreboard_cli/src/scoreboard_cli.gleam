@@ -81,7 +81,7 @@ type PlayerState {
 /// The player-map schema. `record4` derives the decoder *and* the per-key
 /// encoder from a single prop list, so they can never drift; `sealed_known`
 /// seals it to exactly those declared keys (no hand-repeated list); `versioned`
-/// stamps a version so incompatible future layouts fail loudly on read. One
+/// marks a version so a read can reject a mismatched stored version. One
 /// declaration replaces the old decoder / encoder / seal-list trio.
 fn player_schema() -> schema.Schema(Player, PlayerState) {
   schema.record4(

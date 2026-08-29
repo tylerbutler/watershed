@@ -69,8 +69,9 @@ const gleamRoot = `fn bootstrap(doc: Document(doc_schema.Board)) -> Effect(Msg) 
   let root = watershed.root_typed(doc)
   effect.batch([
     // Idempotent, and run by every client on every boot. Each one
-    // seeds a candidate; the handle the sequencer ordered is adopted
-    // by all of them.
+    // seeds a candidate and adopts the handle visible after its own
+    // sync — a later concurrent write can still replace the field,
+    // so the channel handed back here isn't promised to be final.
     watershed_lustre.ensure_field(
       root,
       doc_schema.title(),
@@ -348,7 +349,9 @@ const rows = [
         exists only to stop you reading a field against the wrong map. Note the
         counter too: SharedTree’s <code>wipBreaches</code> is a number in the
         tree; watershed’s is a handle to a whole <code>SharedCounter</code>,
-        with commutative increments of its own.
+        with commutative increments of its own. <a href="/foundations/schema"
+          >Foundations · schemas and fields</a
+        > covers that phantom tag, and the three kinds of field, in full.
       </p>
       <div class="st-pair">
         <figure class="g-code">
@@ -369,9 +372,14 @@ const rows = [
         writes the stored schema and every later client reads it back.
         <code>ensure_*</code> is the opposite shape: idempotent, and run by
         every client on every boot. Two clients opening a fresh document both
-        seed a candidate channel; after sync each re-reads the root key and
-        adopts whichever handle the sequencer ordered, so they converge on one
-        without a leader.
+        seed a candidate channel; each one waits for its own write to sync,
+        then adopts whichever handle the field shows at that moment — a
+        concurrent write from the other client can still land after and
+        replace the field. The field itself converges on one handle without a
+        leader; the handle each call returns just isn't promised to be that
+        one. <a href="/foundations/lifecycle"
+          >Foundations · starting a document</a
+        > walks through that whole bootstrap in order.
       </p>
       <div class="st-pair">
         <figure class="g-code">
@@ -480,7 +488,10 @@ const rows = [
         handle to a channel that converges on its own terms, and the field
         declaration names which terms. The Sudoku example is the clearest case:
         four slots, four different answers to “what happens when two clients
-        touch this at once”.
+        touch this at once”. <a href="/foundations/topology"
+          >Foundations · documents and handles</a
+        > lays out that layout on its own terms, without the SharedTree
+        comparison.
       </p>
       <div class="st-pair">
         <figure class="g-code">
@@ -513,7 +524,8 @@ const rows = [
           handle, and the child is a peer channel, not a subtree of its parent.
           There is no cross-parent move, no operation that spans two channels,
           and a root made of child fields cannot be sealed by a record schema at
-          all.
+          all. See <a href="/foundations/topology">Foundations · documents and
+          handles</a> for what that costs you in practice.
         </p>
       </div>
     </div>

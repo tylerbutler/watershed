@@ -1,0 +1,187 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Ecosystem from "./Ecosystem.astro";
+import { foundationsBySlug, foundationsNeighbours } from "../data/foundations";
+
+interface Props {
+  slug: string;
+  description: string;
+}
+
+const { slug, description } = Astro.props;
+const doc = foundationsBySlug[slug];
+if (!doc) {
+  throw new Error(`Unknown foundations slug: ${slug}`);
+}
+const { prev, next } = foundationsNeighbours(slug);
+---
+
+<Sheet title={`watershed — ${doc.title.toLowerCase()}`} description={description}>
+  <header class="fd-hero">
+    <div class="fd-hero-inner">
+      <p class="fd-crumbs annot">
+        <a href="/">← watershed</a> · <a href="/foundations">Foundations</a> / {doc.title}
+      </p>
+      <span class="fd-eyebrow annot" aria-hidden="true">Foundations</span>
+      <h1>{doc.title}</h1>
+      <p class="fd-gloss">{doc.gloss}</p>
+      <p class="fd-concept annot"><span>Traces</span> {doc.concept}</p>
+    </div>
+  </header>
+
+  <main class="doc-body">
+    <slot />
+  </main>
+
+  <nav class="fd-pager" aria-label="Foundations sheets">
+    {
+      prev ? (
+        <a class="fd-pager-cell fd-pager-prev" href={`/foundations/${prev.slug}`}>
+          <span class="annot">← {prev.title}</span>
+          <span class="fd-pager-gloss">{prev.gloss}</span>
+        </a>
+      ) : (
+        <a class="fd-pager-cell fd-pager-prev" href="/foundations">
+          <span class="annot">← Index</span>
+          <span class="fd-pager-gloss">All foundations sheets</span>
+        </a>
+      )
+    }
+    {
+      next ? (
+        <a class="fd-pager-cell fd-pager-next" href={`/foundations/${next.slug}`}>
+          <span class="annot">{next.title} →</span>
+          <span class="fd-pager-gloss">{next.gloss}</span>
+        </a>
+      ) : (
+        <a class="fd-pager-cell fd-pager-next" href="/guide">
+          <span class="annot">Build guide →</span>
+          <span class="fd-pager-gloss">Put these ideas to work</span>
+        </a>
+      )
+    }
+  </nav>
+
+  <Ecosystem />
+</Sheet>
+
+<style>
+  /* ── concept-sheet hero ────────────────────────────────────────────────── */
+  .fd-hero {
+    padding: clamp(3rem, 7vw, 5.5rem) var(--content-pad) clamp(2rem, 4vw, 3.5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .fd-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .fd-crumbs {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .fd-crumbs a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .fd-crumbs a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .fd-eyebrow {
+    display: block;
+    color: var(--overprint);
+    margin-bottom: var(--space-xs);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+    max-width: 16ch;
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .fd-gloss {
+    margin-top: var(--space-lg);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.55;
+    max-width: 54ch;
+    color: var(--ink);
+  }
+
+  .fd-concept {
+    margin-top: var(--space-lg);
+    color: var(--waterline);
+  }
+
+  .fd-concept span {
+    color: var(--muted);
+    margin-right: 0.5rem;
+  }
+
+  /* ── prev / next pager ─────────────────────────────────────────────────── */
+  .fd-pager {
+    max-width: 68rem;
+    margin: 0 auto;
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-md);
+  }
+
+  .fd-pager-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2xs);
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    text-decoration: none;
+    color: var(--ink);
+    transition: background var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .fd-pager-next {
+    text-align: right;
+  }
+
+  .fd-pager-cell:hover {
+    background: var(--surface);
+  }
+
+  .fd-pager-cell .annot {
+    color: var(--muted);
+  }
+
+  .fd-pager-cell:hover .annot {
+    color: var(--overprint-deep);
+  }
+
+  .fd-pager-gloss {
+    font-size: var(--text-sm);
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  @media (max-width: 34rem) {
+    .fd-pager {
+      grid-template-columns: 1fr;
+    }
+
+    .fd-pager-next {
+      text-align: left;
+    }
+  }
+</style>

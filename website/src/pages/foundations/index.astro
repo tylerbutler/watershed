@@ -1,0 +1,248 @@
+---
+import Sheet from "../../layouts/Sheet.astro";
+import Ecosystem from "../../components/Ecosystem.astro";
+import { foundationsDocs } from "../../data/foundations";
+---
+
+<Sheet
+  title="watershed — foundations"
+  description="The core mental model behind every watershed document: what a schema declares at compile time, how a document is actually laid out as a graph of channels, and what happens between opening a document and having something to build on."
+>
+  <header class="fh-hero">
+    <div class="fh-hero-inner">
+      <p class="eyebrow annot">
+        <a href="/">← watershed</a> · Foundations
+      </p>
+      <h1>Before you<br /><em>build anything.</em></h1>
+      <p class="lede">
+        The <a href="/guide">build guide</a> walks a working board through
+        every step. These three sheets are what makes each of those steps make
+        sense: how you declare a document's shape, how that shape is actually
+        laid out underneath, and what a client does between opening a document
+        and having something worth rendering.
+      </p>
+    </div>
+  </header>
+
+  <main class="fh-ledger" aria-labelledby="fh-ledger-title">
+    <div class="fh-ledger-head">
+      <h2 id="fh-ledger-title">Foundations</h2>
+      <p>Three sheets. Read in order — each one leans on the last.</p>
+    </div>
+    <ol class="fh-list">
+      {
+        foundationsDocs.map((d, i) => (
+          <li class="fh-item" data-reveal="rise">
+            <a href={`/foundations/${d.slug}`}>
+              <span class="fh-n annot">{String(i + 1).padStart(2, "0")}</span>
+              <span class="fh-body">
+                <span class="fh-title">{d.title}</span>
+                <span class="fh-gloss">{d.gloss}</span>
+                <span class="fh-concept annot">{d.concept}</span>
+              </span>
+              <span class="fh-go annot" aria-hidden="true">
+                →
+              </span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="fh-aside">
+      Once a channel exists, <a href="/structures">the field atlas</a> covers
+      what it does when two clients touch it at once, and{" "}
+      <a href="/runtime">runtime</a> covers what happens while it's live:
+      optimistic edits, reconnect, and the rest. Ready to see it running? Start
+      the <a href="/guide">build guide</a> at step one.
+    </p>
+  </main>
+
+  <Ecosystem />
+</Sheet>
+
+<script>
+  import { initReveals } from "../../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .fh-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .fh-hero-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    margin: 0 0 var(--space-lg);
+  }
+
+  .eyebrow a {
+    color: var(--waterline);
+    text-decoration: none;
+  }
+
+  .eyebrow a:hover {
+    color: var(--overprint-deep);
+  }
+
+  h1 {
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--overprint-deep);
+  }
+
+  @media (max-width: 30rem) {
+    h1 {
+      font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+      font-stretch: 100%;
+      letter-spacing: -0.03em;
+    }
+  }
+
+  .lede {
+    margin-top: var(--space-xl);
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+
+  .lede a {
+    color: var(--waterline);
+  }
+
+  h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    letter-spacing: -0.015em;
+    line-height: 1.05;
+  }
+
+  /* ── ledger ────────────────────────────────────────────────────────────── */
+  .fh-ledger {
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .fh-ledger-head p {
+    margin-top: var(--space-md);
+    color: var(--muted);
+    max-width: 48ch;
+  }
+
+  .fh-list {
+    margin: var(--space-xl) 0 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid var(--ink);
+  }
+
+  .fh-item {
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .fh-item:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .fh-item a {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: var(--space-lg);
+    padding: var(--space-lg) var(--space-sm);
+    text-decoration: none;
+    color: var(--ink);
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      padding-inline var(--dur-state) var(--ease-out-quart);
+  }
+
+  .fh-item a:hover {
+    background: var(--surface);
+    padding-inline: var(--space-lg);
+  }
+
+  .fh-n {
+    font-size: 1.1rem;
+    color: var(--overprint);
+    letter-spacing: 0.08em;
+  }
+
+  .fh-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .fh-title {
+    font-size: 1.35rem;
+    font-stretch: 114%;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+
+  .fh-item a:hover .fh-title {
+    color: var(--overprint-deep);
+  }
+
+  .fh-gloss {
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    max-width: 62ch;
+  }
+
+  .fh-concept {
+    margin-top: 0.15rem;
+    color: var(--waterline);
+  }
+
+  .fh-go {
+    color: var(--muted);
+    font-size: 1.1rem;
+    align-self: center;
+  }
+
+  .fh-item a:hover .fh-go {
+    color: var(--overprint);
+  }
+
+  .fh-aside {
+    margin-top: var(--space-2xl);
+    padding-top: var(--space-lg);
+    border-top: 1px dashed var(--hairline);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    max-width: 60ch;
+  }
+
+  .fh-aside a {
+    color: var(--waterline);
+  }
+
+  @media (max-width: 34rem) {
+    .fh-item a {
+      gap: var(--space-md);
+    }
+
+    .fh-concept {
+      display: none;
+    }
+  }
+</style>

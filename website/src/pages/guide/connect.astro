@@ -157,7 +157,10 @@ const layout = `retro_tutorial_lustre/
     <p>
       Keep these names in one file instead of repeating strings throughout the
       app. The <code>BoardDoc</code> type also prevents code from using one of
-      these fields with a different kind of document.
+      these fields with a different kind of document. For the full picture of
+      what a field can be — a plain value, a handle to a nested map, or a
+      handle to another channel kind entirely — see{" "}
+      <a href="/foundations/schema">Foundations · schemas and fields</a>.
     </p>
     <span class="g-file">src/doc_schema.gleam</span>
     <figure class="g-code">
@@ -169,9 +172,12 @@ const layout = `retro_tutorial_lustre/
     <h2>Create the shared maps</h2>
     <p>
       A new document starts empty. <code>ensure_or_map</code> creates a map if
-      it is missing and returns the existing map if another client created it
-      first. Both clients can open a new board at the same time and get the
-      same maps.
+      the field is empty, or adopts whichever one is already there. Open a new
+      board from two tabs at once and both calls still resolve to an attached
+      map — the field settles on one handle without a leader — but the two
+      calls aren't promised to hand back the same map in the same tick. See{" "}
+      <a href="/foundations/lifecycle">Foundations · starting a document</a>{" "}
+      for the concurrent-bootstrap details.
     </p>
     <span class="g-file">src/retro_tutorial_lustre.gleam</span>
     <figure class="g-code">

@@ -1,0 +1,179 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import watershedMain from "../../../../src/watershed.gleam?raw";
+
+const rootTyped = excerpt(
+  watershedMain,
+  "pub fn root_typed(document: Document(root)) -> TypedMap(root) {",
+);
+const handleOf = excerpt(watershedMain, "pub fn handle_of(map: SharedMap) -> Json {");
+const createMap = excerpt(
+  watershedMain,
+  "pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {",
+);
+const resolveFn = excerpt(watershedMain, "pub fn resolve(");
+const resolveChild = excerpt(watershedMain, "pub fn resolve_child(");
+
+const layoutDiagram = `root
+├─ "game"      = "watershed dice scores"   (Field(GameRoot, String))
+├─ "die_sides" = 6                         (Field(GameRoot, Int))
+└─ "players"   = handle ──▶ roster         (ChildField(GameRoot, Roster))
+
+roster
+└─ "player-1234" = handle ──▶ player map
+
+player map
+├─ "name"
+├─ "last_roll"
+├─ "total"
+└─ "rolls"`;
+---
+
+<FoundationsLayout
+  slug="topology"
+  description="What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
+>
+  <div class="g-block">
+    <h2>The root is one map, not one tree</h2>
+    <p>
+      Every document has exactly one root: a <code>SharedMap</code>, reached
+      with <code>root(document)</code>, and viewed through your schema with{" "}
+      <code>root_typed</code>. Its tag comes from the <code>Document(root)</code>{" "}
+      value itself, fixed at the one place your app first holds it — a{" "}
+      <code>Msg</code> constructor, usually. Everything your schema declares
+      hangs off that one map.
+    </p>
+    <figure class="g-code">
+      <Code code={rootTyped} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>A plain field stores a value; a handle points at a channel</h2>
+    <p>
+      A <a href="/foundations/schema"><code>Field</code></a> writes its value
+      straight into the map: a string is a string, on the wire and in the
+      map's entries, no indirection. A <code>ChildField</code> or a{" "}
+      <code>ChannelField</code> stores something else entirely — a small JSON
+      object that marks a reference to another channel, elsewhere in the same
+      document. Reading that key back gives you the marker, not the child's
+      contents; you resolve it separately to reach the channel it points to.
+    </p>
+    <figure class="g-code">
+      <Code code={handleOf} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Detached, attached, resolved</h2>
+    <p>
+      A new channel starts life <strong>detached</strong>: local only, its
+      edits producing no op, invisible to anyone else. It stays that way until
+      you store its handle into a map that's already attached to the
+      document. The runtime then attaches the new channel too, sends its
+      snapshot, and only from that point on does it synchronize with the rest
+      of the world. Create a map and forget to store its handle anywhere, and
+      it just quietly stays a local orphan.
+    </p>
+    <figure class="g-code">
+      <Code code={createMap} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Going the other way, <code>resolve</code> turns a handle you read back
+      out of a map into the live channel it names.
+    </p>
+    <figure class="g-code">
+      <Code code={resolveFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2><code>ChildField</code> versus <code>ChannelField</code>: same handle, different destination</h2>
+    <p>
+      Both store a handle. The difference is only in what kind of thing the
+      handle points to, and the schema layer tracks that at compile time.{" "}
+      <code>ChildField(tag, child)</code> points at another typed map — a
+      nested document with its own schema, its own tag, its own set of
+      fields. <code>ChannelField(tag, kind)</code> points at a channel that
+      isn't a map at all: a counter, an OR-set, a claims channel, whatever{" "}
+      <code>kind</code> names. Neither one is a subtree of the parent. Both
+      are peer channels that happen to be reachable from it.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Independently addressed pieces, not one atomic tree</h2>
+    <p>
+      This is the whole shape of a watershed document: a set of channels, each
+      with its own address, each syncing on its own terms, tied together only
+      by handles stored as ordinary values. The dice-scoreboard example's
+      roster of players, keyed by id, looks like this on the wire — a root
+      map, a child map, and a further map nested under that:
+    </p>
+    <figure class="g-code">
+      <Code code={layoutDiagram} lang="text" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        diagram · shape of examples/scoreboard_cli/src/scoreboard_cli.gleam
+      </figcaption>
+    </figure>
+    <p>
+      Nothing about that layout is a single data structure the way a JSON
+      document or an in-memory tree is. Each named piece is its own channel,
+      addressed on its own, with its own merge behavior — <a
+        href="/structures"
+      >the field atlas</a> covers what each kind actually does when two
+      clients touch it at once.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>What that layout costs you</h2>
+    <p>
+      Two honest limits fall straight out of this design, and neither one is
+      a bug to route around:
+    </p>
+    <ul>
+      <li>
+        <strong>No transaction across channels.</strong> Writing to two
+        channels is two separate operations. There's no way to make both
+        succeed or both fail together — if you need that, keep the related
+        values in one channel instead of splitting them across two.
+      </li>
+      <li>
+        <strong>A handle can be briefly unresolved.</strong> Right after a
+        channel is created, its attach operation has to reach every peer
+        before that peer can resolve the handle pointing to it. Until then,
+        resolving returns an error you can retry, not a broken document.
+      </li>
+    </ul>
+    <figure class="g-code">
+      <Code code={resolveChild} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>That retry isn't an edge case to special-case away.</strong> Every
+        client that creates a channel and immediately hands its handle to a
+        peer has to expect this. <a href="/foundations/lifecycle">The next
+        sheet</a> covers the pattern watershed uses to wait it out cleanly at
+        startup, and <a href="/runtime/reconnect">runtime · reconnect</a>{" "}
+        covers what a dropped connection does to an already-resolved handle.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      A watershed document is a root map plus whatever channels its handles
+      reach — attached on creation, resolved through the handle rather than
+      nested by containment, with no cross-channel transaction and a short
+      resolve window right after creation. Next: <a
+        href="/foundations/lifecycle"
+      >how a client gets from an empty connection to a document it can build
+      on</a>.
+    </p>
+  </div>
+</FoundationsLayout>

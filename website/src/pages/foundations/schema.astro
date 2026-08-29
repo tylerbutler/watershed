@@ -1,0 +1,252 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import schemaModule from "../../../../src/watershed/schema.gleam?raw";
+import watershedMain from "../../../../src/watershed.gleam?raw";
+import retroSchema from "../../../../examples/retro_tutorial_lustre/src/doc_schema.gleam?raw";
+import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lustre/doc_schema.gleam?raw";
+import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/doc_schema.gleam?raw";
+import scoreboard from "../../../../examples/scoreboard_cli/src/scoreboard_cli.gleam?raw";
+
+const fieldType = excerpt(schemaModule, "pub opaque type Field(schema, a) {");
+const titleField = excerpt(
+  retroSchema,
+  "pub fn title() -> Field(BoardDoc, String) {",
+);
+
+const childFieldType = excerpt(
+  schemaModule,
+  "pub opaque type ChildField(schema, child) {",
+);
+const textChild = excerpt(
+  showcaseSchema,
+  "pub fn text() -> ChildField(Showcase, text_schema.TextDoc) {",
+);
+
+const channelFieldType = excerpt(
+  schemaModule,
+  "pub opaque type ChannelField(schema, kind) {",
+);
+const sudokuFields = excerpt(
+  sudokuSchema,
+  "pub fn cells() -> ChannelField(SudokuDoc, MapChannel) {",
+  "pub fn notes() -> ChannelField(SudokuDoc, OrSetChannel) {",
+  "pub fn givens() -> ChannelField(SudokuDoc, ClaimsChannel) {",
+  "pub fn mistakes() -> ChannelField(SudokuDoc, CounterChannel) {",
+);
+
+const fieldError = excerpt(schemaModule, "pub type FieldError {");
+const getField = excerpt(watershedMain, "pub fn get_field(");
+
+const playerSchema = excerpt(
+  scoreboard,
+  "fn player_schema() -> schema.Schema(Player, PlayerState) {",
+);
+const stampFn = excerpt(watershedMain, "pub fn stamp(");
+---
+
+<FoundationsLayout
+  slug="schema"
+  description="How a watershed schema works: Field, ChildField, and ChannelField are three kinds of typed key, each scoped to a document by a phantom tag the compiler checks and the runtime never sees. Reads are a decode boundary, not an enforced contract — and a separate, optional Schema layer covers whole records, versions, and stamps."
+>
+  <div class="g-block">
+    <h2>Three kinds of key, one tag</h2>
+    <p>
+      Everything a watershed map can hold falls into three shapes. A{" "}
+      <code>Field(tag, value)</code> is a plain JSON value: a string, a number,
+      a bool, whatever you tell it to decode as. A{" "}
+      <code>ChildField(tag, child)</code> is a handle to another typed map
+      nested underneath. A <code>ChannelField(tag, kind)</code> is a handle to
+      a channel of some other kind entirely — a counter, an OR-set, a claims
+      channel. One schema module declares all three for a document, and{" "}
+      <code>tag</code> is the thread that ties every field in it to the one
+      map it belongs to.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>A field is a value you can read straight back</h2>
+    <p>
+      <code>Field</code> is a key plus a JSON encoder and a decoder, nothing
+      more. Call <code>schema.field</code> once for each key you want, and
+      wrap that call in a zero-argument function — Gleam constants can't hold
+      a function call, so a field's name has to be a function, not a
+      constant.
+    </p>
+    <figure class="g-code">
+      <Code code={fieldType} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={titleField} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        watershed · examples/retro_tutorial_lustre/src/doc_schema.gleam
+      </figcaption>
+    </figure>
+    <p>
+      <code>BoardDoc</code> is the tag. Nothing ever constructs a{" "}
+      <code>BoardDoc</code> value — it exists so <code>title()</code> can only
+      be set or read against a map that's been marked as a{" "}
+      <code>TypedMap(BoardDoc)</code>. Try it against a map of some other
+      schema and the build refuses to compile, before your code ever reaches a
+      server.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The tag is a label the compiler checks and the runtime never sees</h2>
+    <p>
+      This is what people mean by a <em>phantom</em> type: <code>BoardDoc</code>
+      shows up in a type signature and nowhere else. It isn't stored, isn't
+      sent over the wire, and costs nothing at runtime. It's there purely so
+      the type checker can catch the one bug that matters — reading a field
+      against the wrong document — before you ship it. Two documents can even
+      declare a field with the same name and completely different types; the
+      tag keeps them from ever getting confused for each other.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>A child field is a handle to another typed map</h2>
+    <p>
+      Nest a whole document inside another one by declaring a{" "}
+      <code>ChildField</code> instead of a <code>Field</code>. The stored
+      value isn't the child map's contents — it's a handle, the same handle
+      you'd get back from <code>handle_of</code> — but the type on the field
+      still tells you which schema the child map uses, so reading through it
+      is just as typed as reading a plain field.
+    </p>
+    <figure class="g-code">
+      <Code code={childFieldType} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={textChild} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        watershed · examples/showcase_lustre/src/showcase_lustre/doc_schema.gleam
+      </figcaption>
+    </figure>
+    <p>
+      <a href="/foundations/topology">The next sheet</a> covers what "handle"
+      really means here — the child map is a separate channel, not a branch of
+      one big tree.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>A channel field is a handle to something that isn't a map at all</h2>
+    <p>
+      A document is rarely all maps. <code>ChannelField(tag, kind)</code> is a
+      handle to any other collaborative structure — a counter that moves by
+      signed amounts, up or down, an OR-set where a concurrent add beats a
+      remove, a claims channel where the first writer keeps the slot. The{" "}
+      <code>kind</code>{" "}
+      tag is what makes this safe: it routes each field to the one set of
+      functions that understands that kind, so calling a counter's resolver on
+      an OR-set field is a compile error, not a runtime surprise.
+    </p>
+    <figure class="g-code">
+      <Code code={channelFieldType} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={sudokuFields} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        watershed · examples/sudoku_lustre/src/sudoku_lustre/doc_schema.gleam —
+        four slots, four different merge rules
+      </figcaption>
+    </figure>
+    <p>
+      Each of those four fields answers "what happens when two players touch
+      this at once" on its own terms. <a href="/structures">The field
+      atlas</a> covers that answer for every structure watershed ships.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>A read is a decode boundary, not a promise from the server</h2>
+    <p>
+      None of this is enforced anywhere but your own build. A peer running an
+      older version of your app, a stale summary, or a bug can write any JSON
+      to any key, and the server won't stop it —{" "}
+      <a href="https://floodgate.tylerbutler.com">floodgate</a>, the relay
+      watershed talks to, never looks inside the values it relays. So a typed
+      read always has to consider that the value on the wire might not match
+      what you expect, and it hands you a <code>Result</code> instead of the
+      bare value.
+    </p>
+    <figure class="g-code">
+      <Code code={fieldError} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={getField} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>The error is the interesting case, not the exception.</strong>{" "}
+        <code>Ok(None)</code> means the key just isn't set yet — completely
+        normal for a field nobody's written to. <code>Error(Invalid)</code>{" "}
+        means somebody wrote a value that doesn't decode as your type. Handle
+        both, because either one shows up in an ordinary multiplayer session.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h3>Advanced: describing a whole record at once</h3>
+    <p>
+      Everything above is a single key at a time. A separate, optional layer —
+      <code>Schema</code>, not <code>Field</code> — covers the case where
+      several keys together form one record you want to read and write as a
+      unit. Build one with <code>record1</code> through <code>record9</code>:
+      each <code>prop</code> declares a field once, and both the decoder and
+      the per-key encoder come from that one declaration, so they can't drift
+      out of sync with each other.
+    </p>
+    <p>
+      "As a unit" describes the Gleam-side ergonomics, not a transaction on
+      the wire: writing a record still turns into one write op per key, the
+      same as if you'd called <code>set_field</code> on each one separately.
+      Two clients touching different fields of the same record still merge
+      key by key, exactly like two plain fields would — nothing about{" "}
+      <code>Schema</code> makes the record's keys succeed or fail together.
+    </p>
+    <figure class="g-code">
+      <Code code={playerSchema} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        watershed · examples/scoreboard_cli/src/scoreboard_cli.gleam
+      </figcaption>
+    </figure>
+    <p>
+      <code>sealed_known</code> closes the record to exactly the keys its
+      props declared, with no key list to repeat by hand and let go stale.{" "}
+      <code>versioned</code> marks the record with an integer version: a read
+      whose <em>stored</em> version doesn't match the expected one rejects,
+      but a map with no version marker at all — one nobody's stamped yet —
+      reads fine regardless. Nothing writes that marker for you automatically;
+      call <code>stamp</code> yourself, by convention, once right after you
+      create the map, or every reader treats it as unversioned.
+    </p>
+    <figure class="g-code">
+      <Code code={stampFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Build a whole-record <code>Schema</code> when a group of keys only makes
+      sense together, like a player's name and score. Keep using plain{" "}
+      <code>Field</code> declarations for everything else — most documents
+      need far more of those than they need a sealed record.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      <code>Field</code> is a value, <code>ChildField</code> is a handle to a
+      nested typed map, and <code>ChannelField</code> is a handle to any other
+      channel kind. The phantom tag is checked at compile time and gone by
+      runtime, and every read still comes back as a <code>Result</code>{" "}
+      because a peer really can write anything. Next: <a
+        href="/foundations/topology"
+      >how those handles actually lay out a document</a>.
+    </p>
+  </div>
+</FoundationsLayout>

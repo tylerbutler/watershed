@@ -3,11 +3,12 @@
 // quadrangle prints the names of its neighbouring sheets. This is the central
 // hub the site otherwise lacked: every page, grouped, reachable from every
 // page (it renders inside the global Ecosystem footer). Data-driven from the
-// three catalogs so new families, guide steps, and runtime sheets appear here
-// automatically.
+// four catalogs so new families, foundations sheets, guide steps, and runtime
+// sheets appear here automatically.
 import { categories } from "../data/structures";
 import { steps } from "../data/guide";
 import { runtimeDocs } from "../data/runtime";
+import { foundationsDocs } from "../data/foundations";
 
 interface Link {
   label: string;
@@ -31,6 +32,14 @@ const columns: Column[] = [
     links: [
       { label: "Field atlas", href: "/structures", hub: true },
       ...categories.map((c) => ({ label: c.name, href: `/structures/${c.slug}` })),
+    ],
+  },
+  {
+    title: "Foundations",
+    href: "/foundations",
+    links: [
+      { label: "Overview", href: "/foundations", hub: true },
+      ...foundationsDocs.map((d) => ({ label: d.title, href: `/foundations/${d.slug}` })),
     ],
   },
   {

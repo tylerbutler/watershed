@@ -1,0 +1,226 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt, section } from "../../lib/excerpt";
+import watershedMain from "../../../../src/watershed.gleam?raw";
+import watershedLustre from "../../../../watershed_lustre/src/watershed_lustre.gleam?raw";
+import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+
+const connectFn = excerpt(watershedLustre, "pub fn connect(");
+const readiness = section(
+  appSource,
+  "    GotDocument(doc) -> {",
+  "    EnsuredNotes(Ok(notes)) ->",
+);
+const ensureChannel = excerpt(watershedMain, "fn ensure_channel(");
+const bootstrapEffect = excerpt(appSource, "fn bootstrap_effect(");
+const assemble = excerpt(appSource, "fn assemble(model: Model) -> #(Model, Effect(Msg)) {");
+const ensuredArms = section(
+  appSource,
+  "    EnsuredNotes(Ok(notes)) ->",
+  "    SharedChanged ->",
+);
+---
+
+<FoundationsLayout
+  slug="lifecycle"
+  description="What happens between calling connect and having a document worth rendering: got_document arrives with a handle before the catch-up finishes, connected arrives once history has replayed, ensure_* idempotently creates or adopts every channel a schema needs, and a client only assembles its first render once every channel has reported back."
+>
+  <div class="g-block">
+    <h2>Two callbacks, two different guarantees</h2>
+    <p>
+      Connecting fires two separate messages, and conflating them is the most
+      common first bug. <code>got_document</code> runs the instant you have a{" "}
+      <code>Document</code> value to hold onto — before the server has caught
+      you up on anything that happened before you joined. <code>connected</code>{" "}
+      runs later, once the handshake and the full history replay are done and
+      your local state genuinely matches everyone else's.
+    </p>
+    <figure class="g-code">
+      <Code code={connectFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      You can start a root subscription the moment <code>got_document</code>{" "}
+      fires — there's nothing to lose by watching for changes early. Creating
+      a <em>new</em> channel is different, and the runtime enforces it rather
+      than leaving it to convention: call <code>create_map</code>, or a
+      channel-creating <code>ensure_*</code> like <code>ensure_map</code> or{" "}
+      <code>ensure_or_map</code>, before <code>connected</code> reports
+      success, and it returns an <code>Error</code> instead of a handle.
+    </p>
+    <p>
+      <code>ensure_field</code> sits outside that gate — it never returns an{" "}
+      <code>Error</code> — but a write it makes before <code>connected</code>{" "}
+      doesn't survive either: the runtime drops an edit made before the
+      connection is ready instead of queuing it. Batch it with the
+      channel-creating calls and wait for <code>connected</code> before firing
+      any of bootstrap, not just the calls that would otherwise fail loudly.
+      That's a separate concern from two clients both creating a channel{" "}
+      <em>after</em> the connection is ready — the next section covers that
+      race, which <code>ensure_*</code> resolves on its own.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2><code>connected</code> always follows <code>got_document</code></h2>
+    <p>
+      This isn't a race to guard against — it's a fixed order. <code>connect</code>{" "}
+      hands back a <code>Document</code> value the instant you call it, and{" "}
+      <code>got_document</code> fires on the next tick. <code>connected</code>{" "}
+      only fires once the handshake and the history replay round-trip to the
+      server and back, so it always lands after <code>got_document</code>,
+      never before it.
+    </p>
+    <p>
+      That fixed order doesn't let the model collapse into one message,
+      though: the two callbacks still arrive on two separate ticks, and
+      bootstrap needs what both of them confirm — a document to hold onto,
+      and a caught-up connection to create channels against — before it can
+      run. The tutorial app tracks both fields on the model and starts
+      bootstrap once the second one lands, which reads the same whichever
+      order you reason about it in.
+    </p>
+    <figure class="g-code">
+      <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2><code>ensure_*</code> doesn't care who gets there first</h2>
+    <p>
+      A fresh document has no channels in it yet, and every client that opens
+      it runs the same bootstrap code — there's no leader, no one client
+      responsible for creating things first. The channel-shaped members of
+      the <code>ensure_*</code> family — <code>ensure_map</code>,{" "}
+      <code>ensure_or_map</code>, and the rest — all follow one rule: if the
+      field already holds a handle, adopt it; if it's empty, create a
+      candidate, wait for your own write to sync, then re-read the field and
+      adopt whatever handle is sitting there. <code>ensure_*</code> also keeps
+      retrying that read for about five seconds while the handle it finds is
+      still mid-attach, and gives up with an <code>Error</code> — the same{" "}
+      <code>Error(reason)</code> arm that a failed creation reports — if
+      nothing has shown up by then. What resolves inside that window isn't
+      final, either: a concurrent client's write can still land after yours
+      and replace the field a moment later.{" "}
+      <code>ensure_field</code> is simpler, because a plain field isn't a
+      channel: it writes a default only when the key is absent, and
+      last-writer-wins on that key settles any race without a candidate or a
+      wait.
+    </p>
+    <figure class="g-code">
+      <Code code={ensureChannel} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Two clients racing to create the same channel both create
+        one, but only one stays referenced — eventually.</strong> If your
+        board opens with nobody's notes list created yet, and two browser
+        tabs load it at the same moment, both seed a candidate. Waiting for
+        sync only confirms that <em>your own</em> candidate's write has been
+        acknowledged — not that the other client's has arrived yet — so the
+        handle you resolve right after your own sync can still be swapped
+        out from under you a moment later, once the other client's write
+        catches up. <code>ensure_*</code> doesn't referee that race: it has
+        no way to know a second client is bootstrapping the same field, and
+        it doesn't promise the handle it just handed you is the one that
+        survives. What's guaranteed is the field itself: last-writer-wins on
+        that key means every client converges on the same one handle
+        eventually, even if nobody observes it on the same tick. The
+        candidate that loses stays attached to the document, just
+        unreferenced — nothing errors. The one retry loop{" "}
+        <code>ensure_*</code> runs for you is narrower than that: it retries
+        when the field has no handle yet, and also when the handle is present
+        but its channel hasn't resolved locally yet, for up to five seconds,
+        and reports an <code>Error</code> if the attach still hasn't shown up
+        by then. If your app needs the channel
+        it's holding to track the field through a concurrent bootstrap, subscribe to the root and
+        resolve again when the field changes — <code>ensure_*</code> gets
+        you an attached channel, not a lock on being last.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Bootstrap is just another effect</h2>
+    <p>
+      In practice, bootstrap is one batch of effects fired once{" "}
+      <code>got_document</code> and <code>connected</code> have both arrived: an
+      <code>ensure_field</code> for a default value, an <code>ensure_or_map</code>{" "}
+      for each nested channel the schema needs, and a subscription on the
+      root.
+    </p>
+    <figure class="g-code">
+      <Code code={bootstrapEffect} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Each <code>ensure_*</code> call reports back on its own</h2>
+    <p>
+      A board with two nested channels gets two separate results, on two
+      separate messages, and they essentially never arrive in the same tick.
+      Render as soon as the first one shows up and you'll draw a board with
+      half its state missing. So hold each result in the model as it comes
+      in, and only assemble something worth rendering once every channel the
+      schema needs is in hand.
+    </p>
+    <figure class="g-code">
+      <Code code={ensuredArms} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>A subscription remembers nothing from before it started</h2>
+    <p>
+      Notice <code>assemble</code> does two separate things: it takes an
+      explicit snapshot of the current state, and it subscribes to future
+      changes on each channel. Neither substitutes for the other, and the
+      order between the two calls doesn't matter — subscribing doesn't
+      consume history, and reading doesn't consume the future. What matters
+      is that you do both. A subscription only reports changes from the
+      moment you register it forward; it never replays what a channel
+      already held before you subscribed. Skip the snapshot and keep only
+      the subscription, and your board boots up empty and stays empty until
+      someone happens to make an edit while you're watching. Skip the
+      subscription and keep only the snapshot, and your board renders once
+      and never updates again.
+    </p>
+    <p>
+      From here, events arrive the same way for the rest of the document's
+      life: a local edit and a remote edit both land as the same event type,
+      and both re-read through the same one render path. There's no separate
+      "this was my own write" branch to maintain, at startup or afterward.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h3>Reconnecting later</h3>
+    <p>
+      Everything above describes the first connection. A client that drops
+      and rejoins later goes through a related but distinct path — pending
+      edits get resubmitted, and a fresh bootstrap can rehydrate from a saved
+      summary instead of replaying every event from the start.{" "}
+      <a href="/runtime/reconnect">Runtime · reconnect</a> covers that path in
+      full; nothing above needs restating there, and nothing there needs
+      restating here.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">In short</span>
+    <p>
+      <code>got_document</code> gives you a handle; <code>connected</code>{" "}
+      confirms you're caught up, always after. Every client runs the same
+      idempotent <code>ensure_*</code> bootstrap, with no leader to
+      coordinate it, and the field it writes to converges to one handle even
+      when two clients race. Take an explicit snapshot and subscribe for
+      what comes next — order between the two doesn't matter, having both
+      does — and hold each channel's result until every one your schema
+      needs has arrived before you render anything.
+    </p>
+  </div>
+</FoundationsLayout>
