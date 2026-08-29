@@ -1,7 +1,6 @@
 //// Quill attribute maps in canonical form, with JSON values.
 
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/order
 import gleam/string
 import watershed/json_ot.{type JsonValue, VNull}
@@ -28,12 +27,9 @@ pub fn is_empty(attributes: Attributes) -> Bool {
   entries == []
 }
 
-pub fn get(attributes: Attributes, key: String) -> Option(JsonValue) {
+pub fn get(attributes: Attributes, key: String) -> Result(JsonValue, Nil) {
   let Attributes(entries) = attributes
-  case list.key_find(entries, key) {
-    Ok(value) -> Some(value)
-    Error(_) -> None
-  }
+  list.key_find(entries, key)
 }
 
 pub fn without_nulls(attributes: Attributes) -> Attributes {
@@ -54,8 +50,8 @@ pub fn compose(a: Attributes, b: Attributes, keep_null: Bool) -> Attributes {
     left
     |> list.fold(seeded, fn(acc, entry) {
       case get(Attributes(right), entry.0) {
-        None -> put(acc, entry)
-        Some(_) -> acc
+        Error(Nil) -> put(acc, entry)
+        Ok(_) -> acc
       }
     }),
   )
@@ -69,16 +65,16 @@ pub fn invert(patch: Attributes, base: Attributes) -> Attributes {
     base_entries
     |> list.fold([], fn(acc, entry) {
       case get(Attributes(patch_entries), entry.0) {
-        Some(value) if value != entry.1 -> put(acc, entry)
-        _ -> acc
+        Ok(value) if value != entry.1 -> put(acc, entry)
+        Ok(_) | Error(Nil) -> acc
       }
     })
   Attributes(
     patch_entries
     |> list.fold(restored, fn(acc, entry) {
       case get(Attributes(base_entries), entry.0) {
-        None -> put(acc, #(entry.0, VNull))
-        _ -> acc
+        Error(Nil) -> put(acc, #(entry.0, VNull))
+        Ok(_) -> acc
       }
     }),
   )
@@ -99,8 +95,8 @@ pub fn transform(
         entries
         |> list.fold([], fn(acc, entry) {
           case get(base, entry.0) {
-            None -> put(acc, entry)
-            Some(_) -> acc
+            Error(Nil) -> put(acc, entry)
+            Ok(_) -> acc
           }
         }),
       )

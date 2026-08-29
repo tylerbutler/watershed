@@ -52,29 +52,29 @@ import watershed/wire.{type OutboundOp}
 /// field, because the field costs nothing and a server that did use it would
 /// need it.
 pub fn encode_connect_document(
-  msg: ConnectMessage,
+  message: ConnectMessage,
   last_seen_sequence_number: Option(Int),
 ) -> Json {
   json.object(
     list.flatten([
       [
-        #("tenantId", json.string(msg.tenant_id)),
-        #("id", json.string(msg.document_id)),
-        #("token", json.nullable(msg.token, json.string)),
-        #("client", encode_client(msg.client)),
-        #("mode", json.string(mode_to_string(msg.mode))),
-        #("versions", json.array(msg.versions, json.string)),
+        #("tenantId", json.string(message.tenant_id)),
+        #("id", json.string(message.document_id)),
+        #("token", json.nullable(message.token, json.string)),
+        #("client", encode_client(message.client)),
+        #("mode", json.string(mode_to_string(message.mode))),
+        #("versions", json.array(message.versions, json.string)),
       ],
-      optional_field("driverVersion", msg.driver_version, json.string),
-      optional_field("nonce", msg.nonce, json.string),
-      optional_field("epoch", msg.epoch, json.string),
-      case msg.supported_features {
+      optional_field("driverVersion", message.driver_version, json.string),
+      optional_field("nonce", message.nonce, json.string),
+      optional_field("epoch", message.epoch, json.string),
+      case message.supported_features {
         Some(features) -> [
           #("supportedFeatures", encode_dynamic_dict(features)),
         ]
         None -> []
       },
-      optional_field("relayUserAgent", msg.relay_user_agent, json.string),
+      optional_field("relayUserAgent", message.relay_user_agent, json.string),
       optional_field(
         "lastSeenSequenceNumber",
         last_seen_sequence_number,

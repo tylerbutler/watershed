@@ -20,15 +20,15 @@ pub type WriteCommand {
   WriteCommand(key: String, value: Json, ref_seq: Int)
 }
 
-fn to_write(cmd: WriteCommand) -> register_collection_kernel.WriteOp {
-  Write(cmd.key, cmd.value, cmd.ref_seq)
+fn to_write(command: WriteCommand) -> register_collection_kernel.WriteOp {
+  Write(command.key, command.value, command.ref_seq)
 }
 
-fn op_to_json(cmd: WriteCommand) -> Json {
+fn op_to_json(command: WriteCommand) -> Json {
   json.object([
-    #("key", json.string(cmd.key)),
-    #("value", cmd.value),
-    #("ref_seq", json.int(cmd.ref_seq)),
+    #("key", json.string(command.key)),
+    #("value", command.value),
+    #("ref_seq", json.int(command.ref_seq)),
   ])
 }
 
@@ -56,14 +56,14 @@ fn op_generator() -> qcheck.Generator(WriteCommand) {
 
 fn submit(
   state: RegisterState,
-  cmd: WriteCommand,
+  command: WriteCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(RegisterState, option.Option(WriteCommand)) {
   let op =
     register_collection_kernel.write(
       state,
-      cmd.key,
-      cmd.value,
+      command.key,
+      command.value,
       meta.last_seen_seq,
     )
   #(state, Some(WriteCommand(op.key, op.value, op.ref_seq)))
@@ -71,13 +71,13 @@ fn submit(
 
 fn apply_remote(
   state: RegisterState,
-  cmd: WriteCommand,
+  command: WriteCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(RegisterState, String) {
   let #(state, _events) =
     register_collection_kernel.apply_remote(
       state,
-      to_write(cmd),
+      to_write(command),
       meta.sequence_number,
     )
   Ok(state)
@@ -85,13 +85,13 @@ fn apply_remote(
 
 fn ack_local(
   state: RegisterState,
-  cmd: WriteCommand,
+  command: WriteCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(RegisterState, String) {
   let #(state, _events, _outcome) =
     register_collection_kernel.ack_local(
       state,
-      to_write(cmd),
+      to_write(command),
       meta.sequence_number,
     )
   Ok(state)
@@ -102,13 +102,13 @@ fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
     kernel_fuzz.log_ops(entries),
     dict.new(),
     fn(registers, entry, i) {
-      let cmd = entry.1
+      let command = entry.1
       let seq = i + 1
-      let version = VersionedValue(cmd.value, seq)
-      let #(register, _is_winner) = case dict.get(registers, cmd.key) {
+      let version = VersionedValue(command.value, seq)
+      let #(register, _is_winner) = case dict.get(registers, command.key) {
         Error(_) -> #(Register(version, [version]), True)
         Ok(Register(atomic, versions)) -> {
-          let is_winner = cmd.ref_seq >= atomic.sequence_number
+          let is_winner = command.ref_seq >= atomic.sequence_number
           let atomic = case is_winner {
             True -> version
             False -> atomic
@@ -116,13 +116,13 @@ fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
           let versions =
             versions
             |> list.drop_while(fn(existing) {
-              existing.sequence_number <= cmd.ref_seq
+              existing.sequence_number <= command.ref_seq
             })
             |> list.append([version])
           #(Register(atomic, versions), is_winner)
         }
       }
-      dict.insert(registers, cmd.key, register)
+      dict.insert(registers, command.key, register)
     },
   )
   |> dict.to_list
@@ -135,19 +135,19 @@ fn load_from_synced(state: RegisterState, _id: Int) -> RegisterState {
   )
 }
 
-fn rollback(state: RegisterState, cmd: WriteCommand) -> RegisterState {
+fn rollback(state: RegisterState, command: WriteCommand) -> RegisterState {
   let #(state, _outcome) =
-    register_collection_kernel.rollback(state, to_write(cmd))
+    register_collection_kernel.rollback(state, to_write(command))
   state
 }
 
 fn apply_stashed(
   state: RegisterState,
-  cmd: WriteCommand,
+  command: WriteCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(RegisterState, WriteCommand) {
   let #(state, op) =
-    register_collection_kernel.apply_stashed_op(state, to_write(cmd))
+    register_collection_kernel.apply_stashed_op(state, to_write(command))
   #(state, WriteCommand(op.key, op.value, op.ref_seq))
 }
 

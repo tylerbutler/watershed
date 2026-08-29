@@ -22,8 +22,6 @@
 //// JavaScript target only. The pure model is in `watershed/presence`.
 
 @target(javascript)
-import gleam/dynamic/decode
-@target(javascript)
 import gleam/json.{type Json}
 @target(javascript)
 import gleam/list
@@ -230,7 +228,7 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
           case driver.implementation {
             ServerPresence(tracker) ->
               case
-                decode.run(
+                json.parse(
                   payload,
                   presence.presence_state_decoder(
                     decode: presence.config_decoder(driver.config),
@@ -243,13 +241,13 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
                   commit_server(cell, next, events)
                 }
               }
-            _ -> Nil
+            Unresolved | RipplePresence(_, _) -> Nil
           }
         runtime.PresenceDiff(payload) ->
           case driver.implementation {
             ServerPresence(tracker) ->
               case
-                decode.run(
+                json.parse(
                   payload,
                   presence.presence_diff_decoder(
                     decode: presence.config_decoder(driver.config),
@@ -262,10 +260,10 @@ fn on_frame(cell: Cell(Driver(a)), frame: PresenceFrame) -> Nil {
                   commit_server(cell, next, events)
                 }
               }
-            _ -> Nil
+            Unresolved | RipplePresence(_, _) -> Nil
           }
         runtime.PresenceError(payload) ->
-          case decode.run(payload, presence.presence_error_decoder()) {
+          case json.parse(payload, presence.presence_error_decoder()) {
             Error(_) -> Nil
             Ok(error) -> driver.on_event(presence.Failed(error))
           }
@@ -321,7 +319,7 @@ fn on_session(
       )
       push(cell, presence.event_join, driver.meta)
     }
-    _, _ -> {
+    presence.Auto, _ | presence.Ripple, _ -> {
       // Carry the roster across a reconnect — remote peers are still there —
       // but cancel the old heartbeat before `tick` arms a new one, or the two
       // would both keep firing.
@@ -333,7 +331,7 @@ fn on_session(
           }
           sessions
         }
-        _ -> presence.sessions()
+        Unresolved | ServerPresence(_) -> presence.sessions()
       }
       transport_js.set_cell(
         cell,
@@ -436,8 +434,8 @@ fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
     False, RipplePresence(sessions, cancel) ->
       case
         watershed.ripple_client_id(ripple),
-        decode.run(
-          watershed.ripple_content(ripple),
+        json.parse(
+          json.to_string(watershed.ripple_content(ripple)),
           presence.ripple_decoder(decode: presence.config_decoder(driver.config)),
         )
       {
@@ -450,7 +448,7 @@ fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
         }
         _, _ -> Nil
       }
-    _, _ -> Nil
+    True, _ | False, Unresolved | False, ServerPresence(_) -> Nil
   }
 }
 
@@ -495,7 +493,7 @@ fn tick(cell: Cell(Driver(a))) -> Nil {
       broadcast_ripple(cell, driver.meta)
       schedule(cell)
     }
-    _, _ -> Nil
+    True, _ | False, Unresolved | False, ServerPresence(_) -> Nil
   }
 }
 
@@ -516,7 +514,7 @@ fn schedule(cell: Cell(Driver(a))) -> Nil {
         Driver(..driver, implementation: RipplePresence(sessions, Some(cancel))),
       )
     }
-    _ -> Nil
+    Unresolved | ServerPresence(_) -> Nil
   }
 }
 

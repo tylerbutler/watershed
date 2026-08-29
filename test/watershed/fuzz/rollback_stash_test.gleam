@@ -60,7 +60,7 @@ fn model_without_capabilities() -> KernelModel(List(Int), Int, List(Int)) {
   )
 }
 
-pub fn rollback_op_errors_without_rollback_capability_test() {
+pub fn rollback_op_errors_without_rollback_capability_test() -> Nil {
   let script = [RollbackOp(1, 7)]
   expect_error(
     kernel_fuzz.try_run_script(model_without_capabilities(), 2, script),
@@ -68,7 +68,7 @@ pub fn rollback_op_errors_without_rollback_capability_test() {
   )
 }
 
-pub fn stashed_op_errors_without_apply_stashed_capability_test() {
+pub fn stashed_op_errors_without_apply_stashed_capability_test() -> Nil {
   let script = [StashedOp(1, 7)]
   expect_error(
     kernel_fuzz.try_run_script(model_without_capabilities(), 2, script),
@@ -101,7 +101,7 @@ fn rewriting_stash_model() -> KernelModel(List(Int), Int, List(Int)) {
   )
 }
 
-pub fn stashed_op_routes_the_rewritten_op_test() {
+pub fn stashed_op_routes_the_rewritten_op_test() -> Nil {
   let script = [StashedOp(0, 5), Synchronize]
   expect_ok(kernel_fuzz.try_run_script(rewriting_stash_model(), 3, script))
 }
@@ -133,7 +133,7 @@ fn stash_meta_model() -> KernelModel(List(Int), Int, List(Int)) {
   )
 }
 
-pub fn stashed_op_receives_submit_meta_test() {
+pub fn stashed_op_receives_submit_meta_test() -> Nil {
   let script = [ClientOp(0, 10), Synchronize, StashedOp(1, 1), Synchronize]
   expect_ok(kernel_fuzz.try_run_script(stash_meta_model(), 3, script))
 }
@@ -142,7 +142,7 @@ pub fn stashed_op_receives_submit_meta_test() {
 /// value exactly where it started: `RollbackOp` submits then rolls back
 /// in one step, so it never reaches the inbox/server and its optimistic
 /// effect must be fully undone.
-pub fn counter_rollback_undoes_optimistic_increment_and_converges_test() {
+pub fn counter_rollback_undoes_optimistic_increment_and_converges_test() -> Nil {
   let script = [
     ClientOp(2, Increment(100)),
     Synchronize,
@@ -154,7 +154,7 @@ pub fn counter_rollback_undoes_optimistic_increment_and_converges_test() {
 
 /// A stashed op re-enters as pending/optimistic exactly like a fresh
 /// `submit`, and still reaches the server and converges.
-pub fn counter_stashed_op_converges_test() {
+pub fn counter_stashed_op_converges_test() -> Nil {
   let script = [StashedOp(1, Increment(4)), Synchronize]
   expect_ok(kernel_fuzz.try_run_script(counter_model.model(), 3, script))
 }
@@ -182,7 +182,7 @@ fn counter_model_with_broken_rollback() -> KernelModel(
   )
 }
 
-pub fn broken_rollback_capability_is_caught_by_harness_test() {
+pub fn broken_rollback_capability_is_caught_by_harness_test() -> Nil {
   let script = [
     ClientOp(2, Increment(100)),
     Synchronize,

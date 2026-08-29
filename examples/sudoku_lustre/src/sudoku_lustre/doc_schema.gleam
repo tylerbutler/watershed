@@ -6,7 +6,7 @@
 //// to carry, and lets `ensure_*` bootstrap each channel from the field alone.
 ////
 //// `cells` is a `ChannelField(MapChannel)` rather than a `ChildField`: it is a
-//// dynamic map keyed by cell position (`r{row}c{col}`), with no per-key record
+//// dynamic map keyed by cell position (`r{row}c{column}`), with no per-key record
 //// schema to derive, so `ensure_map` hands back the raw `SharedMap` the grid
 //// reads and writes directly.
 
@@ -20,7 +20,7 @@ import watershed/schema.{
 /// Phantom tag scoping every field below to the Sudoku root map.
 pub type SudokuDoc
 
-/// The active puzzle's id (see `puzzles.by_id`).
+/// The active puzzle's id (see `puzzle.by_id`).
 pub fn puzzle() -> Field(SudokuDoc, String) {
   schema.field("puzzle", json.string, decode.string)
 }
@@ -30,12 +30,12 @@ pub fn title() -> Field(SudokuDoc, String) {
   schema.field("title", json.string, decode.string)
 }
 
-/// The player-entered digits, keyed `r{row}c{col}` → digit.
+/// The player-entered digits, keyed `r{row}c{column}` → digit.
 pub fn cells() -> ChannelField(SudokuDoc, MapChannel) {
   schema.channel_field("cells")
 }
 
-/// The pencil-mark notes, as `r{row}c{col}={digit}` set elements.
+/// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.
 pub fn notes() -> ChannelField(SudokuDoc, OrSetChannel) {
   schema.channel_field("notes")
 }

@@ -34,6 +34,8 @@
 ////   contract.
 //// - That same peer is the **impolite** one. Its offer thus wins a collision
 ////   of two simultaneous offers, and the peer with the larger id rolls back.
+////   `NegotiationRole` holds this one decision: `Offerer` offers and wins a
+////   collision, and `Answerer` answers and yields.
 //// - A remote ICE candidate waits in a queue until a remote description
 ////   exists. The transport then applies the queue in arrival order.
 //// - A duplicate `PeerJoined`, offer, answer, candidate, close, and leave
@@ -605,13 +607,11 @@ type State {
 type Peer {
   Peer(
     id: String,
-    /// The peer with the larger id yields in a collision. The offer of the peer
-    /// with the smaller id thus always wins, and that offer is the only offer
-    /// that either side must make.
-    polite: Bool,
-    /// The peer with the smaller id offers, and it creates the one data
-    /// channel.
-    offerer: Bool,
+    /// The negotiation role of this link. The role decides which side offers
+    /// and which side yields in a collision. One field holds the role,
+    /// because two flags could describe a link that offers and yields at the
+    /// same time, and no such link exists.
+    role: NegotiationRole,
     /// Whether the transport reported `PeerConnecting` for this peer. A
     /// teardown thus knows whether it owes a `PeerClosed` status to the
     /// stream.
@@ -645,6 +645,26 @@ type Peer {
 }
 
 @target(javascript)
+/// The role of this client on one peer link, as perfect negotiation defines
+/// it. The client compares its own id with the id of the peer, so the two
+/// sides always pick opposite roles.
+type NegotiationRole {
+  /// This client offers, and it creates the one data channel. It also refuses
+  /// a colliding remote offer, so its own offer wins.
+  Offerer
+  /// This client answers, and it yields in a collision.
+  Answerer
+}
+
+@target(javascript)
+fn negotiation_role(local: String, remote: String) -> NegotiationRole {
+  case string.compare(local, remote) {
+    order.Lt -> Offerer
+    order.Gt | order.Eq -> Answerer
+  }
+}
+
+@target(javascript)
 /// The number of remote candidates that can wait for a remote description. A
 /// peer that sends more than this number before it describes itself is flooding
 /// the transport, and it is not negotiating.
@@ -654,8 +674,7 @@ const max_queued_candidates = 128
 fn new_peer(local: String, remote: String) -> Peer {
   Peer(
     id: remote,
-    polite: string.compare(local, remote) == order.Gt,
-    offerer: string.compare(local, remote) == order.Lt,
+    role: negotiation_role(local, remote),
     announced: False,
     channel_requested: False,
     remote_offered: False,
@@ -972,7 +991,7 @@ fn handle_peer_joined(cell: Cell(State), peer_id: String) -> Nil {
 fn ensure_channel(cell: Cell(State), peer_id: String) -> Nil {
   with_peer(cell, peer_id, fn(state, peer) {
     case
-      peer.offerer
+      peer.role == Offerer
       && !peer.channel_requested
       && !peer.remote_offered
       && !peer.open
@@ -1112,7 +1131,7 @@ fn handle_offer(cell: Cell(State), from: String, sdp: String) -> Nil {
       let state = transport_js.get_cell(cell)
       let collision =
         peer.making_offer || state.rtc.signaling_state(from) != "stable"
-      case collision && !peer.polite {
+      case collision && peer.role == Offerer {
         True ->
           update_peer(cell, from, fn(peer) { Peer(..peer, ignore_offer: True) })
         False -> {
@@ -1338,8 +1357,8 @@ fn handle_invalid_message(
       let dropped = drop_peer(cell, peer_id)
       state.callbacks.on_error(p2p.InvalidEnvelope(peer_id, detail))
       case dropped {
-        None -> Nil
-        Some(peer) -> report_teardown(cell, peer, None)
+        Error(Nil) -> Nil
+        Ok(peer) -> report_teardown(cell, peer, None)
       }
     }
   }
@@ -1369,8 +1388,8 @@ fn handle_ice_state(cell: Cell(State), peer_id: String, ice: String) -> Nil {
           let dropped = drop_peer(cell, peer_id)
           state.callbacks.on_status(IceState(peer_id, ice))
           case dropped {
-            None -> Nil
-            Some(peer) ->
+            Error(Nil) -> Nil
+            Ok(peer) ->
               report_teardown(cell, peer, case ice {
                 "failed" -> Some("ice connection failed")
                 _ -> None
@@ -1552,14 +1571,14 @@ fn teardown(
   failure: Option(String),
 ) -> Nil {
   case drop_peer(cell, peer_id) {
-    None -> Nil
-    Some(peer) -> report_teardown(cell, peer, failure)
+    Error(Nil) -> Nil
+    Ok(peer) -> report_teardown(cell, peer, failure)
   }
 }
 
 @target(javascript)
 /// The half of a teardown that must run before every application callback:
-/// remove the peer and close its browser objects. A `None` result means that no
+/// remove the peer and close its browser objects. An `Error(Nil)` result means that no
 /// such peer existed, so the transport owes no report either.
 ///
 /// This function is separate because two paths report the event *before* the
@@ -1567,17 +1586,17 @@ fn teardown(
 /// callback that throws there must not be able to leave a dead connection in
 /// the peer set, where `broadcast` can address it and where it holds a place in
 /// the room.
-fn drop_peer(cell: Cell(State), peer_id: String) -> Option(Peer) {
+fn drop_peer(cell: Cell(State), peer_id: String) -> Result(Peer, Nil) {
   let state = transport_js.get_cell(cell)
   case dict.get(state.peers, peer_id) {
-    Error(Nil) -> None
+    Error(Nil) -> Error(Nil)
     Ok(peer) -> {
       transport_js.set_cell(
         cell,
         State(..state, peers: dict.delete(state.peers, peer_id)),
       )
       state.rtc.close(peer_id)
-      Some(peer)
+      Ok(peer)
     }
   }
 }

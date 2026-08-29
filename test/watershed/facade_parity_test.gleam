@@ -335,7 +335,7 @@ fn kinds() -> List(Kind) {
         "set_claims_field",
         "claims_handle_of",
       ],
-      ["try_set_claim", "get_claim", "has_claim", "compare_and_set_claim"],
+      ["claim_once", "get_claim", "has_claim", "compare_and_set_claim"],
       ["subscribe_claims"],
     ),
   ]
@@ -370,14 +370,14 @@ const lustre_gaps: List(String) = []
 
 /// Every kind exposes every lifecycle, operation, and subscription name on the
 /// BEAM facade.
-pub fn beam_facade_covers_every_axis_test() {
+pub fn beam_facade_covers_every_axis_test() -> Nil {
   let exports = exports_of("src/watershed_beam.gleam")
   missing_names(exports, kinds()) |> expect.to_equal([])
 }
 
 /// ...and the same on the JS facade. Kept as a separate test so a failure names
 /// which target regressed.
-pub fn js_facade_covers_every_axis_test() {
+pub fn js_facade_covers_every_axis_test() -> Nil {
   let exports = exports_of("src/watershed.gleam")
   missing_names(exports, kinds()) |> expect.to_equal([])
 }
@@ -385,7 +385,7 @@ pub fn js_facade_covers_every_axis_test() {
 /// The two facades expose the same surface, modulo the documented per-target
 /// escape hatches. This is the check that would have caught `SharedRichText`
 /// being absent from the JS facade for as long as it was.
-pub fn facades_agree_with_each_other_test() {
+pub fn facades_agree_with_each_other_test() -> Nil {
   let beam = exports_of("src/watershed_beam.gleam")
   let js = exports_of("src/watershed.gleam")
 
@@ -403,7 +403,7 @@ pub fn facades_agree_with_each_other_test() {
 /// `watershed_lustre` has an `ensure_*` and a `subscribe_*` for every kind
 /// except the documented gaps — and the gap list names exactly those, so
 /// closing one without updating the list fails here.
-pub fn lustre_gaps_are_exactly_as_documented_test() {
+pub fn lustre_gaps_are_exactly_as_documented_test() -> Nil {
   let exports = exports_of("watershed_lustre/src/watershed_lustre.gleam")
   let expected =
     kinds()
@@ -420,7 +420,7 @@ pub fn lustre_gaps_are_exactly_as_documented_test() {
 
 /// A guard on this file itself: if the source were unreadable or the extraction
 /// broke, every assertion above would pass vacuously against an empty set.
-pub fn extraction_actually_finds_exports_test() {
+pub fn extraction_actually_finds_exports_test() -> Nil {
   { set.size(exports_of("src/watershed_beam.gleam")) > 100 }
   |> expect.to_be_true()
   { set.size(exports_of("src/watershed.gleam")) > 100 }

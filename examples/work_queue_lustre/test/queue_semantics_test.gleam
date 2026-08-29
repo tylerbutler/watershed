@@ -6,7 +6,6 @@
 //// `settle` drains the room before the assertions read it — including the
 //// sequenced `"leave"` that `disconnect` fans out to the survivors.
 
-import doc_schema
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{Some}
@@ -20,6 +19,8 @@ import watershed/ordered_collection_kernel.{
 import watershed/sluice_js.{type Sluice}
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed/transport_js.{type Cell}
+
+import work_queue_lustre/doc_schema
 
 const role = "dispatcher"
 
@@ -47,13 +48,13 @@ fn room(
 }
 
 fn queue_of(doc: Document(doc_schema.Dispatch)) -> OrderedCollection {
-  let assert Some(handle) = watershed.get(watershed.root(doc), "queue")
+  let assert Ok(handle) = watershed.get(watershed.root(doc), "queue")
   let assert Ok(queue) = watershed.resolve_ordered_collection(doc, handle)
   queue
 }
 
 fn roles_of(doc: Document(doc_schema.Dispatch)) -> TaskManager {
-  let assert Some(handle) = watershed.get(watershed.root(doc), "roles")
+  let assert Ok(handle) = watershed.get(watershed.root(doc), "roles")
   let assert Ok(roles) = watershed.resolve_task_manager(doc, handle)
   roles
 }
@@ -100,7 +101,7 @@ fn job(label: String) -> Json {
 /// Two clients race one job in the same sequencing drain: exactly one outcome
 /// is `AcquiredItem`, the loser gets `QueueEmpty` (its op emits no event — the
 /// outcome is its only signal), and both replicas agree on who holds the job.
-pub fn two_claims_one_job_exactly_one_wins_test() {
+pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
   let #(sluice, doc_a, doc_b) = room("wq-race")
   let queue_a = queue_of(doc_a)
   let queue_b = queue_of(doc_b)
@@ -122,7 +123,8 @@ pub fn two_claims_one_job_exactly_one_wins_test() {
   |> list.filter(fn(outcome) {
     case outcome {
       AcquiredItem(..) -> True
-      _ -> False
+      ordered_collection_kernel.QueueEmpty
+      | ordered_collection_kernel.Aborted -> False
     }
   })
   |> list.length
@@ -130,7 +132,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() {
 
   // Both replicas agree: queue drained, one held job, owned by exactly one of
   // the two clients.
-  watershed.ordered_size(queue_a) |> should.equal(Some(0))
+  watershed.ordered_size(queue_a) |> should.equal(Ok(0))
   watershed.ordered_queue(queue_b) |> should.equal([])
   let jobs = watershed.ordered_jobs(queue_a)
   jobs |> should.equal(watershed.ordered_jobs(queue_b))
@@ -145,7 +147,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() {
 /// to the queue in the surviving replica — as `Added(newly_added: False)`, the
 /// signal the board renders "job returned" from — and the survivor can take it
 /// over. No client code participates in the recovery.
-pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
+pub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {
   let #(sluice, doc_a, doc_b) = room("wq-worker-dies")
   let queue_a = queue_of(doc_a)
   let queue_b = queue_of(doc_b)
@@ -184,7 +186,7 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
 /// a leave-promotion — which is exactly the signal the app's promotion logic
 /// listens for. If the runtime ever starts emitting `Assigned` here, this test
 /// says the app's detection has a redundant leg.
-pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() {
+pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() -> Nil {
   let #(sluice, doc_a, doc_b) = room("wq-dispatcher-dies")
   let roles_a = roles_of(doc_a)
   let roles_b = roles_of(doc_b)
@@ -213,7 +215,11 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() {
   |> list.filter(fn(event) {
     case event {
       task_manager_kernel.Assigned(..) -> True
-      _ -> False
+      task_manager_kernel.QueueChanged(..)
+      | task_manager_kernel.Lost(..)
+      | task_manager_kernel.Completed(..)
+      | task_manager_kernel.Abandoned(..)
+      | task_manager_kernel.RolledBack(..) -> False
     }
   })
   |> should.equal([])
@@ -224,7 +230,7 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() {
 /// Voluntary release is the graceful twin of the kill: the job returns to the
 /// **tail** of the queue as the same `Added(newly_added: False)`, and behind
 /// any jobs added meanwhile.
-pub fn released_job_returns_to_the_tail_test() {
+pub fn released_job_returns_to_the_tail_test() -> Nil {
   let #(sluice, doc_a, doc_b) = room("wq-release")
   let queue_a = queue_of(doc_a)
   let queue_b = queue_of(doc_b)

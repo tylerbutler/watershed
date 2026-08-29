@@ -21,11 +21,11 @@ import lustre/element/html
 import lustre/element/svg
 import lustre/event
 
-import doc_schema
+import markdown_notes_lustre/doc_schema
 import markdown_notes_lustre/sidebar
 import markdown_notes_lustre/toolbar
 import watershed/browser
-import watershed/crdt_js.{type CrdtDocument, type Handle}
+import watershed/crdt_js.{type Config, type CrdtDocument, type Handle}
 import watershed/crdt_signaling_js
 import watershed/nostr_signaling_js
 import watershed/or_map_kernel
@@ -58,7 +58,7 @@ const relay_param = "relay"
 
 const retry_ms = 50
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let room = browser.document_on_navigate("markdown-notes")
   let assert Ok(_) = lustre.start(app, "#app", room)
@@ -308,7 +308,7 @@ fn open_room(room: String) -> Effect(Msg) {
   )
 }
 
-fn with_relay(config) {
+fn with_relay(config: Config(OrMapChannel)) -> Config(OrMapChannel) {
   case query(relay_param, "") {
     "" -> config
     url -> crdt_js.with_sequencer(config, crdt_js.sequencer(url))
@@ -339,7 +339,7 @@ fn split_list(raw: String) -> List(String) {
   |> list.filter(fn(entry) { entry != "" })
 }
 
-fn ice_servers() {
+fn ice_servers() -> List(p2p_transport_js.IceServer) {
   case
     split_list(query("ice", "")),
     query("iceUser", ""),
@@ -452,7 +452,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         controller: Some(controller),
         save_state: case model.save_state {
           Saved -> Saved
-          _ -> Watching
+          WaitingForDocument | Watching | Saving | SaveFailed(_) -> Watching
         },
       ),
       effect.none(),
@@ -477,12 +477,20 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     RecoveryReplaceClicked ->
-      case model.recovery, model.document {
-        RecoveryRequired(_), Some(document) -> #(
-          Model(..model, recovery: ReplacingLocalSnapshot, save_state: Saving),
-          replace_local_snapshot(document),
-        )
-        _, _ -> #(model, effect.none())
+      case model.recovery {
+        RecoveryRequired(_) ->
+          case model.document {
+            Some(document) -> #(
+              Model(
+                ..model,
+                recovery: ReplacingLocalSnapshot,
+                save_state: Saving,
+              ),
+              replace_local_snapshot(document),
+            )
+            None -> #(model, effect.none())
+          }
+        NoRecovery | ReplacingLocalSnapshot -> #(model, effect.none())
       }
 
     RecoveryReplaceFinished(result) ->
@@ -736,9 +744,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               let model = Model(..model, pending_delete: None)
               let removed = crdt_js.or_map_remove(shared.root, key: name)
               let sequence = case sequence_index_of(shared, name) {
-                Some(index) ->
-                  crdt_js.sequence_delete(shared.order, index: index)
-                None -> Ok(Nil)
+                Ok(index) -> crdt_js.sequence_delete(shared.order, index: index)
+                Error(Nil) -> Ok(Nil)
               }
               let model = case removed {
                 Ok(Nil) ->
@@ -835,33 +842,36 @@ fn move_target(
   delta: Int,
 ) -> Result(Option(String), Nil) {
   let count = list.length(names)
-  use from <- result.try(option.to_result(index_of(names, name), Nil))
+  use from <- result.try(index_of(names, name))
   let to = from + delta
   case to < 0 || to >= count {
     True -> Error(Nil)
     // Moving down means landing in front of whatever follows the neighbour;
     // past the end that is `None`, which `apply_drop` reads as "append".
     False ->
-      Ok(case delta < 0 {
-        True -> at(names, to)
-        False -> at(names, to + 1)
-      })
+      Ok(
+        case delta < 0 {
+          True -> at(names, to)
+          False -> at(names, to + 1)
+        }
+        |> option.from_result,
+      )
   }
 }
 
-fn index_of(names: List(String), name: String) -> Option(Int) {
-  list.index_fold(names, None, fn(found, candidate, index) {
+fn index_of(names: List(String), name: String) -> Result(Int, Nil) {
+  list.index_fold(names, Error(Nil), fn(found, candidate, index) {
     case found, candidate == name {
-      None, True -> Some(index)
+      Error(Nil), True -> Ok(index)
       _, _ -> found
     }
   })
 }
 
-fn at(names: List(String), index: Int) -> Option(String) {
+fn at(names: List(String), index: Int) -> Result(String, Nil) {
   case list.drop(names, index) {
-    [name, ..] -> Some(name)
-    [] -> None
+    [name, ..] -> Ok(name)
+    [] -> Error(Nil)
   }
 }
 
@@ -941,11 +951,11 @@ fn ensure_tags(
       ),
       False,
     )
-    Ok(None) if !create_missing -> #(
+    Ok(Error(Nil)) if !create_missing -> #(
       Model(..model, pending: PendingShared(None, model.pending.order)),
       False,
     )
-    Ok(None) ->
+    Ok(Error(Nil)) ->
       case crdt_js.create_channel(document, doc_schema.tags_kind()) {
         Error(error) -> #(
           note_system(
@@ -978,11 +988,11 @@ fn ensure_tags(
             )
           }
       }
-    Ok(Some(or_map_kernel.Tally(_))) -> #(
+    Ok(Ok(or_map_kernel.Tally(_))) -> #(
       note_system(model, "The stored tags channel address is corrupt."),
       False,
     )
-    Ok(Some(or_map_kernel.Register(address))) ->
+    Ok(Ok(or_map_kernel.Register(address))) ->
       case
         crdt_js.resolve_channel(
           document,
@@ -1029,11 +1039,11 @@ fn ensure_order(
       ),
       False,
     )
-    Ok(None) if !create_missing -> #(
+    Ok(Error(Nil)) if !create_missing -> #(
       Model(..model, pending: PendingShared(model.pending.tags, None)),
       False,
     )
-    Ok(None) ->
+    Ok(Error(Nil)) ->
       case crdt_js.create_channel(document, doc_schema.order_kind()) {
         Error(error) -> #(
           note_system(
@@ -1066,11 +1076,11 @@ fn ensure_order(
             )
           }
       }
-    Ok(Some(or_map_kernel.Tally(_))) -> #(
+    Ok(Ok(or_map_kernel.Tally(_))) -> #(
       note_system(model, "The stored order channel address is corrupt."),
       False,
     )
-    Ok(Some(or_map_kernel.Register(address))) ->
+    Ok(Ok(or_map_kernel.Register(address))) ->
       case
         crdt_js.resolve_channel(
           document,
@@ -1212,7 +1222,20 @@ fn retryable_missing_channel(error: P2pError) -> Bool {
   case error {
     p2p.InvalidEnvelope(_, detail) ->
       string.starts_with(detail, "no channel registered at ")
-    _ -> False
+    p2p.UnsupportedChannel(_)
+    | p2p.RootMismatch(_, _)
+    | p2p.ChannelTypeMismatch(_, _, _)
+    | p2p.DocumentClosed
+    | p2p.CompatibilityMismatch(_, _)
+    | p2p.ProtocolMismatch(_, _)
+    | p2p.RoomMismatch
+    | p2p.RoomFull(_)
+    | p2p.SignalingFailed(_)
+    | p2p.SequencerUnavailable(_)
+    | p2p.SequencerUnsupported
+    | p2p.PeerConnectionFailed(_, _)
+    | p2p.SnapshotTooLarge(_, _)
+    | p2p.ReplicaCollision(_) -> False
   }
 }
 
@@ -1319,7 +1342,7 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
           ),
           effect.none(),
         )
-        Ok(None) -> #(
+        Ok(Error(Nil)) -> #(
           Model(
             ..model,
             pending_open: None,
@@ -1327,7 +1350,7 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
           ),
           effect.none(),
         )
-        Ok(Some(or_map_kernel.Tally(_))) -> #(
+        Ok(Ok(or_map_kernel.Tally(_))) -> #(
           Model(
             ..model,
             pending_open: None,
@@ -1335,7 +1358,7 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
           ),
           effect.none(),
         )
-        Ok(Some(or_map_kernel.Register(address))) ->
+        Ok(Ok(or_map_kernel.Register(address))) ->
           case
             crdt_js.resolve_channel(
               document,
@@ -1451,15 +1474,15 @@ fn raw_sequence_length(
   }
 }
 
-fn sequence_index_of(shared: SharedState, name: String) -> Option(Int) {
+fn sequence_index_of(shared: SharedState, name: String) -> Result(Int, Nil) {
   let target = json.to_string(json.string(name))
   case crdt_js.sequence_values(shared.order) {
-    Error(_) -> None
+    Error(_) -> Error(Nil)
     Ok(values) ->
       values
-      |> list.index_fold(None, fn(found, value, index) {
+      |> list.index_fold(Error(Nil), fn(found, value, index) {
         case found, json.to_string(value) == target {
-          None, True -> Some(index)
+          Error(Nil), True -> Ok(index)
           _, _ -> found
         }
       })
@@ -1475,19 +1498,19 @@ fn apply_drop(
 ) -> Result(Nil, String) {
   let length = raw_sequence_length(shared.order, [])
   let to = case target {
-    Some(name) -> sequence_index_of(shared, name) |> option.unwrap(length)
+    Some(name) -> sequence_index_of(shared, name) |> result.unwrap(length)
     None -> length
   }
 
   let result = case sequence_index_of(shared, dragged) {
-    None ->
+    Error(Nil) ->
       crdt_js.sequence_insert(
         shared.order,
         index: to,
         value: json.string(dragged),
       )
-    Some(from) if from == to -> Ok(Nil)
-    Some(from) -> {
+    Ok(from) if from == to -> Ok(Nil)
+    Ok(from) -> {
       let destination = case from < to {
         True -> to - 1
         False -> to
@@ -1700,10 +1723,13 @@ fn room_view(model: Model) -> Element(Msg) {
 /// region. The save line escalates to `alert` when it is reporting a failure —
 /// that is the one status change nobody should have to notice on their own.
 fn status_view(model: Model) -> Element(Msg) {
-  let saving_failed = case model.recovery, model.save_state {
-    NoRecovery, SaveFailed(_) -> True
-    NoRecovery, _ -> False
-    _, _ -> True
+  let saving_failed = case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        SaveFailed(_) -> True
+        WaitingForDocument | Watching | Saving | Saved -> False
+      }
+    RecoveryRequired(_) | ReplacingLocalSnapshot -> True
   }
 
   html.div(
@@ -1764,20 +1790,26 @@ fn network_lamp(model: Model) -> String {
 }
 
 fn storage_lamp(model: Model) -> String {
-  case model.local_snapshot, model.durable {
-    LocalSnapshotFailed(_), _ -> "lamp-armed"
-    LoadedLocalSnapshot, Some(True) -> "lamp-safe"
-    LoadedLocalSnapshot, _ -> "lamp-live"
-    _, _ -> "lamp-live"
+  case model.local_snapshot {
+    LocalSnapshotFailed(_) -> "lamp-armed"
+    LoadedLocalSnapshot ->
+      case model.durable {
+        Some(True) -> "lamp-safe"
+        Some(False) | None -> "lamp-live"
+      }
+    OpeningLocalSnapshot | NoLocalSnapshot -> "lamp-live"
   }
 }
 
 fn save_lamp(model: Model) -> String {
-  case model.recovery, model.save_state {
-    NoRecovery, Saved -> "lamp-safe"
-    NoRecovery, SaveFailed(_) -> "lamp-armed"
-    NoRecovery, _ -> "lamp-live"
-    _, _ -> "lamp-armed"
+  case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        Saved -> "lamp-safe"
+        SaveFailed(_) -> "lamp-armed"
+        WaitingForDocument | Watching | Saving -> "lamp-live"
+      }
+    RecoveryRequired(_) | ReplacingLocalSnapshot -> "lamp-armed"
   }
 }
 
@@ -1798,28 +1830,35 @@ fn safety_headline(model: Model) -> String {
     count -> int.to_string(count) <> " notes"
   }
 
-  case model.recovery, model.save_state {
-    NoRecovery, Saved -> "Safe · " <> notes <> " on disk" <> elsewhere
-    NoRecovery, Saving -> "Saving " <> notes <> "…"
-    NoRecovery, SaveFailed(_) -> "At risk · this browser cannot save"
-    NoRecovery, _ ->
-      case peers {
-        0 -> "Not saved yet · " <> notes <> " in this tab only"
-        _ -> "Not saved yet · " <> notes <> elsewhere
+  case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        Saved -> "Safe · " <> notes <> " on disk" <> elsewhere
+        Saving -> "Saving " <> notes <> "…"
+        SaveFailed(_) -> "At risk · this browser cannot save"
+        WaitingForDocument | Watching ->
+          case peers {
+            0 -> "Not saved yet · " <> notes <> " in this tab only"
+            _ -> "Not saved yet · " <> notes <> elsewhere
+          }
       }
-    _, _ -> "At risk · this browser cannot save"
+    RecoveryRequired(_) | ReplacingLocalSnapshot ->
+      "At risk · this browser cannot save"
   }
 }
 
 /// Drives the master lamp. The headline sentence beside it carries the same
 /// fact in words, so the colour is never the only channel.
 fn safety_token(model: Model) -> String {
-  case model.recovery, model.save_state {
-    NoRecovery, Saved -> "safe"
-    NoRecovery, Saving -> "saving"
-    NoRecovery, SaveFailed(_) -> "at-risk"
-    NoRecovery, _ -> "pending"
-    _, _ -> "at-risk"
+  case model.recovery {
+    NoRecovery ->
+      case model.save_state {
+        Saved -> "safe"
+        Saving -> "saving"
+        SaveFailed(_) -> "at-risk"
+        WaitingForDocument | Watching -> "pending"
+      }
+    RecoveryRequired(_) | ReplacingLocalSnapshot -> "at-risk"
   }
 }
 
@@ -2018,7 +2057,8 @@ fn note_list_view(model: Model) -> Element(Msg) {
     None, _ ->
       case model.phase {
         Failed(_) -> html.text("")
-        _ -> html.p([attribute.class("hint")], [html.text("Loading notes…")])
+        Opening | Ready ->
+          html.p([attribute.class("hint")], [html.text("Loading notes…")])
       }
     Some(_), [] ->
       html.p([attribute.class("hint")], [html.text("No notes here.")])
@@ -2179,7 +2219,7 @@ fn main_view(model: Model) -> Element(Msg) {
               },
             ],
           )
-        _ ->
+        Opening | Ready ->
           html.p([attribute.class("hint")], [
             html.text("Open this URL in another tab to join the same room."),
           ])

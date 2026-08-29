@@ -8,7 +8,7 @@ import startest/expect
 import watershed/fuzz/kernel_fuzz.{
   ClientOp, Deliver, Disconnect, Sequence, Synchronize,
 }
-import watershed/fuzz/pact_map_model.{CmdSet}
+import watershed/fuzz/pact_map_model.{CommandSet}
 import watershed/fuzz/script_gen
 
 const client_count = 3
@@ -23,7 +23,7 @@ fn weights() -> script_gen.Weights {
   )
 }
 
-pub fn converges_and_matches_oracle_test() {
+pub fn converges_and_matches_oracle_test() -> Nil {
   let model = pact_map_model.model()
   kernel_fuzz.run(
     model,
@@ -33,18 +33,18 @@ pub fn converges_and_matches_oracle_test() {
   )
 }
 
-pub fn set_fans_out_accepts_and_settles_test() {
+pub fn set_fans_out_accepts_and_settles_test() -> Nil {
   let script = [
-    ClientOp(1, CmdSet("a", Some(json.int(1)), 0)),
+    ClientOp(1, CommandSet("a", Some(json.int(1)), 0)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(pact_map_model.model(), client_count, script)
   |> expect.to_be_ok
 }
 
-pub fn leave_can_settle_pending_proposal_test() {
+pub fn leave_can_settle_pending_proposal_test() -> Nil {
   let script = [
-    ClientOp(1, CmdSet("a", Some(json.int(1)), 0)),
+    ClientOp(1, CommandSet("a", Some(json.int(1)), 0)),
     Sequence(1),
     Deliver(0, 1),
     Deliver(1, 1),
@@ -55,15 +55,15 @@ pub fn leave_can_settle_pending_proposal_test() {
   |> expect.to_be_ok
 }
 
-pub fn op_json_round_trips_test() {
+pub fn op_json_round_trips_test() -> Nil {
   let model = pact_map_model.model()
   [
-    CmdSet("a", Some(json.int(1)), 7),
-    CmdSet("b", None, 8),
+    CommandSet("a", Some(json.int(1)), 7),
+    CommandSet("b", None, 8),
   ]
-  |> list.each(fn(cmd) {
+  |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(cmd)), model.op_decoder)
-    decoded |> expect.to_equal(cmd)
+      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+    decoded |> expect.to_equal(command)
   })
 }

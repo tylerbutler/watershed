@@ -35,9 +35,10 @@ const CHANNEL_EVENTS = [
 //
 // `onJoin` fires on every successful (re)join — Phoenix auto-rejoins after a
 // socket reconnect, so this doubles as the re-handshake hook. `onEvent` gets
-// (eventName, parsedPayload); the payload is a plain JS object, which Gleam's
-// dynamic decoders consume directly. Returns the Channel (its `.socket` back
-// reference is used by push/close).
+// (eventName, payloadJson); Phoenix hands us a parsed plain JS object, and we
+// serialize it straight back to JSON so the Gleam side only ever sees a typed
+// JSON boundary (a `String`), never an untyped FFI value. Returns the Channel
+// (its `.socket` back reference is used by push/close).
 export function connect(url, topic, joinPayloadJson, onEvent, onJoin, onClose) {
   if (Socket === undefined) {
     throw new Error(
@@ -51,7 +52,7 @@ export function connect(url, topic, joinPayloadJson, onEvent, onJoin, onClose) {
   const channel = socket.channel(topic, JSON.parse(joinPayloadJson));
 
   for (const event of CHANNEL_EVENTS) {
-    channel.on(event, (payload) => onEvent(event, payload));
+    channel.on(event, (payload) => onEvent(event, JSON.stringify(payload)));
   }
 
   channel.onClose(() => onClose());

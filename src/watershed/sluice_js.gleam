@@ -28,6 +28,8 @@ import gleam/json.{type Json}
 import gleam/list
 @target(javascript)
 import gleam/option.{type Option, None, Some}
+@target(javascript)
+import gleam/result
 
 @target(javascript)
 import watershed
@@ -319,23 +321,20 @@ pub fn settle(sluice: Sluice) -> Nil {
 /// Deliver exactly one queued frame, to a client that is not paused. The
 /// function returns `False` when it can deliver no frame.
 pub fn step(sluice: Sluice) -> Bool {
-  case take_deliver(sluice.cell) {
-    Some(_) -> True
-    None -> False
-  }
+  result.is_ok(take_deliver(sluice.cell))
 }
 
 @target(javascript)
 /// The same as `step`, but the function reports what it delivered: the target
 /// client, the event, and, for an `op` event, the sequence number and the
-/// author. The result is `None` when the function can deliver no frame. Use it
+/// author. The result is `Error(Nil)` when the function can deliver no frame. Use it
 /// to drive a live visualization that animates each hop.
-pub fn step_info(sluice: Sluice) -> Option(Delivery) {
+pub fn step_info(sluice: Sluice) -> Result(Delivery, Nil) {
   case take_deliver(sluice.cell) {
-    None -> None
-    Some(frame) -> {
+    Error(Nil) -> Error(Nil)
+    Ok(frame) -> {
       let #(sequence_number, author) = op_meta(frame)
-      Some(Delivery(
+      Ok(Delivery(
         to: frame.client_id,
         event: frame.event,
         sequence_number: sequence_number,
@@ -350,12 +349,12 @@ pub fn step_info(sluice: Sluice) -> Option(Delivery) {
 /// nothing. A caller can thus collect a whole broadcast group, which is every
 /// frame that shares the sequence number of one op, into one animation step.
 /// Every replica then receives the op together, and not one hop at a time.
-pub fn peek_info(sluice: Sluice) -> Option(Delivery) {
+pub fn peek_info(sluice: Sluice) -> Result(Delivery, Nil) {
   case core.peek(transport_js.get_cell(sluice.cell).core) {
-    None -> None
-    Some(frame) -> {
+    Error(Nil) -> Error(Nil)
+    Ok(frame) -> {
       let #(sequence_number, author) = op_meta(frame)
-      Some(Delivery(
+      Ok(Delivery(
         to: frame.client_id,
         event: frame.event,
         sequence_number: sequence_number,
@@ -486,30 +485,30 @@ fn fire_due(sluice: Sluice) -> Nil {
 @target(javascript)
 fn drain(cell: Cell(State)) -> Nil {
   case take_deliver(cell) {
-    None -> Nil
-    Some(_) -> drain(cell)
+    Error(Nil) -> Nil
+    Ok(_) -> drain(cell)
   }
 }
 
 @target(javascript)
 /// Take the next deliverable frame, deliver it, and return it. The result is
-/// `None` when there is no such frame. The function commits the take before the
+/// `Error(Nil)` when there is no such frame. The function commits the take before the
 /// delivery, because the reaction of the recipient goes back into the same
 /// cell, and the function must not overwrite it.
-fn take_deliver(cell: Cell(State)) -> Option(core.Outbound) {
+fn take_deliver(cell: Cell(State)) -> Result(core.Outbound, Nil) {
   let state = transport_js.get_cell(cell)
   case core.take(state.core) {
-    #(core, None) -> {
+    #(core, Error(Nil)) -> {
       transport_js.set_cell(cell, State(..state, core: core))
-      None
+      Error(Nil)
     }
-    #(core, Some(frame)) -> {
+    #(core, Ok(frame)) -> {
       transport_js.set_cell(cell, State(..state, core: core))
       case find_conn(state.conns, frame.client_id) {
-        Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
+        Ok(conn) -> conn.on_event(frame.event, json.to_string(frame.payload))
         Error(_) -> Nil
       }
-      Some(frame)
+      Ok(frame)
     }
   }
 }
@@ -571,7 +570,7 @@ fn make_transport(cell: Cell(State)) -> runtime.Transport {
 @target(javascript)
 fn register(
   cell: Cell(State),
-  on_event: fn(String, Dynamic) -> Nil,
+  on_event: fn(String, String) -> Nil,
   on_join: fn() -> Nil,
   on_close: fn() -> Nil,
 ) -> String {
@@ -629,7 +628,7 @@ fn push(cell: Cell(State), token: String, event: String, payload: Json) -> Nil {
 /// handle of the runtime stays valid.
 type Conn {
   Conn(
-    on_event: fn(String, Dynamic) -> Nil,
+    on_event: fn(String, String) -> Nil,
     on_join: fn() -> Nil,
     on_close: fn() -> Nil,
     current: String,
@@ -703,10 +702,14 @@ fn find_conn(
 }
 
 @target(javascript)
-/// Serialize a queued `Json` frame and parse it again as `Dynamic`. This is the
-/// exact path that a frame takes over a real socket before the runtime decodes
-/// it.
+/// Serialize a queued `Json` frame and parse it again as `Dynamic`, for
+/// `sluice/core.handle`, which decodes an inbound push the same way floodgate
+/// would off a real socket.
 fn to_dynamic(payload: Json) -> Dynamic {
-  let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
-  dynamic
+  // `json.to_string` always writes valid JSON, so the parse always succeeds.
+  // The error arm reports a null value, because this module must not panic.
+  case json.parse(json.to_string(payload), decode.dynamic) {
+    Ok(value) -> value
+    Error(_) -> dynamic.nil()
+  }
 }

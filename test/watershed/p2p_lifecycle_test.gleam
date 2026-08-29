@@ -1,6 +1,5 @@
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 
@@ -51,14 +50,18 @@ fn assert_converges(
 fn expect_unsupported_p2p(result: Result(a, channel.ChannelError)) -> Nil {
   case result {
     Error(channel.UnsupportedP2p(_)) -> Nil
-    _ -> panic as "expected Error(channel.UnsupportedP2p(_))"
+    Ok(_)
+    | Error(channel.UnexpectedAck(..))
+    | Error(channel.WrongChannelType(..))
+    | Error(channel.CorruptRemoteOp(..)) ->
+      panic as "expected Error(channel.UnsupportedP2p(_))"
   }
 }
 
 // --- local commit invariants: visible + confirmed update together, pending
 // --- stays empty, for every `supports_p2p` kernel. --------------------------
 
-pub fn pn_counter_local_edit_commits_immediately_test() {
+pub fn pn_counter_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitPnCounter, replica: "a")
   let assert Ok(#(state, events, _op)) =
     channel.apply_p2p_local(state, channel.PnCounterEdit(7))
@@ -72,7 +75,7 @@ pub fn pn_counter_local_edit_commits_immediately_test() {
   pn_counter_kernel.sequenced_value(kernel) |> expect.to_equal(7)
 }
 
-pub fn or_map_tally_local_edit_commits_immediately_test() {
+pub fn or_map_tally_local_edit_commits_immediately_test() -> Nil {
   let state =
     channel.new(channel.InitOrMap(or_map_kernel.TallyMode), replica: "a")
   let assert Ok(#(state, _events, _op)) =
@@ -81,12 +84,12 @@ pub fn or_map_tally_local_edit_commits_immediately_test() {
   let assert channel.OrMapState(kernel) = state
   kernel.pending |> expect.to_equal([])
   or_map_kernel.get(kernel, "score")
-  |> expect.to_equal(Some(or_map_kernel.Tally(4)))
+  |> expect.to_equal(Ok(or_map_kernel.Tally(4)))
   or_map_kernel.sequenced_entries(kernel)
   |> expect.to_equal(or_map_kernel.entries(kernel))
 }
 
-pub fn or_map_register_local_edit_commits_immediately_test() {
+pub fn or_map_register_local_edit_commits_immediately_test() -> Nil {
   let state =
     channel.new(channel.InitOrMap(or_map_kernel.RegisterMode), replica: "a")
   let assert Ok(#(state, _events, _op)) =
@@ -98,12 +101,12 @@ pub fn or_map_register_local_edit_commits_immediately_test() {
   let assert channel.OrMapState(kernel) = state
   kernel.pending |> expect.to_equal([])
   or_map_kernel.get(kernel, "name")
-  |> expect.to_equal(Some(or_map_kernel.Register("Ann")))
+  |> expect.to_equal(Ok(or_map_kernel.Register("Ann")))
   or_map_kernel.sequenced_entries(kernel)
   |> expect.to_equal(or_map_kernel.entries(kernel))
 }
 
-pub fn or_map_remove_local_edit_commits_immediately_test() {
+pub fn or_map_remove_local_edit_commits_immediately_test() -> Nil {
   let state =
     channel.new(channel.InitOrMap(or_map_kernel.TallyMode), replica: "a")
   let assert Ok(#(state, _events, _op)) =
@@ -113,10 +116,10 @@ pub fn or_map_remove_local_edit_commits_immediately_test() {
 
   let assert channel.OrMapState(kernel) = state
   kernel.pending |> expect.to_equal([])
-  or_map_kernel.get(kernel, "score") |> expect.to_equal(None)
+  or_map_kernel.get(kernel, "score") |> expect.to_equal(Error(Nil))
 }
 
-pub fn or_set_local_edit_commits_immediately_test() {
+pub fn or_set_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitOrSet, replica: "a")
   let assert Ok(#(state, _events, _op)) =
     channel.apply_p2p_local(state, channel.OrSetAddEdit("x"))
@@ -127,7 +130,7 @@ pub fn or_set_local_edit_commits_immediately_test() {
   or_set_kernel.sequenced_values(kernel) |> expect.to_equal(["x"])
 }
 
-pub fn g_set_local_edit_commits_immediately_test() {
+pub fn g_set_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitGSet, replica: "a")
   let assert Ok(#(state, _events, _op)) =
     channel.apply_p2p_local(state, channel.GSetAddEdit("x"))
@@ -138,7 +141,7 @@ pub fn g_set_local_edit_commits_immediately_test() {
   g_set_kernel.sequenced_values(kernel) |> expect.to_equal(["x"])
 }
 
-pub fn two_p_set_local_edit_commits_immediately_test() {
+pub fn two_p_set_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitTwoPSet, replica: "a")
   let assert Ok(#(state, _events, _op)) =
     channel.apply_p2p_local(state, channel.TwoPSetAddEdit("x"))
@@ -149,7 +152,7 @@ pub fn two_p_set_local_edit_commits_immediately_test() {
   two_p_set_kernel.sequenced_values(kernel) |> expect.to_equal(["x"])
 }
 
-pub fn sequence_local_edit_commits_immediately_test() {
+pub fn sequence_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(state, _events, _op)) =
     channel.apply_p2p_local(
@@ -164,7 +167,7 @@ pub fn sequence_local_edit_commits_immediately_test() {
   |> expect.to_equal([json.string("a")])
 }
 
-pub fn sequence_delete_local_edit_commits_immediately_test() {
+pub fn sequence_delete_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(
@@ -185,7 +188,7 @@ pub fn sequence_delete_local_edit_commits_immediately_test() {
   sequence_kernel.sequenced_values(kernel) |> expect.to_equal([])
 }
 
-pub fn sequence_move_local_edit_commits_immediately_test() {
+pub fn sequence_move_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(
@@ -215,7 +218,7 @@ pub fn sequence_move_local_edit_commits_immediately_test() {
   |> expect.to_equal([json.string("b"), json.string("a")])
 }
 
-pub fn sequence_replace_local_edit_commits_immediately_test() {
+pub fn sequence_replace_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(
@@ -240,7 +243,7 @@ pub fn sequence_replace_local_edit_commits_immediately_test() {
   |> expect.to_equal([json.string("b")])
 }
 
-pub fn text_local_edit_commits_immediately_test() {
+pub fn text_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(state, events, _op)) =
     channel.apply_p2p_local(state, channel.TextInsertEdit(0, "hi"))
@@ -253,7 +256,7 @@ pub fn text_local_edit_commits_immediately_test() {
   text_kernel.sequenced_value(kernel) |> expect.to_equal("hi")
 }
 
-pub fn text_delete_range_local_edit_commits_immediately_test() {
+pub fn text_delete_range_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(state, channel.TextInsertEdit(0, "hello"))
@@ -269,7 +272,7 @@ pub fn text_delete_range_local_edit_commits_immediately_test() {
   text_kernel.sequenced_value(kernel) |> expect.to_equal("hlo")
 }
 
-pub fn text_replace_range_local_edit_commits_immediately_test() {
+pub fn text_replace_range_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(state, channel.TextInsertEdit(0, "hello"))
@@ -285,7 +288,7 @@ pub fn text_replace_range_local_edit_commits_immediately_test() {
   text_kernel.sequenced_value(kernel) |> expect.to_equal("world")
 }
 
-pub fn text_append_local_edit_commits_immediately_test() {
+pub fn text_append_local_edit_commits_immediately_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(state, _, _)) =
     channel.apply_p2p_local(state, channel.TextInsertEdit(0, "hello "))
@@ -303,7 +306,7 @@ pub fn text_append_local_edit_commits_immediately_test() {
   text_kernel.sequenced_value(kernel) |> expect.to_equal("hello world")
 }
 
-pub fn text_empty_edit_still_commits_an_op_test() {
+pub fn text_empty_edit_still_commits_an_op_test() -> Nil {
   // Unlike the server-backed `insert`, the p2p path always reports an op —
   // there is no pending queue to spare from a content-free entry, so even a
   // no-op edit (inserting "") is harmless to commit and broadcast.
@@ -314,7 +317,27 @@ pub fn text_empty_edit_still_commits_an_op_test() {
   events |> expect.to_equal([])
   case op {
     channel.TextOp(text_kernel.Insert(0, "", _delta)) -> Nil
-    _ -> panic as "expected an Insert(0, \"\", _) op even for an empty edit"
+    channel.TextOp(text_kernel.Insert(..))
+    | channel.TextOp(text_kernel.DeleteRange(..))
+    | channel.TextOp(text_kernel.ReplaceRange(..))
+    | channel.TextOp(text_kernel.Append(..))
+    | channel.MapOp(..)
+    | channel.CounterOp(..)
+    | channel.PnCounterOp(..)
+    | channel.OrMapOp(..)
+    | channel.OrSetOp(..)
+    | channel.GSetOp(..)
+    | channel.TwoPSetOp(..)
+    | channel.RegisterCollectionOp(..)
+    | channel.ClaimsOp(..)
+    | channel.TaskManagerOp(..)
+    | channel.PactMapOp(..)
+    | channel.JsonOtOp(..)
+    | channel.DirectoryOp(..)
+    | channel.OrderedCollectionOp(..)
+    | channel.SequenceOp(..)
+    | channel.RichTextOp(..) ->
+      panic as "expected an Insert(0, \"\", _) op even for an empty edit"
   }
 
   let assert channel.TextState(kernel) = state
@@ -324,13 +347,13 @@ pub fn text_empty_edit_still_commits_an_op_test() {
 
 // --- dispatch rejection: ineligible channels and mismatched edits/ops. -----
 
-pub fn apply_p2p_local_rejects_ineligible_channel_test() {
+pub fn apply_p2p_local_rejects_ineligible_channel_test() -> Nil {
   let state = channel.new(channel.InitMap, replica: "a")
   channel.apply_p2p_local(state, channel.PnCounterEdit(1))
   |> expect_unsupported_p2p
 }
 
-pub fn apply_p2p_remote_rejects_ineligible_channel_test() {
+pub fn apply_p2p_remote_rejects_ineligible_channel_test() -> Nil {
   let state = channel.new(channel.InitMap, replica: "a")
   let counter = channel.new(channel.InitPnCounter, replica: "b")
   let assert Ok(#(_, _, op)) =
@@ -339,13 +362,13 @@ pub fn apply_p2p_remote_rejects_ineligible_channel_test() {
   channel.apply_p2p_remote(state, op) |> expect_unsupported_p2p
 }
 
-pub fn apply_p2p_local_rejects_mismatched_edit_test() {
+pub fn apply_p2p_local_rejects_mismatched_edit_test() -> Nil {
   let state = channel.new(channel.InitPnCounter, replica: "a")
   channel.apply_p2p_local(state, channel.OrSetAddEdit("x"))
   |> expect_unsupported_p2p
 }
 
-pub fn apply_p2p_remote_rejects_mismatched_op_test() {
+pub fn apply_p2p_remote_rejects_mismatched_op_test() -> Nil {
   let pn_counter_state = channel.new(channel.InitPnCounter, replica: "a")
   let text_state = channel.new(channel.InitText, replica: "b")
   let assert Ok(#(_, _, text_op)) =
@@ -354,27 +377,27 @@ pub fn apply_p2p_remote_rejects_mismatched_op_test() {
   channel.apply_p2p_remote(pn_counter_state, text_op) |> expect_unsupported_p2p
 }
 
-pub fn or_map_increment_against_register_mode_is_rejected_test() {
+pub fn or_map_increment_against_register_mode_is_rejected_test() -> Nil {
   let state =
     channel.new(channel.InitOrMap(or_map_kernel.RegisterMode), replica: "a")
   channel.apply_p2p_local(state, channel.OrMapIncrementEdit("k", 1))
   |> expect_unsupported_p2p
 }
 
-pub fn or_map_set_register_against_tally_mode_is_rejected_test() {
+pub fn or_map_set_register_against_tally_mode_is_rejected_test() -> Nil {
   let state =
     channel.new(channel.InitOrMap(or_map_kernel.TallyMode), replica: "a")
   channel.apply_p2p_local(state, channel.OrMapSetRegisterEdit("k", "v", 1))
   |> expect_unsupported_p2p
 }
 
-pub fn sequence_edit_out_of_bounds_is_rejected_test() {
+pub fn sequence_edit_out_of_bounds_is_rejected_test() -> Nil {
   let state = channel.new(channel.InitSequence, replica: "a")
   channel.apply_p2p_local(state, channel.SequenceDeleteEdit(0))
   |> expect_unsupported_p2p
 }
 
-pub fn text_edit_out_of_bounds_is_rejected_test() {
+pub fn text_edit_out_of_bounds_is_rejected_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   channel.apply_p2p_local(state, channel.TextDeleteRangeEdit(0, 1))
   |> expect_unsupported_p2p
@@ -391,7 +414,7 @@ fn pn_counter_op(replica: String, amount: Int) -> channel.ChannelOp {
   op
 }
 
-pub fn pn_counter_p2p_converges_across_order_and_duplicates_test() {
+pub fn pn_counter_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let ops = [
     pn_counter_op("a", 5),
     pn_counter_op("b", -2),
@@ -422,7 +445,7 @@ fn or_map_increment_op(replica: String, amount: Int) -> channel.ChannelOp {
   op
 }
 
-pub fn or_map_tally_p2p_converges_across_order_and_duplicates_test() {
+pub fn or_map_tally_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let ops = [
     or_map_increment_op("a", 3),
     or_map_increment_op("b", -1),
@@ -440,7 +463,7 @@ pub fn or_map_tally_p2p_converges_across_order_and_duplicates_test() {
     ops,
     read,
   )
-  |> expect.to_equal(#(Some(or_map_kernel.Tally(6)), True))
+  |> expect.to_equal(#(Ok(or_map_kernel.Tally(6)), True))
 }
 
 fn or_map_register_op(
@@ -458,7 +481,7 @@ fn or_map_register_op(
   op
 }
 
-pub fn or_map_register_p2p_converges_on_highest_timestamp_test() {
+pub fn or_map_register_p2p_converges_on_highest_timestamp_test() -> Nil {
   let ops = [
     or_map_register_op("a", "first", 5),
     or_map_register_op("b", "second", 10),
@@ -475,7 +498,7 @@ pub fn or_map_register_p2p_converges_on_highest_timestamp_test() {
     ops,
     read,
   )
-  |> expect.to_equal(#(Some(or_map_kernel.Register("second")), True))
+  |> expect.to_equal(#(Ok(or_map_kernel.Register("second")), True))
 }
 
 fn or_set_add_op(replica: String, element: String) -> channel.ChannelOp {
@@ -485,7 +508,7 @@ fn or_set_add_op(replica: String, element: String) -> channel.ChannelOp {
   op
 }
 
-pub fn or_set_p2p_converges_across_order_and_duplicates_test() {
+pub fn or_set_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let ops = [
     or_set_add_op("a", "x"),
     or_set_add_op("b", "y"),
@@ -504,7 +527,7 @@ pub fn or_set_p2p_converges_across_order_and_duplicates_test() {
   |> expect.to_equal(#(["x", "y", "z"], True))
 }
 
-pub fn or_set_add_then_observed_remove_converges_across_order_test() {
+pub fn or_set_add_then_observed_remove_converges_across_order_test() -> Nil {
   let state_a = channel.new(channel.InitOrSet, replica: "a")
   let assert Ok(#(_, _, add_op)) =
     channel.apply_p2p_local(state_a, channel.OrSetAddEdit("x"))
@@ -539,7 +562,7 @@ fn g_set_add_op(replica: String, element: String) -> channel.ChannelOp {
   op
 }
 
-pub fn g_set_p2p_converges_across_order_and_duplicates_test() {
+pub fn g_set_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let ops = [
     g_set_add_op("a", "x"),
     g_set_add_op("b", "y"),
@@ -565,7 +588,7 @@ fn two_p_set_add_op(replica: String, element: String) -> channel.ChannelOp {
   op
 }
 
-pub fn two_p_set_p2p_converges_across_order_and_duplicates_test() {
+pub fn two_p_set_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let ops = [
     two_p_set_add_op("a", "x"),
     two_p_set_add_op("b", "y"),
@@ -584,7 +607,7 @@ pub fn two_p_set_p2p_converges_across_order_and_duplicates_test() {
   |> expect.to_equal(#(["x", "y", "z"], True))
 }
 
-pub fn two_p_set_add_then_remove_converges_across_order_test() {
+pub fn two_p_set_add_then_remove_converges_across_order_test() -> Nil {
   let state_a = channel.new(channel.InitTwoPSet, replica: "a")
   let assert Ok(#(state_a, _, add_op)) =
     channel.apply_p2p_local(state_a, channel.TwoPSetAddEdit("x"))
@@ -613,7 +636,7 @@ pub fn two_p_set_add_then_remove_converges_across_order_test() {
 /// having observed the others yet — the sequence CRDT's identities (not
 /// index) must give every replica's insert a stable position so delivery
 /// order never matters.
-pub fn sequence_concurrent_inserts_converge_across_order_test() {
+pub fn sequence_concurrent_inserts_converge_across_order_test() -> Nil {
   let insert_at = fn(replica: String, value: String) -> channel.ChannelOp {
     let state = channel.new(channel.InitSequence, replica: replica)
     let assert Ok(#(_, _, op)) =
@@ -643,7 +666,7 @@ pub fn sequence_concurrent_inserts_converge_across_order_test() {
   list.contains(values, json.string("c")) |> expect.to_equal(True)
 }
 
-pub fn sequence_delete_p2p_converges_across_order_and_duplicates_test() {
+pub fn sequence_delete_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let state_a = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(_, _, insert_op)) =
     channel.apply_p2p_local(
@@ -674,7 +697,7 @@ pub fn sequence_delete_p2p_converges_across_order_and_duplicates_test() {
   |> expect.to_equal(#([], True))
 }
 
-pub fn sequence_replace_p2p_converges_across_order_and_duplicates_test() {
+pub fn sequence_replace_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let state_a = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(_, _, insert_op)) =
     channel.apply_p2p_local(
@@ -707,7 +730,7 @@ pub fn sequence_replace_p2p_converges_across_order_and_duplicates_test() {
 /// move op's identity refers to the item it targets, so it is delivered
 /// here alongside the inserts it depends on; every order (and a full
 /// redelivered duplicate of the batch) must still converge.
-pub fn sequence_move_p2p_converges_across_order_and_duplicates_test() {
+pub fn sequence_move_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let state_a = channel.new(channel.InitSequence, replica: "a")
   let assert Ok(#(state_a, _, insert_a_op)) =
     channel.apply_p2p_local(
@@ -741,7 +764,7 @@ pub fn sequence_move_p2p_converges_across_order_and_duplicates_test() {
 
 /// Three replicas concurrently insert a distinct character at index 0, none
 /// having observed the others yet.
-pub fn text_concurrent_inserts_converge_across_order_test() {
+pub fn text_concurrent_inserts_converge_across_order_test() -> Nil {
   let insert_at = fn(replica: String, value: String) -> channel.ChannelOp {
     let state = channel.new(channel.InitText, replica: replica)
     let assert Ok(#(_, _, op)) =
@@ -768,7 +791,7 @@ pub fn text_concurrent_inserts_converge_across_order_test() {
   string.contains(value, "c") |> expect.to_equal(True)
 }
 
-pub fn text_delete_range_p2p_converges_across_order_and_duplicates_test() {
+pub fn text_delete_range_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let state_a = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(_, _, insert_op)) =
     channel.apply_p2p_local(state_a, channel.TextInsertEdit(0, "hello"))
@@ -796,7 +819,7 @@ pub fn text_delete_range_p2p_converges_across_order_and_duplicates_test() {
   |> expect.to_equal(#("hlo", True))
 }
 
-pub fn text_replace_range_p2p_converges_across_order_and_duplicates_test() {
+pub fn text_replace_range_p2p_converges_across_order_and_duplicates_test() -> Nil {
   let state_a = channel.new(channel.InitText, replica: "a")
   let assert Ok(#(_, _, insert_op)) =
     channel.apply_p2p_local(state_a, channel.TextInsertEdit(0, "hello"))
@@ -826,7 +849,7 @@ pub fn text_replace_range_p2p_converges_across_order_and_duplicates_test() {
 /// observed the others yet — `append` inserts at the end anchor, so this
 /// is the same identity-based, order-independent guarantee as
 /// `text_concurrent_inserts_converge_across_order_test`.
-pub fn text_append_concurrent_converges_across_order_test() {
+pub fn text_append_concurrent_converges_across_order_test() -> Nil {
   let append_op = fn(replica: String, value: String) -> channel.ChannelOp {
     let state = channel.new(channel.InitText, replica: replica)
     let assert Ok(#(_, _, op)) =

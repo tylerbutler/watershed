@@ -1,8 +1,8 @@
 //// Pure fuzz harness core (F1): the pieces every ported kernel plugs into.
 ////
 //// `KernelModel` is what a kernel supplies (init/submit/apply_remote/
-//// ack_local/observe + optional capabilities). `Sim`/`Client` are a pure
-//// server + clients with an inbox/log split so "submitted but not yet
+//// ack_local/observe + optional capabilities). `Simulation`/`Client` are a
+//// pure server + clients with an inbox/log split so "submitted but not yet
 //// sequenced" is an explicit, reachable state instead of the eager/lazy
 //// degenerate schedules the old property tests hard-coded. `Command` is the
 //// data the fuzzer generates and shrinks; `run_script` interprets a script
@@ -17,7 +17,7 @@
 //// fixtures (`dump_failure` / `script_decoder`) so a captured failing
 //// script survives as a permanent regression test with no transcription.
 ////
-//// The interpreter is written against `Result(Sim, String)` internally
+//// The interpreter is written against `Result(Simulation, String)` internally
 //// (`try_run_script`) so tests can assert on a specific failure without
 //// depending on panic capture; `run_script` panics on `Error` (after
 //// dumping the failure to a JSON fixture), which is what makes qcheck
@@ -108,7 +108,7 @@ pub type KernelModel(state, op, view) {
   KernelModel(
     name: String,
     // Build a client's initial state from its identity: the client's index,
-    // stable for the sim's lifetime and never reused across `AddClient`
+    // stable for the simulation's lifetime and never reused across `AddClient`
     // joins. Replica-identified kernels (pn_counter) derive their
     // `ReplicaId` from it; identity-free kernels (counter, map, claims)
     // ignore it — two PN replicas sharing an id silently lose increments
@@ -171,19 +171,19 @@ pub type LogEntry(op) {
   LeaveEntry(client: Int)
 }
 
-pub type Sim(state, op) {
-  Sim(
+pub type Simulation(state, op) {
+  Simulation(
     inbox: List(LogEntry(op)),
     log: List(LogEntry(op)),
     clients: List(Client(state, op)),
   )
 }
 
-fn new_sim(
+fn new_simulation(
   model: KernelModel(state, op, view),
   client_count: Int,
-) -> Sim(state, op) {
-  Sim(
+) -> Simulation(state, op) {
+  Simulation(
     inbox: [],
     log: [],
     clients: list.repeat(Nil, client_count)
@@ -251,29 +251,32 @@ fn client_index(client: Int, client_count: Int) -> Int {
 }
 
 fn update_client(
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
   f: fn(Client(state, op)) -> Client(state, op),
-) -> Sim(state, op) {
+) -> Simulation(state, op) {
   let clients =
-    list.index_map(sim.clients, fn(client, i) {
+    list.index_map(simulation.clients, fn(client, i) {
       case i == index {
         True -> f(client)
         False -> client
       }
     })
-  Sim(..sim, clients: clients)
+  Simulation(..simulation, clients: clients)
 }
 
-fn get_client(sim: Sim(state, op), index: Int) -> Client(state, op) {
-  case list.take(sim.clients, index + 1) |> list.last {
+fn get_client(
+  simulation: Simulation(state, op),
+  index: Int,
+) -> Client(state, op) {
+  case list.take(simulation.clients, index + 1) |> list.last {
     Ok(client) -> client
     Error(_) -> panic as "client index out of range"
   }
 }
 
-fn connected_indices(sim: Sim(state, op)) -> List(Int) {
-  list.index_map(sim.clients, fn(client, i) { #(i, client) })
+fn connected_indices(simulation: Simulation(state, op)) -> List(Int) {
+  list.index_map(simulation.clients, fn(client, i) { #(i, client) })
   |> list.filter_map(fn(pair) {
     case pair.1.connected {
       True -> Ok(pair.0)
@@ -283,20 +286,20 @@ fn connected_indices(sim: Sim(state, op)) -> List(Int) {
 }
 
 fn meta_for(
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   sequence_number: Int,
   self_id: Int,
 ) -> SequencedMeta {
   let #(author, connected) = case
-    list.take(sim.log, sequence_number) |> list.last
+    list.take(simulation.log, sequence_number) |> list.last
   {
     Ok(OpEntry(client, _, connected)) -> #(client, connected)
-    Ok(LeaveEntry(client)) -> #(client, connected_indices(sim))
+    Ok(LeaveEntry(client)) -> #(client, connected_indices(simulation))
     Error(_) -> panic as "meta requested for an unsequenced op"
   }
   let min_delivered =
     list.fold(connected, sequence_number, fn(acc, index) {
-      let client = get_client(sim, index)
+      let client = get_client(simulation, index)
       case client.delivered < acc {
         True -> client.delivered
         False -> acc
@@ -321,12 +324,20 @@ pub fn log_ops(entries: List(LogEntry(op))) -> List(#(Int, op)) {
   })
 }
 
-fn route_op(sim: Sim(state, op), index: Int, op: op) -> Sim(state, op) {
-  let client = get_client(sim, index)
+fn route_op(
+  simulation: Simulation(state, op),
+  index: Int,
+  op: op,
+) -> Simulation(state, op) {
+  let client = get_client(simulation, index)
   case client.connected {
-    True -> Sim(..sim, inbox: list.append(sim.inbox, [OpEntry(index, op, [])]))
+    True ->
+      Simulation(
+        ..simulation,
+        inbox: list.append(simulation.inbox, [OpEntry(index, op, [])]),
+      )
     False ->
-      update_client(sim, index, fn(client) {
+      update_client(simulation, index, fn(client) {
         Client(..client, resend: list.append(client.resend, [op]))
       })
   }
@@ -334,18 +345,20 @@ fn route_op(sim: Sim(state, op), index: Int, op: op) -> Sim(state, op) {
 
 fn route_reactions(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
   state: state,
   op: op,
   meta: SequencedMeta,
   is_local: Bool,
-) -> Sim(state, op) {
+) -> Simulation(state, op) {
   case model.capabilities.react {
-    None -> sim
+    None -> simulation
     Some(react) ->
       react(state, op, meta, index, is_local)
-      |> list.fold(sim, fn(sim, op) { route_op(sim, index, op) })
+      |> list.fold(simulation, fn(simulation, op) {
+        route_op(simulation, index, op)
+      })
   }
 }
 
@@ -356,16 +369,16 @@ fn route_reactions(
 /// construction.
 fn deliver_one(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
-) -> Result(Sim(state, op), String) {
-  let client = get_client(sim, index)
-  case client.delivered >= list.length(sim.log) {
-    True -> Ok(sim)
+) -> Result(Simulation(state, op), String) {
+  let client = get_client(simulation, index)
+  case client.delivered >= list.length(simulation.log) {
+    True -> Ok(simulation)
     False -> {
       let assert Ok(entry) =
-        list.take(sim.log, client.delivered + 1) |> list.last
-      let meta = meta_for(sim, client.delivered + 1, index)
+        list.take(simulation.log, client.delivered + 1) |> list.last
+      let meta = meta_for(simulation, client.delivered + 1, index)
       case entry {
         LeaveEntry(leaver) -> {
           let new_state = case model.capabilities.remove_member {
@@ -373,7 +386,7 @@ fn deliver_one(
             Some(remove_member) -> remove_member(client.state, leaver, meta)
           }
           Ok(
-            update_client(sim, index, fn(client) {
+            update_client(simulation, index, fn(client) {
               Client(
                 ..client,
                 state: new_state,
@@ -396,7 +409,7 @@ fn deliver_one(
               )
             Ok(new_state) -> {
               let advanced =
-                update_client(sim, index, fn(client) {
+                update_client(simulation, index, fn(client) {
                   Client(
                     ..client,
                     state: new_state,
@@ -457,7 +470,7 @@ fn deliver_one(
               )
             Ok(new_state) -> {
               let advanced =
-                update_client(sim, index, fn(client) {
+                update_client(simulation, index, fn(client) {
                   Client(
                     ..client,
                     state: new_state,
@@ -483,33 +496,40 @@ fn deliver_one(
 
 fn deliver_n(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
   n: Int,
-) -> Result(Sim(state, op), String) {
+) -> Result(Simulation(state, op), String) {
   case n <= 0 {
-    True -> Ok(sim)
+    True -> Ok(simulation)
     False -> {
-      use sim <- result.try(deliver_one(model, sim, index))
-      deliver_n(model, sim, index, n - 1)
+      use simulation <- result.try(deliver_one(model, simulation, index))
+      deliver_n(model, simulation, index, n - 1)
     }
   }
 }
 
-fn sequence_n(sim: Sim(state, op), n: Int) -> Sim(state, op) {
+fn sequence_n(
+  simulation: Simulation(state, op),
+  n: Int,
+) -> Simulation(state, op) {
   case n <= 0 {
-    True -> sim
+    True -> simulation
     False ->
-      case sim.inbox {
-        [] -> sim
+      case simulation.inbox {
+        [] -> simulation
         [head, ..rest] -> {
           let head = case head {
             OpEntry(client, op, _) ->
-              OpEntry(client, op, connected_indices(sim))
+              OpEntry(client, op, connected_indices(simulation))
             LeaveEntry(client) -> LeaveEntry(client)
           }
           sequence_n(
-            Sim(..sim, inbox: rest, log: list.append(sim.log, [head])),
+            Simulation(
+              ..simulation,
+              inbox: rest,
+              log: list.append(simulation.log, [head]),
+            ),
             n - 1,
           )
         }
@@ -519,13 +539,17 @@ fn sequence_n(sim: Sim(state, op), n: Int) -> Sim(state, op) {
 
 fn deliver_all_connected(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
-) -> Result(Sim(state, op), String) {
-  list.try_fold(connected_indices(sim), sim, fn(sim, index) {
-    let client = get_client(sim, index)
-    let pending = list.length(sim.log) - client.delivered
-    deliver_n(model, sim, index, pending)
-  })
+  simulation: Simulation(state, op),
+) -> Result(Simulation(state, op), String) {
+  list.try_fold(
+    connected_indices(simulation),
+    simulation,
+    fn(simulation, index) {
+      let client = get_client(simulation, index)
+      let pending = list.length(simulation.log) - client.delivered
+      deliver_n(model, simulation, index, pending)
+    },
+  )
 }
 
 /// Validate convergence (every connected, fully-delivered client's `observe`
@@ -534,16 +558,16 @@ fn deliver_all_connected(
 /// state and the oracle comparison is well-defined.
 fn validate_convergence(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
 ) -> Result(Nil, String) {
-  case connected_indices(sim) {
+  case connected_indices(simulation) {
     [] -> Ok(Nil)
     [reference, ..rest] -> {
-      let reference_client = get_client(sim, reference)
+      let reference_client = get_client(simulation, reference)
       let reference_view = model.observe(reference_client.state)
       use _ <- result.try(
         list.try_each(rest, fn(index) {
-          let client = get_client(sim, index)
+          let client = get_client(simulation, index)
           let view = model.observe(client.state)
           case view == reference_view {
             True -> Ok(Nil)
@@ -564,7 +588,7 @@ fn validate_convergence(
       case model.capabilities.oracle {
         None -> Ok(Nil)
         Some(oracle) -> {
-          let expected = oracle(sim.log)
+          let expected = oracle(simulation.log)
           case reference_view == expected {
             True -> Ok(Nil)
             False ->
@@ -587,12 +611,12 @@ fn validate_convergence(
 /// equivalence) against every client's current state.
 fn validate_check(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
 ) -> Result(Nil, String) {
   case model.check {
     None -> Ok(Nil)
     Some(check) ->
-      list.index_map(sim.clients, fn(client, i) { #(i, client) })
+      list.index_map(simulation.clients, fn(client, i) { #(i, client) })
       |> list.try_each(fn(pair) {
         let #(index, client) = pair
         check(client.state)
@@ -612,8 +636,8 @@ fn validate_check(
 /// map). The new client's cursor starts at the log end, same as client 0's.
 fn add_client(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
-) -> Result(Sim(state, op), String) {
+  simulation: Simulation(state, op),
+) -> Result(Simulation(state, op), String) {
   case model.capabilities.load_from_synced {
     None ->
       Error(
@@ -622,21 +646,26 @@ fn add_client(
         <> "\" has none",
       )
     Some(load_from_synced) -> {
-      let client0 = get_client(sim, 0)
-      let pending = list.length(sim.log) - client0.delivered
-      use sim <- result.try(deliver_n(model, sim, 0, pending))
-      let client0 = get_client(sim, 0)
+      let client0 = get_client(simulation, 0)
+      let pending = list.length(simulation.log) - client0.delivered
+      use simulation <- result.try(deliver_n(model, simulation, 0, pending))
+      let client0 = get_client(simulation, 0)
       // The joiner's identity is its index: clients are append-only and
       // never removed, so the current length is fresh and never reused.
-      let new_id = list.length(sim.clients)
+      let new_id = list.length(simulation.clients)
       let new_client =
         Client(
           state: load_from_synced(client0.state, new_id),
           connected: True,
           resend: [],
-          delivered: list.length(sim.log),
+          delivered: list.length(simulation.log),
         )
-      Ok(Sim(..sim, clients: list.append(sim.clients, [new_client])))
+      Ok(
+        Simulation(
+          ..simulation,
+          clients: list.append(simulation.clients, [new_client]),
+        ),
+      )
     }
   }
 }
@@ -646,11 +675,11 @@ fn add_client(
 /// inbox entries and anything already in the log are untouched.
 fn disconnect(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
-) -> Sim(state, op) {
+) -> Simulation(state, op) {
   let #(mine, others) =
-    list.partition(sim.inbox, fn(entry) {
+    list.partition(simulation.inbox, fn(entry) {
       case entry {
         OpEntry(client, _, _) -> client == index
         LeaveEntry(_) -> False
@@ -660,8 +689,8 @@ fn disconnect(
     Some(_) -> list.append(others, [LeaveEntry(index)])
     None -> others
   }
-  let sim = Sim(..sim, inbox: inbox)
-  update_client(sim, index, fn(client) {
+  let simulation = Simulation(..simulation, inbox: inbox)
+  update_client(simulation, index, fn(client) {
     Client(
       ..client,
       connected: False,
@@ -686,10 +715,10 @@ fn disconnect(
 /// exists and re-stamping those that survive — before being routed.
 fn reconnect(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
-) -> Sim(state, op) {
-  let client = get_client(sim, index)
+) -> Simulation(state, op) {
+  let client = get_client(simulation, index)
   let #(client_state, resent) = case model.capabilities.resubmit {
     None -> #(client.state, client.resend)
     Some(resubmit) -> {
@@ -711,11 +740,11 @@ fn reconnect(
     }
   }
   let entries = list.map(resent, fn(op) { OpEntry(index, op, []) })
-  let sim =
-    update_client(sim, index, fn(client) {
+  let simulation =
+    update_client(simulation, index, fn(client) {
       Client(..client, state: client_state, connected: True, resend: [])
     })
-  Sim(..sim, inbox: list.append(sim.inbox, entries))
+  Simulation(..simulation, inbox: list.append(simulation.inbox, entries))
 }
 
 /// `submit` then immediately `capabilities.rollback` — the op never
@@ -723,10 +752,10 @@ fn reconnect(
 /// capability.
 fn rollback_op(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
   op: op,
-) -> Result(Sim(state, op), String) {
+) -> Result(Simulation(state, op), String) {
   case model.capabilities.rollback {
     None ->
       Error(
@@ -735,7 +764,7 @@ fn rollback_op(
         <> "\" has none",
       )
     Some(rollback) -> {
-      let client = get_client(sim, index)
+      let client = get_client(simulation, index)
       let #(after_submit, maybe_op) =
         model.submit(
           client.state,
@@ -749,7 +778,7 @@ fn rollback_op(
         Some(routed) -> rollback(after_submit, routed)
       }
       Ok(
-        update_client(sim, index, fn(client) {
+        update_client(simulation, index, fn(client) {
           Client(..client, state: rolled_back)
         }),
       )
@@ -763,10 +792,10 @@ fn rollback_op(
 /// Errors loudly when the model has no `apply_stashed` capability.
 fn stashed_op(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   index: Int,
   op: op,
-) -> Result(Sim(state, op), String) {
+) -> Result(Simulation(state, op), String) {
   case model.capabilities.apply_stashed {
     None ->
       Error(
@@ -775,59 +804,59 @@ fn stashed_op(
         <> "\" has none",
       )
     Some(apply_stashed) -> {
-      let client = get_client(sim, index)
+      let client = get_client(simulation, index)
       let #(new_state, routed) =
         apply_stashed(
           client.state,
           op,
           SubmitMeta(client_id: index, last_seen_seq: client.delivered),
         )
-      let sim =
-        update_client(sim, index, fn(client) {
+      let simulation =
+        update_client(simulation, index, fn(client) {
           Client(..client, state: new_state)
         })
-      let sim = case client.connected {
-        True -> route_op(sim, index, routed)
-        False -> route_op(sim, index, routed)
+      let simulation = case client.connected {
+        True -> route_op(simulation, index, routed)
+        False -> route_op(simulation, index, routed)
       }
-      Ok(sim)
+      Ok(simulation)
     }
   }
 }
 
 fn synchronize(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
-) -> Result(Sim(state, op), String) {
-  use sim <- result.try(synchronize_loop(model, sim, 0))
-  use _ <- result.try(validate_convergence(model, sim))
-  Ok(sim)
+  simulation: Simulation(state, op),
+) -> Result(Simulation(state, op), String) {
+  use simulation <- result.try(synchronize_loop(model, simulation, 0))
+  use _ <- result.try(validate_convergence(model, simulation))
+  Ok(simulation)
 }
 
 const synchronize_round_cap = 32
 
-fn all_connected_delivered(sim: Sim(state, op)) -> Bool {
-  connected_indices(sim)
+fn all_connected_delivered(simulation: Simulation(state, op)) -> Bool {
+  connected_indices(simulation)
   |> list.all(fn(index) {
-    let client = get_client(sim, index)
-    client.delivered >= list.length(sim.log)
+    let client = get_client(simulation, index)
+    client.delivered >= list.length(simulation.log)
   })
 }
 
 fn synchronize_loop(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   rounds: Int,
-) -> Result(Sim(state, op), String) {
-  case list.is_empty(sim.inbox) && all_connected_delivered(sim) {
-    True -> Ok(sim)
+) -> Result(Simulation(state, op), String) {
+  case list.is_empty(simulation.inbox) && all_connected_delivered(simulation) {
+    True -> Ok(simulation)
     False ->
       case rounds >= synchronize_round_cap {
         True -> Error("did not reach quiescence")
         False -> {
-          let sim = sequence_n(sim, list.length(sim.inbox))
-          use sim <- result.try(deliver_all_connected(model, sim))
-          synchronize_loop(model, sim, rounds + 1)
+          let simulation = sequence_n(simulation, list.length(simulation.inbox))
+          use simulation <- result.try(deliver_all_connected(model, simulation))
+          synchronize_loop(model, simulation, rounds + 1)
         }
       }
   }
@@ -835,55 +864,55 @@ fn synchronize_loop(
 
 fn interpret(
   model: KernelModel(state, op, view),
-  sim: Sim(state, op),
+  simulation: Simulation(state, op),
   client_count: Int,
   command: Command(op),
-) -> Result(Sim(state, op), String) {
+) -> Result(Simulation(state, op), String) {
   let result = case command {
     ClientOp(client, op) -> {
       let index = client_index(client, client_count)
-      let existing = get_client(sim, index)
+      let existing = get_client(simulation, index)
       let #(new_state, maybe_op) =
         model.submit(
           existing.state,
           op,
           SubmitMeta(client_id: index, last_seen_seq: existing.delivered),
         )
-      let sim =
-        update_client(sim, index, fn(client) {
+      let simulation =
+        update_client(simulation, index, fn(client) {
           Client(..client, state: new_state)
         })
       // Route the op the submit actually produced (which may be a rewritten
       // op), or nothing when the submit was a synchronous no-op.
-      let sim = case maybe_op {
-        None -> sim
+      let simulation = case maybe_op {
+        None -> simulation
         Some(routed) ->
           case existing.connected {
-            True -> route_op(sim, index, routed)
-            False -> route_op(sim, index, routed)
+            True -> route_op(simulation, index, routed)
+            False -> route_op(simulation, index, routed)
           }
       }
-      Ok(sim)
+      Ok(simulation)
     }
-    Sequence(n) -> Ok(sequence_n(sim, n))
+    Sequence(n) -> Ok(sequence_n(simulation, n))
     Deliver(client, n) -> {
       let index = client_index(client, client_count)
-      deliver_n(model, sim, index, n)
+      deliver_n(model, simulation, index, n)
     }
-    Synchronize -> synchronize(model, sim)
-    AddClient -> add_client(model, sim)
+    Synchronize -> synchronize(model, simulation)
+    AddClient -> add_client(model, simulation)
     Disconnect(client) ->
-      Ok(disconnect(model, sim, client_index(client, client_count)))
+      Ok(disconnect(model, simulation, client_index(client, client_count)))
     Reconnect(client) ->
-      Ok(reconnect(model, sim, client_index(client, client_count)))
+      Ok(reconnect(model, simulation, client_index(client, client_count)))
     RollbackOp(client, op) ->
-      rollback_op(model, sim, client_index(client, client_count), op)
+      rollback_op(model, simulation, client_index(client, client_count), op)
     StashedOp(client, op) ->
-      stashed_op(model, sim, client_index(client, client_count), op)
+      stashed_op(model, simulation, client_index(client, client_count), op)
   }
-  use sim <- result.try(result)
-  use _ <- result.try(validate_check(model, sim))
-  Ok(sim)
+  use simulation <- result.try(result)
+  use _ <- result.try(validate_check(model, simulation))
+  Ok(simulation)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1038,7 +1067,7 @@ pub fn dump_failure(
   Ok(path)
 }
 
-/// Interpret a script against a fresh `Sim` with `client_count` clients,
+/// Interpret a script against a fresh `Simulation` with `client_count` clients,
 /// validating convergence (and the `check` hook, if supplied) after every
 /// command, plus a final synchronize appended at the end of the script.
 pub fn try_run_script(
@@ -1046,13 +1075,13 @@ pub fn try_run_script(
   client_count: Int,
   script: List(Command(op)),
 ) -> Result(Nil, String) {
-  let sim = new_sim(model, client_count)
-  use sim <- result.try(
-    list.try_fold(script, sim, fn(sim, command) {
-      interpret(model, sim, client_count, command)
+  let simulation = new_simulation(model, client_count)
+  use simulation <- result.try(
+    list.try_fold(script, simulation, fn(simulation, command) {
+      interpret(model, simulation, client_count, command)
     }),
   )
-  use _ <- result.try(synchronize(model, sim))
+  use _ <- result.try(synchronize(model, simulation))
   Ok(Nil)
 }
 

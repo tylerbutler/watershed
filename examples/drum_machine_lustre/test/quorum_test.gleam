@@ -8,7 +8,7 @@
 //// silently wrong the moment it has three. Two clients cannot distinguish a
 //// real roster from that hardcoding. Do not reduce these to two.
 
-import doc_schema
+import drum_machine_lustre/doc_schema
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -59,7 +59,7 @@ fn room(name: String, clients: Int) -> Room {
   let settings =
     docs
     |> list.map(fn(doc) {
-      let assert Some(value) = watershed.get(watershed.root(doc), "settings")
+      let assert Ok(value) = watershed.get(watershed.root(doc), "settings")
       let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
@@ -97,6 +97,7 @@ fn propose(room: Room, from index: Int, bpm bpm: Int) -> Nil {
 
 fn tempo(room: Room, index: Int) -> Option(Int) {
   watershed.pact_map_get(settings_of(room, index), bpm_key)
+  |> option.from_result
   |> option.map(fn(value) {
     let assert Ok(bpm) = json.parse(json.to_string(value), decode.int)
     bpm
@@ -105,7 +106,7 @@ fn tempo(room: Room, index: Int) -> Option(Int) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
+pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() -> Nil {
   let room = room("drum-quorum", 3)
 
   propose(room, from: 0, bpm: 132)
@@ -131,7 +132,7 @@ pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
   ])
 }
 
-pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
+pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
   let room = room("drum-stall", 3)
 
   // The third tab is backgrounded: its frames stop being delivered, so it
@@ -151,7 +152,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
 
   // The UI's "waiting on N of M" comes from here, and it must name the client
   // that has gone quiet rather than a bare spinner.
-  let assert Some(waiting) =
+  let assert Ok(waiting) =
     watershed.pact_map_pending_signoffs(settings_of(room, 0), bpm_key)
   list.length(waiting) |> should.equal(1)
 
@@ -162,7 +163,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
   tempo(room, 2) |> should.equal(Some(96))
 }
 
-pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
+pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   let room = room("drum-drain", 3)
 
   sluice_js.pause(room.sluice, nth(room.docs, 2))
@@ -188,7 +189,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
   ])
 }
 
-pub fn a_second_proposal_while_one_is_pending_is_rejected_test() {
+pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   let room = room("drum-collide", 3)
 
   sluice_js.pause(room.sluice, nth(room.docs, 2))
@@ -227,7 +228,7 @@ pub fn a_second_proposal_while_one_is_pending_is_rejected_test() {
 /// against a live floodgate server the joiner's owed `Accept` reached peers
 /// who had settled that pact long ago and killed the connection with
 /// `AckMismatch("client was not expected to sign off")`.
-pub fn a_late_joiner_reads_the_agreed_tempo_test() {
+pub fn a_late_joiner_reads_the_agreed_tempo_test() -> Nil {
   let room = room("drum-late-join", 3)
 
   propose(room, from: 0, bpm: 128)
@@ -238,23 +239,23 @@ pub fn a_late_joiner_reads_the_agreed_tempo_test() {
   let doc_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Some(value) = watershed.get(watershed.root(doc_d), "settings")
+  let assert Ok(value) = watershed.get(watershed.root(doc_d), "settings")
   let assert Ok(settings_d) = watershed.resolve_pact_map(doc_d, value)
 
   watershed.pact_map_get(settings_d, bpm_key)
-  |> should.equal(Some(json.int(128)))
+  |> should.equal(Ok(json.int(128)))
   watershed.pact_map_is_pending(settings_d, bpm_key) |> should.be_false
   watershed.pact_map_pending_signoffs(settings_d, bpm_key)
-  |> should.equal(None)
+  |> should.equal(Error(Nil))
 
   // And the joiner is now a full member: the next proposal waits on it too.
   propose(room, from: 1, bpm: 96)
   sluice_js.settle(room.sluice)
   watershed.pact_map_get(settings_d, bpm_key)
-  |> should.equal(Some(json.int(96)))
+  |> should.equal(Ok(json.int(96)))
 }
 
-pub fn tempo_is_agreed_while_the_pattern_is_not_test() {
+pub fn tempo_is_agreed_while_the_pattern_is_not_test() -> Nil {
   let room = room("drum-contrast", 3)
 
   // The contrast the demo is built to show, in one test: with a client not
@@ -276,7 +277,7 @@ pub fn tempo_is_agreed_while_the_pattern_is_not_test() {
   watershed.or_set_add(kick, "0")
   sluice_js.settle(room.sluice)
 
-  let assert Some(value) =
+  let assert Ok(value) =
     watershed.get(watershed.root(nth(room.docs, 1)), "kick")
   let assert Ok(kick_b) = watershed.resolve_or_set(nth(room.docs, 1), value)
   watershed.or_set_values(kick_b) |> should.equal(["0"])

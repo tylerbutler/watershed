@@ -2,13 +2,13 @@ import gleeunit
 import gleeunit/should
 
 import grocery_triptych_lustre
-import pantry_snapshot
+import grocery_triptych_lustre/pantry_snapshot
 
 pub fn main() -> Nil {
   gleeunit.main()
 }
 
-pub fn snapshots_are_sorted_for_stable_rendering_test() {
+pub fn snapshots_are_sorted_for_stable_rendering_test() -> Nil {
   pantry_snapshot.from_values(
     grow_only: ["pear", "apple", "banana"],
     two_phase: ["milk", "bread"],
@@ -23,7 +23,7 @@ pub fn snapshots_are_sorted_for_stable_rendering_test() {
   )
 }
 
-pub fn rows_cover_the_union_without_dropping_absent_panels_test() {
+pub fn rows_cover_the_union_without_dropping_absent_panels_test() -> Nil {
   pantry_snapshot.from_values(
     grow_only: ["eggs", "apples"],
     two_phase: ["bread", "eggs"],
@@ -62,7 +62,7 @@ pub fn rows_cover_the_union_without_dropping_absent_panels_test() {
   ])
 }
 
-pub fn diff_counts_track_divergent_rows_for_each_panel_test() {
+pub fn diff_counts_track_divergent_rows_for_each_panel_test() -> Nil {
   let rows =
     pantry_snapshot.from_values(grow_only: ["milk"], two_phase: [], observed: [
       "milk",
@@ -77,7 +77,7 @@ pub fn diff_counts_track_divergent_rows_for_each_panel_test() {
   ))
 }
 
-pub fn remove_action_requires_a_removable_copy_test() {
+pub fn remove_action_requires_a_removable_copy_test() -> Nil {
   let rows =
     pantry_snapshot.from_values(
       grow_only: ["milk", "eggs"],
@@ -95,7 +95,7 @@ pub fn remove_action_requires_a_removable_copy_test() {
   |> should.equal(False)
 }
 
-pub fn concurrent_peer_go_timeout_covers_ack_window_test() {
+pub fn concurrent_peer_go_timeout_covers_ack_window_test() -> Nil {
   grocery_triptych_lustre.concurrent_peer_go_timeout_covers_ack_window()
   |> should.equal(True)
 }

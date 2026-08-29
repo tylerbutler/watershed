@@ -50,7 +50,7 @@ fn supported_inits() -> List(channel.ChannelInit) {
   ]
 }
 
-pub fn every_channel_has_an_explicit_p2p_eligibility_test() {
+pub fn every_channel_has_an_explicit_p2p_eligibility_test() -> Nil {
   channel_cases()
   |> list.each(fn(entry) {
     let #(channel_type, supported) = entry
@@ -58,7 +58,7 @@ pub fn every_channel_has_an_explicit_p2p_eligibility_test() {
   })
 }
 
-pub fn typed_root_constructors_cover_every_eligible_kind_test() {
+pub fn typed_root_constructors_cover_every_eligible_kind_test() -> Nil {
   [
     p2p.pn_counter_root() |> p2p.kind_type,
     p2p.or_map_root(or_map_kernel.RegisterMode) |> p2p.kind_type,
@@ -79,7 +79,7 @@ pub fn typed_root_constructors_cover_every_eligible_kind_test() {
   ])
 }
 
-pub fn unsupported_channel_types_are_rejected_test() {
+pub fn unsupported_channel_types_are_rejected_test() -> Nil {
   unsupported_types()
   |> list.each(fn(channel_type) {
     p2p.validate(channel_type)
@@ -87,7 +87,7 @@ pub fn unsupported_channel_types_are_rejected_test() {
   })
 }
 
-pub fn unsupported_create_paths_are_rejected_test() {
+pub fn unsupported_create_paths_are_rejected_test() -> Nil {
   [
     channel.InitMap,
     channel.InitCounter,
@@ -106,7 +106,7 @@ pub fn unsupported_create_paths_are_rejected_test() {
   })
 }
 
-pub fn eligible_boundary_paths_are_accepted_test() {
+pub fn eligible_boundary_paths_are_accepted_test() -> Nil {
   supported_inits()
   |> list.each(fn(init) {
     let channel_type = channel.init_type(init)

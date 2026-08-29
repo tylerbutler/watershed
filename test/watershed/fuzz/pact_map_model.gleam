@@ -20,8 +20,8 @@ import watershed/pact_map_kernel.{
 }
 
 pub type PactCommand {
-  CmdSet(key: String, value: Option(Json), ref_seq: Int)
-  CmdAccept(key: String)
+  CommandSet(key: String, value: Option(Json), ref_seq: Int)
+  CommandAccept(key: String)
 }
 
 type OracleState {
@@ -36,30 +36,30 @@ fn new_state() -> ModelState {
   ModelState(kernel: pact_map_kernel.new(), last_reaction: None)
 }
 
-fn to_kernel_op(cmd: PactCommand) -> pact_map_kernel.PactMapOp {
-  case cmd {
-    CmdSet(key, value, ref_seq) -> Set(key, value, ref_seq)
-    CmdAccept(key) -> Accept(key)
+fn to_kernel_op(command: PactCommand) -> pact_map_kernel.PactMapOp {
+  case command {
+    CommandSet(key, value, ref_seq) -> Set(key, value, ref_seq)
+    CommandAccept(key) -> Accept(key)
   }
 }
 
 fn from_kernel_op(op: pact_map_kernel.PactMapOp) -> PactCommand {
   case op {
-    Set(key, value, ref_seq) -> CmdSet(key, value, ref_seq)
-    Accept(key) -> CmdAccept(key)
+    Set(key, value, ref_seq) -> CommandSet(key, value, ref_seq)
+    Accept(key) -> CommandAccept(key)
   }
 }
 
-fn op_to_json(cmd: PactCommand) -> Json {
-  case cmd {
-    CmdSet(key, value, ref_seq) ->
+fn op_to_json(command: PactCommand) -> Json {
+  case command {
+    CommandSet(key, value, ref_seq) ->
       json.object([
         #("tag", json.string("Set")),
         #("key", json.string(key)),
         #("value", option_json(value)),
         #("ref_seq", json.int(ref_seq)),
       ])
-    CmdAccept(key) ->
+    CommandAccept(key) ->
       json.object([#("tag", json.string("Accept")), #("key", json.string(key))])
   }
 }
@@ -88,13 +88,13 @@ fn op_decoder() -> decode.Decoder(PactCommand) {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", option_decoder())
       use ref_seq <- decode.field("ref_seq", decode.int)
-      decode.success(CmdSet(key, value, ref_seq))
+      decode.success(CommandSet(key, value, ref_seq))
     }
     "Accept" -> {
       use key <- decode.field("key", decode.string)
-      decode.success(CmdAccept(key))
+      decode.success(CommandAccept(key))
     }
-    _ -> decode.failure(CmdSet("", None, 0), "pact-map op")
+    _ -> decode.failure(CommandSet("", None, 0), "pact-map op")
   }
 }
 
@@ -114,46 +114,46 @@ fn op_generator() -> qcheck.Generator(PactCommand) {
   |> qcheck.map(fn(ints) {
     let key = key_from_int(ints.1)
     case ints.0 % 5 {
-      0 -> CmdSet(key, None, 0)
-      _ -> CmdSet(key, Some(json.int(ints.2 % 8)), 0)
+      0 -> CommandSet(key, None, 0)
+      _ -> CommandSet(key, Some(json.int(ints.2 % 8)), 0)
     }
   })
 }
 
 fn submit(
   state: ModelState,
-  cmd: PactCommand,
+  command: PactCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(ModelState, Option(PactCommand)) {
-  case cmd {
-    CmdAccept(_) -> #(state, None)
-    CmdSet(key, None, _) ->
+  case command {
+    CommandAccept(_) -> #(state, None)
+    CommandSet(key, None, _) ->
       case pact_map_kernel.delete(state.kernel, key, meta.last_seen_seq) {
-        Some(op) -> #(state, Some(from_kernel_op(op)))
-        None -> #(state, None)
+        Ok(op) -> #(state, Some(from_kernel_op(op)))
+        Error(_) -> #(state, None)
       }
-    CmdSet(key, Some(value), _) ->
+    CommandSet(key, Some(value), _) ->
       case
         pact_map_kernel.set(state.kernel, key, Some(value), meta.last_seen_seq)
       {
-        Some(op) -> #(state, Some(from_kernel_op(op)))
-        None -> #(state, None)
+        Ok(op) -> #(state, Some(from_kernel_op(op)))
+        Error(_) -> #(state, None)
       }
   }
 }
 
 fn apply_set_for_client(
   state: ModelState,
-  cmd: PactCommand,
+  command: PactCommand,
   meta: kernel_fuzz.SequencedMeta,
   self_id: Int,
 ) -> ModelState {
-  case cmd {
-    CmdSet(_, _, _) -> {
+  case command {
+    CommandSet(_, _, _) -> {
       let #(kernel, _events, reaction) =
         pact_map_kernel.apply_set(
           state.kernel,
-          to_kernel_op(cmd),
+          to_kernel_op(command),
           meta.sequence_number,
           meta.connected_clients,
           self_id,
@@ -164,18 +164,19 @@ fn apply_set_for_client(
       }
       ModelState(kernel:, last_reaction:)
     }
-    CmdAccept(_) -> state
+    CommandAccept(_) -> state
   }
 }
 
 fn apply_remote(
   state: ModelState,
-  cmd: PactCommand,
+  command: PactCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  case cmd {
-    CmdSet(_, _, _) -> Ok(apply_set_for_client(state, cmd, meta, meta.self_id))
-    CmdAccept(key) -> {
+  case command {
+    CommandSet(_, _, _) ->
+      Ok(apply_set_for_client(state, command, meta, meta.self_id))
+    CommandAccept(key) -> {
       case
         pact_map_kernel.apply_accept(
           state.kernel,
@@ -193,13 +194,13 @@ fn apply_remote(
 
 fn ack_local(
   state: ModelState,
-  cmd: PactCommand,
+  command: PactCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  case cmd {
-    CmdSet(_, _, _) ->
-      Ok(apply_set_for_client(state, cmd, meta, meta.client_id))
-    CmdAccept(key) ->
+  case command {
+    CommandSet(_, _, _) ->
+      Ok(apply_set_for_client(state, command, meta, meta.client_id))
+    CommandAccept(key) ->
       case
         pact_map_kernel.apply_accept(
           state.kernel,
@@ -216,18 +217,18 @@ fn ack_local(
 
 fn react(
   state: ModelState,
-  cmd: PactCommand,
+  command: PactCommand,
   _meta: kernel_fuzz.SequencedMeta,
   _self_id: Int,
   _is_local: Bool,
 ) -> List(PactCommand) {
-  case cmd {
-    CmdSet(_, _, _) ->
+  case command {
+    CommandSet(_, _, _) ->
       case state.last_reaction {
         Some(op) -> [op]
         None -> []
       }
-    CmdAccept(_) -> []
+    CommandAccept(_) -> []
   }
 }
 
@@ -308,7 +309,7 @@ fn oracle_accept(
       }
       OracleState(values: dict.insert(state.values, key, pact))
     }
-    _ -> state
+    Ok(Pact(_, None)) | Error(Nil) -> state
   }
 }
 
@@ -326,7 +327,7 @@ fn oracle_leave(state: OracleState, client: Int, seq: Int) -> OracleState {
         }
         OracleState(values: dict.insert(state.values, key, pact))
       }
-      _ -> state
+      Pact(_, None) -> state
     }
   })
 }
@@ -344,11 +345,15 @@ fn oracle(entries: List(LogEntry(PactCommand))) -> List(#(String, Pact)) {
         let #(state, connected) = acc
         let seq = i + 1
         case entry {
-          kernel_fuzz.OpEntry(_author, CmdSet(key, value, ref_seq), connected) -> #(
+          kernel_fuzz.OpEntry(
+            _author,
+            CommandSet(key, value, ref_seq),
+            connected,
+          ) -> #(
             oracle_set(state, key, value, ref_seq, seq, connected),
             connected,
           )
-          kernel_fuzz.OpEntry(author, CmdAccept(key), _) -> #(
+          kernel_fuzz.OpEntry(author, CommandAccept(key), _) -> #(
             oracle_accept(state, key, author, seq),
             connected,
           )

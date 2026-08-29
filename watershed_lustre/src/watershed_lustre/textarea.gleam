@@ -173,6 +173,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 import lustre/attribute.{type Attribute}
 import lustre/effect.{type Effect}
@@ -190,9 +191,19 @@ import watershed_lustre/crdt
 import watershed_lustre/grapheme_diff.{type Edit}
 import watershed_lustre/grapheme_offset
 
+/// A handle for the DOM root, or the Shadow Root, that lustre supplies to
+/// `effect.before_paint`. The `restore_selection` function and the
+/// `measure_cursors` function do not accept the bare `Dynamic` value. The
+/// `as_dom_root` function makes the one conversion from that value. Both FFI
+/// declarations below name the type that they receive.
+type DomRoot
+
+@external(javascript, "./textarea_ffi.mjs", "identity")
+fn as_dom_root(root: Dynamic) -> DomRoot
+
 @external(javascript, "./textarea_ffi.mjs", "restore_selection")
 fn restore_selection(
-  root: Dynamic,
+  root: DomRoot,
   instance: String,
   start: Int,
   end: Int,
@@ -202,7 +213,7 @@ fn restore_selection(
 /// takes JSON and returns JSON, and not Gleam lists, so that the boundary is a
 /// plain string on both sides.
 @external(javascript, "./textarea_ffi.mjs", "measure_cursors")
-fn measure_cursors(root: Dynamic, instance: String, request: String) -> String
+fn measure_cursors(root: DomRoot, instance: String, request: String) -> String
 
 /// The attribute that the caret restorer uses to find the element. The
 /// component writes it after the attributes of the caller, so a caller cannot
@@ -226,8 +237,8 @@ type Backend(channel) {
     insert: fn(channel, Int, String) -> Result(Nil, String),
     delete_range: fn(channel, Int, Int) -> Result(Nil, String),
     replace_range: fn(channel, Int, Int, String) -> Result(Nil, String),
-    anchor_at: fn(channel, Int, Bias) -> Option(TextAnchor),
-    resolve_anchor: fn(channel, TextAnchor) -> Option(Int),
+    anchor_at: fn(channel, Int, Bias) -> Result(TextAnchor, Nil),
+    resolve_anchor: fn(channel, TextAnchor) -> Result(Int, Nil),
   )
 }
 
@@ -332,9 +343,9 @@ type Composition {
     /// The same region, but bound to content. The commit can thus account for a
     /// remote edit from the session, and that includes an edit *inside* the
     /// region, which moves the two ends by different amounts. The value is
-    /// `None` when the runtime cannot name those positions. The session then
-    /// still runs, and it has no correction.
-    span: Option(#(TextAnchor, TextAnchor)),
+    /// `Error(Nil)` when the runtime cannot name those positions. The session
+    /// then still runs, and it has no correction.
+    span: Result(#(TextAnchor, TextAnchor), Nil),
   )
 }
 
@@ -365,16 +376,16 @@ pub opaque type Msg {
   P2pSubscribed(Subscription)
   /// The user typed. The message carries the whole new value of the textarea,
   /// and the caret position after that input, in UTF-16 code units.
-  UserInput(value: String, sel_start: Int, sel_end: Int)
+  UserInput(value: String, selection_start: Int, selection_end: Int)
   /// The user moved the caret, or changed the selection, and made no edit.
-  UserSelect(sel_start: Int, sel_end: Int)
+  UserSelect(selection_start: Int, selection_end: Int)
   /// An IME session opened. The message carries the value of the element and
   /// the caret position, as they were before the browser inserted any
   /// provisional text.
-  CompositionStarted(value: String, sel_start: Int, sel_end: Int)
+  CompositionStarted(value: String, selection_start: Int, selection_end: Int)
   /// An IME session committed. The message carries the final value of the
   /// element and the caret position.
-  CompositionEnded(value: String, sel_start: Int, sel_end: Int)
+  CompositionEnded(value: String, selection_start: Int, selection_end: Int)
   /// The geometry of the peer cursors, which the component measured on the
   /// mirror, between the vdom write and the paint of the browser. The message
   /// carries the JSON response of the FFI.
@@ -473,7 +484,7 @@ pub fn update(
     Measured(response) -> #(place(model, response), effect.none())
 
     // The textarea handed over its whole new value.
-    UserInput(value:, sel_start:, sel_end:) ->
+    UserInput(value:, selection_start:, selection_end:) ->
       case model.composing, model.committed {
         // Provisional IME text, not an edit. The session owns the element until
         // it commits, and every intermediate it produces is superseded by the
@@ -503,7 +514,8 @@ pub fn update(
           // Re-anchor against the string the *browser* holds, which is the one
           // the reported offsets index into. It is the snapshot too, unless the
           // op was rejected — the one case where the two disagree.
-          let model = locate(anchor(model, value, sel_start, sel_end))
+          let model =
+            locate(anchor(model, value, selection_start, selection_end))
 
           case model.value == value {
             // Accepted: the browser already placed the caret and is rendering
@@ -517,28 +529,31 @@ pub fn update(
         }
       }
 
-    UserSelect(sel_start:, sel_end:) ->
+    UserSelect(selection_start:, selection_end:) ->
       case model.composing {
         // Caret moves inside an active composition are the IME walking its own
         // provisional text; those offsets index a string the document has never
         // seen, so anchoring from them would put the caret nowhere real.
         Some(_) -> #(model, effect.none())
-        None -> #(anchor(model, model.value, sel_start, sel_end), effect.none())
+        None -> #(
+          anchor(model, model.value, selection_start, selection_end),
+          effect.none(),
+        )
       }
 
     // An IME session opened. Freeze what the view renders at the value the
     // element holds right now, so remote edits stop reaching the DOM, and
     // anchor the region being composed over so their effect can still be
     // accounted for at commit time.
-    CompositionStarted(value:, sel_start:, sel_end:) -> {
+    CompositionStarted(value:, selection_start:, selection_end:) -> {
       // What the IME replaces is the *selection*, not the caret — so that is
       // what the commit has to address, and a caret is simply the collapsed
       // case of it. Anchoring only one end would leave the far end of a
       // composed-over range addressed in stale coordinates.
-      let head = reported(model, value, sel_start)
-      let tail = case sel_end < 0 {
+      let head = reported(model, value, selection_start)
+      let tail = case selection_end < 0 {
         True -> head
-        False -> reported(model, value, sel_end)
+        False -> reported(model, value, selection_end)
       }
       let region = #(int.min(head, tail), int.max(head, tail))
 
@@ -559,12 +574,13 @@ pub fn update(
     // The session committed. What the user composed is whatever now sits in
     // the region the session opened over; where that region has got to is the
     // anchors' business.
-    CompositionEnded(value:, sel_start:, sel_end:) ->
+    CompositionEnded(value:, selection_start:, selection_end:) ->
       case model.composing {
         // No session to close — a stray event, or one whose `compositionstart`
         // never decoded. Fall through to the ordinary input path so the text is
         // not silently dropped.
-        None -> update(model, UserInput(value:, sel_start:, sel_end:))
+        None ->
+          update(model, UserInput(value:, selection_start:, selection_end:))
 
         Some(composition) -> {
           // Read once, before the op lands: applying the composition can move
@@ -587,13 +603,13 @@ pub fn update(
           // inside the composed text, which is where an IME leaves it. When
           // the element reports nothing, fall back to resolving the anchors,
           // which are already in the right coordinates.
-          let model = case sel_start < 0 || sel_end < 0 {
+          let model = case selection_start < 0 || selection_end < 0 {
             True -> resolve(model)
             False ->
               pin(
                 model,
-                grapheme_offset.from_utf16(value, sel_start) + shift,
-                grapheme_offset.from_utf16(value, sel_end) + shift,
+                grapheme_offset.from_utf16(value, selection_start) + shift,
+                grapheme_offset.from_utf16(value, selection_end) + shift,
               )
           }
 
@@ -624,21 +640,21 @@ fn site(model: Editor(channel), composition: Composition) -> #(Int, Int) {
   let width = origin_end - origin_start
 
   case composition.span {
-    None -> composition.region
-    Some(#(head, tail)) ->
+    Error(Nil) -> composition.region
+    Ok(#(head, tail)) ->
       case
         model.backend.resolve_anchor(model.channel, head),
         model.backend.resolve_anchor(model.channel, tail)
       {
         // An interior edit is exactly the case where these two disagree by
         // something other than the same amount.
-        Some(start), Some(end) -> #(start, int.max(start, end))
+        Ok(start), Ok(end) -> #(start, int.max(start, end))
         // One end names content this replica cannot place — rare, since an
         // anchor on *deleted* content still resolves to the gap it left. Hang
         // the region off the end that survived.
-        Some(start), None -> #(start, start + width)
-        None, Some(end) -> #(int.max(0, end - width), end)
-        None, None -> composition.region
+        Ok(start), Error(Nil) -> #(start, start + width)
+        Error(Nil), Ok(end) -> #(int.max(0, end - width), end)
+        Error(Nil), Error(Nil) -> composition.region
       }
   }
 }
@@ -732,10 +748,10 @@ fn settle(
 /// `.editor + p` must now look outside the wrapper.
 pub fn view(
   model: Editor(channel),
-  attrs: List(Attribute(Msg)),
+  attributes: List(Attribute(Msg)),
 ) -> Element(Msg) {
   let bindings =
-    list.append(attrs, [
+    list.append(attributes, [
       attribute.attribute(instance_attribute, model.instance),
       event.on("input", input_decoder()),
       // Caret-only moves. `selectionchange` on the element would be one
@@ -1046,7 +1062,7 @@ fn locate(model: Editor(channel)) -> Editor(channel) {
         model.backend.resolve_anchor(model.channel, peer.cursor.start),
         model.backend.resolve_anchor(model.channel, peer.cursor.end)
       {
-        Some(start), Some(end) ->
+        Ok(start), Ok(end) ->
           Some(#(
             grapheme_offset.to_utf16(model.value, int.min(start, end)),
             grapheme_offset.to_utf16(model.value, int.max(start, end)),
@@ -1081,17 +1097,17 @@ fn input_decoder() -> Decoder(Msg) {
 /// values.
 fn value_decoder(to_msg: fn(String, Int, Int) -> Msg) -> Decoder(Msg) {
   use value <- decode.subfield(["target", "value"], decode.string)
-  use sel_start <- decode.then(caret("selectionStart"))
-  use sel_end <- decode.then(caret("selectionEnd"))
+  use selection_start <- decode.then(caret("selectionStart"))
+  use selection_end <- decode.then(caret("selectionEnd"))
 
-  decode.success(to_msg(value, sel_start, sel_end))
+  decode.success(to_msg(value, selection_start, selection_end))
 }
 
 fn select_decoder() -> Decoder(Msg) {
-  use sel_start <- decode.then(caret("selectionStart"))
-  use sel_end <- decode.then(caret("selectionEnd"))
+  use selection_start <- decode.then(caret("selectionStart"))
+  use selection_end <- decode.then(caret("selectionEnd"))
 
-  decode.success(UserSelect(sel_start:, sel_end:))
+  decode.success(UserSelect(selection_start:, selection_end:))
 }
 
 /// One edge of the selection of the element, in UTF-16 code units.
@@ -1117,10 +1133,10 @@ fn caret(name: String) -> Decoder(Int) {
 fn anchor(
   model: Editor(channel),
   text: String,
-  sel_start: Int,
-  sel_end: Int,
+  selection_start: Int,
+  selection_end: Int,
 ) -> Editor(channel) {
-  case sel_start < 0 || sel_end < 0 {
+  case selection_start < 0 || selection_end < 0 {
     // No selection reported. Keep the anchors already held rather than pin one
     // somewhere the user never put a caret.
     True -> model
@@ -1129,12 +1145,13 @@ fn anchor(
         // `select`, `keyup`, and `mouseup` all fire for a single interaction.
         // Anchoring is cheap but not free, and the first read already produced
         // the anchors the rest would.
-        Some(selection) if selection.raw == #(sel_start, sel_end) -> model
+        Some(selection) if selection.raw == #(selection_start, selection_end) ->
+          model
         _ ->
           pin(
             model,
-            grapheme_offset.from_utf16(text, sel_start),
-            grapheme_offset.from_utf16(text, sel_end),
+            grapheme_offset.from_utf16(text, selection_start),
+            grapheme_offset.from_utf16(text, selection_end),
           )
       }
   }
@@ -1150,13 +1167,14 @@ fn resolve(model: Editor(channel)) -> Editor(channel) {
         model.backend.resolve_anchor(model.channel, selection.start),
         model.backend.resolve_anchor(model.channel, selection.end)
       {
-        Some(start), Some(end) -> pin(model, start, end)
+        Ok(start), Ok(end) -> pin(model, start, end)
         // One edge's grapheme was deleted out from under it. Collapse onto the
         // edge that survived rather than guess where the range went.
-        Some(index), None | None, Some(index) -> pin(model, index, index)
+        Ok(index), Error(Nil) | Error(Nil), Ok(index) ->
+          pin(model, index, index)
         // Both edges gone: there is no honest position left, so drop the
         // selection and leave the browser whatever caret it has.
-        None, None -> Model(..model, selection: None)
+        Error(Nil), Error(Nil) -> Model(..model, selection: None)
       }
   }
 }
@@ -1168,7 +1186,7 @@ fn pin(model: Editor(channel), start: Int, end: Int) -> Editor(channel) {
   let end = int.clamp(end, min: 0, max: model.length)
 
   case anchors(model, start, end) {
-    Some(#(head, tail)) ->
+    Ok(#(head, tail)) ->
       Model(
         ..model,
         selection: Some(
@@ -1179,7 +1197,7 @@ fn pin(model: Editor(channel), start: Int, end: Int) -> Editor(channel) {
         ),
       )
     // An index the CRDT will not name is one no caret should be placed at.
-    None -> Model(..model, selection: None)
+    Error(Nil) -> Model(..model, selection: None)
   }
 }
 
@@ -1193,12 +1211,12 @@ fn pin(model: Editor(channel), start: Int, end: Int) -> Editor(channel) {
 /// range larger or smaller. The selection of the user and the region that an IME
 /// composes over need the same rule, for the same reason.
 ///
-/// The result is `None` for a position that the CRDT cannot name.
+/// The result is `Error(Nil)` for a position that the CRDT cannot name.
 fn anchors(
   model: Editor(channel),
   start: Int,
   end: Int,
-) -> Option(#(TextAnchor, TextAnchor)) {
+) -> Result(#(TextAnchor, TextAnchor), Nil) {
   let head_bias = case start == end {
     True -> watershed.bias_after
     False -> watershed.bias_before
@@ -1208,8 +1226,8 @@ fn anchors(
     model.backend.anchor_at(model.channel, start, head_bias),
     model.backend.anchor_at(model.channel, end, watershed.bias_after)
   {
-    Some(head), Some(tail) -> Some(#(head, tail))
-    _, _ -> None
+    Ok(head), Ok(tail) -> Ok(#(head, tail))
+    Ok(_), Error(Nil) | Error(Nil), Ok(_) | Error(Nil), Error(Nil) -> Error(Nil)
   }
 }
 
@@ -1256,7 +1274,7 @@ fn measure(model: Editor(channel)) -> Effect(Msg) {
       let request = json.to_string(json.preprocessed_array(drawable))
       let instance = model.instance
       use dispatch, root <- effect.before_paint
-      dispatch(Measured(measure_cursors(root, instance, request)))
+      dispatch(Measured(measure_cursors(as_dom_root(root), instance, request)))
     }
   }
 }
@@ -1306,7 +1324,7 @@ fn restore(model: Editor(channel)) -> Effect(Msg) {
       let #(start, end) = selection.raw
       let instance = model.instance
       use _dispatch, root <- effect.before_paint
-      restore_selection(root, instance, start, end)
+      restore_selection(as_dom_root(root), instance, start, end)
     }
   }
 }
@@ -1338,16 +1356,12 @@ fn sequenced_backend() -> Backend(SharedText) {
       watershed.text_replace_range(channel, start, end, value)
     },
     anchor_at: fn(channel, index, bias) {
-      case watershed.text_anchor_at(channel, index, bias) {
-        Ok(anchor) -> Some(anchor)
-        Error(_) -> None
-      }
+      watershed.text_anchor_at(channel, index, bias)
+      |> result.replace_error(Nil)
     },
     resolve_anchor: fn(channel, anchor) {
-      case watershed.text_resolve_anchor(channel, anchor) {
-        Ok(index) -> Some(index)
-        Error(_) -> None
-      }
+      watershed.text_resolve_anchor(channel, anchor)
+      |> result.replace_error(Nil)
     },
   )
 }
@@ -1391,21 +1405,15 @@ fn crdt_anchor_at(
   channel: Handle(schema.TextChannel),
   index: Int,
   bias: Bias,
-) -> Option(TextAnchor) {
-  case crdt_js.text_anchor_at(channel, index, bias) {
-    Ok(anchor) -> Some(anchor)
-    Error(_) -> None
-  }
+) -> Result(TextAnchor, Nil) {
+  crdt_js.text_anchor_at(channel, index, bias) |> result.replace_error(Nil)
 }
 
 fn crdt_resolve_anchor(
   channel: Handle(schema.TextChannel),
   anchor: TextAnchor,
-) -> Option(Int) {
-  case crdt_js.text_resolve_anchor(channel, anchor) {
-    Ok(index) -> Some(index)
-    Error(_) -> None
-  }
+) -> Result(Int, Nil) {
+  crdt_js.text_resolve_anchor(channel, anchor) |> result.replace_error(Nil)
 }
 
 /// Run a computed `Edit` value against the channel, as one minimal op.

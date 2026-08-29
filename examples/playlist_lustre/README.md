@@ -47,8 +47,9 @@ never uses `let assert` on an edit.
 
 ## Bootstrapping
 
-The root map is typed ([`src/doc_schema.gleam`](src/doc_schema.gleam)) with one
-plain field and one channel field:
+The root map is typed
+([`src/playlist_lustre/doc_schema.gleam`](src/playlist_lustre/doc_schema.gleam))
+with one plain field and one channel field:
 
 ```text
 root ─┬─ "title"  = "watershed shared playlist"
@@ -60,8 +61,9 @@ it creates and attaches a sequence only when the slot is empty, so tabs don't
 race to duplicate one.
 
 Track values are plain JSON objects encoded by
-[`src/track.gleam`](src/track.gleam) — a sequence holds arbitrary JSON, so the
-element shape is the app's business, not the DDS's. Decoding is deliberately
+[`src/playlist_lustre/track.gleam`](src/playlist_lustre/track.gleam) — a
+sequence holds arbitrary JSON, so the element shape is the app's business, not
+the DDS's. Decoding is deliberately
 fallible: a malformed element renders as a placeholder row and still reorders
 and deletes correctly, because those ops address by index.
 
@@ -91,12 +93,13 @@ reconnect and nothing is lost.
 
 ## Headless smoke test
 
-`src/smoke.gleam` drives two clients from Node against a running `just integration-up` server,
-racing a move on one client against a replace on the other:
+`dev/playlist_lustre/smoke.gleam` drives two clients from Node against a running
+`just integration-up` server, racing a move on one client against a replace on
+the other:
 
 ```sh
 gleam build --target javascript
-pnpm exec esbuild build/dev/javascript/playlist_lustre/smoke.mjs \
+pnpm exec esbuild build/dev/javascript/playlist_lustre/playlist_lustre/smoke.mjs \
   --bundle --format=esm --outfile=dist/smoke.mjs
 node smoke/run.mjs   # supplies a WebSocket global for phoenix.js
 # → SMOKE PASS: concurrent move and replace converged

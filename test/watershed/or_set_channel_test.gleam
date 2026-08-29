@@ -58,7 +58,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() {
+pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -91,7 +91,7 @@ pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() {
   encoded |> string.contains("\"element\":\"bob\"") |> expect.to_be_true()
 }
 
-pub fn or_set_snapshot_round_trips_test() {
+pub fn or_set_snapshot_round_trips_test() -> Nil {
   let #(state, _, op, _) =
     or_set_kernel.add(or_set_kernel.new(replica_id.new("a")), "a")
   let assert Ok(state) = or_set_kernel.ack_local(state, op)

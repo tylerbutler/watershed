@@ -11,6 +11,8 @@ import gleam/list
 @target(javascript)
 import gleam/option.{None, Some}
 @target(javascript)
+import gleam/result
+@target(javascript)
 import gleam/string
 @target(javascript)
 import startest/expect
@@ -74,7 +76,7 @@ fn rich_text_delta(raw: String) -> rich_text.Delta {
 }
 
 @target(javascript)
-pub fn map_lww_converges_test() {
+pub fn map_lww_converges_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "map-lww-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -91,10 +93,10 @@ pub fn map_lww_converges_test() {
   watershed.set(map_a, "die", json.int(6))
   sluice_js.settle(sluice)
 
-  watershed.get(map_a, "die") |> expect.to_equal(Some(json.int(6)))
-  watershed.get(map_b, "die") |> expect.to_equal(Some(json.int(6)))
+  watershed.get(map_a, "die") |> expect.to_equal(Ok(json.int(6)))
+  watershed.get(map_b, "die") |> expect.to_equal(Ok(json.int(6)))
   watershed.get(map_b, "color")
-  |> expect.to_equal(Some(json.string("blue")))
+  |> expect.to_equal(Ok(json.string("blue")))
   watershed.get(map_a, "shared")
   |> expect.to_equal(watershed.get(map_b, "shared"))
   same_entries(watershed.entries(map_a), watershed.entries(map_b))
@@ -109,7 +111,7 @@ pub fn map_lww_converges_test() {
 }
 
 @target(javascript)
-pub fn diagnostics_track_pending_and_sequenced_ops_test() {
+pub fn diagnostics_track_pending_and_sequenced_ops_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "diagnostics-js")
   let doc = sluice_js.connect(sluice, "user-a")
 
@@ -142,7 +144,7 @@ pub fn diagnostics_track_pending_and_sequenced_ops_test() {
 }
 
 @target(javascript)
-pub fn pause_holds_delivery_until_resume_test() {
+pub fn pause_holds_delivery_until_resume_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "pause-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -155,18 +157,18 @@ pub fn pause_holds_delivery_until_resume_test() {
 
   // A sees its own edit; B is held and sees nothing yet.
   watershed.get(watershed.root(doc_a), "k")
-  |> expect.to_equal(Some(json.string("v")))
-  watershed.get(watershed.root(doc_b), "k") |> expect.to_equal(None)
+  |> expect.to_equal(Ok(json.string("v")))
+  watershed.get(watershed.root(doc_b), "k") |> expect.to_equal(Error(Nil))
 
   // Releasing B delivers the held op.
   sluice_js.resume(sluice, doc_b)
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc_b), "k")
-  |> expect.to_equal(Some(json.string("v")))
+  |> expect.to_equal(Ok(json.string("v")))
 }
 
 @target(javascript)
-pub fn step_info_reports_op_sequence_and_author_test() {
+pub fn step_info_reports_op_sequence_and_author_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "stepinfo-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let _doc_b = sluice_js.connect(sluice, "user-b")
@@ -188,8 +190,8 @@ fn drain_op_meta(
   acc: List(#(Int, String)),
 ) -> List(#(Int, String)) {
   case sluice_js.step_info(sluice) {
-    None -> list.reverse(acc)
-    Some(delivery) ->
+    Error(Nil) -> list.reverse(acc)
+    Ok(delivery) ->
       case delivery.event {
         "op" ->
           drain_op_meta(sluice, [
@@ -202,7 +204,7 @@ fn drain_op_meta(
 }
 
 @target(javascript)
-pub fn sequence_subscription_narrows_local_events_test() {
+pub fn sequence_subscription_narrows_local_events_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "sequence-subscription-js")
   let document = sluice_js.connect(sluice, "user-a")
@@ -223,7 +225,7 @@ pub fn sequence_subscription_narrows_local_events_test() {
 }
 
 @target(javascript)
-pub fn ensure_sequence_adopts_stored_field_test() {
+pub fn ensure_sequence_adopts_stored_field_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "ensure-sequence-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -238,11 +240,11 @@ pub fn ensure_sequence_adopts_stored_field_test() {
   watershed.set_sequence_field(root_a, field, sequence_a)
   sluice_js.settle(sluice)
 
-  let result = transport_js.new_cell(None)
+  let outcome = transport_js.new_cell(None)
   watershed.ensure_sequence(doc_b, root_b, field, fn(value) {
-    transport_js.set_cell(result, Some(value))
+    transport_js.set_cell(outcome, Some(value))
   })
-  let assert Some(Ok(sequence_b)) = transport_js.get_cell(result)
+  let assert Some(Ok(sequence_b)) = transport_js.get_cell(outcome)
   let assert Ok(Some(resolved)) =
     watershed.resolve_sequence_field(doc_b, root_b, field)
   let assert Ok(Nil) =
@@ -253,7 +255,7 @@ pub fn ensure_sequence_adopts_stored_field_test() {
 }
 
 @target(javascript)
-pub fn shared_sequence_converges_test() {
+pub fn shared_sequence_converges_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "shared-sequence-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -270,8 +272,7 @@ pub fn shared_sequence_converges_test() {
   )
   sluice_js.settle(sluice)
 
-  let assert Some(sequence_handle) =
-    watershed.get(watershed.root(doc_b), "items")
+  let assert Ok(sequence_handle) = watershed.get(watershed.root(doc_b), "items")
   let assert Ok(sequence_b) = watershed.resolve_sequence(doc_b, sequence_handle)
   case
     watershed.resolve_sequence(
@@ -309,7 +310,7 @@ pub fn shared_sequence_converges_test() {
 /// playlist example (`examples/playlist_lustre`) promises that concurrent
 /// reorders neither duplicate nor lose tracks, so pin that directly —
 /// length preserved, no duplicates, and the racing replace still present.
-pub fn concurrent_sequence_move_preserves_every_element_test() {
+pub fn concurrent_sequence_move_preserves_every_element_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "sequence-move-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -329,7 +330,7 @@ pub fn concurrent_sequence_move_preserves_every_element_test() {
   )
   sluice_js.settle(sluice)
 
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tracks")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "tracks")
   let assert Ok(sequence_b) = watershed.resolve_sequence(doc_b, handle)
   watershed.sequence_values(sequence_b)
   |> expect.to_equal([
@@ -359,7 +360,7 @@ pub fn concurrent_sequence_move_preserves_every_element_test() {
 }
 
 @target(javascript)
-pub fn runtime_rich_text_create_submit_and_view_test() {
+pub fn runtime_rich_text_create_submit_and_view_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "runtime-rich-text-js")
   let document = sluice_js.connect(sluice, "user-a")
@@ -370,7 +371,7 @@ pub fn runtime_rich_text_create_submit_and_view_test() {
 
   runtime.submit_rich_text(runtime, address, first)
   runtime.rich_text_view(runtime, address)
-  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+  |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"A\"}]")))
 
   runtime.submit_rich_text(
     runtime,
@@ -378,7 +379,7 @@ pub fn runtime_rich_text_create_submit_and_view_test() {
     rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]"),
   )
   runtime.rich_text_view(runtime, address)
-  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+  |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"AB\"}]")))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ pub fn runtime_rich_text_create_submit_and_view_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn shared_text_converges_test() {
+pub fn shared_text_converges_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "shared-text-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -397,7 +398,7 @@ pub fn shared_text_converges_test() {
   watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
-  let assert Some(text_handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(text_handle) = watershed.get(watershed.root(doc_b), "doc")
   let assert Ok(text_b) = watershed.resolve_text(doc_b, text_handle)
   // A map handle does not resolve as text.
   case
@@ -448,14 +449,14 @@ pub fn shared_text_converges_test() {
   // A late joiner replays history and lands on the same text.
   let doc_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
-  let assert Some(handle_for_c) = watershed.get(watershed.root(doc_c), "doc")
+  let assert Ok(handle_for_c) = watershed.get(watershed.root(doc_c), "doc")
   let assert Ok(text_c) = watershed.resolve_text(doc_c, handle_for_c)
   watershed.text_value(text_c)
   |> expect.to_equal(watershed.text_value(text_a))
 }
 
 @target(javascript)
-pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
+pub fn shared_text_emoji_and_combining_graphemes_converge_test() -> Nil {
   // "e" + combining acute (U+0301) is one grapheme cluster, and a
   // ZWJ-joined family emoji is a single grapheme despite many codepoints —
   // both must survive concurrent edits and index math intact.
@@ -473,7 +474,7 @@ pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
   watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "doc")
   let assert Ok(text_b) = watershed.resolve_text(doc_b, handle)
   watershed.text_length(text_b) |> expect.to_equal(2)
   watershed.text_value(text_b) |> expect.to_equal(combining_e <> family)
@@ -494,7 +495,7 @@ pub fn shared_text_emoji_and_combining_graphemes_converge_test() {
 }
 
 @target(javascript)
-pub fn shared_text_invalid_bounds_return_errors_test() {
+pub fn shared_text_invalid_bounds_return_errors_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "shared-text-invalid-js")
   let document = sluice_js.connect(sluice, "user-a")
@@ -521,7 +522,7 @@ pub fn shared_text_invalid_bounds_return_errors_test() {
 }
 
 @target(javascript)
-pub fn shared_text_no_op_edits_do_not_submit_test() {
+pub fn shared_text_no_op_edits_do_not_submit_test() -> Nil {
   // No-op edits (an empty insert/append, or a zero-length delete/replace)
   // must not submit a channel op: subscribers see no event, and a peer that
   // never delivers anything still converges since nothing was ever sent.
@@ -536,7 +537,7 @@ pub fn shared_text_no_op_edits_do_not_submit_test() {
   watershed.set(watershed.root(doc_a), "doc", watershed.text_handle_of(text_a))
   sluice_js.settle(sluice)
 
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "doc")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "doc")
   let assert Ok(text_b) = watershed.resolve_text(doc_b, handle)
 
   let events = transport_js.new_cell([])
@@ -563,7 +564,7 @@ pub fn shared_text_no_op_edits_do_not_submit_test() {
 }
 
 @target(javascript)
-pub fn shared_text_subscription_narrows_local_events_test() {
+pub fn shared_text_subscription_narrows_local_events_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "shared-text-subscription-js")
   let document = sluice_js.connect(sluice, "user-a")
@@ -581,7 +582,7 @@ pub fn shared_text_subscription_narrows_local_events_test() {
 }
 
 @target(javascript)
-pub fn ensure_text_adopts_stored_field_test() {
+pub fn ensure_text_adopts_stored_field_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "ensure-text-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -595,11 +596,11 @@ pub fn ensure_text_adopts_stored_field_test() {
   watershed.set_text_field(root_a, field, text_a)
   sluice_js.settle(sluice)
 
-  let result = transport_js.new_cell(None)
+  let outcome = transport_js.new_cell(None)
   watershed.ensure_text(doc_b, root_b, field, fn(value) {
-    transport_js.set_cell(result, Some(value))
+    transport_js.set_cell(outcome, Some(value))
   })
-  let assert Some(Ok(text_b)) = transport_js.get_cell(result)
+  let assert Some(Ok(text_b)) = transport_js.get_cell(outcome)
   let assert Ok(Some(resolved)) =
     watershed.resolve_text_field(doc_b, root_b, field)
   let assert Ok(Nil) = watershed.text_insert(text_a, 0, "ensured")
@@ -620,7 +621,7 @@ pub fn ensure_text_adopts_stored_field_test() {
 /// one, because self and author *are* the whole room. The third client is the
 /// one a fabricated quorum forgets, and the assertion that matters is that C's
 /// agreement is required — not merely that the value eventually lands.
-pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
+pub fn pact_map_pends_until_the_whole_room_signs_off_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "pact-quorum-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -635,7 +636,7 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   )
   sluice_js.settle(sluice)
 
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "tempo")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
 
@@ -647,7 +648,7 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
 
   watershed.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_true()
   watershed.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_true()
-  watershed.pact_map_get(pact_a, "bpm") |> expect.to_equal(None)
+  watershed.pact_map_get(pact_a, "bpm") |> expect.to_equal(Error(Nil))
 
   // The signoff list is the *outstanding* one — A and B have already signed
   // off, so what remains names exactly the client being waited on: C. That is
@@ -657,12 +658,12 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   let assert Ok(id_c) = sluice_js.client_id(sluice, doc_c)
   let outstanding = [client_id.to_int(id_c)]
   watershed.pact_map_pending_signoffs(pact_a, "bpm")
-  |> expect.to_equal(Some(outstanding))
+  |> expect.to_equal(Ok(outstanding))
   watershed.pact_map_pending_signoffs(pact_b, "bpm")
-  |> expect.to_equal(Some(outstanding))
+  |> expect.to_equal(Ok(outstanding))
   // Nothing is accepted yet, so there are no accepted details to read.
   watershed.pact_map_get_with_details(pact_a, "bpm")
-  |> expect.to_equal(None)
+  |> expect.to_equal(Error(Nil))
 
   // Release C; its signoff drains the list and the value is accepted by all.
   sluice_js.resume(sluice, doc_c)
@@ -672,16 +673,17 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
   watershed.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
   watershed.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
   watershed.pact_map_get(pact_a, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("120"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("120"))
   watershed.pact_map_get(pact_c, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("120"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("120"))
 
   // Once accepted there is nothing left to sign off, and the accepted entry
   // carries the sequence number the pact settled at.
-  watershed.pact_map_pending_signoffs(pact_a, "bpm") |> expect.to_equal(None)
-  let assert Some(accepted) = watershed.pact_map_get_with_details(pact_a, "bpm")
+  watershed.pact_map_pending_signoffs(pact_a, "bpm")
+  |> expect.to_equal(Error(Nil))
+  let assert Ok(accepted) = watershed.pact_map_get_with_details(pact_a, "bpm")
   { accepted.sequence_number > 0 } |> expect.to_be_true()
 }
 
@@ -696,7 +698,7 @@ pub fn pact_map_pends_until_the_whole_room_signs_off_test() {
 /// once and keeps it will silently stop matching after a reconnect assigns a
 /// new one, and the symptom — a pending list that never says "you" — looks
 /// like a rendering bug rather than an identity one.
-pub fn client_id_matches_the_id_kernels_report_test() {
+pub fn client_id_matches_the_id_kernels_report_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "client-id-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -721,7 +723,7 @@ pub fn client_id_matches_the_id_kernels_report_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "tempo")
   let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
 
   // Hold C, propose, and the outstanding signoff list names exactly C — which
@@ -732,15 +734,15 @@ pub fn client_id_matches_the_id_kernels_report_test() {
   sluice_js.settle(sluice)
 
   watershed.pact_map_pending_signoffs(pact_a, "bpm")
-  |> expect.to_equal(Some([client_id.to_int(id_c)]))
+  |> expect.to_equal(Ok([client_id.to_int(id_c)]))
 
   // And from C's own side: "is the room waiting on me?" is answerable.
   sluice_js.resume(sluice, doc_c)
   sluice_js.settle(sluice)
   let assert Some(id_c_now) = watershed.client_id(doc_c)
   let waiting_on_me = case watershed.pact_map_pending_signoffs(pact_c, "bpm") {
-    Some(ids) -> list.contains(ids, client_id.to_int(id_c_now))
-    None -> False
+    Ok(ids) -> list.contains(ids, client_id.to_int(id_c_now))
+    Error(Nil) -> False
   }
   waiting_on_me |> expect.to_be_false()
 }
@@ -753,7 +755,7 @@ pub fn client_id_matches_the_id_kernels_report_test() {
 /// A PN-counter subscriber learns about a *peer's* update. Before this existed
 /// the kind was write-and-poll: an app could increment and read but had no way
 /// to hear that anyone else had.
-pub fn subscribe_pn_counter_observes_a_peer_update_test() {
+pub fn subscribe_pn_counter_observes_a_peer_update_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "pn-subscribe-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -766,7 +768,7 @@ pub fn subscribe_pn_counter_observes_a_peer_update_test() {
     watershed.pn_counter_handle_of(counter_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "votes")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "votes")
   let assert Ok(counter_b) = watershed.resolve_pn_counter(doc_b, handle)
 
   // B watches; A moves the counter.
@@ -778,7 +780,7 @@ pub fn subscribe_pn_counter_observes_a_peer_update_test() {
   sluice_js.settle(sluice)
 
   { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
-  watershed.pn_counter_value(counter_b) |> expect.to_equal(Some(-3))
+  watershed.pn_counter_value(counter_b) |> expect.to_equal(Ok(-3))
 }
 
 @target(javascript)
@@ -786,7 +788,7 @@ pub fn subscribe_pn_counter_observes_a_peer_update_test() {
 /// `WentPending` when the proposal is sequenced, `WentAccepted` once the
 /// signoff list drains. Those two events *are* the protocol — without them the
 /// one interesting thing about the kind is unobservable.
-pub fn subscribe_pact_map_observes_both_transitions_test() {
+pub fn subscribe_pact_map_observes_both_transitions_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "pact-subscribe-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -800,7 +802,7 @@ pub fn subscribe_pact_map_observes_both_transitions_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "tempo")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(_pact_c) = watershed.resolve_pact_map(doc_c, handle)
 
@@ -827,7 +829,7 @@ pub fn subscribe_pact_map_observes_both_transitions_test() {
 
 @target(javascript)
 /// An ordered-collection subscriber sees a peer's append land on the queue.
-pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
+pub fn subscribe_ordered_collection_observes_a_peer_add_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "ordered-subscribe-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -841,7 +843,7 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
     watershed.ordered_collection_handle_of(queue_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "jobs")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "jobs")
   let assert Ok(queue_b) = watershed.resolve_ordered_collection(doc_b, handle)
 
   let seen = transport_js.new_cell([])
@@ -852,7 +854,7 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
   sluice_js.settle(sluice)
 
   { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
-  watershed.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed.ordered_size(queue_b) |> expect.to_equal(Ok(1))
 }
 
 @target(javascript)
@@ -861,7 +863,7 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() {
 /// land on ack with `local: True`, a peer's with `local: False`, and a release
 /// surfaces as `Added(newly_added: False)` rather than a distinct event, which
 /// is the shape the work-queue demo renders "job returned to queue" from.
-pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
+pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "ordered-lifecycle-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -875,7 +877,7 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
     watershed.ordered_collection_handle_of(queue_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "jobs")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "jobs")
   let assert Ok(queue_b) = watershed.resolve_ordered_collection(doc_b, handle)
 
   let seen_a = transport_js.new_cell([])
@@ -893,7 +895,7 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
 
   watershed.ordered_add(queue_a, job)
   sluice_js.settle(sluice)
-  watershed.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed.ordered_size(queue_b) |> expect.to_equal(Ok(1))
   watershed.ordered_queue(queue_b) |> expect.to_equal([job])
   watershed.ordered_jobs(queue_b) |> expect.to_equal([])
 
@@ -905,7 +907,7 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
   let first_acquire =
     watershed.ordered_acquire_with_outcome(queue_a, on_outcome)
   sluice_js.settle(sluice)
-  watershed.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed.ordered_size(queue_b) |> expect.to_equal(Ok(0))
   watershed.ordered_queue(queue_b) |> expect.to_equal([])
   watershed.ordered_jobs(queue_b)
   |> expect.to_equal([
@@ -918,14 +920,14 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
 
   watershed.ordered_release(queue_a, first_acquire)
   sluice_js.settle(sluice)
-  watershed.ordered_size(queue_b) |> expect.to_equal(Some(1))
+  watershed.ordered_size(queue_b) |> expect.to_equal(Ok(1))
   watershed.ordered_jobs(queue_b) |> expect.to_equal([])
 
   let second_acquire = watershed.ordered_acquire(queue_a)
   sluice_js.settle(sluice)
   watershed.ordered_complete(queue_a, second_acquire)
   sluice_js.settle(sluice)
-  watershed.ordered_size(queue_b) |> expect.to_equal(Some(0))
+  watershed.ordered_size(queue_b) |> expect.to_equal(Ok(0))
   watershed.ordered_queue(queue_b) |> expect.to_equal([])
   watershed.ordered_jobs(queue_b) |> expect.to_equal([])
 
@@ -972,7 +974,7 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() {
 /// It should not: a client's `join` is always sequenced before any op it
 /// authors, so a correctly reconstructed roster contains the author at the
 /// point their `Volunteer` is replayed.
-pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
+pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "tm-replay-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -986,7 +988,7 @@ pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
     watershed.task_manager_handle_of(tm_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "roles")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "roles")
   let assert Ok(tm_c) = watershed.resolve_task_manager(doc_c, handle)
 
   // C takes the role, A queues behind it.
@@ -1011,7 +1013,7 @@ pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
   // longer in the room — and must land on the same queue A holds.
   let doc_d = sluice_js.connect(sluice, "user-late")
   sluice_js.settle(sluice)
-  let assert Some(handle_d) = watershed.get(watershed.root(doc_d), "roles")
+  let assert Ok(handle_d) = watershed.get(watershed.root(doc_d), "roles")
   let assert Ok(tm_d) = watershed.resolve_task_manager(doc_d, handle_d)
 
   watershed.task_queues(tm_d)
@@ -1035,7 +1037,7 @@ pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() {
 /// The second half covers the case a roster-only fix would still break: one of
 /// the clients that *did* sign off has since left, so the joiner replays an
 /// `Accept` from a client that is not in the room now and never will be.
-pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
+pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "pact-replay-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -1049,7 +1051,7 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "tempo")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "tempo")
 
   watershed.pact_map_set(pact_a, "bpm", json.int(128))
   sluice_js.settle(sluice)
@@ -1060,10 +1062,11 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
   sluice_js.settle(sluice)
   let assert Ok(pact_d) = watershed.resolve_pact_map(doc_d, handle)
   watershed.pact_map_get(pact_d, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("128"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("128"))
   watershed.pact_map_is_pending(pact_d, "bpm") |> expect.to_be_false()
-  watershed.pact_map_pending_signoffs(pact_d, "bpm") |> expect.to_equal(None)
+  watershed.pact_map_pending_signoffs(pact_d, "bpm")
+  |> expect.to_equal(Error(Nil))
 
   // C — one of the three that signed off — leaves. A fifth client then joins
   // and replays an `Accept` authored by a client no longer in the room.
@@ -1073,8 +1076,8 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
   sluice_js.settle(sluice)
   let assert Ok(pact_e) = watershed.resolve_pact_map(doc_e, handle)
   watershed.pact_map_get(pact_e, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("128"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("128"))
   watershed.pact_map_is_pending(pact_e, "bpm") |> expect.to_be_false()
 
   // Both newcomers are full members now: a fresh proposal waits on them and
@@ -1082,11 +1085,11 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
   watershed.pact_map_set(pact_d, "bpm", json.int(96))
   sluice_js.settle(sluice)
   watershed.pact_map_get(pact_e, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("96"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("96"))
   watershed.pact_map_get(pact_a, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("96"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("96"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1096,7 +1099,7 @@ pub fn a_settled_pact_replays_intact_for_a_late_joiner_test() {
 @target(javascript)
 /// The primitive itself: the socket goes, the client comes back under a new
 /// identity, and the document it was editing is still there.
-pub fn reconnect_rejoins_under_a_fresh_client_id_test() {
+pub fn reconnect_rejoins_under_a_fresh_client_id_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "reconnect-id-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -1114,13 +1117,13 @@ pub fn reconnect_rejoins_under_a_fresh_client_id_test() {
 
   // The core survived the drop, and the link is live in both directions again.
   watershed.get(watershed.root(doc_a), "before")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("1"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("1"))
   watershed.set(watershed.root(doc_a), "after", json.int(2))
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc_b), "after")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("2"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("2"))
 }
 
 @target(javascript)
@@ -1135,7 +1138,7 @@ pub fn reconnect_rejoins_under_a_fresh_client_id_test() {
 /// the same fix, but reports core errors by failing the connection rather than
 /// crashing, and no scripting of this window has yet made the duplicate
 /// observable here. Treat the erlang test as the regression guard.
-pub fn a_reconnect_with_a_live_proposal_converges_test() {
+pub fn a_reconnect_with_a_live_proposal_converges_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "reconnect-accept-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -1150,7 +1153,7 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "settings")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
 
@@ -1168,14 +1171,14 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
   sluice_js.settle(sluice)
 
   watershed.get(watershed.root(doc_c), "filler")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("1"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("1"))
   watershed.pact_map_get(pact_a, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("128"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("128"))
   watershed.pact_map_get(pact_c, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("128"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("128"))
   watershed.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
 
   // C is still a working client. This is the assertion that discriminates: the
@@ -1185,8 +1188,8 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
   watershed.set(watershed.root(doc_c), "after", json.int(3))
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc_a), "after")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("3"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("3"))
 }
 
 @target(javascript)
@@ -1194,7 +1197,7 @@ pub fn a_reconnect_with_a_live_proposal_converges_test() {
 /// the identity that client comes back under. The erlang driver's companion
 /// carries the full explanation; this is the parity check, since the fix lives
 /// in the shared `runtime_core`.
-pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
+pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "reconnect-window-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -1209,7 +1212,7 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
     watershed.pact_map_handle_of(pact_a),
   )
   sluice_js.settle(sluice)
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), "settings")
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), "settings")
   let assert Ok(pact_b) = watershed.resolve_pact_map(doc_b, handle)
   let assert Ok(_) = watershed.resolve_pact_map(doc_c, handle)
 
@@ -1228,16 +1231,16 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
 
   let assert Ok(pact_c) = watershed.resolve_pact_map(doc_c, handle)
   watershed.pact_map_get(pact_c, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("128"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("128"))
   watershed.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
 
   // The room is still usable afterwards — C's connection survived.
   watershed.pact_map_set(pact_b, "bpm", json.int(96))
   sluice_js.settle(sluice)
   watershed.pact_map_get(pact_c, "bpm")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("96"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("96"))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1251,7 +1254,7 @@ pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() {
 /// next statement, so there is no window to edit in; `close` parks the runtime
 /// in `Failed` with no way out, so coming back means a fresh `connect` — a new
 /// core, and the pending queue this asserts the survival of is gone with it.
-pub fn go_offline_holds_edits_until_go_online_test() {
+pub fn go_offline_holds_edits_until_go_online_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "offline-toggle-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -1266,23 +1269,23 @@ pub fn go_offline_holds_edits_until_go_online_test() {
   watershed.set(watershed.root(doc_a), "offline", json.int(7))
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc_a), "offline")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("7"))
-  watershed.get(watershed.root(doc_b), "offline") |> expect.to_equal(None)
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("7"))
+  watershed.get(watershed.root(doc_b), "offline") |> expect.to_equal(Error(Nil))
 
   watershed.go_online(doc_a)
   sluice_js.settle(sluice)
 
   watershed.diagnostics(doc_a).phase |> expect.to_equal("ready")
   watershed.get(watershed.root(doc_b), "offline")
-  |> option.map(json.to_string)
-  |> expect.to_equal(Some("7"))
+  |> result.map(json.to_string)
+  |> expect.to_equal(Ok("7"))
 }
 
 @target(javascript)
 /// Both halves of the room edit while one of them is away, and the reunion is
 /// the union of the two. This is the claim the pixel canvas makes out loud.
-pub fn edits_made_on_both_sides_of_an_offline_window_merge_test() {
+pub fn edits_made_on_both_sides_of_an_offline_window_merge_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "offline-merge-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -1303,11 +1306,11 @@ pub fn edits_made_on_both_sides_of_an_offline_window_merge_test() {
   list.each([doc_a, doc_b], fn(doc) {
     let root = watershed.root(doc)
     watershed.get(root, "from-a")
-    |> option.map(json.to_string)
-    |> expect.to_equal(Some("1"))
+    |> result.map(json.to_string)
+    |> expect.to_equal(Ok("1"))
     watershed.get(root, "from-b")
-    |> option.map(json.to_string)
-    |> expect.to_equal(Some("2"))
+    |> result.map(json.to_string)
+    |> expect.to_equal(Ok("2"))
   })
 }
 
@@ -1315,7 +1318,7 @@ pub fn edits_made_on_both_sides_of_an_offline_window_merge_test() {
 /// The same key written on both sides of the window settles the same way for
 /// everyone. Which writer wins is the kernel's business and deliberately not
 /// asserted — only that the room agrees on one answer.
-pub fn a_key_contested_across_an_offline_window_converges_test() {
+pub fn a_key_contested_across_an_offline_window_converges_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "offline-contested-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -1335,14 +1338,14 @@ pub fn a_key_contested_across_an_offline_window_converges_test() {
   let seen_by_a = watershed.get(watershed.root(doc_a), "cell")
   seen_by_a
   |> expect.to_equal(watershed.get(watershed.root(doc_b), "cell"))
-  seen_by_a |> option.is_some |> expect.to_be_true()
+  seen_by_a |> result.is_ok |> expect.to_be_true()
 }
 
 @target(javascript)
 /// `go_offline` is only meaningful from a live connection, and `go_online` only
 /// from a held one. Both are no-ops otherwise rather than errors, so a UI can
 /// bind them to a toggle without tracking the phase itself.
-pub fn the_offline_toggle_is_inert_outside_its_phase_test() {
+pub fn the_offline_toggle_is_inert_outside_its_phase_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "offline-inert-js")
   let doc = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
@@ -1363,7 +1366,7 @@ pub fn the_offline_toggle_is_inert_outside_its_phase_test() {
 }
 
 @target(javascript)
-pub fn ops_since_summary_counts_the_unsummarized_log_test() {
+pub fn ops_since_summary_counts_the_unsummarized_log_test() -> Nil {
   // Nothing has summarized this document, so every sequenced message is drift
   // a joining client would have to replay. That number is what the automatic
   // policy thresholds on, and diagnostics carries it for a debug UI.
@@ -1384,7 +1387,7 @@ pub fn ops_since_summary_counts_the_unsummarized_log_test() {
 }
 
 @target(javascript)
-pub fn an_armed_summary_waits_out_its_jitter_window_test() {
+pub fn an_armed_summary_waits_out_its_jitter_window_test() -> Nil {
   // The wake-up is scheduled, not immediate: on the sluice's logical clock
   // nothing happens until `advance` reaches the delay. This is the only place
   // the JS timer path runs deterministically — a live attempt needs storage.
@@ -1416,7 +1419,7 @@ pub fn an_armed_summary_waits_out_its_jitter_window_test() {
   watershed.set(watershed.root(doc), "b", json.int(2))
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc), "b")
-  |> expect.to_equal(Some(json.int(2)))
+  |> expect.to_equal(Ok(json.int(2)))
   // The attempt failed, so nothing moved the checkpoint.
   { watershed.ops_since_summary(doc) > 0 } |> expect.to_be_true()
 }

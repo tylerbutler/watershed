@@ -8,7 +8,6 @@
 //// Open two browser tabs against the same `just server` document and watch
 //// rolls converge. Roll during a forced reconnect and nothing is lost.
 
-import doc_schema
 import gleam/int
 import gleam/io
 import gleam/json
@@ -17,7 +16,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -27,6 +26,8 @@ import watershed.{type Document}
 import watershed/browser
 import watershed/map_kernel
 import watershed_lustre
+
+import dice_lustre/doc_schema
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -38,7 +39,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 
 const die_key = "die"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("dice")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -205,6 +206,7 @@ fn snapshot(model: Model) -> Model {
       let map = watershed.root(doc)
       let die =
         watershed.get(map, die_key)
+        |> option.from_result
         |> option.map(json.to_string)
       let entries =
         watershed.entries(map)
@@ -217,15 +219,10 @@ fn snapshot(model: Model) -> Model {
 fn add_diagnostic(model: Model, line: String) -> Model {
   let tagged = "[" <> model.user_id <> "] " <> line
   io.println(tagged)
-  Model(..model, diagnostic_log: take([tagged, ..model.diagnostic_log], 40))
-}
-
-fn take(items: List(a), count: Int) -> List(a) {
-  case items, count {
-    _, count if count <= 0 -> []
-    [], _ -> []
-    [first, ..rest], _ -> [first, ..take(rest, count - 1)]
-  }
+  Model(
+    ..model,
+    diagnostic_log: list.take([tagged, ..model.diagnostic_log], 40),
+  )
 }
 
 fn event_line(event: map_kernel.MapEvent) -> String {
@@ -272,7 +269,7 @@ fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   <> " resubmit_at="
   <> option_int(diagnostics.resubmit_checkpoint)
   <> " synced="
-  <> bool_string(diagnostics.synced)
+  <> bool_to_string(diagnostics.synced)
 }
 
 fn option_int(value: Option(Int)) -> String {
@@ -281,7 +278,7 @@ fn option_int(value: Option(Int)) -> String {
   |> option.unwrap("none")
 }
 
-fn bool_string(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"
@@ -291,11 +288,13 @@ fn bool_string(value: Bool) -> String {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · collaborative dice")]),
     status_line(model),
-    html.div([class("die")], [html.text(option.unwrap(model.die, "–"))]),
-    html.div([class("controls")], [
+    html.div([attribute.class("die")], [
+      html.text(option.unwrap(model.die, "–")),
+    ]),
+    html.div([attribute.class("controls")], [
       html.button([event.on_click(RollClicked)], [html.text("Roll")]),
       html.button([event.on_click(ClearClicked)], [html.text("Clear")]),
       html.button([event.on_click(ReconnectClicked)], [
@@ -304,7 +303,7 @@ fn view(model: Model) -> Element(Msg) {
     ]),
     entries_view(model.entries),
     diagnostics_view(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same document to see rolls converge. "
         <> "Client: "
@@ -325,15 +324,15 @@ fn status_line(model: Model) -> Element(Msg) {
     None -> ""
   }
   let text = connection <> runtime
-  html.p([class("status")], [html.text(text)])
+  html.p([attribute.class("status")], [html.text(text)])
 }
 
 fn entries_view(entries: List(#(String, String))) -> Element(Msg) {
   case entries {
-    [] -> html.p([class("empty")], [html.text("(map is empty)")])
+    [] -> html.p([attribute.class("empty")], [html.text("(map is empty)")])
     _ ->
       html.ul(
-        [class("entries")],
+        [attribute.class("entries")],
         list.map(entries, fn(pair) {
           html.li([], [html.text(pair.0 <> " = " <> pair.1)])
         }),
@@ -347,14 +346,14 @@ fn diagnostics_view(model: Model) -> Element(Msg) {
     None -> "runtime diagnostics unavailable"
   }
   let log = model.diagnostic_log |> string.join("\n")
-  html.section([class("diagnostics")], [
+  html.section([attribute.class("diagnostics")], [
     html.h2([], [html.text("Diagnostics")]),
     html.p([], [
       html.text(
         "Compare this panel across tabs. Browser DevTools receives the same trace.",
       ),
     ]),
-    html.pre([class("diagnostic-current")], [html.text(current)]),
-    html.pre([class("diagnostic-log")], [html.text(log)]),
+    html.pre([attribute.class("diagnostic-current")], [html.text(current)]),
+    html.pre([attribute.class("diagnostic-log")], [html.text(log)]),
   ])
 }

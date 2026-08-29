@@ -25,10 +25,9 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
-import lustre/attribute.{
-  aria_label, aria_pressed, aria_selected, class, classes, role, tabindex,
-}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -41,7 +40,7 @@ import watershed.{
 import watershed_lustre
 
 import sudoku_lustre/doc_schema
-import sudoku_lustre/puzzles.{type Puzzle}
+import sudoku_lustre/puzzle.{type Puzzle}
 
 // ── Presence seam ────────────────────────────────────────────────────────────
 
@@ -152,7 +151,7 @@ pub fn init(
       map: map,
       shared: None,
       pending: PendingShared(None, None, None, None),
-      puzzle: puzzles.default_puzzle(),
+      puzzle: puzzle.default_puzzle(),
       selected: None,
       notes_mode: False,
       cells: [],
@@ -174,7 +173,7 @@ pub fn init(
       watershed_lustre.ensure_field(
         map,
         doc_schema.puzzle(),
-        puzzles.default_puzzle().id,
+        puzzle.default_puzzle().id,
       ),
       watershed_lustre.ensure_map(
         document,
@@ -263,8 +262,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     SharedChanged -> #(snapshot(model), effect.none())
 
-    CellSelected(row, col) -> #(
-      Model(..model, selected: Some(#(row, col))),
+    CellSelected(row, column) -> #(
+      Model(..model, selected: Some(#(row, column))),
       effect.none(),
     )
 
@@ -297,7 +296,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
     None, PendingShared(Some(cells), Some(notes), Some(givens), Some(mistakes))
     -> {
       let shared = SharedState(cells:, notes:, givens:, mistakes:)
-      seed_givens(givens, puzzles.default_puzzle(), 0, 0)
+      seed_givens(givens, puzzle.default_puzzle(), 0, 0)
       #(
         snapshot(Model(..model, shared: Some(shared), error: None)),
         subscribe_shared_effect(shared),
@@ -332,7 +331,9 @@ pub fn set_peers(model: Model, peers: List(Peer)) -> Model {
 /// What this client is doing on the board, for the owner to broadcast.
 pub fn cursor(model: Model) -> Cursor {
   Cursor(
-    cell: option.map(model.selected, fn(rc) { cell_key(rc.0, rc.1) }),
+    cell: option.map(model.selected, fn(position) {
+      cell_key(position.0, position.1)
+    }),
     editing: model.editing,
   )
 }
@@ -354,26 +355,26 @@ pub fn error(model: Model) -> Option(String) {
 
 fn handle_key(model: Model, key: String) -> Model {
   case model.selected, model.shared {
-    Some(#(row, col)), Some(shared) ->
+    Some(#(row, column)), Some(shared) ->
       case digit_from_key(key) {
-        Some(digit) -> {
-          case is_locked(model, row, col) {
+        Ok(digit) -> {
+          case is_locked(model, row, column) {
             True -> model
             False -> {
               case model.notes_mode {
-                True -> toggle_note(shared.notes, row, col, digit)
-                False -> set_cell(shared, model.puzzle, row, col, digit)
+                True -> toggle_note(shared.notes, row, column, digit)
+                False -> set_cell(shared, model.puzzle, row, column, digit)
               }
               model
             }
           }
         }
-        None -> {
+        Error(Nil) -> {
           case key == "Backspace" || key == "Delete" {
             True -> {
-              case is_locked(model, row, col) {
+              case is_locked(model, row, column) {
                 True -> Nil
-                False -> watershed.delete(shared.cells, cell_key(row, col))
+                False -> watershed.delete(shared.cells, cell_key(row, column))
               }
               model
             }
@@ -385,8 +386,8 @@ fn handle_key(model: Model, key: String) -> Model {
   }
 }
 
-fn toggle_note(notes: OrSet, row: Int, col: Int, digit: Int) -> Nil {
-  let key = note_key(row, col, digit)
+fn toggle_note(notes: OrSet, row: Int, column: Int, digit: Int) -> Nil {
+  let key = note_key(row, column, digit)
   case watershed.or_set_contains(notes, key) {
     True -> watershed.or_set_remove(notes, key)
     False -> watershed.or_set_add(notes, key)
@@ -395,13 +396,13 @@ fn toggle_note(notes: OrSet, row: Int, col: Int, digit: Int) -> Nil {
 
 fn set_cell(
   shared: SharedState,
-  puzzle: Puzzle,
+  active_puzzle: Puzzle,
   row: Int,
-  col: Int,
+  column: Int,
   digit: Int,
 ) -> Nil {
-  watershed.set(shared.cells, cell_key(row, col), json.int(digit))
-  case digit == puzzles.solution_at(puzzle, row, col) {
+  watershed.set(shared.cells, cell_key(row, column), json.int(digit))
+  case digit == puzzle.solution_at(active_puzzle, row, column) {
     True -> Nil
     False -> watershed.increment(shared.mistakes, 1)
   }
@@ -418,7 +419,7 @@ fn snapshot(model: Model) -> Model {
         notes: watershed.or_set_values(shared.notes),
         givens: read_givens(shared.givens),
         mistakes: watershed.counter_value(shared.mistakes)
-          |> option.unwrap(0),
+          |> result.unwrap(0),
       )
     None -> model
   }
@@ -426,22 +427,27 @@ fn snapshot(model: Model) -> Model {
 
 // ── Content seeding ──────────────────────────────────────────────────────────
 
-fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
+fn seed_givens(
+  claims: Claims,
+  active_puzzle: Puzzle,
+  row: Int,
+  column: Int,
+) -> Nil {
   case row >= 9 {
     True -> Nil
     False -> {
-      let given = puzzles.given_at(puzzle, row, col)
+      let given = puzzle.given_at(active_puzzle, row, column)
       case given > 0 {
         True -> {
           let _ =
-            watershed.try_set_claim(claims, cell_key(row, col), json.int(given))
+            watershed.claim_once(claims, cell_key(row, column), json.int(given))
           Nil
         }
         False -> Nil
       }
-      case col == 8 {
-        True -> seed_givens(claims, puzzle, row + 1, 0)
-        False -> seed_givens(claims, puzzle, row, col + 1)
+      case column == 8 {
+        True -> seed_givens(claims, active_puzzle, row + 1, 0)
+        False -> seed_givens(claims, active_puzzle, row, column + 1)
       }
     }
   }
@@ -450,7 +456,7 @@ fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.div([class("sudoku-panel")], [
+  html.div([attribute.class("sudoku-panel")], [
     toolbar(model),
     grid(model),
     error_view(model.error),
@@ -458,14 +464,14 @@ pub fn view(model: Model) -> Element(Msg) {
 }
 
 fn toolbar(model: Model) -> Element(Msg) {
-  html.div([class("toolbar")], [
-    html.span([class("mistakes")], [
+  html.div([attribute.class("toolbar")], [
+    html.span([attribute.class("mistakes")], [
       html.text("Mistakes: " <> int.to_string(model.mistakes)),
     ]),
     html.button(
       [
         event.on_click(NotesModeClicked),
-        aria_pressed(bool_string(model.notes_mode)),
+        attribute.aria_pressed(bool_to_string(model.notes_mode)),
       ],
       [
         html.text(case model.notes_mode {
@@ -480,10 +486,10 @@ fn toolbar(model: Model) -> Element(Msg) {
 fn grid(model: Model) -> Element(Msg) {
   html.div(
     [
-      class("grid"),
-      role("grid"),
-      tabindex(0),
-      aria_label("Collaborative Sudoku grid"),
+      attribute.class("grid"),
+      attribute.role("grid"),
+      attribute.tabindex(0),
+      attribute.aria_label("Collaborative Sudoku grid"),
       event.on_keydown(KeyPressed),
     ],
     rows_and_cols()
@@ -491,20 +497,20 @@ fn grid(model: Model) -> Element(Msg) {
   )
 }
 
-fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
-  let key = cell_key(row, col)
-  let given = given_value(model, row, col)
+fn cell_view(model: Model, row: Int, column: Int) -> Element(Msg) {
+  let key = cell_key(row, column)
+  let given = given_value(model, row, column)
   let player = cell_value(model, key)
-  let selected = model.selected == Some(#(row, col))
+  let selected = model.selected == Some(#(row, column))
   let locked = given != 0
   let peers_here = list.filter(model.peers, fn(peer) { peer.cell == Some(key) })
   let value = case given, player {
-    0, Some(digit) -> int.to_string(digit)
-    0, None -> ""
+    0, Ok(digit) -> int.to_string(digit)
+    0, Error(Nil) -> ""
     _, _ -> int.to_string(given)
   }
 
-  let peer_attrs = case peers_here {
+  let peer_attributes = case peers_here {
     [peer, ..] -> [
       attribute.style("box-shadow", "inset 0 0 0 3px " <> peer.color),
     ]
@@ -514,23 +520,23 @@ fn cell_view(model: Model, row: Int, col: Int) -> Element(Msg) {
   html.button(
     list.append(
       [
-        classes([
+        attribute.classes([
           #("cell", True),
           #("given", locked),
           #("selected", selected),
           #("peer", peers_here != []),
         ]),
-        role("gridcell"),
-        aria_selected(selected),
-        aria_label(cell_label(row, col, value, locked)),
-        event.on_click(CellSelected(row, col)),
+        attribute.role("gridcell"),
+        attribute.aria_selected(selected),
+        attribute.aria_label(cell_label(row, column, value, locked)),
+        event.on_click(CellSelected(row, column)),
       ],
-      peer_attrs,
+      peer_attributes,
     ),
     [
       case value == "" {
-        True -> notes_view(model, row, col)
-        False -> html.span([class("digit")], [html.text(value)])
+        True -> notes_view(model, row, column)
+        False -> html.span([attribute.class("digit")], [html.text(value)])
       },
       peer_cursor(peers_here),
     ],
@@ -543,33 +549,39 @@ fn peer_cursor(peers: List(Peer)) -> Element(Msg) {
   case peers {
     [] -> html.text("")
     [peer, ..] ->
-      html.span([class("cursor"), attribute.style("background", peer.color)], [
-        html.text(peer.name),
-        case peer.editing {
-          True -> html.text(" ✎")
-          False -> html.text("")
-        },
-      ])
+      html.span(
+        [attribute.class("cursor"), attribute.style("background", peer.color)],
+        [
+          html.text(peer.name),
+          case peer.editing {
+            True -> html.text(" ✎")
+            False -> html.text("")
+          },
+        ],
+      )
   }
 }
 
-fn notes_view(model: Model, row: Int, col: Int) -> Element(Msg) {
+fn notes_view(model: Model, row: Int, column: Int) -> Element(Msg) {
   html.div(
-    [class("notes")],
+    [attribute.class("notes")],
     digits()
       |> list.map(fn(digit) {
-        let text = case list.contains(model.notes, note_key(row, col, digit)) {
+        let text = case
+          list.contains(model.notes, note_key(row, column, digit))
+        {
           True -> int.to_string(digit)
           False -> ""
         }
-        html.span([class("note")], [html.text(text)])
+        html.span([attribute.class("note")], [html.text(text)])
       }),
   )
 }
 
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("status")], [html.text("Error: " <> reason)])
+    Some(reason) ->
+      html.p([attribute.class("status")], [html.text("Error: " <> reason)])
     None -> html.text("")
   }
 }
@@ -583,8 +595,8 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 /// would look up the puzzle id in a map that holds four panel handles.
 fn puzzle_from_map(map: TypedMap(doc_schema.SudokuDoc)) -> Puzzle {
   case watershed.get_field(map, doc_schema.puzzle()) {
-    Ok(Some(id)) -> puzzles.by_id(id) |> option.unwrap(puzzles.default_puzzle())
-    _ -> puzzles.default_puzzle()
+    Ok(Some(id)) -> puzzle.by_id(id) |> result.unwrap(puzzle.default_puzzle())
+    _ -> puzzle.default_puzzle()
   }
 }
 
@@ -604,64 +616,64 @@ fn read_givens(givens: Claims) -> List(#(String, Int)) {
   |> list.filter_map(fn(cell) {
     let key = cell_key(cell.0, cell.1)
     case watershed.get_claim(givens, key) {
-      Some(value) ->
+      Ok(value) ->
         case json.parse(json.to_string(value), decode.int) {
           Ok(digit) -> Ok(#(key, digit))
           Error(_) -> Error(Nil)
         }
-      None -> Error(Nil)
+      Error(_) -> Error(Nil)
     }
   })
 }
 
-fn given_value(model: Model, row: Int, col: Int) -> Int {
-  value_from_pairs(model.givens, cell_key(row, col))
-  |> option.unwrap(puzzles.given_at(model.puzzle, row, col))
+fn given_value(model: Model, row: Int, column: Int) -> Int {
+  value_from_pairs(model.givens, cell_key(row, column))
+  |> result.unwrap(puzzle.given_at(model.puzzle, row, column))
 }
 
-fn cell_value(model: Model, key: String) -> Option(Int) {
+/// The digit a player wrote in this cell. The result is `Error(Nil)` when the
+/// cell is empty.
+fn cell_value(model: Model, key: String) -> Result(Int, Nil) {
   value_from_pairs(model.cells, key)
 }
 
-fn value_from_pairs(pairs: List(#(String, Int)), key: String) -> Option(Int) {
-  case pairs {
-    [] -> None
-    [first, ..rest] ->
-      case first.0 == key {
-        True -> Some(first.1)
-        False -> value_from_pairs(rest, key)
-      }
-  }
+fn value_from_pairs(
+  pairs: List(#(String, Int)),
+  key: String,
+) -> Result(Int, Nil) {
+  list.key_find(pairs, key)
 }
 
-fn is_locked(model: Model, row: Int, col: Int) -> Bool {
-  given_value(model, row, col) != 0
+fn is_locked(model: Model, row: Int, column: Int) -> Bool {
+  given_value(model, row, column) != 0
 }
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
-fn cell_key(row: Int, col: Int) -> String {
-  "r" <> int.to_string(row) <> "c" <> int.to_string(col)
+fn cell_key(row: Int, column: Int) -> String {
+  "r" <> int.to_string(row) <> "c" <> int.to_string(column)
 }
 
-fn note_key(row: Int, col: Int, digit: Int) -> String {
-  cell_key(row, col) <> "=" <> int.to_string(digit)
+fn note_key(row: Int, column: Int, digit: Int) -> String {
+  cell_key(row, column) <> "=" <> int.to_string(digit)
 }
 
-fn digit_from_key(key: String) -> Option(Int) {
+/// The digit that a key press names. The result is `Error(Nil)` when the key
+/// is not a digit from 1 to 9.
+fn digit_from_key(key: String) -> Result(Int, Nil) {
   case int.parse(key) {
     Ok(digit) ->
       case digit >= 1 && digit <= 9 {
-        True -> Some(digit)
-        False -> None
+        True -> Ok(digit)
+        False -> Error(Nil)
       }
-    Error(_) -> None
+    Error(Nil) -> Error(Nil)
   }
 }
 
-fn cell_label(row: Int, col: Int, value: String, locked: Bool) -> String {
+fn cell_label(row: Int, column: Int, value: String, locked: Bool) -> String {
   let prefix =
-    "Row " <> int.to_string(row + 1) <> ", column " <> int.to_string(col + 1)
+    "Row " <> int.to_string(row + 1) <> ", column " <> int.to_string(column + 1)
   let value = case value == "" {
     True -> ", empty"
     False -> ", " <> value
@@ -675,9 +687,11 @@ fn cell_label(row: Int, col: Int, value: String, locked: Bool) -> String {
 
 fn rows_and_cols() -> List(#(Int, Int)) {
   let rows = range(0, 9)
-  let cols = range(0, 9)
+  let columns = range(0, 9)
   rows
-  |> list.flat_map(fn(row) { cols |> list.map(fn(col) { #(row, col) }) })
+  |> list.flat_map(fn(row) {
+    columns |> list.map(fn(column) { #(row, column) })
+  })
 }
 
 fn digits() -> List(Int) {
@@ -689,7 +703,7 @@ fn range(from: Int, to: Int) -> List(Int) {
   |> list.reverse
 }
 
-fn bool_string(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

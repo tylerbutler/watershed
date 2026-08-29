@@ -2,15 +2,15 @@ import gleam/option.{Some}
 import gleeunit
 import gleeunit/should
 
-import pantry_snapshot
-import scenario_protocol
-import scenario_state
+import grocery_triptych_lustre/pantry_snapshot
+import grocery_triptych_lustre/scenario_protocol
+import grocery_triptych_lustre/scenario_state
 
 pub fn main() -> Nil {
   gleeunit.main()
 }
 
-pub fn completed_tombstone_blocks_the_button_test() {
+pub fn completed_tombstone_blocks_the_button_test() -> Nil {
   scenario_state.tombstone_button_reason(
     ready: True,
     busy: False,
@@ -19,26 +19,26 @@ pub fn completed_tombstone_blocks_the_button_test() {
   |> should.equal(Some(scenario_state.tombstone_locked_message()))
 }
 
-pub fn tombstone_completion_is_detected_when_or_set_still_contains_milk_test() {
+pub fn tombstone_completion_is_detected_when_or_set_still_contains_milk_test() -> Nil {
   scenario_state.tombstone_matches_expected(completed_tombstone_snapshots())
   |> should.equal(True)
 }
 
-pub fn tombstone_completion_is_detected_when_or_set_no_longer_contains_milk_test() {
+pub fn tombstone_completion_is_detected_when_or_set_no_longer_contains_milk_test() -> Nil {
   scenario_state.tombstone_matches_expected(
     completed_without_or_set_snapshots(),
   )
   |> should.equal(True)
 }
 
-pub fn tombstone_completion_waits_for_two_phase_removal_evidence_test() {
+pub fn tombstone_completion_waits_for_two_phase_removal_evidence_test() -> Nil {
   scenario_state.tombstone_matches_expected(
     before_two_phase_removal_snapshots(),
   )
   |> should.equal(False)
 }
 
-pub fn tombstone_preflight_refuses_live_rooms_that_are_already_tombstoned_test() {
+pub fn tombstone_preflight_refuses_live_rooms_that_are_already_tombstoned_test() -> Nil {
   [
     scenario_state.tombstone_preflight_outcome(
       before_two_phase_removal_snapshots(),
@@ -59,7 +59,7 @@ pub fn tombstone_preflight_refuses_live_rooms_that_are_already_tombstoned_test()
   ])
 }
 
-pub fn tombstone_add_step_continues_only_when_two_phase_recovers_live_presence_test() {
+pub fn tombstone_add_step_continues_only_when_two_phase_recovers_live_presence_test() -> Nil {
   [
     scenario_state.tombstone_add_step_outcome(True),
     scenario_state.tombstone_add_step_outcome(False),
@@ -72,27 +72,27 @@ pub fn tombstone_add_step_continues_only_when_two_phase_recovers_live_presence_t
   ])
 }
 
-pub fn concurrent_room_starts_retryable_when_eggs_have_never_crossed_the_remove_phase_test() {
+pub fn concurrent_room_starts_retryable_when_eggs_have_never_crossed_the_remove_phase_test() -> Nil {
   scenario_state.concurrent_durable_state(initial_snapshots())
   |> should.equal(scenario_state.DurableRetryable)
 }
 
-pub fn concurrent_room_stays_retryable_while_eggs_are_still_present_in_all_sets_test() {
+pub fn concurrent_room_stays_retryable_while_eggs_are_still_present_in_all_sets_test() -> Nil {
   scenario_state.concurrent_durable_state(prepared_snapshots())
   |> should.equal(scenario_state.DurableRetryable)
 }
 
-pub fn concurrent_room_derives_complete_after_the_remove_phase_when_or_set_keeps_eggs_test() {
+pub fn concurrent_room_derives_complete_after_the_remove_phase_when_or_set_keeps_eggs_test() -> Nil {
   scenario_state.concurrent_durable_state(expected_snapshots())
   |> should.equal(durable_complete_state())
 }
 
-pub fn concurrent_room_derives_locked_after_the_remove_phase_when_or_set_loses_eggs_test() {
+pub fn concurrent_room_derives_locked_after_the_remove_phase_when_or_set_loses_eggs_test() -> Nil {
   scenario_state.concurrent_durable_state(consumed_incomplete_snapshots())
   |> should.equal(durable_locked_state())
 }
 
-pub fn or_set_churn_never_makes_a_consumed_room_retryable_again_test() {
+pub fn or_set_churn_never_makes_a_consumed_room_retryable_again_test() -> Nil {
   [
     scenario_state.concurrent_durable_state(expected_snapshots()),
     scenario_state.concurrent_durable_state(consumed_incomplete_snapshots()),
@@ -105,7 +105,7 @@ pub fn or_set_churn_never_makes_a_consumed_room_retryable_again_test() {
   ])
 }
 
-pub fn concurrent_preflight_allows_retry_only_while_live_room_is_unconsumed_test() {
+pub fn concurrent_preflight_allows_retry_only_while_live_room_is_unconsumed_test() -> Nil {
   [
     scenario_state.concurrent_preflight_outcome(initial_snapshots()),
     scenario_state.concurrent_preflight_outcome(prepared_snapshots()),
@@ -126,7 +126,7 @@ pub fn concurrent_preflight_allows_retry_only_while_live_room_is_unconsumed_test
   ])
 }
 
-pub fn peer_go_timeout_applies_live_durable_evidence_before_returning_idle_test() {
+pub fn peer_go_timeout_applies_live_durable_evidence_before_returning_idle_test() -> Nil {
   [
     scenario_state.concurrent_peer_go_timeout_outcome(
       "run-7",
@@ -163,29 +163,29 @@ pub fn peer_go_timeout_applies_live_durable_evidence_before_returning_idle_test(
   ])
 }
 
-pub fn verification_succeeds_on_expected_snapshots_test() {
+pub fn verification_succeeds_on_expected_snapshots_test() -> Nil {
   scenario_state.advance_verification(expected_snapshots(), 2)
   |> should.equal(scenario_state.Verified)
 }
 
-pub fn verification_retries_before_timing_out_test() {
+pub fn verification_retries_before_timing_out_test() -> Nil {
   scenario_state.advance_verification(unexpected_snapshots(), 2)
   |> should.equal(scenario_state.Retry(1))
 }
 
-pub fn verification_times_out_honestly_when_retries_are_exhausted_test() {
+pub fn verification_times_out_honestly_when_retries_are_exhausted_test() -> Nil {
   scenario_state.advance_verification(unexpected_snapshots(), 0)
   |> should.equal(scenario_state.TimedOut)
 }
 
-pub fn invitation_timeout_copy_stays_truthful_about_seeded_eggs_test() {
+pub fn invitation_timeout_copy_stays_truthful_about_seeded_eggs_test() -> Nil {
   scenario_state.invitation_timeout_message()
   |> should.equal(
     "Concurrent add/remove timed out waiting for a second ready tab. No remove phase began, and the seeded \"eggs\" can be reused for retry.",
   )
 }
 
-pub fn pre_remove_phase_timeouts_stay_retryable_test() {
+pub fn pre_remove_phase_timeouts_stay_retryable_test() -> Nil {
   scenario_state.concurrent_timeout_state(
     remove_phase_began: False,
     status: scenario_state.invitation_timeout_message(),
@@ -195,7 +195,7 @@ pub fn pre_remove_phase_timeouts_stay_retryable_test() {
   )
 }
 
-pub fn post_remove_phase_timeouts_lock_the_room_test() {
+pub fn post_remove_phase_timeouts_lock_the_room_test() -> Nil {
   scenario_state.concurrent_timeout_state(
     remove_phase_began: True,
     status: "verification timed out",
@@ -206,12 +206,12 @@ pub fn post_remove_phase_timeouts_lock_the_room_test() {
   ))
 }
 
-pub fn concurrent_summary_reports_the_current_triptych_state_test() {
+pub fn concurrent_summary_reports_the_current_triptych_state_test() -> Nil {
   scenario_state.concurrent_summary(unexpected_snapshots())
   |> should.equal("GSet present, TwoPSet present, OrSet absent")
 }
 
-pub fn lost_go_peers_ignore_final_status_ripples_test() {
+pub fn lost_go_peers_ignore_final_status_ripples_test() -> Nil {
   scenario_state.observe_peer_status(
     participating: False,
     status: scenario_protocol.VerifiedExpectedOutcome,
@@ -219,7 +219,7 @@ pub fn lost_go_peers_ignore_final_status_ripples_test() {
   |> should.equal(scenario_state.IgnoreWhileAwaitingGo)
 }
 
-pub fn participating_peers_keep_verifying_after_status_ripples_test() {
+pub fn participating_peers_keep_verifying_after_status_ripples_test() -> Nil {
   scenario_state.observe_peer_status(
     participating: True,
     status: scenario_protocol.VerifiedExpectedOutcome,
@@ -229,7 +229,7 @@ pub fn participating_peers_keep_verifying_after_status_ripples_test() {
   ))
 }
 
-pub fn participating_peers_keep_verifying_after_timeout_status_ripples_test() {
+pub fn participating_peers_keep_verifying_after_timeout_status_ripples_test() -> Nil {
   scenario_state.observe_peer_status(
     participating: True,
     status: scenario_protocol.VerificationTimedOut,
@@ -242,7 +242,7 @@ pub fn participating_peers_keep_verifying_after_timeout_status_ripples_test() {
   |> should.equal(scenario_state.Verified)
 }
 
-pub fn run_history_remembers_seen_run_ids_without_duplicates_test() {
+pub fn run_history_remembers_seen_run_ids_without_duplicates_test() -> Nil {
   let seen =
     []
     |> scenario_state.remember_run_id("run-1")

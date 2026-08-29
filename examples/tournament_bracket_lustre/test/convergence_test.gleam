@@ -5,9 +5,9 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 
-import bracket
-import doc_schema
-import match_result
+import tournament_bracket_lustre/bracket
+import tournament_bracket_lustre/doc_schema
+import tournament_bracket_lustre/match_result
 import watershed.{type Document, type RegisterCollection}
 import watershed/register_collection_kernel.{Atomic}
 import watershed/sluice_js.{type Sluice}
@@ -55,8 +55,8 @@ fn official(
   key: String,
 ) -> option.Option(bracket.MatchResult) {
   case watershed.register_read(matches, key, Atomic) {
-    Some(value) -> Some(match_result.from_json(value))
-    option.None -> option.None
+    Ok(value) -> Some(match_result.from_json(value))
+    Error(_) -> option.None
   }
 }
 
@@ -65,12 +65,12 @@ fn versions(
   key: String,
 ) -> List(bracket.MatchResult) {
   case watershed.register_versions(matches, key) {
-    Some(values) -> list.map(values, match_result.from_json)
-    option.None -> []
+    Ok(values) -> list.map(values, match_result.from_json)
+    Error(_) -> []
   }
 }
 
-pub fn full_bracket_converges_to_the_same_champion_test() {
+pub fn full_bracket_converges_to_the_same_champion_test() -> Nil {
   let #(sluice, matches_a, matches_b) = room("bracket-convergence-full")
 
   report(matches_a, "r1m1", "Alaric", "3-1")
@@ -103,7 +103,7 @@ pub fn full_bracket_converges_to_the_same_champion_test() {
 /// submission must still be retrievable via `register_versions` — a
 /// sequenced write is never silently discarded, only out-voted for the
 /// atomic slot.
-pub fn concurrent_conflicting_reports_converge_on_one_official_winner_test() {
+pub fn concurrent_conflicting_reports_converge_on_one_official_winner_test() -> Nil {
   let #(sluice, matches_a, matches_b) = room("bracket-convergence-conflict")
 
   // Both clients report r1m1 before either has seen the other's write —
@@ -123,11 +123,11 @@ pub fn concurrent_conflicting_reports_converge_on_one_official_winner_test() {
   // in the retained version history, on both clients.
   let winners_a =
     versions(matches_a, "r1m1")
-    |> list.map(fn(r) { r.winner })
+    |> list.map(fn(result) { result.winner })
     |> list.sort(order_winner)
   let winners_b =
     versions(matches_b, "r1m1")
-    |> list.map(fn(r) { r.winner })
+    |> list.map(fn(result) { result.winner })
     |> list.sort(order_winner)
 
   winners_a |> should.equal(["Alaric", "Beatrix"])

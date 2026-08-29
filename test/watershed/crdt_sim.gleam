@@ -203,6 +203,6 @@ fn deliver(mesh: Mesh, packet: Packet) -> Mesh {
 fn normalize(left: String, right: String) -> #(String, String) {
   case string.compare(left, right) {
     order.Lt -> #(left, right)
-    _ -> #(right, left)
+    order.Eq | order.Gt -> #(right, left)
   }
 }

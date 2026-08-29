@@ -68,14 +68,15 @@ whether either tab has nonzero `in_flight` or `buffered`.
 
 ## Headless smoke test
 
-`src/smoke.gleam` drives two clients from Node against a running `just integration-up` server,
-asserting convergence and reconnect safety (concurrent edits, a same-key LWW
-race, a forced mid-session reconnect with edits applied during the drop):
+`dev/dice_lustre/smoke.gleam` drives two clients from Node against a running
+`just integration-up` server, asserting convergence and reconnect safety
+(concurrent edits, a same-key LWW race, a forced mid-session reconnect with
+edits applied during the drop):
 
 ```sh
 pnpm install
 gleam build --target javascript
-pnpm exec esbuild build/dev/javascript/dice_lustre/smoke.mjs \
+pnpm exec esbuild build/dev/javascript/dice_lustre/dice_lustre/smoke.mjs \
   --bundle --format=esm --outfile=dist/smoke.mjs
 node smoke/run.mjs   # supplies a WebSocket global for phoenix.js
 # → SMOKE PASS: clients converged across a reconnect

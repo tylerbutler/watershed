@@ -30,7 +30,7 @@ import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p.{type P2pError}
 import watershed/p2p_transport_js.{
-  type Rtc, type Signaling, Roster, Rtc, Signaling, signaling_session,
+  type Rtc, type Signaling, Roster, Rtc, Signaling,
 }
 import watershed/pn_counter_kernel
 import watershed/transport_js.{type Cell}
@@ -64,7 +64,7 @@ fn solo_signaling() -> Signaling {
   Signaling(
     join: fn(room, peer, on_signal) {
       on_signal(Roster([]))
-      Ok(signaling_session(room: room, peer_id: peer))
+      Ok(p2p_transport_js.signaling_session(room: room, peer_id: peer))
     },
     send: fn(_session, _to, _payload) { Nil },
     leave: fn(_session) { Nil },

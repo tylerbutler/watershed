@@ -9,7 +9,6 @@
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option, None, Some}
 import gleam/string
 
 pub type RegisterState {
@@ -69,37 +68,38 @@ pub fn summary_registers(state: RegisterState) -> List(#(String, Register)) {
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
-/// The committed value for `key` under `policy`. The result is `None` if the
-/// key has no sequenced data. This read gives committed data only, and a
+/// The committed value for `key` under `policy`. The result is `Error(Nil)` if
+/// the key has no sequenced data. This read gives committed data only, and a
 /// pending local write is not visible.
 pub fn read(
   state: RegisterState,
   key: String,
   policy: ReadPolicy,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   case dict.get(state.registers, key) {
-    Error(_) -> None
+    Error(Nil) -> Error(Nil)
     Ok(Register(atomic, versions)) ->
       case policy {
-        Atomic -> Some(atomic.value)
+        Atomic -> Ok(atomic.value)
         Lww ->
           case list.last(versions) {
-            Ok(VersionedValue(value, _)) -> Some(value)
-            Error(_) -> None
+            Ok(VersionedValue(value, _)) -> Ok(value)
+            Error(Nil) -> Error(Nil)
           }
       }
   }
 }
 
-/// Every committed version for `key`, oldest first. The result is `None` if
-/// the key is absent.
-pub fn read_versions(state: RegisterState, key: String) -> Option(List(Json)) {
+/// Every committed version for `key`, oldest first. The result is `Error(Nil)`
+/// if the key is absent.
+pub fn read_versions(
+  state: RegisterState,
+  key: String,
+) -> Result(List(Json), Nil) {
   case dict.get(state.registers, key) {
-    Error(_) -> None
+    Error(Nil) -> Error(Nil)
     Ok(Register(_, versions)) ->
-      versions
-      |> list.map(fn(version) { version.value })
-      |> Some
+      Ok(list.map(versions, fn(version) { version.value }))
   }
 }
 

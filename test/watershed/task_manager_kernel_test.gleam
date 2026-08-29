@@ -65,7 +65,7 @@ fn resubmitted(
   }
 }
 
-pub fn new_state_is_empty_test() {
+pub fn new_state_is_empty_test() -> Nil {
   let state = task_manager_kernel.new()
 
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
@@ -75,7 +75,7 @@ pub fn new_state_is_empty_test() {
   |> expect.to_be_false()
 }
 
-pub fn volunteer_is_pending_until_local_ack_test() {
+pub fn volunteer_is_pending_until_local_ack_test() -> Nil {
   let #(state, op, outcome) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -100,7 +100,7 @@ pub fn volunteer_is_pending_until_local_ack_test() {
   task_manager_kernel.assigned(state, "task", 1, True) |> expect.to_be_true()
 }
 
-pub fn two_clients_queue_fifo_and_abandon_promotes_waiter_test() {
+pub fn two_clients_queue_fifo_and_abandon_promotes_waiter_test() -> Nil {
   let #(state, events) =
     task_manager_kernel.apply_remote(
       task_manager_kernel.new(),
@@ -122,7 +122,7 @@ pub fn two_clients_queue_fifo_and_abandon_promotes_waiter_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([#("task", [2])])
 }
 
-pub fn duplicate_remote_volunteer_does_not_duplicate_client_test() {
+pub fn duplicate_remote_volunteer_does_not_duplicate_client_test() -> Nil {
   let #(state, _) =
     task_manager_kernel.apply_remote(
       task_manager_kernel.new(),
@@ -137,7 +137,7 @@ pub fn duplicate_remote_volunteer_does_not_duplicate_client_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([#("task", [1])])
 }
 
-pub fn second_volunteer_while_pending_sends_no_second_op_test() {
+pub fn second_volunteer_while_pending_sends_no_second_op_test() -> Nil {
   let #(state, op, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -155,7 +155,7 @@ pub fn second_volunteer_while_pending_sends_no_second_op_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
 }
 
-pub fn abandon_after_pending_volunteer_flips_optimistic_membership_test() {
+pub fn abandon_after_pending_volunteer_flips_optimistic_membership_test() -> Nil {
   let #(state, _, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -172,7 +172,7 @@ pub fn abandon_after_pending_volunteer_flips_optimistic_membership_test() {
   |> expect.to_be_false()
 }
 
-pub fn abandon_then_immediate_reacquire_follows_pending_order_test() {
+pub fn abandon_then_immediate_reacquire_follows_pending_order_test() -> Nil {
   let state = task_manager_kernel.from_summary([#("task", [1])])
   let #(state, abandon_op, _) =
     task_manager_kernel.abandon(state, "task", 1, 10)
@@ -197,11 +197,15 @@ pub fn abandon_then_immediate_reacquire_follows_pending_order_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([#("task", [1])])
 }
 
-pub fn complete_requires_assignment_and_clears_waiters_test() {
+pub fn complete_requires_assignment_and_clears_waiters_test() -> Nil {
   let unassigned = task_manager_kernel.from_summary([#("task", [2])])
   case task_manager_kernel.complete(unassigned, "task", 1, 10) {
     Error(NotAssigned("task")) -> Nil
-    _ -> panic as "expected NotAssigned"
+    Error(NotAssigned(_))
+    | Error(UnexpectedAck(..))
+    | Error(UnexpectedRollback(..))
+    | Error(UnexpectedResubmit(..))
+    | Ok(_) -> panic as "expected NotAssigned"
   }
 
   let state = task_manager_kernel.from_summary([#("task", [1, 2])])
@@ -218,7 +222,7 @@ pub fn complete_requires_assignment_and_clears_waiters_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
 }
 
-pub fn disconnected_reads_return_false_test() {
+pub fn disconnected_reads_return_false_test() -> Nil {
   let state = task_manager_kernel.from_summary([#("task", [1])])
 
   task_manager_kernel.assigned(state, "task", 1, False) |> expect.to_be_false()
@@ -227,7 +231,7 @@ pub fn disconnected_reads_return_false_test() {
   task_manager_kernel.queued(state, "task", 1, True) |> expect.to_be_true()
 }
 
-pub fn remove_client_updates_every_queue_in_task_order_test() {
+pub fn remove_client_updates_every_queue_in_task_order_test() -> Nil {
   let state =
     task_manager_kernel.from_summary([
       #("z", [1, 3]),
@@ -245,7 +249,7 @@ pub fn remove_client_updates_every_queue_in_task_order_test() {
   |> expect.to_equal([#("a", [2]), #("z", [3])])
 }
 
-pub fn local_disconnect_emits_lost_for_assigned_tasks_and_removes_self_test() {
+pub fn local_disconnect_emits_lost_for_assigned_tasks_and_removes_self_test() -> Nil {
   let state =
     task_manager_kernel.from_summary([
       #("a", [1, 2]),
@@ -265,7 +269,7 @@ pub fn local_disconnect_emits_lost_for_assigned_tasks_and_removes_self_test() {
   |> expect.to_equal([#("a", [2]), #("b", [2])])
 }
 
-pub fn detached_operations_apply_immediately_test() {
+pub fn detached_operations_apply_immediately_test() -> Nil {
   let #(state, events, outcome) =
     task_manager_kernel.volunteer_detached(task_manager_kernel.new(), "task", 1)
   outcome |> expect.to_equal(AssignedNow)
@@ -292,7 +296,7 @@ pub fn detached_operations_apply_immediately_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
 }
 
-pub fn placeholder_replacement_preserves_assignment_and_avoids_duplicates_test() {
+pub fn placeholder_replacement_preserves_assignment_and_avoids_duplicates_test() -> Nil {
   let state =
     task_manager_kernel.from_summary([
       #("a", [-1, 2]),
@@ -304,7 +308,7 @@ pub fn placeholder_replacement_preserves_assignment_and_avoids_duplicates_test()
   |> expect.to_equal([#("a", [2]), #("b", [2])])
 }
 
-pub fn scrub_not_in_roster_removes_missing_clients_test() {
+pub fn scrub_not_in_roster_removes_missing_clients_test() -> Nil {
   let state =
     task_manager_kernel.from_summary([
       #("a", [1, 2]),
@@ -320,7 +324,7 @@ pub fn scrub_not_in_roster_removes_missing_clients_test() {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([#("a", [2])])
 }
 
-pub fn summary_round_trip_sorts_tasks_and_drops_pending_test() {
+pub fn summary_round_trip_sorts_tasks_and_drops_pending_test() -> Nil {
   let #(state, _, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.from_summary([#("z", [3]), #("a", [1])]),
@@ -337,7 +341,7 @@ pub fn summary_round_trip_sorts_tasks_and_drops_pending_test() {
   |> expect.to_be_false()
 }
 
-pub fn rollback_pops_latest_pending_and_emits_rolled_back_test() {
+pub fn rollback_pops_latest_pending_and_emits_rolled_back_test() -> Nil {
   let #(state, _, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -361,7 +365,7 @@ pub fn rollback_pops_latest_pending_and_emits_rolled_back_test() {
   |> expect.to_be_false()
 }
 
-pub fn rollback_requires_latest_pending_match_test() {
+pub fn rollback_requires_latest_pending_match_test() -> Nil {
   let #(state, _, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -371,11 +375,15 @@ pub fn rollback_requires_latest_pending_match_test() {
     ))
   case task_manager_kernel.rollback(state, Volunteer("task"), 99) {
     Error(UnexpectedRollback(Volunteer("task"), _)) -> Nil
-    _ -> panic as "expected UnexpectedRollback"
+    Error(UnexpectedRollback(..))
+    | Error(NotAssigned(_))
+    | Error(UnexpectedAck(..))
+    | Error(UnexpectedResubmit(..))
+    | Ok(_) -> panic as "expected UnexpectedRollback"
   }
 }
 
-pub fn resubmit_reissues_volunteer_unless_superseded_by_abandon_test() {
+pub fn resubmit_reissues_volunteer_unless_superseded_by_abandon_test() -> Nil {
   let #(state, _, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
@@ -406,21 +414,29 @@ pub fn resubmit_reissues_volunteer_unless_superseded_by_abandon_test() {
   pending |> expect.to_equal(None)
 }
 
-pub fn resubmit_and_ack_are_strict_about_matching_pending_ops_test() {
+pub fn resubmit_and_ack_are_strict_about_matching_pending_ops_test() -> Nil {
   let state = task_manager_kernel.new()
 
   case task_manager_kernel.resubmit(state, Volunteer("task"), 10, 11) {
     Error(UnexpectedResubmit(Volunteer("task"), _)) -> Nil
-    _ -> panic as "expected UnexpectedResubmit"
+    Error(UnexpectedResubmit(..))
+    | Error(NotAssigned(_))
+    | Error(UnexpectedAck(..))
+    | Error(UnexpectedRollback(..))
+    | Ok(_) -> panic as "expected UnexpectedResubmit"
   }
 
   case task_manager_kernel.ack_local(state, Volunteer("task"), 1, 10, [1]) {
     Error(UnexpectedAck(Volunteer("task"), _)) -> Nil
-    _ -> panic as "expected UnexpectedAck"
+    Error(UnexpectedAck(..))
+    | Error(NotAssigned(_))
+    | Error(UnexpectedRollback(..))
+    | Error(UnexpectedResubmit(..))
+    | Ok(_) -> panic as "expected UnexpectedAck"
   }
 }
 
-pub fn stashed_ops_are_ignored_test() {
+pub fn stashed_ops_are_ignored_test() -> Nil {
   let #(state, op) =
     task_manager_kernel.apply_stashed_op(
       task_manager_kernel.new(),
@@ -442,7 +458,7 @@ pub fn stashed_ops_are_ignored_test() {
 /// What it protects: `remove_client` on a sequenced `"leave"` is the only
 /// thing that frees a role whose holder walked away, so a client that reached
 /// a queue without ever being a member could hold one indefinitely.
-pub fn a_volunteer_from_a_non_member_is_dropped_test() {
+pub fn a_volunteer_from_a_non_member_is_dropped_test() -> Nil {
   let state = task_manager_kernel.new()
 
   let #(state, events) =

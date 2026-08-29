@@ -16,7 +16,7 @@ import watershed/fuzz/script_gen
 
 const client_count = 3
 
-pub fn converges_and_matches_oracle_test() {
+pub fn converges_and_matches_oracle_test() -> Nil {
   let model = claims_model.model()
   kernel_fuzz.run(
     model,

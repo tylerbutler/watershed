@@ -14,9 +14,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
-import doc_schema
 import gleam/dynamic/decode
-import release_readiness
+import release_checklist_lustre/doc_schema
+import release_checklist_lustre/release_readiness
 import watershed.{type Document, type OrSet, type PactMap}
 import watershed/pact_map_kernel
 import watershed/sluice_js.{type Sluice}
@@ -62,7 +62,7 @@ fn room(name: String, clients: Int) -> Room {
   let release =
     docs
     |> list.map(fn(doc) {
-      let assert Some(value) = watershed.get(watershed.root(doc), target_key)
+      let assert Ok(value) = watershed.get(watershed.root(doc), target_key)
       let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
       pact
     })
@@ -104,6 +104,7 @@ fn propose(room: Room, from index: Int, target target: String) -> Nil {
 
 fn target(room: Room, index: Int) -> Option(String) {
   watershed.pact_map_get(release_of(room, index), target_key)
+  |> option.from_result
   |> option.map(fn(value) {
     let assert Ok(target) = json.parse(json.to_string(value), decode.string)
     target
@@ -126,7 +127,7 @@ fn checks_channel(room: Room) -> List(OrSet) {
 
   room.docs
   |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-    let assert Some(value) = watershed.get(watershed.root(doc), checks_key)
+    let assert Ok(value) = watershed.get(watershed.root(doc), checks_key)
     let assert Ok(set) = watershed.resolve_or_set(doc, value)
     set
   })
@@ -134,7 +135,7 @@ fn checks_channel(room: Room) -> List(OrSet) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
+pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() -> Nil {
   let room = room("checklist-quorum", 3)
 
   propose(room, from: 0, target: "v1.2.0")
@@ -160,7 +161,7 @@ pub fn a_proposal_is_accepted_once_all_three_clients_sign_off_test() {
   ])
 }
 
-pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
+pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
   let room = room("checklist-stall", 3)
 
   // The third tab is backgrounded: its frames stop being delivered, so it
@@ -180,7 +181,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
 
   // The UI's "waiting on N of M" comes from here, and it must name the
   // client that has gone quiet rather than a bare spinner.
-  let assert Some(waiting) =
+  let assert Ok(waiting) =
     watershed.pact_map_pending_signoffs(release_of(room, 0), target_key)
   list.length(waiting) |> should.equal(1)
 
@@ -191,7 +192,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() {
   target(room, 2) |> should.equal(Some("v2.0.0-rc1"))
 }
 
-pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
+pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   let room = room("checklist-drain", 3)
 
   sluice_js.pause(room.sluice, nth(room.docs, 2))
@@ -218,7 +219,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() {
   ])
 }
 
-pub fn a_second_proposal_while_one_is_pending_is_rejected_test() {
+pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   let room = room("checklist-collide", 3)
 
   sluice_js.pause(room.sluice, nth(room.docs, 2))
@@ -254,7 +255,7 @@ pub fn a_second_proposal_while_one_is_pending_is_rejected_test() {
 /// reconstruct the *outcome* rather than re-run the protocol as if it had
 /// been in the room, which would leave the pact reading pending against a
 /// signoff list the joiner was never actually asked to join.
-pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() {
+pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() -> Nil {
   let room = room("checklist-late-join", 3)
 
   propose(room, from: 0, target: "v1.2.0")
@@ -265,23 +266,23 @@ pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() {
   let doc_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Some(value) = watershed.get(watershed.root(doc_d), target_key)
+  let assert Ok(value) = watershed.get(watershed.root(doc_d), target_key)
   let assert Ok(release_d) = watershed.resolve_pact_map(doc_d, value)
 
   watershed.pact_map_get(release_d, target_key)
-  |> should.equal(Some(json.string("v1.2.0")))
+  |> should.equal(Ok(json.string("v1.2.0")))
   watershed.pact_map_is_pending(release_d, target_key) |> should.be_false
   watershed.pact_map_pending_signoffs(release_d, target_key)
-  |> should.equal(None)
+  |> should.equal(Error(Nil))
 
   // And the joiner is now a full member: the next proposal waits on it too.
   propose(room, from: 1, target: "v1.3.0")
   sluice_js.settle(room.sluice)
   watershed.pact_map_get(release_d, target_key)
-  |> should.equal(Some(json.string("v1.3.0")))
+  |> should.equal(Ok(json.string("v1.3.0")))
 }
 
-pub fn a_reopened_check_does_not_clear_the_accepted_target_test() {
+pub fn a_reopened_check_does_not_clear_the_accepted_target_test() -> Nil {
   // `release_readiness.can_propose` gates *new* proposals on every check
   // being complete; it says nothing about a target the room already
   // accepted. Reopening a real check after publication must leave the

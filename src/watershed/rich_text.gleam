@@ -142,16 +142,22 @@ pub fn document_operations(document: Document) -> Result(Document, Error) {
   case
     list.try_fold(ops, [], fn(acc, op) {
       case op {
-        InsertText(text, attrs) ->
+        InsertText(text, attributes) ->
           case validate_text(text) {
             Ok(_) ->
-              Ok(push(acc, InsertText(text, attribute_map.without_nulls(attrs))))
+              Ok(push(
+                acc,
+                InsertText(text, attribute_map.without_nulls(attributes)),
+              ))
             Error(error) -> Error(error)
           }
         InsertEmbed(VNull, _) ->
           Error(Malformed("insert", "null embeds are not valid"))
-        InsertEmbed(embed, attrs) ->
-          Ok(push(acc, InsertEmbed(embed, attribute_map.without_nulls(attrs))))
+        InsertEmbed(embed, attributes) ->
+          Ok(push(
+            acc,
+            InsertEmbed(embed, attribute_map.without_nulls(attributes)),
+          ))
         _ -> Error(Malformed("document", "documents may contain inserts only"))
       }
     })
@@ -351,28 +357,31 @@ pub fn delta_from_json_string(raw: String) -> Result(Delta, Error) {
 
 fn operation_to_json(operation: Operation) -> Json {
   case operation {
-    InsertText(text, attrs) ->
-      with_attributes([#("insert", json.string(text))], attrs)
-    InsertEmbed(embed, attrs) ->
-      with_attributes([#("insert", json_ot.to_json(embed))], attrs)
+    InsertText(text, attributes) ->
+      with_attributes([#("insert", json.string(text))], attributes)
+    InsertEmbed(embed, attributes) ->
+      with_attributes([#("insert", json_ot.to_json(embed))], attributes)
     Delete(amount) -> json.object([#("delete", json.int(amount))])
-    Retain(amount, attrs) ->
-      with_attributes([#("retain", json.int(amount))], attrs)
+    Retain(amount, attributes) ->
+      with_attributes([#("retain", json.int(amount))], attributes)
   }
 }
 
-fn with_attributes(fields: List(#(String, Json)), attrs: Attributes) -> Json {
-  case attribute_map.is_empty(attrs) {
+fn with_attributes(
+  fields: List(#(String, Json)),
+  attributes: Attributes,
+) -> Json {
+  case attribute_map.is_empty(attributes) {
     True -> json.object(fields)
     False ->
       json.object(
-        list.append(fields, [#("attributes", attributes_to_json(attrs))]),
+        list.append(fields, [#("attributes", attributes_to_json(attributes))]),
       )
   }
 }
 
-fn attributes_to_json(attrs: Attributes) -> Json {
-  attrs
+fn attributes_to_json(attributes: Attributes) -> Json {
+  attributes
   |> attribute_map.to_list
   |> list.map(fn(entry) { #(entry.0, json_ot.to_json(entry.1)) })
   |> json.object
@@ -471,11 +480,11 @@ fn decode_action(
   index: Int,
   document_only: Bool,
 ) -> Result(Operation, Error) {
-  use attrs <- result.try(decode_attributes(raw_attributes, index))
+  use attributes <- result.try(decode_attributes(raw_attributes, index))
   case inserted, deleted, retained {
     Some(VString(text)), _, _ -> {
       use _ <- result.try(validate_text(text))
-      Ok(InsertText(text, attribute_map.without_nulls(attrs)))
+      Ok(InsertText(text, attribute_map.without_nulls(attributes)))
     }
     Some(VNull), _, _ ->
       Error(Malformed(
@@ -483,7 +492,7 @@ fn decode_action(
         "null insert is invalid",
       ))
     Some(embed), _, _ ->
-      Ok(InsertEmbed(embed, attribute_map.without_nulls(attrs)))
+      Ok(InsertEmbed(embed, attribute_map.without_nulls(attributes)))
     _, Some(_value), _ if document_only ->
       Error(Malformed("document", "delete operation is not allowed"))
     _, _, Some(_value) if document_only ->
@@ -492,7 +501,7 @@ fn decode_action(
       decode_length(value, "delete", index) |> result.map(Delete)
     _, _, Some(value) ->
       decode_length(value, "retain", index)
-      |> result.map(fn(amount) { Retain(amount, attrs) })
+      |> result.map(fn(amount) { Retain(amount, attributes) })
     _, _, _ ->
       Error(Malformed(
         "operation " <> int.to_string(index),
@@ -575,30 +584,42 @@ fn compose_loop(
           use #(left_op, next_left) <- result.try(take_checked(left, amount))
           use #(right_op, next_right) <- result.try(take_checked(right, amount))
           let next_result = case right_op {
-            Retain(_, right_attrs) ->
+            Retain(_, right_attributes) ->
               case left_op {
-                Retain(_, left_attrs) ->
+                Retain(_, left_attributes) ->
                   push(
                     result,
                     Retain(
                       amount,
-                      attribute_map.compose(left_attrs, right_attrs, True),
+                      attribute_map.compose(
+                        left_attributes,
+                        right_attributes,
+                        True,
+                      ),
                     ),
                   )
-                InsertText(text, left_attrs) ->
+                InsertText(text, left_attributes) ->
                   push(
                     result,
                     InsertText(
                       text,
-                      attribute_map.compose(left_attrs, right_attrs, False),
+                      attribute_map.compose(
+                        left_attributes,
+                        right_attributes,
+                        False,
+                      ),
                     ),
                   )
-                InsertEmbed(embed, left_attrs) ->
+                InsertEmbed(embed, left_attributes) ->
                   push(
                     result,
                     InsertEmbed(
                       embed,
-                      attribute_map.compose(left_attrs, right_attrs, False),
+                      attribute_map.compose(
+                        left_attributes,
+                        right_attributes,
+                        False,
+                      ),
                     ),
                   )
                 Delete(_) -> result
@@ -660,14 +681,14 @@ fn transform_core(
           let next_result = case source_op, other_op {
             Delete(_), _ -> result
             _, Delete(_) -> push(result, other_op)
-            _, Retain(_, other_attrs) ->
+            _, Retain(_, other_attributes) ->
               push(
                 result,
                 Retain(
                   amount,
                   attribute_map.transform(
                     op_iterator.attributes(source_op),
-                    other_attrs,
+                    other_attributes,
                     priority,
                   ),
                 ),
@@ -697,8 +718,8 @@ fn invert_loop(
           )
           invert_loop(rest, next_base, list.fold(pieces, result, push))
         }
-        Retain(amount, attrs) ->
-          case attribute_map.is_empty(attrs) {
+        Retain(amount, attributes) ->
+          case attribute_map.is_empty(attributes) {
             True -> {
               use next_base <- result.try(advance(base, amount))
               invert_loop(
@@ -718,7 +739,10 @@ fn invert_loop(
                     acc,
                     Retain(
                       op_iterator.length(piece),
-                      attribute_map.invert(attrs, op_iterator.attributes(piece)),
+                      attribute_map.invert(
+                        attributes,
+                        op_iterator.attributes(piece),
+                      ),
                     ),
                   )
                 })
@@ -741,8 +765,8 @@ fn take_document(
         // Quill's Delta#slice returns the available document suffix rather
         // than throwing. Invert therefore preserves that harmless behavior
         // for non-contextual deltas; apply remains checked separately.
-        None -> Ok(#(pieces, iterator))
-        Some(available) -> {
+        Error(Nil) -> Ok(#(pieces, iterator))
+        Ok(available) -> {
           let take = int.min(amount, available)
           use #(piece, next) <- result.try(take_checked(iterator, take))
           take_document(next, amount - take, list.append(pieces, [piece]))
@@ -795,10 +819,10 @@ fn transform_position_loop(
 
 fn next_amount(a: Iterator, b: Iterator) -> Int {
   case op_iterator.peek_length(a), op_iterator.peek_length(b) {
-    Some(left), Some(right) -> int.min(left, right)
-    Some(left), None -> left
-    None, Some(right) -> right
-    None, None -> 1
+    Ok(left), Ok(right) -> int.min(left, right)
+    Ok(left), Error(Nil) -> left
+    Error(Nil), Ok(right) -> right
+    Error(Nil), Error(Nil) -> 1
   }
 }
 
@@ -811,8 +835,8 @@ fn take_checked(
 
 fn take_remaining(iterator: Iterator) -> Result(#(Operation, Iterator), Error) {
   case op_iterator.peek_length(iterator) {
-    Some(amount) -> take_checked(iterator, amount)
-    None -> Error(InvalidApply("iterator unexpectedly exhausted"))
+    Ok(amount) -> take_checked(iterator, amount)
+    Error(Nil) -> Error(InvalidApply("iterator unexpectedly exhausted"))
   }
 }
 
@@ -828,16 +852,22 @@ fn normalize_operations(
   operations
   |> list.try_fold([], fn(acc, op) {
     case op {
-      InsertText(text, attrs) ->
+      InsertText(text, attributes) ->
         case validate_text(text) {
           Ok(_) ->
-            Ok(push(acc, InsertText(text, attribute_map.without_nulls(attrs))))
+            Ok(push(
+              acc,
+              InsertText(text, attribute_map.without_nulls(attributes)),
+            ))
           Error(error) -> Error(error)
         }
       InsertEmbed(VNull, _) ->
         Error(Malformed("insert", "null embeds are not valid"))
-      InsertEmbed(embed, attrs) ->
-        Ok(push(acc, InsertEmbed(embed, attribute_map.without_nulls(attrs))))
+      InsertEmbed(embed, attributes) ->
+        Ok(push(
+          acc,
+          InsertEmbed(embed, attribute_map.without_nulls(attributes)),
+        ))
       Delete(amount) if amount > 0 -> Ok(push(acc, op))
       Retain(amount, _) if amount > 0 -> Ok(push(acc, op))
       Delete(_) ->
@@ -871,10 +901,12 @@ fn push_nonempty(
           push(list.reverse(before_reversed), operation) |> list.append([last])
         Delete(_), InsertEmbed(_, _) ->
           push(list.reverse(before_reversed), operation) |> list.append([last])
-        InsertText(a, attrs_a), InsertText(b, attrs_b) if attrs_a == attrs_b ->
-          list.reverse([InsertText(a <> b, attrs_a), ..before_reversed])
-        Retain(a, attrs_a), Retain(b, attrs_b) if attrs_a == attrs_b ->
-          list.reverse([Retain(a + b, attrs_a), ..before_reversed])
+        InsertText(a, attributes_a), InsertText(b, attributes_b)
+          if attributes_a == attributes_b
+        -> list.reverse([InsertText(a <> b, attributes_a), ..before_reversed])
+        Retain(a, attributes_a), Retain(b, attributes_b)
+          if attributes_a == attributes_b
+        -> list.reverse([Retain(a + b, attributes_a), ..before_reversed])
         _, _ -> list.append(operations, [operation])
       }
   }
@@ -882,8 +914,8 @@ fn push_nonempty(
 
 fn chop(operations: List(Operation)) -> List(Operation) {
   case list.reverse(operations) {
-    [Retain(_, attrs), ..rest] ->
-      case attribute_map.is_empty(attrs) {
+    [Retain(_, attributes), ..rest] ->
+      case attribute_map.is_empty(attributes) {
         True -> list.reverse(rest)
         False -> operations
       }
@@ -948,7 +980,7 @@ fn consume_document(
     False ->
       case document {
         [] -> Ok(#([], offset + amount))
-        [InsertText(text, attrs), ..rest] -> {
+        [InsertText(text, attributes), ..rest] -> {
           let width = utf16.length(text)
           case amount < width {
             True ->
@@ -962,7 +994,7 @@ fn consume_document(
                     }),
                   )
                   Ok(#(
-                    [InsertText(remaining_text, attrs), ..rest],
+                    [InsertText(remaining_text, attributes), ..rest],
                     offset + amount,
                   ))
                 }

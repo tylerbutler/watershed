@@ -10,7 +10,6 @@
 //// the invariant checker can actually run at.
 
 import gleam/json
-import gleam/option.{None, Some}
 import gleeunit/should
 
 import watershed/directory_kernel.{
@@ -38,7 +37,7 @@ fn remote(
   state
 }
 
-pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() {
+pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() -> Nil {
   // The room's server log, as every client eventually sees it: client 1
   // creates "/specs" (seq 1), deletes it (seq 2), and client 2 recreates it
   // (seq 3) — all before client 1's queued write is sequenced.
@@ -60,11 +59,11 @@ pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() {
     )
 
   directory_kernel.has_subdirectory(state, "/", "specs") |> should.be_true()
-  directory_kernel.get(state, "/specs", "draft") |> should.equal(None)
+  directory_kernel.get(state, "/specs", "draft") |> should.equal(Error(Nil))
   directory_kernel.check_invariants(state) |> should.equal(Ok(Nil))
 }
 
-pub fn a_write_sequenced_after_the_recreate_applies_test() {
+pub fn a_write_sequenced_after_the_recreate_applies_test() -> Nil {
   let state =
     directory_kernel.new()
     |> remote(CreateSubDirectory("/", "specs"), meta(1, 1, 0, 0))
@@ -82,11 +81,11 @@ pub fn a_write_sequenced_after_the_recreate_applies_test() {
     )
 
   directory_kernel.get(state, "/specs", "draft")
-  |> should.equal(Some(json.string("fresh")))
+  |> should.equal(Ok(json.string("fresh")))
   directory_kernel.check_invariants(state) |> should.equal(Ok(Nil))
 }
 
-pub fn invariants_hold_after_a_nested_folder_and_document_scenario_test() {
+pub fn invariants_hold_after_a_nested_folder_and_document_scenario_test() -> Nil {
   let state =
     directory_kernel.new()
     |> remote(CreateSubDirectory("/", "specs"), meta(1, 1, 0, 0))

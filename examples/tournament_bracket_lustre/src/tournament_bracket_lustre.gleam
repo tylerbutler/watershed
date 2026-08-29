@@ -39,7 +39,7 @@ import gleam/set.{type Set}
 import gleam/string
 
 import lustre
-import lustre/attribute.{class, placeholder, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -54,9 +54,11 @@ import watershed/register_collection_kernel.{
 }
 import watershed_lustre
 
-import bracket.{type MatchId, type MatchResult, type Slot, MatchResult}
-import doc_schema
-import match_result
+import tournament_bracket_lustre/bracket.{
+  type MatchId, type MatchResult, type Slot, MatchResult,
+}
+import tournament_bracket_lustre/doc_schema
+import tournament_bracket_lustre/match_result
 
 // ── Dev config for `just integration-up` (levee/floodgate dev mode) ──────────
 
@@ -66,7 +68,7 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("bracket")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -334,7 +336,7 @@ fn apply_register_event(model: Model, event: RegisterEvent) -> Model {
       let result = match_result.from_json(value)
       let existing = dict.get(model.versions, key) |> option.from_result
       let updated = case existing {
-        Some(list) -> list.append(list, [result])
+        Some(existing_versions) -> list.append(existing_versions, [result])
         None -> [result]
       }
       Model(
@@ -369,16 +371,16 @@ fn log_line(model: Model, line: String) -> Model {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.div([class("wrap")], [
-    html.div([class("bracket-header")], [
+  html.div([attribute.class("wrap")], [
+    html.div([attribute.class("bracket-header")], [
       html.h1([], [html.text("Tournament bracket")]),
-      html.p([class("status")], [html.text(status_text(model.status))]),
+      html.p([attribute.class("status")], [html.text(status_text(model.status))]),
       roster_view(model),
     ]),
     error_view(model),
     champion_view(model),
     html.div(
-      [class("rounds")],
+      [attribute.class("rounds")],
       list.map(
         [
           #(bracket.Quarterfinal, bracket.quarterfinals),
@@ -404,14 +406,16 @@ fn status_text(status: Status) -> String {
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error")], [html.text(option.unwrap(model.last_error, ""))])
+  html.p([attribute.class("error")], [
+    html.text(option.unwrap(model.last_error, "")),
+  ])
 }
 
 fn champion_view(model: Model) -> Element(Msg) {
   case bracket.champion(model.results) {
-    Some(name) ->
-      html.p([class("champion")], [html.text("🏆 Champion: " <> name)])
-    None -> element.none()
+    Ok(name) ->
+      html.p([attribute.class("champion")], [html.text("🏆 Champion: " <> name)])
+    Error(Nil) -> element.none()
   }
 }
 
@@ -420,10 +424,10 @@ fn round_view(
   round: bracket.Round,
   ids: List(MatchId),
 ) -> Element(Msg) {
-  html.div([class("round")], [
+  html.div([attribute.class("round")], [
     html.h2([], [html.text(bracket.round_label(round))]),
     html.div(
-      [class("matches")],
+      [attribute.class("matches")],
       list.map(ids, fn(id) { match_view(model, id) }),
     ),
   ])
@@ -445,25 +449,27 @@ fn match_view(model: Model, id: MatchId) -> Element(Msg) {
           }
       }
   }
-  html.div([class("match"), attribute.attribute("data-match", key)], [
-    html.p([class("match-id")], [html.text(key)]),
+  html.div([attribute.class("match"), attribute.attribute("data-match", key)], [
+    html.p([attribute.class("match-id")], [html.text(key)]),
     card_body,
   ])
 }
 
 fn slot_row(slot: Slot) -> Element(Msg) {
-  html.p([class("slot")], [html.text(bracket.slot_label(slot))])
+  html.p([attribute.class("slot")], [html.text(bracket.slot_label(slot))])
 }
 
 fn undecided_view(slot_a: Slot, slot_b: Slot) -> Element(Msg) {
-  html.div([class("slots")], [slot_row(slot_a), slot_row(slot_b)])
+  html.div([attribute.class("slots")], [slot_row(slot_a), slot_row(slot_b)])
 }
 
 fn pending_view(slot_a: Slot, slot_b: Slot) -> Element(Msg) {
-  html.div([class("slots pending")], [
+  html.div([attribute.class("slots pending")], [
     slot_row(slot_a),
     slot_row(slot_b),
-    html.p([class("hint")], [html.text("submitted, awaiting confirmation…")]),
+    html.p([attribute.class("hint")], [
+      html.text("submitted, awaiting confirmation…"),
+    ]),
   ])
 }
 
@@ -477,15 +483,15 @@ fn reportable_view(
   let name_b = bracket.slot_label(slot_b)
   let score =
     dict.get(model.score_drafts, key) |> option.from_result |> option.unwrap("")
-  html.div([class("slots reportable")], [
-    html.div([class("report-row")], [
+  html.div([attribute.class("slots reportable")], [
+    html.div([attribute.class("report-row")], [
       html.button([event.on_click(ReportClicked(key, name_a))], [
         html.text(name_a <> " wins"),
       ]),
       html.input([
-        class("score-input"),
-        placeholder("score, e.g. 3-1"),
-        value(score),
+        attribute.class("score-input"),
+        attribute.placeholder("score, e.g. 3-1"),
+        attribute.value(score),
         event.on_input(fn(text) { ScoreDraftChanged(key, text) }),
       ]),
       html.button([event.on_click(ReportClicked(key, name_b))], [
@@ -504,9 +510,9 @@ fn reported_view(
     dict.get(model.versions, key)
     |> option.from_result
     |> option.unwrap([])
-    |> list.filter(fn(v) { v != result })
-  html.div([class("slots reported")], [
-    html.p([class("winner")], [
+    |> list.filter(fn(version) { version != result })
+  html.div([attribute.class("slots reported")], [
+    html.p([attribute.class("winner")], [
       html.text(result.winner <> " — " <> result.score),
     ]),
     version_log_view(also_reported),
@@ -517,7 +523,7 @@ fn version_log_view(also_reported: List(MatchResult)) -> Element(Msg) {
   case also_reported {
     [] -> element.none()
     entries ->
-      html.details([class("version-log")], [
+      html.details([attribute.class("version-log")], [
         html.summary([], [
           html.text(
             int.to_string(list.length(entries)) <> " other report(s) received",
@@ -538,28 +544,31 @@ fn roster_view(model: Model) -> Element(Msg) {
     chip(presence.short_name(model.user_id) <> " (you)", model.color)
   let peer_chips =
     model.peers |> list.map(fn(peer) { chip(peer.meta.name, peer.meta.color) })
-  html.div([class("roster"), attribute.aria_label("Participants online")], [
-    self_chip,
-    ..peer_chips
-  ])
+  html.div(
+    [attribute.class("roster"), attribute.aria_label("Participants online")],
+    [self_chip, ..peer_chips],
+  )
 }
 
 fn chip(name: String, color: String) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
     ],
   )
 }
 
 fn diagnostics_view(model: Model) -> Element(Msg) {
-  html.div([class("diagnostics")], [
+  html.div([attribute.class("diagnostics")], [
     html.h2([], [html.text("Diagnostics")]),
     html.p([], [
       html.text(
@@ -569,7 +578,7 @@ fn diagnostics_view(model: Model) -> Element(Msg) {
     html.button([event.on_click(ReconnectClicked)], [
       html.text("force reconnect"),
     ]),
-    html.pre([class("diagnostic-log")], [
+    html.pre([attribute.class("diagnostic-log")], [
       html.text(string.join(list.reverse(model.log), "\n")),
     ]),
   ])

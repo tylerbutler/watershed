@@ -26,7 +26,7 @@ fn round_trip(
   |> json.parse(roster.decoder())
 }
 
-pub fn playlist_presence_round_trips_test() {
+pub fn playlist_presence_round_trips_test() -> Nil {
   let payload =
     ShowcasePresence(name: "dana", color: "#0090ff", where: roster.InPlaylist)
 
@@ -34,7 +34,7 @@ pub fn playlist_presence_round_trips_test() {
   |> should.equal(Ok(payload))
 }
 
-pub fn sudoku_presence_round_trips_test() {
+pub fn sudoku_presence_round_trips_test() -> Nil {
   let payload =
     ShowcasePresence(
       name: "tyler",
@@ -49,7 +49,7 @@ pub fn sudoku_presence_round_trips_test() {
   |> should.equal(Ok(payload))
 }
 
-pub fn canvas_presence_round_trips_test() {
+pub fn canvas_presence_round_trips_test() -> Nil {
   let payload =
     ShowcasePresence(
       name: "sam",
@@ -62,7 +62,7 @@ pub fn canvas_presence_round_trips_test() {
 }
 
 /// A peer who has not moved yet is still a peer.
-pub fn empty_positions_round_trip_test() {
+pub fn empty_positions_round_trip_test() -> Nil {
   let payload =
     ShowcasePresence(
       name: "sam",
@@ -75,7 +75,7 @@ pub fn empty_positions_round_trip_test() {
 }
 
 /// The panel label is what the roster chip renders, so it is worth pinning.
-pub fn panel_labels_are_stable_test() {
+pub fn panel_labels_are_stable_test() -> Nil {
   roster.panel_label(roster.InText(None)) |> should.equal("text")
   roster.panel_label(roster.InPlaylist) |> should.equal("playlist")
   roster.panel_label(roster.InCanvas(None)) |> should.equal("canvas")
@@ -87,7 +87,7 @@ pub fn panel_labels_are_stable_test() {
 
 /// A foreign payload — another app's presence on the same ripple kind — must
 /// not decode into a phantom peer.
-pub fn a_foreign_payload_does_not_decode_test() {
+pub fn a_foreign_payload_does_not_decode_test() -> Nil {
   let foreign =
     json.object([
       #("cursor", json.string("wherever")),
@@ -97,6 +97,7 @@ pub fn a_foreign_payload_does_not_decode_test() {
 
   json.parse(foreign, roster.decoder())
   |> should.be_error
+  Nil
 }
 
 /// A peer running a build with a fifth panel still appears in the roster.
@@ -104,7 +105,7 @@ pub fn a_foreign_payload_does_not_decode_test() {
 /// Dropping the entry would be the worse failure: the client is genuinely
 /// there, and a roster that hides them is wrong in a way a slightly imprecise
 /// label is not.
-pub fn an_unknown_panel_still_yields_a_peer_test() {
+pub fn an_unknown_panel_still_yields_a_peer_test() -> Nil {
   let newer =
     json.object([
       #("name", json.string("ada")),

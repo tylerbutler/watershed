@@ -89,7 +89,7 @@ const host = "127.0.0.1"
 const port = 4000
 
 @target(erlang)
-pub fn two_clients_converge_test() {
+pub fn two_clients_converge_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_convergence_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -104,7 +104,7 @@ pub fn two_clients_converge_test() {
 /// Three clients, not two. With two, a quorum that ignores the roster and names
 /// only `[self, author]` is indistinguishable from a correct one, because self
 /// and author are the whole room; the bug this pins passed a two-client test.
-pub fn pact_map_quorum_spans_the_room_test() {
+pub fn pact_map_quorum_spans_the_room_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_pact_map_quorum_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -116,7 +116,7 @@ pub fn pact_map_quorum_spans_the_room_test() {
 /// production: a client in the signoff list vanishes without a clean leave. Its
 /// signoff can never arrive, so the pending entry must drain via the server's
 /// sequenced `"leave"` rather than wedging forever.
-pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() {
+pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_pact_map_disconnect_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -139,7 +139,7 @@ pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() {
 /// document, so there is no log to replay and the test would pass without
 /// testing anything. See `docker-compose.persistent.yml`, or run
 /// `just integration-restart`.
-pub fn ghost_members_do_not_survive_a_server_restart_test() {
+pub fn ghost_members_do_not_survive_a_server_restart_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION_RESTART") {
     Ok("1") -> run_restart_ghost_test()
     _ ->
@@ -153,7 +153,7 @@ pub fn ghost_members_do_not_survive_a_server_restart_test() {
 @target(erlang)
 /// M4 exit criterion: drop a client's channel mid-burst and assert both
 /// clients still converge with no lost or duplicated ops.
-pub fn reconnect_converges_test() {
+pub fn reconnect_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_reconnect_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -183,7 +183,7 @@ pub fn reconnect_converges_test() {
 /// a quiet document is what a real app hits constantly, and nothing else here
 /// covers it. The gate for this defect is `test/live_js.gleam` live, and the
 /// sluice reconnect tests offline.
-pub fn reconnect_into_a_quiet_room_test() {
+pub fn reconnect_into_a_quiet_room_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_reconnect_quiet_room_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -198,7 +198,7 @@ pub fn reconnect_into_a_quiet_room_test() {
 /// it missed no application traffic — an empty gap that still has to be closed.
 /// On JS this wedges without the fix; see the note on
 /// `reconnect_into_a_quiet_room_test` for why BEAM recovers here regardless.
-pub fn reconnect_with_nothing_missed_settles_test() {
+pub fn reconnect_with_nothing_missed_settles_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_reconnect_nothing_missed_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -208,7 +208,7 @@ pub fn reconnect_with_nothing_missed_settles_test() {
 @target(erlang)
 /// Summaries exit criterion: a client summarizes the map, then a fresh client
 /// bootstraps from the summary (its history starts above SN 1) and converges.
-pub fn summary_bootstrap_test() {
+pub fn summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -219,7 +219,7 @@ pub fn summary_bootstrap_test() {
 /// SB4 exit criterion: with a policy installed, a checkpoint is written with
 /// nothing in the application calling `summarize`, and a fresh client
 /// bootstraps from it.
-pub fn auto_summary_writes_without_an_explicit_call_test() {
+pub fn auto_summary_writes_without_an_explicit_call_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_auto_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -238,7 +238,7 @@ pub fn auto_summary_writes_without_an_explicit_call_test() {
 ///
 /// If this ever fails, the policy still works; it just costs N summaries per
 /// crossing instead of one.
-pub fn a_peers_summary_resets_the_local_threshold_test() {
+pub fn a_peers_summary_resets_the_local_threshold_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_peer_summary_visibility_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -250,7 +250,7 @@ pub fn a_peers_summary_resets_the_local_threshold_test() {
 /// in-band history window (1000 messages) serves `initialMessages` missing
 /// its prefix, so a fresh client must page the gap from the deltas REST
 /// endpoint during bootstrap.
-pub fn large_history_bootstrap_test() {
+pub fn large_history_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_large_history_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -260,7 +260,7 @@ pub fn large_history_bootstrap_test() {
 @target(erlang)
 /// getVersions exit criterion: every summarize stores a version; the client
 /// lists them newest first and reads any historical snapshot back by handle.
-pub fn summary_versions_test() {
+pub fn summary_versions_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_versions_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -270,7 +270,7 @@ pub fn summary_versions_test() {
 @target(erlang)
 /// M7 exit criterion: a client stores a handle to a freshly created map, a
 /// peer resolves it, and both converge on edits to the *child* map.
-pub fn nested_map_converges_test() {
+pub fn nested_map_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_nested_map_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -281,7 +281,7 @@ pub fn nested_map_converges_test() {
 /// R2 exit criterion: a root map holds a handle to a counter channel; two
 /// clients converge on concurrent increments, and a fresh client bootstraps
 /// the mixed-channel document from a summary.
-pub fn mixed_counter_converges_test() {
+pub fn mixed_counter_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_mixed_counter_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -290,7 +290,7 @@ pub fn mixed_counter_converges_test() {
 
 @target(erlang)
 /// R3 exit criterion: two runtimes race on one claim key; loser resolves Lost.
-pub fn claims_race_outcome_test() {
+pub fn claims_race_outcome_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_claims_race_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -300,7 +300,7 @@ pub fn claims_race_outcome_test() {
 @target(erlang)
 /// M7: two mutually-referencing detached maps attach as one closure when
 /// either handle is stored; a peer resolves them transitively.
-pub fn recursive_attach_converges_test() {
+pub fn recursive_attach_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_recursive_attach_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -310,7 +310,7 @@ pub fn recursive_attach_converges_test() {
 @target(erlang)
 /// M7: a handle stored while the client is reconnecting rides the resubmit
 /// queue (`InFlightAttach`); the peer still sees the attach + edits.
-pub fn reconnect_mid_attach_test() {
+pub fn reconnect_mid_attach_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_reconnect_mid_attach_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -320,7 +320,7 @@ pub fn reconnect_mid_attach_test() {
 @target(erlang)
 /// M7: a fresh client bootstraps nested maps from a summary blob alone
 /// (the attach op predates its history) and resolves the child.
-pub fn summary_nested_bootstrap_test() {
+pub fn summary_nested_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_summary_nested_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -329,7 +329,7 @@ pub fn summary_nested_bootstrap_test() {
 
 @target(erlang)
 /// M7: `load_version` returns the multi-channel blob, child address included.
-pub fn load_version_multichannel_test() {
+pub fn load_version_multichannel_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_load_version_multichannel_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -370,7 +370,7 @@ fn run_nested_map_test() -> Nil {
     watershed_beam.entries(child_b) == watershed_beam.entries(child_a)
   })
   |> expect.to_be_true()
-  watershed_beam.get(child_b, "die") |> expect.to_equal(Some(json.int(3)))
+  watershed_beam.get(child_b, "die") |> expect.to_equal(Ok(json.int(3)))
 
   // Both clients edit the child concurrently, including a same-key race.
   watershed_beam.set(child_a, "die", json.int(6))
@@ -382,8 +382,8 @@ fn run_nested_map_test() -> Nil {
     let entries_a = watershed_beam.entries(child_a)
     entries_a != []
     && same_entries(entries_a, watershed_beam.entries(child_b))
-    && watershed_beam.get(child_a, "from-b") == Some(json.bool(True))
-    && watershed_beam.get(child_b, "die") == Some(json.int(6))
+    && watershed_beam.get(child_a, "from-b") == Ok(json.bool(True))
+    && watershed_beam.get(child_b, "die") == Ok(json.int(6))
   })
   |> expect.to_be_true()
   watershed_beam.get(child_a, "raced")
@@ -411,7 +411,7 @@ fn run_mixed_counter_test() -> Nil {
   let assert Ok(counter_a) = watershed_beam.create_counter(doc_a)
   watershed_beam.increment(counter_a, 2)
   watershed_beam.is_synced(doc_a) |> expect.to_be_true()
-  watershed_beam.counter_value(counter_a) |> expect.to_equal(Some(2))
+  watershed_beam.counter_value(counter_a) |> expect.to_equal(Ok(2))
 
   // Storing the handle attaches the counter with its optimistic value.
   watershed_beam.set(
@@ -422,15 +422,15 @@ fn run_mixed_counter_test() -> Nil {
 
   // B resolves the handle and sees the detached-phase value.
   let counter_b = resolve_counter_key_or_panic(doc_b, map_b, "tally")
-  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Some(2) })
+  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Ok(2) })
   |> expect.to_be_true()
 
   // Concurrent increments from both sides commute.
   watershed_beam.increment(counter_a, 5)
   watershed_beam.increment(counter_b, -1)
   wait_until(50, fn() {
-    watershed_beam.counter_value(counter_a) == Some(6)
-    && watershed_beam.counter_value(counter_b) == Some(6)
+    watershed_beam.counter_value(counter_a) == Ok(6)
+    && watershed_beam.counter_value(counter_b) == Ok(6)
   })
   |> expect.to_be_true()
 
@@ -444,7 +444,7 @@ fn run_mixed_counter_test() -> Nil {
   let doc_c = connect_or_panic(document, "user-c")
   let map_c = watershed_beam.root(doc_c)
   let counter_c = resolve_counter_key_or_panic(doc_c, map_c, "tally")
-  wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Some(6) })
+  wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Ok(6) })
   |> expect.to_be_true()
 
   watershed_beam.close(doc_a)
@@ -475,12 +475,10 @@ fn run_claims_race_test() -> Nil {
   // return `Pending` synchronously (the barrier above guarantees neither key is
   // committed yet), so both ops reach the server and it sequences the race.
   // Awaiting A first would let A's committed claim broadcast to B before B
-  // submits, and try_set_claim is write-once: B would get `AlreadyClaimed`
+  // submits, and claim_once is write-once: B would get `AlreadyClaimed`
   // instead of racing.
-  let reply_a =
-    watershed_beam.try_set_claim(claims_a, "owner", json.string("A"))
-  let reply_b =
-    watershed_beam.try_set_claim(claims_b, "owner", json.string("B"))
+  let reply_a = watershed_beam.claim_once(claims_a, "owner", json.string("A"))
+  let reply_b = watershed_beam.claim_once(claims_b, "owner", json.string("B"))
   let outcome_a = await_claim_reply_or_panic(reply_a, "A")
   let outcome_b = await_claim_reply_or_panic(reply_b, "B")
 
@@ -493,12 +491,21 @@ fn run_claims_race_test() -> Nil {
       current |> expect.to_equal(value)
       value
     }
-    _, _ -> panic as "expected one Accepted and one Lost claim outcome"
+    claims_kernel.Accepted(_), claims_kernel.Accepted(_)
+    | claims_kernel.Accepted(_), claims_kernel.Lost(None)
+    | claims_kernel.Accepted(_), claims_kernel.Aborted
+    | claims_kernel.Lost(_), claims_kernel.Lost(_)
+    | claims_kernel.Lost(_), claims_kernel.Aborted
+    | claims_kernel.Lost(None), claims_kernel.Accepted(_)
+    | claims_kernel.Aborted, claims_kernel.Accepted(_)
+    | claims_kernel.Aborted, claims_kernel.Lost(_)
+    | claims_kernel.Aborted, claims_kernel.Aborted
+    -> panic as "expected one Accepted and one Lost claim outcome"
   }
 
   wait_until(50, fn() {
-    watershed_beam.get_claim(claims_a, "owner") == Some(winner)
-    && watershed_beam.get_claim(claims_b, "owner") == Some(winner)
+    watershed_beam.get_claim(claims_a, "owner") == Ok(winner)
+    && watershed_beam.get_claim(claims_b, "owner") == Ok(winner)
   })
   |> expect.to_be_true()
 
@@ -542,8 +549,8 @@ fn resolve_claims_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_claims(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_claims(doc, value)
       }
     })
   case resolved {
@@ -562,8 +569,8 @@ fn resolve_counter_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_counter(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_counter(doc, value)
       }
     })
   case resolved {
@@ -598,18 +605,16 @@ fn run_recursive_attach_test() -> Nil {
   let m1_b = resolve_key_or_panic(doc_b, map_b, "m1")
   let m2_b = resolve_key_or_panic(doc_b, m1_b, "peer")
   wait_until(50, fn() {
-    watershed_beam.get(m2_b, "name") == Some(json.string("m2"))
+    watershed_beam.get(m2_b, "name") == Ok(json.string("m2"))
   })
   |> expect.to_be_true()
   let m1_again = resolve_key_or_panic(doc_b, m2_b, "peer")
   watershed_beam.get(m1_again, "name")
-  |> expect.to_equal(Some(json.string("m1")))
+  |> expect.to_equal(Ok(json.string("m1")))
 
   // Edits through the cycle converge.
   watershed_beam.set(m2_b, "from-b", json.int(2))
-  wait_until(50, fn() {
-    watershed_beam.get(m2_a, "from-b") == Some(json.int(2))
-  })
+  wait_until(50, fn() { watershed_beam.get(m2_a, "from-b") == Ok(json.int(2)) })
   |> expect.to_be_true()
 
   watershed_beam.close(doc_a)
@@ -627,7 +632,7 @@ fn run_reconnect_quiet_room_test() -> Nil {
 
   // Establish the session and confirm both sides are live.
   watershed_beam.set(map_a, "k1", json.int(1))
-  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Some(json.int(1)) })
+  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
   |> expect.to_be_true()
 
   // Drop A with nothing in flight, and let the socket actually go down before
@@ -643,7 +648,7 @@ fn run_reconnect_quiet_room_test() -> Nil {
   // Nothing else happens — no edit from A, no third client, no further traffic
   // from B. A has to ask for what it missed or it never sees this at all.
   wait_until(100, fn() {
-    watershed_beam.get(map_a, "from-b") == Some(json.bool(True))
+    watershed_beam.get(map_a, "from-b") == Ok(json.bool(True))
   })
   |> expect.to_be_true()
 
@@ -651,7 +656,7 @@ fn run_reconnect_quiet_room_test() -> Nil {
   // reach the wire, which it cannot do from the catching-up holding state.
   watershed_beam.set(map_a, "after", json.string("live"))
   wait_until(100, fn() {
-    watershed_beam.get(map_b, "after") == Some(json.string("live"))
+    watershed_beam.get(map_b, "after") == Ok(json.string("live"))
   })
   |> expect.to_be_true()
 
@@ -669,7 +674,7 @@ fn run_reconnect_nothing_missed_test() -> Nil {
   let map_b = watershed_beam.root(doc_b)
 
   watershed_beam.set(map_a, "k1", json.int(1))
-  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Some(json.int(1)) })
+  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
   |> expect.to_be_true()
 
   // Reconnect into total silence. Nobody writes during the gap, so the only op
@@ -684,7 +689,7 @@ fn run_reconnect_nothing_missed_test() -> Nil {
   // no traffic, so there is no op to discover the gap with.
   watershed_beam.set(map_a, "after", json.string("live"))
   wait_until(100, fn() {
-    watershed_beam.get(map_b, "after") == Some(json.string("live"))
+    watershed_beam.get(map_b, "after") == Ok(json.string("live"))
   })
   |> expect.to_be_true()
 
@@ -718,10 +723,10 @@ fn run_reconnect_mid_attach_test() -> Nil {
   let child_b = resolve_key_or_panic(doc_b, map_b, "child")
   wait_until(100, fn() {
     watershed_beam.entries(child_b) == watershed_beam.entries(child_a)
-    && watershed_beam.get(child_b, "during") == Some(json.string("reconnect"))
+    && watershed_beam.get(child_b, "during") == Ok(json.string("reconnect"))
   })
   |> expect.to_be_true()
-  watershed_beam.get(child_b, "die") |> expect.to_equal(Some(json.int(5)))
+  watershed_beam.get(child_b, "die") |> expect.to_equal(Ok(json.int(5)))
 
   watershed_beam.close(doc_a)
   watershed_beam.close(doc_b)
@@ -772,7 +777,7 @@ fn run_summary_nested_test() -> Nil {
     )
   })
   |> expect.to_be_true()
-  watershed_beam.get(child_c, "post") |> expect.to_equal(Some(json.bool(True)))
+  watershed_beam.get(child_c, "post") |> expect.to_equal(Ok(json.bool(True)))
 
   watershed_beam.close(doc_a)
   watershed_beam.close(doc_c)
@@ -800,7 +805,7 @@ fn run_load_version_multichannel_test() -> Nil {
   // The stored blob is multi-channel: root first, then the child address the
   // root's handle value points at, with the child's captured entries.
   let assert Ok(blob) = watershed_beam.load_version(doc, handle: tree_sha)
-  let assert Some(handle_value) = watershed_beam.get(map, "child")
+  let assert Ok(handle_value) = watershed_beam.get(map, "child")
   let assert Ok(child_address) = handle.parse_handle(handle_value)
   case blob.channels {
     [root_channel, child_channel] -> {
@@ -841,8 +846,8 @@ fn try_resolve_key(
   key: String,
 ) -> Result(watershed_beam.SharedMap, String) {
   let attempt = case watershed_beam.get(map, key) {
-    None -> Error("key absent")
-    Some(value) ->
+    Error(Nil) -> Error("key absent")
+    Ok(value) ->
       case watershed_beam.is_handle(value) {
         False -> Error("value is not a handle")
         True -> watershed_beam.resolve(doc, value)
@@ -940,7 +945,7 @@ fn run_versions_test() -> Nil {
 
   // The live document still reflects the latest state.
   watershed_beam.get(map, "color")
-  |> expect.to_equal(Some(json.string("green")))
+  |> expect.to_equal(Ok(json.string("green")))
 
   watershed_beam.close(doc)
 }
@@ -974,8 +979,8 @@ fn run_large_history_test() -> Nil {
   |> expect.to_be_true()
 
   // Spot-check keys that only exist in the aged-out prefix.
-  watershed_beam.get(map_b, "k1") |> expect.to_equal(Some(json.int(1)))
-  watershed_beam.get(map_b, "k25") |> expect.to_equal(Some(json.int(25)))
+  watershed_beam.get(map_b, "k1") |> expect.to_equal(Ok(json.int(1)))
+  watershed_beam.get(map_b, "k25") |> expect.to_equal(Ok(json.int(25)))
 
   watershed_beam.close(doc_a)
   watershed_beam.close(doc_b)
@@ -1062,12 +1067,12 @@ fn run_summary_test() -> Nil {
   |> expect.to_be_true()
 
   // The summarized keys and the post-summary delta all made it across.
-  watershed_beam.get(map_b, "die") |> expect.to_equal(Some(json.int(4)))
+  watershed_beam.get(map_b, "die") |> expect.to_equal(Ok(json.int(4)))
   watershed_beam.get(map_b, "color")
-  |> expect.to_equal(Some(json.string("blue")))
-  watershed_beam.get(map_b, "count") |> expect.to_equal(None)
+  |> expect.to_equal(Ok(json.string("blue")))
+  watershed_beam.get(map_b, "count") |> expect.to_equal(Error(Nil))
   watershed_beam.get(map_b, "post")
-  |> expect.to_equal(Some(json.string("after-summary")))
+  |> expect.to_equal(Ok(json.string("after-summary")))
 
   watershed_beam.close(doc_a)
   watershed_beam.close(doc_b)
@@ -1110,7 +1115,7 @@ fn run_auto_summary_test() -> Nil {
   })
   |> expect.to_be_true()
   watershed_beam.get(map_b, "post")
-  |> expect.to_equal(Some(json.string("after-summary")))
+  |> expect.to_equal(Ok(json.string("after-summary")))
 
   watershed_beam.close(doc_a)
   watershed_beam.close(doc_b)
@@ -1188,7 +1193,7 @@ fn run_reconnect_test() -> Nil {
 
   // Establish the session and confirm both sides are live.
   watershed_beam.set(map_a, "k1", json.int(1))
-  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Some(json.int(1)) })
+  wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
   |> expect.to_be_true()
 
   // Burst several edits from A, then yank its channel mid-flight so some ops
@@ -1207,7 +1212,7 @@ fn run_reconnect_test() -> Nil {
   // missed while offline.
   watershed_beam.set(map_b, "from-b", json.bool(True))
 
-  let expected_a = Some(json.string("after-drop"))
+  let expected_a = Ok(json.string("after-drop"))
   let converged =
     wait_until(100, fn() {
       let entries_a = watershed_beam.entries(map_a)
@@ -1215,17 +1220,17 @@ fn run_reconnect_test() -> Nil {
       entries_a != []
       && same_entries(entries_a, entries_b)
       && watershed_beam.get(map_a, "k6") == expected_a
-      && watershed_beam.get(map_a, "from-b") == Some(json.bool(True))
-      && watershed_beam.get(map_a, "k2") == None
+      && watershed_beam.get(map_a, "from-b") == Ok(json.bool(True))
+      && watershed_beam.get(map_a, "k2") == Error(Nil)
     })
   converged |> expect.to_be_true()
 
   // No op was lost: every surviving key made it across the reconnect.
-  watershed_beam.get(map_b, "k3") |> expect.to_equal(Some(json.int(3)))
-  watershed_beam.get(map_b, "k5") |> expect.to_equal(Some(json.int(5)))
+  watershed_beam.get(map_b, "k3") |> expect.to_equal(Ok(json.int(3)))
+  watershed_beam.get(map_b, "k5") |> expect.to_equal(Ok(json.int(5)))
   watershed_beam.get(map_b, "k6") |> expect.to_equal(expected_a)
   // The delete issued during reconnect converged too (no duplicate re-add).
-  watershed_beam.get(map_b, "k2") |> expect.to_equal(None)
+  watershed_beam.get(map_b, "k2") |> expect.to_equal(Error(Nil))
 
   // A fresh client bootstrapping from history sees the identical converged map.
   let doc_c = connect_or_panic(document, "user-c")
@@ -1258,15 +1263,15 @@ fn run_pact_map_quorum_test() -> Nil {
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
-        None -> Error("handle not replicated to B")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Error(Nil) -> Error("handle not replicated to B")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
       }
     })
   let assert Ok(pact_c) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
-        None -> Error("handle not replicated to C")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Error(Nil) -> Error("handle not replicated to C")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
       }
     })
 
@@ -1283,9 +1288,9 @@ fn run_pact_map_quorum_test() -> Nil {
   // Whatever the timing, it must settle at all three replicas and agree.
   let accepted =
     wait_until(50, fn() {
-      watershed_beam.pact_map_get(pact_a, "bpm") == Some(json.int(120))
-      && watershed_beam.pact_map_get(pact_b, "bpm") == Some(json.int(120))
-      && watershed_beam.pact_map_get(pact_c, "bpm") == Some(json.int(120))
+      watershed_beam.pact_map_get(pact_a, "bpm") == Ok(json.int(120))
+      && watershed_beam.pact_map_get(pact_b, "bpm") == Ok(json.int(120))
+      && watershed_beam.pact_map_get(pact_c, "bpm") == Ok(json.int(120))
     })
   accepted |> expect.to_be_true()
 
@@ -1315,16 +1320,16 @@ fn run_pact_map_disconnect_test() -> Nil {
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
-        None -> Error("handle not replicated to B")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Error(Nil) -> Error("handle not replicated to B")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
       }
     })
   // C resolves too, so it is a full participant rather than a passive reader.
   let assert Ok(_pact_c) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
-        None -> Error("handle not replicated to C")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Error(Nil) -> Error("handle not replicated to C")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
       }
     })
 
@@ -1338,22 +1343,22 @@ fn run_pact_map_disconnect_test() -> Nil {
 
   let settled =
     wait_until(100, fn() {
-      watershed_beam.pact_map_get(pact_a, "bpm") == Some(json.int(90))
-      && watershed_beam.pact_map_get(pact_b, "bpm") == Some(json.int(90))
+      watershed_beam.pact_map_get(pact_a, "bpm") == Ok(json.int(90))
+      && watershed_beam.pact_map_get(pact_b, "bpm") == Ok(json.int(90))
     })
   settled |> expect.to_be_true()
 
   watershed_beam.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_false()
   watershed_beam.pact_map_pending_signoffs(pact_a, "bpm")
-  |> expect.to_equal(None)
+  |> expect.to_equal(Error(Nil))
 
   // The room still works after the departure: a second proposal settles between
   // the two survivors, proving the roster narrowed rather than went stale.
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(140))
   let resettled =
     wait_until(100, fn() {
-      watershed_beam.pact_map_get(pact_a, "bpm") == Some(json.int(140))
-      && watershed_beam.pact_map_get(pact_b, "bpm") == Some(json.int(140))
+      watershed_beam.pact_map_get(pact_a, "bpm") == Ok(json.int(140))
+      && watershed_beam.pact_map_get(pact_b, "bpm") == Ok(json.int(140))
     })
   resettled |> expect.to_be_true()
 
@@ -1385,8 +1390,8 @@ fn run_convergence_test() -> Nil {
       let entries_b = watershed_beam.entries(map_b)
       entries_a != []
       && same_entries(entries_a, entries_b)
-      && watershed_beam.get(map_a, "die") == Some(json.int(6))
-      && watershed_beam.get(map_a, "color") == Some(json.string("blue"))
+      && watershed_beam.get(map_a, "die") == Ok(json.int(6))
+      && watershed_beam.get(map_a, "color") == Ok(json.string("blue"))
     })
   converged |> expect.to_be_true()
 
@@ -1426,21 +1431,21 @@ fn run_restart_ghost_test() -> Nil {
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
-        None -> Error("handle not replicated to B")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Error(Nil) -> Error("handle not replicated to B")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
       }
     })
   let assert Ok(_) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
-        None -> Error("handle not replicated to C")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Error(Nil) -> Error("handle not replicated to C")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
       }
     })
 
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(120))
   wait_until(50, fn() {
-    watershed_beam.pact_map_get(pact_b, "bpm") == Some(json.int(120))
+    watershed_beam.pact_map_get(pact_b, "bpm") == Ok(json.int(120))
   })
   |> expect.to_be_true()
 
@@ -1456,15 +1461,15 @@ fn run_restart_ghost_test() -> Nil {
   let assert Ok(tasks_b) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_b), "tasks") {
-        None -> Error("task manager handle not replicated to B")
-        Some(handle) -> watershed_beam.resolve_task_manager(doc_b, handle)
+        Error(Nil) -> Error("task manager handle not replicated to B")
+        Ok(handle) -> watershed_beam.resolve_task_manager(doc_b, handle)
       }
     })
   let assert Ok(tasks_c) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_c), "tasks") {
-        None -> Error("task manager handle not replicated to C")
-        Some(handle) -> watershed_beam.resolve_task_manager(doc_c, handle)
+        Error(Nil) -> Error("task manager handle not replicated to C")
+        Ok(handle) -> watershed_beam.resolve_task_manager(doc_c, handle)
       }
     })
   watershed_beam.volunteer_for_task(tasks_a, "summarizer")
@@ -1507,12 +1512,12 @@ fn run_restart_ghost_test() -> Nil {
   let assert Ok(pact_d) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_d), "tempo") {
-        None -> Error("handle not replicated to D")
-        Some(handle) -> watershed_beam.resolve_pact_map(doc_d, handle)
+        Error(Nil) -> Error("handle not replicated to D")
+        Ok(handle) -> watershed_beam.resolve_pact_map(doc_d, handle)
       }
     })
   watershed_beam.pact_map_get(pact_d, "bpm")
-  |> expect.to_equal(Some(json.int(120)))
+  |> expect.to_equal(Ok(json.int(120)))
   watershed_beam.pact_map_is_pending(pact_d, "bpm") |> expect.to_be_false()
 
   // The discriminating assertion, and the one the issue names outright: "a
@@ -1528,8 +1533,8 @@ fn run_restart_ghost_test() -> Nil {
   let assert Ok(tasks_d) =
     wait_until_ok(50, fn() {
       case watershed_beam.get(watershed_beam.root(doc_d), "tasks") {
-        None -> Error("task manager handle not replicated to D")
-        Some(handle) -> watershed_beam.resolve_task_manager(doc_d, handle)
+        Error(Nil) -> Error("task manager handle not replicated to D")
+        Ok(handle) -> watershed_beam.resolve_task_manager(doc_d, handle)
       }
     })
 
@@ -1716,7 +1721,7 @@ fn system_time(unit: TimeUnit) -> Int
 
 @target(erlang)
 /// Two clients converge on concurrent json0 inserts at distinct keys.
-pub fn json_ot_converges_test() {
+pub fn json_ot_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_json_ot_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1725,7 +1730,7 @@ pub fn json_ot_converges_test() {
 
 @target(erlang)
 /// Concurrent number_add ops on the same field commute to the sum.
-pub fn json_ot_concurrent_conflict_test() {
+pub fn json_ot_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_json_ot_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1734,7 +1739,7 @@ pub fn json_ot_concurrent_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a json0 child from a summary and reads the doc.
-pub fn json_ot_summary_bootstrap_test() {
+pub fn json_ot_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_json_ot_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1761,7 +1766,7 @@ fn run_json_ot_converge_test() -> Nil {
   ])
 
   let expected =
-    Some(
+    Ok(
       json_ot.VObject([
         #("a", json_ot.VString("from-a")),
         #("b", json_ot.VString("from-b")),
@@ -1793,7 +1798,7 @@ fn run_json_ot_conflict_test() -> Nil {
   watershed_beam.submit_json_ot(jot_a, [
     json_ot.obj_insert([json_ot.Key("n")], json_ot.VNumber(json_ot.NInt(0))),
   ])
-  let seeded = Some(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(0)))]))
+  let seeded = Ok(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(0)))]))
   wait_until(50, fn() { watershed_beam.json_ot_view(jot_b) == seeded })
   |> expect.to_be_true()
 
@@ -1805,8 +1810,7 @@ fn run_json_ot_conflict_test() -> Nil {
     json_ot.number_add([json_ot.Key("n")], json_ot.NInt(4)),
   ])
 
-  let expected =
-    Some(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(7)))]))
+  let expected = Ok(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(7)))]))
   wait_until(50, fn() {
     watershed_beam.json_ot_view(jot_a) == watershed_beam.json_ot_view(jot_b)
     && watershed_beam.json_ot_view(jot_a) == expected
@@ -1839,7 +1843,7 @@ fn run_json_ot_summary_test() -> Nil {
   let doc_c = connect_or_panic(document, "user-c")
   let map_c = watershed_beam.root(doc_c)
   let jot_c = resolve_json_ot_key_or_panic(doc_c, map_c, "doc")
-  let expected = Some(json_ot.VObject([#("title", json_ot.VString("hello"))]))
+  let expected = Ok(json_ot.VObject([#("title", json_ot.VString("hello"))]))
   wait_until(50, fn() { watershed_beam.json_ot_view(jot_c) == expected })
   |> expect.to_be_true()
 
@@ -1856,8 +1860,8 @@ fn resolve_json_ot_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_json_ot(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_json_ot(doc, value)
       }
     })
   case resolved {
@@ -1879,7 +1883,7 @@ fn resolve_json_ot_key_or_panic(
 /// concurrent edits — A bolds a text prefix, B appends emoji text — that
 /// must transform against each other and land in the same optimistic
 /// document on both sides regardless of author tie-break order.
-pub fn rich_text_converges_test() {
+pub fn rich_text_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_rich_text_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1904,7 +1908,7 @@ fn run_rich_text_converge_test() -> Nil {
   watershed_beam.submit_rich_text(rt_a, seed)
   let assert Ok(seeded) =
     rich_text.document_from_json_string("[{\"insert\":\"Hello World\"}]")
-  wait_until(50, fn() { watershed_beam.rich_text_view(rt_b) == Some(seeded) })
+  wait_until(50, fn() { watershed_beam.rich_text_view(rt_b) == Ok(seeded) })
   |> expect.to_be_true()
 
   // A bolds "Hello" (the first 5 UTF-16 code units); B concurrently appends
@@ -1935,7 +1939,7 @@ fn run_rich_text_converge_test() -> Nil {
     )
   wait_until(50, fn() {
     watershed_beam.rich_text_view(rt_a) == watershed_beam.rich_text_view(rt_b)
-    && watershed_beam.rich_text_view(rt_a) == Some(expected)
+    && watershed_beam.rich_text_view(rt_a) == Ok(expected)
   })
   |> expect.to_be_true()
 
@@ -1952,8 +1956,8 @@ fn resolve_rich_text_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_rich_text(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_rich_text(doc, value)
       }
     })
   case resolved {
@@ -1969,7 +1973,7 @@ fn resolve_rich_text_key_or_panic(
 
 @target(erlang)
 /// Tally-mode OR-map: concurrent increments from both clients sum.
-pub fn or_map_converges_test() {
+pub fn or_map_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_map_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1978,7 +1982,7 @@ pub fn or_map_converges_test() {
 
 @target(erlang)
 /// Register-mode OR-map: concurrent sets to one key converge to one value.
-pub fn or_map_concurrent_conflict_test() {
+pub fn or_map_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_map_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -1987,7 +1991,7 @@ pub fn or_map_concurrent_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a tally OR-map child from a summary.
-pub fn or_map_summary_bootstrap_test() {
+pub fn or_map_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_map_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2007,15 +2011,15 @@ fn run_or_map_converge_test() -> Nil {
   watershed_beam.set(map_a, "board", watershed_beam.or_map_handle_of(om_a))
   let om_b = resolve_or_map_key_or_panic(doc_b, map_b, "board")
   wait_until(50, fn() {
-    watershed_beam.or_map_value(om_b, "score") == Some(Tally(2))
+    watershed_beam.or_map_value(om_b, "score") == Ok(Tally(2))
   })
   |> expect.to_be_true()
 
   watershed_beam.or_map_increment(om_a, "score", 5)
   watershed_beam.or_map_increment(om_b, "score", -1)
   wait_until(50, fn() {
-    watershed_beam.or_map_value(om_a, "score") == Some(Tally(6))
-    && watershed_beam.or_map_value(om_b, "score") == Some(Tally(6))
+    watershed_beam.or_map_value(om_a, "score") == Ok(Tally(6))
+    && watershed_beam.or_map_value(om_b, "score") == Ok(Tally(6))
   })
   |> expect.to_be_true()
 
@@ -2072,7 +2076,7 @@ fn run_or_map_summary_test() -> Nil {
   let map_c = watershed_beam.root(doc_c)
   let om_c = resolve_or_map_key_or_panic(doc_c, map_c, "board")
   wait_until(50, fn() {
-    watershed_beam.or_map_value(om_c, "score") == Some(Tally(9))
+    watershed_beam.or_map_value(om_c, "score") == Ok(Tally(9))
   })
   |> expect.to_be_true()
 
@@ -2081,10 +2085,11 @@ fn run_or_map_summary_test() -> Nil {
 }
 
 @target(erlang)
-fn is_register(value: Option(or_map_kernel.OrMapValue)) -> Bool {
+fn is_register(value: Result(or_map_kernel.OrMapValue, Nil)) -> Bool {
   case value {
-    Some(Register(_)) -> True
-    _ -> False
+    Ok(Register(_)) -> True
+    Ok(Tally(_)) -> False
+    Error(Nil) -> False
   }
 }
 
@@ -2097,8 +2102,8 @@ fn resolve_or_map_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_or_map(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_or_map(doc, value)
       }
     })
   case resolved {
@@ -2114,7 +2119,7 @@ fn resolve_or_map_key_or_panic(
 
 @target(erlang)
 /// Two clients converge on concurrent adds of distinct elements.
-pub fn or_set_converges_test() {
+pub fn or_set_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_set_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2123,7 +2128,7 @@ pub fn or_set_converges_test() {
 
 @target(erlang)
 /// Add-wins: a concurrent remove and re-add of one element keeps it present.
-pub fn or_set_concurrent_conflict_test() {
+pub fn or_set_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_set_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2132,7 +2137,7 @@ pub fn or_set_concurrent_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps an OR-set child from a summary.
-pub fn or_set_summary_bootstrap_test() {
+pub fn or_set_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_or_set_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2240,8 +2245,8 @@ fn resolve_or_set_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_or_set(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_or_set(doc, value)
       }
     })
   case resolved {
@@ -2257,7 +2262,7 @@ fn resolve_or_set_key_or_panic(
 
 @target(erlang)
 /// Two clients see each other's writes to distinct keys.
-pub fn register_collection_converges_test() {
+pub fn register_collection_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_register_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2266,7 +2271,7 @@ pub fn register_collection_converges_test() {
 
 @target(erlang)
 /// Concurrent writes to one key converge to a single atomic value on both.
-pub fn register_collection_concurrent_conflict_test() {
+pub fn register_collection_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_register_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2275,7 +2280,7 @@ pub fn register_collection_concurrent_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a register collection from a summary.
-pub fn register_collection_summary_bootstrap_test() {
+pub fn register_collection_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_register_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2299,14 +2304,14 @@ fn run_register_converge_test() -> Nil {
   )
   let reg_b = resolve_register_key_or_panic(doc_b, map_b, "reg")
   wait_until(50, fn() {
-    watershed_beam.register_get(reg_b, "k1") == Some(json.string("v1"))
+    watershed_beam.register_get(reg_b, "k1") == Ok(json.string("v1"))
   })
   |> expect.to_be_true()
 
   watershed_beam.register_write(reg_b, "k2", json.string("v2"))
   wait_until(50, fn() {
-    watershed_beam.register_get(reg_a, "k2") == Some(json.string("v2"))
-    && watershed_beam.register_get(reg_b, "k1") == Some(json.string("v1"))
+    watershed_beam.register_get(reg_a, "k2") == Ok(json.string("v2"))
+    && watershed_beam.register_get(reg_b, "k1") == Ok(json.string("v1"))
   })
   |> expect.to_be_true()
 
@@ -2339,7 +2344,7 @@ fn run_register_conflict_test() -> Nil {
     let atomic_a = watershed_beam.register_get(reg_a, "shared")
     let atomic_b = watershed_beam.register_get(reg_b, "shared")
     atomic_a == atomic_b
-    && atomic_a != None
+    && atomic_a != Error(Nil)
     && watershed_beam.register_versions(reg_a, "shared")
     == watershed_beam.register_versions(reg_b, "shared")
   })
@@ -2374,7 +2379,7 @@ fn run_register_summary_test() -> Nil {
   let map_c = watershed_beam.root(doc_c)
   let reg_c = resolve_register_key_or_panic(doc_c, map_c, "reg")
   wait_until(50, fn() {
-    watershed_beam.register_get(reg_c, "persisted") == Some(json.string("kept"))
+    watershed_beam.register_get(reg_c, "persisted") == Ok(json.string("kept"))
   })
   |> expect.to_be_true()
 
@@ -2391,8 +2396,8 @@ fn resolve_register_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_register_collection(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_register_collection(doc, value)
       }
     })
   case resolved {
@@ -2408,7 +2413,7 @@ fn resolve_register_key_or_panic(
 
 @target(erlang)
 /// A lone volunteer is assigned the task; the peer sees the same queue.
-pub fn task_manager_converges_test() {
+pub fn task_manager_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_task_manager_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2418,7 +2423,7 @@ pub fn task_manager_converges_test() {
 @target(erlang)
 /// Two clients race to volunteer: one is assigned, the other waits, and
 /// completing the task reassigns it to the waiter.
-pub fn task_manager_race_test() {
+pub fn task_manager_race_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_task_manager_race_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2427,7 +2432,7 @@ pub fn task_manager_race_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a task manager child from a summary.
-pub fn task_manager_summary_bootstrap_test() {
+pub fn task_manager_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_task_manager_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2555,8 +2560,8 @@ fn resolve_task_manager_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_task_manager(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_task_manager(doc, value)
       }
     })
   case resolved {
@@ -2574,7 +2579,7 @@ fn resolve_task_manager_key_or_panic(
 
 @target(erlang)
 /// Concurrent adds from both clients converge to the union.
-pub fn g_set_converges_test() {
+pub fn g_set_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_g_set_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2583,7 +2588,7 @@ pub fn g_set_converges_test() {
 
 @target(erlang)
 /// Adding the same element from both clients is idempotent: it appears once.
-pub fn g_set_concurrent_conflict_test() {
+pub fn g_set_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_g_set_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2592,7 +2597,7 @@ pub fn g_set_concurrent_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a g-set child from a summary and reads it.
-pub fn g_set_summary_bootstrap_test() {
+pub fn g_set_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_g_set_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2699,8 +2704,8 @@ fn resolve_g_set_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_g_set(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_g_set(doc, value)
       }
     })
   case resolved {
@@ -2716,7 +2721,7 @@ fn resolve_g_set_key_or_panic(
 
 @target(erlang)
 /// Concurrent adds from both clients converge to the union.
-pub fn two_p_set_converges_test() {
+pub fn two_p_set_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_two_p_set_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2725,7 +2730,7 @@ pub fn two_p_set_converges_test() {
 
 @target(erlang)
 /// A concurrent remove wins over a re-add: the tombstone is permanent.
-pub fn two_p_set_remove_wins_conflict_test() {
+pub fn two_p_set_remove_wins_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_two_p_set_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2734,7 +2739,7 @@ pub fn two_p_set_remove_wins_conflict_test() {
 
 @target(erlang)
 /// A fresh client bootstraps a 2P-set child from a summary and reads it.
-pub fn two_p_set_summary_bootstrap_test() {
+pub fn two_p_set_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_two_p_set_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2849,8 +2854,8 @@ fn resolve_two_p_set_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_two_p_set(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_two_p_set(doc, value)
       }
     })
   case resolved {
@@ -2866,7 +2871,7 @@ fn resolve_two_p_set_key_or_panic(
 
 @target(erlang)
 /// Concurrent root writes from both clients converge to the merged entries.
-pub fn directory_converges_test() {
+pub fn directory_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_directory_converge_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2876,7 +2881,7 @@ pub fn directory_converges_test() {
 @target(erlang)
 /// Both clients create the same subdirectory and write distinct keys into it;
 /// they converge to one subdirectory holding both keys.
-pub fn directory_nested_subdir_conflict_test() {
+pub fn directory_nested_subdir_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_directory_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2886,7 +2891,7 @@ pub fn directory_nested_subdir_conflict_test() {
 @target(erlang)
 /// A fresh client bootstraps a directory child from a summary and reads its
 /// nested structure.
-pub fn directory_summary_bootstrap_test() {
+pub fn directory_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_directory_summary_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2974,10 +2979,10 @@ fn run_directory_summary_test() -> Nil {
   let dir_c = resolve_directory_key_or_panic(doc_c, map_c, "dir")
   wait_until(50, fn() {
     watershed_beam.directory_get(dir_c, "/", "title")
-    == Some(json.string("hello"))
+    == Ok(json.string("hello"))
     && watershed_beam.directory_has_subdirectory(dir_c, "/", "child")
     && watershed_beam.directory_get(dir_c, "/child", "note")
-    == Some(json.string("nested"))
+    == Ok(json.string("nested"))
   })
   |> expect.to_be_true()
 
@@ -2994,8 +2999,8 @@ fn resolve_directory_key_or_panic(
   let resolved =
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
-        None -> Error("key absent")
-        Some(value) -> watershed_beam.resolve_directory(doc, value)
+        Error(Nil) -> Error("key absent")
+        Ok(value) -> watershed_beam.resolve_directory(doc, value)
       }
     })
   case resolved {
@@ -3037,7 +3042,7 @@ type FieldDoc
 /// TX2 exit criterion: every channel kind round-trips through its typed
 /// `set_*_field` / `resolve_*_field` pair across two live clients, and an
 /// absent key resolves to `Ok(None)`.
-pub fn typed_channel_fields_round_trip_test() {
+pub fn typed_channel_fields_round_trip_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_typed_channel_fields_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3182,23 +3187,21 @@ fn run_typed_channel_fields_test() -> Nil {
   watershed_beam.increment(counter, 5)
   let assert Ok(Some(counter_b)) =
     watershed_beam.resolve_counter_field(doc_b, root_b, counter_f)
-  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Some(5) })
+  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Ok(5) })
   |> expect.to_be_true()
 
   // The new kinds are equally live: a PN-counter delta on A converges on B.
   watershed_beam.pn_counter_update(pn_counter, 3)
   let assert Ok(Some(pn_counter_b)) =
     watershed_beam.resolve_pn_counter_field(doc_b, root_b, pn_counter_f)
-  wait_until(50, fn() {
-    watershed_beam.pn_counter_value(pn_counter_b) == Some(3)
-  })
+  wait_until(50, fn() { watershed_beam.pn_counter_value(pn_counter_b) == Ok(3) })
   |> expect.to_be_true()
 
   // An enqueue on the ordered collection is observed by B.
   watershed_beam.ordered_add(ordered, json.string("job-1"))
   let assert Ok(Some(ordered_b)) =
     watershed_beam.resolve_ordered_collection_field(doc_b, root_b, ordered_f)
-  wait_until(50, fn() { watershed_beam.ordered_size(ordered_b) == Some(1) })
+  wait_until(50, fn() { watershed_beam.ordered_size(ordered_b) == Ok(1) })
   |> expect.to_be_true()
 
   watershed_beam.close(doc_a)
@@ -3209,7 +3212,7 @@ fn run_typed_channel_fields_test() -> Nil {
 /// TX3 exit criterion: `subscribe_field` decodes both sides of a change,
 /// filters writes to other keys, and reports `Invalid` on a type-confused
 /// write.
-pub fn typed_field_subscription_test() {
+pub fn typed_field_subscription_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_typed_field_subscription_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3279,7 +3282,7 @@ fn run_typed_field_subscription_test() -> Nil {
 @target(erlang)
 /// `subscribe_typed` watches a whole typed map's events without dropping to the
 /// untyped API, and — like `subscribe` — narrows to `map_kernel.MapEvent`.
-pub fn typed_map_subscription_test() {
+pub fn typed_map_subscription_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_typed_map_subscription_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3316,7 +3319,7 @@ fn run_typed_map_subscription_test() -> Nil {
 /// `counter_kernel.CounterEvent`. The `case` below is exhaustive over the
 /// counter event type alone — a `channel.MapEvent` arm here would not compile,
 /// which is how a counter subscriber is kept from ever seeing map events.
-pub fn narrowed_counter_subscription_test() {
+pub fn narrowed_counter_subscription_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_narrowed_counter_subscription_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3350,7 +3353,7 @@ fn run_narrowed_counter_subscription_test() -> Nil {
 /// deliver a *peer's* mutation as a narrowed event on each facade. Before this
 /// they were write-and-poll — an app could mutate and read, but had no way to
 /// learn that anyone else had.
-pub fn narrowed_subscriptions_observe_peer_mutations_test() {
+pub fn narrowed_subscriptions_observe_peer_mutations_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_narrowed_subscriptions_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3443,8 +3446,8 @@ fn resolve_at(
   resolver: fn(watershed_beam.Document(root), Json) -> Result(a, String),
 ) -> Result(a, String) {
   case watershed_beam.get(watershed_beam.root(document), key) {
-    None -> Error("handle for " <> key <> " has not replicated yet")
-    Some(handle) -> resolver(document, handle)
+    Error(Nil) -> Error("handle for " <> key <> " has not replicated yet")
+    Ok(handle) -> resolver(document, handle)
   }
 }
 
@@ -3468,7 +3471,7 @@ fn resolve_pact_map(
 /// TX4 exit criterion: two clients bootstrap the same empty document with
 /// `ensure_*` and adopt the same sequenced channel; `ensure_field` set-if-
 /// absent converges under a race; a late joiner resolves without re-seeding.
-pub fn ensure_bootstrap_race_test() {
+pub fn ensure_bootstrap_race_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_ensure_bootstrap_race_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -3499,7 +3502,7 @@ fn run_ensure_bootstrap_race_test() -> Nil {
 
   // Adopting the same channel means an increment on A is seen through B.
   watershed_beam.increment(counter_a, 4)
-  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Some(4) })
+  wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Ok(4) })
   |> expect.to_be_true()
 
   // ensure_field is set-if-absent: both racers set, last-writer-wins settles
@@ -3523,7 +3526,7 @@ fn run_ensure_bootstrap_race_test() -> Nil {
     watershed_beam.typed(watershed_beam.root(doc_c))
   let assert Ok(counter_c) =
     watershed_beam.ensure_counter(doc_c, root_c, tally_f)
-  wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Some(4) })
+  wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Ok(4) })
   |> expect.to_be_true()
 
   watershed_beam.close(doc_a)

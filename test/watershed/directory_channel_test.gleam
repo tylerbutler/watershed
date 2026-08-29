@@ -1,6 +1,6 @@
 //// SharedDirectory ↔ runtime integration tests: the directory kernel driven
 //// through `runtime_core` + `channel` + the wire codecs, single-client and in
-//// a two-client sequencer sim. Kernel-internal semantics are covered by
+//// a two-client sequencer simulation. Kernel-internal semantics are covered by
 //// `directory_kernel_test`/`directory_fuzz_test`; these pin the *wiring*:
 //// op encode/decode, attach/snapshot round-trip, SequencedMeta threading
 //// (author, refSeq, the kernel message-id carried in the op), and convergence.
@@ -28,7 +28,7 @@ const id_a = "default_doc_1"
 
 const id_b = "default_doc_2"
 
-const dir = "dir-1"
+const directory_address = "dir-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -81,24 +81,25 @@ fn bootstrap(client_id: String) -> Core {
   core
 }
 
-/// Two cores driven by a shared, in-order sequencer. `sn` is the last
-/// server sequence number stamped (both cores start with last_seen = 1).
-type Sim {
-  Sim(a: Core, b: Core, sn: Int)
+/// Two cores driven by a shared, in-order sequencer. `sequence_number` is
+/// the last server sequence number stamped (both cores start with
+/// last_seen = 1).
+type Simulation {
+  Simulation(a: Core, b: Core, sequence_number: Int)
 }
 
-fn new_sim() -> Sim {
-  Sim(a: bootstrap(id_a), b: bootstrap(id_b), sn: 1)
+fn new_simulation() -> Simulation {
+  Simulation(a: bootstrap(id_a), b: bootstrap(id_b), sequence_number: 1)
 }
 
-fn seq_msg(
+fn sequenced_message(
   author: String,
-  sn: Int,
+  sequence_number: Int,
   out: wire.OutboundOp,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: Some(author),
-    sequence_number: sn,
+    sequence_number: sequence_number,
     minimum_sequence_number: 0,
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
@@ -113,8 +114,8 @@ fn seq_msg(
   )
 }
 
-fn ingest(core: Core, msg: types.SequencedDocumentMessage) -> Core {
-  case runtime_core.handle_sequenced(core, msg) {
+fn ingest(core: Core, sequenced: types.SequencedDocumentMessage) -> Core {
+  case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, _)) -> core
     Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
   }
@@ -123,11 +124,19 @@ fn ingest(core: Core, msg: types.SequencedDocumentMessage) -> Core {
 /// Broadcast one author's outbound ops through the sequencer: each is stamped
 /// with the next SN and delivered to *both* cores in order (author acks its
 /// own, the other applies it remotely).
-fn broadcast(sim: Sim, author: String, outbound: List(wire.OutboundOp)) -> Sim {
-  list.fold(outbound, sim, fn(sim, out) {
-    let sn = sim.sn + 1
-    let msg = seq_msg(author, sn, out)
-    Sim(a: ingest(sim.a, msg), b: ingest(sim.b, msg), sn: sn)
+fn broadcast(
+  simulation: Simulation,
+  author: String,
+  outbound: List(wire.OutboundOp),
+) -> Simulation {
+  list.fold(outbound, simulation, fn(simulation, out) {
+    let sequence_number = simulation.sequence_number + 1
+    let sequenced = sequenced_message(author, sequence_number, out)
+    Simulation(
+      a: ingest(simulation.a, sequenced),
+      b: ingest(simulation.b, sequenced),
+      sequence_number: sequence_number,
+    )
   })
 }
 
@@ -151,22 +160,27 @@ fn expect_ok(
 /// Attach a directory channel by pointing a root-map handle at it (the same
 /// dependency-attach path the other channel tests use), then exercise a
 /// subdirectory create + storage set and check the op wire shape and reads.
-pub fn attached_directory_emits_ops_and_reads_test() {
+pub fn attached_directory_emits_ops_and_reads_test() -> Nil {
   let core =
     bootstrap(id_a)
-    |> runtime_core.create_detached(dir, channel.InitDirectory)
+    |> runtime_core.create_detached(directory_address, channel.InitDirectory)
 
   // Setting a handle to the directory in root attaches it (attach op + root
   // set op).
   let #(core, attach_outbound) =
-    expect_ok(runtime_core.set(core, "root", "tree", handle.encode_handle(dir)))
+    expect_ok(runtime_core.set(
+      core,
+      "root",
+      "tree",
+      handle.encode_handle(directory_address),
+    ))
   attach_outbound |> list.length |> expect.to_equal(2)
 
   // Create /surveys under the (now attached) directory root.
   let assert #(core, [create_op]) =
     expect_ok(runtime_core.directory_create_subdirectory(
       core,
-      dir,
+      directory_address,
       "/",
       "surveys",
     ))
@@ -175,14 +189,14 @@ pub fn attached_directory_emits_ops_and_reads_test() {
   encoded |> string.contains("\"name\":\"surveys\"") |> expect.to_be_true()
   encoded |> string.contains("\"mid\"") |> expect.to_be_true()
 
-  runtime_core.directory_subdirectories(core, dir, "/")
+  runtime_core.directory_subdirectories(core, directory_address, "/")
   |> expect.to_equal(["surveys"])
 
   // Set a benchmark reading in /surveys.
   let assert #(core, [set_op]) =
     expect_ok(runtime_core.directory_set(
       core,
-      dir,
+      directory_address,
       "/surveys",
       "BM-17",
       json.string("recorded"),
@@ -191,22 +205,27 @@ pub fn attached_directory_emits_ops_and_reads_test() {
   |> string.contains("\"type\":\"dirSet\"")
   |> expect.to_be_true()
 
-  runtime_core.directory_get(core, dir, "/surveys", "BM-17")
-  |> expect.to_equal(Some(json.string("recorded")))
+  runtime_core.directory_get(core, directory_address, "/surveys", "BM-17")
+  |> expect.to_equal(Ok(json.string("recorded")))
 }
 
-pub fn directory_set_attaches_handle_dependencies_test() {
+pub fn directory_set_attaches_handle_dependencies_test() -> Nil {
   let core =
     bootstrap(id_a)
-    |> runtime_core.create_detached(dir, channel.InitDirectory)
+    |> runtime_core.create_detached(directory_address, channel.InitDirectory)
   let #(core, _) =
-    expect_ok(runtime_core.set(core, "root", "tree", handle.encode_handle(dir)))
+    expect_ok(runtime_core.set(
+      core,
+      "root",
+      "tree",
+      handle.encode_handle(directory_address),
+    ))
   let core = runtime_core.create_detached(core, "document", channel.InitJsonOt)
 
   let assert #(_core, [attach_op, set_op]) =
     expect_ok(runtime_core.directory_set(
       core,
-      dir,
+      directory_address,
       "/",
       "config",
       handle.encode_handle("document"),
@@ -222,7 +241,7 @@ pub fn directory_set_attaches_handle_dependencies_test() {
 
 /// A directory summary survives a JSON snapshot round-trip through the
 /// channel codec (attach payload / summary blob `data`).
-pub fn directory_snapshot_round_trips_test() {
+pub fn directory_snapshot_round_trips_test() -> Nil {
   // Build a small sequenced tree directly from the kernel: root note plus a
   // /plans child holding a reading.
   let state = directory_kernel.new()
@@ -252,9 +271,9 @@ fn ack(
   state: directory_kernel.DirectoryState,
   op: directory_kernel.DirectoryOp,
 ) -> directory_kernel.DirectoryState {
-  let mid = case directory_kernel.last_pending_message_id(state) {
-    Some(id) -> id
-    None -> 0
+  let message_id = case directory_kernel.last_pending_message_id(state) {
+    Ok(id) -> id
+    Error(Nil) -> 0
   }
   case
     directory_kernel.ack_local(
@@ -262,9 +281,9 @@ fn ack(
       op,
       directory_kernel.SequencedMeta(
         author: 1,
-        sequence_number: mid + 1,
+        sequence_number: message_id + 1,
         reference_sequence_number: 0,
-        client_sequence_number: mid,
+        client_sequence_number: message_id,
       ),
     )
   {
@@ -277,98 +296,135 @@ fn ack(
 
 /// Two clients edit disjoint parts of the tree; after full delivery both
 /// see the same sequenced tree.
-pub fn two_clients_converge_test() {
-  let sim = new_sim()
+pub fn two_clients_converge_test() -> Nil {
+  let simulation = new_simulation()
 
   // A creates and attaches the directory, then both share it.
-  let a = runtime_core.create_detached(sim.a, dir, channel.InitDirectory)
+  let a =
+    runtime_core.create_detached(
+      simulation.a,
+      directory_address,
+      channel.InitDirectory,
+    )
   let #(a, attach_out) =
-    expect_ok(runtime_core.set(a, "root", "tree", handle.encode_handle(dir)))
-  let sim = broadcast(Sim(..sim, a: a), id_a, attach_out)
+    expect_ok(runtime_core.set(
+      a,
+      "root",
+      "tree",
+      handle.encode_handle(directory_address),
+    ))
+  let simulation = broadcast(Simulation(..simulation, a: a), id_a, attach_out)
 
   // A builds /surveys with a reading; B builds /plans with a reading.
   let #(a, out1) =
     expect_ok(runtime_core.directory_create_subdirectory(
-      sim.a,
-      dir,
+      simulation.a,
+      directory_address,
       "/",
       "surveys",
     ))
-  let sim = broadcast(Sim(..sim, a: a), id_a, out1)
+  let simulation = broadcast(Simulation(..simulation, a: a), id_a, out1)
   let #(a, out2) =
     expect_ok(runtime_core.directory_set(
-      sim.a,
-      dir,
+      simulation.a,
+      directory_address,
       "/surveys",
       "BM-17",
       json.string("recorded"),
     ))
-  let sim = broadcast(Sim(..sim, a: a), id_a, out2)
+  let simulation = broadcast(Simulation(..simulation, a: a), id_a, out2)
 
   let #(b, out3) =
     expect_ok(runtime_core.directory_create_subdirectory(
-      sim.b,
-      dir,
+      simulation.b,
+      directory_address,
       "/",
       "plans",
     ))
-  let sim = broadcast(Sim(..sim, b: b), id_b, out3)
+  let simulation = broadcast(Simulation(..simulation, b: b), id_b, out3)
   let #(b, out4) =
     expect_ok(runtime_core.directory_set(
-      sim.b,
-      dir,
+      simulation.b,
+      directory_address,
       "/plans",
       "grade",
       json.string("2.1%"),
     ))
-  let sim = broadcast(Sim(..sim, b: b), id_b, out4)
+  let simulation = broadcast(Simulation(..simulation, b: b), id_b, out4)
 
   // Both converge: same child order at root, same readings.
-  let subs_a = runtime_core.directory_subdirectories(sim.a, dir, "/")
-  let subs_b = runtime_core.directory_subdirectories(sim.b, dir, "/")
+  let subs_a =
+    runtime_core.directory_subdirectories(simulation.a, directory_address, "/")
+  let subs_b =
+    runtime_core.directory_subdirectories(simulation.b, directory_address, "/")
   subs_a |> expect.to_equal(subs_b)
   subs_a |> list.sort(string.compare) |> expect.to_equal(["plans", "surveys"])
 
-  runtime_core.directory_get(sim.a, dir, "/surveys", "BM-17")
-  |> expect.to_equal(Some(json.string("recorded")))
-  runtime_core.directory_get(sim.b, dir, "/surveys", "BM-17")
-  |> expect.to_equal(Some(json.string("recorded")))
-  runtime_core.directory_get(sim.a, dir, "/plans", "grade")
-  |> expect.to_equal(runtime_core.directory_get(sim.b, dir, "/plans", "grade"))
+  runtime_core.directory_get(
+    simulation.a,
+    directory_address,
+    "/surveys",
+    "BM-17",
+  )
+  |> expect.to_equal(Ok(json.string("recorded")))
+  runtime_core.directory_get(
+    simulation.b,
+    directory_address,
+    "/surveys",
+    "BM-17",
+  )
+  |> expect.to_equal(Ok(json.string("recorded")))
+  runtime_core.directory_get(simulation.a, directory_address, "/plans", "grade")
+  |> expect.to_equal(runtime_core.directory_get(
+    simulation.b,
+    directory_address,
+    "/plans",
+    "grade",
+  ))
 }
 
 /// Concurrent same-name create: both clients create `/logs` before seeing the
 /// other's op. They converge to a single `/logs`.
-pub fn concurrent_same_name_create_converges_test() {
-  let sim = new_sim()
-  let a = runtime_core.create_detached(sim.a, dir, channel.InitDirectory)
+pub fn concurrent_same_name_create_converges_test() -> Nil {
+  let simulation = new_simulation()
+  let a =
+    runtime_core.create_detached(
+      simulation.a,
+      directory_address,
+      channel.InitDirectory,
+    )
   let #(a, attach_out) =
-    expect_ok(runtime_core.set(a, "root", "tree", handle.encode_handle(dir)))
-  let sim = broadcast(Sim(..sim, a: a), id_a, attach_out)
+    expect_ok(runtime_core.set(
+      a,
+      "root",
+      "tree",
+      handle.encode_handle(directory_address),
+    ))
+  let simulation = broadcast(Simulation(..simulation, a: a), id_a, attach_out)
 
   // Both author a create of /logs against the same base, THEN we deliver.
   let #(a, out_a) =
     expect_ok(runtime_core.directory_create_subdirectory(
-      sim.a,
-      dir,
+      simulation.a,
+      directory_address,
       "/",
       "logs",
     ))
   let #(b, out_b) =
     expect_ok(runtime_core.directory_create_subdirectory(
-      sim.b,
-      dir,
+      simulation.b,
+      directory_address,
       "/",
       "logs",
     ))
-  let sim = Sim(..sim, a: a, b: b)
+  let simulation = Simulation(..simulation, a: a, b: b)
 
   // Deliver A's create then B's create (both cores see both, in that order).
-  let sim = broadcast(sim, id_a, out_a)
-  let sim = broadcast(sim, id_b, out_b)
+  let simulation = broadcast(simulation, id_a, out_a)
+  let simulation = broadcast(simulation, id_b, out_b)
 
-  runtime_core.directory_subdirectories(sim.a, dir, "/")
+  runtime_core.directory_subdirectories(simulation.a, directory_address, "/")
   |> expect.to_equal(["logs"])
-  runtime_core.directory_subdirectories(sim.b, dir, "/")
+  runtime_core.directory_subdirectories(simulation.b, directory_address, "/")
   |> expect.to_equal(["logs"])
 }

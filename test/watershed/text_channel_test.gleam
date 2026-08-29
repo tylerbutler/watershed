@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/option.{None, Some}
 import lattice_core/replica_id
+import lattice_text/text.{type Text}
 import startest/expect
 import watershed/channel
 import watershed/counter_kernel
@@ -54,7 +55,7 @@ fn must_append(
 /// text authored by a replica no honest client would use. Standing in for a
 /// tampered/corrupted server echo, mirroring `same_sequence_delta`'s use of
 /// `sequence.new(replica_id.new("attacker"))` in the sequence channel tests.
-fn tampered_delta() {
+fn tampered_delta() -> Text {
   text_kernel.new(replica_id.new("attacker")).sequenced
 }
 
@@ -71,7 +72,7 @@ fn no_op_meta() -> channel.SequencedMeta {
   )
 }
 
-pub fn text_channel_construction_reports_text_type_test() {
+pub fn text_channel_construction_reports_text_type_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   channel.channel_type(state) |> expect.to_equal(channel.TextChannel)
   channel.init_type(channel.InitText) |> expect.to_equal(channel.TextChannel)
@@ -82,7 +83,7 @@ pub fn text_channel_construction_reports_text_type_test() {
   text_kernel.value(kernel) |> expect.to_equal("")
 }
 
-pub fn text_summary_round_trips_test() {
+pub fn text_summary_round_trips_test() -> Nil {
   let #(state, op, _) = must_insert(new_a(), 0, "hi 👋")
   let assert Ok(state) = text_kernel.ack_local(state, op)
   let summary = channel.TextSummary(state.sequenced)
@@ -98,19 +99,19 @@ pub fn text_summary_round_trips_test() {
   channel.same_snapshot(summary, decoded) |> expect.to_be_true()
 }
 
-pub fn text_from_snapshot_rebrands_to_the_loading_replica_test() {
+pub fn text_from_snapshot_rebrands_to_the_loading_replica_test() -> Nil {
   let #(state, op, _) = must_insert(new_a(), 0, "seed")
   let assert Ok(state) = text_kernel.ack_local(state, op)
   let summary = channel.TextSummary(state.sequenced)
 
-  let loaded = channel.from_snapshot(summary, replica: "b")
+  let assert Ok(loaded) = channel.from_snapshot(summary, replica: "b")
   let assert channel.TextState(kernel) = loaded
   kernel.replica_id |> expect.to_equal(replica_id.new("b"))
   text_kernel.value(kernel) |> expect.to_equal("seed")
   text_kernel.sequenced_value(kernel) |> expect.to_equal("seed")
 }
 
-pub fn detached_text_attach_carries_optimistic_state_and_promotes_test() {
+pub fn detached_text_attach_carries_optimistic_state_and_promotes_test() -> Nil {
   let assert channel.TextState(kernel) =
     channel.new(channel.InitText, replica: "a")
   let assert Ok(#(kernel, _, Some(_))) = text_kernel.insert(kernel, 0, "draft")
@@ -135,7 +136,7 @@ pub fn detached_text_attach_carries_optimistic_state_and_promotes_test() {
   promoted_kernel.pending |> expect.to_equal([])
 }
 
-pub fn text_apply_remote_emits_changed_event_test() {
+pub fn text_apply_remote_emits_changed_event_test() -> Nil {
   let local = channel.new(channel.InitText, replica: "a")
   let #(_, remote_op, _) = must_insert(new_a(), 0, "hi")
 
@@ -147,7 +148,7 @@ pub fn text_apply_remote_emits_changed_event_test() {
   text_kernel.value(kernel) |> expect.to_equal("hi")
 }
 
-pub fn text_apply_remote_wrong_op_type_is_wrong_channel_type_test() {
+pub fn text_apply_remote_wrong_op_type_is_wrong_channel_type_test() -> Nil {
   let state = channel.new(channel.InitText, replica: "a")
   channel.apply_remote(
     state,
@@ -161,7 +162,7 @@ pub fn text_apply_remote_wrong_op_type_is_wrong_channel_type_test() {
   )
 }
 
-pub fn text_ack_local_commits_pending_to_sequenced_test() {
+pub fn text_ack_local_commits_pending_to_sequenced_test() -> Nil {
   let assert channel.TextState(kernel) =
     channel.new(channel.InitText, replica: "a")
   let assert Ok(#(kernel, _, Some(text_kernel.Submission(op, message_id)))) =
@@ -181,7 +182,7 @@ pub fn text_ack_local_commits_pending_to_sequenced_test() {
   acked.pending |> expect.to_equal([])
 }
 
-pub fn text_ack_local_rejects_mismatched_local_meta_test() {
+pub fn text_ack_local_rejects_mismatched_local_meta_test() -> Nil {
   let assert channel.TextState(kernel) =
     channel.new(channel.InitText, replica: "a")
   let assert Ok(#(kernel, _, Some(text_kernel.Submission(op, _)))) =
@@ -194,7 +195,7 @@ pub fn text_ack_local_rejects_mismatched_local_meta_test() {
   )
 }
 
-pub fn text_ack_local_wrong_message_id_is_unexpected_ack_test() {
+pub fn text_ack_local_wrong_message_id_is_unexpected_ack_test() -> Nil {
   let assert channel.TextState(kernel) =
     channel.new(channel.InitText, replica: "a")
   let assert Ok(#(kernel, _, Some(text_kernel.Submission(op, message_id)))) =
@@ -212,7 +213,7 @@ pub fn text_ack_local_wrong_message_id_is_unexpected_ack_test() {
   )
 }
 
-pub fn other_channel_ack_rejects_text_meta_test() {
+pub fn other_channel_ack_rejects_text_meta_test() -> Nil {
   let assert channel.CounterState(kernel) =
     channel.new(channel.InitCounter, replica: "a")
   let #(kernel, _, op, _) = counter_kernel.increment(kernel, 3)
@@ -229,14 +230,14 @@ pub fn other_channel_ack_rejects_text_meta_test() {
   )
 }
 
-pub fn text_same_shape_matches_identical_insert_test() {
+pub fn text_same_shape_matches_identical_insert_test() -> Nil {
   let #(_, op, _) = must_insert(new_a(), 0, "Ada")
 
   channel.same_shape(channel.TextOp(op), channel.TextOp(op))
   |> expect.to_be_true()
 }
 
-pub fn text_same_shape_rejects_changed_insert_diagnostic_test() {
+pub fn text_same_shape_rejects_changed_insert_diagnostic_test() -> Nil {
   let #(_, op, _) = must_insert(new_a(), 0, "Ada")
   let assert text_kernel.Insert(_, _, delta) = op
   let altered = text_kernel.Insert(1, "Eve", delta)
@@ -245,7 +246,7 @@ pub fn text_same_shape_rejects_changed_insert_diagnostic_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_rejects_tampered_insert_delta_test() {
+pub fn text_same_shape_rejects_tampered_insert_delta_test() -> Nil {
   let #(_, op, _) = must_insert(new_a(), 0, "Ada")
   let assert text_kernel.Insert(index, value, _) = op
   let tampered = text_kernel.Insert(index, value, tampered_delta())
@@ -254,7 +255,7 @@ pub fn text_same_shape_rejects_tampered_insert_delta_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_matches_identical_delete_range_test() {
+pub fn text_same_shape_matches_identical_delete_range_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_delete_range(state, 1, 3)
 
@@ -262,7 +263,7 @@ pub fn text_same_shape_matches_identical_delete_range_test() {
   |> expect.to_be_true()
 }
 
-pub fn text_same_shape_rejects_changed_delete_range_diagnostic_test() {
+pub fn text_same_shape_rejects_changed_delete_range_diagnostic_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_delete_range(state, 1, 3)
   let assert text_kernel.DeleteRange(_, _, delta) = op
@@ -272,7 +273,7 @@ pub fn text_same_shape_rejects_changed_delete_range_diagnostic_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_rejects_tampered_delete_range_delta_test() {
+pub fn text_same_shape_rejects_tampered_delete_range_delta_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_delete_range(state, 1, 3)
   let assert text_kernel.DeleteRange(start, end, _) = op
@@ -282,7 +283,7 @@ pub fn text_same_shape_rejects_tampered_delete_range_delta_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_matches_identical_replace_range_test() {
+pub fn text_same_shape_matches_identical_replace_range_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_replace_range(state, 0, 1, "H")
 
@@ -290,7 +291,7 @@ pub fn text_same_shape_matches_identical_replace_range_test() {
   |> expect.to_be_true()
 }
 
-pub fn text_same_shape_rejects_changed_replace_range_diagnostic_test() {
+pub fn text_same_shape_rejects_changed_replace_range_diagnostic_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_replace_range(state, 0, 1, "H")
   let assert text_kernel.ReplaceRange(_, _, _, delta) = op
@@ -300,7 +301,7 @@ pub fn text_same_shape_rejects_changed_replace_range_diagnostic_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_rejects_tampered_replace_range_delta_test() {
+pub fn text_same_shape_rejects_tampered_replace_range_delta_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let #(_, op, _) = must_replace_range(state, 0, 1, "H")
   let assert text_kernel.ReplaceRange(start, end, value, _) = op
@@ -310,14 +311,14 @@ pub fn text_same_shape_rejects_tampered_replace_range_delta_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_matches_identical_append_test() {
+pub fn text_same_shape_matches_identical_append_test() -> Nil {
   let #(_, op, _) = must_append(new_a(), "tail")
 
   channel.same_shape(channel.TextOp(op), channel.TextOp(op))
   |> expect.to_be_true()
 }
 
-pub fn text_same_shape_rejects_changed_append_diagnostic_test() {
+pub fn text_same_shape_rejects_changed_append_diagnostic_test() -> Nil {
   let #(_, op, _) = must_append(new_a(), "tail")
   let assert text_kernel.Append(_, delta) = op
   let altered = text_kernel.Append("other", delta)
@@ -326,7 +327,7 @@ pub fn text_same_shape_rejects_changed_append_diagnostic_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_rejects_tampered_append_delta_test() {
+pub fn text_same_shape_rejects_tampered_append_delta_test() -> Nil {
   let #(_, op, _) = must_append(new_a(), "tail")
   let assert text_kernel.Append(value, _) = op
   let tampered = text_kernel.Append(value, tampered_delta())
@@ -335,7 +336,7 @@ pub fn text_same_shape_rejects_tampered_append_delta_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_shape_rejects_cross_constructor_comparisons_test() {
+pub fn text_same_shape_rejects_cross_constructor_comparisons_test() -> Nil {
   let #(state, insert_op, _) = must_insert(new_a(), 0, "hello")
   let #(state, delete_op, _) = must_delete_range(state, 0, 1)
   let #(state, replace_op, _) = must_replace_range(state, 0, 1, "H")
@@ -351,7 +352,7 @@ pub fn text_same_shape_rejects_cross_constructor_comparisons_test() {
   |> expect.to_be_false()
 }
 
-pub fn text_same_snapshot_compares_canonical_encoding_test() {
+pub fn text_same_snapshot_compares_canonical_encoding_test() -> Nil {
   let #(state, op, _) = must_insert(new_a(), 0, "same")
   let assert Ok(state) = text_kernel.ack_local(state, op)
   let ours = channel.TextSummary(state.sequenced)
@@ -360,7 +361,7 @@ pub fn text_same_snapshot_compares_canonical_encoding_test() {
   channel.same_snapshot(ours, echoed) |> expect.to_be_true()
 }
 
-pub fn text_discovers_no_nested_handles_test() {
+pub fn text_discovers_no_nested_handles_test() -> Nil {
   // Insert text that looks like a serialized handle payload; text never
   // parses its content for nested handles, so this must still return [].
   let handle_shaped_string = "{\"handle\":\"child\"}"
@@ -368,7 +369,7 @@ pub fn text_discovers_no_nested_handles_test() {
   channel.handle_addresses(channel.TextState(state)) |> expect.to_equal([])
 }
 
-pub fn text_kernel_rollback_is_reachable_from_channel_ops_test() {
+pub fn text_kernel_rollback_is_reachable_from_channel_ops_test() -> Nil {
   let #(state, first, _) = must_insert(new_a(), 0, "a")
   let #(state, second, second_id) = must_insert(state, 1, "b")
 
@@ -381,7 +382,7 @@ pub fn text_kernel_rollback_is_reachable_from_channel_ops_test() {
   |> expect.to_be_true()
 }
 
-pub fn text_kernel_stash_replay_reproduces_channel_op_test() {
+pub fn text_kernel_stash_replay_reproduces_channel_op_test() -> Nil {
   let #(_, stashed_op, _) = must_insert(new_a(), 0, "resumed")
 
   let #(state, events, replayed_op, message_id) =
@@ -397,7 +398,7 @@ pub fn text_kernel_stash_replay_reproduces_channel_op_test() {
   text_kernel.sequenced_value(acked) |> expect.to_equal("resumed")
 }
 
-pub fn text_kernel_cache_coherence_holds_after_remote_and_local_edits_test() {
+pub fn text_kernel_cache_coherence_holds_after_remote_and_local_edits_test() -> Nil {
   let #(state_a, local_op, _) = must_insert(new_a(), 0, "a")
   let #(_, remote_op, _) = must_insert(new_a(), 0, "b")
   let #(state_a, _) = text_kernel.apply_remote(state_a, remote_op)

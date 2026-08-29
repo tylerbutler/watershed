@@ -47,7 +47,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -118,7 +118,7 @@ fn colour_for(user_id: String) -> String {
   }
 }
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("text")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -404,15 +404,10 @@ fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
 fn add_diagnostic(model: Model, line: String) -> Model {
   let tagged = "[" <> model.user_id <> "] " <> line
   io.println(tagged)
-  Model(..model, diagnostic_log: take([tagged, ..model.diagnostic_log], 40))
-}
-
-fn take(items: List(a), count: Int) -> List(a) {
-  case items, count {
-    _, count if count <= 0 -> []
-    [], _ -> []
-    [first, ..rest], _ -> [first, ..take(rest, count - 1)]
-  }
+  Model(
+    ..model,
+    diagnostic_log: list.take([tagged, ..model.diagnostic_log], 40),
+  )
 }
 
 fn event_line(event: text_kernel.TextEvent) -> String {
@@ -438,7 +433,7 @@ fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   <> " resubmit_at="
   <> option_int(diagnostics.resubmit_checkpoint)
   <> " synced="
-  <> bool_string(diagnostics.synced)
+  <> bool_to_string(diagnostics.synced)
 }
 
 fn option_int(value: Option(Int)) -> String {
@@ -447,8 +442,8 @@ fn option_int(value: Option(Int)) -> String {
   |> option.unwrap("none")
 }
 
-fn bool_string(b: Bool) -> String {
-  case b {
+fn bool_to_string(value: Bool) -> String {
+  case value {
     True -> "true"
     False -> "false"
   }
@@ -457,17 +452,17 @@ fn bool_string(b: Bool) -> String {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · collaborative text")]),
     status_line(model),
     panel_view(model),
-    html.div([class("compose")], [
+    html.div([attribute.class("compose")], [
       html.button([event.on_click(ReconnectClicked)], [
         html.text("Force reconnect"),
       ]),
     ]),
     diagnostics_view(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same document and type from both — every "
         <> "keystroke sends one minimal grapheme op, and concurrent edits "
@@ -492,7 +487,7 @@ fn status_line(model: Model) -> Element(Msg) {
     Some(editor) -> component.length(editor)
     None -> 0
   }
-  html.p([class("status")], [
+  html.p([attribute.class("status")], [
     html.text(
       connection <> runtime <> " · " <> int.to_string(graphemes) <> " graphemes",
     ),
@@ -502,7 +497,7 @@ fn status_line(model: Model) -> Element(Msg) {
 fn panel_view(model: Model) -> Element(Msg) {
   case model.editor {
     Some(editor) -> component.view(editor) |> element.map(Editor)
-    None -> html.p([class("status")], [html.text("connecting…")])
+    None -> html.p([attribute.class("status")], [html.text("connecting…")])
   }
 }
 
@@ -512,14 +507,14 @@ fn diagnostics_view(model: Model) -> Element(Msg) {
     None -> "runtime diagnostics unavailable"
   }
   let log = model.diagnostic_log |> string.join("\n")
-  html.section([class("diagnostics")], [
+  html.section([attribute.class("diagnostics")], [
     html.h2([], [html.text("Diagnostics")]),
     html.p([], [
       html.text(
         "Compare this panel across tabs. Browser DevTools receives the same trace.",
       ),
     ]),
-    html.pre([class("diagnostic-current")], [html.text(current)]),
-    html.pre([class("diagnostic-log")], [html.text(log)]),
+    html.pre([attribute.class("diagnostic-current")], [html.text(current)]),
+    html.pre([attribute.class("diagnostic-log")], [html.text(log)]),
   ])
 }

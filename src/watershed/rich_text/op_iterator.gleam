@@ -1,7 +1,6 @@
 //// The splitting iterator that Quill Delta compose and transform use.
 
 import gleam/int
-import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/json_ot.{type JsonValue}
 import watershed/rich_text/attribute_map.{type Attributes}
@@ -48,11 +47,13 @@ pub fn peek_kind(iterator: Iterator) -> Kind {
   }
 }
 
-pub fn peek_length(iterator: Iterator) -> Option(Int) {
+/// The length that is left in the operation at the front. The result is
+/// `Error(Nil)` when the iterator holds no operation.
+pub fn peek_length(iterator: Iterator) -> Result(Int, Nil) {
   let Iterator(ops, offset) = iterator
   case ops {
-    [] -> None
-    [op, ..] -> Some(length(op) - offset)
+    [] -> Error(Nil)
+    [op, ..] -> Ok(length(op) - offset)
   }
 }
 
@@ -87,7 +88,9 @@ pub fn length(operation: Operation) -> Int {
 
 pub fn attributes(operation: Operation) -> Attributes {
   case operation {
-    InsertText(_, attrs) | InsertEmbed(_, attrs) | Retain(_, attrs) -> attrs
+    InsertText(_, attributes)
+    | InsertEmbed(_, attributes)
+    | Retain(_, attributes) -> attributes
     Delete(_) -> attribute_map.empty()
   }
 }
@@ -98,13 +101,13 @@ fn split(
   amount: Int,
 ) -> Result(Operation, IteratorError) {
   case operation {
-    InsertText(text, attrs) -> {
+    InsertText(text, attributes) -> {
       utf16.slice(text, offset, amount)
-      |> result.map(InsertText(_, attrs))
+      |> result.map(InsertText(_, attributes))
       |> result.map_error(fn(_) { SplitBoundary(offset + amount) })
     }
-    InsertEmbed(value, attrs) -> Ok(InsertEmbed(value, attrs))
+    InsertEmbed(value, attributes) -> Ok(InsertEmbed(value, attributes))
     Delete(_) -> Ok(Delete(amount))
-    Retain(_, attrs) -> Ok(Retain(amount, attrs))
+    Retain(_, attributes) -> Ok(Retain(amount, attributes))
   }
 }

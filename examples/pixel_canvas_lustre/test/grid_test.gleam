@@ -17,7 +17,7 @@ fn all_cells() -> List(#(Int, Int)) {
   grid.cells()
 }
 
-pub fn every_cell_round_trips_test() {
+pub fn every_cell_round_trips_test() -> Nil {
   all_cells()
   |> list.each(fn(cell) {
     let #(x, y) = cell
@@ -25,7 +25,7 @@ pub fn every_cell_round_trips_test() {
   })
 }
 
-pub fn keys_are_zero_padded_to_a_fixed_width_test() {
+pub fn keys_are_zero_padded_to_a_fixed_width_test() -> Nil {
   // Fixed width is what makes the keys sortable at all; without it "7,0" lands
   // between "60,0" and "8,0".
   grid.encode(7, 31) |> should.equal("07,31")
@@ -38,24 +38,24 @@ pub fn keys_are_zero_padded_to_a_fixed_width_test() {
   })
 }
 
-pub fn encoded_keys_sort_into_grid_order_test() {
+pub fn encoded_keys_sort_into_grid_order_test() -> Nil {
   let encoded = all_cells() |> list.map(fn(c) { grid.encode(c.0, c.1) })
   encoded |> list.sort(string.compare) |> should.equal(encoded)
 }
 
-pub fn decode_rejects_malformed_keys_test() {
+pub fn decode_rejects_malformed_keys_test() -> Nil {
   ["", "12", "12,", ",12", "a,b", "12,34,56", "1,2", "12 34"]
   |> list.each(fn(key) { grid.decode(key) |> should.equal(Error(Nil)) })
 }
 
-pub fn decode_rejects_out_of_range_cells_test() {
+pub fn decode_rejects_out_of_range_cells_test() -> Nil {
   // A peer on a larger grid must not be able to write past the end of the
   // buffer, so the bound is enforced on the way in rather than trusted.
   ["64,00", "00,64", "99,99"]
   |> list.each(fn(key) { grid.decode(key) |> should.equal(Error(Nil)) })
 }
 
-pub fn negative_coordinates_are_not_encodable_test() {
+pub fn negative_coordinates_are_not_encodable_test() -> Nil {
   // Pointer maths off the top-left edge produces these; they must not silently
   // become a key that decodes to somewhere else.
   grid.in_bounds(-1, 0) |> should.be_false

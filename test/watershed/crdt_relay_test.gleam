@@ -128,7 +128,7 @@ fn writes(actions: List(Action)) -> List(#(Int, String)) {
     case action {
       Send(connection, encoded) ->
         Ok(#(connection, crdt_relay.server_to_string(encoded)))
-      _ -> Error(Nil)
+      Close(..) | Append(..) | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -137,7 +137,7 @@ fn closes(actions: List(Action)) -> List(#(Int, String)) {
   list.filter_map(actions, fn(action) {
     case action {
       Close(connection, reason) -> Ok(#(connection, reason))
-      _ -> Error(Nil)
+      Send(..) | Append(..) | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -146,7 +146,7 @@ fn appends(actions: List(Action)) -> List(String) {
   list.filter_map(actions, fn(action) {
     case action {
       Append(_room, line) -> Ok(line)
-      _ -> Error(Nil)
+      Send(..) | Close(..) | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -155,7 +155,7 @@ fn compactions(actions: List(Action)) -> List(List(String)) {
   list.filter_map(actions, fn(action) {
     case action {
       Compact(_room, lines) -> Ok(lines)
-      _ -> Error(Nil)
+      Send(..) | Close(..) | Append(..) -> Error(Nil)
     }
   })
 }
@@ -165,7 +165,14 @@ fn relayed(actions: List(Action)) -> List(#(Int, String)) {
     case action {
       Send(connection, crdt_relay.Frame(_order, envelope)) ->
         Ok(#(connection, envelope))
-      _ -> Error(Nil)
+      Send(_, crdt_relay.Connected(..))
+      | Send(_, crdt_relay.Synced(_))
+      | Send(_, crdt_relay.Attested(..))
+      | Send(_, crdt_relay.CheckpointRequest)
+      | Send(_, crdt_relay.Refused(..))
+      | Close(..)
+      | Append(..)
+      | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -176,7 +183,12 @@ fn orders(actions: List(Action)) -> List(Int) {
       Send(_connection, crdt_relay.Frame(order, _)) -> Ok(order)
       Send(_connection, crdt_relay.Attested(order, _)) -> Ok(order)
       Send(_connection, crdt_relay.Synced(order)) -> Ok(order)
-      _ -> Error(Nil)
+      Send(_, crdt_relay.Connected(..))
+      | Send(_, crdt_relay.CheckpointRequest)
+      | Send(_, crdt_relay.Refused(..))
+      | Close(..)
+      | Append(..)
+      | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -185,7 +197,14 @@ fn attestations(actions: List(Action)) -> List(String) {
   list.filter_map(actions, fn(action) {
     case action {
       Send(_connection, crdt_relay.Attested(_order, digest)) -> Ok(digest)
-      _ -> Error(Nil)
+      Send(_, crdt_relay.Connected(..))
+      | Send(_, crdt_relay.Frame(..))
+      | Send(_, crdt_relay.Synced(_))
+      | Send(_, crdt_relay.CheckpointRequest)
+      | Send(_, crdt_relay.Refused(..))
+      | Close(..)
+      | Append(..)
+      | Compact(..) -> Error(Nil)
     }
   })
 }
@@ -202,7 +221,7 @@ fn admitted(connection: Int, document: crdt_core.Document) -> Relay {
 // The greeting
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn a_relay_advertises_its_capability_before_a_client_speaks_test() {
+pub fn a_relay_advertises_its_capability_before_a_client_speaks_test() -> Nil {
   let run = open(crdt_relay.new_relay(), 1)
   let assert [#(1, encoded)] = writes(run.actions)
   let assert Ok(frame) = crdt_relay.decode_server(encoded)
@@ -210,7 +229,7 @@ pub fn a_relay_advertises_its_capability_before_a_client_speaks_test() {
   string.contains(encoded, "crdt_relay_v1") |> expect.to_be_true()
 }
 
-pub fn a_greeting_without_the_capability_is_not_this_lane_test() {
+pub fn a_greeting_without_the_capability_is_not_this_lane_test() -> Nil {
   let assert Ok(foreign) =
     crdt_relay.decode_server(
       "{\"type\":\"connected\",\"capabilities\":{\"fluidDds\":true}}",
@@ -224,7 +243,7 @@ pub fn a_greeting_without_the_capability_is_not_this_lane_test() {
   disavowed |> crdt_relay.supports_relay |> expect.to_be_false()
 }
 
-pub fn every_server_frame_round_trips_test() {
+pub fn every_server_frame_round_trips_test() -> Nil {
   [
     crdt_relay.connected_frame(),
     crdt_relay.Frame(7, "{\"v\":1}"),
@@ -238,7 +257,7 @@ pub fn every_server_frame_round_trips_test() {
   })
 }
 
-pub fn a_relay_that_stamps_nothing_is_still_understood_test() {
+pub fn a_relay_that_stamps_nothing_is_still_understood_test() -> Nil {
   let raw = hello(document("alpha"))
   crdt_relay.decode_server(raw) |> expect.to_equal(Ok(crdt_relay.Frame(0, raw)))
 }
@@ -247,7 +266,7 @@ pub fn a_relay_that_stamps_nothing_is_still_understood_test() {
 // Admission
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn the_first_frame_must_be_a_hello_test() {
+pub fn the_first_frame_must_be_a_hello_test() -> Nil {
   let alpha = document("alpha")
   let relay = crdt_relay.new_relay()
   let run = frame(relay, 1, state(alpha))
@@ -257,7 +276,7 @@ pub fn the_first_frame_must_be_a_hello_test() {
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(0)
 }
 
-pub fn a_hello_admits_one_session_test() {
+pub fn a_hello_admits_one_session_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
 
@@ -265,7 +284,7 @@ pub fn a_hello_admits_one_session_test() {
   crdt_relay.sessions(relay, room) |> expect.to_equal(["alpha-session"])
 }
 
-pub fn one_session_may_not_attach_twice_test() {
+pub fn one_session_may_not_attach_twice_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let run = frame(relay, 2, hello(alpha))
@@ -274,7 +293,7 @@ pub fn one_session_may_not_attach_twice_test() {
   crdt_relay.clients(run.relay, room) |> expect.to_equal([1])
 }
 
-pub fn a_client_may_not_change_room_sender_or_session_test() {
+pub fn a_client_may_not_change_room_sender_or_session_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
 
@@ -296,7 +315,7 @@ pub fn a_client_may_not_change_room_sender_or_session_test() {
   closes(run.actions) |> expect.to_equal([#(1, "identityChanged")])
 }
 
-pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() {
+pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() -> Nil {
   let padding = string.repeat("x", crdt_relay.max_frame_bytes() + 1)
   let run = frame(crdt_relay.new_relay(), 1, padding)
 
@@ -305,7 +324,7 @@ pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() {
   |> expect.to_equal("rejected:frameTooLarge")
 }
 
-pub fn a_malformed_frame_is_refused_test() {
+pub fn a_malformed_frame_is_refused_test() -> Nil {
   ["", "{", "null", "{\"v\":1}", "{\"type\":\"whatever\"}"]
   |> list.each(fn(raw) {
     let run = frame(crdt_relay.new_relay(), 1, raw)
@@ -313,7 +332,7 @@ pub fn a_malformed_frame_is_refused_test() {
   })
 }
 
-pub fn only_the_documented_message_types_are_carried_test() {
+pub fn only_the_documented_message_types_are_carried_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let rejection =
@@ -341,7 +360,7 @@ fn kind_named(name: String) -> crdt_relay.MessageKind {
   }
 }
 
-pub fn a_room_name_outside_the_bound_is_refused_test() {
+pub fn a_room_name_outside_the_bound_is_refused_test() -> Nil {
   let assert Ok(huge) =
     crdt_core.new(crdt_core.config(
       room: string.repeat("r", crdt_relay.max_room_bytes + 1),
@@ -361,7 +380,7 @@ fn counting(from: Int, to: Int) -> List(Int) {
   }
 }
 
-pub fn a_room_admits_a_bounded_number_of_clients_test() {
+pub fn a_room_admits_a_bounded_number_of_clients_test() -> Nil {
   let relay =
     counting(1, crdt_relay.max_room_clients)
     |> list.fold(crdt_relay.new_relay(), fn(relay, index) {
@@ -380,7 +399,7 @@ pub fn a_room_admits_a_bounded_number_of_clients_test() {
 // Fan-out and the log
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn accepted_traffic_is_broadcast_to_everyone_but_its_sender_test() {
+pub fn accepted_traffic_is_broadcast_to_everyone_but_its_sender_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -395,7 +414,7 @@ pub fn accepted_traffic_is_broadcast_to_everyone_but_its_sender_test() {
   relayed(run.actions) |> expect.to_equal([#(2, state(alpha))])
 }
 
-pub fn the_log_is_replayed_in_order_and_terminated_test() {
+pub fn the_log_is_replayed_in_order_and_terminated_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -415,7 +434,7 @@ pub fn the_log_is_replayed_in_order_and_terminated_test() {
   string.contains(last.1, "\"type\":\"synced\"") |> expect.to_be_true()
 }
 
-pub fn a_state_request_from_an_empty_room_only_ends_the_burst_test() {
+pub fn a_state_request_from_an_empty_room_only_ends_the_burst_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let run = frame(relay, 1, state_request(alpha))
@@ -425,7 +444,7 @@ pub fn a_state_request_from_an_empty_room_only_ends_the_burst_test() {
   string.contains(only, "\"type\":\"synced\"") |> expect.to_be_true()
 }
 
-pub fn order_is_monotonic_and_stays_outside_the_envelope_test() {
+pub fn order_is_monotonic_and_stays_outside_the_envelope_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -446,7 +465,7 @@ pub fn order_is_monotonic_and_stays_outside_the_envelope_test() {
   crdt_relay.replayable(relay, room) |> expect.to_equal(deltas)
 }
 
-pub fn a_relay_never_decodes_a_kernel_payload_test() {
+pub fn a_relay_never_decodes_a_kernel_payload_test() -> Nil {
   // A `delta` whose op is meaningless to any kernel. A merger would refuse
   // it; a relay has no opinion, because it never looks.
   let inscrutable =
@@ -471,7 +490,7 @@ pub fn a_relay_never_decodes_a_kernel_payload_test() {
 // Attestation, checkpoints, and not picking a winner
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn a_covering_publication_is_attested_and_checkpointed_test() {
+pub fn a_covering_publication_is_attested_and_checkpointed_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(alpha, _deltas) = clapped(alpha, 2)
@@ -492,7 +511,7 @@ pub fn a_covering_publication_is_attested_and_checkpointed_test() {
   list.length(kept) |> expect.to_equal(2)
 }
 
-pub fn two_concurrent_states_are_both_kept_and_neither_wins_test() {
+pub fn two_concurrent_states_are_both_kept_and_neither_wins_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -516,7 +535,7 @@ pub fn two_concurrent_states_are_both_kept_and_neither_wins_test() {
   |> expect.to_equal([state(alpha), state(beta)])
 }
 
-pub fn a_publication_that_covers_what_it_was_sent_collapses_the_log_test() {
+pub fn a_publication_that_covers_what_it_was_sent_collapses_the_log_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -540,7 +559,7 @@ pub fn a_publication_that_covers_what_it_was_sent_collapses_the_log_test() {
   crdt_relay.replayable(run.relay, room) |> expect.to_equal([state(merged)])
 }
 
-pub fn a_delta_after_a_publication_retires_the_attestation_test() {
+pub fn a_delta_after_a_publication_retires_the_attestation_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -557,7 +576,7 @@ pub fn a_delta_after_a_publication_retires_the_attestation_test() {
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(2)
 }
 
-pub fn an_attestation_from_a_client_that_published_nothing_is_empty_test() {
+pub fn an_attestation_from_a_client_that_published_nothing_is_empty_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let run = frame(relay, 1, attest(alpha, 0))
@@ -566,13 +585,13 @@ pub fn an_attestation_from_a_client_that_published_nothing_is_empty_test() {
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(0)
 }
 
-pub fn an_attestation_before_admission_is_refused_test() {
+pub fn an_attestation_before_admission_is_refused_test() -> Nil {
   let alpha = document("alpha")
   let run = frame(crdt_relay.new_relay(), 1, attest(alpha, 0))
   closes(run.actions) |> expect.to_equal([#(1, "notAdmitted")])
 }
 
-pub fn a_digest_is_broadcast_and_answered_test() {
+pub fn a_digest_is_broadcast_and_answered_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -589,7 +608,7 @@ pub fn a_digest_is_broadcast_and_answered_test() {
 // Durability
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn every_record_round_trips_test() {
+pub fn every_record_round_trips_test() -> Nil {
   [
     crdt_relay.StateRecord(3, "alpha-session", "{\"v\":1}"),
     crdt_relay.TrafficRecord(4, "beta-session", "{\"v\":1}"),
@@ -603,12 +622,12 @@ pub fn every_record_round_trips_test() {
 
 /// A marker written before markers named their entry still reads back,
 /// with the entry it names left for `replay` to infer.
-pub fn a_marker_without_a_checkpoint_still_reads_test() {
+pub fn a_marker_without_a_checkpoint_still_reads_test() -> Nil {
   crdt_relay.record_from_string("{\"o\":5,\"k\":\"digest\",\"d\":\"abc123\"}")
   |> expect.to_equal(Ok(crdt_relay.DigestRecord(5, "abc123", 0)))
 }
 
-pub fn a_room_replays_from_its_lines_test() {
+pub fn a_room_replays_from_its_lines_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(alpha, deltas) = clapped(alpha, 2)
@@ -632,7 +651,7 @@ pub fn a_room_replays_from_its_lines_test() {
   crdt_relay.attested_digest(restarted, room) |> expect.to_equal("")
 }
 
-pub fn a_compacted_log_replays_to_the_checkpoint_test() {
+pub fn a_compacted_log_replays_to_the_checkpoint_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(alpha, _) = clapped(alpha, 3)
@@ -657,7 +676,7 @@ pub fn a_compacted_log_replays_to_the_checkpoint_test() {
 /// connection's `delivered` clamp meaningless — the guard that stops an
 /// attestation retiring an entry nobody was ever sent — so orders only
 /// move forward.
-pub fn a_replay_never_rewinds_a_rooms_order_test() {
+pub fn a_replay_never_rewinds_a_rooms_order_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(_alpha, deltas) = clapped(alpha, 3)
@@ -690,7 +709,7 @@ pub fn a_replay_never_rewinds_a_rooms_order_test() {
 /// alone. The marker is current while it is the newest record in the
 /// file, and an older order landing back in the log is not news about
 /// the checkpoint.
-pub fn a_replay_keeps_a_checkpoint_older_records_are_restored_behind_test() {
+pub fn a_replay_keeps_a_checkpoint_older_records_are_restored_behind_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -727,7 +746,7 @@ pub fn a_replay_keeps_a_checkpoint_older_records_are_restored_behind_test() {
 /// Anything logged *after* a checkpoint means the checkpoint has stopped
 /// describing the room, and the digest goes with it — while the entry it
 /// named is still the room's canonical state.
-pub fn a_replay_forgets_a_digest_something_was_logged_after_test() {
+pub fn a_replay_forgets_a_digest_something_was_logged_after_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -749,7 +768,7 @@ pub fn a_replay_forgets_a_digest_something_was_logged_after_test() {
 /// A log written before markers named their entry still replays, and
 /// the room falls back to its newest `state` record as its canonical
 /// entry.
-pub fn an_older_marker_still_names_a_canonical_entry_test() {
+pub fn an_older_marker_still_names_a_canonical_entry_test() -> Nil {
   let alpha = document("alpha")
   let restarted =
     crdt_relay.replay(crdt_relay.new_relay(), room, [
@@ -769,7 +788,7 @@ pub fn an_older_marker_still_names_a_canonical_entry_test() {
   crdt_relay.checkpoint_order(restarted, room) |> expect.to_equal(2)
 }
 
-pub fn a_torn_line_costs_only_itself_test() {
+pub fn a_torn_line_costs_only_itself_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(alpha, _) = clapped(alpha, 1)
@@ -781,7 +800,7 @@ pub fn a_torn_line_costs_only_itself_test() {
   crdt_relay.replayable(restarted, room) |> expect.to_equal([state(alpha)])
 }
 
-pub fn a_disconnect_leaves_the_log_alone_test() {
+pub fn a_disconnect_leaves_the_log_alone_test() -> Nil {
   let alpha = document("alpha")
   let relay = admitted(1, alpha)
   let #(alpha, _) = clapped(alpha, 1)
@@ -799,7 +818,7 @@ pub fn a_disconnect_leaves_the_log_alone_test() {
 /// order sequence that no longer exists — the shape a client that
 /// outlived a relay restart produces — cannot retire an entry it was
 /// never shown.
-pub fn an_attestation_cannot_claim_more_than_it_was_sent_test() {
+pub fn an_attestation_cannot_claim_more_than_it_was_sent_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
 
@@ -826,7 +845,7 @@ pub fn an_attestation_cannot_claim_more_than_it_was_sent_test() {
 /// actually comes from: the relay rebuilds its counter from its log, so
 /// it hands out orders it has used before, and a client that survived
 /// the outage still remembers the old ones.
-pub fn a_restarted_relay_does_not_honour_a_stale_high_water_mark_test() {
+pub fn a_restarted_relay_does_not_honour_a_stale_high_water_mark_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -890,7 +909,7 @@ fn poison(from: String) -> String {
 /// every replica that has only this relay to sync from. The entry itself
 /// is carried into the compaction rather than deleted by it: a client
 /// that could not read something never gets to decide it never happened.
-pub fn a_skipped_entry_is_carried_past_the_next_checkpoint_test() {
+pub fn a_skipped_entry_is_carried_past_the_next_checkpoint_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -938,7 +957,7 @@ pub fn a_skipped_entry_is_carried_past_the_next_checkpoint_test() {
 /// keeps carrying it, and the client that *can* read it still gets it.
 /// This is the malicious case: a client that skips perfectly valid
 /// operations must not be able to erase them from the room's history.
-pub fn a_skip_cannot_delete_an_entry_anyone_else_can_merge_test() {
+pub fn a_skip_cannot_delete_an_entry_anyone_else_can_merge_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let gamma = document("gamma")
@@ -977,7 +996,7 @@ pub fn a_skip_cannot_delete_an_entry_anyone_else_can_merge_test() {
 /// skips the *previous checkpoint* cannot make it disappear. Everything
 /// the room ever agreed on lives in that record, and one connection's
 /// claim about its own reading is not a reason to unlink it.
-pub fn a_skip_cannot_delete_an_earlier_checkpoint_test() {
+pub fn a_skip_cannot_delete_an_earlier_checkpoint_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
 
@@ -1010,7 +1029,7 @@ pub fn a_skip_cannot_delete_an_earlier_checkpoint_test() {
 /// checkpoint carries what *it* could not read, and retires what it
 /// merged — including something the other connection had skipped, whose
 /// content is now inside the checkpoint that replaced it.
-pub fn concurrent_clients_keep_their_own_skips_test() {
+pub fn concurrent_clients_keep_their_own_skips_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let gamma = document("gamma")
@@ -1049,7 +1068,7 @@ pub fn concurrent_clients_keep_their_own_skips_test() {
 /// The healing path. A client that can read the carried entry merges it,
 /// publishes a state that contains it, and attests with no skip of its
 /// own — and only then does the log finally collapse to one line.
-pub fn a_client_that_merges_a_carried_entry_retires_it_test() {
+pub fn a_client_that_merges_a_carried_entry_retires_it_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1080,7 +1099,7 @@ pub fn a_client_that_merges_a_carried_entry_retires_it_test() {
 /// A compaction is the room's whole file, so what it carries has to come
 /// back. A restart from those lines holds the carried entry *and* the
 /// checkpoint, in order, and replays both.
-pub fn a_compacted_log_replays_what_it_carried_test() {
+pub fn a_compacted_log_replays_what_it_carried_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1105,7 +1124,7 @@ pub fn a_compacted_log_replays_what_it_carried_test() {
 
 /// Repeating a skip is the same claim twice. It cannot compound, and it
 /// cannot make a second entry survive a checkpoint that covers it.
-pub fn a_repeated_skip_is_one_claim_test() {
+pub fn a_repeated_skip_is_one_claim_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1132,7 +1151,7 @@ pub fn a_repeated_skip_is_one_claim_test() {
 /// the case a high-water mark alone cannot answer: nothing arrives after
 /// it to carry the mark past it, so without the skip the room would never
 /// checkpoint again.
-pub fn a_skip_covers_an_entry_no_later_frame_follows_test() {
+pub fn a_skip_covers_an_entry_no_later_frame_follows_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1162,7 +1181,7 @@ pub fn a_skip_covers_an_entry_no_later_frame_follows_test() {
 /// connection was never sent is ignored: honouring it would let a client
 /// retire an entry it has no evidence of, which is the same rule the
 /// attestation clamp keeps.
-pub fn a_skip_for_something_never_delivered_is_ignored_test() {
+pub fn a_skip_for_something_never_delivered_is_ignored_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
 
@@ -1190,7 +1209,7 @@ pub fn a_skip_for_something_never_delivered_is_ignored_test() {
 
 /// One client's refusal is not a verdict on the entry. It keeps being
 /// replayed to everyone else, right up until a checkpoint compacts it.
-pub fn a_skip_does_not_stop_the_entry_reaching_another_client_test() {
+pub fn a_skip_does_not_stop_the_entry_reaching_another_client_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let gamma = document("gamma")
@@ -1209,7 +1228,7 @@ pub fn a_skip_does_not_stop_the_entry_reaching_another_client_test() {
 
 /// And one client's skip is not another's. Only the connection that
 /// reported it may cover the entry.
-pub fn a_skip_belongs_to_the_connection_that_reported_it_test() {
+pub fn a_skip_belongs_to_the_connection_that_reported_it_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1228,12 +1247,12 @@ pub fn a_skip_belongs_to_the_connection_that_reported_it_test() {
   crdt_relay.log_size(run.relay, room) |> expect.to_equal(2)
 }
 
-pub fn a_skip_before_admission_is_refused_test() {
+pub fn a_skip_before_admission_is_refused_test() -> Nil {
   let run = frame(crdt_relay.new_relay(), 1, skip(1))
   closes(run.actions) |> expect.to_equal([#(1, "notAdmitted")])
 }
 
-pub fn a_skip_is_tagged_by_whether_it_was_honoured_test() {
+pub fn a_skip_is_tagged_by_whether_it_was_honoured_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1246,7 +1265,7 @@ pub fn a_skip_is_tagged_by_whether_it_was_honoured_test() {
   tag(run.relay, 1, skip(99)) |> expect.to_equal("skip:undelivered")
 }
 
-pub fn a_skip_round_trips_as_a_control_frame_test() {
+pub fn a_skip_round_trips_as_a_control_frame_test() -> Nil {
   crdt_relay.decode_client(skip(12))
   |> expect.to_equal(Ok(crdt_relay.Control(crdt_relay.Skip(12))))
   // And it is not an envelope: nothing about it reaches a document.
@@ -1305,7 +1324,7 @@ fn poison_state_at(from: String, index: Int) -> String {
 /// `max_room_records` — must not be able to outrun the per-connection
 /// skip bound; and a room asks for a checkpoint before it would have to
 /// refuse one.
-pub fn the_skip_bound_is_above_anything_an_attachment_can_hold_test() {
+pub fn the_skip_bound_is_above_anything_an_attachment_can_hold_test() -> Nil {
   { crdt_relay.max_room_records <= crdt_relay.max_client_skips }
   |> expect.to_be_true()
   { crdt_relay.checkpoint_pressure_records < crdt_relay.max_room_records }
@@ -1318,7 +1337,7 @@ pub fn the_skip_bound_is_above_anything_an_attachment_can_hold_test() {
 /// Without this bound one admitted session is unbounded disk and
 /// unbounded heap: an admitted client alone in a room writes records
 /// nobody is there to refuse.
-pub fn a_room_stops_appending_at_its_hard_bound_test() {
+pub fn a_room_stops_appending_at_its_hard_bound_test() -> Nil {
   let mallory = document("mallory")
   let relay = admitted(1, mallory)
   let run =
@@ -1349,7 +1368,7 @@ pub fn a_room_stops_appending_at_its_hard_bound_test() {
 /// only from a connection that declared `supports`, so a flood of
 /// unmergeable `state` frames from a client that never did is refused
 /// exactly like a flood of deltas.
-pub fn a_state_at_the_bound_needs_a_support_declaration_test() {
+pub fn a_state_at_the_bound_needs_a_support_declaration_test() -> Nil {
   let mallory = document("mallory")
   let relay = admitted(1, mallory)
   let run =
@@ -1367,7 +1386,7 @@ pub fn a_state_at_the_bound_needs_a_support_declaration_test() {
 /// checkpoint one — and refusing an entire full room's worth of records
 /// is exactly the most `max_client_skips` must allow without closing
 /// the connection.
-pub fn a_full_room_still_admits_and_replays_test() {
+pub fn a_full_room_still_admits_and_replays_test() -> Nil {
   let mallory = document("mallory")
   let relay = admitted(1, mallory)
   let run =
@@ -1396,7 +1415,7 @@ pub fn a_full_room_still_admits_and_replays_test() {
 
 /// A room under pressure asks, and it asks only the clients that said
 /// they would understand the question.
-pub fn a_pressured_room_asks_compatible_clients_to_checkpoint_test() {
+pub fn a_pressured_room_asks_compatible_clients_to_checkpoint_test() -> Nil {
   let alpha = document("alpha")
   let beta = document("beta")
   let relay = admitted(1, alpha)
@@ -1437,7 +1456,7 @@ pub fn a_pressured_room_asks_compatible_clients_to_checkpoint_test() {
 /// has reached its hard bound: a `state` is the one frame that can
 /// compact a full room, and refusing it would strand exactly the honest
 /// client the checkpoint machinery exists to protect.
-pub fn a_supports_declaring_client_may_always_publish_test() {
+pub fn a_supports_declaring_client_may_always_publish_test() -> Nil {
   let alpha = document("alpha")
   let mallory = document("mallory")
   let relay = admitted(1, alpha)
@@ -1484,7 +1503,7 @@ pub fn a_supports_declaring_client_may_always_publish_test() {
 /// A checkpoint request carries no order, no digest and no envelope. A
 /// client answers out of its own state, so there is no path from a
 /// relay's diagnostic sequence into a document through it.
-pub fn a_checkpoint_request_carries_no_order_test() {
+pub fn a_checkpoint_request_carries_no_order_test() -> Nil {
   let encoded = crdt_relay.server_to_string(crdt_relay.CheckpointRequest)
   encoded |> string.contains("\"order\"") |> expect.to_be_false()
   encoded |> string.contains("\"envelope\"") |> expect.to_be_false()
@@ -1498,7 +1517,7 @@ pub fn a_checkpoint_request_carries_no_order_test() {
 /// A `supports` frame is a statement about a client, so it needs a
 /// client: before the `hello` that admits one it is `notAdmitted`, like
 /// every other frame that is not that hello.
-pub fn a_support_declaration_needs_an_admitted_connection_test() {
+pub fn a_support_declaration_needs_an_admitted_connection_test() -> Nil {
   let relay = crdt_relay.new_relay()
   let run = open(relay, 1)
   let refused = frame(run.relay, 1, supports())
@@ -1539,7 +1558,7 @@ fn traffic_lines(count: Int) -> List(String) {
 /// declares support, is replayed the room, publishes its merged state —
 /// admitted at the bound *because* it declared support — and attests,
 /// which compacts the room back under the bound.
-pub fn a_supports_declaring_client_drains_a_recovered_full_room_test() {
+pub fn a_supports_declaring_client_drains_a_recovered_full_room_test() -> Nil {
   let restarted =
     crdt_relay.replay(
       crdt_relay.new_relay(),
@@ -1599,7 +1618,7 @@ pub fn a_supports_declaring_client_drains_a_recovered_full_room_test() {
 /// still at its bound, so the same client's next ordinary append is
 /// refused and its sender closed, exactly like any other over-bound
 /// frame.
-pub fn a_publication_without_an_attestation_earns_no_capacity_test() {
+pub fn a_publication_without_an_attestation_earns_no_capacity_test() -> Nil {
   let restarted =
     crdt_relay.replay(
       crdt_relay.new_relay(),
@@ -1650,7 +1669,14 @@ fn requests(actions: List(Action)) -> List(Int) {
   list.filter_map(actions, fn(action) {
     case action {
       Send(connection, crdt_relay.CheckpointRequest) -> Ok(connection)
-      _ -> Error(Nil)
+      Send(_, crdt_relay.Connected(..))
+      | Send(_, crdt_relay.Frame(..))
+      | Send(_, crdt_relay.Synced(_))
+      | Send(_, crdt_relay.Attested(..))
+      | Send(_, crdt_relay.Refused(..))
+      | Close(..)
+      | Append(..)
+      | Compact(..) -> Error(Nil)
     }
   })
 }

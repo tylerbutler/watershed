@@ -14,7 +14,7 @@ import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{class, disabled, placeholder, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -28,9 +28,9 @@ import watershed/presence_js.{type Handle}
 import watershed/transport_js
 import watershed_lustre
 
-import board.{type Column, type NoteCard}
-import board_ops
-import doc_schema
+import retro_tutorial_lustre/board.{type Column, type NoteCard}
+import retro_tutorial_lustre/board_op
+import retro_tutorial_lustre/doc_schema
 
 /// These dev constants match `just integration-up`.
 /// Change them when you point the example at another server.
@@ -40,7 +40,7 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("retro-tutorial")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -295,7 +295,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, Some(shared) -> {
           let created = transport_js.now_ms()
           let _ =
-            board_ops.add_note(
+            board_op.add_note(
               shared.notes,
               model.user_id,
               text,
@@ -316,7 +316,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UpvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_ops.upvote(shared.votes, id)
+          board_op.upvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -325,7 +325,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     DownvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_ops.downvote(shared.votes, id)
+          board_op.downvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -407,7 +407,7 @@ fn snapshot(model: Model) -> Model {
   }
 
   let board_state = case model.shared {
-    Some(shared) -> board_ops.snapshot(title, shared.notes, shared.votes)
+    Some(shared) -> board_op.snapshot(title, shared.notes, shared.votes)
     None -> board.empty(title)
   }
 
@@ -419,15 +419,18 @@ fn draft_for(model: Model, column: Column) -> String {
 }
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("shell")], [
-    html.header([class("masthead")], [
+  html.main([attribute.class("shell")], [
+    html.header([attribute.class("masthead")], [
       html.div([], [
         html.h1([], [html.text(model.board.title)]),
-        html.p([class("status")], [html.text(status_text(model))]),
+        html.p([attribute.class("status")], [html.text(status_text(model))]),
       ]),
-      html.div([class("masthead-actions")], [
+      html.div([attribute.class("masthead-actions")], [
         html.button(
-          [event.on_click(FocusCleared), disabled(model.focus == None)],
+          [
+            event.on_click(FocusCleared),
+            attribute.disabled(model.focus == None),
+          ],
           [
             html.text("Clear focus"),
           ],
@@ -438,13 +441,16 @@ fn view(model: Model) -> Element(Msg) {
       ]),
     ]),
     error_view(model.last_error),
-    html.div([class("top-row")], [presence_view(model), focused_view(model)]),
+    html.div([attribute.class("top-row")], [
+      presence_view(model),
+      focused_view(model),
+    ]),
     html.div(
-      [class("board")],
+      [attribute.class("board")],
       list.map(board.all_columns(), fn(column) { column_view(model, column) }),
     ),
     unfiled_view(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open the same document in a second tab. Add notes in both tabs, vote on them, and click Focus to watch presence follow the note.",
       ),
@@ -488,13 +494,13 @@ fn presence_view(model: Model) -> Element(Msg) {
       peers |> list.map(peer_status(model.board, _)) |> string.join(" · ")
   }
 
-  html.section([class("presence")], [
+  html.section([attribute.class("presence")], [
     html.h2([], [html.text("Presence")]),
-    html.p([class("peer-copy")], [html.text(copy)]),
-    html.div([class("roster"), attribute.aria_label("Participants online")], [
-      self_chip,
-      ..peer_chips
-    ]),
+    html.p([attribute.class("peer-copy")], [html.text(copy)]),
+    html.div(
+      [attribute.class("roster"), attribute.aria_label("Participants online")],
+      [self_chip, ..peer_chips],
+    ),
   ])
 }
 
@@ -514,9 +520,9 @@ fn focused_view(model: Model) -> Element(Msg) {
     Some(id) -> "You are focused on " <> focus_label(model.board, id) <> "."
     None -> "Focus a note to publish lightweight presence to other tabs."
   }
-  html.section([class("focus-panel")], [
+  html.section([attribute.class("focus-panel")], [
     html.h2([], [html.text("Focused note")]),
-    html.p([class("focus-copy")], [html.text(text)]),
+    html.p([attribute.class("focus-copy")], [html.text(text)]),
   ])
 }
 
@@ -542,45 +548,53 @@ fn preview(text: String) -> String {
 fn chip(name: String, color: String) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
     ],
   )
 }
 
 fn error_view(error: Option(String)) -> Element(Msg) {
-  html.p([class("error")], [html.text(option.unwrap(error, ""))])
+  html.p([attribute.class("error")], [html.text(option.unwrap(error, ""))])
 }
 
 fn column_view(model: Model, column: Column) -> Element(Msg) {
   let draft = draft_for(model, column)
   let cards = board.cards_for(model.board, column)
   let list_view = case cards {
-    [] -> html.p([class("empty")], [html.text("No notes yet.")])
+    [] -> html.p([attribute.class("empty")], [html.text("No notes yet.")])
     _ ->
       html.ul(
-        [class("cards")],
+        [attribute.class("cards")],
         list.map(cards, fn(card) { note_view(model, card) }),
       )
   }
 
-  html.section([class("column")], [
+  html.section([attribute.class("column")], [
     html.h2([], [html.text(board.column_label(column))]),
-    html.p([class("column-copy")], [html.text(board.column_hint(column))]),
-    html.div([class("compose")], [
+    html.p([attribute.class("column-copy")], [
+      html.text(board.column_hint(column)),
+    ]),
+    html.div([attribute.class("compose")], [
       html.input([
-        placeholder(board.column_hint(column)),
-        value(draft),
+        attribute.placeholder(board.column_hint(column)),
+        attribute.value(draft),
         event.on_input(fn(text) { DraftChanged(column, text) }),
         attribute.aria_label("New note for " <> board.column_label(column)),
       ]),
       html.button(
-        [event.on_click(AddClicked(column)), disabled(string.trim(draft) == "")],
+        [
+          event.on_click(AddClicked(column)),
+          attribute.disabled(string.trim(draft) == ""),
+        ],
         [html.text("Add")],
       ),
     ]),
@@ -597,21 +611,21 @@ fn note_view(model: Model, card: NoteCard) -> Element(Msg) {
   let focus_line = case focused {
     [] -> html.text("")
     names ->
-      html.p([class("focus-line")], [
+      html.p([attribute.class("focus-line")], [
         html.text("Focused by " <> string.join(names, ", ")),
       ])
   }
 
   html.li([], [
-    html.article([class("card" <> focus_class)], [
-      html.p([class("card-text")], [html.text(card.note.text)]),
-      html.div([class("card-meta")], [
-        html.span([class("author")], [html.text(card.note.author)]),
-        html.span([class("tally")], [
+    html.article([attribute.class("card" <> focus_class)], [
+      html.p([attribute.class("card-text")], [html.text(card.note.text)]),
+      html.div([attribute.class("card-meta")], [
+        html.span([attribute.class("author")], [html.text(card.note.author)]),
+        html.span([attribute.class("tally")], [
           html.text("votes " <> int.to_string(card.votes)),
         ]),
       ]),
-      html.div([class("card-actions")], [
+      html.div([attribute.class("card-actions")], [
         html.button(
           [
             event.on_click(UpvoteClicked(card.id)),
@@ -664,15 +678,15 @@ fn unfiled_view(model: Model) -> Element(Msg) {
   case model.board.unfiled {
     [] -> html.text("")
     notes ->
-      html.section([class("unfiled")], [
+      html.section([attribute.class("unfiled")], [
         html.h2([], [html.text("Unfiled notes")]),
-        html.p([class("column-copy")], [
+        html.p([attribute.class("column-copy")], [
           html.text(
             "Notes stay visible here if their column id is unknown or unreadable.",
           ),
         ]),
         html.ul(
-          [class("cards")],
+          [attribute.class("cards")],
           list.map(notes, fn(card) { note_view(model, card) }),
         ),
       ])

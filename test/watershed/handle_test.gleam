@@ -4,7 +4,7 @@ import startest/expect
 
 import watershed/handle
 
-pub fn encode_handle_matches_corpus_marker_test() {
+pub fn encode_handle_matches_corpus_marker_test() -> Nil {
   // The exact serialized form the TS oracle emits for a handle (see the
   // handle-* corpus fixtures); wire compatibility freezes this byte shape.
   handle.encode_handle("child-a")
@@ -12,7 +12,7 @@ pub fn encode_handle_matches_corpus_marker_test() {
   |> expect.to_equal("{\"type\":\"__fluid_handle__\",\"url\":\"/child-a\"}")
 }
 
-pub fn encode_parse_handle_test() {
+pub fn encode_parse_handle_test() -> Nil {
   let encoded = handle.encode_handle("tree-abc")
   case handle.parse_handle(encoded) {
     Ok(addr) -> addr |> expect.to_equal("tree-abc")
@@ -20,7 +20,7 @@ pub fn encode_parse_handle_test() {
   }
 }
 
-pub fn parse_handle_rejects_multi_segment_test() {
+pub fn parse_handle_rejects_multi_segment_test() -> Nil {
   let multi =
     json.object([
       #("type", json.string(handle.fluid_handle_type)),
@@ -32,7 +32,7 @@ pub fn parse_handle_rejects_multi_segment_test() {
   }
 }
 
-pub fn parse_handle_rejects_extra_keys_test() {
+pub fn parse_handle_rejects_extra_keys_test() -> Nil {
   let extra =
     json.object([
       #("type", json.string(handle.fluid_handle_type)),
@@ -45,7 +45,7 @@ pub fn parse_handle_rejects_extra_keys_test() {
   }
 }
 
-pub fn collect_handle_addresses_nested_and_dedup_test() {
+pub fn collect_handle_addresses_nested_and_dedup_test() -> Nil {
   let a = handle.encode_handle("a")
   let b = handle.encode_handle("b")
   let value =
@@ -60,7 +60,7 @@ pub fn collect_handle_addresses_nested_and_dedup_test() {
   list.any(addrs, fn(x) { x == "b" }) |> expect.to_be_true()
 }
 
-pub fn collect_handle_addresses_ignores_multi_segment_test() {
+pub fn collect_handle_addresses_ignores_multi_segment_test() -> Nil {
   let multi =
     json.object([
       #(

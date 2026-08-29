@@ -27,6 +27,7 @@
 //// need. The result is deterministic. It is never a whole-document replace
 //// when a smaller op is possible.
 
+import gleam/int
 import gleam/list
 import gleam/string
 
@@ -60,14 +61,14 @@ pub fn diff(old old: String, new new: String) -> Edit {
 
       // Longest common grapheme suffix, computed on the reversed remainders so
       // it never overlaps the prefix already consumed on either side.
-      let max_suffix = int_min(old_len - prefix, new_len - prefix)
+      let max_suffix = int.min(old_len - prefix, new_len - prefix)
       let suffix =
         common_prefix_length(
           list.reverse(old_graphemes),
           list.reverse(new_graphemes),
           0,
         )
-        |> int_min(max_suffix)
+        |> int.min(max_suffix)
 
       let removed_start = prefix
       let removed_end = old_len - suffix
@@ -208,12 +209,5 @@ fn common_prefix_length(a: List(String), b: List(String), acc: Int) -> Int {
   case a, b {
     [x, ..xs], [y, ..ys] if x == y -> common_prefix_length(xs, ys, acc + 1)
     _, _ -> acc
-  }
-}
-
-fn int_min(a: Int, b: Int) -> Int {
-  case a < b {
-    True -> a
-    False -> b
   }
 }

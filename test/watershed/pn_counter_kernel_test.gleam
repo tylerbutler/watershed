@@ -5,16 +5,16 @@ import lattice_core/replica_id
 import startest/expect
 import watershed/pn_counter_kernel.{Update, Updated}
 
-fn rid(name: String) -> replica_id.ReplicaId {
+fn replica(name: String) -> replica_id.ReplicaId {
   replica_id.new(name)
 }
 
 fn new_a() -> pn_counter_kernel.PnCounterState {
-  pn_counter_kernel.new(rid("a"))
+  pn_counter_kernel.new(replica("a"))
 }
 
 fn new_b() -> pn_counter_kernel.PnCounterState {
-  pn_counter_kernel.new(rid("b"))
+  pn_counter_kernel.new(replica("b"))
 }
 
 fn expect_coherent(state: pn_counter_kernel.PnCounterState) -> Nil {
@@ -50,10 +50,11 @@ fn expect_unexpected_ack(
     pn_counter_kernel.PnCounterState,
     pn_counter_kernel.KernelError,
   ),
-) {
+) -> Nil {
   case result {
     Error(pn_counter_kernel.UnexpectedAck(_, _)) -> Nil
-    _ -> panic as "expected UnexpectedAck error"
+    Ok(_) | Error(pn_counter_kernel.UnexpectedRollback(..)) ->
+      panic as "expected UnexpectedAck error"
   }
 }
 
@@ -62,10 +63,11 @@ fn expect_unexpected_rollback(
     #(pn_counter_kernel.PnCounterState, List(pn_counter_kernel.PnCounterEvent)),
     pn_counter_kernel.KernelError,
   ),
-) {
+) -> Nil {
   case result {
     Error(pn_counter_kernel.UnexpectedRollback(_, _)) -> Nil
-    _ -> panic as "expected UnexpectedRollback error"
+    Ok(_) | Error(pn_counter_kernel.UnexpectedAck(..)) ->
+      panic as "expected UnexpectedRollback error"
   }
 }
 
@@ -90,14 +92,14 @@ fn summary_counts(
 // Counter parity: new / update / apply_remote / convergence
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn new_state_is_zero_test() {
+pub fn new_state_is_zero_test() -> Nil {
   let state = new_a()
   pn_counter_kernel.value(state) |> expect.to_equal(0)
   pn_counter_kernel.sequenced_value(state) |> expect.to_equal(0)
   state.pending |> expect.to_equal([])
 }
 
-pub fn update_is_optimistically_visible_test() {
+pub fn update_is_optimistically_visible_test() -> Nil {
   let #(state, events, op, message_id) = pn_counter_kernel.update(new_a(), 10)
   pn_counter_kernel.value(state) |> expect.to_equal(10)
   pn_counter_kernel.sequenced_value(state) |> expect.to_equal(0)
@@ -108,7 +110,7 @@ pub fn update_is_optimistically_visible_test() {
   expect_coherent(state)
 }
 
-pub fn update_accepts_negative_and_zero_amounts_test() {
+pub fn update_accepts_negative_and_zero_amounts_test() -> Nil {
   let #(state, _, _, _) = pn_counter_kernel.update(new_a(), -3)
   pn_counter_kernel.value(state) |> expect.to_equal(-3)
   let #(state, events, _, _) = pn_counter_kernel.update(state, 0)
@@ -118,7 +120,7 @@ pub fn update_accepts_negative_and_zero_amounts_test() {
   expect_coherent(state)
 }
 
-pub fn update_message_ids_increment_test() {
+pub fn update_message_ids_increment_test() -> Nil {
   let #(state, _, _, id0) = pn_counter_kernel.update(new_a(), 1)
   let #(state, _, _, id1) = pn_counter_kernel.update(state, 2)
   id0 |> expect.to_equal(0)
@@ -126,7 +128,7 @@ pub fn update_message_ids_increment_test() {
   state.next_pending_message_id |> expect.to_equal(2)
 }
 
-pub fn apply_remote_applies_delta_and_emits_diff_test() {
+pub fn apply_remote_applies_delta_and_emits_diff_test() -> Nil {
   let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 7)
   let #(state, events) = pn_counter_kernel.apply_remote(new_b(), op)
   pn_counter_kernel.value(state) |> expect.to_equal(7)
@@ -136,28 +138,28 @@ pub fn apply_remote_applies_delta_and_emits_diff_test() {
   expect_coherent(state)
 }
 
-pub fn concurrent_updates_converge_in_both_orders_test() {
+pub fn concurrent_updates_converge_in_both_orders_test() -> Nil {
   let #(_, _, op_a, _) = pn_counter_kernel.update(new_a(), 10)
   let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), 20)
 
   // Two fresh observers receive the ops in opposite orders.
   let #(observer_c, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(rid("c")), op_a)
+    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("c")), op_a)
   let #(observer_c, _) = pn_counter_kernel.apply_remote(observer_c, op_b)
   let #(observer_d, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(rid("d")), op_b)
+    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("d")), op_b)
   let #(observer_d, _) = pn_counter_kernel.apply_remote(observer_d, op_a)
 
   pn_counter_kernel.value(observer_c) |> expect.to_equal(30)
   pn_counter_kernel.value(observer_d) |> expect.to_equal(30)
 }
 
-pub fn concurrent_mixed_sign_updates_converge_test() {
+pub fn concurrent_mixed_sign_updates_converge_test() -> Nil {
   let #(_, _, op_a, _) = pn_counter_kernel.update(new_a(), 10)
   let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), -4)
 
   let #(observer, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(rid("c")), op_a)
+    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("c")), op_a)
   let #(observer, _) = pn_counter_kernel.apply_remote(observer, op_b)
   pn_counter_kernel.value(observer) |> expect.to_equal(6)
 }
@@ -166,7 +168,7 @@ pub fn concurrent_mixed_sign_updates_converge_test() {
 // CRDT-specific: idempotence, cumulative subsumption, sign routing
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn duplicate_remote_delta_is_idempotent_and_silent_test() {
+pub fn duplicate_remote_delta_is_idempotent_and_silent_test() -> Nil {
   let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 3)
   let #(state, first_events) = pn_counter_kernel.apply_remote(new_b(), op)
   first_events |> expect.to_equal([Updated(3, 3)])
@@ -181,7 +183,7 @@ pub fn duplicate_remote_delta_is_idempotent_and_silent_test() {
 /// PN3: a replica's later delta carries its cumulative count, so merging it
 /// without the earlier delta still yields the replica's full contribution —
 /// the contract the fuzz oracle's sum-of-amounts argument relies on.
-pub fn later_delta_subsumes_earlier_ones_test() {
+pub fn later_delta_subsumes_earlier_ones_test() -> Nil {
   let #(state_a, _, op1, _) = pn_counter_kernel.update(new_a(), 3)
   let #(_, _, op2, _) = pn_counter_kernel.update(state_a, 2)
 
@@ -199,7 +201,7 @@ pub fn later_delta_subsumes_earlier_ones_test() {
 // Counter parity: FIFO ack / LIFO rollback
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn ack_local_retires_pending_without_value_change_test() {
+pub fn ack_local_retires_pending_without_value_change_test() -> Nil {
   let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 5)
   let state = ack(state, op)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
@@ -208,7 +210,7 @@ pub fn ack_local_retires_pending_without_value_change_test() {
   expect_coherent(state)
 }
 
-pub fn ack_local_is_fifo_test() {
+pub fn ack_local_is_fifo_test() -> Nil {
   let #(state, _, op1, _) = pn_counter_kernel.update(new_a(), 1)
   let #(state, _, op2, _) = pn_counter_kernel.update(state, 2)
   expect_unexpected_ack(pn_counter_kernel.ack_local(state, op2))
@@ -222,7 +224,7 @@ pub fn ack_local_is_fifo_test() {
   expect_coherent(state)
 }
 
-pub fn ack_local_with_message_id_validates_metadata_test() {
+pub fn ack_local_with_message_id_validates_metadata_test() -> Nil {
   let #(state, _, op, message_id) = pn_counter_kernel.update(new_a(), 4)
   expect_unexpected_ack(pn_counter_kernel.ack_local_with_message_id(
     state,
@@ -235,12 +237,12 @@ pub fn ack_local_with_message_id_validates_metadata_test() {
   state.pending |> expect.to_equal([])
 }
 
-pub fn ack_without_pending_is_an_error_test() {
+pub fn ack_without_pending_is_an_error_test() -> Nil {
   let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 1)
   expect_unexpected_ack(pn_counter_kernel.ack_local(new_a(), op))
 }
 
-pub fn rollback_undoes_newest_pending_update_test() {
+pub fn rollback_undoes_newest_pending_update_test() -> Nil {
   let #(state, _, _, _) = pn_counter_kernel.update(new_a(), 10)
   let #(state, _, op2, message_id2) = pn_counter_kernel.update(state, -3)
 
@@ -250,7 +252,7 @@ pub fn rollback_undoes_newest_pending_update_test() {
   expect_coherent(state)
 }
 
-pub fn rollback_validates_newest_pending_metadata_test() {
+pub fn rollback_validates_newest_pending_metadata_test() -> Nil {
   let #(state, _, op1, message_id1) = pn_counter_kernel.update(new_a(), 1)
   let #(state, _, op2, message_id2) = pn_counter_kernel.update(state, 2)
 
@@ -269,7 +271,7 @@ pub fn rollback_validates_newest_pending_metadata_test() {
 /// The `optimistic` recompute test: merge is not invertible, so rollback
 /// rebuilds the cache from `sequenced` plus the remaining pending deltas —
 /// a remote contribution that arrived mid-flight must survive.
-pub fn rollback_across_remote_ops_preserves_remote_delta_test() {
+pub fn rollback_across_remote_ops_preserves_remote_delta_test() -> Nil {
   let #(state, _, op, message_id) = pn_counter_kernel.update(new_a(), 10)
   let #(_, _, remote_op, _) = pn_counter_kernel.update(new_b(), 20)
   let #(state, _) = pn_counter_kernel.apply_remote(state, remote_op)
@@ -281,7 +283,7 @@ pub fn rollback_across_remote_ops_preserves_remote_delta_test() {
   expect_coherent(state)
 }
 
-pub fn rollback_without_pending_is_an_error_test() {
+pub fn rollback_without_pending_is_an_error_test() -> Nil {
   let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 1)
   expect_unexpected_rollback(pn_counter_kernel.rollback(new_a(), op, 0))
 }
@@ -294,7 +296,7 @@ pub fn rollback_without_pending_is_an_error_test() {
 /// already sequenced (the client reloaded from a summary that contains it)
 /// changes nothing — where counter's re-increment path would double-count.
 /// The op still re-pends and is returned unchanged for routing.
-pub fn apply_stashed_op_is_idempotent_under_duplication_test() {
+pub fn apply_stashed_op_is_idempotent_under_duplication_test() -> Nil {
   let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 5)
   let state = ack(state, op)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
@@ -319,7 +321,7 @@ pub fn apply_stashed_op_is_idempotent_under_duplication_test() {
   expect_coherent(state)
 }
 
-pub fn apply_stashed_op_applies_a_genuinely_new_delta_test() {
+pub fn apply_stashed_op_applies_a_genuinely_new_delta_test() -> Nil {
   let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 5)
   // A state that never saw the op (fresh reload from an empty summary).
   let #(state, events, routed, _) =
@@ -333,14 +335,15 @@ pub fn apply_stashed_op_applies_a_genuinely_new_delta_test() {
 /// PN5/PN6/CP5: summary round trip preserving per-replica structure. The
 /// loaded client's own updates must land under its replica key, not the
 /// summarizer's — pins lattice's keep-`a`'s-id merge re-branding idiom.
-pub fn from_summary_rebrands_under_the_loader_identity_test() {
+pub fn from_summary_rebrands_under_the_loader_identity_test() -> Nil {
   let #(state, _, op_a, _) = pn_counter_kernel.update(new_a(), 3)
   let state = ack(state, op_a)
   let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), 4)
   let #(state, _) = pn_counter_kernel.apply_remote(state, op_b)
 
   let summary_json = json.to_string(pn_counter_kernel.summary(state))
-  let assert Ok(loaded) = pn_counter_kernel.from_summary(summary_json, rid("c"))
+  let assert Ok(loaded) =
+    pn_counter_kernel.from_summary(summary_json, replica("c"))
   pn_counter_kernel.value(loaded) |> expect.to_equal(7)
   pn_counter_kernel.sequenced_value(loaded) |> expect.to_equal(7)
   loaded.pending |> expect.to_equal([])
@@ -353,8 +356,8 @@ pub fn from_summary_rebrands_under_the_loader_identity_test() {
   |> expect.to_equal(dict.from_list([#("a", 3), #("b", 4), #("c", 1)]))
 }
 
-pub fn from_summary_rejects_invalid_json_test() {
-  case pn_counter_kernel.from_summary("not json", rid("c")) {
+pub fn from_summary_rejects_invalid_json_test() -> Nil {
+  case pn_counter_kernel.from_summary("not json", replica("c")) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected from_summary to reject invalid JSON"
   }
@@ -362,7 +365,7 @@ pub fn from_summary_rejects_invalid_json_test() {
 
 /// PN4 (structural): sign routing keeps per-replica cumulative counts on
 /// separate halves of the summary.
-pub fn summary_reflects_both_halves_test() {
+pub fn summary_reflects_both_halves_test() -> Nil {
   let #(state, _, op1, _) = pn_counter_kernel.update(new_a(), 5)
   let #(state, _, op2, _) = pn_counter_kernel.update(state, -3)
   let state = ack(state, op1)
@@ -376,13 +379,14 @@ pub fn summary_reflects_both_halves_test() {
 /// Mergeable-summary property: an un-acked local delta is absent from the
 /// summary, and a client loaded from that summary converges when the same
 /// delta later arrives sequenced.
-pub fn summary_excludes_pending_and_still_converges_test() {
+pub fn summary_excludes_pending_and_still_converges_test() -> Nil {
   let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 9)
   pn_counter_kernel.value(state) |> expect.to_equal(9)
   summary_counts(state, "positive") |> expect.to_equal(dict.new())
 
   let summary_json = json.to_string(pn_counter_kernel.summary(state))
-  let assert Ok(loaded) = pn_counter_kernel.from_summary(summary_json, rid("c"))
+  let assert Ok(loaded) =
+    pn_counter_kernel.from_summary(summary_json, replica("c"))
   pn_counter_kernel.value(loaded) |> expect.to_equal(0)
 
   let #(loaded, _) = pn_counter_kernel.apply_remote(loaded, op)
@@ -390,7 +394,7 @@ pub fn summary_excludes_pending_and_still_converges_test() {
   expect_coherent(loaded)
 }
 
-pub fn cache_coherence_holds_across_a_scripted_sequence_test() {
+pub fn cache_coherence_holds_across_a_scripted_sequence_test() -> Nil {
   let #(state, _, op1, _) = pn_counter_kernel.update(new_a(), 5)
   expect_coherent(state)
   let #(_, _, remote_op, _) = pn_counter_kernel.update(new_b(), -2)
@@ -408,7 +412,7 @@ pub fn cache_coherence_holds_across_a_scripted_sequence_test() {
 /// PN4: sign is routed inside the kernel — negative amounts land on the
 /// negative half, and each half's cumulative count is independent, so a
 /// later positive delta does not subsume an earlier negative one.
-pub fn sign_routing_keeps_halves_independent_test() {
+pub fn sign_routing_keeps_halves_independent_test() -> Nil {
   let #(state, _, _, _) = pn_counter_kernel.update(new_a(), 5)
   let #(state, _, op_negative, _) = pn_counter_kernel.update(state, -3)
   let #(state, _, op_positive, _) = pn_counter_kernel.update(state, 2)

@@ -18,7 +18,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
-import lattice_counters/pn_counter
+import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/crdt
 import lattice_maps/or_map.{type ORMap, type ORMapDelta}
 import lattice_registers/lww_register
@@ -92,6 +92,9 @@ pub type KernelError {
   UnexpectedRollback(detail: String)
   ModeMismatch(detail: String)
   CorruptDelta(detail: String)
+  /// The own tally of this replica for one key moved below zero. Both halves
+  /// of a PN-counter are grow-only, so a count below zero is a broken state.
+  NegativeTally(detail: String)
 }
 
 pub fn mode_to_spec(mode: OrMapMode) -> crdt.CrdtSpec {
@@ -127,10 +130,12 @@ pub fn keys(state: OrMapState) -> List(String) {
   entries(state) |> list.map(fn(entry) { entry.0 })
 }
 
-pub fn get(state: OrMapState, key: String) -> Option(OrMapValue) {
+/// The visible value for a key. The result is `Error(Nil)` when the map holds
+/// no value for that key.
+pub fn get(state: OrMapState, key: String) -> Result(OrMapValue, Nil) {
   case or_map.get(state.optimistic, key) {
-    Ok(value) -> Some(crdt_to_value(value))
-    Error(_) -> None
+    Ok(value) -> crdt_to_value(value)
+    Error(_) -> Error(Nil)
   }
 }
 
@@ -150,32 +155,37 @@ pub fn increment(
   case state.mode {
     RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
-      let #(pos, neg) =
+      let #(positive, negative) =
         dict.get(state.own_tallies, key) |> result.unwrap(#(0, 0))
-      let #(new_pos, new_neg) = case amount >= 0 {
-        True -> #(pos + amount, neg)
-        False -> #(pos, neg + { 0 - amount })
+      let #(new_positive, new_negative) = case amount >= 0 {
+        True -> #(positive + amount, negative)
+        False -> #(positive, negative + { 0 - amount })
       }
-      let own_counter = own_tally_counter(state.replica_id, new_pos, new_neg)
-      let assert Ok(#(_discarded, delta)) =
-        or_map.update_with_delta(state.optimistic, key, fn(_) {
-          crdt.CrdtPnCounter(own_counter)
-        })
-      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      use own_counter <- result.try(own_tally_counter(
+        state.replica_id,
+        new_positive,
+        new_negative,
+      ))
+      use #(_discarded, delta) <- result.try(update_with_delta(
+        state.optimistic,
+        key,
+        crdt.CrdtPnCounter(own_counter),
+      ))
+      use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let message_id = state.next_pending_message_id
       let op = Increment(key, amount, delta)
       let new_state =
         OrMapState(
           ..state,
           optimistic: optimistic,
-          own_tallies: dict.insert(state.own_tallies, key, #(new_pos, new_neg)),
+          own_tallies: dict.insert(state.own_tallies, key, #(
+            new_positive,
+            new_negative,
+          )),
           pending: list.append(state.pending, [PendingOp(op, message_id)]),
           next_pending_message_id: message_id + 1,
         )
-      let new_value = case get(new_state, key) {
-        Some(Tally(value)) -> value
-        _ -> 0
-      }
+      let new_value = tally_of(new_state, key)
       Ok(#(new_state, [TallyUpdated(key, amount, new_value)], op, message_id))
     }
   }
@@ -193,11 +203,12 @@ pub fn set_register(
       let before = entries(state)
       let timestamp = stamp(state.register_clock, key, timestamp)
       let register = lww_register.new(value, timestamp, state.replica_id)
-      let assert Ok(#(_discarded, delta)) =
-        or_map.update_with_delta(state.optimistic, key, fn(_) {
-          crdt.CrdtLwwRegister(register)
-        })
-      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      use #(_discarded, delta) <- result.try(update_with_delta(
+        state.optimistic,
+        key,
+        crdt.CrdtLwwRegister(register),
+      ))
+      use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let message_id = state.next_pending_message_id
       let op = SetRegister(key, value, timestamp, delta)
       let new_state =
@@ -261,10 +272,10 @@ fn observe_op(clock: Dict(String, Int), op: OrMapOp) -> Dict(String, Int) {
 pub fn remove(
   state: OrMapState,
   key: String,
-) -> #(OrMapState, List(OrMapEvent), OrMapOp, Int) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
   let before = entries(state)
   let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
-  let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+  use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let message_id = state.next_pending_message_id
   let op = Remove(key, delta)
   let new_state =
@@ -274,7 +285,7 @@ pub fn remove(
       pending: list.append(state.pending, [PendingOp(op, message_id)]),
       next_pending_message_id: message_id + 1,
     )
-  #(new_state, events_between(before, entries(new_state)), op, message_id)
+  Ok(#(new_state, events_between(before, entries(new_state)), op, message_id))
 }
 
 /// The ack-free p2p form of `increment`. It writes the same delta, but it
@@ -288,31 +299,36 @@ pub fn p2p_increment(
   case state.mode {
     RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
-      let #(pos, neg) =
+      let #(positive, negative) =
         dict.get(state.own_tallies, key) |> result.unwrap(#(0, 0))
-      let #(new_pos, new_neg) = case amount >= 0 {
-        True -> #(pos + amount, neg)
-        False -> #(pos, neg + { 0 - amount })
+      let #(new_positive, new_negative) = case amount >= 0 {
+        True -> #(positive + amount, negative)
+        False -> #(positive, negative + { 0 - amount })
       }
-      let own_counter = own_tally_counter(state.replica_id, new_pos, new_neg)
-      let assert Ok(#(_discarded, delta)) =
-        or_map.update_with_delta(state.optimistic, key, fn(_) {
-          crdt.CrdtPnCounter(own_counter)
-        })
-      let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
-      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      use own_counter <- result.try(own_tally_counter(
+        state.replica_id,
+        new_positive,
+        new_negative,
+      ))
+      use #(_discarded, delta) <- result.try(update_with_delta(
+        state.optimistic,
+        key,
+        crdt.CrdtPnCounter(own_counter),
+      ))
+      use sequenced <- result.try(apply_delta(state.sequenced, delta))
+      use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let op = Increment(key, amount, delta)
       let new_state =
         OrMapState(
           ..state,
           sequenced: sequenced,
           optimistic: optimistic,
-          own_tallies: dict.insert(state.own_tallies, key, #(new_pos, new_neg)),
+          own_tallies: dict.insert(state.own_tallies, key, #(
+            new_positive,
+            new_negative,
+          )),
         )
-      let new_value = case get(new_state, key) {
-        Some(Tally(value)) -> value
-        _ -> 0
-      }
+      let new_value = tally_of(new_state, key)
       Ok(#(new_state, [TallyUpdated(key, amount, new_value)], op))
     }
   }
@@ -331,12 +347,13 @@ pub fn p2p_set_register(
       let before = entries(state)
       let timestamp = stamp(state.register_clock, key, timestamp)
       let register = lww_register.new(value, timestamp, state.replica_id)
-      let assert Ok(#(_discarded, delta)) =
-        or_map.update_with_delta(state.optimistic, key, fn(_) {
-          crdt.CrdtLwwRegister(register)
-        })
-      let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
-      let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+      use #(_discarded, delta) <- result.try(update_with_delta(
+        state.optimistic,
+        key,
+        crdt.CrdtLwwRegister(register),
+      ))
+      use sequenced <- result.try(apply_delta(state.sequenced, delta))
+      use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let op = SetRegister(key, value, timestamp, delta)
       let new_state =
         OrMapState(
@@ -350,19 +367,19 @@ pub fn p2p_set_register(
   }
 }
 
-/// The ack-free p2p form of `remove`. It never fails, the same as `remove`.
+/// The ack-free p2p form of `remove`.
 pub fn p2p_remove(
   state: OrMapState,
   key: String,
-) -> #(OrMapState, List(OrMapEvent), OrMapOp) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
   let before = entries(state)
   let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
-  let assert Ok(sequenced) = or_map.apply_delta(state.sequenced, delta)
-  let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+  use sequenced <- result.try(apply_delta(state.sequenced, delta))
+  use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let op = Remove(key, delta)
   let new_state =
     OrMapState(..state, sequenced: sequenced, optimistic: optimistic)
-  #(new_state, events_between(before, entries(new_state)), op)
+  Ok(#(new_state, events_between(before, entries(new_state)), op))
 }
 
 /// Merge the full confirmed CRDT state of a peer into this state. This is the
@@ -390,7 +407,7 @@ pub fn p2p_merge(
     Error(crdt.TypeMismatch(_, _)) ->
       Error(ModeMismatch("merged value spec does not match the channel mode"))
     Ok(sequenced) -> {
-      let optimistic = replay_pending(sequenced, state.pending)
+      use optimistic <- result.try(replay_pending(sequenced, state.pending))
       let new_state =
         OrMapState(
           ..state,
@@ -423,9 +440,16 @@ fn observe_registers(
           Ok(crdt.CrdtLwwRegister(register)) ->
             case register_timestamp(register) {
               Ok(timestamp) -> observe(clock, key, timestamp)
-              Error(_) -> clock
+              Error(Nil) -> clock
             }
-          _ -> clock
+          Ok(crdt.CrdtGCounter(_))
+          | Ok(crdt.CrdtPnCounter(_))
+          | Ok(crdt.CrdtMvRegister(_))
+          | Ok(crdt.CrdtGSet(_))
+          | Ok(crdt.CrdtTwoPSet(_))
+          | Ok(crdt.CrdtOrSet(_))
+          | Ok(crdt.CrdtVersionVector(_))
+          | Error(Nil) -> clock
         }
       })
   }
@@ -452,7 +476,7 @@ pub fn apply_remote(
   let before = entries(state)
   let delta = op_delta(op)
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
-  let optimistic = replay_pending(sequenced, state.pending)
+  use optimistic <- result.try(replay_pending(sequenced, state.pending))
   let new_state =
     OrMapState(
       ..state,
@@ -529,7 +553,7 @@ pub fn rollback(
         True -> {
           let before = entries(state)
           let own_tallies = rollback_own_tallies(state.own_tallies, op)
-          let optimistic = replay_pending(state.sequenced, rest)
+          use optimistic <- result.try(replay_pending(state.sequenced, rest))
           let new_state =
             OrMapState(
               ..state,
@@ -546,10 +570,10 @@ pub fn rollback(
 pub fn apply_stashed_op(
   state: OrMapState,
   op: OrMapOp,
-) -> #(OrMapState, List(OrMapEvent), OrMapOp, Int) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
   let before = entries(state)
   let delta = op_delta(op)
-  let assert Ok(optimistic) = or_map.apply_delta(state.optimistic, delta)
+  use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let message_id = state.next_pending_message_id
   let new_state =
     OrMapState(
@@ -558,7 +582,7 @@ pub fn apply_stashed_op(
       pending: list.append(state.pending, [PendingOp(op, message_id)]),
       next_pending_message_id: message_id + 1,
     )
-  #(new_state, events_between(before, entries(new_state)), op, message_id)
+  Ok(#(new_state, events_between(before, entries(new_state)), op, message_id))
 }
 
 pub fn promote_attach(state: OrMapState) -> OrMapState {
@@ -582,8 +606,13 @@ pub fn from_summary(
     |> result.map_error(fn(_) { unsupported_spec_error(spec) }),
   )
   use parsed <- result.try(or_map.from_json(summary_json))
-  let assert Ok(sequenced) =
+  // The spec of `parsed` was read above, so this merge agrees by
+  // construction. The error arm reports the same decode failure, so this
+  // module never panics.
+  use sequenced <- result.try(
     or_map.merge(or_map.new(replica_id, mode_to_spec(mode)), parsed)
+    |> result.map_error(fn(_) { unsupported_spec_error(spec) }),
+  )
   Ok(OrMapState(
     replica_id: replica_id,
     mode: mode,
@@ -621,19 +650,34 @@ pub fn from_sequenced(
 }
 
 pub fn check_cache_coherence(state: OrMapState) -> Result(Nil, String) {
-  let recomputed = replay_pending(state.sequenced, state.pending)
-  case recomputed == state.optimistic {
-    True -> Ok(Nil)
-    False -> Error("optimistic cache diverged from sequenced + pending")
+  case replay_pending(state.sequenced, state.pending) {
+    Error(_) -> Error("a pending delta does not match the value mode")
+    Ok(recomputed) ->
+      case recomputed == state.optimistic {
+        True -> Ok(Nil)
+        False -> Error("optimistic cache diverged from sequenced + pending")
+      }
   }
 }
 
-fn own_tally_counter(replica_id: ReplicaId, pos: Int, neg: Int) {
-  let assert Ok(counter) =
+/// Build the PN-counter leaf that holds the own tally of this replica for one
+/// key. Both counts are magnitudes, so both must be zero or more.
+fn own_tally_counter(
+  replica_id: ReplicaId,
+  positive: Int,
+  negative: Int,
+) -> Result(PNCounter, KernelError) {
+  use counter <- result.try(
     pn_counter.new(replica_id)
-    |> pn_counter.try_increment(pos)
-  let assert Ok(counter) = pn_counter.try_decrement(counter, neg)
-  counter
+    |> pn_counter.try_increment(positive)
+    |> result.replace_error(NegativeTally(
+      "positive tally is " <> int.to_string(positive),
+    )),
+  )
+  pn_counter.try_decrement(counter, negative)
+  |> result.replace_error(NegativeTally(
+    "negative tally is " <> int.to_string(negative),
+  ))
 }
 
 fn rollback_own_tallies(
@@ -642,14 +686,15 @@ fn rollback_own_tallies(
 ) -> Dict(String, #(Int, Int)) {
   case op {
     Increment(key, amount, _) -> {
-      let #(pos, neg) = dict.get(own_tallies, key) |> result.unwrap(#(0, 0))
+      let #(positive, negative) =
+        dict.get(own_tallies, key) |> result.unwrap(#(0, 0))
       let next = case amount >= 0 {
-        True -> #(pos - amount, neg)
-        False -> #(pos, neg - { 0 - amount })
+        True -> #(positive - amount, negative)
+        False -> #(positive, negative - { 0 - amount })
       }
       dict.insert(own_tallies, key, next)
     }
-    _ -> own_tallies
+    SetRegister(_, _, _, _) | Remove(_, _) -> own_tallies
   }
 }
 
@@ -669,11 +714,37 @@ fn apply_delta(map: ORMap, delta: ORMapDelta) -> Result(ORMap, KernelError) {
   }
 }
 
-fn replay_pending(sequenced: ORMap, pending: List(PendingOp)) -> ORMap {
-  list.fold(pending, sequenced, fn(acc, pending) {
-    let assert Ok(next) = or_map.apply_delta(acc, op_delta(pending.op))
-    next
+/// Write one value at a key and return the map together with the sparse delta
+/// for that write. The error arm reports a value that does not agree with the
+/// value mode of the map.
+fn update_with_delta(
+  map: ORMap,
+  key: String,
+  value: crdt.Crdt,
+) -> Result(#(ORMap, ORMapDelta), KernelError) {
+  case or_map.update_with_delta(map, key, fn(_) { value }) {
+    Ok(pair) -> Ok(pair)
+    Error(crdt.TypeMismatch(expected, found)) ->
+      Error(ModeMismatch("expected " <> expected <> " value, found " <> found))
+  }
+}
+
+fn replay_pending(
+  sequenced: ORMap,
+  pending: List(PendingOp),
+) -> Result(ORMap, KernelError) {
+  list.try_fold(pending, sequenced, fn(acc, pending) {
+    apply_delta(acc, op_delta(pending.op))
   })
+}
+
+/// The visible tally for a key. The result is zero when the map holds no
+/// tally there.
+fn tally_of(state: OrMapState, key: String) -> Int {
+  case get(state, key) {
+    Ok(Tally(value)) -> value
+    Ok(Register(_)) | Error(Nil) -> 0
+  }
 }
 
 fn map_entries(map: ORMap) -> List(#(String, OrMapValue)) {
@@ -681,17 +752,26 @@ fn map_entries(map: ORMap) -> List(#(String, OrMapValue)) {
   |> list.sort(by: string.compare)
   |> list.filter_map(fn(key) {
     case or_map.get(map, key) {
-      Ok(value) -> Ok(#(key, crdt_to_value(value)))
+      Ok(value) ->
+        crdt_to_value(value) |> result.map(fn(value) { #(key, value) })
       Error(_) -> Error(Nil)
     }
   })
 }
 
-fn crdt_to_value(value: crdt.Crdt) -> OrMapValue {
+/// Read a lattice value as a kernel value. The result is `Error(Nil)` for a
+/// lattice value that neither map mode holds. The value mode of the map keeps
+/// such a value out, so this arm reports a broken map instead of a panic.
+fn crdt_to_value(value: crdt.Crdt) -> Result(OrMapValue, Nil) {
   case value {
-    crdt.CrdtPnCounter(counter) -> Tally(pn_counter.value(counter))
-    crdt.CrdtLwwRegister(register) -> Register(lww_register.value(register))
-    _ -> panic as "ORMap value did not match the kernel mode"
+    crdt.CrdtPnCounter(counter) -> Ok(Tally(pn_counter.value(counter)))
+    crdt.CrdtLwwRegister(register) -> Ok(Register(lww_register.value(register)))
+    crdt.CrdtGCounter(_)
+    | crdt.CrdtMvRegister(_)
+    | crdt.CrdtGSet(_)
+    | crdt.CrdtTwoPSet(_)
+    | crdt.CrdtOrSet(_)
+    | crdt.CrdtVersionVector(_) -> Error(Nil)
   }
 }
 
@@ -709,15 +789,24 @@ fn events_between(
 
   list.filter_map(keys, fn(key) {
     case entry_value(before, key), entry_value(after, key) {
-      None, None -> Error(Nil)
-      Some(_), None -> Ok(KeyRemoved(key))
-      None, Some(Tally(value)) -> Ok(TallyUpdated(key, value, value))
-      Some(Tally(old)), Some(Tally(new)) if old != new ->
-        Ok(TallyUpdated(key, new - old, new))
-      None, Some(Register(value)) -> Ok(RegisterUpdated(key, value))
-      Some(Register(old)), Some(Register(new)) if old != new ->
-        Ok(RegisterUpdated(key, new))
-      _, _ -> Error(Nil)
+      Error(Nil), Error(Nil) -> Error(Nil)
+      Ok(_), Error(Nil) -> Ok(KeyRemoved(key))
+      Error(Nil), Ok(Tally(value)) -> Ok(TallyUpdated(key, value, value))
+      Error(Nil), Ok(Register(value)) -> Ok(RegisterUpdated(key, value))
+      Ok(Tally(old)), Ok(Tally(new)) ->
+        case old == new {
+          True -> Error(Nil)
+          False -> Ok(TallyUpdated(key, new - old, new))
+        }
+      Ok(Register(old)), Ok(Register(new)) ->
+        case old == new {
+          True -> Error(Nil)
+          False -> Ok(RegisterUpdated(key, new))
+        }
+      // One map holds one value mode, so a key never changes mode. The arm
+      // reports no event, the same as an unchanged key.
+      Ok(Tally(_)), Ok(Register(_)) | Ok(Register(_)), Ok(Tally(_)) ->
+        Error(Nil)
     }
   })
 }
@@ -725,11 +814,10 @@ fn events_between(
 fn entry_value(
   entries: List(#(String, OrMapValue)),
   key: String,
-) -> Option(OrMapValue) {
+) -> Result(OrMapValue, Nil) {
   entries
   |> list.find(fn(entry) { entry.0 == key })
   |> result.map(fn(entry) { entry.1 })
-  |> option.from_result
 }
 
 fn pop_last(

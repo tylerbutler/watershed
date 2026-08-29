@@ -33,7 +33,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lustre
-import lustre/attribute.{class, disabled, style}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -52,8 +52,8 @@ import watershed/sequence_kernel
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed_lustre
 
-import doc_schema
-import job.{type Job, Job}
+import work_queue_lustre/doc_schema
+import work_queue_lustre/job.{type Job, Job}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -80,7 +80,7 @@ const job_labels = [
   "compress logs", "render report",
 ]
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("work-queue")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -130,7 +130,7 @@ type Model {
     shared: Option(Shared),
     pending: PendingShared,
     user_id: String,
-    my_int: Option(Int),
+    my_client_id: Option(Int),
     // Snapshots, re-read from the channels on every event.
     queued: List(Job),
     in_progress: List(#(String, Job, Option(Int))),
@@ -173,7 +173,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       shared: None,
       pending: PendingShared(None, None, None),
       user_id: user_id,
-      my_int: None,
+      my_client_id: None,
       queued: [],
       in_progress: [],
       done: [],
@@ -273,15 +273,30 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // Everything else — adds, peer acquires, re-releases after a leave — just
     // refreshes the snapshot. `Added(newly_added: False)` is a job returning
     // to the queue; it falls out of the re-read like any other change.
-    QueueEvent(_) -> #(snapshot(model), effect.none())
+    QueueEvent(ordered_collection_kernel.Completed(_, False))
+    | QueueEvent(ordered_collection_kernel.Added(_, _, _))
+    | QueueEvent(ordered_collection_kernel.Acquired(_, _, _))
+    | QueueEvent(ordered_collection_kernel.LocalReleased(_, _)) -> #(
+      snapshot(model),
+      effect.none(),
+    )
 
     // Role changes carry no payload worth keeping: the snapshot re-reads the
     // committed queue, and `maybe_start_generator` notices a promotion —
     // whether it arrived as `Assigned` (own volunteer acked) or as the bare
     // `QueueChanged` a survivor gets when the holder's leave sequences.
-    RoleEvent(_) -> maybe_start_generator(snapshot(model))
+    RoleEvent(task_manager_kernel.QueueChanged(_, _, _))
+    | RoleEvent(task_manager_kernel.Assigned(_))
+    | RoleEvent(task_manager_kernel.Lost(_))
+    | RoleEvent(task_manager_kernel.Completed(_))
+    | RoleEvent(task_manager_kernel.Abandoned(_))
+    | RoleEvent(task_manager_kernel.RolledBack(_)) ->
+      maybe_start_generator(snapshot(model))
 
-    DoneEvent(_) -> #(snapshot(model), effect.none())
+    DoneEvent(sequence_kernel.SequenceChanged(_)) -> #(
+      snapshot(model),
+      effect.none(),
+    )
 
     BecomeDispatcherClicked ->
       case model.shared {
@@ -405,11 +420,14 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None, PendingShared(Some(queue), Some(roles), Some(done)) -> {
       let shared = Shared(queue:, roles:, done:)
-      let my_int = case model.doc {
+      let my_client_id = case model.doc {
         Some(doc) -> watershed.client_id(doc) |> option.map(client_id.to_int)
         None -> None
       }
-      let model = snapshot(Model(..model, shared: Some(shared), my_int: my_int))
+      let model =
+        snapshot(
+          Model(..model, shared: Some(shared), my_client_id: my_client_id),
+        )
       #(
         model,
         effect.batch([
@@ -459,7 +477,7 @@ fn snapshot(model: Model) -> Model {
 }
 
 fn is_dispatcher(model: Model) -> Bool {
-  model.my_int != None && model.role_assignee == model.my_int
+  model.my_client_id != None && model.role_assignee == model.my_client_id
 }
 
 /// Arm the generation timer when the sequenced role state says this tab holds
@@ -492,16 +510,16 @@ fn next_job(model: Model) -> Job {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · consensus work queue")]),
     status_strip(model),
     error_view(model),
-    html.div([class("board")], [
+    html.div([attribute.class("board")], [
       queued_column(model),
       in_progress_column(model),
       done_column(model),
     ]),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open three tabs. Volunteer one as dispatcher and another as backup, "
         <> "claim jobs from the third — then close the tab marked "
@@ -518,7 +536,7 @@ fn status_strip(model: Model) -> Element(Msg) {
     Ready -> "connected"
     Failed(reason) -> "failed: " <> reason
   }
-  html.div([class("status")], [
+  html.div([attribute.class("status")], [
     html.span([], [html.text(connection <> " · ")]),
     client_chip(model.user_id, presence.short_name(model.user_id)),
     dispatcher_badge(model),
@@ -527,14 +545,15 @@ fn status_strip(model: Model) -> Element(Msg) {
 }
 
 fn dispatcher_badge(model: Model) -> Element(Msg) {
-  case model.role_assignee, model.my_int {
-    None, _ -> html.span([class("role")], [html.text(" · no dispatcher")])
+  case model.role_assignee, model.my_client_id {
+    None, _ ->
+      html.span([attribute.class("role")], [html.text(" · no dispatcher")])
     Some(assignee), Some(mine) if assignee == mine ->
-      html.span([class("role role-mine")], [
+      html.span([attribute.class("role role-mine")], [
         html.text(" · this tab is the dispatcher"),
       ])
     Some(assignee), _ ->
-      html.span([class("role")], [
+      html.span([attribute.class("role")], [
         html.text(" · dispatcher: "),
         owner_chip(Some(assignee), model),
       ])
@@ -548,12 +567,12 @@ fn dispatcher_button(model: Model) -> Element(Msg) {
         html.text("Abandon role"),
       ])
     False, True ->
-      html.button([disabled(True)], [html.text("Queued as backup")])
+      html.button([attribute.disabled(True)], [html.text("Queued as backup")])
     False, False ->
       html.button(
         [
           event.on_click(BecomeDispatcherClicked),
-          disabled(model.shared == None),
+          attribute.disabled(model.shared == None),
         ],
         [html.text("Become dispatcher")],
       )
@@ -561,7 +580,9 @@ fn dispatcher_button(model: Model) -> Element(Msg) {
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error")], [html.text(option.unwrap(model.last_error, ""))])
+  html.p([attribute.class("error")], [
+    html.text(option.unwrap(model.last_error, "")),
+  ])
 }
 
 fn queued_column(model: Model) -> Element(Msg) {
@@ -573,10 +594,10 @@ fn queued_column(model: Model) -> Element(Msg) {
   }
   let claimable = case model.claim {
     Idle | Missed -> model.shared != None && model.queued != []
-    _ -> False
+    PendingClaim | Working(..) -> False
   }
   column("Queued (" <> int.to_string(list.length(model.queued)) <> ")", [
-    html.button([event.on_click(ClaimClicked), disabled(!claimable)], [
+    html.button([event.on_click(ClaimClicked), attribute.disabled(!claimable)], [
       html.text(claim_label),
     ]),
     ..case model.queued {
@@ -587,9 +608,9 @@ fn queued_column(model: Model) -> Element(Msg) {
 }
 
 fn queued_card(entry: Job) -> Element(Msg) {
-  html.div([class("card")], [
-    html.div([class("card-label")], [html.text(entry.label)]),
-    html.div([class("card-meta")], [
+  html.div([attribute.class("card")], [
+    html.div([attribute.class("card-label")], [html.text(entry.label)]),
+    html.div([attribute.class("card-meta")], [
       html.text("from "),
       client_chip(entry.created_by, presence.short_name(entry.created_by)),
     ]),
@@ -610,11 +631,11 @@ fn in_progress_card(
   let #(acquire_id, entry_job, owner) = entry
   let mine = case model.claim {
     Working(current, _) -> current == acquire_id
-    _ -> False
+    Idle | PendingClaim | Missed -> False
   }
-  html.div([class(card_class(mine))], [
-    html.div([class("card-label")], [html.text(entry_job.label)]),
-    html.div([class("card-meta")], [
+  html.div([attribute.class(card_class(mine))], [
+    html.div([attribute.class("card-label")], [html.text(entry_job.label)]),
+    html.div([attribute.class("card-meta")], [
       html.text(case mine {
         True -> "working… "
         False -> "held by "
@@ -648,43 +669,49 @@ fn done_column(model: Model) -> Element(Msg) {
 }
 
 fn done_card(entry: Job) -> Element(Msg) {
-  html.div([class("card card-done")], [
-    html.div([class("card-label")], [html.text(entry.label)]),
+  html.div([attribute.class("card card-done")], [
+    html.div([attribute.class("card-label")], [html.text(entry.label)]),
   ])
 }
 
 fn column(title: String, cards: List(Element(Msg))) -> Element(Msg) {
-  html.section([class("column")], [
+  html.section([attribute.class("column")], [
     html.h2([], [html.text(title)]),
-    html.div([class("cards")], cards),
+    html.div([attribute.class("cards")], cards),
   ])
 }
 
 fn empty_note(text: String) -> Element(Msg) {
-  html.p([class("empty")], [html.text(text)])
+  html.p([attribute.class("empty")], [html.text(text)])
 }
 
 /// A colored chip for a user id, deterministic across tabs.
 fn client_chip(user: String, label: String) -> Element(Msg) {
-  html.span([class("chip"), style("border-color", presence.color_for(user))], [
-    html.text(label),
-  ])
+  html.span(
+    [
+      attribute.class("chip"),
+      attribute.style("border-color", presence.color_for(user)),
+    ],
+    [
+      html.text(label),
+    ],
+  )
 }
 
 /// The kernels identify clients by hashed int, not user id, so peers render as
 /// `client N` — except this tab, which knows its own number.
 fn owner_chip(owner: Option(Int), model: Model) -> Element(Msg) {
   case owner {
-    None -> html.span([class("chip")], [html.text("unowned")])
+    None -> html.span([attribute.class("chip")], [html.text("unowned")])
     Some(id) -> {
-      let label = case model.my_int {
+      let label = case model.my_client_id {
         Some(mine) if mine == id -> "me"
         _ -> "client " <> int.to_string(id)
       }
       html.span(
         [
-          class("chip"),
-          style("border-color", presence.color_for(int.to_string(id))),
+          attribute.class("chip"),
+          attribute.style("border-color", presence.color_for(int.to_string(id))),
         ],
         [html.text(label)],
       )

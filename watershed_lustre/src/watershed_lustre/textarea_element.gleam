@@ -28,7 +28,7 @@
 //// A Lustre host sets the same property declaratively, and with types:
 ////
 //// ```gleam
-//// textarea_element.element(channel: text, attrs: [attribute.rows(10)])
+//// textarea_element.element(channel: text, attributes: [attribute.rows(10)])
 //// ```
 ////
 //// This is the one place at which the opaque handle passes through an untyped
@@ -135,16 +135,16 @@ pub fn register() -> Result(Nil, lustre.Error) {
 /// the `rows`, `cols`, and `placeholder` attributes, or `::part(textarea)`.
 pub fn element(
   channel channel: SharedText,
-  attrs attrs: List(Attribute(msg)),
+  attributes attributes: List(Attribute(msg)),
 ) -> Element(msg) {
-  element.element(name, [channel_property(channel), ..attrs], [])
+  element.element(name, [channel_property(channel), ..attributes], [])
 }
 
 /// The `channel` property as a typed attribute, for a host that renders the tag
 /// itself. This is the one unsafe seam of the module. The live handle passes
 /// through as a property value, and the other side checks its shape first.
 pub fn channel_property(channel: SharedText) -> Attribute(msg) {
-  attribute.property("channel", as_json(channel))
+  attribute.property("channel", shared_text_to_json(channel))
 }
 
 /// One peer cursor, in the wire shape of the `peers` property. `id` must be
@@ -191,7 +191,7 @@ type Model {
     /// value.
     announced: Option(textarea.Cursor),
     rows: Option(Int),
-    cols: Option(Int),
+    columns: Option(Int),
     placeholder: Option(String),
     disabled: Bool,
   )
@@ -201,7 +201,7 @@ type Msg {
   ChannelReceived(SharedText)
   PeersReceived(List(textarea.Peer))
   RowsChanged(Option(Int))
-  ColsChanged(Option(Int))
+  ColumnsChanged(Option(Int))
   PlaceholderChanged(Option(String))
   DisabledChanged(Bool)
   Inner(textarea.Msg)
@@ -212,7 +212,7 @@ fn options() -> List(component.Option(Msg)) {
     component.on_property_change("channel", channel_decoder()),
     component.on_property_change("peers", peers_decoder()),
     component.on_attribute_change("rows", count(RowsChanged)),
-    component.on_attribute_change("cols", count(ColsChanged)),
+    component.on_attribute_change("cols", count(ColumnsChanged)),
     component.on_attribute_change("placeholder", fn(value) {
       Ok(
         PlaceholderChanged(case value {
@@ -234,14 +234,14 @@ fn count(to_msg: fn(Option(Int)) -> Msg) -> fn(String) -> Result(Msg, Nil) {
   fn(value) { Ok(to_msg(option.from_result(int.parse(value)))) }
 }
 
-fn init(_) -> #(Model, Effect(Msg)) {
+fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   #(
     Model(
       editor: None,
       peers: [],
       announced: None,
       rows: None,
-      cols: None,
+      columns: None,
       placeholder: None,
       disabled: False,
     ),
@@ -306,7 +306,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     RowsChanged(rows) -> #(Model(..model, rows:), effect.none())
-    ColsChanged(cols) -> #(Model(..model, cols:), effect.none())
+    ColumnsChanged(columns) -> #(Model(..model, columns:), effect.none())
     PlaceholderChanged(placeholder) -> #(
       Model(..model, placeholder:),
       effect.none(),
@@ -376,22 +376,22 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 fn passthrough(model: Model) -> List(Attribute(msg)) {
-  let attrs = [component.part("textarea")]
-  let attrs = case model.disabled {
-    True -> [attribute.disabled(True), ..attrs]
-    False -> attrs
+  let attributes = [component.part("textarea")]
+  let attributes = case model.disabled {
+    True -> [attribute.disabled(True), ..attributes]
+    False -> attributes
   }
-  let attrs = case model.placeholder {
-    Some(text) -> [attribute.placeholder(text), ..attrs]
-    None -> attrs
+  let attributes = case model.placeholder {
+    Some(text) -> [attribute.placeholder(text), ..attributes]
+    None -> attributes
   }
-  let attrs = case model.cols {
-    Some(cols) -> [attribute.cols(cols), ..attrs]
-    None -> attrs
+  let attributes = case model.columns {
+    Some(columns) -> [attribute.cols(columns), ..attributes]
+    None -> attributes
   }
   case model.rows {
-    Some(rows) -> [attribute.rows(rows), ..attrs]
-    None -> attrs
+    Some(rows) -> [attribute.rows(rows), ..attributes]
+    None -> attributes
   }
 }
 
@@ -407,7 +407,7 @@ fn channel_decoder() -> Decoder(Msg) {
   use _address <- decode.field("address", decode.string)
   use _runtime <- decode.field("runtime", decode.dynamic)
   use handle <- decode.then(decode.dynamic)
-  decode.success(ChannelReceived(as_shared_text(handle)))
+  decode.success(ChannelReceived(dynamic_to_shared_text(handle)))
 }
 
 fn peers_decoder() -> Decoder(Msg) {
@@ -425,7 +425,7 @@ fn peers_decoder() -> Decoder(Msg) {
 // auditable in a single screen: a handle leaves the typed world as a property
 // value here, and re-enters it — shape-checked by `channel_decoder` — there.
 @external(javascript, "./textarea_element_ffi.mjs", "identity")
-fn as_json(channel: SharedText) -> Json
+fn shared_text_to_json(channel: SharedText) -> Json
 
 @external(javascript, "./textarea_element_ffi.mjs", "identity")
-fn as_shared_text(value: Dynamic) -> SharedText
+fn dynamic_to_shared_text(value: Dynamic) -> SharedText

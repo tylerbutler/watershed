@@ -40,7 +40,7 @@ import watershed/register_collection_kernel
 import watershed/sequence_kernel
 import watershed/text_kernel
 import watershed/wire
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 import watershed/wire/socket
 import watershed/wire/summary_blob
 
@@ -91,7 +91,7 @@ fn test_connect_message() -> message.ConnectMessage {
 // connect_document encoding
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn encode_connect_document_has_required_fields_test() {
+pub fn encode_connect_document_has_required_fields_test() -> Nil {
   let encoded =
     socket.encode_connect_document(test_connect_message(), None)
     |> json.to_string
@@ -107,7 +107,7 @@ pub fn encode_connect_document_has_required_fields_test() {
   )
 }
 
-pub fn encode_connect_document_includes_last_seen_sn_test() {
+pub fn encode_connect_document_includes_last_seen_sn_test() -> Nil {
   let encoded =
     socket.encode_connect_document(test_connect_message(), Some(42))
     |> json.to_string
@@ -118,9 +118,9 @@ pub fn encode_connect_document_includes_last_seen_sn_test() {
   |> expect.to_be_true()
 }
 
-pub fn encode_connect_document_null_token_test() {
-  let msg = message.ConnectMessage(..test_connect_message(), token: None)
-  socket.encode_connect_document(msg, None)
+pub fn encode_connect_document_null_token_test() -> Nil {
+  let connect = message.ConnectMessage(..test_connect_message(), token: None)
+  socket.encode_connect_document(connect, None)
   |> json.to_string
   |> string_contains("\"token\":null")
   |> expect.to_be_true()
@@ -176,7 +176,7 @@ fn connected_fixture() -> String {
   }"
 }
 
-pub fn supported_features_advertises_presence_test() {
+pub fn supported_features_advertises_presence_test() -> Nil {
   let connected = parse(connected_fixture(), socket.connected_message_decoder())
 
   socket.supports_feature(
@@ -195,7 +195,7 @@ pub fn supported_features_advertises_presence_test() {
   |> expect.to_be_false
 }
 
-pub fn decode_connected_message_test() {
+pub fn decode_connected_message_test() -> Nil {
   let connected = parse(connected_fixture(), socket.connected_message_decoder())
 
   connected.client_id |> expect.to_equal("default_dice_1")
@@ -222,7 +222,7 @@ pub fn decode_connected_message_test() {
   connected.summary_context |> expect.to_equal(None)
 }
 
-pub fn decode_connected_message_rejects_unknown_scope_test() {
+pub fn decode_connected_message_rejects_unknown_scope_test() -> Nil {
   let fixture =
     connected_fixture()
     |> string.replace("doc:write", "future:scope")
@@ -233,7 +233,7 @@ pub fn decode_connected_message_rejects_unknown_scope_test() {
   Nil
 }
 
-pub fn decode_connected_message_with_summary_context_test() {
+pub fn decode_connected_message_with_summary_context_test() -> Nil {
   let fixture =
     "{
       \"claims\": {\"documentId\": \"dice\", \"scopes\": [], \"tenantId\": \"default\",
@@ -258,7 +258,7 @@ pub fn decode_connected_message_with_summary_context_test() {
 // summary blob codec
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn summary_blob_round_trips_test() {
+pub fn summary_blob_round_trips_test() -> Nil {
   let entries = [
     #("die", json.int(4)),
     #("label", json.string("hello")),
@@ -282,7 +282,7 @@ pub fn summary_blob_round_trips_test() {
   normalize(decoded_entries) |> expect.to_equal(normalize(entries))
 }
 
-pub fn summary_blob_rejects_unknown_version_test() {
+pub fn summary_blob_rejects_unknown_version_test() -> Nil {
   let raw =
     "{\"watershedSummaryVersion\": 999, \"address\": \"root\","
     <> " \"sequenceNumber\": 1, \"entries\": []}"
@@ -292,9 +292,9 @@ pub fn summary_blob_rejects_unknown_version_test() {
   }
 }
 
-pub fn encode_summarize_op_test() {
+pub fn encode_summarize_op_test() -> Nil {
   let op =
-    ops.outbound_summarize_op(
+    wire_op.outbound_summarize_op(
       client_sequence_number: 3,
       reference_sequence_number: 9,
       handle: "tree-abc",
@@ -311,7 +311,7 @@ pub fn encode_summarize_op_test() {
   string_contains(encoded, "\"clientSequenceNumber\":3") |> expect.to_be_true()
 }
 
-pub fn decode_connect_error_test() {
+pub fn decode_connect_error_test() -> Nil {
   let error =
     parse(
       "{\"code\": 401, \"message\": \"Token has expired\"}",
@@ -324,7 +324,7 @@ pub fn decode_connect_error_test() {
 // ripple (ephemeral) codecs
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn encode_submit_signal_v2_shape_test() {
+pub fn encode_submit_signal_v2_shape_test() -> Nil {
   let encoded =
     socket.encode_submit_ripple(
       client_id: "client-abc",
@@ -344,7 +344,7 @@ pub fn encode_submit_signal_v2_shape_test() {
   string_contains(encoded, "\"editing\":true") |> expect.to_be_true()
 }
 
-pub fn decode_signal_message_test() {
+pub fn decode_signal_message_test() -> Nil {
   let ripple =
     parse(
       "{\"clientId\": \"client-xyz\",
@@ -364,7 +364,7 @@ pub fn decode_signal_message_test() {
   |> expect.to_equal(Ok("r0c0"))
 }
 
-pub fn decode_signal_message_minimal_test() {
+pub fn decode_signal_message_minimal_test() -> Nil {
   // Server-originated ripples may omit clientId/type; content is required.
   let ripple = parse("{\"content\": {}}", socket.ripple_message_decoder())
   ripple.client_id |> expect.to_equal(None)
@@ -428,7 +428,7 @@ fn bare_op_event_fixture() -> String {
     ]"
 }
 
-pub fn decode_op_message_test() {
+pub fn decode_op_message_test() -> Nil {
   let op_message = parse(op_event_fixture(), socket.op_message_decoder())
 
   op_message.document_id |> expect.to_equal("dice")
@@ -448,7 +448,7 @@ pub fn decode_op_message_test() {
 /// every path (submit, join, leave, requestOps, summary), where levee wrapped
 /// them in `{documentId, op: [...]}`. Both shapes have to decode: the sluice
 /// still emits the enclosing object, and so does a real levee server.
-pub fn decode_bare_op_message_test() {
+pub fn decode_bare_op_message_test() -> Nil {
   let op_message = parse(bare_op_event_fixture(), socket.op_message_decoder())
 
   // Nothing in the runtime reads `document_id` — the bare shape simply has no
@@ -466,11 +466,11 @@ pub fn decode_bare_op_message_test() {
   join.message_type |> expect.to_equal("join")
 }
 
-pub fn decode_map_envelope_from_sequenced_contents_test() {
+pub fn decode_map_envelope_from_sequenced_contents_test() -> Nil {
   let op_message = parse(op_event_fixture(), socket.op_message_decoder())
   let assert [op, _join] = op_message.ops
 
-  ops.decode_map_envelope(op.contents)
+  wire_op.decode_map_envelope(op.contents)
   |> expect.to_equal(Ok(#("root", Delete("die"))))
 }
 
@@ -478,17 +478,17 @@ pub fn decode_map_envelope_from_sequenced_contents_test() {
 // map op envelope round-trips
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn round_trip_map_op(op: map_kernel.MapOp) {
-  let encoded = ops.encode_map_envelope("root", op) |> json.to_string
-  let decoded = parse(encoded, ops.map_envelope_decoder())
+fn round_trip_map_op(op: map_kernel.MapOp) -> Nil {
+  let encoded = wire_op.encode_map_envelope("root", op) |> json.to_string
+  let decoded = parse(encoded, wire_op.map_envelope_decoder())
   decoded |> expect.to_equal(#("root", op))
 }
 
-pub fn map_op_set_round_trip_test() {
+pub fn map_op_set_round_trip_test() -> Nil {
   round_trip_map_op(Set("die", json.int(4)))
 }
 
-pub fn map_op_set_nested_value_round_trip_test() {
+pub fn map_op_set_nested_value_round_trip_test() -> Nil {
   round_trip_map_op(Set(
     "config",
     json.object([
@@ -499,17 +499,17 @@ pub fn map_op_set_nested_value_round_trip_test() {
   ))
 }
 
-pub fn map_op_delete_round_trip_test() {
+pub fn map_op_delete_round_trip_test() -> Nil {
   round_trip_map_op(Delete("die"))
 }
 
-pub fn map_op_clear_round_trip_test() {
+pub fn map_op_clear_round_trip_test() -> Nil {
   round_trip_map_op(Clear)
 }
 
-pub fn map_op_set_wire_shape_test() {
+pub fn map_op_set_wire_shape_test() -> Nil {
   // Byte-identical to the TS `@fluidframework/map` op format.
-  ops.encode_map_envelope("root", Set("die", json.int(4)))
+  wire_op.encode_map_envelope("root", Set("die", json.int(4)))
   |> json.to_string
   |> expect.to_equal(
     "{\"address\":\"root\",\"contents\":"
@@ -518,13 +518,13 @@ pub fn map_op_set_wire_shape_test() {
   )
 }
 
-pub fn map_op_rejects_non_plain_value_test() {
+pub fn map_op_rejects_non_plain_value_test() -> Nil {
   let shared =
     "{\"address\": \"root\",
       \"contents\": {\"type\": \"set\", \"key\": \"k\",
                      \"value\": {\"type\": \"Shared\", \"value\": \"handle\"}}}"
   let _ =
-    json.parse(shared, ops.map_envelope_decoder())
+    json.parse(shared, wire_op.map_envelope_decoder())
     |> expect.to_be_error()
   Nil
 }
@@ -533,22 +533,22 @@ pub fn map_op_rejects_non_plain_value_test() {
 // counter op envelope round-trips
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn round_trip_counter_op(op: counter_kernel.CounterOp) {
-  let encoded = ops.encode_counter_envelope("counter", op) |> json.to_string
-  let decoded = parse(encoded, ops.counter_envelope_decoder())
+fn round_trip_counter_op(op: counter_kernel.CounterOp) -> Nil {
+  let encoded = wire_op.encode_counter_envelope("counter", op) |> json.to_string
+  let decoded = parse(encoded, wire_op.counter_envelope_decoder())
   decoded |> expect.to_equal(#("counter", op))
 }
 
-pub fn counter_op_increment_round_trip_test() {
+pub fn counter_op_increment_round_trip_test() -> Nil {
   round_trip_counter_op(counter_kernel.Increment(4))
 }
 
-pub fn counter_op_negative_increment_round_trip_test() {
+pub fn counter_op_negative_increment_round_trip_test() -> Nil {
   round_trip_counter_op(counter_kernel.Increment(-3))
 }
 
-pub fn counter_op_wire_shape_test() {
-  ops.encode_counter_envelope("counter", counter_kernel.Increment(4))
+pub fn counter_op_wire_shape_test() -> Nil {
+  wire_op.encode_counter_envelope("counter", counter_kernel.Increment(4))
   |> json.to_string
   |> expect.to_equal(
     "{\"address\":\"counter\",\"contents\":"
@@ -569,17 +569,17 @@ fn a_pn_counter_op(amount: Int) -> pn_counter_kernel.PnCounterOp {
   op
 }
 
-fn round_trip_pn_counter_op(op: pn_counter_kernel.PnCounterOp) {
-  let encoded = ops.encode_pn_counter_envelope("pnc", op) |> json.to_string
-  let decoded = parse(encoded, ops.pn_counter_envelope_decoder())
+fn round_trip_pn_counter_op(op: pn_counter_kernel.PnCounterOp) -> Nil {
+  let encoded = wire_op.encode_pn_counter_envelope("pnc", op) |> json.to_string
+  let decoded = parse(encoded, wire_op.pn_counter_envelope_decoder())
   decoded |> expect.to_equal(#("pnc", op))
 }
 
-pub fn pn_counter_op_increment_round_trip_test() {
+pub fn pn_counter_op_increment_round_trip_test() -> Nil {
   round_trip_pn_counter_op(a_pn_counter_op(7))
 }
 
-pub fn pn_counter_op_decrement_round_trip_test() {
+pub fn pn_counter_op_decrement_round_trip_test() -> Nil {
   round_trip_pn_counter_op(a_pn_counter_op(-4))
 }
 
@@ -587,18 +587,18 @@ pub fn pn_counter_op_decrement_round_trip_test() {
 // pact-map op envelope round-trips
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn round_trip_pact_map_op(op: pact_map_kernel.PactMapOp) {
-  let encoded = ops.encode_pact_map_envelope("pm", op) |> json.to_string
+fn round_trip_pact_map_op(op: pact_map_kernel.PactMapOp) -> Nil {
+  let encoded = wire_op.encode_pact_map_envelope("pm", op) |> json.to_string
   let assert Ok(#(address, decoded)) =
-    json.parse(encoded, ops.pact_map_envelope_decoder())
+    json.parse(encoded, wire_op.pact_map_envelope_decoder())
   address |> expect.to_equal("pm")
   // `Json` values are opaque and not reliably equal across a decode; compare
   // canonical re-encodings instead.
-  json.to_string(ops.encode_pact_map_op(decoded))
-  |> expect.to_equal(json.to_string(ops.encode_pact_map_op(op)))
+  json.to_string(wire_op.encode_pact_map_op(decoded))
+  |> expect.to_equal(json.to_string(wire_op.encode_pact_map_op(op)))
 }
 
-pub fn pact_map_op_set_round_trip_test() {
+pub fn pact_map_op_set_round_trip_test() -> Nil {
   round_trip_pact_map_op(pact_map_kernel.Set(
     "grade",
     Some(json.string("2.1%")),
@@ -606,16 +606,16 @@ pub fn pact_map_op_set_round_trip_test() {
   ))
 }
 
-pub fn pact_map_op_set_tombstone_round_trip_test() {
+pub fn pact_map_op_set_tombstone_round_trip_test() -> Nil {
   round_trip_pact_map_op(pact_map_kernel.Set("grade", None, 7))
 }
 
-pub fn pact_map_op_set_null_value_round_trip_test() {
+pub fn pact_map_op_set_null_value_round_trip_test() -> Nil {
   // `Some(null)` (a real null value) must stay distinct from `None` (delete).
   round_trip_pact_map_op(pact_map_kernel.Set("grade", Some(json.null()), 2))
 }
 
-pub fn pact_map_op_accept_round_trip_test() {
+pub fn pact_map_op_accept_round_trip_test() -> Nil {
   round_trip_pact_map_op(pact_map_kernel.Accept("grade"))
 }
 
@@ -623,38 +623,38 @@ pub fn pact_map_op_accept_round_trip_test() {
 // ordered-collection op envelope round-trips
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn round_trip_ordered_op(op: ordered_collection_kernel.OrderedOp) {
-  let encoded = ops.encode_ordered_envelope("oc", op) |> json.to_string
+fn round_trip_ordered_op(op: ordered_collection_kernel.OrderedOp) -> Nil {
+  let encoded = wire_op.encode_ordered_envelope("oc", op) |> json.to_string
   let assert Ok(#(address, decoded)) =
-    json.parse(encoded, ops.ordered_envelope_decoder())
+    json.parse(encoded, wire_op.ordered_envelope_decoder())
   address |> expect.to_equal("oc")
   // `Json` values are opaque and not reliably equal across a decode; compare
   // canonical re-encodings instead.
-  json.to_string(ops.encode_ordered_op(decoded))
-  |> expect.to_equal(json.to_string(ops.encode_ordered_op(op)))
+  json.to_string(wire_op.encode_ordered_op(decoded))
+  |> expect.to_equal(json.to_string(wire_op.encode_ordered_op(op)))
 }
 
-pub fn ordered_op_add_round_trip_test() {
+pub fn ordered_op_add_round_trip_test() -> Nil {
   round_trip_ordered_op(ordered_collection_kernel.Add(json.string("job")))
 }
 
-pub fn ordered_op_acquire_round_trip_test() {
+pub fn ordered_op_acquire_round_trip_test() -> Nil {
   round_trip_ordered_op(ordered_collection_kernel.Acquire("acq-1"))
 }
 
-pub fn ordered_op_complete_round_trip_test() {
+pub fn ordered_op_complete_round_trip_test() -> Nil {
   round_trip_ordered_op(ordered_collection_kernel.Complete("acq-1"))
 }
 
-pub fn ordered_op_release_round_trip_test() {
+pub fn ordered_op_release_round_trip_test() -> Nil {
   round_trip_ordered_op(ordered_collection_kernel.Release("acq-1"))
 }
 
-pub fn counter_op_rejects_fractional_increment_test() {
+pub fn counter_op_rejects_fractional_increment_test() -> Nil {
   let fractional =
     "{\"address\":\"counter\",\"contents\":{\"type\":\"increment\",\"incrementAmount\":1.5}}"
   let _ =
-    json.parse(fractional, ops.counter_envelope_decoder())
+    json.parse(fractional, wire_op.counter_envelope_decoder())
     |> expect.to_be_error()
   Nil
 }
@@ -663,9 +663,9 @@ pub fn counter_op_rejects_fractional_increment_test() {
 // submitOp / requestOps / noop encoding
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn encode_submit_op_test() {
+pub fn encode_submit_op_test() -> Nil {
   let op =
-    ops.outbound_channel_op(
+    wire_op.outbound_channel_op(
       address: "root",
       client_sequence_number: 1,
       reference_sequence_number: 5,
@@ -686,13 +686,13 @@ pub fn encode_submit_op_test() {
   )
 }
 
-pub fn encode_request_ops_test() {
+pub fn encode_request_ops_test() -> Nil {
   socket.encode_request_ops(from: 10)
   |> json.to_string
   |> expect.to_equal("{\"from\":10}")
 }
 
-pub fn encode_noop_test() {
+pub fn encode_noop_test() -> Nil {
   socket.encode_noop("default_dice_1", reference_sequence_number: 12)
   |> json.to_string
   |> expect.to_equal(
@@ -704,7 +704,7 @@ pub fn encode_noop_test() {
 // nack decoding
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn decode_nack_event_test() {
+pub fn decode_nack_event_test() -> Nil {
   // Exact shape of document_channel.ex push_nack/4.
   let fixture =
     "{
@@ -727,7 +727,7 @@ pub fn decode_nack_event_test() {
   rejected.content.retry_after |> expect.to_equal(None)
 }
 
-pub fn decode_nack_with_operation_test() {
+pub fn decode_nack_with_operation_test() -> Nil {
   let fixture =
     "{
       \"clientId\": \"\",
@@ -758,7 +758,7 @@ pub fn decode_nack_with_operation_test() {
 // JSON value decoding (Dynamic → Json)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn json_value_decoder_round_trips_scalars_test() {
+pub fn json_value_decoder_round_trips_scalars_test() -> Nil {
   ["4", "4.5", "true", "null", "\"text\"", "[1,2,3]"]
   |> list_each(fn(text) {
     parse(text, wire.json_value_decoder())
@@ -767,7 +767,7 @@ pub fn json_value_decoder_round_trips_scalars_test() {
   })
 }
 
-pub fn json_value_decoder_handles_objects_test() {
+pub fn json_value_decoder_handles_objects_test() -> Nil {
   // Object key order is not preserved through Erlang maps, so compare
   // decoded structure rather than strings.
   let text = "{\"a\": 1, \"b\": [true, null]}"
@@ -882,37 +882,37 @@ fn decode_sequence_channel_round_trip(
   op: sequence_kernel.SequenceOp,
 ) -> sequence_kernel.SequenceOp {
   let encoded =
-    ops.encode_channel_envelope("items", channel.SequenceOp(op))
+    wire_op.encode_channel_envelope("items", channel.SequenceOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("items", payload)) =
-    ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("items", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(channel.SequenceOp(decoded)) =
-    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.SequenceChannel))
   decoded
 }
 
-fn assert_sequence_channel_round_trip(op: sequence_kernel.SequenceOp) {
+fn assert_sequence_channel_round_trip(op: sequence_kernel.SequenceOp) -> Nil {
   decode_sequence_channel_round_trip(op) |> expect.to_equal(op)
 }
 
-pub fn sequence_insert_channel_op_round_trips_test() {
+pub fn sequence_insert_channel_op_round_trips_test() -> Nil {
   assert_sequence_channel_round_trip(sample_sequence_insert_op())
 }
 
-pub fn sequence_delete_channel_op_round_trips_test() {
+pub fn sequence_delete_channel_op_round_trips_test() -> Nil {
   assert_sequence_channel_round_trip(sample_sequence_delete_op())
 }
 
-pub fn sequence_move_channel_op_round_trips_test() {
+pub fn sequence_move_channel_op_round_trips_test() -> Nil {
   assert_sequence_channel_round_trip(sample_sequence_move_op())
 }
 
-pub fn sequence_replace_channel_op_round_trips_test() {
+pub fn sequence_replace_channel_op_round_trips_test() -> Nil {
   assert_sequence_channel_round_trip(sample_sequence_replace_op())
 }
 
-pub fn sequence_insert_noncanonical_json_semantics_round_trip_test() {
+pub fn sequence_insert_noncanonical_json_semantics_round_trip_test() -> Nil {
   let original = sample_noncanonical_sequence_insert_op()
   let decoded = decode_sequence_channel_round_trip(original)
 
@@ -930,14 +930,14 @@ pub fn sequence_insert_noncanonical_json_semantics_round_trip_test() {
   |> expect.to_be_true()
 }
 
-pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() {
+pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
   let op = sample_sequence_insert_op()
   let encoded =
-    ops.encode_channel_envelope("items", channel.SequenceOp(op))
+    wire_op.encode_channel_envelope("items", channel.SequenceOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("items", payload)) =
-    ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("items", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(delta) =
     decode.run(payload, decode.at(["delta"], decode.string))
   let _ =
@@ -946,21 +946,21 @@ pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() {
   Nil
 }
 
-pub fn sequence_decoder_rejects_malformed_delta_envelope_test() {
+pub fn sequence_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"items\",\"contents\":{\"type\":\"sequenceDelete\",\"index\":0,\"delta\":\"not-json\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("items", payload)) =
-    ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("items", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.SequenceChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn sequence_decoder_rejects_compacted_state_as_delta_test() {
+pub fn sequence_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let frontier =
     version_vector.new()
     |> version_vector.set_max(replica_id.new("victim"), 1)
@@ -987,26 +987,26 @@ pub fn sequence_decoder_rejects_compacted_state_as_delta_test() {
     ])
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("items", payload)) =
-    ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("items", payload)) =
+    wire_op.decode_op_contents(dynamic)
 
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.SequenceChannel))
     |> expect.to_be_error()
   Nil
 }
 
 // New tests for attach ops and the summary blob
 
-pub fn attach_codec_round_trip_test() {
+pub fn attach_codec_round_trip_test() -> Nil {
   let entries = [#("k", json.int(1)), #("s", json.string("v"))]
   let encoded =
-    ops.encode_attach("root", channel.MapSnapshot(entries))
+    wire_op.encode_attach("root", channel.MapSnapshot(entries))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
+  case wire_op.decode_op_contents(dynamic) {
     Ok(attach) -> {
-      let assert ops.AttachOp(address, snapshot) = attach
+      let assert wire_op.AttachOp(address, snapshot) = attach
       address |> expect.to_equal("root")
       snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
@@ -1014,38 +1014,38 @@ pub fn attach_codec_round_trip_test() {
   }
 }
 
-pub fn decode_op_contents_discrimination_test() {
+pub fn decode_op_contents_discrimination_test() -> Nil {
   // A map envelope decodes as ChannelOp, its payload left for stage-two
   // decoding against the addressed channel's registered type.
   let map_json =
     "{\"address\": \"root\", \"contents\": {\"type\": \"set\", \"key\": \"k\", \"value\": {\"type\": \"Plain\", \"value\": 4}}}"
   let dynamic = parse(map_json, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
+  case wire_op.decode_op_contents(dynamic) {
     Ok(contents) -> {
-      let assert ops.ChannelOp(address, payload) = contents
+      let assert wire_op.ChannelOp(address, payload) = contents
       address |> expect.to_equal("root")
-      case decode.run(payload, ops.channel_op_decoder(channel.MapChannel)) {
+      case decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel)) {
         Ok(channel.MapOp(Set(k, _))) -> k |> expect.to_equal("k")
-        _ -> panic as "stage-two map op decode failed"
+        Ok(_) | Error(_) -> panic as "stage-two map op decode failed"
       }
     }
     Error(_) -> panic as "channel op decode failed"
   }
 }
 
-pub fn decode_op_contents_rejects_bad_attach_test() {
+pub fn decode_op_contents_rejects_bad_attach_test() -> Nil {
   // An explicit "attach" with an unknown channel type must be rejected.
   let bad =
     "{\"type\": \"attach\", \"address\": \"root\", \"channelType\": \"weird\", \"snapshot\": [{\"key\": \"k\", \"value\": 1}]}"
   let dynamic = parse(bad, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
+  case wire_op.decode_op_contents(dynamic) {
     Error(_) -> Nil
     Ok(_) ->
       panic as "expected bad attach to be rejected, not decoded as channel op"
   }
 }
 
-pub fn summary_blob_v4_round_trips_test() {
+pub fn summary_blob_v4_round_trips_test() -> Nil {
   let entries = [#("a", json.int(1))]
   let channel_json =
     json.object([
@@ -1078,7 +1078,7 @@ pub fn summary_blob_v4_round_trips_test() {
   }
 }
 
-pub fn summary_blob_rejects_superseded_versions_test() {
+pub fn summary_blob_rejects_superseded_versions_test() -> Nil {
   // Neither the v2 shape (per-channel `entries`) nor v3 (channels but no
   // roster) has a loader: formats are cut clean while nothing external
   // consumes them, and stored documents are reset rather than migrated.
@@ -1106,7 +1106,7 @@ pub fn summary_blob_rejects_superseded_versions_test() {
 
 /// A v4 blob missing `members` entirely is refused rather than defaulted to an
 /// empty roster — the same reason v3 is.
-pub fn summary_blob_v4_requires_members_test() {
+pub fn summary_blob_v4_requires_members_test() -> Nil {
   let raw =
     "{\"watershedSummaryVersion\": 4, \"sequenceNumber\": 5,"
     <> " \"channels\": []}"
@@ -1116,7 +1116,7 @@ pub fn summary_blob_v4_requires_members_test() {
   }
 }
 
-pub fn summary_blob_unknown_channel_type_rejected_test() {
+pub fn summary_blob_unknown_channel_type_rejected_test() -> Nil {
   let entries = [#("a", json.int(1))]
   let channel_json =
     json.object([
@@ -1147,39 +1147,42 @@ pub fn summary_blob_unknown_channel_type_rejected_test() {
 // Counter channels (R2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn counter_attach_codec_round_trip_test() {
+pub fn counter_attach_codec_round_trip_test() -> Nil {
   let encoded =
-    ops.encode_attach("tally", channel.CounterSnapshot(41)) |> json.to_string
+    wire_op.encode_attach("tally", channel.CounterSnapshot(41))
+    |> json.to_string
   string_contains(encoded, "\"channelType\":\"counter\"") |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.AttachOp(address, snapshot)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.AttachOp(address, snapshot)) -> {
       address |> expect.to_equal("tally")
       snapshot |> expect.to_equal(channel.CounterSnapshot(41))
     }
-    _ -> panic as "counter attach decode failed"
+    Ok(wire_op.ChannelOp(..)) | Error(_) ->
+      panic as "counter attach decode failed"
   }
 }
 
-pub fn counter_channel_op_stage_two_decode_test() {
+pub fn counter_channel_op_stage_two_decode_test() -> Nil {
   let encoded =
-    ops.encode_channel_envelope(
+    wire_op.encode_channel_envelope(
       "tally",
       channel.CounterOp(counter_kernel.Increment(5)),
     )
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.ChannelOp(address, payload)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.ChannelOp(address, payload)) -> {
       address |> expect.to_equal("tally")
-      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.CounterChannel))
       |> expect.to_equal(Ok(channel.CounterOp(counter_kernel.Increment(5))))
       // The same payload must not decode against the map grammar.
-      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel))
       |> expect.to_be_error()
       Nil
     }
-    _ -> panic as "counter channel op decode failed"
+    Ok(wire_op.AttachOp(..)) | Error(_) ->
+      panic as "counter channel op decode failed"
   }
 }
 
@@ -1187,51 +1190,53 @@ pub fn counter_channel_op_stage_two_decode_test() {
 // Claims channels (R3)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn claim_op_round_trip_test() {
+pub fn claim_op_round_trip_test() -> Nil {
   let op = claims_kernel.Claim("owner", json.string("alice"), 9)
-  let encoded = ops.encode_claim_envelope("locks", op) |> json.to_string
+  let encoded = wire_op.encode_claim_envelope("locks", op) |> json.to_string
   let decoded = parse(encoded, claim_envelope_decoder())
   decoded |> expect.to_equal(#("locks", op))
 }
 
 fn claim_envelope_decoder() -> decode.Decoder(#(String, claims_kernel.ClaimOp)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", ops.claim_op_decoder())
+  use op <- decode.field("contents", wire_op.claim_op_decoder())
   decode.success(#(address, op))
 }
 
-pub fn claim_channel_op_stage_two_decode_test() {
+pub fn claim_channel_op_stage_two_decode_test() -> Nil {
   let op = claims_kernel.Claim("owner", json.string("alice"), 9)
   let encoded =
-    ops.encode_channel_envelope("locks", channel.ClaimsOp(op))
+    wire_op.encode_channel_envelope("locks", channel.ClaimsOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.ChannelOp(address, payload)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.ChannelOp(address, payload)) -> {
       address |> expect.to_equal("locks")
-      decode.run(payload, ops.channel_op_decoder(channel.ClaimsChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.ClaimsChannel))
       |> expect.to_equal(Ok(channel.ClaimsOp(op)))
-      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel))
       |> expect.to_be_error()
-      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.CounterChannel))
       |> expect.to_be_error()
       Nil
     }
-    _ -> panic as "claim channel op decode failed"
+    Ok(wire_op.AttachOp(..)) | Error(_) ->
+      panic as "claim channel op decode failed"
   }
 }
 
-pub fn claims_attach_codec_round_trip_test() {
+pub fn claims_attach_codec_round_trip_test() -> Nil {
   let snapshot = channel.ClaimsSnapshot([#("owner", json.string("alice"), 7)])
-  let encoded = ops.encode_attach("locks", snapshot) |> json.to_string
+  let encoded = wire_op.encode_attach("locks", snapshot) |> json.to_string
   string_contains(encoded, "\"channelType\":\"claims\"") |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.AttachOp(address, decoded)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.AttachOp(address, decoded)) -> {
       address |> expect.to_equal("locks")
       decoded |> expect.to_equal(snapshot)
     }
-    _ -> panic as "claims attach decode failed"
+    Ok(wire_op.ChannelOp(..)) | Error(_) ->
+      panic as "claims attach decode failed"
   }
 }
 
@@ -1258,69 +1263,70 @@ fn sample_remove_op() -> or_map_kernel.OrMapOp {
   let state =
     or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
   let assert Ok(#(state, _, _, _)) = or_map_kernel.increment(state, "score", 4)
-  let #(_, _, op, _) = or_map_kernel.remove(state, "score")
+  let assert Ok(#(_, _, op, _)) = or_map_kernel.remove(state, "score")
   op
 }
 
-fn round_trip_or_map_op(op: or_map_kernel.OrMapOp) {
-  let encoded = ops.encode_or_map_envelope("scores", op) |> json.to_string
+fn round_trip_or_map_op(op: or_map_kernel.OrMapOp) -> Nil {
+  let encoded = wire_op.encode_or_map_envelope("scores", op) |> json.to_string
   let decoded = parse(encoded, or_map_envelope_decoder())
   decoded |> expect.to_equal(#("scores", op))
 }
 
 fn or_map_envelope_decoder() -> decode.Decoder(#(String, or_map_kernel.OrMapOp)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", ops.or_map_op_decoder())
+  use op <- decode.field("contents", wire_op.or_map_op_decoder())
   decode.success(#(address, op))
 }
 
-pub fn or_map_increment_op_round_trip_test() {
+pub fn or_map_increment_op_round_trip_test() -> Nil {
   round_trip_or_map_op(sample_tally_op())
 }
 
-pub fn or_map_register_op_round_trip_test() {
+pub fn or_map_register_op_round_trip_test() -> Nil {
   round_trip_or_map_op(sample_register_op())
 }
 
-pub fn or_map_remove_op_round_trip_test() {
+pub fn or_map_remove_op_round_trip_test() -> Nil {
   round_trip_or_map_op(sample_remove_op())
 }
 
-pub fn or_map_channel_op_stage_two_decode_test() {
+pub fn or_map_channel_op_stage_two_decode_test() -> Nil {
   let op = sample_tally_op()
   let encoded =
-    ops.encode_channel_envelope("scores", channel.OrMapOp(op))
+    wire_op.encode_channel_envelope("scores", channel.OrMapOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.ChannelOp(address, payload)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.ChannelOp(address, payload)) -> {
       address |> expect.to_equal("scores")
-      decode.run(payload, ops.channel_op_decoder(channel.OrMapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.OrMapChannel))
       |> expect.to_equal(Ok(channel.OrMapOp(op)))
-      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel))
       |> expect.to_be_error()
-      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.CounterChannel))
       |> expect.to_be_error()
       Nil
     }
-    _ -> panic as "or-map channel op decode failed"
+    Ok(wire_op.AttachOp(..)) | Error(_) ->
+      panic as "or-map channel op decode failed"
   }
 }
 
-pub fn or_map_attach_codec_round_trip_test() {
+pub fn or_map_attach_codec_round_trip_test() -> Nil {
   let state =
     or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
   let assert Ok(#(state, _, _, _)) = or_map_kernel.increment(state, "score", 4)
   let encoded =
-    ops.encode_attach(
+    wire_op.encode_attach(
       "scores",
       channel.OrMapSnapshot(state.mode, state.optimistic),
     )
     |> json.to_string
   string_contains(encoded, "\"channelType\":\"ormap\"") |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.AttachOp(address, channel.OrMapSnapshot(mode, snapshot))) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.AttachOp(address, channel.OrMapSnapshot(mode, snapshot))) -> {
       address |> expect.to_equal("scores")
       mode |> expect.to_equal(or_map_kernel.TallyMode)
       let assert Ok(kernel) =
@@ -1328,11 +1334,12 @@ pub fn or_map_attach_codec_round_trip_test() {
       or_map_kernel.entries(kernel)
       |> expect.to_equal([#("score", or_map_kernel.Tally(4))])
     }
-    _ -> panic as "or-map attach decode failed"
+    Ok(wire_op.AttachOp(..)) | Ok(wire_op.ChannelOp(..)) | Error(_) ->
+      panic as "or-map attach decode failed"
   }
 }
 
-pub fn summary_blob_mixed_channel_types_round_trip_test() {
+pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
   let or_map =
     or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
   let assert Ok(#(or_map, _, _, _)) =
@@ -1392,11 +1399,11 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() {
 // Register collection channels
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn register_collection_op_round_trip_test() {
+pub fn register_collection_op_round_trip_test() -> Nil {
   let op =
     register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
   let encoded =
-    ops.encode_register_collection_envelope("registers", op)
+    wire_op.encode_register_collection_envelope("registers", op)
     |> json.to_string
   let decoded = parse(encoded, register_collection_envelope_decoder())
   decoded |> expect.to_equal(#("registers", op))
@@ -1406,51 +1413,56 @@ fn register_collection_envelope_decoder() -> decode.Decoder(
   #(String, register_collection_kernel.WriteOp),
 ) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", ops.register_collection_op_decoder())
+  use op <- decode.field("contents", wire_op.register_collection_op_decoder())
   decode.success(#(address, op))
 }
 
-pub fn register_collection_channel_op_stage_two_decode_test() {
+pub fn register_collection_channel_op_stage_two_decode_test() -> Nil {
   let op =
     register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
   let encoded =
-    ops.encode_channel_envelope("registers", channel.RegisterCollectionOp(op))
+    wire_op.encode_channel_envelope(
+      "registers",
+      channel.RegisterCollectionOp(op),
+    )
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.ChannelOp(address, payload)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.ChannelOp(address, payload)) -> {
       address |> expect.to_equal("registers")
       decode.run(
         payload,
-        ops.channel_op_decoder(channel.RegisterCollectionChannel),
+        wire_op.channel_op_decoder(channel.RegisterCollectionChannel),
       )
       |> expect.to_equal(Ok(channel.RegisterCollectionOp(op)))
-      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel))
       |> expect.to_be_error()
-      decode.run(payload, ops.channel_op_decoder(channel.CounterChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.CounterChannel))
       |> expect.to_be_error()
       Nil
     }
-    _ -> panic as "register collection channel op decode failed"
+    Ok(wire_op.AttachOp(..)) | Error(_) ->
+      panic as "register collection channel op decode failed"
   }
 }
 
-pub fn register_collection_snapshot_round_trip_test() {
+pub fn register_collection_snapshot_round_trip_test() -> Nil {
   let version = register_collection_kernel.VersionedValue(json.string("A"), 5)
   let snapshot =
     channel.RegisterCollectionSnapshot([
       #("station", register_collection_kernel.Register(version, [version])),
     ])
-  let encoded = ops.encode_attach("registers", snapshot) |> json.to_string
+  let encoded = wire_op.encode_attach("registers", snapshot) |> json.to_string
   string_contains(encoded, "\"channelType\":\"registerCollection\"")
   |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.AttachOp(address, decoded)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.AttachOp(address, decoded)) -> {
       address |> expect.to_equal("registers")
       decoded |> expect.to_equal(snapshot)
     }
-    _ -> panic as "register collection attach decode failed"
+    Ok(wire_op.ChannelOp(..)) | Error(_) ->
+      panic as "register collection attach decode failed"
   }
 }
 
@@ -1498,68 +1510,71 @@ fn decode_text_channel_round_trip(
   op: text_kernel.TextOp,
 ) -> text_kernel.TextOp {
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(channel.TextOp(decoded)) =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
   decoded
 }
 
-fn assert_text_channel_round_trip(op: text_kernel.TextOp) {
+fn assert_text_channel_round_trip(op: text_kernel.TextOp) -> Nil {
   decode_text_channel_round_trip(op) |> expect.to_equal(op)
 }
 
-pub fn text_channel_type_wire_name_test() {
+pub fn text_channel_type_wire_name_test() -> Nil {
   channel.type_to_string(channel.TextChannel) |> expect.to_equal("text")
   channel.type_from_string("text") |> expect.to_equal(Ok(channel.TextChannel))
 }
 
-pub fn text_insert_channel_op_round_trips_test() {
+pub fn text_insert_channel_op_round_trips_test() -> Nil {
   assert_text_channel_round_trip(sample_text_insert_op())
 }
 
-pub fn text_delete_range_channel_op_round_trips_test() {
+pub fn text_delete_range_channel_op_round_trips_test() -> Nil {
   assert_text_channel_round_trip(sample_text_delete_range_op())
 }
 
-pub fn text_replace_range_channel_op_round_trips_test() {
+pub fn text_replace_range_channel_op_round_trips_test() -> Nil {
   assert_text_channel_round_trip(sample_text_replace_range_op())
 }
 
-pub fn text_append_channel_op_round_trips_test() {
+pub fn text_append_channel_op_round_trips_test() -> Nil {
   assert_text_channel_round_trip(sample_text_append_op())
 }
 
-pub fn text_channel_op_stage_two_decode_test() {
+pub fn text_channel_op_stage_two_decode_test() -> Nil {
   let op = sample_text_append_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  case ops.decode_op_contents(dynamic) {
-    Ok(ops.ChannelOp(address, payload)) -> {
+  case wire_op.decode_op_contents(dynamic) {
+    Ok(wire_op.ChannelOp(address, payload)) -> {
       address |> expect.to_equal("doc")
-      decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
       |> expect.to_equal(Ok(channel.TextOp(op)))
-      decode.run(payload, ops.channel_op_decoder(channel.MapChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.MapChannel))
       |> expect.to_be_error()
-      decode.run(payload, ops.channel_op_decoder(channel.SequenceChannel))
+      decode.run(payload, wire_op.channel_op_decoder(channel.SequenceChannel))
       |> expect.to_be_error()
       Nil
     }
-    _ -> panic as "text channel op decode failed"
+    Ok(wire_op.AttachOp(..)) | Error(_) ->
+      panic as "text channel op decode failed"
   }
 }
 
-pub fn text_insert_envelope_carries_intent_fields_test() {
+pub fn text_insert_envelope_carries_intent_fields_test() -> Nil {
   let op = sample_text_insert_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(op_type) =
     decode.run(payload, decode.at(["type"], decode.string))
   let assert Ok(index) = decode.run(payload, decode.at(["index"], decode.int))
@@ -1570,13 +1585,14 @@ pub fn text_insert_envelope_carries_intent_fields_test() {
   value |> expect.to_equal("héllo 👩🏽‍🚀 мир")
 }
 
-pub fn text_delete_range_envelope_carries_intent_fields_test() {
+pub fn text_delete_range_envelope_carries_intent_fields_test() -> Nil {
   let op = sample_text_delete_range_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(op_type) =
     decode.run(payload, decode.at(["type"], decode.string))
   let assert Ok(start) = decode.run(payload, decode.at(["start"], decode.int))
@@ -1586,13 +1602,14 @@ pub fn text_delete_range_envelope_carries_intent_fields_test() {
   end |> expect.to_equal(2)
 }
 
-pub fn text_replace_range_envelope_carries_intent_fields_test() {
+pub fn text_replace_range_envelope_carries_intent_fields_test() -> Nil {
   let op = sample_text_replace_range_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(op_type) =
     decode.run(payload, decode.at(["type"], decode.string))
   let assert Ok(start) = decode.run(payload, decode.at(["start"], decode.int))
@@ -1605,13 +1622,14 @@ pub fn text_replace_range_envelope_carries_intent_fields_test() {
   value |> expect.to_equal("🎉🎊")
 }
 
-pub fn text_append_envelope_carries_intent_fields_test() {
+pub fn text_append_envelope_carries_intent_fields_test() -> Nil {
   let op = sample_text_append_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(op_type) =
     decode.run(payload, decode.at(["type"], decode.string))
   let assert Ok(value) =
@@ -1620,33 +1638,35 @@ pub fn text_append_envelope_carries_intent_fields_test() {
   value |> expect.to_equal(" 👩🏽‍🚀 мир")
 }
 
-pub fn text_delta_stays_double_encoded_in_channel_payload_test() {
+pub fn text_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
   let op = sample_text_insert_op()
   let encoded =
-    ops.encode_channel_envelope("doc", channel.TextOp(op))
+    wire_op.encode_channel_envelope("doc", channel.TextOp(op))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let assert Ok(delta) =
     decode.run(payload, decode.at(["delta"], decode.string))
   let _ = text.from_json(delta) |> expect.to_be_ok()
   Nil
 }
 
-pub fn text_decoder_rejects_malformed_delta_envelope_test() {
+pub fn text_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"doc\",\"contents\":{\"type\":\"textDeleteRange\",\"start\":0,\"end\":1,\"delta\":\"not-json\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn text_decoder_rejects_compacted_state_as_delta_test() {
+pub fn text_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let frontier =
     version_vector.new()
     |> version_vector.set_max(replica_id.new("victim"), 1)
@@ -1667,61 +1687,66 @@ pub fn text_decoder_rejects_compacted_state_as_delta_test() {
     ])
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn text_decoder_rejects_missing_index_field_test() {
+pub fn text_decoder_rejects_missing_index_field_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"doc\",\"contents\":{\"type\":\"textInsert\",\"value\":\"a\",\"delta\":\"\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn text_decoder_rejects_missing_range_fields_test() {
+pub fn text_decoder_rejects_missing_range_fields_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"doc\",\"contents\":{\"type\":\"textReplaceRange\",\"start\":0,\"value\":\"a\",\"delta\":\"\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn text_decoder_rejects_missing_delta_field_test() {
+pub fn text_decoder_rejects_missing_delta_field_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"doc\",\"contents\":{\"type\":\"textAppend\",\"value\":\"a\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }
 
-pub fn text_decoder_rejects_unknown_op_type_test() {
+pub fn text_decoder_rejects_unknown_op_type_test() -> Nil {
   let dynamic =
     parse(
       "{\"address\":\"doc\",\"contents\":{\"type\":\"textFrobnicate\",\"delta\":\"\"}}",
       decode.dynamic,
     )
-  let assert Ok(ops.ChannelOp("doc", payload)) = ops.decode_op_contents(dynamic)
+  let assert Ok(wire_op.ChannelOp("doc", payload)) =
+    wire_op.decode_op_contents(dynamic)
   let _ =
-    decode.run(payload, ops.channel_op_decoder(channel.TextChannel))
+    decode.run(payload, wire_op.channel_op_decoder(channel.TextChannel))
     |> expect.to_be_error()
   Nil
 }

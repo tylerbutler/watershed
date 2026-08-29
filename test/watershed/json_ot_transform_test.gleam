@@ -12,364 +12,690 @@ import watershed/json_ot.{
 
 // ── tiny builders ────────────────────────────────────────────────────────────
 
-fn s(x: String) -> JsonValue {
-  VString(x)
+fn string_value(value: String) -> JsonValue {
+  VString(value)
 }
 
-fn n(x: Int) -> JsonValue {
-  VNumber(NInt(x))
+fn number_value(value: Int) -> JsonValue {
+  VNumber(NInt(value))
 }
 
-fn obj(members: List(#(String, JsonValue))) -> JsonValue {
+fn object(members: List(#(String, JsonValue))) -> JsonValue {
   VObject(members)
 }
 
-fn arr(items: List(JsonValue)) -> JsonValue {
+fn array(items: List(JsonValue)) -> JsonValue {
   VArray(items)
 }
 
-fn li(path: List(json_ot.PathKey), v: JsonValue) -> Component {
-  json_ot.list_insert(path, v)
+fn list_insert(path: List(json_ot.PathKey), value: JsonValue) -> Component {
+  json_ot.list_insert(path, value)
 }
 
-fn ld(path: List(json_ot.PathKey), v: JsonValue) -> Component {
-  json_ot.list_delete(path, v)
+fn list_delete(path: List(json_ot.PathKey), value: JsonValue) -> Component {
+  json_ot.list_delete(path, value)
 }
 
-fn lr(path: List(json_ot.PathKey), o: JsonValue, nw: JsonValue) -> Component {
-  json_ot.list_replace(path, o, nw)
+fn list_replace(
+  path: List(json_ot.PathKey),
+  old_value: JsonValue,
+  new_value: JsonValue,
+) -> Component {
+  json_ot.list_replace(path, old_value, new_value)
 }
 
-fn lm(path: List(json_ot.PathKey), to: Int) -> Component {
+fn list_move(path: List(json_ot.PathKey), to: Int) -> Component {
   json_ot.list_move(path, to)
 }
 
-fn oi(path: List(json_ot.PathKey), v: JsonValue) -> Component {
-  json_ot.obj_insert(path, v)
+fn object_insert(path: List(json_ot.PathKey), value: JsonValue) -> Component {
+  json_ot.obj_insert(path, value)
 }
 
-fn od(path: List(json_ot.PathKey), v: JsonValue) -> Component {
-  json_ot.obj_delete(path, v)
+fn object_delete(path: List(json_ot.PathKey), value: JsonValue) -> Component {
+  json_ot.obj_delete(path, value)
 }
 
-fn orr(path: List(json_ot.PathKey), o: JsonValue, nw: JsonValue) -> Component {
-  json_ot.obj_replace(path, o, nw)
+fn object_replace(
+  path: List(json_ot.PathKey),
+  old_value: JsonValue,
+  new_value: JsonValue,
+) -> Component {
+  json_ot.obj_replace(path, old_value, new_value)
 }
 
-fn na(path: List(json_ot.PathKey), delta: Int) -> Component {
+fn number_add(path: List(json_ot.PathKey), delta: Int) -> Component {
   json_ot.number_add(path, NInt(delta))
 }
 
-fn xf(op: Op, other: Op, side: json_ot.Side) -> Op {
+fn transform(op: Op, other: Op, side: json_ot.Side) -> Op {
   let assert Ok(result) = json_ot.transform(op, other, side)
   result
 }
 
 // ── list: index bumps, noops, tiebreaks ──────────────────────────────────────
 
-pub fn ld_bumps_past_li_test() {
-  xf([ld([Index(0)], n(2))], [li([Index(0)], n(1))], Lft)
-  |> expect.to_equal([ld([Index(1)], n(2))])
-  xf([ld([Index(0)], n(2))], [li([Index(0)], n(1))], Rgt)
-  |> expect.to_equal([ld([Index(1)], n(2))])
+pub fn ld_bumps_past_li_test() -> Nil {
+  transform(
+    [list_delete([Index(0)], number_value(2))],
+    [list_insert([Index(0)], number_value(1))],
+    Lft,
+  )
+  |> expect.to_equal([list_delete([Index(1)], number_value(2))])
+  transform(
+    [list_delete([Index(0)], number_value(2))],
+    [list_insert([Index(0)], number_value(1))],
+    Rgt,
+  )
+  |> expect.to_equal([list_delete([Index(1)], number_value(2))])
 }
 
-pub fn ops_on_deleted_elements_become_noops_test() {
-  xf([li([Index(0)], s("x"))], [ld([Index(0)], s("y"))], Lft)
-  |> expect.to_equal([li([Index(0)], s("x"))])
-  xf([na([Index(0)], -3)], [ld([Index(0)], n(48))], Lft)
+pub fn ops_on_deleted_elements_become_noops_test() -> Nil {
+  transform(
+    [list_insert([Index(0)], string_value("x"))],
+    [list_delete([Index(0)], string_value("y"))],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(0)], string_value("x"))])
+  transform(
+    [number_add([Index(0)], -3)],
+    [list_delete([Index(0)], number_value(48))],
+    Lft,
+  )
   |> expect.to_equal([])
 }
 
-pub fn ops_on_replaced_elements_become_noops_test() {
-  xf([li([Index(0)], s("hi"))], [lr([Index(0)], s("x"), s("y"))], Lft)
-  |> expect.to_equal([li([Index(0)], s("hi"))])
+pub fn ops_on_replaced_elements_become_noops_test() -> Nil {
+  transform(
+    [list_insert([Index(0)], string_value("hi"))],
+    [list_replace([Index(0)], string_value("x"), string_value("y"))],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(0)], string_value("hi"))])
 }
 
-pub fn simultaneous_list_inserts_left_first_test() {
-  xf([li([Index(1)], s("a"))], [li([Index(1)], s("b"))], Lft)
-  |> expect.to_equal([li([Index(1)], s("a"))])
-  xf([li([Index(1)], s("b"))], [li([Index(1)], s("a"))], Rgt)
-  |> expect.to_equal([li([Index(2)], s("b"))])
+pub fn simultaneous_list_inserts_left_first_test() -> Nil {
+  transform(
+    [list_insert([Index(1)], string_value("a"))],
+    [list_insert([Index(1)], string_value("b"))],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(1)], string_value("a"))])
+  transform(
+    [list_insert([Index(1)], string_value("b"))],
+    [list_insert([Index(1)], string_value("a"))],
+    Rgt,
+  )
+  |> expect.to_equal([list_insert([Index(2)], string_value("b"))])
 }
 
-pub fn re_delete_list_element_noop_test() {
-  xf([ld([Index(1)], s("x"))], [ld([Index(1)], s("x"))], Lft)
+pub fn re_delete_list_element_noop_test() -> Nil {
+  transform(
+    [list_delete([Index(1)], string_value("x"))],
+    [list_delete([Index(1)], string_value("x"))],
+    Lft,
+  )
   |> expect.to_equal([])
-  xf([ld([Index(1)], s("x"))], [ld([Index(1)], s("x"))], Rgt)
+  transform(
+    [list_delete([Index(1)], string_value("x"))],
+    [list_delete([Index(1)], string_value("x"))],
+    Rgt,
+  )
   |> expect.to_equal([])
 }
 
-pub fn replace_null_vs_insert_test() {
-  xf([lr([Index(0)], VNull, s("x"))], [li([Index(0)], s("The"))], Rgt)
-  |> expect.to_equal([lr([Index(1)], VNull, s("x"))])
+pub fn replace_null_vs_insert_test() -> Nil {
+  transform(
+    [list_replace([Index(0)], VNull, string_value("x"))],
+    [list_insert([Index(0)], string_value("The"))],
+    Rgt,
+  )
+  |> expect.to_equal([list_replace([Index(1)], VNull, string_value("x"))])
 }
 
 // ── list: moves carry ops with the element ────────────────────────────────────
 
-pub fn moves_ops_with_element_test() {
-  xf([ld([Index(4)], s("x"))], [lm([Index(4)], 10)], Lft)
-  |> expect.to_equal([ld([Index(10)], s("x"))])
-  xf([li([Index(4), Index(1)], s("a"))], [lm([Index(4)], 10)], Lft)
-  |> expect.to_equal([li([Index(10), Index(1)], s("a"))])
-  xf([lr([Index(4), Index(1)], s("b"), s("a"))], [lm([Index(4)], 10)], Lft)
-  |> expect.to_equal([lr([Index(10), Index(1)], s("b"), s("a"))])
-  xf([li([Index(0)], VNull)], [lm([Index(0)], 1)], Lft)
-  |> expect.to_equal([li([Index(0)], VNull)])
-  xf([li([Index(5)], s("x"))], [lm([Index(5)], 1)], Lft)
-  |> expect.to_equal([li([Index(6)], s("x"))])
-  xf([ld([Index(5)], n(6))], [lm([Index(5)], 1)], Lft)
-  |> expect.to_equal([ld([Index(1)], n(6))])
-  xf([li([Index(0)], arr([]))], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([li([Index(0)], arr([]))])
-  xf([li([Index(2)], s("x"))], [lm([Index(0)], 1)], Lft)
-  |> expect.to_equal([li([Index(2)], s("x"))])
+pub fn moves_ops_with_element_test() -> Nil {
+  transform(
+    [list_delete([Index(4)], string_value("x"))],
+    [list_move([Index(4)], 10)],
+    Lft,
+  )
+  |> expect.to_equal([list_delete([Index(10)], string_value("x"))])
+  transform(
+    [list_insert([Index(4), Index(1)], string_value("a"))],
+    [list_move([Index(4)], 10)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(10), Index(1)], string_value("a"))])
+  transform(
+    [list_replace([Index(4), Index(1)], string_value("b"), string_value("a"))],
+    [list_move([Index(4)], 10)],
+    Lft,
+  )
+  |> expect.to_equal([
+    list_replace([Index(10), Index(1)], string_value("b"), string_value("a")),
+  ])
+  transform([list_insert([Index(0)], VNull)], [list_move([Index(0)], 1)], Lft)
+  |> expect.to_equal([list_insert([Index(0)], VNull)])
+  transform(
+    [list_insert([Index(5)], string_value("x"))],
+    [list_move([Index(5)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(6)], string_value("x"))])
+  transform(
+    [list_delete([Index(5)], number_value(6))],
+    [list_move([Index(5)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_delete([Index(1)], number_value(6))])
+  transform(
+    [list_insert([Index(0)], array([]))],
+    [list_move([Index(1)], 0)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(0)], array([]))])
+  transform(
+    [list_insert([Index(2)], string_value("x"))],
+    [list_move([Index(0)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(2)], string_value("x"))])
 }
 
-pub fn moves_target_index_on_ld_li_test() {
-  xf([lm([Index(0)], 2)], [ld([Index(1)], s("x"))], Lft)
-  |> expect.to_equal([lm([Index(0)], 1)])
-  xf([lm([Index(2)], 4)], [ld([Index(1)], s("x"))], Lft)
-  |> expect.to_equal([lm([Index(1)], 3)])
-  xf([lm([Index(0)], 2)], [li([Index(1)], s("x"))], Lft)
-  |> expect.to_equal([lm([Index(0)], 3)])
-  xf([lm([Index(2)], 4)], [li([Index(1)], s("x"))], Lft)
-  |> expect.to_equal([lm([Index(3)], 5)])
-  xf([lm([Index(0)], 0)], [li([Index(0)], n(28))], Lft)
-  |> expect.to_equal([lm([Index(1)], 1)])
+pub fn moves_target_index_on_ld_li_test() -> Nil {
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_delete([Index(1)], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(0)], 1)])
+  transform(
+    [list_move([Index(2)], 4)],
+    [list_delete([Index(1)], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(1)], 3)])
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_insert([Index(1)], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(0)], 3)])
+  transform(
+    [list_move([Index(2)], 4)],
+    [list_insert([Index(1)], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(3)], 5)])
+  transform(
+    [list_move([Index(0)], 0)],
+    [list_insert([Index(0)], number_value(28))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(1)], 1)])
 }
 
-pub fn tiebreaks_lm_vs_ld_li_test() {
-  xf([lm([Index(0)], 2)], [ld([Index(0)], s("x"))], Lft)
+pub fn tiebreaks_lm_vs_ld_li_test() -> Nil {
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_delete([Index(0)], string_value("x"))],
+    Lft,
+  )
   |> expect.to_equal([])
-  xf([lm([Index(0)], 2)], [ld([Index(0)], s("x"))], Rgt)
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_delete([Index(0)], string_value("x"))],
+    Rgt,
+  )
   |> expect.to_equal([])
-  xf([lm([Index(0)], 2)], [li([Index(0)], s("x"))], Lft)
-  |> expect.to_equal([lm([Index(1)], 3)])
-  xf([lm([Index(0)], 2)], [li([Index(0)], s("x"))], Rgt)
-  |> expect.to_equal([lm([Index(1)], 3)])
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_insert([Index(0)], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(1)], 3)])
+  transform(
+    [list_move([Index(0)], 2)],
+    [list_insert([Index(0)], string_value("x"))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(1)], 3)])
 }
 
-pub fn list_replacement_vs_deletion_test() {
-  xf([lr([Index(0)], s("x"), s("y"))], [ld([Index(0)], s("x"))], Rgt)
-  |> expect.to_equal([li([Index(0)], s("y"))])
+pub fn list_replacement_vs_deletion_test() -> Nil {
+  transform(
+    [list_replace([Index(0)], string_value("x"), string_value("y"))],
+    [list_delete([Index(0)], string_value("x"))],
+    Rgt,
+  )
+  |> expect.to_equal([list_insert([Index(0)], string_value("y"))])
 }
 
-pub fn list_replacement_vs_insertion_test() {
-  xf([lr([Index(0)], obj([]), s("brillig"))], [li([Index(0)], n(36))], Lft)
-  |> expect.to_equal([lr([Index(1)], obj([]), s("brillig"))])
+pub fn list_replacement_vs_insertion_test() -> Nil {
+  transform(
+    [list_replace([Index(0)], object([]), string_value("brillig"))],
+    [list_insert([Index(0)], number_value(36))],
+    Lft,
+  )
+  |> expect.to_equal([
+    list_replace([Index(1)], object([]), string_value("brillig")),
+  ])
 }
 
-pub fn list_replacement_vs_replacement_test() {
-  xf([lr([Index(0)], VNull, arr([]))], [lr([Index(0)], VNull, n(0))], Rgt)
+pub fn list_replacement_vs_replacement_test() -> Nil {
+  transform(
+    [list_replace([Index(0)], VNull, array([]))],
+    [list_replace([Index(0)], VNull, number_value(0))],
+    Rgt,
+  )
   |> expect.to_equal([])
-  xf([lr([Index(0)], VNull, n(0))], [lr([Index(0)], VNull, arr([]))], Lft)
-  |> expect.to_equal([lr([Index(0)], arr([]), n(0))])
+  transform(
+    [list_replace([Index(0)], VNull, number_value(0))],
+    [list_replace([Index(0)], VNull, array([]))],
+    Lft,
+  )
+  |> expect.to_equal([list_replace([Index(0)], array([]), number_value(0))])
 }
 
 // ── lm vs lm (the full spec table) ────────────────────────────────────────────
 
-pub fn lm_vs_lm_table_test() {
-  xf([lm([Index(0)], 2)], [lm([Index(2)], 1)], Lft)
-  |> expect.to_equal([lm([Index(0)], 2)])
-  xf([lm([Index(3)], 3)], [lm([Index(5)], 0)], Lft)
-  |> expect.to_equal([lm([Index(4)], 4)])
-  xf([lm([Index(2)], 0)], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lm([Index(2)], 0)])
-  xf([lm([Index(2)], 0)], [lm([Index(1)], 0)], Rgt)
-  |> expect.to_equal([lm([Index(2)], 1)])
-  xf([lm([Index(2)], 0)], [lm([Index(5)], 0)], Rgt)
-  |> expect.to_equal([lm([Index(3)], 1)])
-  xf([lm([Index(2)], 0)], [lm([Index(5)], 0)], Lft)
-  |> expect.to_equal([lm([Index(3)], 0)])
-  xf([lm([Index(2)], 5)], [lm([Index(2)], 0)], Lft)
-  |> expect.to_equal([lm([Index(0)], 5)])
-  xf([lm([Index(1)], 0)], [lm([Index(0)], 5)], Rgt)
-  |> expect.to_equal([lm([Index(0)], 0)])
-  xf([lm([Index(1)], 0)], [lm([Index(0)], 1)], Rgt)
-  |> expect.to_equal([lm([Index(0)], 0)])
-  xf([lm([Index(0)], 1)], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lm([Index(1)], 1)])
-  xf([lm([Index(0)], 1)], [lm([Index(5)], 0)], Rgt)
-  |> expect.to_equal([lm([Index(1)], 2)])
-  xf([lm([Index(2)], 1)], [lm([Index(5)], 0)], Rgt)
-  |> expect.to_equal([lm([Index(3)], 2)])
-  xf([lm([Index(3)], 1)], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([lm([Index(2)], 1)])
-  xf([lm([Index(1)], 3)], [lm([Index(3)], 1)], Lft)
-  |> expect.to_equal([lm([Index(2)], 3)])
-  xf([lm([Index(2)], 6)], [lm([Index(0)], 1)], Lft)
-  |> expect.to_equal([lm([Index(2)], 6)])
-  xf([lm([Index(2)], 6)], [lm([Index(0)], 1)], Rgt)
-  |> expect.to_equal([lm([Index(2)], 6)])
-  xf([lm([Index(2)], 6)], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lm([Index(2)], 6)])
-  xf([lm([Index(2)], 6)], [lm([Index(1)], 0)], Rgt)
-  |> expect.to_equal([lm([Index(2)], 6)])
-  xf([lm([Index(0)], 1)], [lm([Index(2)], 1)], Lft)
-  |> expect.to_equal([lm([Index(0)], 2)])
-  xf([lm([Index(2)], 1)], [lm([Index(0)], 1)], Rgt)
-  |> expect.to_equal([lm([Index(2)], 0)])
-  xf([lm([Index(0)], 0)], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lm([Index(1)], 1)])
-  xf([lm([Index(0)], 1)], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([lm([Index(0)], 0)])
-  xf([lm([Index(2)], 1)], [lm([Index(3)], 2)], Lft)
-  |> expect.to_equal([lm([Index(3)], 1)])
-  xf([lm([Index(3)], 2)], [lm([Index(2)], 1)], Lft)
-  |> expect.to_equal([lm([Index(3)], 3)])
+pub fn lm_vs_lm_table_test() -> Nil {
+  transform([list_move([Index(0)], 2)], [list_move([Index(2)], 1)], Lft)
+  |> expect.to_equal([list_move([Index(0)], 2)])
+  transform([list_move([Index(3)], 3)], [list_move([Index(5)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(4)], 4)])
+  transform([list_move([Index(2)], 0)], [list_move([Index(1)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(2)], 0)])
+  transform([list_move([Index(2)], 0)], [list_move([Index(1)], 0)], Rgt)
+  |> expect.to_equal([list_move([Index(2)], 1)])
+  transform([list_move([Index(2)], 0)], [list_move([Index(5)], 0)], Rgt)
+  |> expect.to_equal([list_move([Index(3)], 1)])
+  transform([list_move([Index(2)], 0)], [list_move([Index(5)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(3)], 0)])
+  transform([list_move([Index(2)], 5)], [list_move([Index(2)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(0)], 5)])
+  transform([list_move([Index(1)], 0)], [list_move([Index(0)], 5)], Rgt)
+  |> expect.to_equal([list_move([Index(0)], 0)])
+  transform([list_move([Index(1)], 0)], [list_move([Index(0)], 1)], Rgt)
+  |> expect.to_equal([list_move([Index(0)], 0)])
+  transform([list_move([Index(0)], 1)], [list_move([Index(1)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(1)], 1)])
+  transform([list_move([Index(0)], 1)], [list_move([Index(5)], 0)], Rgt)
+  |> expect.to_equal([list_move([Index(1)], 2)])
+  transform([list_move([Index(2)], 1)], [list_move([Index(5)], 0)], Rgt)
+  |> expect.to_equal([list_move([Index(3)], 2)])
+  transform([list_move([Index(3)], 1)], [list_move([Index(1)], 3)], Lft)
+  |> expect.to_equal([list_move([Index(2)], 1)])
+  transform([list_move([Index(1)], 3)], [list_move([Index(3)], 1)], Lft)
+  |> expect.to_equal([list_move([Index(2)], 3)])
+  transform([list_move([Index(2)], 6)], [list_move([Index(0)], 1)], Lft)
+  |> expect.to_equal([list_move([Index(2)], 6)])
+  transform([list_move([Index(2)], 6)], [list_move([Index(0)], 1)], Rgt)
+  |> expect.to_equal([list_move([Index(2)], 6)])
+  transform([list_move([Index(2)], 6)], [list_move([Index(1)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(2)], 6)])
+  transform([list_move([Index(2)], 6)], [list_move([Index(1)], 0)], Rgt)
+  |> expect.to_equal([list_move([Index(2)], 6)])
+  transform([list_move([Index(0)], 1)], [list_move([Index(2)], 1)], Lft)
+  |> expect.to_equal([list_move([Index(0)], 2)])
+  transform([list_move([Index(2)], 1)], [list_move([Index(0)], 1)], Rgt)
+  |> expect.to_equal([list_move([Index(2)], 0)])
+  transform([list_move([Index(0)], 0)], [list_move([Index(1)], 0)], Lft)
+  |> expect.to_equal([list_move([Index(1)], 1)])
+  transform([list_move([Index(0)], 1)], [list_move([Index(1)], 3)], Lft)
+  |> expect.to_equal([list_move([Index(0)], 0)])
+  transform([list_move([Index(2)], 1)], [list_move([Index(3)], 2)], Lft)
+  |> expect.to_equal([list_move([Index(3)], 1)])
+  transform([list_move([Index(3)], 2)], [list_move([Index(2)], 1)], Lft)
+  |> expect.to_equal([list_move([Index(3)], 3)])
 }
 
-pub fn indices_around_a_move_test() {
-  xf([li([Index(0), Index(0)], obj([]))], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([li([Index(1), Index(0)], obj([]))])
-  xf([lm([Index(1)], 0)], [ld([Index(0)], obj([]))], Lft)
-  |> expect.to_equal([lm([Index(0)], 0)])
-  xf([lm([Index(0)], 1)], [ld([Index(1)], obj([]))], Lft)
-  |> expect.to_equal([lm([Index(0)], 0)])
-  xf([lm([Index(6)], 0)], [ld([Index(2)], obj([]))], Lft)
-  |> expect.to_equal([lm([Index(5)], 0)])
-  xf([lm([Index(1)], 0)], [ld([Index(2)], obj([]))], Lft)
-  |> expect.to_equal([lm([Index(1)], 0)])
-  xf([lm([Index(2)], 1)], [ld([Index(1)], n(3))], Rgt)
-  |> expect.to_equal([lm([Index(1)], 1)])
-  xf([ld([Index(2)], obj([]))], [lm([Index(1)], 2)], Rgt)
-  |> expect.to_equal([ld([Index(1)], obj([]))])
-  xf([ld([Index(1)], obj([]))], [lm([Index(2)], 1)], Lft)
-  |> expect.to_equal([ld([Index(2)], obj([]))])
-  xf([ld([Index(1)], obj([]))], [lm([Index(0)], 1)], Rgt)
-  |> expect.to_equal([ld([Index(0)], obj([]))])
-  xf([lr([Index(1)], n(1), n(2))], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lr([Index(0)], n(1), n(2))])
-  xf([lr([Index(1)], n(2), n(3))], [lm([Index(0)], 1)], Lft)
-  |> expect.to_equal([lr([Index(0)], n(2), n(3))])
-  xf([lr([Index(0)], n(3), n(4))], [lm([Index(1)], 0)], Lft)
-  |> expect.to_equal([lr([Index(1)], n(3), n(4))])
+pub fn indices_around_a_move_test() -> Nil {
+  transform(
+    [list_insert([Index(0), Index(0)], object([]))],
+    [list_move([Index(1)], 0)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(1), Index(0)], object([]))])
+  transform(
+    [list_move([Index(1)], 0)],
+    [list_delete([Index(0)], object([]))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(0)], 0)])
+  transform(
+    [list_move([Index(0)], 1)],
+    [list_delete([Index(1)], object([]))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(0)], 0)])
+  transform(
+    [list_move([Index(6)], 0)],
+    [list_delete([Index(2)], object([]))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(5)], 0)])
+  transform(
+    [list_move([Index(1)], 0)],
+    [list_delete([Index(2)], object([]))],
+    Lft,
+  )
+  |> expect.to_equal([list_move([Index(1)], 0)])
+  transform(
+    [list_move([Index(2)], 1)],
+    [list_delete([Index(1)], number_value(3))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(1)], 1)])
+  transform(
+    [list_delete([Index(2)], object([]))],
+    [list_move([Index(1)], 2)],
+    Rgt,
+  )
+  |> expect.to_equal([list_delete([Index(1)], object([]))])
+  transform(
+    [list_delete([Index(1)], object([]))],
+    [list_move([Index(2)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_delete([Index(2)], object([]))])
+  transform(
+    [list_delete([Index(1)], object([]))],
+    [list_move([Index(0)], 1)],
+    Rgt,
+  )
+  |> expect.to_equal([list_delete([Index(0)], object([]))])
+  transform(
+    [list_replace([Index(1)], number_value(1), number_value(2))],
+    [list_move([Index(1)], 0)],
+    Lft,
+  )
+  |> expect.to_equal([
+    list_replace([Index(0)], number_value(1), number_value(2)),
+  ])
+  transform(
+    [list_replace([Index(1)], number_value(2), number_value(3))],
+    [list_move([Index(0)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([
+    list_replace([Index(0)], number_value(2), number_value(3)),
+  ])
+  transform(
+    [list_replace([Index(0)], number_value(3), number_value(4))],
+    [list_move([Index(1)], 0)],
+    Lft,
+  )
+  |> expect.to_equal([
+    list_replace([Index(1)], number_value(3), number_value(4)),
+  ])
 }
 
-pub fn li_vs_lm_table_test() {
-  xf([li([Index(0)], arr([]))], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([li([Index(0)], arr([]))])
-  xf([li([Index(1)], arr([]))], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([li([Index(1)], arr([]))])
-  xf([li([Index(2)], arr([]))], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([li([Index(1)], arr([]))])
-  xf([li([Index(3)], arr([]))], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([li([Index(2)], arr([]))])
-  xf([li([Index(4)], arr([]))], [lm([Index(1)], 3)], Lft)
-  |> expect.to_equal([li([Index(4)], arr([]))])
+pub fn li_vs_lm_table_test() -> Nil {
+  transform(
+    [list_insert([Index(0)], array([]))],
+    [list_move([Index(1)], 3)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(0)], array([]))])
+  transform(
+    [list_insert([Index(1)], array([]))],
+    [list_move([Index(1)], 3)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(1)], array([]))])
+  transform(
+    [list_insert([Index(2)], array([]))],
+    [list_move([Index(1)], 3)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(1)], array([]))])
+  transform(
+    [list_insert([Index(3)], array([]))],
+    [list_move([Index(1)], 3)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(2)], array([]))])
+  transform(
+    [list_insert([Index(4)], array([]))],
+    [list_move([Index(1)], 3)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(4)], array([]))])
 
-  xf([lm([Index(1)], 3)], [li([Index(0)], arr([]))], Rgt)
-  |> expect.to_equal([lm([Index(2)], 4)])
-  xf([lm([Index(1)], 3)], [li([Index(1)], arr([]))], Rgt)
-  |> expect.to_equal([lm([Index(2)], 4)])
-  xf([lm([Index(1)], 3)], [li([Index(2)], arr([]))], Rgt)
-  |> expect.to_equal([lm([Index(1)], 4)])
-  xf([lm([Index(1)], 3)], [li([Index(3)], arr([]))], Rgt)
-  |> expect.to_equal([lm([Index(1)], 4)])
-  xf([lm([Index(1)], 3)], [li([Index(4)], arr([]))], Rgt)
-  |> expect.to_equal([lm([Index(1)], 3)])
+  transform(
+    [list_move([Index(1)], 3)],
+    [list_insert([Index(0)], array([]))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(2)], 4)])
+  transform(
+    [list_move([Index(1)], 3)],
+    [list_insert([Index(1)], array([]))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(2)], 4)])
+  transform(
+    [list_move([Index(1)], 3)],
+    [list_insert([Index(2)], array([]))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(1)], 4)])
+  transform(
+    [list_move([Index(1)], 3)],
+    [list_insert([Index(3)], array([]))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(1)], 4)])
+  transform(
+    [list_move([Index(1)], 3)],
+    [list_insert([Index(4)], array([]))],
+    Rgt,
+  )
+  |> expect.to_equal([list_move([Index(1)], 3)])
 
-  xf([li([Index(0)], arr([]))], [lm([Index(3)], 1)], Lft)
-  |> expect.to_equal([li([Index(0)], arr([]))])
-  xf([li([Index(2)], arr([]))], [lm([Index(3)], 1)], Lft)
-  |> expect.to_equal([li([Index(3)], arr([]))])
-  xf([li([Index(3)], arr([]))], [lm([Index(3)], 1)], Lft)
-  |> expect.to_equal([li([Index(4)], arr([]))])
-  xf([li([Index(4)], arr([]))], [lm([Index(3)], 1)], Lft)
-  |> expect.to_equal([li([Index(4)], arr([]))])
+  transform(
+    [list_insert([Index(0)], array([]))],
+    [list_move([Index(3)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(0)], array([]))])
+  transform(
+    [list_insert([Index(2)], array([]))],
+    [list_move([Index(3)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(3)], array([]))])
+  transform(
+    [list_insert([Index(3)], array([]))],
+    [list_move([Index(3)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(4)], array([]))])
+  transform(
+    [list_insert([Index(4)], array([]))],
+    [list_move([Index(3)], 1)],
+    Lft,
+  )
+  |> expect.to_equal([list_insert([Index(4)], array([]))])
 }
 
 // ── object ────────────────────────────────────────────────────────────────────
 
-pub fn simultaneous_object_inserts_left_wins_test() {
-  xf([oi([Index(1)], s("a"))], [oi([Index(1)], s("b"))], Lft)
-  |> expect.to_equal([orr([Index(1)], s("b"), s("a"))])
-  xf([oi([Index(1)], s("b"))], [oi([Index(1)], s("a"))], Rgt)
-  |> expect.to_equal([])
-}
-
-pub fn parallel_object_ops_miss_each_other_test() {
-  xf([oi([Key("a")], s("x"))], [oi([Key("b")], s("z"))], Lft)
-  |> expect.to_equal([oi([Key("a")], s("x"))])
-  xf([oi([Key("a")], s("x"))], [od([Key("b")], s("z"))], Lft)
-  |> expect.to_equal([oi([Key("a")], s("x"))])
-  xf([oi([Key("in"), Key("he")], obj([]))], [od([Key("and")], obj([]))], Rgt)
-  |> expect.to_equal([oi([Key("in"), Key("he")], obj([]))])
-}
-
-pub fn object_replacement_vs_deletion_test() {
-  xf([orr([], arr([s("")]), obj([]))], [od([], arr([s("")]))], Rgt)
-  |> expect.to_equal([oi([], obj([]))])
-}
-
-pub fn object_replacement_vs_replacement_test() {
-  xf(
-    [od([], arr([s("")])), oi([], obj([]))],
-    [od([], arr([s("")])), oi([], VNull)],
+pub fn simultaneous_object_inserts_left_wins_test() -> Nil {
+  transform(
+    [object_insert([Index(1)], string_value("a"))],
+    [object_insert([Index(1)], string_value("b"))],
+    Lft,
+  )
+  |> expect.to_equal([
+    object_replace([Index(1)], string_value("b"), string_value("a")),
+  ])
+  transform(
+    [object_insert([Index(1)], string_value("b"))],
+    [object_insert([Index(1)], string_value("a"))],
     Rgt,
   )
   |> expect.to_equal([])
-  xf(
-    [od([], arr([s("")])), oi([], obj([]))],
-    [od([], arr([s("")])), oi([], VNull)],
-    Lft,
-  )
-  |> expect.to_equal([orr([], VNull, obj([]))])
-  xf([orr([], arr([s("")]), obj([]))], [orr([], arr([s("")]), VNull)], Rgt)
-  |> expect.to_equal([])
-  xf([orr([], arr([s("")]), obj([]))], [orr([], arr([s("")]), VNull)], Lft)
-  |> expect.to_equal([orr([], VNull, obj([]))])
 }
 
-pub fn re_delete_key_noop_test() {
-  xf([od([Key("k")], s("x"))], [od([Key("k")], s("x"))], Lft)
+pub fn parallel_object_ops_miss_each_other_test() -> Nil {
+  transform(
+    [object_insert([Key("a")], string_value("x"))],
+    [object_insert([Key("b")], string_value("z"))],
+    Lft,
+  )
+  |> expect.to_equal([object_insert([Key("a")], string_value("x"))])
+  transform(
+    [object_insert([Key("a")], string_value("x"))],
+    [object_delete([Key("b")], string_value("z"))],
+    Lft,
+  )
+  |> expect.to_equal([object_insert([Key("a")], string_value("x"))])
+  transform(
+    [object_insert([Key("in"), Key("he")], object([]))],
+    [object_delete([Key("and")], object([]))],
+    Rgt,
+  )
+  |> expect.to_equal([object_insert([Key("in"), Key("he")], object([]))])
+}
+
+pub fn object_replacement_vs_deletion_test() -> Nil {
+  transform(
+    [object_replace([], array([string_value("")]), object([]))],
+    [object_delete([], array([string_value("")]))],
+    Rgt,
+  )
+  |> expect.to_equal([object_insert([], object([]))])
+}
+
+pub fn object_replacement_vs_replacement_test() -> Nil {
+  transform(
+    [
+      object_delete([], array([string_value("")])),
+      object_insert([], object([])),
+    ],
+    [object_delete([], array([string_value("")])), object_insert([], VNull)],
+    Rgt,
+  )
   |> expect.to_equal([])
-  xf([od([Key("k")], s("x"))], [od([Key("k")], s("x"))], Rgt)
+  transform(
+    [
+      object_delete([], array([string_value("")])),
+      object_insert([], object([])),
+    ],
+    [object_delete([], array([string_value("")])), object_insert([], VNull)],
+    Lft,
+  )
+  |> expect.to_equal([object_replace([], VNull, object([]))])
+  transform(
+    [object_replace([], array([string_value("")]), object([]))],
+    [object_replace([], array([string_value("")]), VNull)],
+    Rgt,
+  )
+  |> expect.to_equal([])
+  transform(
+    [object_replace([], array([string_value("")]), object([]))],
+    [object_replace([], array([string_value("")]), VNull)],
+    Lft,
+  )
+  |> expect.to_equal([object_replace([], VNull, object([]))])
+}
+
+pub fn re_delete_key_noop_test() -> Nil {
+  transform(
+    [object_delete([Key("k")], string_value("x"))],
+    [object_delete([Key("k")], string_value("x"))],
+    Lft,
+  )
+  |> expect.to_equal([])
+  transform(
+    [object_delete([Key("k")], string_value("x"))],
+    [object_delete([Key("k")], string_value("x"))],
+    Rgt,
+  )
   |> expect.to_equal([])
 }
 
-pub fn deleted_data_reflects_edits_test() {
-  xf([orr([], n(22), arr([]))], [na([], 3)], Lft)
-  |> expect.to_equal([orr([], n(25), arr([]))])
-  xf(
-    [orr([], obj([#("toves", n(0))]), n(4))],
-    [orr([Key("toves")], n(0), s(""))],
+pub fn deleted_data_reflects_edits_test() -> Nil {
+  transform(
+    [object_replace([], number_value(22), array([]))],
+    [number_add([], 3)],
     Lft,
   )
-  |> expect.to_equal([orr([], obj([#("toves", s(""))]), n(4))])
-  xf([na([Key("bird")], 2)], [orr([], obj([#("bird", n(38))]), n(20))], Rgt)
+  |> expect.to_equal([object_replace([], number_value(25), array([]))])
+  transform(
+    [object_replace([], object([#("toves", number_value(0))]), number_value(4))],
+    [object_replace([Key("toves")], number_value(0), string_value(""))],
+    Lft,
+  )
+  |> expect.to_equal([
+    object_replace([], object([#("toves", string_value(""))]), number_value(4)),
+  ])
+  transform(
+    [number_add([Key("bird")], 2)],
+    [
+      object_replace(
+        [],
+        object([#("bird", number_value(38))]),
+        number_value(20),
+      ),
+    ],
+    Rgt,
+  )
   |> expect.to_equal([])
-  xf([orr([], obj([#("bird", n(38))]), n(20))], [na([Key("bird")], 2)], Lft)
-  |> expect.to_equal([orr([], obj([#("bird", n(40))]), n(20))])
-  xf([od([Key("He")], arr([]))], [na([Key("The")], -3)], Rgt)
-  |> expect.to_equal([od([Key("He")], arr([]))])
-  xf([oi([Key("He")], obj([]))], [orr([], obj([]), s("the"))], Lft)
+  transform(
+    [
+      object_replace(
+        [],
+        object([#("bird", number_value(38))]),
+        number_value(20),
+      ),
+    ],
+    [number_add([Key("bird")], 2)],
+    Lft,
+  )
+  |> expect.to_equal([
+    object_replace([], object([#("bird", number_value(40))]), number_value(20)),
+  ])
+  transform(
+    [object_delete([Key("He")], array([]))],
+    [number_add([Key("The")], -3)],
+    Rgt,
+  )
+  |> expect.to_equal([object_delete([Key("He")], array([]))])
+  transform(
+    [object_insert([Key("He")], object([]))],
+    [object_replace([], object([]), string_value("the"))],
+    Lft,
+  )
   |> expect.to_equal([])
 }
 
 // ── number: transformX keeps na merges intact (diamond) ───────────────────────
 
-pub fn na_merge_diamond_test() {
+pub fn na_merge_diamond_test() -> Nil {
   let right_op = [
-    orr([], n(0), n(15)),
-    na([], 4),
-    na([], 1),
-    na([], 1),
+    object_replace([], number_value(0), number_value(15)),
+    number_add([], 4),
+    number_add([], 1),
+    number_add([], 1),
   ]
-  let left_op = [na([], 4), na([], -1)]
+  let left_op = [number_add([], 4), number_add([], -1)]
   let assert Ok(right_) = json_ot.transform(right_op, left_op, Rgt)
   let assert Ok(left_) = json_ot.transform(left_op, right_op, Lft)
-  let assert Ok(s_c) = json_ot.apply(n(21), left_)
-  let assert Ok(c_s) = json_ot.apply(n(3), right_)
+  let assert Ok(s_c) = json_ot.apply(number_value(21), left_)
+  let assert Ok(c_s) = json_ot.apply(number_value(3), right_)
   s_c |> expect.to_equal(c_s)
 }
 
 // ── object insert tie-break interplay with multi-op transformX ────────────────
 
-pub fn object_replacement_diamond_property_test() {
-  let right_ops = [orr([], VNull, obj([]))]
-  let left_ops = [orr([], VNull, s(""))]
+pub fn object_replacement_diamond_property_test() -> Nil {
+  let right_ops = [object_replace([], VNull, object([]))]
+  let left_ops = [object_replace([], VNull, string_value(""))]
   let assert Ok(right_has) = json_ot.apply(VNull, right_ops)
   let assert Ok(left_has) = json_ot.apply(VNull, left_ops)
   let assert Ok(left_) = json_ot.transform(left_ops, right_ops, Lft)

@@ -59,7 +59,7 @@ fn expect_ok(result: Result(Nil, String)) -> Nil {
 /// authoring, if the op leaked into the log, client 2 would observe it via
 /// `Synchronize` and diverge from client 1, which stays disconnected and
 /// legitimately excluded from convergence.
-pub fn disconnect_moves_inflight_inbox_entry_to_resend_test() {
+pub fn disconnect_moves_inflight_inbox_entry_to_resend_test() -> Nil {
   let script = [
     ClientOp(1, 10),
     Disconnect(1),
@@ -72,7 +72,7 @@ pub fn disconnect_moves_inflight_inbox_entry_to_resend_test() {
 
 /// An op that already made it into the log before the disconnect must stay
 /// there — the disconnect only intercepts the inbox, not the log.
-pub fn disconnect_does_not_unsequence_already_sequenced_ops_test() {
+pub fn disconnect_does_not_unsequence_already_sequenced_ops_test() -> Nil {
   let script = [
     ClientOp(1, 10),
     Sequence(1),
@@ -91,7 +91,7 @@ pub fn disconnect_does_not_unsequence_already_sequenced_ops_test() {
 /// model would need real rebase/pending semantics to stay consistent
 /// (exactly what `map_model`'s `check` hook exists for), which is out of
 /// scope for this harness-only property.
-pub fn disconnect_mid_pending_window_then_reconnect_converges_test() {
+pub fn disconnect_mid_pending_window_then_reconnect_converges_test() -> Nil {
   let script = [
     ClientOp(1, Increment(1)),
     ClientOp(1, Increment(2)),
@@ -107,7 +107,7 @@ pub fn disconnect_mid_pending_window_then_reconnect_converges_test() {
 
 /// Reconnect must resubmit the resend queue in the original order — reusing
 /// the insertion-order toy model, a reordering bug is directly observable.
-pub fn reconnect_resubmits_resend_queue_in_order_test() {
+pub fn reconnect_resubmits_resend_queue_in_order_test() -> Nil {
   let script = [
     ClientOp(1, 1),
     ClientOp(1, 2),
@@ -121,7 +121,7 @@ pub fn reconnect_resubmits_resend_queue_in_order_test() {
 
 /// A disconnected client is legitimately excluded from convergence and must
 /// not be compared against connected clients.
-pub fn disconnected_client_excluded_from_convergence_test() {
+pub fn disconnected_client_excluded_from_convergence_test() -> Nil {
   let script = [ClientOp(1, 10), Disconnect(1), Synchronize]
   // Client 1 still privately observes its own optimistic op even though it
   // never reached the server; that must not fail convergence.

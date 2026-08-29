@@ -17,7 +17,7 @@ fn ack(
   state
 }
 
-pub fn add_is_optimistically_visible_test() {
+pub fn add_is_optimistically_visible_test() -> Nil {
   let #(state, events, op, message_id) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
 
@@ -29,7 +29,7 @@ pub fn add_is_optimistically_visible_test() {
   expect_coherent(state)
 }
 
-pub fn add_then_remove_removes_active_membership_test() {
+pub fn add_then_remove_removes_active_membership_test() -> Nil {
   let #(state, _, add_op, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
   let state = ack(state, add_op)
@@ -42,7 +42,7 @@ pub fn add_then_remove_removes_active_membership_test() {
   expect_coherent(state)
 }
 
-pub fn remove_then_add_keeps_element_inactive_test() {
+pub fn remove_then_add_keeps_element_inactive_test() -> Nil {
   let #(state, remove_events, remove_op, _) =
     two_p_set_kernel.remove(two_p_set_kernel.new(), "stake-3")
   let state = ack(state, remove_op)
@@ -55,7 +55,7 @@ pub fn remove_then_add_keeps_element_inactive_test() {
   expect_coherent(state)
 }
 
-pub fn concurrent_add_remove_converges_to_removed_test() {
+pub fn concurrent_add_remove_converges_to_removed_test() -> Nil {
   let #(_, _, add_op, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
   let #(_, _, remove_op, _) =
@@ -79,7 +79,7 @@ pub fn concurrent_add_remove_converges_to_removed_test() {
   expect_coherent(other_order)
 }
 
-pub fn duplicate_remove_is_idempotent_test() {
+pub fn duplicate_remove_is_idempotent_test() -> Nil {
   let #(_, _, op, _) =
     two_p_set_kernel.remove(two_p_set_kernel.new(), "stake-3")
   let #(state, first_events) =
@@ -92,7 +92,7 @@ pub fn duplicate_remove_is_idempotent_test() {
   expect_coherent(state)
 }
 
-pub fn rollback_pending_remove_restores_active_membership_test() {
+pub fn rollback_pending_remove_restores_active_membership_test() -> Nil {
   let #(state, _, add_op, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
   let state = ack(state, add_op)
@@ -106,7 +106,7 @@ pub fn rollback_pending_remove_restores_active_membership_test() {
   expect_coherent(state)
 }
 
-pub fn summary_round_trips_tombstones_test() {
+pub fn summary_round_trips_tombstones_test() -> Nil {
   let #(state, _, add_op, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
   let state = ack(state, add_op)

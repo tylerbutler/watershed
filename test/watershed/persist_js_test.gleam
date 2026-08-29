@@ -145,7 +145,7 @@ fn run_update(
 fn decide(decision: Cell(UpdateDecision), next: UpdateDecision) -> Nil {
   case transport_js.get_cell(decision) {
     NoDecision -> transport_js.set_cell(decision, next)
-    _ -> Nil
+    WriteSnapshot(_) | AbortUpdate -> Nil
   }
 }
 
@@ -179,7 +179,7 @@ fn new_document() -> CrdtDocument(GSetChannel) {
 }
 
 @target(javascript)
-pub fn an_empty_store_loads_none_test() {
+pub fn an_empty_store_loads_none_test() -> Nil {
   let store = memory(None, False)
   let seen = transport_js.new_cell(None)
   persist_js.load(memory_storage(store), config(), fn(result) {
@@ -189,7 +189,7 @@ pub fn an_empty_store_loads_none_test() {
 }
 
 @target(javascript)
-pub fn a_snapshot_saves_and_loads_test() {
+pub fn a_snapshot_saves_and_loads_test() -> Nil {
   let store = memory(None, False)
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "local")
@@ -209,7 +209,7 @@ pub fn a_snapshot_saves_and_loads_test() {
 }
 
 @target(javascript)
-pub fn save_joins_the_latest_disk_snapshot_test() {
+pub fn save_joins_the_latest_disk_snapshot_test() -> Nil {
   let store = memory(None, False)
   let first = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(first), "first")
@@ -229,7 +229,7 @@ pub fn save_joins_the_latest_disk_snapshot_test() {
 }
 
 @target(javascript)
-pub fn concurrent_saves_share_the_latest_snapshot_test() {
+pub fn concurrent_saves_share_the_latest_snapshot_test() -> Nil {
   let store = queued_memory(None)
   let first = new_document()
   let second = new_document()
@@ -265,7 +265,7 @@ pub fn concurrent_saves_share_the_latest_snapshot_test() {
 }
 
 @target(javascript)
-pub fn corrupt_bytes_are_reported_and_retained_test() {
+pub fn corrupt_bytes_are_reported_and_retained_test() -> Nil {
   let store = memory(Some("{not-json"), False)
   let seen = transport_js.new_cell(None)
   persist_js.load(memory_storage(store), config(), fn(result) {
@@ -278,7 +278,7 @@ pub fn corrupt_bytes_are_reported_and_retained_test() {
 }
 
 @target(javascript)
-pub fn save_against_corrupt_bytes_fails_and_retains_existing_bytes_test() {
+pub fn save_against_corrupt_bytes_fails_and_retains_existing_bytes_test() -> Nil {
   let store = memory(Some("{not-json"), False)
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "local")
@@ -293,7 +293,7 @@ pub fn save_against_corrupt_bytes_fails_and_retains_existing_bytes_test() {
 }
 
 @target(javascript)
-pub fn replace_succeeds_against_corrupt_bytes_and_loads_the_current_state_test() {
+pub fn replace_succeeds_against_corrupt_bytes_and_loads_the_current_state_test() -> Nil {
   let store = memory(Some("{not-json"), False)
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "local")
@@ -314,7 +314,7 @@ pub fn replace_succeeds_against_corrupt_bytes_and_loads_the_current_state_test()
 }
 
 @target(javascript)
-pub fn a_failed_write_is_not_reported_as_saved_test() {
+pub fn a_failed_write_is_not_reported_as_saved_test() -> Nil {
   let store = memory(None, True)
   let seen = transport_js.new_cell(None)
   persist_js.save(memory_storage(store), new_document(), fn(result) {
@@ -322,10 +322,11 @@ pub fn a_failed_write_is_not_reported_as_saved_test() {
   })
   let assert Some(Error(persist_js.StorageFailure("quota exceeded"))) =
     transport_js.get_cell(seen)
+  Nil
 }
 
 @target(javascript)
-pub fn replace_write_failures_still_surface_test() {
+pub fn replace_write_failures_still_surface_test() -> Nil {
   let store = memory(Some("{not-json"), True)
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "local")
@@ -340,7 +341,7 @@ pub fn replace_write_failures_still_surface_test() {
 }
 
 @target(javascript)
-pub fn the_controller_debounces_and_sweeps_remote_changes_test() {
+pub fn the_controller_debounces_and_sweeps_remote_changes_test() -> Nil {
   let store = memory(None, False)
   let document = new_document()
   let clock = relay_fake.new_clock()
@@ -380,7 +381,7 @@ pub fn the_controller_debounces_and_sweeps_remote_changes_test() {
 }
 
 @target(javascript)
-pub fn pagehide_attempts_the_last_changed_snapshot_test() {
+pub fn pagehide_attempts_the_last_changed_snapshot_test() -> Nil {
   let store = memory(None, False)
   let document = new_document()
   let clock = relay_fake.new_clock()

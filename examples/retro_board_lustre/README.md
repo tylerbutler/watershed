@@ -56,7 +56,7 @@ the note's id sitting in two column sequences at once, or in none, or in a
 sequence that disagrees with its register.
 
 The app does not pretend otherwise. It applies one rule at render time — **the
-`column` register is authoritative** (`src/board.gleam`):
+`column` register is authoritative** (`src/retro_board_lustre/board.gleam`):
 
 - an id in a sequence whose column doesn't match the note's register is
   skipped when rendering that sequence;

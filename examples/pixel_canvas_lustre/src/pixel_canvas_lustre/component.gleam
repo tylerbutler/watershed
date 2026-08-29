@@ -24,7 +24,7 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 
-import lustre/attribute.{class, id}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -245,9 +245,9 @@ fn existing_cells(pixels: OrMap) -> List(#(Int, Int, Int)) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.div([class("canvas-panel")], [
+  html.div([attribute.class("canvas-panel")], [
     palette_row(model),
-    html.div([class("canvas-stage")], [
+    html.div([attribute.class("canvas-stage")], [
       canvas_element(),
       ..list.filter_map(model.peers, peer_marker)
     ]),
@@ -260,7 +260,7 @@ pub fn view(model: Model) -> Element(Msg) {
 /// either one resets the surface and wipes the picture.
 fn canvas_element() -> Element(Msg) {
   html.canvas([
-    id("canvas"),
+    attribute.id("canvas"),
     attribute.attribute("width", int.to_string(grid.size)),
     attribute.attribute("height", int.to_string(grid.size)),
     attribute.attribute("role", "img"),
@@ -286,7 +286,7 @@ fn peer_marker(peer: Peer) -> Result(Element(Msg), Nil) {
       Ok(
         html.span(
           [
-            class("peer-marker"),
+            attribute.class("peer-marker"),
             attribute.style("left", percent(x)),
             attribute.style("top", percent(y)),
             attribute.style("background", peer.color),
@@ -348,7 +348,7 @@ fn cell_of(offset: Float, extent: Int) -> Int {
 }
 
 fn palette_row(model: Model) -> Element(Msg) {
-  html.div([class("palette"), attribute.attribute("role", "group")], {
+  html.div([attribute.class("palette"), attribute.attribute("role", "group")], {
     use color <- list.map(indices(canvas.palette_size()))
     let name = case color == canvas.erase {
       True -> "Erase"
@@ -356,7 +356,7 @@ fn palette_row(model: Model) -> Element(Msg) {
     }
     html.button(
       [
-        class(case color == canvas.erase {
+        attribute.class(case color == canvas.erase {
           True -> "swatch erase"
           False -> "swatch"
         }),

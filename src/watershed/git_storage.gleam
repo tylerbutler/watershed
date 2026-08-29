@@ -62,6 +62,56 @@ pub type SummaryVersion {
   )
 }
 
+/// The reasons that a storage call fails. Each variant names the step of the
+/// storage protocol that failed, and it carries the data that a reader needs
+/// to find the fault.
+pub type StorageError {
+  /// The client could not build the request. The URL is not a valid one.
+  BadRequestUrl(url: String)
+  /// The network call did not complete.
+  RequestFailed(url: String, detail: String)
+  /// The client could not read the body of the response.
+  BodyReadFailed(url: String, detail: String)
+  /// The server answered with a status outside the 2xx range.
+  UnexpectedStatus(url: String, status: Int, body: String)
+  /// The body of the response is not the JSON that this client expects.
+  ResponseDecodeFailed(url: String, detail: String)
+  /// The summary tree holds no entry at the summary blob path.
+  SummaryBlobMissing(handle: String, path: String)
+  /// The content of the summary blob is not base64, or the bytes in it are
+  /// not UTF-8 text.
+  SummaryBlobUnreadable(blob_sha: String, detail: String)
+  /// The summary blob is text, but it is not a summary.
+  SummaryBlobInvalid(blob_sha: String, detail: String)
+}
+
+/// One line of text for a `StorageError` value, for a caller that reports a
+/// String.
+pub fn error_to_string(error: StorageError) -> String {
+  case error {
+    BadRequestUrl(url) -> "storage url is not valid: " <> url
+    RequestFailed(url, detail) ->
+      "storage request to " <> url <> " failed: " <> detail
+    BodyReadFailed(url, detail) ->
+      "storage response from " <> url <> " could not be read: " <> detail
+    UnexpectedStatus(url, status, body) ->
+      "storage request to "
+      <> url
+      <> " answered http "
+      <> int.to_string(status)
+      <> ": "
+      <> body
+    ResponseDecodeFailed(url, detail) ->
+      "storage response from " <> url <> " did not decode: " <> detail
+    SummaryBlobMissing(handle, path) ->
+      "summary tree " <> handle <> " has no '" <> path <> "' entry"
+    SummaryBlobUnreadable(blob_sha, detail) ->
+      "summary blob " <> blob_sha <> " could not be read: " <> detail
+    SummaryBlobInvalid(blob_sha, detail) ->
+      "summary blob " <> blob_sha <> " did not decode: " <> detail
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API — erlang (synchronous, runs inside the OTP actor)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +124,7 @@ pub fn fetch_summary(
   tenant tenant: String,
   token token: String,
   handle handle: String,
-) -> Result(SummaryBlob, String) {
+) -> Result(SummaryBlob, StorageError) {
   use tree <- result.try(get_json(
     tree_url(base_url, tenant, handle),
     token,
@@ -105,7 +155,7 @@ pub fn upload_summary(
   sequence_number sequence_number: Int,
   members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
-) -> Result(String, String) {
+) -> Result(String, StorageError) {
   use blob_sha <- result.try(post_json(
     blobs_url(base_url, tenant),
     token,
@@ -132,7 +182,7 @@ pub fn fetch_deltas(
   document document: String,
   from from: Int,
   to to: Int,
-) -> Result(List(SequencedDocumentMessage), String) {
+) -> Result(List(SequencedDocumentMessage), StorageError) {
   get_json(
     deltas_url(base_url, tenant, document, from, to),
     token,
@@ -150,7 +200,7 @@ pub fn fetch_versions(
   token token: String,
   document document: String,
   count count: Int,
-) -> Result(List(SummaryVersion), String) {
+) -> Result(List(SummaryVersion), StorageError) {
   get_json(
     versions_url(base_url, tenant, document, count),
     token,
@@ -170,7 +220,7 @@ pub fn fetch_summary(
   tenant tenant: String,
   token token: String,
   handle handle: String,
-) -> Promise(Result(SummaryBlob, String)) {
+) -> Promise(Result(SummaryBlob, StorageError)) {
   use tree <- promise.try_await(get_json(
     tree_url(base_url, tenant, handle),
     token,
@@ -201,7 +251,7 @@ pub fn upload_summary(
   sequence_number sequence_number: Int,
   members members: List(Int),
   channels channels: List(#(String, channel.Snapshot)),
-) -> Promise(Result(String, String)) {
+) -> Promise(Result(String, StorageError)) {
   use blob_sha <- promise.try_await(post_json(
     blobs_url(base_url, tenant),
     token,
@@ -228,7 +278,7 @@ pub fn fetch_deltas(
   document document: String,
   from from: Int,
   to to: Int,
-) -> Promise(Result(List(SequencedDocumentMessage), String)) {
+) -> Promise(Result(List(SequencedDocumentMessage), StorageError)) {
   get_json(
     deltas_url(base_url, tenant, document, from, to),
     token,
@@ -246,7 +296,7 @@ pub fn fetch_versions(
   token token: String,
   document document: String,
   count count: Int,
-) -> Promise(Result(List(SummaryVersion), String)) {
+) -> Promise(Result(List(SummaryVersion), StorageError)) {
   get_json(
     versions_url(base_url, tenant, document, count),
     token,
@@ -353,17 +403,10 @@ fn tree_body(blob_sha: String) -> String {
 fn find_blob_sha(
   tree: List(#(String, String)),
   handle: String,
-) -> Result(String, String) {
+) -> Result(String, StorageError) {
   case list.find(tree, fn(entry) { entry.0 == summary_blob_path }) {
     Ok(#(_, sha)) -> Ok(sha)
-    Error(_) ->
-      Error(
-        "summary tree "
-        <> handle
-        <> " has no '"
-        <> summary_blob_path
-        <> "' entry",
-      )
+    Error(Nil) -> Error(SummaryBlobMissing(handle, summary_blob_path))
   }
 }
 
@@ -372,46 +415,44 @@ fn find_blob_sha(
 fn decode_blob(
   blob_sha: String,
   blob: BlobContent,
-) -> Result(SummaryBlob, String) {
+) -> Result(SummaryBlob, StorageError) {
   use bits <- result.try(
     bit_array.base64_decode(blob.content)
-    |> result.replace_error("summary blob " <> blob_sha <> " is not base64"),
+    |> result.replace_error(SummaryBlobUnreadable(
+      blob_sha,
+      "the content is not base64",
+    )),
   )
   use raw <- result.try(
     bit_array.to_string(bits)
-    |> result.replace_error("summary blob " <> blob_sha <> " is not UTF-8"),
+    |> result.replace_error(SummaryBlobUnreadable(
+      blob_sha,
+      "the bytes are not UTF-8 text",
+    )),
   )
   summary_blob.decode(raw)
-  |> result.map_error(fn(err) {
-    "summary blob " <> blob_sha <> " decode failed: " <> string.inspect(err)
+  |> result.map_error(fn(error) {
+    SummaryBlobInvalid(blob_sha, string.inspect(error))
   })
 }
 
-fn is_success(resp: Response(String)) -> Bool {
-  resp.status >= 200 && resp.status < 300
+fn is_success(response: Response(String)) -> Bool {
+  response.status >= 200 && response.status < 300
 }
 
-/// Decode a successful response body, or format an HTTP-error response.
+/// Decode a successful response body, or report an HTTP-error response.
 fn decode_response(
-  req: Request(String),
-  resp: Response(String),
+  request: Request(String),
+  response: Response(String),
   decoder: Decoder(a),
-) -> Result(a, String) {
-  case is_success(resp) {
-    False ->
-      Error(
-        "http "
-        <> int.to_string(resp.status)
-        <> " from "
-        <> req.host
-        <> req.path
-        <> ": "
-        <> resp.body,
-      )
+) -> Result(a, StorageError) {
+  let url = request.host <> request.path
+  case is_success(response) {
+    False -> Error(UnexpectedStatus(url, response.status, response.body))
     True ->
-      json.parse(resp.body, decoder)
-      |> result.map_error(fn(err) {
-        "response decode failed: " <> string.inspect(err)
+      json.parse(response.body, decoder)
+      |> result.map_error(fn(error) {
+        ResponseDecodeFailed(url, string.inspect(error))
       })
   }
 }
@@ -420,13 +461,16 @@ fn decode_response(
 // Shared request construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn build_get(url: String, token: String) -> Result(Request(String), String) {
-  use req <- result.try(
+fn build_get(
+  url: String,
+  token: String,
+) -> Result(Request(String), StorageError) {
+  use request <- result.try(
     request.to(url)
-    |> result.replace_error("invalid url: " <> url),
+    |> result.replace_error(BadRequestUrl(url)),
   )
   Ok(
-    req
+    request
     |> request.set_method(http.Get)
     |> authorize(token),
   )
@@ -436,13 +480,13 @@ fn build_post(
   url: String,
   token: String,
   body: String,
-) -> Result(Request(String), String) {
-  use req <- result.try(
+) -> Result(Request(String), StorageError) {
+  use request <- result.try(
     request.to(url)
-    |> result.replace_error("invalid url: " <> url),
+    |> result.replace_error(BadRequestUrl(url)),
   )
   Ok(
-    req
+    request
     |> request.set_method(http.Post)
     |> request.set_header("content-type", "application/json")
     |> request.set_body(body)
@@ -450,8 +494,8 @@ fn build_post(
   )
 }
 
-fn authorize(req: Request(String), token: String) -> Request(String) {
-  request.set_header(req, "authorization", "Bearer " <> token)
+fn authorize(request: Request(String), token: String) -> Request(String) {
+  request.set_header(request, "authorization", "Bearer " <> token)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -463,9 +507,9 @@ fn get_json(
   url: String,
   token: String,
   decoder: Decoder(a),
-) -> Result(a, String) {
-  use req <- result.try(build_get(url, token))
-  send(req, decoder)
+) -> Result(a, StorageError) {
+  use request <- result.try(build_get(url, token))
+  send(request, decoder)
 }
 
 @target(erlang)
@@ -474,26 +518,29 @@ fn post_json(
   token: String,
   body: String,
   decoder: Decoder(a),
-) -> Result(a, String) {
-  use req <- result.try(build_post(url, token, body))
-  send(req, decoder)
+) -> Result(a, StorageError) {
+  use request <- result.try(build_post(url, token, body))
+  send(request, decoder)
 }
 
 @target(erlang)
-fn send(req: Request(String), decoder: Decoder(a)) -> Result(a, String) {
+fn send(
+  request: Request(String),
+  decoder: Decoder(a),
+) -> Result(a, StorageError) {
   // Force a fresh connection per request. Erlang's default httpc profile keeps
   // connections alive and pools them; a second sequential request that tries to
   // reuse a pooled (possibly server-closed) session can stall until timeout.
   // `Connection: close` makes the server close after each response so httpc
   // never reuses a stale session.
-  let req = request.set_header(req, "connection", "close")
-  use resp <- result.try(
-    httpc.send(req)
-    |> result.map_error(fn(err) {
-      "http request failed: " <> string.inspect(err)
+  let request = request.set_header(request, "connection", "close")
+  use response <- result.try(
+    httpc.send(request)
+    |> result.map_error(fn(error) {
+      RequestFailed(request.host <> request.path, string.inspect(error))
     }),
   )
-  decode_response(req, resp, decoder)
+  decode_response(request, response, decoder)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -505,10 +552,10 @@ fn get_json(
   url: String,
   token: String,
   decoder: Decoder(a),
-) -> Promise(Result(a, String)) {
+) -> Promise(Result(a, StorageError)) {
   case build_get(url, token) {
     Error(reason) -> promise.resolve(Error(reason))
-    Ok(req) -> send(req, decoder)
+    Ok(request) -> send(request, decoder)
   }
 }
 
@@ -518,35 +565,35 @@ fn post_json(
   token: String,
   body: String,
   decoder: Decoder(a),
-) -> Promise(Result(a, String)) {
+) -> Promise(Result(a, StorageError)) {
   case build_post(url, token, body) {
     Error(reason) -> promise.resolve(Error(reason))
-    Ok(req) -> send(req, decoder)
+    Ok(request) -> send(request, decoder)
   }
 }
 
 @target(javascript)
 fn send(
-  req: Request(String),
+  request: Request(String),
   decoder: Decoder(a),
-) -> Promise(Result(a, String)) {
+) -> Promise(Result(a, StorageError)) {
   use sent <- promise.try_await(
-    fetch.send(req)
+    fetch.send(request)
     |> promise.map(
-      result.map_error(_, fn(err) {
-        "http request failed: " <> string.inspect(err)
+      result.map_error(_, fn(error) {
+        RequestFailed(request.host <> request.path, string.inspect(error))
       }),
     ),
   )
-  use resp <- promise.try_await(
+  use response <- promise.try_await(
     fetch.read_text_body(sent)
     |> promise.map(
-      result.map_error(_, fn(err) {
-        "http body read failed: " <> string.inspect(err)
+      result.map_error(_, fn(error) {
+        BodyReadFailed(request.host <> request.path, string.inspect(error))
       }),
     ),
   )
-  promise.resolve(decode_response(req, resp, decoder))
+  promise.resolve(decode_response(request, response, decoder))
 }
 
 @target(javascript)
@@ -557,7 +604,7 @@ fn promise_try(
 ) -> Promise(Result(b, e)) {
   case result {
     Ok(value) -> next(value)
-    Error(err) -> promise.resolve(Error(err))
+    Error(error) -> promise.resolve(Error(error))
   }
 }
 

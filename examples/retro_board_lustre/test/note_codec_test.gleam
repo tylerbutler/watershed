@@ -9,7 +9,7 @@ import gleam/json
 import gleam/list
 import gleeunit/should
 
-import note.{type Note, Note}
+import retro_board_lustre/note.{type Note, Note}
 
 fn round_trip(entry: Note) -> Note {
   note.to_json(entry)
@@ -17,7 +17,7 @@ fn round_trip(entry: Note) -> Note {
   |> note.from_register
 }
 
-pub fn notes_round_trip_through_the_register_test() {
+pub fn notes_round_trip_through_the_register_test() -> Nil {
   [
     Note(
       text: "deploys are still scary",
@@ -48,7 +48,7 @@ pub fn notes_round_trip_through_the_register_test() {
   |> list.each(fn(entry) { round_trip(entry) |> should.equal(entry) })
 }
 
-pub fn garbage_registers_fall_back_to_a_visible_placeholder_test() {
+pub fn garbage_registers_fall_back_to_a_visible_placeholder_test() -> Nil {
   [
     "not json at all",
     "{\"text\": \"missing the rest\"}",
@@ -68,6 +68,6 @@ pub fn garbage_registers_fall_back_to_a_visible_placeholder_test() {
 
 /// The fallback's empty `column` is load-bearing: it is what routes a corrupt
 /// register to the board's "unfiled" strip instead of a real column.
-pub fn fallback_column_is_not_a_real_column_test() {
+pub fn fallback_column_is_not_a_real_column_test() -> Nil {
   note.from_register("junk").column |> should.equal("")
 }

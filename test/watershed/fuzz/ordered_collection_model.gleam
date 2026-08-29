@@ -26,10 +26,10 @@ pub type Disposition {
 }
 
 pub type OrderedCommand {
-  CmdAdd(raw_value: Int, value: Int)
-  CmdAcquire(raw_id: Int, acquire_id: String, disposition: Disposition)
-  CmdComplete(raw_id: Int, acquire_id: String)
-  CmdRelease(raw_id: Int, acquire_id: String)
+  CommandAdd(raw_value: Int, value: Int)
+  CommandAcquire(raw_id: Int, acquire_id: String, disposition: Disposition)
+  CommandComplete(raw_id: Int, acquire_id: String)
+  CommandRelease(raw_id: Int, acquire_id: String)
 }
 
 pub type ModelState {
@@ -66,13 +66,15 @@ fn concrete_value(raw_value: Int, client_id: Int) -> Int {
   client_id * 1000 + raw_value
 }
 
-fn to_kernel_op(cmd: OrderedCommand) -> ordered_collection_kernel.OrderedOp {
-  case cmd {
-    CmdAdd(_, value) -> Add(json.int(value))
-    CmdAcquire(_, acquire_id, _) ->
+fn to_kernel_op(
+  command: OrderedCommand,
+) -> ordered_collection_kernel.OrderedOp {
+  case command {
+    CommandAdd(_, value) -> Add(json.int(value))
+    CommandAcquire(_, acquire_id, _) ->
       ordered_collection_kernel.acquire(acquire_id)
-    CmdComplete(_, acquire_id) -> Complete(acquire_id)
-    CmdRelease(_, acquire_id) -> Release(acquire_id)
+    CommandComplete(_, acquire_id) -> Complete(acquire_id)
+    CommandRelease(_, acquire_id) -> Release(acquire_id)
   }
 }
 
@@ -90,28 +92,28 @@ fn disposition_from_string(value: String) -> Disposition {
   }
 }
 
-fn op_to_json(cmd: OrderedCommand) -> Json {
-  case cmd {
-    CmdAdd(raw_value, value) ->
+fn op_to_json(command: OrderedCommand) -> Json {
+  case command {
+    CommandAdd(raw_value, value) ->
       json.object([
         #("tag", json.string("Add")),
         #("raw_value", json.int(raw_value)),
         #("value", json.int(value)),
       ])
-    CmdAcquire(raw_id, acquire_id, disposition) ->
+    CommandAcquire(raw_id, acquire_id, disposition) ->
       json.object([
         #("tag", json.string("Acquire")),
         #("raw_id", json.int(raw_id)),
         #("acquire_id", json.string(acquire_id)),
         #("disposition", json.string(disposition_to_string(disposition))),
       ])
-    CmdComplete(raw_id, acquire_id) ->
+    CommandComplete(raw_id, acquire_id) ->
       json.object([
         #("tag", json.string("Complete")),
         #("raw_id", json.int(raw_id)),
         #("acquire_id", json.string(acquire_id)),
       ])
-    CmdRelease(raw_id, acquire_id) ->
+    CommandRelease(raw_id, acquire_id) ->
       json.object([
         #("tag", json.string("Release")),
         #("raw_id", json.int(raw_id)),
@@ -126,13 +128,13 @@ fn op_decoder() -> decode.Decoder(OrderedCommand) {
     "Add" -> {
       use raw_value <- decode.field("raw_value", decode.int)
       use value <- decode.field("value", decode.int)
-      decode.success(CmdAdd(raw_value, value))
+      decode.success(CommandAdd(raw_value, value))
     }
     "Acquire" -> {
       use raw_id <- decode.field("raw_id", decode.int)
       use acquire_id <- decode.field("acquire_id", decode.string)
       use disposition <- decode.field("disposition", decode.string)
-      decode.success(CmdAcquire(
+      decode.success(CommandAcquire(
         raw_id,
         acquire_id,
         disposition_from_string(disposition),
@@ -141,14 +143,14 @@ fn op_decoder() -> decode.Decoder(OrderedCommand) {
     "Complete" -> {
       use raw_id <- decode.field("raw_id", decode.int)
       use acquire_id <- decode.field("acquire_id", decode.string)
-      decode.success(CmdComplete(raw_id, acquire_id))
+      decode.success(CommandComplete(raw_id, acquire_id))
     }
     "Release" -> {
       use raw_id <- decode.field("raw_id", decode.int)
       use acquire_id <- decode.field("acquire_id", decode.string)
-      decode.success(CmdRelease(raw_id, acquire_id))
+      decode.success(CommandRelease(raw_id, acquire_id))
     }
-    _ -> decode.failure(CmdAdd(0, 0), "ordered collection op")
+    _ -> decode.failure(CommandAdd(0, 0), "ordered collection op")
   }
 }
 
@@ -161,16 +163,16 @@ fn op_generator() -> qcheck.Generator(OrderedCommand) {
   |> qcheck.map(fn(ints) {
     let raw_id = ints.1 % 16
     case ints.0 % 10 {
-      0 | 1 | 2 | 3 -> CmdAdd(ints.2 % 32, 0)
+      0 | 1 | 2 | 3 -> CommandAdd(ints.2 % 32, 0)
       4 | 5 | 6 | 7 -> {
         let disposition = case ints.0 % 2 {
           0 -> CompleteAfterAcquire
           _ -> ReleaseAfterAcquire
         }
-        CmdAcquire(raw_id, "", disposition)
+        CommandAcquire(raw_id, "", disposition)
       }
-      8 -> CmdComplete(raw_id, "")
-      _ -> CmdRelease(raw_id, "")
+      8 -> CommandComplete(raw_id, "")
+      _ -> CommandRelease(raw_id, "")
     }
   })
 }
@@ -182,7 +184,9 @@ fn completed_from_events(
   |> list.filter_map(fn(event) {
     case event {
       Completed(value, _) -> Ok(value)
-      _ -> Error(Nil)
+      Added(..)
+      | ordered_collection_kernel.Acquired(..)
+      | ordered_collection_kernel.LocalReleased(..) -> Error(Nil)
     }
   })
 }
@@ -194,22 +198,25 @@ fn add_values_from_events(
   |> list.filter_map(fn(event) {
     case event {
       Added(value, True, _) -> Ok(value)
-      _ -> Error(Nil)
+      Added(_, False, _)
+      | ordered_collection_kernel.Acquired(..)
+      | Completed(..)
+      | ordered_collection_kernel.LocalReleased(..) -> Error(Nil)
     }
   })
 }
 
 fn submit(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(ModelState, Option(OrderedCommand)) {
-  case cmd {
-    CmdAdd(raw_value, _) -> {
+  case command {
+    CommandAdd(raw_value, _) -> {
       let value = concrete_value(raw_value, meta.client_id)
-      #(state, Some(CmdAdd(raw_value, value)))
+      #(state, Some(CommandAdd(raw_value, value)))
     }
-    CmdAcquire(raw_id, _, disposition) -> {
+    CommandAcquire(raw_id, _, disposition) -> {
       let id = acquire_id(raw_id, meta.client_id)
       case list.contains(state.submitted_ids, id) {
         True -> #(state, None)
@@ -218,34 +225,34 @@ fn submit(
             ..state,
             submitted_ids: list.append(state.submitted_ids, [id]),
           ),
-          Some(CmdAcquire(raw_id, id, disposition)),
+          Some(CommandAcquire(raw_id, id, disposition)),
         )
       }
     }
-    CmdComplete(raw_id, _) -> #(
+    CommandComplete(raw_id, _) -> #(
       state,
-      Some(CmdComplete(raw_id, acquire_id(raw_id, meta.client_id))),
+      Some(CommandComplete(raw_id, acquire_id(raw_id, meta.client_id))),
     )
-    CmdRelease(raw_id, _) -> #(
+    CommandRelease(raw_id, _) -> #(
       state,
-      Some(CmdRelease(raw_id, acquire_id(raw_id, meta.client_id))),
+      Some(CommandRelease(raw_id, acquire_id(raw_id, meta.client_id))),
     )
   }
 }
 
 fn apply_op(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   author: Int,
   local: Bool,
 ) -> ModelState {
-  case cmd {
-    CmdAdd(_, _value) -> {
+  case command {
+    CommandAdd(_, _value) -> {
       let #(kernel, events) = case local {
         True ->
           ordered_collection_kernel.ack_local(
             state.kernel,
-            to_kernel_op(cmd),
+            to_kernel_op(command),
             author,
           )
           |> fn(result) {
@@ -255,7 +262,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            to_kernel_op(cmd),
+            to_kernel_op(command),
             author,
           )
       }
@@ -265,7 +272,7 @@ fn apply_op(
         added: list.append(state.added, add_values_from_events(events)),
       )
     }
-    CmdAcquire(_, acquire_id, _) -> {
+    CommandAcquire(_, acquire_id, _) -> {
       let kernel = case local {
         True -> {
           let #(kernel, _events, _outcome) =
@@ -288,13 +295,13 @@ fn apply_op(
       }
       ModelState(..state, kernel: kernel)
     }
-    CmdComplete(_, _) | CmdRelease(_, _) -> {
+    CommandComplete(_, _) | CommandRelease(_, _) -> {
       let #(kernel, events) = case local {
         True -> {
           let #(kernel, events, _) =
             ordered_collection_kernel.ack_local(
               state.kernel,
-              to_kernel_op(cmd),
+              to_kernel_op(command),
               author,
             )
           #(kernel, events)
@@ -302,7 +309,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            to_kernel_op(cmd),
+            to_kernel_op(command),
             author,
           )
       }
@@ -317,39 +324,43 @@ fn apply_op(
 
 fn apply_remote(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  Ok(apply_op(state, cmd, meta.client_id, False))
+  Ok(apply_op(state, command, meta.client_id, False))
 }
 
 fn ack_local(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  Ok(apply_op(state, cmd, meta.client_id, True))
+  Ok(apply_op(state, command, meta.client_id, True))
 }
 
 fn react(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   _meta: kernel_fuzz.SequencedMeta,
   self_id: Int,
   is_local: Bool,
 ) -> List(OrderedCommand) {
-  case cmd, is_local {
-    CmdAcquire(raw_id, acquire_id, disposition), True -> {
-      case dict.get(state.kernel.jobs, acquire_id) {
-        Ok(JobEntry(_, Some(owner))) if owner == self_id ->
-          case disposition {
-            CompleteAfterAcquire -> [CmdComplete(raw_id, acquire_id)]
-            ReleaseAfterAcquire -> [CmdRelease(raw_id, acquire_id)]
+  case is_local {
+    False -> []
+    True ->
+      case command {
+        CommandAcquire(raw_id, acquire_id, disposition) -> {
+          case dict.get(state.kernel.jobs, acquire_id) {
+            Ok(JobEntry(_, Some(owner))) if owner == self_id ->
+              case disposition {
+                CompleteAfterAcquire -> [CommandComplete(raw_id, acquire_id)]
+                ReleaseAfterAcquire -> [CommandRelease(raw_id, acquire_id)]
+              }
+            Ok(JobEntry(_, Some(_))) | Ok(JobEntry(_, None)) | Error(Nil) -> []
           }
-        _ -> []
+        }
+        CommandAdd(..) | CommandComplete(..) | CommandRelease(..) -> []
       }
-    }
-    _, _ -> []
   }
 }
 
@@ -387,11 +398,11 @@ fn apply_oracle_op(
   state: OracleState,
   entry: #(Int, OrderedCommand),
 ) -> OracleState {
-  let #(author, cmd) = entry
-  case cmd {
-    CmdAdd(_, value) ->
+  let #(author, command) = entry
+  case command {
+    CommandAdd(_, value) ->
       OracleState(..state, queue: list.append(state.queue, [json.int(value)]))
-    CmdAcquire(_, acquire_id, _) ->
+    CommandAcquire(_, acquire_id, _) ->
       case state.queue {
         [] -> state
         [value, ..rest] ->
@@ -405,7 +416,7 @@ fn apply_oracle_op(
             completed: state.completed,
           )
       }
-    CmdComplete(_, acquire_id) ->
+    CommandComplete(_, acquire_id) ->
       case dict.get(state.jobs, acquire_id) {
         Error(_) -> state
         Ok(JobEntry(value, _)) ->
@@ -415,7 +426,7 @@ fn apply_oracle_op(
             completed: list.append(state.completed, [value]),
           )
       }
-    CmdRelease(_, acquire_id) ->
+    CommandRelease(_, acquire_id) ->
       case dict.get(state.jobs, acquire_id) {
         Error(_) -> state
         Ok(JobEntry(value, _)) ->
@@ -452,8 +463,8 @@ fn oracle(
       OracleState(queue: [], jobs: dict.new(), completed: []),
       fn(state, entry) {
         case entry {
-          kernel_fuzz.OpEntry(author, cmd, _) ->
-            apply_oracle_op(state, #(author, cmd))
+          kernel_fuzz.OpEntry(author, command, _) ->
+            apply_oracle_op(state, #(author, command))
           kernel_fuzz.LeaveEntry(leaver) -> oracle_remove_member(state, leaver)
         }
       },
@@ -507,27 +518,27 @@ fn check_conservation(state: ModelState) -> Result(Nil, String) {
   }
 }
 
-fn rollback(state: ModelState, cmd: OrderedCommand) -> ModelState {
-  case cmd {
-    CmdAcquire(_, acquire_id, _) ->
+fn rollback(state: ModelState, command: OrderedCommand) -> ModelState {
+  case command {
+    CommandAcquire(_, acquire_id, _) ->
       ModelState(
         ..state,
         submitted_ids: list.filter(state.submitted_ids, fn(id) {
           id != acquire_id
         }),
       )
-    _ -> state
+    CommandAdd(..) | CommandComplete(..) | CommandRelease(..) -> state
   }
 }
 
 fn apply_stashed(
   state: ModelState,
-  cmd: OrderedCommand,
+  command: OrderedCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(ModelState, OrderedCommand) {
-  case submit(state, cmd, meta) {
+  case submit(state, command, meta) {
     #(state, Some(routed)) -> #(state, routed)
-    #(state, None) -> #(state, CmdRelease(0, ""))
+    #(state, None) -> #(state, CommandRelease(0, ""))
   }
 }
 

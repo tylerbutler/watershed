@@ -9,7 +9,6 @@
 
 import gleam/json
 import gleam/list
-import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
@@ -28,7 +27,7 @@ fn same_entries(
   normalize(a) == normalize(b)
 }
 
-pub fn two_clients_converge_on_a_shared_map_test() {
+pub fn two_clients_converge_on_a_shared_map_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "sudoku-conv")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -46,8 +45,8 @@ pub fn two_clients_converge_on_a_shared_map_test() {
   sluice_js.settle(sluice)
 
   // Deterministically converged — no polling, no server.
-  watershed.get(board_a, "r0c0") |> should.equal(Some(json.int(5)))
-  watershed.get(board_b, "r1c1") |> should.equal(Some(json.int(3)))
+  watershed.get(board_a, "r0c0") |> should.equal(Ok(json.int(5)))
+  watershed.get(board_b, "r1c1") |> should.equal(Ok(json.int(3)))
   // Both players see the same winner for the contested cell.
   watershed.get(board_a, "r4c4")
   |> should.equal(watershed.get(board_b, "r4c4"))

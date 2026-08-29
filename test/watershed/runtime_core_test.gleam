@@ -34,7 +34,7 @@ import watershed/runtime_core.{type Core}
 import watershed/summary_policy
 import watershed/text_kernel
 import watershed/wire
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 import watershed/wire/summary_blob
 
 const our_client_id = "default_dice_2"
@@ -56,15 +56,15 @@ fn to_dynamic(value: Json) -> Dynamic {
 
 fn map_op_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: map_kernel.MapOp,
 ) -> types.SequencedDocumentMessage {
   channel_op_message(
     address: "root",
     client_id: client_id,
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     op: op,
   )
 }
@@ -72,32 +72,32 @@ fn map_op_message(
 fn channel_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: map_kernel.MapOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_map_envelope(address, op)),
+    contents: to_dynamic(wire_op.encode_map_envelope(address, op)),
   )
 }
 
 fn attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: List(#(String, Json)),
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(
+    contents: to_dynamic(wire_op.encode_attach(
       address,
       channel.MapSnapshot(snapshot),
     )),
@@ -105,13 +105,13 @@ fn attach_message(
 }
 
 fn join_message(
-  sn sn: Int,
+  sequence_number sequence_number: Int,
   joining joining: String,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: None,
-    sn: sn,
-    csn: -1,
+    sequence_number: sequence_number,
+    client_sequence_number: -1,
     message_type: "join",
     contents: to_dynamic(json.object([#("clientId", json.string(joining))])),
   )
@@ -119,16 +119,16 @@ fn join_message(
 
 fn sequenced_message(
   client_id client_id: option.Option(String),
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   message_type message_type: String,
   contents contents: Dynamic,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: client_id,
-    sequence_number: sn,
+    sequence_number: sequence_number,
     minimum_sequence_number: 0,
-    client_sequence_number: csn,
+    client_sequence_number: client_sequence_number,
     reference_sequence_number: 0,
     message_type: message_type,
     contents: contents,
@@ -209,9 +209,9 @@ fn reconnect_connected(
 
 fn apply(
   core: Core,
-  msg: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(map_kernel.MapEvent)) {
-  case runtime_core.handle_sequenced(core, msg) {
+  case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, ingested)) -> #(core, root_events(ingested.events))
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
@@ -219,9 +219,9 @@ fn apply(
 
 fn apply_tagged(
   core: Core,
-  msg: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(#(String, channel.ChannelEvent))) {
-  case runtime_core.handle_sequenced(core, msg) {
+  case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
@@ -229,9 +229,9 @@ fn apply_tagged(
 
 fn ingest(
   core: Core,
-  msg: types.SequencedDocumentMessage,
+  sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(map_kernel.MapEvent), option.Option(Int)) {
-  case runtime_core.handle_sequenced(core, msg) {
+  case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, ingested)) -> #(
       core,
       root_events(ingested.events),
@@ -265,7 +265,7 @@ fn root_summary(
   )
 }
 
-fn root_get(core: Core, key: String) -> option.Option(Json) {
+fn root_get(core: Core, key: String) -> Result(Json, Nil) {
   runtime_core.get(core, "root", key)
 }
 
@@ -293,17 +293,17 @@ fn rich_text_delta(raw: String) -> rich_text.Delta {
 
 fn rich_text_op_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   op op: rich_text_kernel.RichTextWireOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_channel_envelope(
+    contents: to_dynamic(wire_op.encode_channel_envelope(
       address,
       channel.RichTextOp(op),
     )),
@@ -324,7 +324,8 @@ fn attached_rich_text_core() -> Core {
     runtime_core.bootstrap(connected_message([], 1), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected rich-text summary bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected rich-text summary bootstrap to complete"
   }
 }
 
@@ -363,20 +364,32 @@ fn decode_outbound_contents(op: wire.OutboundOp) -> DecodedOp {
   case json.parse(json.to_string(op.contents), decode.dynamic) {
     Error(_) -> panic as "failed to re-parse outbound contents"
     Ok(dynamic_value) ->
-      case ops.decode_op_contents(dynamic_value) {
-        Ok(ops.AttachOp(address, snapshot)) ->
+      case wire_op.decode_op_contents(dynamic_value) {
+        Ok(wire_op.AttachOp(address, snapshot)) ->
           DecodedAttach(address: address, snapshot: snapshot)
-        Ok(ops.ChannelOp(address, contents)) ->
+        Ok(wire_op.ChannelOp(address, contents)) ->
           case
-            decode.run(contents, ops.channel_op_decoder(channel.MapChannel)),
-            decode.run(contents, ops.channel_op_decoder(channel.CounterChannel)),
-            decode.run(contents, ops.channel_op_decoder(channel.OrMapChannel)),
+            decode.run(contents, wire_op.channel_op_decoder(channel.MapChannel)),
             decode.run(
               contents,
-              ops.channel_op_decoder(channel.RegisterCollectionChannel),
+              wire_op.channel_op_decoder(channel.CounterChannel),
             ),
-            decode.run(contents, ops.channel_op_decoder(channel.ClaimsChannel)),
-            decode.run(contents, ops.channel_op_decoder(channel.TextChannel))
+            decode.run(
+              contents,
+              wire_op.channel_op_decoder(channel.OrMapChannel),
+            ),
+            decode.run(
+              contents,
+              wire_op.channel_op_decoder(channel.RegisterCollectionChannel),
+            ),
+            decode.run(
+              contents,
+              wire_op.channel_op_decoder(channel.ClaimsChannel),
+            ),
+            decode.run(
+              contents,
+              wire_op.channel_op_decoder(channel.TextChannel),
+            )
           {
             Ok(op), _, _, _, _, _ -> DecodedChannelOp(address: address, op: op)
             _, Ok(op), _, _, _, _ -> DecodedChannelOp(address: address, op: op)
@@ -406,11 +419,32 @@ fn expect_error(
   }
 }
 
+/// True when the core error reports that a sequenced acknowledgement did not
+/// match the in-flight op that it must acknowledge. The match names every
+/// `CoreError` variant, so a new variant does not silently satisfy the tests
+/// that use this predicate.
+fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
+  case core_error {
+    runtime_core.AckMismatch(_) -> True
+    runtime_core.BadOpContents(_)
+    | runtime_core.HistoryGap(_)
+    | runtime_core.UnknownChannel(..)
+    | runtime_core.DuplicateAttach(..)
+    | runtime_core.WrongChannelType(..)
+    | runtime_core.OrMapModeMismatch(..)
+    | runtime_core.TaskNotAssigned(..)
+    | runtime_core.DirectoryOpFailed(..)
+    | runtime_core.SequenceOpFailed(..)
+    | runtime_core.TextOpFailed(..)
+    | runtime_core.BadSummaryChannel(..) -> False
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn bootstrap_empty_document_test() {
+pub fn bootstrap_empty_document_test() -> Nil {
   // Fresh document: no history, checkpoint is the SN of our own join.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
@@ -420,50 +454,50 @@ pub fn bootstrap_empty_document_test() {
   root_entries(core) |> expect.to_equal([])
 }
 
-pub fn bootstrap_replays_initial_messages_test() {
+pub fn bootstrap_replays_initial_messages_test() -> Nil {
   let history = [
-    join_message(sn: 1, joining: other_client_id),
+    join_message(sequence_number: 1, joining: other_client_id),
     map_op_message(
       client_id: other_client_id,
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       op: Set("die", json.int(4)),
     ),
     map_op_message(
       client_id: other_client_id,
-      sn: 3,
-      csn: 2,
+      sequence_number: 3,
+      client_sequence_number: 2,
       op: Set("count", json.int(9)),
     ),
     map_op_message(
       client_id: other_client_id,
-      sn: 4,
-      csn: 3,
+      sequence_number: 4,
+      client_sequence_number: 3,
       op: Delete("count"),
     ),
   ]
   let core = bootstrap(initial_messages: history, checkpoint: 5)
 
-  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
   root_has(core, "count") |> expect.to_be_false()
   core.last_seen_sn |> expect.to_equal(5)
 }
 
-pub fn bootstrap_truncated_history_requests_prefix_test() {
+pub fn bootstrap_truncated_history_requests_prefix_test() -> Nil {
   // A document with more ops than the server's in-band history window:
   // `initialMessages` starts above SN 1, so the prefix (SN 1..2) must be
   // fetched from the deltas REST endpoint before bootstrap can complete.
   let truncated = [
     map_op_message(
       client_id: other_client_id,
-      sn: 3,
-      csn: 1,
+      sequence_number: 3,
+      client_sequence_number: 1,
       op: Set("die", json.int(4)),
     ),
     map_op_message(
       client_id: other_client_id,
-      sn: 4,
-      csn: 2,
+      sequence_number: 4,
+      client_sequence_number: 2,
       op: Set("count", json.int(9)),
     ),
   ]
@@ -480,7 +514,8 @@ pub fn bootstrap_truncated_history_requests_prefix_test() {
       core.last_seen_sn |> expect.to_equal(0)
       #(core, checkpoint)
     }
-    _ -> panic as "expected bootstrap to request the missing prefix"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected bootstrap to request the missing prefix"
   }
 
   // Resuming with the fetched prefix drains the buffered suffix, applies the
@@ -488,32 +523,33 @@ pub fn bootstrap_truncated_history_requests_prefix_test() {
   let prefix = [
     map_op_message(
       client_id: other_client_id,
-      sn: 1,
-      csn: 1,
+      sequence_number: 1,
+      client_sequence_number: 1,
       op: Set("count", json.int(1)),
     ),
-    join_message(sn: 2, joining: other_client_id),
+    join_message(sequence_number: 2, joining: other_client_id),
   ]
   case
     runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: prefix)
   {
     Ok(runtime_core.Complete(core)) -> {
       core.last_seen_sn |> expect.to_equal(5)
-      root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
-      root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
+      root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
+      root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
     }
-    _ -> panic as "expected resume_bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected resume_bootstrap to complete"
   }
 }
 
-pub fn resume_bootstrap_pages_large_gaps_test() {
+pub fn resume_bootstrap_pages_large_gaps_test() -> Nil {
   // The deltas endpoint caps each response, so a wide gap closes over several
   // rounds: each partial page must advance `from` and re-request the rest.
   let tail = [
     map_op_message(
       client_id: other_client_id,
-      sn: 6,
-      csn: 3,
+      sequence_number: 6,
+      client_sequence_number: 3,
       op: Set("last", json.int(6)),
     ),
   ]
@@ -525,17 +561,21 @@ pub fn resume_bootstrap_pages_large_gaps_test() {
       to |> expect.to_equal(5)
       #(core, checkpoint)
     }
-    _ -> panic as "expected bootstrap to request the missing prefix"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected bootstrap to request the missing prefix"
   }
 
   // First page covers only SN 1..3 of the requested 1..5.
   let first_page =
-    list.map([1, 2, 3], fn(sn) {
+    list.map([1, 2, 3], fn(sequence_number) {
       map_op_message(
         client_id: other_client_id,
-        sn: sn,
-        csn: sn,
-        op: Set("k" <> int.to_string(sn), json.int(sn)),
+        sequence_number: sequence_number,
+        client_sequence_number: sequence_number,
+        op: Set(
+          "k" <> int.to_string(sequence_number),
+          json.int(sequence_number),
+        ),
       )
     })
   let #(core, checkpoint) = case
@@ -551,16 +591,20 @@ pub fn resume_bootstrap_pages_large_gaps_test() {
       to |> expect.to_equal(5)
       #(core, checkpoint)
     }
-    _ -> panic as "expected a second catch-up round"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected a second catch-up round"
   }
 
   let second_page =
-    list.map([4, 5], fn(sn) {
+    list.map([4, 5], fn(sequence_number) {
       map_op_message(
         client_id: other_client_id,
-        sn: sn,
-        csn: sn,
-        op: Set("k" <> int.to_string(sn), json.int(sn)),
+        sequence_number: sequence_number,
+        client_sequence_number: sequence_number,
+        op: Set(
+          "k" <> int.to_string(sequence_number),
+          json.int(sequence_number),
+        ),
       )
     })
   case
@@ -572,22 +616,23 @@ pub fn resume_bootstrap_pages_large_gaps_test() {
   {
     Ok(runtime_core.Complete(core)) -> {
       core.last_seen_sn |> expect.to_equal(7)
-      root_get(core, "last") |> expect.to_equal(Some(json.int(6)))
-      root_get(core, "k4") |> expect.to_equal(Some(json.int(4)))
+      root_get(core, "last") |> expect.to_equal(Ok(json.int(6)))
+      root_get(core, "k4") |> expect.to_equal(Ok(json.int(4)))
       root_size(core) |> expect.to_equal(6)
     }
-    _ -> panic as "expected resume_bootstrap to complete after paging"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected resume_bootstrap to complete after paging"
   }
 }
 
-pub fn resume_bootstrap_without_progress_is_fatal_test() {
+pub fn resume_bootstrap_without_progress_is_fatal_test() -> Nil {
   // A catch-up round that advances nothing means the server's storage is
   // genuinely missing the range: fail loudly rather than diverge or spin.
   let tail = [
     map_op_message(
       client_id: other_client_id,
-      sn: 4,
-      csn: 1,
+      sequence_number: 4,
+      client_sequence_number: 1,
       op: Set("die", json.int(4)),
     ),
   ]
@@ -598,7 +643,8 @@ pub fn resume_bootstrap_without_progress_is_fatal_test() {
       core,
       checkpoint,
     )
-    _ -> panic as "expected bootstrap to request the missing prefix"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected bootstrap to request the missing prefix"
   }
 
   case runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: []) {
@@ -608,7 +654,7 @@ pub fn resume_bootstrap_without_progress_is_fatal_test() {
   }
 }
 
-pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
+pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() -> Nil {
   // A summarized document whose post-summary history outgrew the in-band
   // window: the summary seeds SN 100, but the served deltas start at 105, so
   // the fetch range must start at the summary's sequence number.
@@ -616,8 +662,8 @@ pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
   let tail = [
     map_op_message(
       client_id: other_client_id,
-      sn: 105,
-      csn: 9,
+      sequence_number: 105,
+      client_sequence_number: 9,
       op: Set("post", json.int(1)),
     ),
   ]
@@ -629,11 +675,12 @@ pub fn bootstrap_from_summary_truncated_deltas_requests_prefix_test() {
       to |> expect.to_equal(104)
       checkpoint |> expect.to_equal(106)
     }
-    _ -> panic as "expected summary bootstrap to request the missing prefix"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected summary bootstrap to request the missing prefix"
   }
 }
 
-pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() {
+pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() -> Nil {
   // The load point is the SN the blob's *contents* were captured at, which is
   // the only number that describes the state being seeded. The server's
   // `summaryContext` reports the summarize op's own SN — assigned after the
@@ -655,7 +702,7 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() {
   summary.members |> expect.to_equal([1, 2])
 }
 
-pub fn bootstrap_from_summary_replays_the_upload_window_test() {
+pub fn bootstrap_from_summary_replays_the_upload_window_test() -> Nil {
   // The hazard this pins: a summary blob captured at SN 5 whose pointer the
   // server recorded at SN 8, because peers kept writing while the blob
   // uploaded. Seeding from the pointer would set `last_seen_sn` to 8 with the
@@ -666,8 +713,8 @@ pub fn bootstrap_from_summary_replays_the_upload_window_test() {
   let tail = [
     map_op_message(
       client_id: other_client_id,
-      sn: 9,
-      csn: 4,
+      sequence_number: 9,
+      client_sequence_number: 4,
       op: Set("tail", json.int(1)),
     ),
   ]
@@ -681,7 +728,8 @@ pub fn bootstrap_from_summary_replays_the_upload_window_test() {
       to |> expect.to_equal(8)
       #(core, checkpoint)
     }
-    _ -> panic as "expected the upload window to surface as a missing prefix"
+    Ok(runtime_core.Complete(_)) | Error(_) ->
+      panic as "expected the upload window to surface as a missing prefix"
   }
 
   // The ops sequenced during the upload, as the catch-up fetch would serve
@@ -690,15 +738,20 @@ pub fn bootstrap_from_summary_replays_the_upload_window_test() {
   let window = [
     map_op_message(
       client_id: other_client_id,
-      sn: 6,
-      csn: 1,
+      sequence_number: 6,
+      client_sequence_number: 1,
       op: Set("during", json.int(1)),
     ),
-    map_op_message(client_id: other_client_id, sn: 7, csn: 2, op: Delete("die")),
     map_op_message(
       client_id: other_client_id,
-      sn: 8,
-      csn: 3,
+      sequence_number: 7,
+      client_sequence_number: 2,
+      op: Delete("die"),
+    ),
+    map_op_message(
+      client_id: other_client_id,
+      sequence_number: 8,
+      client_sequence_number: 3,
       op: Set("also", json.int(2)),
     ),
   ]
@@ -707,18 +760,19 @@ pub fn bootstrap_from_summary_replays_the_upload_window_test() {
     runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: window)
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected the catch-up round to complete the bootstrap"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected the catch-up round to complete the bootstrap"
   }
 
   root_has(core, "die") |> expect.to_be_false()
-  root_get(core, "during") |> expect.to_equal(Some(json.int(1)))
-  root_get(core, "also") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "during") |> expect.to_equal(Ok(json.int(1)))
+  root_get(core, "also") |> expect.to_equal(Ok(json.int(2)))
   // The tail buffered during the gap drains once the prefix lands.
-  root_get(core, "tail") |> expect.to_equal(Some(json.int(1)))
+  root_get(core, "tail") |> expect.to_equal(Ok(json.int(1)))
   core.last_seen_sn |> expect.to_equal(9)
 }
 
-pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
+pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() -> Nil {
   // A summarized document: the summary captures {die: 4} as of SN 5, and the
   // post-summary deltas (initialMessages) start at SN 6. Bootstrap must seed
   // the kernel from the summary and replay only the deltas on top — no gap.
@@ -726,26 +780,32 @@ pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() {
   let deltas = [
     map_op_message(
       client_id: other_client_id,
-      sn: 6,
-      csn: 1,
+      sequence_number: 6,
+      client_sequence_number: 1,
       op: Set("count", json.int(9)),
     ),
-    map_op_message(client_id: other_client_id, sn: 7, csn: 2, op: Delete("die")),
+    map_op_message(
+      client_id: other_client_id,
+      sequence_number: 7,
+      client_sequence_number: 2,
+      op: Delete("die"),
+    ),
   ]
   let core = case
     runtime_core.bootstrap(connected_message(deltas, 8), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to succeed"
   }
 
   // Seeded from the summary, then the deltas applied: die deleted, count added.
   root_has(core, "die") |> expect.to_be_false()
-  root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
+  root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
   core.last_seen_sn |> expect.to_equal(8)
 }
 
-pub fn bootstrap_from_summary_no_deltas_test() {
+pub fn bootstrap_from_summary_no_deltas_test() -> Nil {
   // A freshly summarized document with no post-summary ops: the state is
   // exactly the summary, seen as of the summary's sequence number.
   let summary =
@@ -757,7 +817,8 @@ pub fn bootstrap_from_summary_no_deltas_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to succeed"
   }
 
   root_entries(core)
@@ -770,13 +831,14 @@ pub fn bootstrap_from_summary_no_deltas_test() {
   ])
 }
 
-pub fn bootstrap_dedupes_own_join_push_test() {
+pub fn bootstrap_dedupes_own_join_push_test() -> Nil {
   // The join for our own client arrives as a separate op push right after
   // connect_document_success, with SN == checkpointSequenceNumber. It must
   // dedupe without disturbing state.
   let core = bootstrap(initial_messages: [], checkpoint: 3)
 
-  let #(core, events) = apply(core, join_message(sn: 3, joining: our_client_id))
+  let #(core, events) =
+    apply(core, join_message(sequence_number: 3, joining: our_client_id))
   events |> expect.to_equal([])
   core.last_seen_sn |> expect.to_equal(3)
 
@@ -786,25 +848,25 @@ pub fn bootstrap_dedupes_own_join_push_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 4,
-        csn: 1,
+        sequence_number: 4,
+        client_sequence_number: 1,
         op: Set("die", json.int(6)),
       ),
     )
-  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(6)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inbound ordering
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn already_seen_ops_are_dropped_test() {
+pub fn already_seen_ops_are_dropped_test() -> Nil {
   let history = [
-    join_message(sn: 1, joining: other_client_id),
+    join_message(sequence_number: 1, joining: other_client_id),
     map_op_message(
       client_id: other_client_id,
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       op: Set("die", json.int(4)),
     ),
   ]
@@ -817,16 +879,16 @@ pub fn already_seen_ops_are_dropped_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("die", json.int(999)),
       ),
     )
   events |> expect.to_equal([])
-  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
 }
 
-pub fn sequence_gap_buffers_and_requests_catch_up_test() {
+pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   // An op past the next expected SN is buffered, not applied, and the first
@@ -836,8 +898,8 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 5,
-        csn: 1,
+        sequence_number: 5,
+        client_sequence_number: 1,
         op: Set("die", json.int(4)),
       ),
     )
@@ -852,8 +914,8 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 4,
-        csn: 2,
+        sequence_number: 4,
+        client_sequence_number: 2,
         op: Set("count", json.int(9)),
       ),
     )
@@ -867,8 +929,8 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 3,
+        sequence_number: 2,
+        client_sequence_number: 3,
         op: Set("a", json.int(1)),
       ),
     )
@@ -880,40 +942,41 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 3,
-        csn: 4,
+        sequence_number: 3,
+        client_sequence_number: 4,
         op: Set("b", json.int(2)),
       ),
     )
   // SN 3 applies, then buffered SN 4 and SN 5 drain in one go.
   core.last_seen_sn |> expect.to_equal(5)
   request_ops_from |> expect.to_equal(None)
-  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
-  root_get(core, "count") |> expect.to_equal(Some(json.int(9)))
-  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
+  root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
+  root_get(core, "a") |> expect.to_equal(Ok(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn system_messages_only_advance_sn_test() {
+pub fn system_messages_only_advance_sn_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   // join contents ({clientId: ...}) would fail the map envelope decoder,
   // proving type routing happens before contents decoding.
-  let #(core, events) = apply(core, join_message(sn: 2, joining: "someone"))
+  let #(core, events) =
+    apply(core, join_message(sequence_number: 2, joining: "someone"))
   events |> expect.to_equal([])
   core.last_seen_sn |> expect.to_equal(2)
 }
 
-pub fn unknown_address_ops_are_fatal_test() {
+pub fn unknown_address_ops_are_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let foreign =
     sequenced_message(
       client_id: Some(other_client_id),
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       message_type: "op",
-      contents: to_dynamic(ops.encode_map_envelope(
+      contents: to_dynamic(wire_op.encode_map_envelope(
         "other-map",
         Set("die", json.int(4)),
       )),
@@ -925,14 +988,14 @@ pub fn unknown_address_ops_are_fatal_test() {
   })
 }
 
-pub fn undecodable_op_contents_are_fatal_test() {
+pub fn undecodable_op_contents_are_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let garbage =
     sequenced_message(
       client_id: Some(other_client_id),
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       message_type: "op",
       contents: to_dynamic(json.object([#("bogus", json.bool(True))])),
     )
@@ -946,7 +1009,7 @@ pub fn undecodable_op_contents_are_fatal_test() {
 // Outbound stamping + ack round-trip
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn local_ops_stamp_csn_and_rsn_test() {
+pub fn local_ops_stamp_csn_and_rsn_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 7)
 
   let #(core, events, first) = root_set(core, "die", json.int(4))
@@ -965,32 +1028,33 @@ pub fn local_ops_stamp_csn_and_rsn_test() {
   first.reference_sequence_number |> expect.to_equal(7)
   second.client_sequence_number |> expect.to_equal(2)
   core.next_csn |> expect.to_equal(3)
-  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
 }
 
-pub fn ack_commits_pending_without_events_test() {
+pub fn ack_commits_pending_without_events_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(4))
 
-  // Server sequences our op and echoes it back with our client_id + csn.
+  // Server sequences our op and echoes it back with our client id and client
+  // sequence number.
   let #(core, events) =
     apply(
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("die", json.int(4)),
       ),
     )
 
   // Ack transparency: no events, view unchanged, queue drained.
   events |> expect.to_equal([])
-  root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn acks_match_fifo_across_multiple_ops_test() {
+pub fn acks_match_fifo_across_multiple_ops_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "a", json.int(1))
   let #(core, _, _) = root_set(core, "b", json.int(2))
@@ -1000,8 +1064,8 @@ pub fn acks_match_fifo_across_multiple_ops_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("a", json.int(1)),
       ),
     )
@@ -1021,15 +1085,15 @@ pub fn acks_match_fifo_across_multiple_ops_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("b", json.int(2)),
       ),
     )
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn ack_with_wrong_csn_is_fatal_test() {
+pub fn ack_with_wrong_csn_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(4))
 
@@ -1037,60 +1101,50 @@ pub fn ack_with_wrong_csn_is_fatal_test() {
     core,
     map_op_message(
       client_id: our_client_id,
-      sn: 2,
-      csn: 9,
+      sequence_number: 2,
+      client_sequence_number: 9,
       op: Set("die", json.int(4)),
     ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
-pub fn ack_with_empty_in_flight_is_fatal_test() {
+pub fn ack_with_empty_in_flight_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   runtime_core.handle_sequenced(
     core,
     map_op_message(
       client_id: our_client_id,
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       op: Set("die", json.int(4)),
     ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
-pub fn ack_with_wrong_shape_is_fatal_test() {
+pub fn ack_with_wrong_shape_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(4))
 
   runtime_core.handle_sequenced(
     core,
-    map_op_message(client_id: our_client_id, sn: 2, csn: 1, op: Delete("die")),
+    map_op_message(
+      client_id: our_client_id,
+      sequence_number: 2,
+      client_sequence_number: 1,
+      op: Delete("die"),
+    ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Optimistic interleaving
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn pending_local_set_masks_remote_then_converges_test() {
+pub fn pending_local_set_masks_remote_then_converges_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(6))
 
@@ -1100,13 +1154,13 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("die", json.int(2)),
       ),
     )
   events |> expect.to_equal([])
-  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(6)))
 
   // Our op sequences after it (LWW): converged view keeps our value.
   let #(core, _) =
@@ -1114,12 +1168,12 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 3,
-        csn: 1,
+        sequence_number: 3,
+        client_sequence_number: 1,
         op: Set("die", json.int(6)),
       ),
     )
-  root_get(core, "die") |> expect.to_equal(Some(json.int(6)))
+  root_get(core, "die") |> expect.to_equal(Ok(json.int(6)))
   core.in_flight |> expect.to_equal([])
 }
 
@@ -1127,7 +1181,7 @@ pub fn pending_local_set_masks_remote_then_converges_test() {
 // Reconnect: reconcile + resubmit
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn reconnect_reconciles_then_resubmits_test() {
+pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   // Two local ops are in flight when the connection drops.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "a", json.int(1))
@@ -1151,8 +1205,8 @@ pub fn reconnect_reconciles_then_resubmits_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("a", json.int(1)),
       ),
     )
@@ -1171,7 +1225,7 @@ pub fn reconnect_reconciles_then_resubmits_test() {
 
   // Our own new join advances last_seen to the checkpoint.
   let #(core, _) =
-    apply(core, join_message(sn: 3, joining: reconnect_client_id))
+    apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
   core.last_seen_sn |> expect.to_equal(3)
 
   // Resubmit the survivor with a fresh CSN under the new client id.
@@ -1202,17 +1256,17 @@ pub fn reconnect_reconciles_then_resubmits_test() {
       core,
       map_op_message(
         client_id: reconnect_client_id,
-        sn: 4,
-        csn: 3,
+        sequence_number: 4,
+        client_sequence_number: 3,
         op: Set("b", json.int(2)),
       ),
     )
   core.in_flight |> expect.to_equal([])
-  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "a") |> expect.to_equal(Ok(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
+pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() -> Nil {
   // The whole in-flight batch was sequenced-but-not-broadcast before the drop
   // (the nack-prefix hazard); catch-up must ack all of it, resubmit none.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
@@ -1230,8 +1284,8 @@ pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("a", json.int(1)),
       ),
     )
@@ -1240,23 +1294,23 @@ pub fn reconnect_with_all_ops_reconciled_resubmits_nothing_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("b", json.int(2)),
       ),
     )
   let #(core, _) =
-    apply(core, join_message(sn: 4, joining: reconnect_client_id))
+    apply(core, join_message(sequence_number: 4, joining: reconnect_client_id))
 
   core.in_flight |> expect.to_equal([])
   let #(core, outbound) = runtime_core.resubmit(core)
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  root_get(core, "a") |> expect.to_equal(Some(json.int(1)))
-  root_get(core, "b") |> expect.to_equal(Some(json.int(2)))
+  root_get(core, "a") |> expect.to_equal(Ok(json.int(1)))
+  root_get(core, "b") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn reconnect_applies_missed_delta_from_others_test() {
+pub fn reconnect_applies_missed_delta_from_others_test() -> Nil {
   // Changes other clients made while we were offline must surface as events.
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
@@ -1270,8 +1324,8 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         op: Set("x", json.string("y")),
       ),
     )
@@ -1284,15 +1338,15 @@ pub fn reconnect_applies_missed_delta_from_others_test() {
       local: False,
     ),
   ])
-  root_get(core, "x") |> expect.to_equal(Some(json.string("y")))
+  root_get(core, "x") |> expect.to_equal(Ok(json.string("y")))
 
   let #(core, _) =
-    apply(core, join_message(sn: 3, joining: reconnect_client_id))
+    apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
   let #(_, outbound) = runtime_core.resubmit(core)
   outbound |> expect.to_equal([])
 }
 
-pub fn resubmit_restamps_in_flight_in_order_test() {
+pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 5)
   let #(core, _, _) = root_set(core, "a", json.int(1))
   let #(core, _, _) = root_set(core, "b", json.int(2))
@@ -1341,7 +1395,7 @@ pub fn resubmit_restamps_in_flight_in_order_test() {
   }
 }
 
-pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events_test() {
+pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let child_snapshot = [#("a", json.int(1))]
@@ -1350,8 +1404,8 @@ pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events
       core,
       attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "child",
         snapshot: child_snapshot,
       ),
@@ -1365,8 +1419,8 @@ pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events
       channel_op_message(
         address: "child",
         client_id: other_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("b", json.int(2)),
       ),
     )
@@ -1382,18 +1436,18 @@ pub fn remote_attach_creates_channel_and_subsequent_ops_apply_with_tagged_events
       )),
     ),
   ])
-  runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
+  runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn duplicate_attach_is_fatal_test() {
+pub fn duplicate_attach_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "child",
         snapshot: [],
       ),
@@ -1403,8 +1457,8 @@ pub fn duplicate_attach_is_fatal_test() {
     core,
     attach_message(
       client_id: other_client_id,
-      sn: 3,
-      csn: 2,
+      sequence_number: 3,
+      client_sequence_number: 2,
       address: "child",
       snapshot: [],
     ),
@@ -1415,7 +1469,7 @@ pub fn duplicate_attach_is_fatal_test() {
   })
 }
 
-pub fn detached_edits_produce_no_outbound_test() {
+pub fn detached_edits_produce_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
 
@@ -1436,13 +1490,13 @@ pub fn detached_edits_produce_no_outbound_test() {
       outbound |> expect.to_equal([])
       core.in_flight |> expect.to_equal([])
       runtime_core.get(core, "child", "a")
-      |> expect.to_equal(Some(json.int(1)))
+      |> expect.to_equal(Ok(json.int(1)))
     }
     Error(_) -> panic as "expected detached edit to succeed"
   }
 }
 
-pub fn detached_rich_text_submit_updates_view_and_tags_event_test() {
+pub fn detached_rich_text_submit_updates_view_and_tags_event_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "rich", channel.InitRichText)
   let delta = rich_text_delta("[{\"insert\":\"A\"}]")
@@ -1460,10 +1514,10 @@ pub fn detached_rich_text_submit_updates_view_and_tags_event_test() {
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
   runtime_core.rich_text_view(core, "rich")
-  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"A\"}]")))
+  |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"A\"}]")))
 }
 
-pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test() {
+pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test() -> Nil {
   let core = attached_rich_text_core()
   let first = rich_text_delta("[{\"insert\":\"A\"}]")
   let second = rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]")
@@ -1489,15 +1543,15 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
     ),
   ])
   runtime_core.rich_text_view(core, "rich")
-  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"AB\"}]")))
+  |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"AB\"}]")))
 
   let assert Ok(#(core, ingested)) =
     runtime_core.handle_sequenced(
       core,
       rich_text_op_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "rich",
         op: rich_text_kernel.RichTextWireOp(1, first),
       ),
@@ -1517,7 +1571,7 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
   ])
 }
 
-pub fn remote_rich_text_submit_tags_nonlocal_event_test() {
+pub fn remote_rich_text_submit_tags_nonlocal_event_test() -> Nil {
   let core = attached_rich_text_core()
   let delta = rich_text_delta("[{\"insert\":\"remote\"}]")
   let assert Ok(#(core, ingested)) =
@@ -1525,8 +1579,8 @@ pub fn remote_rich_text_submit_tags_nonlocal_event_test() {
       core,
       rich_text_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "rich",
         op: rich_text_kernel.RichTextWireOp(1, delta),
       ),
@@ -1540,10 +1594,10 @@ pub fn remote_rich_text_submit_tags_nonlocal_event_test() {
     ),
   ])
   runtime_core.rich_text_view(core, "rich")
-  |> expect.to_equal(Some(rich_text_document("[{\"insert\":\"remote\"}]")))
+  |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"remote\"}]")))
 }
 
-pub fn rich_text_submit_reports_type_and_algebra_errors_test() {
+pub fn rich_text_submit_reports_type_and_algebra_errors_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   runtime_core.submit_rich_text(
     core,
@@ -1571,7 +1625,7 @@ pub fn rich_text_submit_reports_type_and_algebra_errors_test() {
   )
 }
 
-pub fn handle_set_emits_recursive_attach_post_order_test() {
+pub fn handle_set_emits_recursive_attach_post_order_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let core = runtime_core.create_detached(core, "grand", channel.InitMap)
@@ -1614,7 +1668,7 @@ pub fn handle_set_emits_recursive_attach_post_order_test() {
   runtime_core.has_channel(core, "grand") |> expect.to_be_true()
 }
 
-pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
+pub fn handle_set_emits_cycle_safe_attach_post_order_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "a", channel.InitMap)
   let core = runtime_core.create_detached(core, "b", channel.InitMap)
@@ -1643,7 +1697,7 @@ pub fn handle_set_emits_cycle_safe_attach_post_order_test() {
   ])
 }
 
-pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
+pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
@@ -1700,8 +1754,8 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
       core,
       attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "child",
         snapshot: [#("a", json.int(1))],
       ),
@@ -1713,8 +1767,8 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
       core,
       map_op_message(
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("ref", handle.encode_handle("child")),
       ),
     )
@@ -1726,17 +1780,17 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() {
       channel_op_message(
         address: "child",
         client_id: our_client_id,
-        sn: 4,
-        csn: 3,
+        sequence_number: 4,
+        client_sequence_number: 3,
         op: Set("a", json.int(2)),
       ),
     )
   child_events |> expect.to_equal([])
-  runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(2)))
+  runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(2)))
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn attach_ack_pops_with_no_events_test() {
+pub fn attach_ack_pops_with_no_events_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
@@ -1745,13 +1799,13 @@ pub fn attach_ack_pops_with_no_events_test() {
     runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
   outbound
   |> expect.to_equal([
-    ops.outbound_attach_op(
+    wire_op.outbound_attach_op(
       address: "child",
       client_sequence_number: 1,
       reference_sequence_number: 1,
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
-    ops.outbound_channel_op(
+    wire_op.outbound_channel_op(
       address: "root",
       client_sequence_number: 2,
       reference_sequence_number: 1,
@@ -1764,8 +1818,8 @@ pub fn attach_ack_pops_with_no_events_test() {
       core,
       attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "child",
         snapshot: [#("a", json.int(1))],
       ),
@@ -1784,7 +1838,7 @@ pub fn attach_ack_pops_with_no_events_test() {
   ])
 }
 
-pub fn attach_ack_mismatch_is_fatal_test() {
+pub fn attach_ack_mismatch_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
@@ -1796,21 +1850,16 @@ pub fn attach_ack_mismatch_is_fatal_test() {
     core,
     attach_message(
       client_id: our_client_id,
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       address: "child",
       snapshot: [#("wrong", json.int(1))],
     ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
-pub fn attach_ack_value_mismatch_is_fatal_test() {
+pub fn attach_ack_value_mismatch_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
@@ -1822,21 +1871,16 @@ pub fn attach_ack_value_mismatch_is_fatal_test() {
     core,
     attach_message(
       client_id: our_client_id,
-      sn: 2,
-      csn: 1,
+      sequence_number: 2,
+      client_sequence_number: 1,
       address: "child",
       snapshot: [#("a", json.int(2))],
     ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
-pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
+pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "child", channel.InitMap)
   let assert Ok(#(core, _, [])) =
@@ -1890,7 +1934,7 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_op_queue_test() {
   ])
 }
 
-pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
+pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() -> Nil {
   let summary =
     runtime_core.Summary(
       sequence_number: 5,
@@ -1903,16 +1947,16 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
   let deltas = [
     attach_message(
       client_id: other_client_id,
-      sn: 6,
-      csn: 1,
+      sequence_number: 6,
+      client_sequence_number: 1,
       address: "grand",
       snapshot: [#("g", json.int(9))],
     ),
     channel_op_message(
       address: "child",
       client_id: other_client_id,
-      sn: 7,
-      csn: 2,
+      sequence_number: 7,
+      client_sequence_number: 2,
       op: Set("b", json.int(2)),
     ),
   ]
@@ -1921,10 +1965,10 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
     runtime_core.bootstrap(connected_message(deltas, 8), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> {
-      root_get(core, "die") |> expect.to_equal(Some(json.int(4)))
-      runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(1)))
-      runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
-      runtime_core.get(core, "grand", "g") |> expect.to_equal(Some(json.int(9)))
+      root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
+      runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(1)))
+      runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
+      runtime_core.get(core, "grand", "g") |> expect.to_equal(Ok(json.int(9)))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
         #("root", channel.MapSnapshot([#("die", json.int(4))])),
@@ -1935,40 +1979,41 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() {
         #("grand", channel.MapSnapshot([#("g", json.int(9))])),
       ])
     }
-    _ -> panic as "expected multi-channel summary bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected multi-channel summary bootstrap to succeed"
   }
 }
 
-pub fn bootstrap_from_bare_attach_history_test() {
+pub fn bootstrap_from_bare_attach_history_test() -> Nil {
   let history = [
     attach_message(
       client_id: other_client_id,
-      sn: 1,
-      csn: 1,
+      sequence_number: 1,
+      client_sequence_number: 1,
       address: "child",
       snapshot: [#("a", json.int(1))],
     ),
     channel_op_message(
       address: "child",
       client_id: other_client_id,
-      sn: 2,
-      csn: 2,
+      sequence_number: 2,
+      client_sequence_number: 2,
       op: Set("b", json.int(2)),
     ),
     map_op_message(
       client_id: other_client_id,
-      sn: 3,
-      csn: 3,
+      sequence_number: 3,
+      client_sequence_number: 3,
       op: Set("ref", handle.encode_handle("child")),
     ),
   ]
 
   case runtime_core.bootstrap(connected_message(history, 4), summary: None) {
     Ok(runtime_core.Complete(core)) -> {
-      runtime_core.get(core, "child", "a") |> expect.to_equal(Some(json.int(1)))
-      runtime_core.get(core, "child", "b") |> expect.to_equal(Some(json.int(2)))
+      runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(1)))
+      runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
       root_get(core, "ref")
-      |> expect.to_equal(Some(handle.encode_handle("child")))
+      |> expect.to_equal(Ok(handle.encode_handle("child")))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
         #(
@@ -1981,7 +2026,8 @@ pub fn bootstrap_from_bare_attach_history_test() {
         ),
       ])
     }
-    _ -> panic as "expected attach history bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected attach history bootstrap to succeed"
   }
 }
 
@@ -1992,39 +2038,39 @@ pub fn bootstrap_from_bare_attach_history_test() {
 fn counter_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: counter_kernel.CounterOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_counter_envelope(address, op)),
+    contents: to_dynamic(wire_op.encode_counter_envelope(address, op)),
   )
 }
 
 fn counter_attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   value value: Int,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(
+    contents: to_dynamic(wire_op.encode_attach(
       address,
       channel.CounterSnapshot(value),
     )),
   )
 }
 
-pub fn detached_counter_increment_produces_no_outbound_test() {
+pub fn detached_counter_increment_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
@@ -2036,10 +2082,10 @@ pub fn detached_counter_increment_produces_no_outbound_test() {
   ])
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
 }
 
-pub fn counter_attach_via_handle_then_ops_round_trip_test() {
+pub fn counter_attach_via_handle_then_ops_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
   let assert Ok(#(core, _, [])) = runtime_core.increment(core, "tally", 2)
@@ -2062,8 +2108,8 @@ pub fn counter_attach_via_handle_then_ops_round_trip_test() {
       core,
       counter_attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "tally",
         value: 2,
       ),
@@ -2075,8 +2121,8 @@ pub fn counter_attach_via_handle_then_ops_round_trip_test() {
       channel_op_message(
         address: "root",
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("tally", handle.encode_handle("tally")),
       ),
     )
@@ -2103,8 +2149,8 @@ pub fn counter_attach_via_handle_then_ops_round_trip_test() {
       counter_op_message(
         address: "tally",
         client_id: other_client_id,
-        sn: 4,
-        csn: 1,
+        sequence_number: 4,
+        client_sequence_number: 1,
         op: counter_kernel.Increment(10),
       ),
     )
@@ -2120,31 +2166,31 @@ pub fn counter_attach_via_handle_then_ops_round_trip_test() {
       counter_op_message(
         address: "tally",
         client_id: our_client_id,
-        sn: 5,
-        csn: 3,
+        sequence_number: 5,
+        client_sequence_number: 3,
         op: counter_kernel.Increment(5),
       ),
     )
   events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(17))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(17))
 }
 
-pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() {
+pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, events) =
     apply_tagged(
       core,
       counter_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "tally",
         value: 40,
       ),
     )
   events |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(40))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(40))
 
   let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 1)
   expect_error(
@@ -2153,29 +2199,24 @@ pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() {
       counter_op_message(
         address: "tally",
         client_id: our_client_id,
-        sn: 3,
-        csn: 1,
+        sequence_number: 3,
+        client_sequence_number: 1,
         op: counter_kernel.Increment(9),
       ),
     ),
-    fn(core_error) {
-      case core_error {
-        runtime_core.AckMismatch(_) -> True
-        _ -> False
-      }
-    },
+    is_ack_mismatch,
   )
 }
 
-pub fn reconnect_resubmits_counter_ops_restamped_test() {
+pub fn reconnect_resubmits_counter_ops_restamped_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       counter_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "tally",
         value: 0,
       ),
@@ -2203,7 +2244,7 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
       op: channel.CounterOp(counter_kernel.Increment(2)),
     ),
   ])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
 
   // The restamped echoes ack cleanly under the new client id.
   let #(core, _) =
@@ -2212,8 +2253,8 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
       counter_op_message(
         address: "tally",
         client_id: reconnect_client_id,
-        sn: 3,
-        csn: 3,
+        sequence_number: 3,
+        client_sequence_number: 3,
         op: counter_kernel.Increment(1),
       ),
     )
@@ -2223,13 +2264,13 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
       counter_op_message(
         address: "tally",
         client_id: reconnect_client_id,
-        sn: 4,
-        csn: 4,
+        sequence_number: 4,
+        client_sequence_number: 4,
         op: counter_kernel.Increment(2),
       ),
     )
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(3))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2239,47 +2280,47 @@ pub fn reconnect_resubmits_counter_ops_restamped_test() {
 fn claim_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: claims_kernel.ClaimOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_claim_envelope(address, op)),
+    contents: to_dynamic(wire_op.encode_claim_envelope(address, op)),
   )
 }
 
 fn claim_attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   entries entries: List(#(String, Json, Int)),
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(
+    contents: to_dynamic(wire_op.encode_attach(
       address,
       channel.ClaimsSnapshot(entries),
     )),
   )
 }
 
-pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
+pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       claim_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "locks",
         entries: [],
       ),
@@ -2289,7 +2330,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
     core: core,
     outbound: [first],
     immediate_outcome: None,
-  )) = runtime_core.try_set_claim(core, "locks", "owner", json.string("alice"))
+  )) = runtime_core.claim_once(core, "locks", "owner", json.string("alice"))
   decode_outbound_contents(first)
   |> expect.to_equal(DecodedChannelOp(
     address: "locks",
@@ -2306,7 +2347,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 3),
     )
   let #(core, _) =
-    apply(core, join_message(sn: 3, joining: reconnect_client_id))
+    apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
   let #(core, outbound) = runtime_core.resubmit(core)
   let assert [resubmitted] = outbound
   resubmitted.client_sequence_number |> expect.to_equal(2)
@@ -2325,8 +2366,8 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
     claim_op_message(
       address: "locks",
       client_id: reconnect_client_id,
-      sn: 4,
-      csn: 2,
+      sequence_number: 4,
+      client_sequence_number: 2,
       op: claims_kernel.Claim("owner", json.string("alice"), 2),
     )
   let assert Ok(#(core, ingested)) = runtime_core.handle_sequenced(core, ack)
@@ -2345,11 +2386,11 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() {
     ),
   ])
   runtime_core.get_claim(core, "locks", "owner")
-  |> expect.to_equal(Some(json.string("alice")))
+  |> expect.to_equal(Ok(json.string("alice")))
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
+pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
   let summary =
     runtime_core.Summary(
       sequence_number: 5,
@@ -2366,7 +2407,8 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to complete"
   }
   runtime_core.summary_channels(core)
   |> expect.to_equal([
@@ -2380,14 +2422,14 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
       claim_op_message(
         address: "locks",
         client_id: other_client_id,
-        sn: 6,
-        csn: 1,
+        sequence_number: 6,
+        client_sequence_number: 1,
         op: claims_kernel.Claim("owner", json.string("stale"), 0),
       ),
     )
   stale_events |> expect.to_equal([])
   runtime_core.get_claim(core, "locks", "owner")
-  |> expect.to_equal(Some(json.string("alice")))
+  |> expect.to_equal(Ok(json.string("alice")))
 
   let #(core, events) =
     apply_tagged(
@@ -2395,8 +2437,8 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
       claim_op_message(
         address: "locks",
         client_id: other_client_id,
-        sn: 7,
-        csn: 2,
+        sequence_number: 7,
+        client_sequence_number: 2,
         op: claims_kernel.Claim("owner", json.string("carol"), 5),
       ),
     )
@@ -2405,7 +2447,7 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
     #("locks", channel.ClaimsEvent(claims_kernel.Claimed("owner", False))),
   ])
   runtime_core.get_claim(core, "locks", "owner")
-  |> expect.to_equal(Some(json.string("carol")))
+  |> expect.to_equal(Ok(json.string("carol")))
   runtime_core.summary_channels(core)
   |> expect.to_equal([
     #("root", channel.MapSnapshot([])),
@@ -2420,32 +2462,32 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() {
 fn or_map_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: or_map_kernel.OrMapOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_or_map_envelope(address, op)),
+    contents: to_dynamic(wire_op.encode_or_map_envelope(address, op)),
   )
 }
 
 fn or_map_attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: channel.Snapshot,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(address, snapshot)),
+    contents: to_dynamic(wire_op.encode_attach(address, snapshot)),
   )
 }
 
@@ -2465,7 +2507,7 @@ fn or_map_snapshot_entries(
   or_map_kernel.entries(kernel)
 }
 
-pub fn detached_or_map_increment_produces_no_outbound_test() {
+pub fn detached_or_map_increment_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
     runtime_core.create_detached(
@@ -2483,10 +2525,10 @@ pub fn detached_or_map_increment_produces_no_outbound_test() {
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
   runtime_core.or_map_value(core, "scores", "score")
-  |> expect.to_equal(Some(or_map_kernel.Tally(3)))
+  |> expect.to_equal(Ok(or_map_kernel.Tally(3)))
 }
 
-pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
+pub fn or_map_attach_via_handle_then_ops_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
     runtime_core.create_detached(
@@ -2516,8 +2558,8 @@ pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
       core,
       or_map_attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "scores",
         snapshot: attach_snapshot,
       ),
@@ -2529,8 +2571,8 @@ pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
       channel_op_message(
         address: "root",
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("scores", handle.encode_handle("scores")),
       ),
     )
@@ -2552,8 +2594,8 @@ pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
       or_map_op_message(
         address: "scores",
         client_id: other_client_id,
-        sn: 4,
-        csn: 1,
+        sequence_number: 4,
+        client_sequence_number: 1,
         op: remote_tally_op("score", 10),
       ),
     )
@@ -2568,18 +2610,18 @@ pub fn or_map_attach_via_handle_then_ops_round_trip_test() {
       or_map_op_message(
         address: "scores",
         client_id: our_client_id,
-        sn: 5,
-        csn: 3,
+        sequence_number: 5,
+        client_sequence_number: 3,
         op: own_op,
       ),
     )
   events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
   runtime_core.or_map_value(core, "scores", "score")
-  |> expect.to_equal(Some(or_map_kernel.Tally(17)))
+  |> expect.to_equal(Ok(or_map_kernel.Tally(17)))
 }
 
-pub fn or_map_mode_mismatch_edits_are_rejected_test() {
+pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
     runtime_core.create_detached(
@@ -2589,7 +2631,20 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() {
     )
   case runtime_core.or_map_increment(core, "registers", "k", 1) {
     Error(runtime_core.OrMapModeMismatch(address: "registers", ..)) -> Nil
-    _ -> panic as "expected increment on RegisterMode to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.WrongChannelType(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected increment on RegisterMode to be rejected"
   }
 
   let core =
@@ -2600,19 +2655,32 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() {
     )
   case runtime_core.or_map_set(core, "scores", "k", "v", 10) {
     Error(runtime_core.OrMapModeMismatch(address: "scores", ..)) -> Nil
-    _ -> panic as "expected set on TallyMode to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.WrongChannelType(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected set on TallyMode to be rejected"
   }
 }
 
-pub fn or_map_register_set_attaches_handle_dependencies_test() {
+pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       or_map_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "registers",
         snapshot: channel.attach_snapshot(channel.new(
           channel.InitOrMap(or_map_kernel.RegisterMode),
@@ -2640,11 +2708,13 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() {
   case or_map_op {
     or_map_kernel.SetRegister("child", value, 99, _) ->
       value |> expect.to_equal(encoded_handle)
-    _ -> panic as "expected register set op"
+    or_map_kernel.SetRegister(..)
+    | or_map_kernel.Increment(..)
+    | or_map_kernel.Remove(..) -> panic as "expected register set op"
   }
 }
 
-pub fn wrong_channel_type_edits_are_rejected_test() {
+pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
@@ -2655,15 +2725,52 @@ pub fn wrong_channel_type_edits_are_rejected_test() {
       expected: channel.MapChannel,
       actual: channel.CounterChannel,
     )) -> Nil
-    _ -> panic as "expected set on a counter channel to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.WrongChannelType(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected set on a counter channel to be rejected"
   }
   case runtime_core.delete(core, "tally", "k") {
     Error(runtime_core.WrongChannelType(..)) -> Nil
-    _ -> panic as "expected delete on a counter channel to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected delete on a counter channel to be rejected"
   }
   case runtime_core.clear(core, "tally") {
     Error(runtime_core.WrongChannelType(..)) -> Nil
-    _ -> panic as "expected clear on a counter channel to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected clear on a counter channel to be rejected"
   }
   // And the counter verb on a map channel likewise.
   case runtime_core.increment(core, "root", 1) {
@@ -2672,25 +2779,38 @@ pub fn wrong_channel_type_edits_are_rejected_test() {
       expected: channel.CounterChannel,
       actual: channel.MapChannel,
     )) -> Nil
-    _ -> panic as "expected increment on a map channel to be rejected"
+    Ok(_)
+    | Error(runtime_core.AckMismatch(_))
+    | Error(runtime_core.BadOpContents(_))
+    | Error(runtime_core.HistoryGap(_))
+    | Error(runtime_core.UnknownChannel(..))
+    | Error(runtime_core.DuplicateAttach(..))
+    | Error(runtime_core.WrongChannelType(..))
+    | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.TaskNotAssigned(..))
+    | Error(runtime_core.DirectoryOpFailed(..))
+    | Error(runtime_core.SequenceOpFailed(..))
+    | Error(runtime_core.TextOpFailed(..))
+    | Error(runtime_core.BadSummaryChannel(..)) ->
+      panic as "expected increment on a map channel to be rejected"
   }
   // Reads on the wrong channel type return empty defaults.
-  runtime_core.counter_value(core, "root") |> expect.to_equal(None)
-  runtime_core.get(core, "tally", "k") |> expect.to_equal(None)
+  runtime_core.counter_value(core, "root") |> expect.to_equal(Error(Nil))
+  runtime_core.get(core, "tally", "k") |> expect.to_equal(Error(Nil))
   runtime_core.entries(core, "tally") |> expect.to_equal([])
   runtime_core.keys(core, "tally") |> expect.to_equal([])
   runtime_core.size(core, "tally") |> expect.to_equal(0)
 }
 
-pub fn summary_captures_confirmed_counter_value_test() {
+pub fn summary_captures_confirmed_counter_value_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       counter_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "tally",
         value: 0,
       ),
@@ -2701,8 +2821,8 @@ pub fn summary_captures_confirmed_counter_value_test() {
       counter_op_message(
         address: "tally",
         client_id: other_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: counter_kernel.Increment(4),
       ),
     )
@@ -2710,7 +2830,7 @@ pub fn summary_captures_confirmed_counter_value_test() {
 
   // The optimistic read includes the un-acked increment; the summary only
   // captures the confirmed value.
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(7))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(7))
   runtime_core.summary_channels(core)
   |> expect.to_equal([
     #("root", channel.MapSnapshot([])),
@@ -2718,7 +2838,7 @@ pub fn summary_captures_confirmed_counter_value_test() {
   ])
 }
 
-pub fn bootstrap_from_summary_with_counter_channel_test() {
+pub fn bootstrap_from_summary_with_counter_channel_test() -> Nil {
   let summary =
     runtime_core.Summary(
       sequence_number: 5,
@@ -2735,9 +2855,10 @@ pub fn bootstrap_from_summary_with_counter_channel_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to complete"
   }
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(9))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(9))
 
   let #(core, events) =
     apply_tagged(
@@ -2745,8 +2866,8 @@ pub fn bootstrap_from_summary_with_counter_channel_test() {
       counter_op_message(
         address: "tally",
         client_id: other_client_id,
-        sn: 6,
-        csn: 1,
+        sequence_number: 6,
+        client_sequence_number: 1,
         op: counter_kernel.Increment(2),
       ),
     )
@@ -2754,7 +2875,7 @@ pub fn bootstrap_from_summary_with_counter_channel_test() {
   |> expect.to_equal([
     #("tally", channel.CounterEvent(counter_kernel.Incremented(2, 11))),
   ])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Some(11))
+  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(11))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2764,32 +2885,35 @@ pub fn bootstrap_from_summary_with_counter_channel_test() {
 fn register_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: register_collection_kernel.WriteOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_register_collection_envelope(address, op)),
+    contents: to_dynamic(wire_op.encode_register_collection_envelope(
+      address,
+      op,
+    )),
   )
 }
 
 fn register_attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   registers registers: List(#(String, register_collection_kernel.Register)),
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(
+    contents: to_dynamic(wire_op.encode_attach(
       address,
       channel.RegisterCollectionSnapshot(registers),
     )),
@@ -2803,7 +2927,7 @@ fn register_version(
   register_collection_kernel.VersionedValue(value, seq)
 }
 
-pub fn detached_register_write_produces_no_outbound_test() {
+pub fn detached_register_write_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
     runtime_core.create_detached(
@@ -2840,18 +2964,18 @@ pub fn detached_register_write_produces_no_outbound_test() {
     "station",
     register_collection_kernel.Atomic,
   )
-  |> expect.to_equal(Some(json.string("A")))
+  |> expect.to_equal(Ok(json.string("A")))
 }
 
-pub fn register_collection_attached_write_round_trips_test() {
+pub fn register_collection_attached_write_round_trips_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       register_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "registers",
         registers: [],
       ),
@@ -2875,7 +2999,7 @@ pub fn register_collection_attached_write_round_trips_test() {
     "station",
     register_collection_kernel.Atomic,
   )
-  |> expect.to_equal(None)
+  |> expect.to_equal(Error(Nil))
 
   let #(core, events) =
     apply_tagged(
@@ -2883,8 +3007,8 @@ pub fn register_collection_attached_write_round_trips_test() {
       register_op_message(
         address: "registers",
         client_id: our_client_id,
-        sn: 3,
-        csn: 1,
+        sequence_number: 3,
+        client_sequence_number: 1,
         op: register_collection_kernel.Write(
           "station",
           json.string("A"),
@@ -2917,19 +3041,19 @@ pub fn register_collection_attached_write_round_trips_test() {
     "station",
     register_collection_kernel.Atomic,
   )
-  |> expect.to_equal(Some(json.string("A")))
+  |> expect.to_equal(Ok(json.string("A")))
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn register_collection_ack_with_wrong_shape_is_fatal_test() {
+pub fn register_collection_ack_with_wrong_shape_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _) =
     apply_tagged(
       core,
       register_attach_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "registers",
         registers: [],
       ),
@@ -2942,8 +3066,8 @@ pub fn register_collection_ack_with_wrong_shape_is_fatal_test() {
     register_op_message(
       address: "registers",
       client_id: our_client_id,
-      sn: 3,
-      csn: 1,
+      sequence_number: 3,
+      client_sequence_number: 1,
       op: register_collection_kernel.Write(
         "station",
         json.string("B"),
@@ -2951,15 +3075,10 @@ pub fn register_collection_ack_with_wrong_shape_is_fatal_test() {
       ),
     ),
   )
-  |> expect_error(fn(core_error) {
-    case core_error {
-      runtime_core.AckMismatch(_) -> True
-      _ -> False
-    }
-  })
+  |> expect_error(is_ack_mismatch)
 }
 
-pub fn bootstrap_from_summary_with_register_collection_test() {
+pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
   let version = register_version(json.string("Survey"), 5)
   let summary =
     runtime_core.Summary(
@@ -2982,7 +3101,8 @@ pub fn bootstrap_from_summary_with_register_collection_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to complete"
   }
   runtime_core.register_read(
     core,
@@ -2990,7 +3110,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() {
     "station",
     register_collection_kernel.Atomic,
   )
-  |> expect.to_equal(Some(json.string("Survey")))
+  |> expect.to_equal(Ok(json.string("Survey")))
 
   let #(core, events) =
     apply_tagged(
@@ -2998,8 +3118,8 @@ pub fn bootstrap_from_summary_with_register_collection_test() {
       register_op_message(
         address: "registers",
         client_id: other_client_id,
-        sn: 6,
-        csn: 1,
+        sequence_number: 6,
+        client_sequence_number: 1,
         op: register_collection_kernel.Write(
           "station",
           json.string("Remote"),
@@ -3027,14 +3147,14 @@ pub fn bootstrap_from_summary_with_register_collection_test() {
     ),
   ])
   runtime_core.register_versions(core, "registers", "station")
-  |> expect.to_equal(Some([json.string("Remote")]))
+  |> expect.to_equal(Ok([json.string("Remote")]))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Generic owed-ops buffer (reaction auto-submit infra)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn owed_op_is_auto_submitted_after_sequenced_batch_test() {
+pub fn owed_op_is_auto_submitted_after_sequenced_batch_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   // A reacting kernel arm would return this from `channel.apply_remote`; inject
@@ -3049,14 +3169,15 @@ pub fn owed_op_is_auto_submitted_after_sequenced_batch_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 5,
+        sequence_number: 2,
+        client_sequence_number: 5,
         op: Set("trigger", json.int(1)),
       ),
     )
 
-  // Exactly one auto-submitted op: the owed MapOp, stamped with csn 1 (the first
-  // free CSN) and rsn = the batch's last-seen SN.
+  // Exactly one auto-submitted op: the owed MapOp, stamped with client
+  // sequence number 1 (the first free client sequence number) and reference
+  // sequence number = the batch's last-seen sequence number.
   let assert [outbound] = ingested.outbound
   outbound.client_sequence_number |> expect.to_equal(1)
   outbound.reference_sequence_number |> expect.to_equal(2)
@@ -3081,7 +3202,7 @@ pub fn owed_op_is_auto_submitted_after_sequenced_batch_test() {
   root_has(core, "owed") |> expect.to_equal(False)
 }
 
-pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() {
+pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let first = channel.MapOp(Set("first", json.int(1)))
@@ -3095,8 +3216,8 @@ pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 2,
-        csn: 5,
+        sequence_number: 2,
+        client_sequence_number: 5,
         op: Set("trigger", json.int(1)),
       ),
     )
@@ -3118,16 +3239,16 @@ pub fn multiple_owed_ops_drain_in_order_with_sequential_csns_test() {
 fn text_op_message(
   address address: String,
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   op op: text_kernel.TextOp,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_channel_envelope(
+    contents: to_dynamic(wire_op.encode_channel_envelope(
       address,
       channel.TextOp(op),
     )),
@@ -3136,17 +3257,17 @@ fn text_op_message(
 
 fn text_attach_message(
   client_id client_id: String,
-  sn sn: Int,
-  csn csn: Int,
+  sequence_number sequence_number: Int,
+  client_sequence_number client_sequence_number: Int,
   address address: String,
   snapshot snapshot: channel.Snapshot,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(client_id),
-    sn: sn,
-    csn: csn,
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(ops.encode_attach(address, snapshot)),
+    contents: to_dynamic(wire_op.encode_attach(address, snapshot)),
   )
 }
 
@@ -3176,7 +3297,7 @@ fn remote_text_insert_op(index: Int, value: String) -> text_kernel.TextOp {
   op
 }
 
-pub fn text_create_detached_reports_text_type_test() {
+pub fn text_create_detached_reports_text_type_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
 
@@ -3186,7 +3307,7 @@ pub fn text_create_detached_reports_text_type_test() {
   runtime_core.text_length(core, "doc") |> expect.to_equal(0)
 }
 
-pub fn text_mutation_on_wrong_channel_type_is_rejected_test() {
+pub fn text_mutation_on_wrong_channel_type_is_rejected_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
@@ -3200,7 +3321,7 @@ pub fn text_mutation_on_wrong_channel_type_is_rejected_test() {
   )
 }
 
-pub fn text_mutation_on_missing_channel_is_unknown_channel_test() {
+pub fn text_mutation_on_missing_channel_is_unknown_channel_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   runtime_core.text_insert(core, "missing", 0, "x")
@@ -3209,7 +3330,7 @@ pub fn text_mutation_on_missing_channel_is_unknown_channel_test() {
   )
 }
 
-pub fn text_reads_default_for_missing_or_wrong_channel_test() {
+pub fn text_reads_default_for_missing_or_wrong_channel_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
 
@@ -3219,7 +3340,7 @@ pub fn text_reads_default_for_missing_or_wrong_channel_test() {
   runtime_core.text_length(core, "tally") |> expect.to_equal(0)
 }
 
-pub fn detached_text_insert_produces_no_outbound_test() {
+pub fn detached_text_insert_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
 
@@ -3235,7 +3356,7 @@ pub fn detached_text_insert_produces_no_outbound_test() {
   runtime_core.text_length(core, "doc") |> expect.to_equal(5)
 }
 
-pub fn detached_text_delete_range_produces_no_outbound_test() {
+pub fn detached_text_delete_range_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3251,7 +3372,7 @@ pub fn detached_text_delete_range_produces_no_outbound_test() {
   runtime_core.text_value(core, "doc") |> expect.to_equal("hlo")
 }
 
-pub fn detached_text_replace_range_produces_no_outbound_test() {
+pub fn detached_text_replace_range_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3267,7 +3388,7 @@ pub fn detached_text_replace_range_produces_no_outbound_test() {
   runtime_core.text_value(core, "doc") |> expect.to_equal("Hello")
 }
 
-pub fn detached_text_append_produces_no_outbound_test() {
+pub fn detached_text_append_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3283,7 +3404,7 @@ pub fn detached_text_append_produces_no_outbound_test() {
   runtime_core.text_value(core, "doc") |> expect.to_equal("hello world")
 }
 
-pub fn detached_text_valid_empty_edits_are_true_no_ops_test() {
+pub fn detached_text_valid_empty_edits_are_true_no_ops_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3312,7 +3433,7 @@ pub fn detached_text_valid_empty_edits_are_true_no_ops_test() {
   outbound |> expect.to_equal([])
 }
 
-pub fn text_insert_out_of_bounds_is_text_op_failed_test() {
+pub fn text_insert_out_of_bounds_is_text_op_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
 
@@ -3322,7 +3443,7 @@ pub fn text_insert_out_of_bounds_is_text_op_failed_test() {
   )
 }
 
-pub fn text_delete_range_out_of_bounds_is_text_op_failed_test() {
+pub fn text_delete_range_out_of_bounds_is_text_op_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3336,7 +3457,7 @@ pub fn text_delete_range_out_of_bounds_is_text_op_failed_test() {
   )
 }
 
-pub fn text_replace_range_out_of_bounds_is_text_op_failed_test() {
+pub fn text_replace_range_out_of_bounds_is_text_op_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3350,7 +3471,7 @@ pub fn text_replace_range_out_of_bounds_is_text_op_failed_test() {
   )
 }
 
-pub fn text_optimistic_reads_value_length_substring_test() {
+pub fn text_optimistic_reads_value_length_substring_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3364,7 +3485,7 @@ pub fn text_optimistic_reads_value_length_substring_test() {
   |> expect.to_equal(Ok("hi 👋 world"))
 }
 
-pub fn text_substring_invalid_range_is_explicit_error_test() {
+pub fn text_substring_invalid_range_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3373,7 +3494,7 @@ pub fn text_substring_invalid_range_is_explicit_error_test() {
   |> expect.to_equal(Error("substring range 2..1 invalid for length 3"))
 }
 
-pub fn text_substring_missing_channel_is_explicit_error_test() {
+pub fn text_substring_missing_channel_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   runtime_core.text_substring(core, "missing", 0, 1)
@@ -3382,7 +3503,7 @@ pub fn text_substring_missing_channel_is_explicit_error_test() {
   ))
 }
 
-pub fn text_attach_via_handle_then_ops_round_trip_test() {
+pub fn text_attach_via_handle_then_ops_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
 
@@ -3410,8 +3531,8 @@ pub fn text_attach_via_handle_then_ops_round_trip_test() {
       core,
       text_attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "doc",
         snapshot: attach_snapshot,
       ),
@@ -3423,8 +3544,8 @@ pub fn text_attach_via_handle_then_ops_round_trip_test() {
       channel_op_message(
         address: "root",
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("doc", handle.encode_handle("doc")),
       ),
     )
@@ -3451,8 +3572,8 @@ pub fn text_attach_via_handle_then_ops_round_trip_test() {
       text_op_message(
         address: "doc",
         client_id: other_client_id,
-        sn: 4,
-        csn: 1,
+        sequence_number: 4,
+        client_sequence_number: 1,
         op: remote_op,
       ),
     )
@@ -3468,8 +3589,8 @@ pub fn text_attach_via_handle_then_ops_round_trip_test() {
       text_op_message(
         address: "doc",
         client_id: our_client_id,
-        sn: 5,
-        csn: 3,
+        sequence_number: 5,
+        client_sequence_number: 3,
         op: own_op,
       ),
     )
@@ -3478,7 +3599,7 @@ pub fn text_attach_via_handle_then_ops_round_trip_test() {
   runtime_core.text_length(core, "doc") |> expect.to_equal(8)
 }
 
-pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
+pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3493,8 +3614,8 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
       core,
       text_attach_message(
         client_id: our_client_id,
-        sn: 2,
-        csn: 1,
+        sequence_number: 2,
+        client_sequence_number: 1,
         address: "doc",
         snapshot: attach_snapshot,
       ),
@@ -3505,8 +3626,8 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
       channel_op_message(
         address: "root",
         client_id: our_client_id,
-        sn: 3,
-        csn: 2,
+        sequence_number: 3,
+        client_sequence_number: 2,
         op: Set("doc", handle.encode_handle("doc")),
       ),
     )
@@ -3523,7 +3644,7 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() {
   runtime_core.text_value(core, "doc") |> expect.to_equal("seed")
 }
 
-pub fn text_summary_round_trip_reload_with_new_replica_test() {
+pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
   let seeded = seeded_text("hello")
   let summary =
     runtime_core.Summary(
@@ -3538,7 +3659,8 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to complete"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to complete"
   }
   runtime_core.text_value(core, "doc") |> expect.to_equal("hello")
 
@@ -3564,7 +3686,7 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() {
   runtime_core.text_value(core, "doc") |> expect.to_equal("hello!")
 }
 
-pub fn text_anchor_at_and_resolve_track_position_test() {
+pub fn text_anchor_at_and_resolve_track_position_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3578,7 +3700,7 @@ pub fn text_anchor_at_and_resolve_track_position_test() {
   |> expect.to_equal(Ok(9))
 }
 
-pub fn text_start_and_end_anchors_track_boundaries_test() {
+pub fn text_start_and_end_anchors_track_boundaries_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3597,7 +3719,7 @@ pub fn text_start_and_end_anchors_track_boundaries_test() {
   |> expect.to_equal(Ok(5))
 }
 
-pub fn text_anchor_at_out_of_bounds_is_explicit_error_test() {
+pub fn text_anchor_at_out_of_bounds_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
@@ -3606,7 +3728,7 @@ pub fn text_anchor_at_out_of_bounds_is_explicit_error_test() {
   |> expect.to_equal(Error("anchor index 4 outside 0..3"))
 }
 
-pub fn text_anchor_at_missing_channel_is_explicit_error_test() {
+pub fn text_anchor_at_missing_channel_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   runtime_core.text_anchor_at(core, "missing", 0, Before)
@@ -3615,7 +3737,7 @@ pub fn text_anchor_at_missing_channel_is_explicit_error_test() {
   ))
 }
 
-pub fn text_resolve_anchor_missing_channel_is_explicit_error_test() {
+pub fn text_resolve_anchor_missing_channel_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   runtime_core.text_resolve_anchor(
@@ -3628,7 +3750,7 @@ pub fn text_resolve_anchor_missing_channel_is_explicit_error_test() {
   ))
 }
 
-pub fn text_anchor_json_round_trips_test() {
+pub fn text_anchor_json_round_trips_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core = runtime_core.create_detached(core, "doc", channel.InitText)
   let assert Ok(#(core, _, _)) =
@@ -3644,15 +3766,15 @@ pub fn text_anchor_json_round_trips_test() {
   decoded |> expect.to_equal(anchor)
 }
 
-pub fn text_anchor_from_json_rejects_malformed_json_test() {
+pub fn text_anchor_from_json_rejects_malformed_json_test() -> Nil {
   // Empty input always yields a stable, target-independent error variant.
   case runtime_core.text_anchor_from_json("") {
-    Error(msg) -> {
+    Error(detail) -> {
       // Must carry the human-readable context prefix.
-      msg
+      detail
       |> expect.to_equal("invalid anchor JSON: unexpected end of input")
       // Must not expose a raw debug/inspect representation.
-      let contains_debug_repr = string.contains(msg, "DecodeError(")
+      let contains_debug_repr = string.contains(detail, "DecodeError(")
       contains_debug_repr |> expect.to_equal(False)
     }
     Ok(_) -> panic as "expected malformed anchor JSON to fail"
@@ -3664,13 +3786,13 @@ pub fn text_anchor_from_json_rejects_malformed_json_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn summarize_message(
-  sn sn: Int,
+  sequence_number sequence_number: Int,
   by by: String,
 ) -> types.SequencedDocumentMessage {
   sequenced_message(
     client_id: Some(by),
-    sn: sn,
-    csn: -1,
+    sequence_number: sequence_number,
+    client_sequence_number: -1,
     message_type: "summarize",
     contents: to_dynamic(
       json.object([
@@ -3683,7 +3805,7 @@ fn summarize_message(
   )
 }
 
-pub fn bootstrap_from_a_summary_seeds_the_local_checkpoint_test() {
+pub fn bootstrap_from_a_summary_seeds_the_local_checkpoint_test() -> Nil {
   // A client that bootstrapped from a blob captured at SN 5 has, by
   // definition, zero ops to summarize: the checkpoint *is* where it started.
   let summary = root_summary(5, [#("die", json.int(4))])
@@ -3691,7 +3813,8 @@ pub fn bootstrap_from_a_summary_seeds_the_local_checkpoint_test() {
     runtime_core.bootstrap(connected_message([], 5), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to succeed"
   }
 
   runtime_core.ops_since_summary(core) |> expect.to_equal(0)
@@ -3701,22 +3824,22 @@ pub fn bootstrap_from_a_summary_seeds_the_local_checkpoint_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 6,
-        csn: 1,
+        sequence_number: 6,
+        client_sequence_number: 1,
         op: Set("post", json.int(1)),
       ),
     )
   runtime_core.ops_since_summary(core) |> expect.to_equal(1)
 }
 
-pub fn bootstrap_without_a_summary_counts_from_zero_test() {
+pub fn bootstrap_without_a_summary_counts_from_zero_test() -> Nil {
   // No checkpoint has ever been written, so every op in the log is
   // outstanding — which is exactly the condition the policy exists to end.
   let core = bootstrap(initial_messages: [], checkpoint: 3)
   runtime_core.ops_since_summary(core) |> expect.to_equal(3)
 }
 
-pub fn an_observed_summarize_advances_the_local_checkpoint_test() {
+pub fn an_observed_summarize_advances_the_local_checkpoint_test() -> Nil {
   // A peer's summarize op is sequenced like any other message. The core has
   // no use for its contents, but its sequence number is what stops every
   // other client in the room from summarizing the same state again.
@@ -3724,7 +3847,7 @@ pub fn an_observed_summarize_advances_the_local_checkpoint_test() {
   runtime_core.ops_since_summary(core) |> expect.to_equal(3)
 
   let #(core, events) =
-    apply(core, summarize_message(sn: 4, by: other_client_id))
+    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
   events |> expect.to_equal([])
   runtime_core.ops_since_summary(core) |> expect.to_equal(0)
 
@@ -3733,15 +3856,15 @@ pub fn an_observed_summarize_advances_the_local_checkpoint_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 5,
-        csn: 1,
+        sequence_number: 5,
+        client_sequence_number: 1,
         op: Set("after", json.int(1)),
       ),
     )
   runtime_core.ops_since_summary(core) |> expect.to_equal(1)
 }
 
-pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() {
+pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() -> Nil {
   // Replaying an old log after loading a newer summary must not un-summarize
   // the document.
   let summary = root_summary(10, [])
@@ -3749,14 +3872,16 @@ pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() {
     runtime_core.bootstrap(connected_message([], 10), summary: Some(summary))
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected summary bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected summary bootstrap to succeed"
   }
 
-  let #(core, _) = apply(core, summarize_message(sn: 4, by: other_client_id))
+  let #(core, _) =
+    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
   runtime_core.ops_since_summary(core) |> expect.to_equal(0)
 }
 
-pub fn building_a_summarize_op_advances_the_local_checkpoint_test() {
+pub fn building_a_summarize_op_advances_the_local_checkpoint_test() -> Nil {
   // Our own summarize op is fire-and-forget — no ack, no in-flight entry — so
   // the checkpoint moves when the op is built rather than when it lands.
   // Without this a client re-arms on every op until its own echo returns.
@@ -3771,7 +3896,7 @@ pub fn building_a_summarize_op_advances_the_local_checkpoint_test() {
   runtime_core.ops_since_summary(core) |> expect.to_equal(0)
 }
 
-pub fn wants_summary_crosses_at_the_threshold_test() {
+pub fn wants_summary_crosses_at_the_threshold_test() -> Nil {
   let policy = summary_policy.policy() |> summary_policy.with_threshold(4)
 
   let core = bootstrap(initial_messages: [], checkpoint: 3)
@@ -3782,15 +3907,15 @@ pub fn wants_summary_crosses_at_the_threshold_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 4,
-        csn: 1,
+        sequence_number: 4,
+        client_sequence_number: 1,
         op: Set("a", json.int(1)),
       ),
     )
   runtime_core.wants_summary(core, policy) |> expect.to_be_true()
 }
 
-pub fn wants_summary_is_false_with_unacknowledged_edits_test() {
+pub fn wants_summary_is_false_with_unacknowledged_edits_test() -> Nil {
   // Summarizing captures confirmed state, so an un-acked local edit would be
   // silently absent from the blob. `summarize` itself refuses in this state;
   // the policy must not even ask.
@@ -3801,7 +3926,7 @@ pub fn wants_summary_is_false_with_unacknowledged_edits_test() {
   runtime_core.wants_summary(core, policy) |> expect.to_be_false()
 }
 
-pub fn wants_summary_is_false_with_a_gap_in_flight_test() {
+pub fn wants_summary_is_false_with_a_gap_in_flight_test() -> Nil {
   // A buffered future op means a `requestOps` round is outstanding: the
   // confirmed state is a prefix of what the server has already sequenced.
   // `is_synced` does not cover this, which is why the policy has its own
@@ -3813,8 +3938,8 @@ pub fn wants_summary_is_false_with_a_gap_in_flight_test() {
       core,
       map_op_message(
         client_id: other_client_id,
-        sn: 9,
-        csn: 1,
+        sequence_number: 9,
+        client_sequence_number: 1,
         op: Set("far", json.int(1)),
       ),
     )
@@ -3823,7 +3948,7 @@ pub fn wants_summary_is_false_with_a_gap_in_flight_test() {
   runtime_core.wants_summary(core, policy) |> expect.to_be_false()
 }
 
-pub fn wants_summary_is_false_while_replaying_test() {
+pub fn wants_summary_is_false_while_replaying_test() -> Nil {
   // A client catching up after a reconnect has nothing in flight and nothing
   // buffered — `replaying` is the only thing disqualifying it, which is what
   // makes this the discriminating case. Summarizing here would record the
@@ -3844,7 +3969,7 @@ pub fn wants_summary_is_false_while_replaying_test() {
   |> expect.to_be_true()
 }
 
-pub fn summary_jitter_is_per_client_and_inside_the_window_test() {
+pub fn summary_jitter_is_per_client_and_inside_the_window_test() -> Nil {
   // Every client in a room crosses the threshold on the same op. A delay
   // derived from the client id spreads the attempts without an RNG, so the
   // first summary to land cancels the rest.
@@ -3857,7 +3982,8 @@ pub fn summary_jitter_is_per_client_and_inside_the_window_test() {
     )
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected bootstrap to succeed"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected bootstrap to succeed"
   }
 
   let ours_jitter = runtime_core.summary_jitter_ms(ours, policy)
@@ -3870,7 +3996,7 @@ pub fn summary_jitter_is_per_client_and_inside_the_window_test() {
   { ours_jitter != theirs_jitter } |> expect.to_be_true()
 }
 
-pub fn consecutive_client_ids_spread_across_the_window_test() {
+pub fn consecutive_client_ids_spread_across_the_window_test() -> Nil {
   // The property the window exists for. A server hands out ids in sequence, so
   // a plain `id % window` would put a whole room within milliseconds of each
   // other and every one of them would summarize. Ten adjacent ids must land in
@@ -3889,7 +4015,8 @@ pub fn consecutive_client_ids_spread_across_the_window_test() {
         )
       {
         Ok(runtime_core.Complete(core)) -> core
-        _ -> panic as "expected bootstrap to succeed"
+        Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+          panic as "expected bootstrap to succeed"
       }
       runtime_core.summary_jitter_ms(core, policy) / 300
     })
@@ -3898,14 +4025,14 @@ pub fn consecutive_client_ids_spread_across_the_window_test() {
   { list.length(buckets) >= 8 } |> expect.to_be_true()
 }
 
-pub fn a_zero_jitter_window_fires_immediately_test() {
+pub fn a_zero_jitter_window_fires_immediately_test() -> Nil {
   // Turning jitter off must not divide by zero.
   let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(0)
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   runtime_core.summary_jitter_ms(core, policy) |> expect.to_equal(0)
 }
 
-pub fn policy_defaults_are_stated_once_test() {
+pub fn policy_defaults_are_stated_once_test() -> Nil {
   // The defaults are the shipped policy; a change here is a behaviour change.
   let policy = summary_policy.policy()
   summary_policy.policy_threshold(policy) |> expect.to_equal(500)

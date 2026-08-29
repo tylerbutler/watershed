@@ -7,9 +7,8 @@
 //// Web Audio concern with no collaborative content, and a test that asserted
 //// step timings against a mocked clock would be testing the mock.
 
-import doc_schema
+import drum_machine_lustre/doc_schema
 import gleam/list
-import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
@@ -54,7 +53,7 @@ fn client(doc: Document(doc_schema.Machine)) -> Client {
   let tracks =
     track_keys
     |> list.map(fn(key) {
-      let assert Some(value) = watershed.get(root, key)
+      let assert Ok(value) = watershed.get(root, key)
       let assert Ok(set) = watershed.resolve_or_set(doc, value)
       set
     })
@@ -83,7 +82,7 @@ fn toggle(set: OrSet, step: String) -> Nil {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn two_clients_converge_on_a_pattern_test() {
+pub fn two_clients_converge_on_a_pattern_test() -> Nil {
   let #(sluice, a, b) = room("drum-converge")
 
   // A lays down four-on-the-floor, B puts hats on the offbeats.
@@ -97,7 +96,7 @@ pub fn two_clients_converge_on_a_pattern_test() {
   steps(track(b, 2)) |> should.equal(["10", "14", "2", "6"])
 }
 
-pub fn concurrently_enabling_the_same_step_is_not_a_conflict_test() {
+pub fn concurrently_enabling_the_same_step_is_not_a_conflict_test() -> Nil {
   let #(sluice, a, b) = room("drum-same-step")
 
   // Two people reaching for the same step is the most likely collision in the
@@ -110,7 +109,7 @@ pub fn concurrently_enabling_the_same_step_is_not_a_conflict_test() {
   steps(track(b, 1)) |> should.equal(["4"])
 }
 
-pub fn a_concurrent_enable_survives_a_disable_test() {
+pub fn a_concurrent_enable_survives_a_disable_test() -> Nil {
   let #(sluice, a, b) = room("drum-add-wins")
 
   watershed.or_set_add(track(a, 0), "3")
@@ -129,7 +128,7 @@ pub fn a_concurrent_enable_survives_a_disable_test() {
   steps(track(b, 0)) |> should.equal(["3"])
 }
 
-pub fn a_step_toggles_off_and_back_on_test() {
+pub fn a_step_toggles_off_and_back_on_test() -> Nil {
   let #(sluice, a, b) = room("drum-retoggle")
 
   toggle(track(a, 3), "9")
@@ -145,7 +144,7 @@ pub fn a_step_toggles_off_and_back_on_test() {
   steps(track(b, 3)) |> should.equal(["9"])
 }
 
-pub fn tracks_are_independent_test() {
+pub fn tracks_are_independent_test() -> Nil {
   let #(sluice, a, b) = room("drum-independent")
 
   // The same step index on all four tracks: one channel per track means these
@@ -162,7 +161,7 @@ pub fn tracks_are_independent_test() {
   steps(track(a, 1)) |> should.equal(steps(track(b, 1)))
 }
 
-pub fn a_late_joiner_replays_the_pattern_test() {
+pub fn a_late_joiner_replays_the_pattern_test() -> Nil {
   let #(sluice, a, _b) = room("drum-late-join")
 
   list.each(["0", "8"], fn(step) { watershed.or_set_add(track(a, 0), step) })

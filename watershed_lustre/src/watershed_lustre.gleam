@@ -319,23 +319,22 @@ pub fn subscribe_claims(
 /// submit the claim at all, because it is still connecting or it failed
 /// permanently. A caller must not treat `Aborted` as "nothing happened". Report
 /// it, the same as any other connection failure.
-pub fn try_set_claim(
+pub fn claim_once(
   claims: Claims,
   key: String,
   value: Json,
   to_msg to_msg: fn(claims_kernel.ClaimOutcome) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  deliver_claim_outcome(
-    watershed.try_set_claim(claims, key, value),
-    fn(outcome) { dispatch(to_msg(outcome)) },
-  )
+  deliver_claim_outcome(watershed.claim_once(claims, key, value), fn(outcome) {
+    dispatch(to_msg(outcome))
+  })
 }
 
 /// A compare-and-set claim on `key`. It takes the key from the client that
 /// holds it now, if no write has sequenced after the committed entry that this
 /// call reads its `ref_seq` from. It delivers its outcome in the same way as
-/// `try_set_claim`. Here `Lost` means that a concurrent attempt to take the key
+/// `claim_once`. Here `Lost` means that a concurrent attempt to take the key
 /// won the race. It does not mean that another client already claimed the
 /// key.
 pub fn compare_and_set_claim(
@@ -351,7 +350,7 @@ pub fn compare_and_set_claim(
   )
 }
 
-/// The shared code of `try_set_claim` and `compare_and_set_claim`.
+/// The shared code of `claim_once` and `compare_and_set_claim`.
 ///
 /// Two synchronous replies never reach the wire: `AlreadyClaimed` and
 /// `AlreadyPendingLocally`. Each one resolves to an immediate outcome. The

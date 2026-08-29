@@ -24,7 +24,7 @@ fn weights() -> script_gen.Weights {
   )
 }
 
-pub fn converges_and_matches_oracle_test() {
+pub fn converges_and_matches_oracle_test() -> Nil {
   let model = pn_counter_model.model()
   kernel_fuzz.run(
     model,
@@ -38,17 +38,17 @@ pub fn converges_and_matches_oracle_test() {
 /// without a filled delta slot. Generated scripts only ever dump `delta:
 /// null` ops (they are captured pre-submit), so the delta branch — needed
 /// for hand-crafted or future rewritten-op fixtures — is pinned here.
-pub fn op_json_round_trips_with_and_without_delta_test() {
+pub fn op_json_round_trips_with_and_without_delta_test() -> Nil {
   let model = pn_counter_model.model()
   let #(_, _, op, _) =
     pn_counter_kernel.update(pn_counter_kernel.new(replica_id.new("a")), -6)
   let Update(amount, delta) = op
 
   [PnCommand(3, None), PnCommand(amount, Some(delta))]
-  |> list.each(fn(cmd) {
+  |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(cmd)), model.op_decoder)
-    decoded |> expect.to_equal(cmd)
+      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+    decoded |> expect.to_equal(command)
   })
 }
 
@@ -57,7 +57,7 @@ pub fn op_json_round_trips_with_and_without_delta_test() {
 /// world. Concurrent updates from two clients then land under one replica
 /// key and max-merge to the larger cumulative, so the converged value (5)
 /// undercounts the oracle's sum of amounts (8).
-pub fn shared_replica_id_loses_increments_test() {
+pub fn shared_replica_id_loses_increments_test() -> Nil {
   let model = pn_counter_model.model()
   let buggy =
     KernelModel(..model, init: fn(_id) {

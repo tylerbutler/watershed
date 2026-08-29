@@ -16,7 +16,7 @@ fn ack(
   state
 }
 
-pub fn insert_delete_move_replace_are_optimistic_test() {
+pub fn insert_delete_move_replace_are_optimistic_test() -> Nil {
   let assert Ok(#(state, _, insert_a, id0)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   id0 |> expect.to_equal(0)
@@ -62,7 +62,10 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
   case replace_nine {
     sequence_kernel.Replace(1, value, _) ->
       value |> expect.to_equal(json.int(9))
-    _ -> panic as "expected replace op"
+    sequence_kernel.Replace(..)
+    | sequence_kernel.Insert(..)
+    | sequence_kernel.Delete(..)
+    | sequence_kernel.Move(..) -> panic as "expected replace op"
   }
 
   let assert Ok(#(semantic_state, _, _, _)) =
@@ -106,7 +109,10 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
       |> expect.to_equal(
         json.object([#("b", json.int(2)), #("a", json.int(1))]),
       )
-    _ -> panic as "expected semantic replace op"
+    sequence_kernel.Replace(..)
+    | sequence_kernel.Insert(..)
+    | sequence_kernel.Delete(..)
+    | sequence_kernel.Move(..) -> panic as "expected semantic replace op"
   }
 
   let assert Ok(#(state, _, _, id4)) = sequence_kernel.delete(state, 0)
@@ -116,7 +122,7 @@ pub fn insert_delete_move_replace_are_optimistic_test() {
   sequence_kernel.length(state) |> expect.to_equal(1)
 }
 
-pub fn invalid_indexes_return_edit_errors_test() {
+pub fn invalid_indexes_return_edit_errors_test() -> Nil {
   sequence_kernel.insert(new_a(), 1, json.null())
   |> expect.to_equal(Error(sequence_kernel.InsertOutOfBounds(1, 0)))
 
@@ -146,7 +152,7 @@ pub fn invalid_indexes_return_edit_errors_test() {
   |> expect.to_equal("replace index 0 invalid for length 0")
 }
 
-pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
+pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() -> Nil {
   let assert Ok(#(state_a, _, first_op, _)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let assert Ok(#(state_a, _, second_op, _)) =
@@ -173,7 +179,7 @@ pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
   second_events |> expect.to_equal([])
 }
 
-pub fn ack_local_with_message_id_validates_message_id_test() {
+pub fn ack_local_with_message_id_validates_message_id_test() -> Nil {
   let assert Ok(#(state, _, op, message_id)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
 
@@ -191,7 +197,7 @@ pub fn ack_local_with_message_id_validates_message_id_test() {
   sequence_kernel.sequenced_values(state) |> expect.to_equal([json.string("a")])
 }
 
-pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() {
+pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() -> Nil {
   let assert Ok(#(state_a, _, local_op, local_message_id)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let assert Ok(#(_, _, remote_op, _)) =
@@ -222,7 +228,7 @@ pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() {
   |> expect.to_equal([json.string("a"), json.string("b")])
 }
 
-pub fn rollback_replays_remaining_pending_test() {
+pub fn rollback_replays_remaining_pending_test() -> Nil {
   let assert Ok(#(state, _, first, _)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let assert Ok(#(state, _, second, second_id)) =
@@ -240,7 +246,7 @@ pub fn rollback_replays_remaining_pending_test() {
   |> expect.to_equal([json.string("a")])
 }
 
-pub fn summary_round_trips_and_rebrands_test() {
+pub fn summary_round_trips_and_rebrands_test() -> Nil {
   let assert Ok(#(state, _, op, _)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let state = ack(state, op)
@@ -269,7 +275,7 @@ pub fn summary_round_trips_and_rebrands_test() {
   |> expect.to_equal([json.string("a"), json.string("c")])
 }
 
-pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() {
+pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() -> Nil {
   let assert Ok(#(_, _, op, _)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let #(state, events, replayed_op, message_id) =
@@ -289,7 +295,7 @@ pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() {
   sequence_kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
 
-pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() {
+pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() -> Nil {
   let assert Ok(#(state, _, _, _)) =
     sequence_kernel.insert(new_a(), 0, json.string("a"))
   let assert Ok(#(state, _, _, _)) =
@@ -304,7 +310,7 @@ pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() {
   sequence_kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
 
-pub fn concurrent_inserts_and_replace_delete_move_converge_test() {
+pub fn concurrent_inserts_and_replace_delete_move_converge_test() -> Nil {
   let state_a = new_a()
   let state_b = sequence_kernel.new(replica_id.new("b"))
   let assert Ok(#(state_a, _, insert_a, _)) =

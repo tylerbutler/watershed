@@ -15,8 +15,6 @@ import gleam/dict.{type Dict}
 @target(javascript)
 import gleam/dynamic.{type Dynamic}
 @target(javascript)
-import gleam/dynamic/decode
-@target(javascript)
 import gleam/int
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
@@ -26,6 +24,8 @@ import gleam/json.{type Json}
 import gleam/list
 @target(javascript)
 import gleam/option.{type Option, None, Some}
+@target(javascript)
+import gleam/result
 @target(javascript)
 import gleam/string
 @target(javascript)
@@ -50,7 +50,7 @@ import watershed/claims_kernel
 @target(javascript)
 import watershed/git_storage
 @target(javascript)
-import watershed/ids
+import watershed/id
 @target(javascript)
 import watershed/json_ot
 @target(javascript)
@@ -123,7 +123,7 @@ pub type TransportHandle {
 /// calls them at an explicit delivery.
 pub type TransportCallbacks {
   TransportCallbacks(
-    on_event: fn(String, Dynamic) -> Nil,
+    on_event: fn(String, String) -> Nil,
     /// This callback runs after every successful join. It is also the hook for
     /// a new handshake.
     on_join: fn() -> Nil,
@@ -158,10 +158,11 @@ pub type ClaimSubmitReply {
 pub type PresenceFrame {
   /// A `presence_state` snapshot, which the runtime does not decode. The
   /// runtime has no decoder for the metadata of the application, and the op
-  /// lane does have one.
-  PresenceState(payload: Dynamic)
-  PresenceDiff(payload: Dynamic)
-  PresenceError(payload: Dynamic)
+  /// lane does have one. The payload is the raw event JSON, a typed boundary
+  /// the typed driver decodes with its own `presence.config_decoder`.
+  PresenceState(payload: String)
+  PresenceDiff(payload: String)
+  PresenceError(payload: String)
   /// A new document session settled. The frame carries a new client id from
   /// the server, and the features that this handshake negotiated. The runtime
   /// sends it after the first handshake and after every reconnect, and a
@@ -383,8 +384,12 @@ pub fn clear(runtime: Runtime, address: String) -> Nil {
 }
 
 @target(javascript)
-pub fn get(runtime: Runtime, address: String, key: String) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.get(_, address, key))
+pub fn get(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Json, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.get(_, address, key))
 }
 
 @target(javascript)
@@ -404,7 +409,7 @@ pub fn size(runtime: Runtime, address: String) -> Int {
 
 @target(javascript)
 pub fn has(runtime: Runtime, address: String, key: String) -> Bool {
-  get(runtime, address, key) != None
+  result.is_ok(get(runtime, address, key))
 }
 
 @target(javascript)
@@ -415,10 +420,10 @@ pub fn increment(runtime: Runtime, address: String, amount: Int) -> Nil {
 }
 
 @target(javascript)
-/// The optimistic value of the counter. The result is `None` when the address
+/// The optimistic value of the counter. The result is `Error(Nil)` when the address
 /// does not exist, and when it does not name a counter channel.
-pub fn counter_value(runtime: Runtime, address: String) -> Option(Int) {
-  read(runtime.cell, None, runtime_core.counter_value(_, address))
+pub fn counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.counter_value(_, address))
 }
 
 @target(javascript)
@@ -435,10 +440,10 @@ pub fn pn_counter_update(
 }
 
 @target(javascript)
-/// The optimistic value of the PN-counter. The result is `None` when the
+/// The optimistic value of the PN-counter. The result is `Error(Nil)` when the
 /// address does not exist, and when it does not name a PN-counter channel.
-pub fn pn_counter_value(runtime: Runtime, address: String) -> Option(Int) {
-  read(runtime.cell, None, runtime_core.pn_counter_value(_, address))
+pub fn pn_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.pn_counter_value(_, address))
 }
 
 @target(javascript)
@@ -467,15 +472,15 @@ pub fn pact_map_delete(runtime: Runtime, address: String, key: String) -> Nil {
 }
 
 @target(javascript)
-/// The accepted value of the PactMap for `key`. The result is `None` when the
+/// The accepted value of the PactMap for `key`. The result is `Error(Nil)` when the
 /// value is pending, when the key is absent, and when the address does not name
 /// a PactMap channel.
 pub fn pact_map_get(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.pact_map_get(_, address, key))
+) -> Result(Json, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.pact_map_get(_, address, key))
 }
 
 @target(javascript)
@@ -498,24 +503,24 @@ pub fn pact_map_is_pending(
 
 @target(javascript)
 /// The pending proposal for `key`, which is the value with the signoff list that
-/// it waits on. The result is `None` when nothing is pending.
+/// it waits on. The result is `Error(Nil)` when nothing is pending.
 pub fn pact_map_pending(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(pact_map_kernel.Pending) {
-  read(runtime.cell, None, runtime_core.pact_map_pending(_, address, key))
+) -> Result(pact_map_kernel.Pending, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.pact_map_pending(_, address, key))
 }
 
 @target(javascript)
 /// The accepted entry for `key`, which is the value with its sequence number.
-/// The result is `None` when the key has no accepted value.
+/// The result is `Error(Nil)` when the key has no accepted value.
 pub fn pact_map_get_with_details(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(pact_map_kernel.Accepted) {
-  read(runtime.cell, None, runtime_core.pact_map_get_with_details(
+) -> Result(pact_map_kernel.Accepted, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.pact_map_get_with_details(
     _,
     address,
     key,
@@ -536,7 +541,7 @@ pub fn ordered_add(runtime: Runtime, address: String, value: Json) -> Nil {
 /// acquired item arrives in the `Acquired` event, because the queue is not
 /// optimistic.
 pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
-  let acquire_id = ids.uuid_v4()
+  let acquire_id = id.uuid_v4()
   edit(runtime.cell, fn(core) {
     runtime_core.ordered_acquire(core, address, acquire_id)
   })
@@ -558,13 +563,18 @@ pub fn ordered_acquire_with_outcome(
   address: String,
   on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
 ) -> String {
-  let acquire_id = ids.uuid_v4()
+  let acquire_id = id.uuid_v4()
   let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) ->
       case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
-        Error(core_error) ->
-          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        // The core refused the acquire, for example because the address
+        // names another kernel. The runtime resolves the waiter at once and
+        // changes nothing, because a client library must not panic.
+        Error(_) -> {
+          on_outcome(ordered_collection_kernel.Aborted)
+          acquire_id
+        }
         Ok(#(core, events, outbound, immediate_outcome)) -> {
           let state =
             register_acquire_waiter(
@@ -588,8 +598,13 @@ pub fn ordered_acquire_with_outcome(
       }
     Reconnecting(core) ->
       case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
-        Error(core_error) ->
-          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        // The core refused the acquire, for example because the address
+        // names another kernel. The runtime resolves the waiter at once and
+        // changes nothing, because a client library must not panic.
+        Error(_) -> {
+          on_outcome(ordered_collection_kernel.Aborted)
+          acquire_id
+        }
         Ok(#(core, events, _outbound, immediate_outcome)) -> {
           let state =
             register_acquire_waiter(
@@ -604,7 +619,7 @@ pub fn ordered_acquire_with_outcome(
           acquire_id
         }
       }
-    _ -> {
+    Connecting | Failed(_) -> {
       on_outcome(ordered_collection_kernel.Aborted)
       acquire_id
     }
@@ -638,10 +653,10 @@ pub fn ordered_release(
 
 @target(javascript)
 /// The number of items in the queue at `address`, which are the items that no
-/// client acquired yet. The result is `None` when the address does not exist,
+/// client acquired yet. The result is `Error(Nil)` when the address does not exist,
 /// and when it does not name an ordered-collection channel.
-pub fn ordered_size(runtime: Runtime, address: String) -> Option(Int) {
-  read(runtime.cell, None, runtime_core.ordered_size(_, address))
+pub fn ordered_size(runtime: Runtime, address: String) -> Result(Int, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.ordered_size(_, address))
 }
 
 @target(javascript)
@@ -674,13 +689,13 @@ pub fn submit_json_ot(
 }
 
 @target(javascript)
-/// The optimistic document of the json0 channel. The result is `None` when the
+/// The optimistic document of the json0 channel. The result is `Error(Nil)` when the
 /// address does not exist, and when it does not name a json0 channel.
 pub fn json_ot_view(
   runtime: Runtime,
   address: String,
-) -> Option(json_ot.JsonValue) {
-  read(runtime.cell, None, runtime_core.json_ot_view(_, address))
+) -> Result(json_ot.JsonValue, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.json_ot_view(_, address))
 }
 
 @target(javascript)
@@ -696,14 +711,14 @@ pub fn submit_rich_text(
 }
 
 @target(javascript)
-/// The optimistic document of the rich-text channel. The result is `None` when
+/// The optimistic document of the rich-text channel. The result is `Error(Nil)` when
 /// the address does not exist, and when it does not name a rich-text
 /// channel.
 pub fn rich_text_view(
   runtime: Runtime,
   address: String,
-) -> Option(rich_text.Document) {
-  read(runtime.cell, None, runtime_core.rich_text_view(_, address))
+) -> Result(rich_text.Document, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.rich_text_view(_, address))
 }
 
 @target(javascript)
@@ -740,8 +755,8 @@ pub fn or_map_value(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(OrMapValue) {
-  read(runtime.cell, None, runtime_core.or_map_value(_, address, key))
+) -> Result(OrMapValue, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.or_map_value(_, address, key))
 }
 
 @target(javascript)
@@ -1086,8 +1101,13 @@ pub fn directory_get(
   address: String,
   path: String,
   key: String,
-) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.directory_get(_, address, path, key))
+) -> Result(Json, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.directory_get(
+    _,
+    address,
+    path,
+    key,
+  ))
 }
 
 @target(javascript)
@@ -1177,8 +1197,13 @@ pub fn register_read(
   address: String,
   key: String,
   policy: ReadPolicy,
-) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.register_read(_, address, key, policy))
+) -> Result(Json, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.register_read(
+    _,
+    address,
+    key,
+    policy,
+  ))
 }
 
 @target(javascript)
@@ -1186,8 +1211,8 @@ pub fn register_versions(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(List(Json)) {
-  read(runtime.cell, None, runtime_core.register_versions(_, address, key))
+) -> Result(List(Json), Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.register_versions(_, address, key))
 }
 
 @target(javascript)
@@ -1200,8 +1225,8 @@ pub fn get_claim(
   runtime: Runtime,
   address: String,
   key: String,
-) -> Option(Json) {
-  read(runtime.cell, None, runtime_core.get_claim(_, address, key))
+) -> Result(Json, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.get_claim(_, address, key))
 }
 
 @target(javascript)
@@ -1210,14 +1235,14 @@ pub fn has_claim(runtime: Runtime, address: String, key: String) -> Bool {
 }
 
 @target(javascript)
-pub fn try_set_claim(
+pub fn claim_once(
   runtime: Runtime,
   address: String,
   key: String,
   value: Json,
 ) -> ClaimSubmitReply {
   claim_submit(runtime.cell, address, key, fn(core) {
-    runtime_core.try_set_claim(core, address, key, value)
+    runtime_core.claim_once(core, address, key, value)
   })
 }
 
@@ -1243,8 +1268,10 @@ pub fn task_manager_volunteer(
   case state.phase {
     Ready(core, resubmit_at) ->
       case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        // The core refused the volunteer, for example because the address
+        // names another kernel. The runtime reports no assignment and changes
+        // nothing.
+        Error(_) -> task_manager_kernel.DisconnectedBeforeAssignment
         Ok(#(core, events, outbound, outcome)) -> {
           cell_set(
             runtime.cell,
@@ -1260,15 +1287,17 @@ pub fn task_manager_volunteer(
       }
     Reconnecting(core) ->
       case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        // The core refused the volunteer, for example because the address
+        // names another kernel. The runtime reports no assignment and changes
+        // nothing.
+        Error(_) -> task_manager_kernel.DisconnectedBeforeAssignment
         Ok(#(core, events, _outbound, outcome)) -> {
           cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
           outcome
         }
       }
-    _ -> task_manager_kernel.DisconnectedBeforeAssignment
+    Connecting | Failed(_) -> task_manager_kernel.DisconnectedBeforeAssignment
   }
 }
 
@@ -1296,7 +1325,7 @@ pub fn task_manager_complete(
         Error(runtime_core.TaskNotAssigned(_, task_id)) ->
           Error("task is not assigned: " <> task_id)
         Error(core_error) ->
-          panic as { "complete_task failed: " <> string.inspect(core_error) }
+          Error("complete_task failed: " <> string.inspect(core_error))
         Ok(#(core, events, outbound)) -> {
           cell_set(
             runtime.cell,
@@ -1315,14 +1344,15 @@ pub fn task_manager_complete(
         Error(runtime_core.TaskNotAssigned(_, task_id)) ->
           Error("task is not assigned: " <> task_id)
         Error(core_error) ->
-          panic as { "complete_task failed: " <> string.inspect(core_error) }
+          Error("complete_task failed: " <> string.inspect(core_error))
         Ok(#(core, events, _outbound)) -> {
           cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
       }
-    _ -> Error("complete_task requires a ready document connection")
+    Connecting | Failed(_) ->
+      Error("complete_task requires a ready document connection")
   }
 }
 
@@ -1481,8 +1511,9 @@ fn claim_submit(
     Ready(core, resubmit_at) ->
       case operate(core) {
         Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        // The core refused the claim for a reason that is not a channel type
+        // mismatch. The runtime reports the same refusal and changes nothing.
+        Error(_) -> WrongChannelType
         Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
           AlreadyClaimed(current_value)
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
@@ -1507,8 +1538,9 @@ fn claim_submit(
     Reconnecting(core) ->
       case operate(core) {
         Error(runtime_core.WrongChannelType(..)) -> WrongChannelType
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        // The core refused the claim for a reason that is not a channel type
+        // mismatch. The runtime reports the same refusal and changes nothing.
+        Error(_) -> WrongChannelType
         Ok(runtime_core.ClaimAlreadyClaimed(current_value)) ->
           AlreadyClaimed(current_value)
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
@@ -1526,7 +1558,7 @@ fn claim_submit(
           Pending(promise_outcome)
         }
       }
-    _ -> WrongChannelType
+    Connecting | Failed(_) -> WrongChannelType
   }
 }
 
@@ -1539,18 +1571,19 @@ fn create_channel(
   let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let address = ids.uuid_v4()
+      let address = id.uuid_v4()
       let core = runtime_core.create_detached(core, address, init)
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
     Reconnecting(core) -> {
-      let address = ids.uuid_v4()
+      let address = id.uuid_v4()
       let core = runtime_core.create_detached(core, address, init)
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }
-    _ -> Error(verb <> " requires a ready document connection")
+    Connecting | Failed(_) ->
+      Error(verb <> " requires a ready document connection")
   }
 }
 
@@ -1591,7 +1624,8 @@ pub fn resolve_sequence(
         Ok(Nil) -> Ok(Nil)
         Error(error) -> Error(string.inspect(error))
       }
-    _ -> Error("resolve_sequence requires a ready document connection")
+    Connecting | Failed(_) ->
+      Error("resolve_sequence requires a ready document connection")
   }
 }
 
@@ -1606,7 +1640,8 @@ pub fn resolve_text(runtime: Runtime, address: String) -> Result(Nil, String) {
         Ok(Nil) -> Ok(Nil)
         Error(error) -> Error(string.inspect(error))
       }
-    _ -> Error("resolve_text requires a ready document connection")
+    Connecting | Failed(_) ->
+      Error("resolve_text requires a ready document connection")
   }
 }
 
@@ -1642,7 +1677,7 @@ fn client_id_of(state: State) -> Option(String) {
   case state.phase {
     Ready(core, _) -> Some(core.client_id)
     Reconnecting(core) -> Some(core.client_id)
-    _ -> None
+    Connecting | Failed(_) -> None
   }
 }
 
@@ -1705,8 +1740,8 @@ pub fn send_presence(runtime: Runtime, event: String, payload: Json) -> Nil {
 
 @target(javascript)
 /// Register a callback for every frame on the presence lane, both a data frame
-/// and a lifecycle frame. Each payload stays a `Dynamic` value, for the typed
-/// driver to decode.
+/// and a lifecycle frame. Each data-frame payload stays the raw event JSON, as
+/// a `String`, for the typed driver to decode with its own decoder.
 pub fn subscribe_presence(
   runtime: Runtime,
   handler: fn(PresenceFrame) -> Nil,
@@ -1747,7 +1782,7 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
       notify_session_lost(runtime.cell, state.phase)
       channel.drop()
     }
-    _, _ -> Nil
+    Ready(_, _), None | Connecting, _ | Reconnecting(_), _ | Failed(_), _ -> Nil
   }
 }
 
@@ -1774,7 +1809,7 @@ pub fn go_offline(runtime: Runtime) -> Nil {
       notify_session_lost(runtime.cell, state.phase)
       channel.hold()
     }
-    _, _ -> Nil
+    Ready(_, _), None | Connecting, _ | Reconnecting(_), _ | Failed(_), _ -> Nil
   }
 }
 
@@ -1786,7 +1821,7 @@ pub fn go_online(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
     Reconnecting(_), Some(channel) -> channel.resume()
-    _, _ -> Nil
+    Reconnecting(_), None | Connecting, _ | Ready(_, _), _ | Failed(_), _ -> Nil
   }
 }
 
@@ -1807,7 +1842,7 @@ pub fn close(runtime: Runtime) -> Nil {
 pub fn is_synced(runtime: Runtime) -> Bool {
   case cell_get(runtime.cell).phase {
     Ready(core, None) -> runtime_core.is_synced(core)
-    _ -> False
+    Ready(_, Some(_)) | Connecting | Reconnecting(_) | Failed(_) -> False
   }
 }
 
@@ -1912,7 +1947,7 @@ pub fn auto_summarize(
 pub fn ops_since_summary(runtime: Runtime) -> Int {
   case cell_get(runtime.cell).phase {
     Ready(core, _) | Reconnecting(core) -> runtime_core.ops_since_summary(core)
-    _ -> 0
+    Connecting | Failed(_) -> 0
   }
 }
 
@@ -1964,7 +1999,12 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
           Nil
         }
       }
-    _, _ -> Nil
+    Ready(_, None), None
+    | Ready(_, Some(_)), _
+    | Connecting, _
+    | Reconnecting(_), _
+    | Failed(_), _
+    -> Nil
   }
 }
 
@@ -2004,13 +2044,18 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
               )
               |> promise.map(fn(result) {
                 case result {
-                  Error(reason) -> Error(reason)
+                  Error(error) -> Error(git_storage.error_to_string(error))
                   Ok(tree_sha) -> finish_summarize(cell, tree_sha)
                 }
               })
           }
       }
-    _, _ ->
+    Ready(_, None), None
+    | Ready(_, Some(_)), _
+    | Connecting, _
+    | Reconnecting(_), _
+    | Failed(_), _
+    ->
       promise.resolve(Error(
         "summarize is only available once the connection is fully synced",
       ))
@@ -2036,6 +2081,7 @@ pub fn get_versions(
         document: state.connect_message.document_id,
         count: count,
       )
+      |> promise.map(result.map_error(_, git_storage.error_to_string))
   }
 }
 
@@ -2058,6 +2104,7 @@ pub fn load_version(
         token: token,
         handle: handle,
       )
+      |> promise.map(result.map_error(_, git_storage.error_to_string))
   }
 }
 
@@ -2088,7 +2135,12 @@ fn finish_summarize(
       cell_set(cell, State(..state, phase: Ready(core, None)))
       Ok(tree_sha)
     }
-    _, _ -> Error("connection changed during summarize; retry")
+    Ready(_, None), None
+    | Ready(_, Some(_)), _
+    | Connecting, _
+    | Reconnecting(_), _
+    | Failed(_), _
+    -> Error("connection changed during summarize; retry")
   }
 }
 
@@ -2131,12 +2183,12 @@ fn on_close(cell: Cell(State)) -> Nil {
       notify_session_lost(cell, state.phase)
     }
     // Not yet connected: Phoenix will retry the join, which re-fires on_join.
-    _ -> Nil
+    Connecting | Failed(_) -> Nil
   }
 }
 
 @target(javascript)
-fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
+fn on_event(cell: Cell(State), event: String, payload: String) -> Nil {
   case event {
     "connect_document_success" -> on_connect_success(cell, payload)
     "connect_document_error" -> on_connect_error(cell, payload)
@@ -2151,8 +2203,8 @@ fn on_event(cell: Cell(State), event: String, payload: Dynamic) -> Nil {
 }
 
 @target(javascript)
-fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, socket.connected_message_decoder()) {
+fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
+  case json.parse(payload, socket.connected_message_decoder()) {
     Error(_) -> fail(cell, "malformed connect_document_success payload")
     Ok(connected) -> {
       // Record what this connection negotiated before anything acts on it, and
@@ -2173,8 +2225,8 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
           // blob over HTTP (async), then bootstraps seeded from that state.
           case connected.summary_context {
             None -> finish_bootstrap(cell, connected, None)
-            Some(ctx) ->
-              load_summary_then_bootstrap(cell, state, connected, ctx)
+            Some(context) ->
+              load_summary_then_bootstrap(cell, state, connected, context)
           }
         Reconnecting(core) -> {
           let core = runtime_core.adopt_reconnect(core, connected)
@@ -2196,14 +2248,14 @@ fn on_connect_success(cell: Cell(State), payload: Dynamic) -> Nil {
           // correct and the fastest way back to a roster.
           notify_presence_session(cell, core)
         }
-        _ -> Nil
+        Ready(_, _) | Failed(_) -> Nil
       }
     }
   }
 }
 
 @target(javascript)
-/// Fetch the summary blob that `ctx` references, and then bootstrap the core
+/// Fetch the summary blob that `context` references, and then bootstrap the core
 /// from it. The runtime drops a real-time op that arrives during the
 /// asynchronous fetch, while the phase is still `Connecting`. The gap that those
 /// drops create repairs itself: the first op after the bootstrap that is not
@@ -2212,7 +2264,7 @@ fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
   connected: ConnectedMessage,
-  ctx: SummaryContext,
+  context: SummaryContext,
 ) -> Nil {
   case state.connect_message.token {
     None -> fail(cell, "loading a summarized document requires an auth token")
@@ -2222,13 +2274,17 @@ fn load_summary_then_bootstrap(
           base_url: state.http_base_url,
           tenant: state.connect_message.tenant_id,
           token: token,
-          handle: ctx.handle,
+          handle: context.handle,
         )
         |> promise.map(fn(result) {
           case result {
-            Error(reason) -> fail(cell, "summary load failed: " <> reason)
+            Error(error) ->
+              fail(
+                cell,
+                "summary load failed: " <> git_storage.error_to_string(error),
+              )
             Ok(blob) ->
-              // `ctx` locates the blob; the blob says what it holds and when
+              // `context` locates the blob; the blob says what it holds and when
               // it was captured. See `runtime_core.summary_from_blob` for why
               // the context's sequence number is deliberately not the load
               // point.
@@ -2253,7 +2309,7 @@ fn finish_bootstrap(
 ) -> Nil {
   case runtime_core.bootstrap(connected, summary: summary) {
     Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
-    Error(err) -> fail(cell, "bootstrap failed: " <> string.inspect(err))
+    Error(error) -> fail(cell, "bootstrap failed: " <> string.inspect(error))
   }
 }
 
@@ -2291,8 +2347,12 @@ fn continue_bootstrap(
             )
             |> promise.map(fn(result) {
               case result {
-                Error(reason) ->
-                  fail(cell, "history catch-up failed: " <> reason)
+                Error(error) ->
+                  fail(
+                    cell,
+                    "history catch-up failed: "
+                      <> git_storage.error_to_string(error),
+                  )
                 Ok(deltas) ->
                   case
                     runtime_core.resume_bootstrap(
@@ -2302,8 +2362,8 @@ fn continue_bootstrap(
                     )
                   {
                     Ok(next) -> continue_bootstrap(cell, next)
-                    Error(err) ->
-                      fail(cell, "bootstrap failed: " <> string.inspect(err))
+                    Error(error) ->
+                      fail(cell, "bootstrap failed: " <> string.inspect(error))
                   }
               }
             })
@@ -2315,19 +2375,19 @@ fn continue_bootstrap(
 }
 
 @target(javascript)
-fn on_connect_error(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, socket.connect_error_decoder()) {
-    Ok(err) -> fail(cell, err.message)
+fn on_connect_error(cell: Cell(State), payload: String) -> Nil {
+  case json.parse(payload, socket.connect_error_decoder()) {
+    Ok(error) -> fail(cell, error.message)
     Error(_) -> fail(cell, "connect_document_error")
   }
 }
 
 @target(javascript)
-fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
+fn on_op(cell: Cell(State), payload: String) -> Nil {
   let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
-      case decode.run(payload, socket.op_message_decoder()) {
+      case json.parse(payload, socket.op_message_decoder()) {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) ->
           case apply_ops(core, message.ops) {
@@ -2367,13 +2427,13 @@ fn on_op(cell: Cell(State), payload: Dynamic) -> Nil {
       }
     // Ops before a connected session (or while reconnecting) carry no state
     // we can trust; ignore them.
-    _ -> Nil
+    Connecting | Reconnecting(_) | Failed(_) -> Nil
   }
 }
 
 @target(javascript)
-fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, socket.nacks_decoder()) {
+fn on_nack(cell: Cell(State), payload: String) -> Nil {
+  case json.parse(payload, socket.nacks_decoder()) {
     Error(_) -> fail(cell, "malformed nack payload")
     Ok(nacks) ->
       case list.any(nacks, nack_is_fatal) {
@@ -2386,7 +2446,11 @@ fn on_nack(cell: Cell(State), payload: Dynamic) -> Nil {
               notify_session_lost(cell, state.phase)
               channel.drop()
             }
-            _, _ -> Nil
+            Ready(_, _), None
+            | Connecting, _
+            | Reconnecting(_), _
+            | Failed(_), _
+            -> Nil
           }
         }
       }
@@ -2595,8 +2659,11 @@ fn edit(
   case state.phase {
     Ready(core, resubmit_at) -> {
       case operate(core) {
-        Error(core_error) ->
-          panic as { "local edit failed: " <> string.inspect(core_error) }
+        // The core refused the edit, for example because the address names
+        // another kernel, or because the edit is out of bounds. The runtime
+        // drops the edit and changes nothing, because a client library must
+        // not panic.
+        Error(_) -> Nil
         Ok(#(core, events, outbound)) -> {
           // Commit the new core before fan-out (see fan_out's contract).
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
@@ -2613,8 +2680,11 @@ fn edit(
     }
     Reconnecting(core) -> {
       case operate(core) {
-        Error(core_error) ->
-          panic as { "local edit failed: " <> string.inspect(core_error) }
+        // The core refused the edit, for example because the address names
+        // another kernel, or because the edit is out of bounds. The runtime
+        // drops the edit and changes nothing, because a client library must
+        // not panic.
+        Error(_) -> Nil
         Ok(#(core, events, _outbound)) -> {
           cell_set(cell, State(..state, phase: Reconnecting(core)))
           fan_out(state.subscribers, events)
@@ -2622,7 +2692,7 @@ fn edit(
       }
     }
     // Edits before ready are dropped (the demo gates edits behind on_ready).
-    _ -> Nil
+    Connecting | Failed(_) -> Nil
   }
 }
 
@@ -2661,7 +2731,8 @@ fn edit_sequence_with_result(
         Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
-    _ -> Error("sequence edit before the document connection is ready")
+    Connecting | Failed(_) ->
+      Error("sequence edit before the document connection is ready")
   }
 }
 
@@ -2700,7 +2771,8 @@ fn edit_text_with_result(
         Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
-    _ -> Error("text edit before the document connection is ready")
+    Connecting | Failed(_) ->
+      Error("text edit before the document connection is ready")
   }
 }
 
@@ -2713,7 +2785,7 @@ fn read(
   case cell_get(cell).phase {
     Ready(core, _) -> extract(core)
     Reconnecting(core) -> extract(core)
-    _ -> default
+    Connecting | Failed(_) -> default
   }
 }
 
@@ -2832,8 +2904,8 @@ fn fan_out(
 /// wire event is the `"signal"` event of Fluid, and watershed calls it a
 /// *ripple*. The function drops a malformed payload and reports nothing,
 /// because a ripple is best-effort.
-fn on_ripple(cell: Cell(State), payload: Dynamic) -> Nil {
-  case decode.run(payload, socket.ripple_message_decoder()) {
+fn on_ripple(cell: Cell(State), payload: String) -> Nil {
+  case json.parse(payload, socket.ripple_message_decoder()) {
     Error(_) -> Nil
     Ok(ripple) -> {
       let state = cell_get(cell)
@@ -2873,7 +2945,7 @@ fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
 fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
   case previous {
     Ready(_, _) -> notify_presence(cell, PresenceSessionLost)
-    _ -> Nil
+    Connecting | Reconnecting(_) | Failed(_) -> Nil
   }
 }
 

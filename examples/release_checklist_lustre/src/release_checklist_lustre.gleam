@@ -30,17 +30,18 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{aria_label, aria_pressed, class, classes, disabled}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import doc_schema
-import release_readiness
+import release_checklist_lustre/doc_schema
+import release_checklist_lustre/release_readiness
 import watershed.{type Claims, type Document, type OrSet, type PactMap}
 import watershed/browser
 import watershed/claims_kernel
@@ -67,7 +68,7 @@ const target_key = "target"
 /// nothing in between, so watching the list drain means asking.
 const signoff_poll_ms = 250
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("release-checklist")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -150,7 +151,7 @@ type Model {
     completed: List(String),
     /// The committed captain's user id, `None` until someone claims the seat.
     captain: Option(String),
-    /// True between calling `try_set_claim`/`compare_and_set_claim` and
+    /// True between calling `claim_once`/`compare_and_set_claim` and
     /// learning the outcome. Claims reads are not optimistic — nothing about
     /// `captain` changes until the op sequences — so this is the only signal
     /// that a claim is in flight.
@@ -393,7 +394,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       {
         Ready, Some(shared), None, False -> #(
           Model(..model, captain_claim_pending: True),
-          watershed_lustre.try_set_claim(
+          watershed_lustre.claim_once(
             shared.captain,
             captain_key,
             json.string(model.user_id),
@@ -497,7 +498,8 @@ fn read_checks(model: Model, shared: SharedState) -> Model {
 fn read_captain(model: Model, shared: SharedState) -> Model {
   let captain =
     watershed.get_claim(shared.captain, captain_key)
-    |> option.then(decode_string)
+    |> result.try(decode_string)
+    |> option.from_result
   Model(..model, captain: captain)
 }
 
@@ -512,13 +514,15 @@ fn read_captain(model: Model, shared: SharedState) -> Model {
 fn read_release(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
   let accepted =
     watershed.pact_map_get(shared.release, target_key)
-    |> option.then(decode_string)
+    |> result.try(decode_string)
+    |> option.from_result
 
   let proposal =
     watershed.pact_map_pending(shared.release, target_key)
+    |> option.from_result
     |> option.then(fn(pending: pact_map_kernel.Pending) {
-      case pending.value |> option.then(decode_string) {
-        Some(target) ->
+      case pending.value |> option.to_result(Nil) |> result.try(decode_string) {
+        Ok(target) ->
           Some(Proposal(
             target: target,
             waiting: pending.expected_signoffs,
@@ -527,7 +531,7 @@ fn read_release(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
             // reading we have seen for this proposal.
             quorum: quorum_of(model.proposal, target, pending.expected_signoffs),
           ))
-        None -> None
+        Error(Nil) -> None
       }
     })
 
@@ -562,14 +566,14 @@ fn quorum_of(
   let seen = list.length(waiting)
   case previous {
     Some(p) if p.target == target -> int.max(p.quorum, seen)
-    _ -> seen
+    Some(_) | None -> seen
   }
 }
 
-fn decode_string(value: Json) -> Option(String) {
+fn decode_string(value: Json) -> Result(String, Nil) {
   case json.parse(json.to_string(value), decode.string) {
-    Ok(text) -> Some(text)
-    Error(_) -> None
+    Ok(text) -> Ok(text)
+    Error(_) -> Error(Nil)
   }
 }
 
@@ -613,7 +617,7 @@ fn own_client_id(model: Model) -> Option(Int) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.div([class("checklist")], [
+  html.div([attribute.class("checklist")], [
     html.h1([], [html.text("Release checklist")]),
     status_view(model),
     gates_view(model),
@@ -625,7 +629,7 @@ fn view(model: Model) -> Element(Msg) {
 }
 
 fn status_view(model: Model) -> Element(Msg) {
-  html.p([class("status")], [
+  html.p([attribute.class("status")], [
     html.text(case model.status {
       Connecting -> "Connecting…"
       Ready -> "Connected as " <> model.user_id
@@ -636,10 +640,14 @@ fn status_view(model: Model) -> Element(Msg) {
 
 fn gates_view(model: Model) -> Element(Msg) {
   html.div(
-    [class("gates"), attribute.role("group"), aria_label("Release gates")],
+    [
+      attribute.class("gates"),
+      attribute.role("group"),
+      attribute.aria_label("Release gates"),
+    ],
     [
       html.ul(
-        [class("gate-list")],
+        [attribute.class("gate-list")],
         list.map(gates(), fn(gate) { gate_view(model, gate) }),
       ),
     ],
@@ -648,21 +656,21 @@ fn gates_view(model: Model) -> Element(Msg) {
 
 fn gate_view(model: Model, gate: Gate) -> Element(Msg) {
   let done = list.contains(model.completed, gate.id)
-  html.li([class("gate")], [
+  html.li([attribute.class("gate")], [
     html.button(
       [
-        classes([#("gate-toggle", True), #("done", done)]),
-        aria_pressed(bool_string(done)),
+        attribute.classes([#("gate-toggle", True), #("done", done)]),
+        attribute.aria_pressed(bool_to_string(done)),
         event.on_click(CheckToggled(gate.id)),
       ],
       [
-        html.span([class("gate-mark")], [
+        html.span([attribute.class("gate-mark")], [
           html.text(case done {
             True -> "✓"
             False -> "○"
           }),
         ]),
-        html.span([class("gate-label")], [html.text(gate.label)]),
+        html.span([attribute.class("gate-label")], [html.text(gate.label)]),
       ],
     ),
   ])
@@ -673,8 +681,8 @@ fn gate_view(model: Model, gate: Gate) -> Element(Msg) {
 /// the code or the network traffic can see nothing in watershed prevents a
 /// non-captain client from writing the release target directly.
 fn captain_view(model: Model) -> Element(Msg) {
-  html.div([class("captain")], [
-    html.p([class("captain-status")], [
+  html.div([attribute.class("captain")], [
+    html.p([attribute.class("captain-status")], [
       html.text(case model.captain, model.captain_claim_pending {
         _, True -> "Claiming captain…"
         Some(captain), False if captain == model.user_id ->
@@ -684,7 +692,7 @@ fn captain_view(model: Model) -> Element(Msg) {
       }),
     ]),
     captain_action(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "The captain seat is a first-writer-wins claim: whoever claims it "
         <> "first holds it until someone takes it over. This coordinates who "
@@ -712,8 +720,8 @@ fn captain_action(model: Model) -> Element(Msg) {
 
 fn release_view(model: Model) -> Element(Msg) {
   let is_captain = release_readiness.is_captain(model.captain, model.user_id)
-  html.div([class("release")], [
-    html.p([class("release-status")], [
+  html.div([attribute.class("release")], [
+    html.p([attribute.class("release-status")], [
       html.text(case model.target {
         Some(target) -> "Accepted release target: " <> target
         None -> "No release target agreed yet."
@@ -737,27 +745,30 @@ fn release_form(model: Model) -> Element(Msg) {
       option.is_some(model.proposal),
       model.proposing,
     )
-  html.div([class("release-form")], [
-    html.label([class("target-input")], [
+  html.div([attribute.class("release-form")], [
+    html.label([attribute.class("target-input")], [
       html.span([], [html.text("Release target")]),
       html.input([
         attribute.type_("text"),
         attribute.value(model.target_draft),
         attribute.placeholder("v1.2.3"),
-        aria_label("Release target"),
+        attribute.aria_label("Release target"),
         attribute.disabled(
           !ready || model.proposing || option.is_some(model.proposal),
         ),
         event.on_input(TargetDrafted),
       ]),
     ]),
-    html.button([event.on_click(TargetCommitted), disabled(!can_propose)], [
-      html.text("Publish release target"),
-    ]),
+    html.button(
+      [event.on_click(TargetCommitted), attribute.disabled(!can_propose)],
+      [
+        html.text("Publish release target"),
+      ],
+    ),
     case ready {
       True -> html.text("")
       False ->
-        html.span([class("hint")], [
+        html.span([attribute.class("hint")], [
           html.text(
             "Every gate must be checked before a target can be published.",
           ),
@@ -771,7 +782,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
     None -> html.text("")
     Some(proposal) -> {
       let remaining = list.length(proposal.waiting)
-      html.p([class("proposal"), attribute.role("status")], [
+      html.p([attribute.class("proposal"), attribute.role("status")], [
         html.text(
           "\""
           <> proposal.target
@@ -784,7 +795,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
             _ -> " clients"
           },
         ),
-        html.span([class("signoffs")], [
+        html.span([attribute.class("signoffs")], [
           html.text(
             " · "
             <> case proposal.waiting {
@@ -802,7 +813,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
         // vote, and it is not one. Nobody is deciding; the runtime
         // auto-submits each client's acknowledgement the moment it sees the
         // proposal.
-        html.span([class("hint")], [
+        html.span([attribute.class("hint")], [
           html.text(
             " Signing off means a client has seen the change, not that it "
             <> "agreed to it — there is nothing to agree to and no way to "
@@ -815,7 +826,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
 }
 
 fn toolbar(model: Model) -> Element(Msg) {
-  html.div([class("toolbar")], [
+  html.div([attribute.class("toolbar")], [
     html.button([event.on_click(ReconnectClicked)], [
       html.text("Force reconnect"),
     ]),
@@ -828,12 +839,12 @@ fn toolbar(model: Model) -> Element(Msg) {
 
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("error")], [html.text(reason)])
+    Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
     None -> html.text("")
   }
 }
 
-fn bool_string(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

@@ -8,7 +8,8 @@
 //// not observed when it submitted. A remover observes (i) all delivered ops
 //// with sequence number `<= ref_seq` and (ii) its own pending ops, which are
 //// exactly that same author's earlier log entries. Therefore a dot survives
-//// `CmdRemove(key, ref_seq)` iff `dot.seq > ref_seq && dot.author != remover`.
+//// `CommandRemove(key, ref_seq)` iff
+//// `dot.seq > ref_seq && dot.author != remover`.
 ////
 //// Tallies never reset when a key is removed: the kernel's `own_tallies`
 //// ledger makes every routed delta carry that replica's cumulative PN-counter
@@ -34,8 +35,8 @@ import watershed/or_map_kernel.{
 }
 
 pub type OrMapCommand {
-  CmdIncrement(key: String, amount: Int, delta: Option(ORMapDelta))
-  CmdRemove(key: String, ref_seq: Int, delta: Option(ORMapDelta))
+  CommandIncrement(key: String, amount: Int, delta: Option(ORMapDelta))
+  CommandRemove(key: String, ref_seq: Int, delta: Option(ORMapDelta))
 }
 
 type OracleState {
@@ -53,16 +54,16 @@ fn delta_to_json(delta: Option(ORMapDelta)) -> json.Json {
   }
 }
 
-pub fn op_to_json(cmd: OrMapCommand) -> json.Json {
-  case cmd {
-    CmdIncrement(key, amount, delta) ->
+pub fn op_to_json(command: OrMapCommand) -> json.Json {
+  case command {
+    CommandIncrement(key, amount, delta) ->
       json.object([
         #("tag", json.string("Increment")),
         #("key", json.string(key)),
         #("amount", json.int(amount)),
         #("delta", delta_to_json(delta)),
       ])
-    CmdRemove(key, ref_seq, delta) ->
+    CommandRemove(key, ref_seq, delta) ->
       json.object([
         #("tag", json.string("Remove")),
         #("key", json.string(key)),
@@ -93,15 +94,15 @@ pub fn op_decoder() -> decode.Decoder(OrMapCommand) {
       use key <- decode.field("key", decode.string)
       use amount <- decode.field("amount", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(CmdIncrement(key, amount, delta))
+      decode.success(CommandIncrement(key, amount, delta))
     }
     "Remove" -> {
       use key <- decode.field("key", decode.string)
       use ref_seq <- decode.field("ref_seq", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(CmdRemove(key, ref_seq, delta))
+      decode.success(CommandRemove(key, ref_seq, delta))
     }
-    _ -> decode.failure(CmdIncrement("", 0, None), "Increment or Remove")
+    _ -> decode.failure(CommandIncrement("", 0, None), "Increment or Remove")
   }
 }
 
@@ -118,8 +119,8 @@ fn amount_from_int(n: Int) -> Int {
 
 fn op_from_ints(kind: Int, key: Int, amount: Int) -> OrMapCommand {
   case kind % 4 {
-    0 -> CmdRemove(key_from_int(key), 0, None)
-    _ -> CmdIncrement(key_from_int(key), amount_from_int(amount), None)
+    0 -> CommandRemove(key_from_int(key), 0, None)
+    _ -> CommandIncrement(key_from_int(key), amount_from_int(amount), None)
   }
 }
 
@@ -132,11 +133,14 @@ fn op_generator() -> qcheck.Generator(OrMapCommand) {
   |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
 }
 
-fn to_kernel_op(cmd: OrMapCommand, context: String) -> or_map_kernel.OrMapOp {
-  case cmd {
-    CmdIncrement(key, amount, Some(delta)) -> Increment(key, amount, delta)
-    CmdRemove(key, _ref_seq, Some(delta)) -> Remove(key, delta)
-    CmdIncrement(_, _, None) | CmdRemove(_, _, None) ->
+fn to_kernel_op(
+  command: OrMapCommand,
+  context: String,
+) -> or_map_kernel.OrMapOp {
+  case command {
+    CommandIncrement(key, amount, Some(delta)) -> Increment(key, amount, delta)
+    CommandRemove(key, _ref_seq, Some(delta)) -> Remove(key, delta)
+    CommandIncrement(_, _, None) | CommandRemove(_, _, None) ->
       panic as {
         context
         <> " received an op without a delta — submit/apply_stashed must rewrite ops before routing"
@@ -146,58 +150,67 @@ fn to_kernel_op(cmd: OrMapCommand, context: String) -> or_map_kernel.OrMapOp {
 
 fn submit(
   state: OrMapState,
-  cmd: OrMapCommand,
+  command: OrMapCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(OrMapState, Option(OrMapCommand)) {
-  case cmd {
-    CmdIncrement(key, amount, _) -> {
+  case command {
+    CommandIncrement(key, amount, _) -> {
       let assert Ok(#(state, _events, op, _message_id)) =
         or_map_kernel.increment(state, key, amount)
       let assert Increment(_, _, delta) = op
-      #(state, Some(CmdIncrement(key, amount, Some(delta))))
+      #(state, Some(CommandIncrement(key, amount, Some(delta))))
     }
-    CmdRemove(key, _, _) -> {
-      let #(state, _events, op, _message_id) = or_map_kernel.remove(state, key)
+    CommandRemove(key, _, _) -> {
+      let assert Ok(#(state, _events, op, _message_id)) =
+        or_map_kernel.remove(state, key)
       let assert Remove(_, delta) = op
-      #(state, Some(CmdRemove(key, meta.last_seen_seq, Some(delta))))
+      #(state, Some(CommandRemove(key, meta.last_seen_seq, Some(delta))))
     }
   }
 }
 
 fn apply_remote(
   state: OrMapState,
-  cmd: OrMapCommand,
+  command: OrMapCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(OrMapState, String) {
-  case or_map_kernel.apply_remote(state, to_kernel_op(cmd, "apply_remote")) {
+  case
+    or_map_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
+  {
     Ok(#(state, _events)) -> Ok(state)
     Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
     Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
     Error(or_map_kernel.ModeMismatch(detail)) -> Error(detail)
     Error(or_map_kernel.CorruptDelta(detail)) -> Error(detail)
+    Error(or_map_kernel.NegativeTally(detail)) -> Error(detail)
   }
 }
 
 fn ack_local(
   state: OrMapState,
-  cmd: OrMapCommand,
+  command: OrMapCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(OrMapState, String) {
-  case or_map_kernel.ack_local(state, to_kernel_op(cmd, "ack_local")) {
+  case or_map_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
     Ok(state) -> Ok(state)
     Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
     Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
     Error(or_map_kernel.ModeMismatch(detail)) -> Error(detail)
     Error(or_map_kernel.CorruptDelta(detail)) -> Error(detail)
+    Error(or_map_kernel.NegativeTally(detail)) -> Error(detail)
   }
 }
 
-fn rollback(state: OrMapState, cmd: OrMapCommand) -> OrMapState {
+fn rollback(state: OrMapState, command: OrMapCommand) -> OrMapState {
   case list.last(state.pending) {
     Error(_) -> state
     Ok(PendingOp(_, message_id)) ->
       case
-        or_map_kernel.rollback(state, to_kernel_op(cmd, "rollback"), message_id)
+        or_map_kernel.rollback(
+          state,
+          to_kernel_op(command, "rollback"),
+          message_id,
+        )
       {
         Ok(#(new_state, _events)) -> new_state
         Error(_) -> state
@@ -207,12 +220,12 @@ fn rollback(state: OrMapState, cmd: OrMapCommand) -> OrMapState {
 
 fn apply_stashed(
   state: OrMapState,
-  cmd: OrMapCommand,
+  command: OrMapCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(OrMapState, OrMapCommand) {
-  case submit(state, cmd, meta) {
+  case submit(state, command, meta) {
     #(state, Some(routed)) -> #(state, routed)
-    #(state, None) -> #(state, cmd)
+    #(state, None) -> #(state, command)
   }
 }
 
@@ -257,14 +270,14 @@ fn apply_oracle_op(
   state: OracleState,
   entry: #(Int, #(Int, OrMapCommand)),
 ) -> OracleState {
-  let #(seq, #(author, cmd)) = entry
-  case cmd {
-    CmdIncrement(key, amount, _) ->
+  let #(seq, #(author, command)) = entry
+  case command {
+    CommandIncrement(key, amount, _) ->
       OracleState(
         dots: add_dot(state.dots, key, #(author, seq)),
         tallies: add_tally(state.tallies, key, amount),
       )
-    CmdRemove(key, ref_seq, _) ->
+    CommandRemove(key, ref_seq, _) ->
       OracleState(
         ..state,
         dots: remove_observed_dots(state.dots, key, author, ref_seq),

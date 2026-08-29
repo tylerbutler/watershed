@@ -95,7 +95,7 @@ pub fn assigned(
 ) -> Bool {
   case connected {
     False -> False
-    True -> assignee(state, task_id) == Some(self_id)
+    True -> assignee(state, task_id) == Ok(self_id)
   }
 }
 
@@ -117,10 +117,10 @@ pub fn queued_optimistically(
   self_id: Int,
 ) -> Bool {
   case latest_pending(state, task_id) {
-    Some(PendingOp(PendingVolunteer, _)) -> True
-    Some(PendingOp(PendingAbandon, _)) -> False
-    Some(PendingOp(PendingComplete, _)) -> False
-    None -> list.contains(queue_for(state, task_id), self_id)
+    Ok(PendingOp(PendingVolunteer, _)) -> True
+    Ok(PendingOp(PendingAbandon, _)) -> False
+    Ok(PendingOp(PendingComplete, _)) -> False
+    Error(Nil) -> list.contains(queue_for(state, task_id), self_id)
   }
 }
 
@@ -289,11 +289,11 @@ pub fn scrub_not_in_roster(
     |> list.fold(#(state.queues, []), fn(acc, entry) {
       let #(queues, events) = acc
       let #(task_id, queue) = entry
-      let old = head(queue)
+      let old = option.from_result(list.first(queue))
       let scrubbed =
         queue
         |> list.filter(fn(client_id) { list.contains(roster, client_id) })
-      let new = head(scrubbed)
+      let new = option.from_result(list.first(scrubbed))
       let queues = set_queue(queues, task_id, scrubbed)
       let events = append_queue_changed(events, task_id, old, new)
       #(queues, events)
@@ -317,8 +317,10 @@ pub fn resubmit(
       case op {
         Volunteer(_) -> {
           case latest_pending(state, task_id) {
-            Some(PendingOp(PendingAbandon, _)) -> Ok(#(state, None, None))
-            _ -> {
+            Ok(PendingOp(PendingAbandon, _)) -> Ok(#(state, None, None))
+            Ok(PendingOp(PendingVolunteer, _))
+            | Ok(PendingOp(PendingComplete, _))
+            | Error(Nil) -> {
               let pending = PendingOp(PendingVolunteer, next_message_id)
               let state = add_pending(state, task_id, pending)
               Ok(#(state, Some(Volunteer(task_id)), Some(pending)))
@@ -378,9 +380,9 @@ fn apply_volunteer_core(
       case list.contains(queue, author) {
         True -> #(state, [])
         False -> {
-          let old = head(queue)
+          let old = option.from_result(list.first(queue))
           let queue = list.append(queue, [author])
-          let new = head(queue)
+          let new = option.from_result(list.first(queue))
           let state =
             TaskManagerState(
               ..state,
@@ -405,9 +407,9 @@ fn apply_abandon_core(
   local: Bool,
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
   let queue = queue_for(state, task_id)
-  let old = head(queue)
+  let old = option.from_result(list.first(queue))
   let queue = remove_client_from_queue(queue, author)
-  let new = head(queue)
+  let new = option.from_result(list.first(queue))
   let state =
     TaskManagerState(..state, queues: set_queue(state.queues, task_id, queue))
   let events = append_queue_changed([], task_id, old, new)
@@ -423,7 +425,7 @@ fn apply_complete_core(
   task_id: String,
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
   let queue = queue_for(state, task_id)
-  let old = head(queue)
+  let old = option.from_result(list.first(queue))
   let state =
     TaskManagerState(..state, queues: dict.delete(state.queues, task_id))
   let events = append_queue_changed([], task_id, old, None)
@@ -440,9 +442,9 @@ fn remove_client_with_lost(
     |> list.fold(#(state.queues, []), fn(acc, entry) {
       let #(queues, events) = acc
       let #(task_id, queue) = entry
-      let old = head(queue)
+      let old = option.from_result(list.first(queue))
       let queue = remove_client_from_queue(queue, client_id)
-      let new = head(queue)
+      let new = option.from_result(list.first(queue))
       let queues = set_queue(queues, task_id, queue)
       let events = case emit_lost && old == Some(client_id) {
         True -> list.append(events, [Lost(task_id)])
@@ -561,14 +563,14 @@ fn set_pending(
 fn latest_pending(
   state: TaskManagerState,
   task_id: String,
-) -> Option(PendingOp) {
+) -> Result(PendingOp, Nil) {
   case dict.get(state.pending, task_id) {
     Ok(ops) ->
       case list.reverse(ops) {
-        [op, ..] -> Some(op)
-        [] -> None
+        [op, ..] -> Ok(op)
+        [] -> Error(Nil)
       }
-    Error(_) -> None
+    Error(Nil) -> Error(Nil)
   }
 }
 
@@ -595,15 +597,10 @@ fn queue_for(state: TaskManagerState, task_id: String) -> List(Int) {
   }
 }
 
-fn assignee(state: TaskManagerState, task_id: String) -> Option(Int) {
-  queue_for(state, task_id) |> head
-}
-
-fn head(queue: List(Int)) -> Option(Int) {
-  case queue {
-    [client_id, ..] -> Some(client_id)
-    [] -> None
-  }
+/// The client that holds the task now, which is the client at the front of
+/// the queue. The result is `Error(Nil)` for an empty queue.
+fn assignee(state: TaskManagerState, task_id: String) -> Result(Int, Nil) {
+  queue_for(state, task_id) |> list.first
 }
 
 fn set_queue(

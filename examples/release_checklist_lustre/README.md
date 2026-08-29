@@ -62,7 +62,7 @@ should hold the pen, not about stopping someone who ignores that agreement.
 Claims reads are **not optimistic** — `get_claim` only ever returns committed
 state, never a local guess — so the app tracks its own
 `captain_claim_pending` flag and shows "Claiming captain…" for the one round
-trip between calling `try_set_claim`/`compare_and_set_claim` and learning the
+trip between calling `claim_once`/`compare_and_set_claim` and learning the
 outcome.
 
 ### Why the release target is a PactMap
@@ -130,8 +130,9 @@ pnpm run smoke         # the same claims against a live floodgate server
   the accepted target without a false pending quorum, and a reopened gate
   leaving an already-accepted target untouched.
 
-`src/smoke.gleam` drives three real `watershed` clients against a live
-floodgate server end to end: bootstraps all three channels on each client,
+`dev/release_checklist_lustre/smoke.gleam` drives three real `watershed` clients
+against a live floodgate server end to end: bootstraps all three channels on
+each client,
 completes the checklist across two of them, has one claim the captain seat,
 publishes a release target, and asserts every client converges on the same
 accepted target. The deterministic pause/resume/disconnect timing that

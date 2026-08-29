@@ -1150,16 +1150,11 @@ pub fn skipped_orders(relay: Relay, connection: Int) -> List(Int) {
 /// The room and the per-room record of an admitted connection. A connection in
 /// `connections` is always in the `clients` field of its room, because `admit`
 /// inserts both entries and `disconnect` removes both. The inner lookup thus
-/// asserts.
+/// fails only for a broken relay, and it reports `Error(Nil)` for that.
 fn client_of(relay: Relay, connection: Int) -> Result(#(String, Client), Nil) {
-  case dict.get(relay.connections, connection) {
-    Error(Nil) -> Error(Nil)
-    Ok(room) -> {
-      let found = room_of(relay, room)
-      let assert Ok(client) = dict.get(found.clients, connection)
-      Ok(#(room, client))
-    }
-  }
+  use room <- result.try(dict.get(relay.connections, connection))
+  use client <- result.try(dict.get(room_of(relay, room).clients, connection))
+  Ok(#(room, client))
 }
 
 /// Every order that this room carries now, which means that the log still holds
@@ -1330,7 +1325,7 @@ pub fn serve(
           refusal_tag(refusal),
         )
       }
-    Ok(Document(raw, room, from, session, message) as frame) ->
+    Ok(Document(raw, room, from, session, message)) ->
       case admit(relay, connection, room, from, session, message) {
         Error(refusal) -> #(
           relay,
@@ -1349,7 +1344,8 @@ pub fn serve(
               refusal_tag(refusal),
             )
             Ok(Nil) -> {
-              let #(relay, actions) = route(relay, connection, frame, raw)
+              let #(relay, actions) =
+                route(relay, connection, room, session, message, raw)
               #(relay, actions, message_kind_to_string(message))
             }
           }
@@ -1577,8 +1573,15 @@ fn admit(
 ) -> Result(Relay, Refusal) {
   case dict.get(relay.connections, connection), message {
     Ok(admitted_room), _ -> {
-      let found = room_of(relay, admitted_room)
-      let assert Ok(client) = dict.get(found.clients, connection)
+      // `admit` and `disconnect` write the connection record and the client
+      // record together, so a missing client record means a broken relay. The
+      // frame is refused instead of a panic.
+      use client <- result.try(
+        dict.get(room_of(relay, admitted_room).clients, connection)
+        |> result.replace_error(IdentityChanged(
+          "the admitted connection has no client record",
+        )),
+      )
       case
         admitted_room == room,
         client.from == from,
@@ -1666,10 +1669,11 @@ fn admit(
 fn route(
   relay: Relay,
   connection: Int,
-  frame: ClientFrame,
+  room: String,
+  session: String,
+  message: MessageKind,
   raw: String,
 ) -> #(Relay, List(Action)) {
-  let assert Document(_, room, _from, session, message) = frame
   let found = room_of(relay, room)
   case message {
     StateRequestMessage -> {

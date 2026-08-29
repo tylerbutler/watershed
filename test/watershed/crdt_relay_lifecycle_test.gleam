@@ -415,7 +415,7 @@ fn mesh_types(env: Setup, from: String, to: String) -> List(String) {
     case crdt_relay.decode_client(entry.2) {
       Ok(crdt_relay.Document(_, _, _, _, message)) ->
         crdt_relay.message_kind_to_string(message)
-      _ -> "opaque"
+      Ok(crdt_relay.Control(..)) | Error(_) -> "opaque"
     }
   })
 }
@@ -451,7 +451,13 @@ fn publications(env: Setup) -> Int {
   |> list.filter(fn(raw) {
     case crdt_relay.decode_client(raw) {
       Ok(crdt_relay.Document(_, _, _, _, crdt_relay.StateMessage)) -> True
-      _ -> False
+      Ok(crdt_relay.Document(_, _, _, _, crdt_relay.HelloMessage))
+      | Ok(crdt_relay.Document(_, _, _, _, crdt_relay.ChannelMessage))
+      | Ok(crdt_relay.Document(_, _, _, _, crdt_relay.DeltaMessage))
+      | Ok(crdt_relay.Document(_, _, _, _, crdt_relay.StateRequestMessage))
+      | Ok(crdt_relay.Document(_, _, _, _, crdt_relay.DigestMessage))
+      | Ok(crdt_relay.Control(..))
+      | Error(_) -> False
     }
   })
   |> list.length
@@ -476,7 +482,7 @@ fn clap(member: Member, amount: Int) -> Nil {
 
 @target(javascript)
 /// `P2pOnly` ignores a configured sequencer rather than contacting it.
-pub fn p2p_only_opens_no_relay_test() {
+pub fn p2p_only_opens_no_relay_test() -> Nil {
   let env = setup(P2pOnly)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -493,7 +499,7 @@ pub fn p2p_only_opens_no_relay_test() {
 /// `Auto` keeps the Task 5 readiness behaviour exactly: the mesh decides
 /// when the document is ready, and the relay has not even been asked for
 /// a socket by the time it is.
-pub fn auto_is_ready_before_the_relay_is_test() {
+pub fn auto_is_ready_before_the_relay_is_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
 
@@ -514,7 +520,7 @@ pub fn auto_is_ready_before_the_relay_is_test() {
 @target(javascript)
 /// `Auto` with a relay that is down is `Auto` with no relay at all, as
 /// far as the document is concerned.
-pub fn auto_is_ready_with_a_relay_that_never_answers_test() {
+pub fn auto_is_ready_with_a_relay_that_never_answers_test() -> Nil {
   let env = setup(Auto)
   relay_fake.stop(hub_of(env))
   let alpha = spawn(env, "alpha")
@@ -530,7 +536,7 @@ pub fn auto_is_ready_with_a_relay_that_never_answers_test() {
 @target(javascript)
 /// `SequencedOnly` joins no signaling and opens no data channel, and its
 /// readiness is the relay's alone.
-pub fn sequenced_only_skips_signaling_and_webrtc_test() {
+pub fn sequenced_only_skips_signaling_and_webrtc_test() -> Nil {
   let env = setup(SequencedOnly)
   let alpha = spawn(env, "alpha")
 
@@ -550,7 +556,7 @@ pub fn sequenced_only_skips_signaling_and_webrtc_test() {
 
 @target(javascript)
 /// `SequencedOnly` with nothing to sequence against fails once, at once.
-pub fn sequenced_only_without_a_sequencer_fails_once_test() {
+pub fn sequenced_only_without_a_sequencer_fails_once_test() -> Nil {
   let env = Setup(..setup(SequencedOnly), relay: None)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -567,7 +573,7 @@ pub fn sequenced_only_without_a_sequencer_fails_once_test() {
 @target(javascript)
 /// The readiness deadline is a bound on the whole attachment, and firing
 /// it is one failure and a close — not a retry loop nobody is watching.
-pub fn sequenced_only_fails_at_its_deadline_test() {
+pub fn sequenced_only_fails_at_its_deadline_test() -> Nil {
   let env = Setup(..setup(SequencedOnly), deadline_ms: 10_000)
   relay_fake.stop(hub_of(env))
   let alpha = spawn(env, "alpha")
@@ -596,7 +602,7 @@ pub fn sequenced_only_fails_at_its_deadline_test() {
 
 @target(javascript)
 /// A relay that answers without the lane is a status under `Auto`.
-pub fn auto_reports_an_unsupported_relay_and_stays_on_webrtc_test() {
+pub fn auto_reports_an_unsupported_relay_and_stays_on_webrtc_test() -> Nil {
   let env = setup(Auto)
   relay_fake.set_capability(hub_of(env), False)
   let alpha = spawn(env, "alpha")
@@ -617,7 +623,7 @@ pub fn auto_reports_an_unsupported_relay_and_stays_on_webrtc_test() {
 
 @target(javascript)
 /// The same answer is a readiness failure under `SequencedOnly`.
-pub fn sequenced_only_fails_when_the_lane_is_missing_test() {
+pub fn sequenced_only_fails_when_the_lane_is_missing_test() -> Nil {
   let env = setup(SequencedOnly)
   relay_fake.set_capability(hub_of(env), False)
   let alpha = spawn(env, "alpha")
@@ -635,7 +641,7 @@ pub fn sequenced_only_fails_when_the_lane_is_missing_test() {
 @target(javascript)
 /// The handshake, in order: merge what the relay holds, publish the
 /// merged result, and claim the relay only once the digests agree.
-pub fn a_late_attachment_merges_publishes_then_claims_the_relay_test() {
+pub fn a_late_attachment_merges_publishes_then_claims_the_relay_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -670,7 +676,7 @@ pub fn a_late_attachment_merges_publishes_then_claims_the_relay_test() {
 /// relay keeps both, refuses to call either the winner, and the clients
 /// converge by merging and republishing — which is the only thing that
 /// can be true of a service that cannot merge.
-pub fn two_concurrent_attachments_converge_without_a_winner_test() {
+pub fn two_concurrent_attachments_converge_without_a_winner_test() -> Nil {
   // Separate signaling, one relay: this is the relay's convergence, not
   // the mesh's.
   let hub = relay_fake.new_hub()
@@ -718,7 +724,7 @@ pub fn two_concurrent_attachments_converge_without_a_winner_test() {
 /// Attachment does not replace anything. The document, its root handle,
 /// its subscriptions, its replica identity and its message counter are
 /// the same objects before and after.
-pub fn attachment_replaces_nothing_test() {
+pub fn attachment_replaces_nothing_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let root = crdt_js.root(alpha.document)
@@ -740,7 +746,7 @@ pub fn attachment_replaces_nothing_test() {
 @target(javascript)
 /// The same delta over WebRTC and over the relay is one state change and
 /// one subscriber event, whichever arrives first.
-pub fn a_duplicate_over_both_paths_changes_state_once_test() {
+pub fn a_duplicate_over_both_paths_changes_state_once_test() -> Nil {
   duplicate_case(webrtc_first: True)
   duplicate_case(webrtc_first: False)
 }
@@ -794,7 +800,7 @@ fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
 /// A relay client that sends something the local document refuses costs
 /// its own envelope and nothing else: the lane stays up, because closing
 /// it would punish every other replica for one replica's bad frame.
-pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() {
+pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -833,7 +839,7 @@ pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() {
 /// A relay that dies during a burst of local edits loses none of them
 /// and pauses nothing. Every delta authored in the window reaches the
 /// peer over WebRTC, and the document never stops accepting writes.
-pub fn a_relay_failure_during_a_mutation_burst_loses_nothing_test() {
+pub fn a_relay_failure_during_a_mutation_burst_loses_nothing_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -861,7 +867,7 @@ pub fn a_relay_failure_during_a_mutation_burst_loses_nothing_test() {
 @target(javascript)
 /// The path is the mesh again *before* the fallback is announced, so a
 /// mutation authored from a status handler takes the surviving route.
-pub fn the_path_flips_before_the_fallback_is_reported_test() {
+pub fn the_path_flips_before_the_fallback_is_reported_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -881,7 +887,7 @@ pub fn the_path_flips_before_the_fallback_is_reported_test() {
 /// A relay outage does not reset a session. Same replica id, same root
 /// address, same subscription, same counter — a transport changed, not
 /// an identity.
-pub fn a_switch_keeps_the_document_handles_and_identity_test() {
+pub fn a_switch_keeps_the_document_handles_and_identity_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let root = crdt_js.root(alpha.document)
@@ -911,7 +917,7 @@ pub fn a_switch_keeps_the_document_handles_and_identity_test() {
 @target(javascript)
 /// Recovery merges the relay's state, the peers' state and the outage's
 /// edits, republishes the join, and only then claims the relay again.
-pub fn recovery_merges_both_sides_before_it_is_primary_test() {
+pub fn recovery_merges_both_sides_before_it_is_primary_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -949,7 +955,7 @@ pub fn recovery_merges_both_sides_before_it_is_primary_test() {
 /// A relay restarted from its own durable log is a merge, not a reset:
 /// the outage's edits are still on the replicas, the checkpoint is still
 /// on the relay, and the two are joined before anything is primary.
-pub fn a_restarted_relay_recovers_from_its_log_test() {
+pub fn a_restarted_relay_recovers_from_its_log_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -983,7 +989,7 @@ pub fn a_restarted_relay_recovers_from_its_log_test() {
 @target(javascript)
 /// A late client joining a restarted relay sees everything, including
 /// the edits made while the relay was not there to see them.
-pub fn a_late_client_after_a_restart_sees_everything_test() {
+pub fn a_late_client_after_a_restart_sees_everything_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -1015,7 +1021,7 @@ pub fn a_late_client_after_a_restart_sees_everything_test() {
 @target(javascript)
 /// Closing a connection closes its relay lane too, and schedules
 /// nothing more.
-pub fn closing_a_document_closes_its_relay_test() {
+pub fn closing_a_document_closes_its_relay_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -1145,7 +1151,7 @@ fn poisoned_hub(clock: Clock) -> #(Hub, Clock) {
 /// lets its checkpoint land *around* the entry rather than on top of it,
 /// and the relay becomes primary — with the refusal reported, the
 /// document untouched, and the entry nobody could read still on disk.
-pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() {
+pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
   let env =
@@ -1188,7 +1194,7 @@ pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() {
 /// The same wedge is a readiness failure under `SequencedOnly`, which has
 /// no other path to be ready on: the deadline would fire instead of the
 /// document coming up at all.
-pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() {
+pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
   let env =
@@ -1220,7 +1226,7 @@ pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() {
 /// skip is per socket, so it is made again on the next one, and the entry
 /// is still there to be skipped, because no checkpoint is allowed to
 /// throw away a record this client could not read.
-pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() {
+pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
   let env =
@@ -1278,7 +1284,7 @@ pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() {
 /// A client that attaches to a room whose poison is still on the relay —
 /// because the first client never checkpointed — skips it too, rather
 /// than inheriting the wedge.
-pub fn a_second_client_skips_the_same_entry_test() {
+pub fn a_second_client_skips_the_same_entry_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
   let env =
@@ -1315,7 +1321,7 @@ pub fn a_second_client_skips_the_same_entry_test() {
 /// but its digest does, so the replica that never sees this relay finds
 /// out it is behind, asks, and converges. One state change, one event,
 /// one digest, everywhere.
-pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() {
+pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -1354,7 +1360,7 @@ pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() {
 /// unrelated publication happened to sweep it up. The merge that moved
 /// this replica is what owes the relay a publication, and the coalesced
 /// interval is when it pays.
-pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() {
+pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let carol = spawn_as(env, "carol", P2pOnly)
@@ -1398,7 +1404,7 @@ pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() {
 /// has been heard when the other is made: one crosses the mesh into a
 /// relay-primary document, the other goes down the relay itself. A late
 /// relay-only replica has to find both channels, with both edits.
-pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() {
+pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let carol = spawn_as(env, "carol", P2pOnly)
@@ -1442,7 +1448,7 @@ pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() {
 /// document: a replica that edited before it had any transport at all
 /// brings what it holds on the handshake, as one `state` message and no
 /// deltas.
-pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() {
+pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   converge(env)
@@ -1484,7 +1490,7 @@ pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() {
 /// merge that owes a publication is a *peer's*, so a relay-carried one
 /// arms nothing, and the interval that coalesces the mesh's digest
 /// coalesces this too.
-pub fn a_mesh_burst_publishes_once_per_client_and_does_not_echo_test() {
+pub fn a_mesh_burst_publishes_once_per_client_and_does_not_echo_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -1547,7 +1553,7 @@ pub fn a_mesh_burst_publishes_once_per_client_and_does_not_echo_test() {
 /// The durable delta itself does not go to the mesh while a healthy
 /// relay is primary — the digest does. A raw peer, which records exactly
 /// what it was sent, is what proves it.
-pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() {
+pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1584,7 +1590,7 @@ pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() {
 /// A relay without the lane leaves the mesh exactly as it was: `Auto`
 /// carries on over WebRTC and a `P2pOnly` replica beside it converges,
 /// because the path never became `Sequenced`.
-pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() {
+pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() -> Nil {
   let env = setup(Auto)
   relay_fake.set_capability(hub_of(env), False)
   let alpha = spawn(env, "alpha")
@@ -1615,7 +1621,7 @@ pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() {
 /// disappeared. The lane is dropped, the path flips to the mesh, the
 /// fallback is reported, and the delta goes to the peers — all before the
 /// mutation returns.
-pub fn a_write_to_a_dead_socket_falls_back_at_once_test() {
+pub fn a_write_to_a_dead_socket_falls_back_at_once_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -1646,7 +1652,7 @@ pub fn a_write_to_a_dead_socket_falls_back_at_once_test() {
 /// against something that will never answer. `RelaySyncing` with no
 /// `synced`, no publication and no retry is the one state this lane must
 /// never be able to sit in.
-pub fn an_attachment_write_that_fails_does_not_strand_the_lane_test() {
+pub fn an_attachment_write_that_fails_does_not_strand_the_lane_test() -> Nil {
   let env = setup(Auto)
   // The greeting arrives; the first thing the client writes does not.
   relay_fake.set_write_budget(hub_of(env), 0)
@@ -1670,7 +1676,7 @@ pub fn an_attachment_write_that_fails_does_not_strand_the_lane_test() {
 /// A publication that does not reach the socket is the same: the
 /// handshake cannot be completed on a socket that cannot carry it, so it
 /// is retired rather than waited on.
-pub fn a_publication_that_fails_to_write_falls_back_test() {
+pub fn a_publication_that_fails_to_write_falls_back_test() -> Nil {
   let env = setup(Auto)
   // `hello` and `stateRequest` land; the `state` does not.
   relay_fake.set_write_budget(hub_of(env), 2)
@@ -1688,7 +1694,7 @@ pub fn a_publication_that_fails_to_write_falls_back_test() {
 /// And an attestation that does not reach the socket. The state was
 /// written, the echo can never come, and a lane waiting for it forever is
 /// a room that never checkpoints — so this one is retired too.
-pub fn an_attestation_that_fails_to_write_falls_back_test() {
+pub fn an_attestation_that_fails_to_write_falls_back_test() -> Nil {
   let env = setup(Auto)
   // `hello`, `stateRequest` and `state` land; the `attest` does not.
   relay_fake.set_write_budget(hub_of(env), 3)
@@ -1724,7 +1730,7 @@ pub fn an_attestation_that_fails_to_write_falls_back_test() {
 /// pays a full state transfer for each edit. One per tick lets the
 /// durable path arrive first and still tells a peer that is genuinely
 /// behind, one tick later.
-pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() {
+pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1777,7 +1783,7 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() {
 @target(javascript)
 /// Sustained editing costs one digest per interval, not one per edit and
 /// not one per burst. Three intervals of continuous claps, three digests.
-pub fn sustained_edits_cost_one_digest_per_interval_test() {
+pub fn sustained_edits_cost_one_digest_per_interval_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1812,7 +1818,7 @@ pub fn sustained_edits_cost_one_digest_per_interval_test() {
 /// arrive *after* that fan-out: a peer that already merged the delta
 /// answers a matching digest with nothing at all, and a peer that has not
 /// answers it with a `stateRequest` and pays for a whole `state` message.
-pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() {
+pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let beta = spawn(env, "beta")
@@ -1878,7 +1884,7 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() {
 /// The interval is a configuration value, not a constant in disguise: a
 /// deployment that wants a different one gets a different one, and the
 /// digest arrives on *its* schedule.
-pub fn the_anti_entropy_interval_is_injectable_test() {
+pub fn the_anti_entropy_interval_is_injectable_test() -> Nil {
   let env = Setup(..setup(Auto), anti_entropy_ms: 40)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1914,7 +1920,7 @@ pub fn the_anti_entropy_interval_is_injectable_test() {
 /// never saw the relay-only edits would answer with a state that does not
 /// contain them, merge nothing, and stay behind. The digest is what makes
 /// it ask.
-pub fn a_fallback_flushes_the_digest_it_owed_test() {
+pub fn a_fallback_flushes_the_digest_it_owed_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1953,7 +1959,7 @@ pub fn a_fallback_flushes_the_digest_it_owed_test() {
 @target(javascript)
 /// A fallback with nothing owed says nothing extra: the digest is the
 /// window's, not a fallback ritual.
-pub fn a_fallback_with_a_clean_window_sends_no_digest_test() {
+pub fn a_fallback_with_a_clean_window_sends_no_digest_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -1980,7 +1986,7 @@ pub fn a_fallback_with_a_clean_window_sends_no_digest_test() {
 
 @target(javascript)
 /// A closed document leaves no timer behind, armed or otherwise.
-pub fn closing_cancels_the_armed_digest_test() {
+pub fn closing_cancels_the_armed_digest_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   settle(env)
@@ -1999,7 +2005,7 @@ pub fn closing_cancels_the_armed_digest_test() {
 /// Coalescing is not deferral of the repair. A relay that drops still
 /// asks its peers for state immediately, in the same breath as the
 /// fallback — no tick, no timer, no waiting.
-pub fn failover_repair_is_not_coalesced_test() {
+pub fn failover_repair_is_not_coalesced_test() -> Nil {
   let env = setup(Auto)
   let alpha = spawn(env, "alpha")
   let heard = transport_js.new_cell([])
@@ -2026,7 +2032,7 @@ pub fn failover_repair_is_not_coalesced_test() {
 
 @target(javascript)
 /// Every relay connection attempt is reported, not only the first.
-pub fn every_relay_attempt_reports_itself_test() {
+pub fn every_relay_attempt_reports_itself_test() -> Nil {
   let env = setup(Auto)
   relay_fake.stop(hub_of(env))
   let alpha = spawn(env, "alpha")
@@ -2077,7 +2083,7 @@ fn recording_peer(
           push(heard, case crdt_relay.decode_client(payload) {
             Ok(crdt_relay.Document(_, _, _, _, message)) ->
               crdt_relay.message_kind_to_string(message)
-            _ -> "opaque"
+            Ok(crdt_relay.Control(..)) | Error(_) -> "opaque"
           })
         },
         on_status: fn(_status) { Nil },
@@ -2146,7 +2152,7 @@ fn spawn_kind(
 /// merge nothing, and stay behind until the room was edited again. No
 /// clock is advanced here past the settling of the mesh: convergence is
 /// the fallback's, not the interval's.
-pub fn an_or_set_peer_converges_when_the_relay_drops_test() {
+pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
   let env = setup(Auto)
   let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.or_set_root())
   let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.or_set_root())
@@ -2167,7 +2173,7 @@ pub fn an_or_set_peer_converges_when_the_relay_drops_test() {
 /// The same for a sequence, whose deltas carry positions rather than
 /// elements: the peer that never saw them rebuilds from the state it asks
 /// for, and the two agree.
-pub fn a_sequence_peer_converges_when_the_relay_drops_test() {
+pub fn a_sequence_peer_converges_when_the_relay_drops_test() -> Nil {
   let env = setup(Auto)
   let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.sequence_root())
   let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.sequence_root())
@@ -2192,7 +2198,7 @@ pub fn a_sequence_peer_converges_when_the_relay_drops_test() {
 @target(javascript)
 /// And for text, where a peer that misses a delta and then merges a
 /// state has to end up with the same string rather than a plausible one.
-pub fn a_text_peer_converges_when_the_relay_drops_test() {
+pub fn a_text_peer_converges_when_the_relay_drops_test() -> Nil {
   let env = setup(Auto)
   let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.text_root())
   let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.text_root())
@@ -2225,7 +2231,7 @@ pub fn a_text_peer_converges_when_the_relay_drops_test() {
 ///
 /// Nothing is refused, nothing is lost, and the room never reaches the
 /// bound at all.
-pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() {
+pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() -> Nil {
   let mutations = crdt_relay.max_room_records + 200
   let env = setup(SequencedOnly)
   let hub = hub_of(env)
@@ -2357,7 +2363,7 @@ fn valid_lines(count: Int) -> List(String) {
 /// one of the seeded increments lost. `SequencedOnly` has no other lane
 /// to be ready on, so coming up primary at all is the proof it
 /// recovered.
-pub fn a_valid_full_room_recovers_for_a_late_client_test() {
+pub fn a_valid_full_room_recovers_for_a_late_client_test() -> Nil {
   let count = crdt_relay.max_room_records
   let clock = relay_fake.new_clock()
   let hub = relay_fake.new_hub()

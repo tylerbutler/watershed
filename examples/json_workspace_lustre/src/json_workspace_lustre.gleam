@@ -20,14 +20,12 @@ import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{aria_label, aria_pressed, class, classes}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import doc_schema
-import tree
 import watershed.{type Document, type JsonOt, type SharedDirectory}
 import watershed/browser
 import watershed/directory_kernel
@@ -37,6 +35,9 @@ import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed_lustre
 
+import json_workspace_lustre/doc_schema
+import json_workspace_lustre/tree
+
 // ── Dev config for the floodgate dev server (`just integration-up`) ────────
 
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -45,7 +46,7 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("json-workspace")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -62,11 +63,11 @@ pub type WorkspacePresence {
   WorkspacePresence(color: String, name: String, open_path: Option(String))
 }
 
-fn encode_presence(p: WorkspacePresence) -> Json {
+fn encode_presence(presence: WorkspacePresence) -> Json {
   json.object([
-    #("color", json.string(p.color)),
-    #("name", json.string(p.name)),
-    #("open_path", case p.open_path {
+    #("color", json.string(presence.color)),
+    #("name", json.string(presence.name)),
+    #("open_path", case presence.open_path {
       Some(path) -> json.string(path)
       None -> json.null()
     }),
@@ -113,7 +114,7 @@ type Model {
   Model(
     status: Status,
     doc: Option(Document(doc_schema.Workspace)),
-    dir: Option(SharedDirectory),
+    directory: Option(SharedDirectory),
     user_id: String,
     color: String,
     /// The folder currently browsed, `"/"` at the root.
@@ -176,7 +177,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
     Model(
       status: Connecting,
       doc: None,
-      dir: None,
+      directory: None,
       user_id: user_id,
       color: presence.color_for(user_id),
       path: tree.root_path,
@@ -238,7 +239,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.dir {
+      case model.doc, model.directory {
         Some(doc), None -> #(model, bootstrap_effect(doc))
         _, _ -> #(model, effect.none())
       }
@@ -249,10 +250,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
-    EnsuredTree(Ok(dir)) -> {
-      let model = Model(..model, dir: Some(dir), error: None)
-      let model = refresh_listing(model, dir)
-      #(model, watershed_lustre.subscribe_directory(dir, DirectoryChanged))
+    EnsuredTree(Ok(directory)) -> {
+      let model = Model(..model, directory: Some(directory), error: None)
+      let model = refresh_listing(model, directory)
+      #(
+        model,
+        watershed_lustre.subscribe_directory(directory, DirectoryChanged),
+      )
     }
     EnsuredTree(Error(reason)) -> #(
       Model(..model, error: Some(reason)),
@@ -265,9 +269,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     NavigateTo(path) ->
-      case model.dir {
-        Some(dir) -> #(
-          refresh_listing(Model(..model, path: path), dir),
+      case model.directory {
+        Some(directory) -> #(
+          refresh_listing(Model(..model, path: path), directory),
           effect.none(),
         )
         None -> #(model, effect.none())
@@ -279,13 +283,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     CreateFolderClicked ->
-      case model.dir, string.trim(model.new_folder_draft) {
-        Some(dir), name ->
+      case model.directory, string.trim(model.new_folder_draft) {
+        Some(directory), name ->
           case tree.valid_name(name) {
             True -> {
-              watershed.directory_create_subdirectory(dir, model.path, name)
+              watershed.directory_create_subdirectory(
+                directory,
+                model.path,
+                name,
+              )
               #(
-                refresh_listing(Model(..model, new_folder_draft: ""), dir),
+                refresh_listing(Model(..model, new_folder_draft: ""), directory),
                 effect.none(),
               )
             }
@@ -301,10 +309,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     DeleteFolderClicked(name) ->
-      case model.dir {
-        Some(dir) -> {
-          watershed.directory_delete_subdirectory(dir, model.path, name)
-          #(refresh_listing(model, dir), effect.none())
+      case model.directory {
+        Some(directory) -> {
+          watershed.directory_delete_subdirectory(directory, model.path, name)
+          #(refresh_listing(model, directory), effect.none())
         }
         None -> #(model, effect.none())
       }
@@ -312,8 +320,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     NewDocDrafted(text) -> #(Model(..model, new_doc_draft: text), effect.none())
 
     CreateDocClicked ->
-      case model.dir, model.doc, string.trim(model.new_doc_draft) {
-        Some(dir), Some(doc), name ->
+      case model.directory, model.doc, string.trim(model.new_doc_draft) {
+        Some(directory), Some(doc), name ->
           case tree.valid_name(name) {
             False -> #(
               Model(
@@ -326,14 +334,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               case watershed.create_json_ot(doc) {
                 Ok(channel) -> {
                   watershed.directory_set(
-                    dir,
+                    directory,
                     model.path,
                     name,
                     watershed.json_ot_handle_of(channel),
                   )
                   let folder = model.path
                   let model =
-                    refresh_listing(Model(..model, new_doc_draft: ""), dir)
+                    refresh_listing(
+                      Model(..model, new_doc_draft: ""),
+                      directory,
+                    )
                   open_channel(
                     model,
                     tree.join_path(folder, name),
@@ -352,14 +363,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     OpenDocClicked(name) ->
-      case model.dir, model.doc {
-        Some(dir), Some(doc) ->
-          case watershed.directory_get(dir, model.path, name) {
-            None -> #(
+      case model.directory, model.doc {
+        Some(directory), Some(doc) ->
+          case watershed.directory_get(directory, model.path, name) {
+            Error(Nil) -> #(
               Model(..model, error: Some("no such document: " <> name)),
               effect.none(),
             )
-            Some(value) ->
+            Ok(value) ->
               case watershed.resolve_json_ot(doc, value) {
                 Ok(channel) ->
                   open_channel(
@@ -417,7 +428,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             |> result.unwrap(scalar_text(old)),
         )
       {
-        Some(open), Some(current), Ok(new_value)
+        Some(open), Ok(current), Ok(new_value)
           if current == old && new_value != old
         -> {
           watershed.submit_json_ot(open.channel, [
@@ -432,7 +443,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             effect.none(),
           )
         }
-        Some(_), Some(current), Ok(_) if current == old -> #(
+        Some(_), Ok(current), Ok(_) if current == old -> #(
           Model(
             ..model,
             scalar_drafts: dict.delete(model.scalar_drafts, path),
@@ -451,7 +462,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     BoolToggled(path, old) ->
       case model.open, current_at(model.open, path) {
-        Some(open), Some(json_ot.VBool(current)) if current == old -> {
+        Some(open), Ok(json_ot.VBool(current)) if current == old -> {
           watershed.submit_json_ot(open.channel, [
             json_ot.obj_replace(path, json_ot.VBool(old), json_ot.VBool(!old)),
           ])
@@ -463,7 +474,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     NumberIncremented(path, delta) ->
       case model.open, current_at(model.open, path) {
-        Some(open), Some(json_ot.VNumber(_)) -> {
+        Some(open), Ok(json_ot.VNumber(_)) -> {
           watershed.submit_json_ot(open.channel, [
             json_ot.number_add(path, json_ot.NInt(delta)),
           ])
@@ -475,7 +486,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     DeleteKeyClicked(path, old) ->
       case model.open, current_at(model.open, path) {
-        Some(open), Some(current) if current == old -> {
+        Some(open), Ok(current) if current == old -> {
           watershed.submit_json_ot(open.channel, [json_ot.obj_delete(path, old)])
           #(Model(..model, error: None), effect.none())
         }
@@ -524,7 +535,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.open, model.add_form {
         Some(open), Some(form) if form.key != "" -> {
           case current_at(model.open, form.at), add_form_value(form) {
-            Some(json_ot.VObject(members)), Ok(value) ->
+            Ok(json_ot.VObject(members)), Ok(value) ->
               case object_has_key(members, form.key) {
                 True -> #(
                   Model(
@@ -541,7 +552,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   #(Model(..model, add_form: None, error: None), effect.none())
                 }
               }
-            None, _ | Some(_), Ok(_) -> stale_edit(model)
+            Error(Nil), _ | Ok(_), Ok(_) -> stale_edit(model)
             _, Error(reason) -> #(
               Model(..model, error: Some(reason)),
               effect.none(),
@@ -602,7 +613,7 @@ fn open_channel(
   channel: JsonOt,
 ) -> #(Model, Effect(Msg)) {
   let value =
-    option.unwrap(watershed.json_ot_view(channel), json_ot.VObject([]))
+    result.unwrap(watershed.json_ot_view(channel), json_ot.VObject([]))
   let open =
     OpenDoc(path:, folder:, name:, channel:, value:, folder_deleted: False)
   let channel_id = json.to_string(watershed.json_ot_handle_of(channel))
@@ -637,17 +648,20 @@ fn open_channel(
 fn refresh_open(open: OpenDoc) -> OpenDoc {
   OpenDoc(
     ..open,
-    value: option.unwrap(watershed.json_ot_view(open.channel), open.value),
+    value: result.unwrap(watershed.json_ot_view(open.channel), open.value),
   )
 }
 
-fn current_at(open: Option(OpenDoc), path: List(PathKey)) -> Option(JsonValue) {
+fn current_at(
+  open: Option(OpenDoc),
+  path: List(PathKey),
+) -> Result(JsonValue, Nil) {
   case open {
-    None -> None
+    None -> Error(Nil)
     Some(open) ->
       case watershed.json_ot_view(open.channel) {
-        Some(value) -> tree.value_at(value, path)
-        None -> None
+        Ok(value) -> tree.value_at(value, path)
+        Error(Nil) -> Error(Nil)
       }
   }
 }
@@ -663,11 +677,11 @@ fn object_has_key(members: List(#(String, JsonValue)), key: String) -> Bool {
   list.any(members, fn(pair) { pair.0 == key })
 }
 
-fn refresh_listing(model: Model, dir: SharedDirectory) -> Model {
+fn refresh_listing(model: Model, directory: SharedDirectory) -> Model {
   Model(
     ..model,
-    subdirectories: watershed.directory_subdirectories(dir, model.path),
-    entries: watershed.directory_entries(dir, model.path),
+    subdirectories: watershed.directory_subdirectories(directory, model.path),
+    entries: watershed.directory_entries(directory, model.path),
   )
 }
 
@@ -682,22 +696,30 @@ fn handle_directory_event(
   model: Model,
   event: directory_kernel.DirectoryEvent,
 ) -> Model {
-  case model.dir {
+  case model.directory {
     None -> model
-    Some(dir) -> {
+    Some(directory) -> {
       let model = case event {
         directory_kernel.SubDirectoryDeleted(deleted, _) ->
           case tree.path_covers(deleted, model.path) {
             True -> Model(..model, path: tree.root_path)
             False -> model
           }
-        _ -> model
+        directory_kernel.ValueChanged(_, _, _, _)
+        | directory_kernel.Cleared(_, _)
+        | directory_kernel.SubDirectoryCreated(_, _)
+        | directory_kernel.Disposed(_)
+        | directory_kernel.Undisposed(_) -> model
       }
-      let model = refresh_listing(model, dir)
+      let model = refresh_listing(model, directory)
       case event {
         directory_kernel.SubDirectoryDeleted(deleted, _) ->
           mark_deleted_if_covered(model, deleted)
-        _ -> model
+        directory_kernel.ValueChanged(_, _, _, _)
+        | directory_kernel.Cleared(_, _)
+        | directory_kernel.SubDirectoryCreated(_, _)
+        | directory_kernel.Disposed(_)
+        | directory_kernel.Undisposed(_) -> model
       }
     }
   }
@@ -781,10 +803,10 @@ fn peers_at(
 
 fn scalar_text(value: JsonValue) -> String {
   case value {
-    json_ot.VString(s) -> s
-    json_ot.VNumber(json_ot.NInt(n)) -> int.to_string(n)
-    json_ot.VNumber(json_ot.NFloat(f)) -> float.to_string(f)
-    json_ot.VBool(b) -> bool_text(b)
+    json_ot.VString(text) -> text
+    json_ot.VNumber(json_ot.NInt(integer)) -> int.to_string(integer)
+    json_ot.VNumber(json_ot.NFloat(float_value)) -> float.to_string(float_value)
+    json_ot.VBool(flag) -> bool_text(flag)
     json_ot.VNull -> ""
     json_ot.VObject(_) | json_ot.VArray(_) -> ""
   }
@@ -802,11 +824,11 @@ fn scalar_from_text(old: JsonValue, text: String) -> Result(JsonValue, Nil) {
       int.parse(text) |> result.map(json_ot.NInt) |> result.map(json_ot.VNumber)
     json_ot.VNumber(json_ot.NFloat(_)) ->
       case float.parse(text) {
-        Ok(f) -> Ok(json_ot.VNumber(json_ot.NFloat(f)))
+        Ok(float_value) -> Ok(json_ot.VNumber(json_ot.NFloat(float_value)))
         Error(_) ->
           int.parse(text)
-          |> result.map(fn(n) {
-            json_ot.VNumber(json_ot.NFloat(int.to_float(n)))
+          |> result.map(fn(integer_value) {
+            json_ot.VNumber(json_ot.NFloat(int.to_float(integer_value)))
           })
       }
     json_ot.VNull ->
@@ -828,8 +850,8 @@ fn add_form_value(form: AddForm) -> Result(JsonValue, String) {
   }
 }
 
-fn bool_text(b: Bool) -> String {
-  case b {
+fn bool_text(value: Bool) -> String {
+  case value {
     True -> "true"
     False -> "false"
   }
@@ -838,7 +860,7 @@ fn bool_text(b: Bool) -> String {
 // ── View ─────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("workspace")], [
+  html.main([attribute.class("workspace")], [
     html.h1([], [html.text("watershed · JSON workspace")]),
     status_line(model),
     roster_view(model),
@@ -846,11 +868,11 @@ fn view(model: Model) -> Element(Msg) {
     tree_view(model),
     create_row_view(model),
     editor_view(model),
-    html.div([class("toolbar")], [
+    html.div([attribute.class("toolbar")], [
       html.button(
         [
           event.on_click(ToggledOffline(!model.offline)),
-          aria_pressed(bool_text(model.offline)),
+          attribute.aria_pressed(bool_text(model.offline)),
           attribute.disabled(model.doc == None),
         ],
         [
@@ -869,7 +891,7 @@ fn view(model: Model) -> Element(Msg) {
       ),
     ]),
     error_view(model.error),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same document to build the tree together. Client: "
         <> model.user_id,
@@ -882,7 +904,7 @@ fn status_line(model: Model) -> Element(Msg) {
   let text = case model.status {
     Connecting -> "connecting…"
     Ready ->
-      case model.dir {
+      case model.directory {
         Some(_) ->
           case model.offline {
             True -> "offline · edits queue locally"
@@ -892,7 +914,7 @@ fn status_line(model: Model) -> Element(Msg) {
       }
     Failed(reason) -> "failed: " <> reason
   }
-  html.p([class("status")], [html.text(text)])
+  html.p([attribute.class("status")], [html.text(text)])
 }
 
 fn roster_view(model: Model) -> Element(Msg) {
@@ -900,21 +922,24 @@ fn roster_view(model: Model) -> Element(Msg) {
     chip(presence.short_name(model.user_id) <> " (you)", model.color)
   let peer_chips =
     list.map(model.peers, fn(peer) { chip(peer.meta.name, peer.meta.color) })
-  html.div([class("roster"), aria_label("Connected clients")], [
-    self_chip,
-    ..peer_chips
-  ])
+  html.div(
+    [attribute.class("roster"), attribute.aria_label("Connected clients")],
+    [self_chip, ..peer_chips],
+  )
 }
 
 fn chip(name: String, color: String) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
     ],
   )
@@ -922,7 +947,7 @@ fn chip(name: String, color: String) -> Element(Msg) {
 
 fn breadcrumbs_view(model: Model) -> Element(Msg) {
   html.nav(
-    [class("breadcrumbs"), aria_label("Folder path")],
+    [attribute.class("breadcrumbs"), attribute.aria_label("Folder path")],
     list.map(tree.breadcrumbs(model.path), fn(crumb) {
       let #(label, path) = crumb
       html.button(
@@ -939,7 +964,7 @@ fn breadcrumbs_view(model: Model) -> Element(Msg) {
 fn tree_view(model: Model) -> Element(Msg) {
   let rows = tree.rows(model.path, model.subdirectories, model.entries)
   html.ul(
-    [class("tree-rows")],
+    [attribute.class("tree-rows")],
     list.map(rows, fn(row) { tree_row_view(model, row) }),
   )
 }
@@ -947,40 +972,49 @@ fn tree_view(model: Model) -> Element(Msg) {
 fn tree_row_view(model: Model, row: tree.Row) -> Element(Msg) {
   case row {
     tree.FolderRow(name, path) ->
-      html.li([class("tree-row")], [
-        html.button([class("name"), event.on_click(NavigateTo(path))], [
-          html.text("📁 " <> name),
-        ]),
+      html.li([attribute.class("tree-row")], [
+        html.button(
+          [attribute.class("name"), event.on_click(NavigateTo(path))],
+          [
+            html.text("📁 " <> name),
+          ],
+        ),
         html.button(
           [
             event.on_click(DeleteFolderClicked(name)),
-            aria_label("Delete folder " <> name),
+            attribute.aria_label("Delete folder " <> name),
           ],
           [html.text("Delete")],
         ),
       ])
     tree.DocRow(name, path, corrupt) ->
-      html.li([classes([#("tree-row", True), #("corrupt", corrupt)])], [
-        case corrupt {
-          True ->
-            html.span([class("name")], [
-              html.text("⚠ " <> name <> " — not a JSON document"),
-            ])
-          False ->
-            html.button([class("name"), event.on_click(OpenDocClicked(name))], [
-              html.text("📄 " <> name),
-            ])
-        },
-        ..list.map(peers_at(model, path), fn(peer) {
-          chip(peer.meta.name, peer.meta.color)
-        })
-      ])
+      html.li(
+        [attribute.classes([#("tree-row", True), #("corrupt", corrupt)])],
+        [
+          case corrupt {
+            True ->
+              html.span([attribute.class("name")], [
+                html.text("⚠ " <> name <> " — not a JSON document"),
+              ])
+            False ->
+              html.button(
+                [attribute.class("name"), event.on_click(OpenDocClicked(name))],
+                [
+                  html.text("📄 " <> name),
+                ],
+              )
+          },
+          ..list.map(peers_at(model, path), fn(peer) {
+            chip(peer.meta.name, peer.meta.color)
+          })
+        ],
+      )
   }
 }
 
 fn create_row_view(model: Model) -> Element(Msg) {
   html.div([], [
-    html.div([class("create-row")], [
+    html.div([attribute.class("create-row")], [
       html.input([
         attribute.placeholder("new folder"),
         attribute.value(model.new_folder_draft),
@@ -990,13 +1024,13 @@ fn create_row_view(model: Model) -> Element(Msg) {
         [
           event.on_click(CreateFolderClicked),
           attribute.disabled(
-            model.dir == None || !tree.valid_name(model.new_folder_draft),
+            model.directory == None || !tree.valid_name(model.new_folder_draft),
           ),
         ],
         [html.text("New folder")],
       ),
     ]),
-    html.div([class("create-row")], [
+    html.div([attribute.class("create-row")], [
       html.input([
         attribute.placeholder("new document"),
         attribute.value(model.new_doc_draft),
@@ -1006,7 +1040,7 @@ fn create_row_view(model: Model) -> Element(Msg) {
         [
           event.on_click(CreateDocClicked),
           attribute.disabled(
-            model.dir == None
+            model.directory == None
             || model.doc == None
             || !tree.valid_name(model.new_doc_draft),
           ),
@@ -1021,14 +1055,14 @@ fn editor_view(model: Model) -> Element(Msg) {
   case model.open {
     None -> html.text("")
     Some(open) ->
-      html.section([class("editor")], [
-        html.div([class("toolbar")], [
+      html.section([attribute.class("editor")], [
+        html.div([attribute.class("toolbar")], [
           html.strong([], [html.text(open.path)]),
           html.button([event.on_click(CloseDocClicked)], [html.text("Close")]),
         ]),
         case open.folder_deleted {
           True ->
-            html.p([class("banner")], [
+            html.p([attribute.class("banner")], [
               html.text(
                 "This document's folder ("
                 <> open.folder
@@ -1054,7 +1088,7 @@ fn render_node(
   case value {
     json_ot.VObject(members) -> render_object(model, path, members)
     json_ot.VArray(items) -> render_readonly(json_ot.VArray(items))
-    json_ot.VBool(b) -> render_bool_leaf(path, b)
+    json_ot.VBool(value) -> render_bool_leaf(path, value)
     json_ot.VNumber(_) -> render_number_leaf(model, path, value)
     json_ot.VString(_) | json_ot.VNull -> render_text_leaf(model, path, value)
   }
@@ -1065,19 +1099,19 @@ fn render_object(
   path: List(PathKey),
   members: List(#(String, JsonValue)),
 ) -> Element(Msg) {
-  html.div([class("json-object")], [
+  html.div([attribute.class("json-object")], [
     html.ul(
-      [class("json-members")],
+      [attribute.class("json-members")],
       list.map(members, fn(pair) {
         let #(key, value) = pair
         let child_path = list.append(path, [Key(key)])
-        html.li([class("json-member")], [
-          html.span([class("json-key")], [html.text(key)]),
+        html.li([attribute.class("json-member")], [
+          html.span([attribute.class("json-key")], [html.text(key)]),
           render_node(model, child_path, value),
           html.button(
             [
               event.on_click(DeleteKeyClicked(child_path, value)),
-              aria_label("Delete " <> key),
+              attribute.aria_label("Delete " <> key),
             ],
             [html.text("×")],
           ),
@@ -1097,22 +1131,30 @@ fn render_readonly(value: JsonValue) -> Element(Msg) {
   case value {
     json_ot.VObject(members) ->
       html.ul(
-        [class("json-members readonly")],
+        [attribute.class("json-members readonly")],
         list.map(members, fn(pair) {
-          let #(key, v) = pair
+          let #(key, value) = pair
           html.li([], [
-            html.span([class("json-key")], [html.text(key)]),
-            render_readonly(v),
+            html.span([attribute.class("json-key")], [html.text(key)]),
+            render_readonly(value),
           ])
         }),
       )
     json_ot.VArray(items) ->
       html.ol(
-        [class("json-array readonly"), aria_label("Read-only list")],
-        list.map(items, fn(v) { html.li([], [render_readonly(v)]) }),
+        [
+          attribute.class("json-array readonly"),
+          attribute.aria_label("Read-only list"),
+        ],
+        list.map(items, fn(value) { html.li([], [render_readonly(value)]) }),
       )
-    _ ->
-      html.span([class("json-scalar readonly")], [html.text(scalar_text(value))])
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_) ->
+      html.span([attribute.class("json-scalar readonly")], [
+        html.text(scalar_text(value)),
+      ])
   }
 }
 
@@ -1124,11 +1166,15 @@ fn render_text_leaf(
   let draft =
     dict.get(model.scalar_drafts, path) |> result.unwrap(scalar_text(value))
   html.input([
-    class("json-scalar-input"),
+    attribute.class("json-scalar-input"),
     attribute.value(draft),
     attribute.placeholder(case value {
       json_ot.VNull -> "null"
-      _ -> ""
+      json_ot.VBool(_)
+      | json_ot.VNumber(_)
+      | json_ot.VString(_)
+      | json_ot.VArray(_)
+      | json_ot.VObject(_) -> ""
     }),
     event.on_input(fn(text) { ScalarDrafted(path, text) }),
     event.on_change(fn(_raw) { ScalarCommitted(path, value) }),
@@ -1142,39 +1188,45 @@ fn render_number_leaf(
 ) -> Element(Msg) {
   let draft =
     dict.get(model.scalar_drafts, path) |> result.unwrap(scalar_text(value))
-  html.span([class("json-number")], [
+  html.span([attribute.class("json-number")], [
     html.input([
-      class("json-scalar-input"),
+      attribute.class("json-scalar-input"),
       attribute.value(draft),
       event.on_input(fn(text) { ScalarDrafted(path, text) }),
       event.on_change(fn(_raw) { ScalarCommitted(path, value) }),
     ]),
     html.button(
-      [event.on_click(NumberIncremented(path, -1)), aria_label("Decrement")],
+      [
+        event.on_click(NumberIncremented(path, -1)),
+        attribute.aria_label("Decrement"),
+      ],
       [html.text("−1")],
     ),
     html.button(
-      [event.on_click(NumberIncremented(path, 1)), aria_label("Increment")],
+      [
+        event.on_click(NumberIncremented(path, 1)),
+        attribute.aria_label("Increment"),
+      ],
       [html.text("+1")],
     ),
   ])
 }
 
-fn render_bool_leaf(path: List(PathKey), b: Bool) -> Element(Msg) {
+fn render_bool_leaf(path: List(PathKey), value: Bool) -> Element(Msg) {
   html.button(
     [
-      class("json-bool"),
-      event.on_click(BoolToggled(path, b)),
-      aria_pressed(bool_text(b)),
+      attribute.class("json-bool"),
+      event.on_click(BoolToggled(path, value)),
+      attribute.aria_pressed(bool_text(value)),
     ],
-    [html.text(bool_text(b))],
+    [html.text(bool_text(value))],
   )
 }
 
 fn add_form_view(model: Model, at: List(PathKey)) -> Element(Msg) {
   case model.add_form {
     Some(form) if form.at == at ->
-      html.div([class("add-key-form")], [
+      html.div([attribute.class("add-key-form")], [
         html.input([
           attribute.placeholder("key"),
           attribute.value(form.key),
@@ -1203,7 +1255,8 @@ fn add_form_view(model: Model, at: List(PathKey)) -> Element(Msg) {
 
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("error")], [html.text("Error: " <> reason)])
+    Some(reason) ->
+      html.p([attribute.class("error")], [html.text("Error: " <> reason)])
     None -> html.text("")
   }
 }

@@ -151,7 +151,7 @@ sections themselves get plain headings — no per-section eyebrows.
   a tombstone set.
 - Claims are framed as **duty stations** (`north-levee`, `spillway-gate`,
   `pump-house`) on a claim sheet: first writer wins, write-once
-  (`try_set_claim` only — CAS re-claim is an explicit non-goal for the demo).
+  (`claim_once` only — CAS re-claim is an explicit non-goal for the demo).
   Reads are **non-optimistic**, so the holder cell always prints in ink and
   a filed claim never shows as the holder — magenta annotates only the op in
   flight (`claim filed · outcome unknown`, dashed underline on the `—`),

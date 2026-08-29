@@ -6,7 +6,7 @@
 //// Those codecs are in submodules, one for each vocabulary:
 ////
 //// - `wire/socket` — connection-level frames and spillway envelope codecs
-//// - `wire/ops` — op contents: channel ops, attach envelopes, summarize ops
+//// - `wire/op` — op contents: channel ops, attach envelopes, summarize ops
 //// - `wire/summary_blob` — the versioned summary storage format
 ////
 //// This module holds only what those vocabularies share.
@@ -22,7 +22,7 @@ import gleam/string
 
 /// An op that a client wrote, ready for `submitOp`. It has the same fields
 /// that the `submitCore` function of the TypeScript driver puts on the wire.
-/// `wire/ops` constructs it, and `wire/socket` serializes it.
+/// `wire/op` constructs it, and `wire/socket` serializes it.
 pub type OutboundOp {
   OutboundOp(
     client_sequence_number: Int,

@@ -41,6 +41,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 @target(erlang)
 import gleam/otp/actor
+@target(erlang)
+import gleam/result
 
 @target(erlang)
 import watershed/runtime_beam
@@ -78,7 +80,7 @@ pub fn start(
   ))
   |> actor.on_message(handle)
   |> actor.start
-  |> result_map(fn(started) {
+  |> result.map(fn(started) {
     Sluice(actor: started.data, tenant: tenant, document: document)
   })
 }
@@ -482,11 +484,11 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 
     TakeAndDeliver(reply) ->
       case core.take(state.core) {
-        #(core, None) -> {
+        #(core, Error(Nil)) -> {
           process.send(reply, False)
           actor.continue(State(..state, core: core))
         }
-        #(core, Some(frame)) -> {
+        #(core, Ok(frame)) -> {
           case list.key_find(state.conns, frame.client_id) {
             Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
             Error(_) -> Nil
@@ -542,8 +544,12 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 /// exact path that a frame takes over a real socket before the runtime decodes
 /// it.
 fn to_dynamic(payload: Json) -> Dynamic {
-  let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
-  dynamic
+  // `json.to_string` always writes valid JSON, so the parse always succeeds.
+  // The error arm reports a null value, because this module must not panic.
+  case json.parse(json.to_string(payload), decode.dynamic) {
+    Ok(value) -> value
+    Error(_) -> dynamic.nil()
+  }
 }
 
 @target(erlang)
@@ -554,13 +560,5 @@ fn client_id_of(
   case list.find(subjects, fn(pair) { pair.0 == subject }) {
     Ok(pair) -> Ok(pair.1)
     Error(_) -> Error(Nil)
-  }
-}
-
-@target(erlang)
-fn result_map(result: Result(a, e), transform: fn(a) -> b) -> Result(b, e) {
-  case result {
-    Ok(value) -> Ok(transform(value))
-    Error(error) -> Error(error)
   }
 }

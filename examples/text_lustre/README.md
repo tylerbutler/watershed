@@ -277,8 +277,9 @@ pnpm run serve      # then open http://localhost:8080/element.html twice
 
 ## Bootstrapping — one channel, many tabs
 
-The root map is typed ([`src/doc_schema.gleam`](src/doc_schema.gleam)) with one
-plain field and one channel field:
+The root map is typed
+([`src/text_lustre/doc_schema.gleam`](src/text_lustre/doc_schema.gleam)) with
+one plain field and one channel field:
 
 ```text
 root ─┬─ "title" = "watershed shared document"
@@ -321,7 +322,7 @@ reconnect and nothing is lost.
 
 ## Headless smoke test
 
-[`src/smoke.gleam`](src/smoke.gleam) drives two clients from Node against a
+[`dev/smoke.gleam`](dev/smoke.gleam) drives two clients from Node against a
 running `just integration-up` server, racing an emoji insert at the head of one client against
 a combining-mark insert at the tail of the other:
 

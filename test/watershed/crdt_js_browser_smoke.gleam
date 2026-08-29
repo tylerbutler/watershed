@@ -160,7 +160,24 @@ pub fn run(room: String, url: String, claps: Int) -> Promise(String) {
             note(peer, "subscriber " <> address <> ": " <> detail)
           crdt_js.RejectedByPeer(who, reason, detail) ->
             note(peer, "rejected by " <> who <> ": " <> reason <> " " <> detail)
-          _ -> Nil
+          crdt_js.Transport(_)
+          | crdt_js.TransportError(_)
+          | crdt_js.Joined(..)
+          | crdt_js.AwaitingState(_)
+          | crdt_js.Ready
+          | crdt_js.PeerReady(_)
+          | crdt_js.PeerGone(_)
+          | crdt_js.RelayConnecting(_)
+          | crdt_js.RelayUnsupported(_)
+          | crdt_js.RelaySyncingStatus
+          | crdt_js.RelayRecovering
+          | crdt_js.RelayPrimary(_)
+          | crdt_js.RelayCheckpointRequested
+          | crdt_js.RelayCheckpointed(_)
+          | crdt_js.RelayFallback(_)
+          | crdt_js.RelayRetry(_)
+          | crdt_js.RelayRejected(..)
+          | crdt_js.RelayFailed(_) -> Nil
         }
       },
     )

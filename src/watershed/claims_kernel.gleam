@@ -28,7 +28,7 @@
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option}
 import gleam/string
 
 pub type ClaimsState {
@@ -49,7 +49,7 @@ pub type ClaimEntry {
   ClaimEntry(value: Json, sequence_number: Int)
 }
 
-/// The one claim op, in its wire form. The write-once path (`try_set_claim`)
+/// The one claim op, in its wire form. The write-once path (`claim_once`)
 /// and the compare-and-set path (`compare_and_set_claim`) both use this
 /// shape.
 pub type ClaimOp {
@@ -63,12 +63,12 @@ pub type ClaimEvent {
   Claimed(key: String, local: Bool)
 }
 
-/// The synchronous result of `try_set_claim` or `compare_and_set_claim`.
+/// The synchronous result of `claim_once` or `compare_and_set_claim`.
 pub type SubmitResult {
   /// The caller must send the op. Its outcome arrives later, from
   /// `ack_local`. This is the "Pending" status in TypeScript.
   Submitted(state: ClaimsState, op: ClaimOp)
-  /// `try_set_claim` found a committed entry, so the caller sends nothing.
+  /// `claim_once` found a committed entry, so the caller sends nothing.
   /// This value carries the committed value, which can be a JSON null.
   AlreadyClaimed(current_value: Json)
 }
@@ -129,13 +129,13 @@ pub fn summary_entries(state: ClaimsState) -> List(#(String, Json, Int)) {
   })
 }
 
-/// The committed value for a key. The result is `None` if the key is
-/// unclaimed. The read gives committed data only, by design: a pending local
-/// claim is not visible until it wins.
-pub fn get(state: ClaimsState, key: String) -> Option(Json) {
+/// The committed value for a key. The read gives committed data only, by
+/// design: a pending local claim is not visible until it wins. The result is
+/// `Error(Nil)` when the key is unclaimed.
+pub fn get(state: ClaimsState, key: String) -> Result(Json, Nil) {
   case dict.get(state.claims, key) {
-    Ok(ClaimEntry(value, _)) -> Some(value)
-    Error(_) -> None
+    Ok(ClaimEntry(value, _)) -> Ok(value)
+    Error(Nil) -> Error(Nil)
   }
 }
 
@@ -151,10 +151,10 @@ pub fn has(state: ClaimsState, key: String) -> Bool {
 /// behaves as a compare-and-set against the unclaimed key, and it records
 /// `ref_seq = last_seen_seq`.
 ///
-/// The check of the committed state runs *before* the pending guard. A try-set
-/// on a committed key thus returns `AlreadyClaimed`, also when a
-/// compare-and-set for that key is pending locally.
-pub fn try_set_claim(
+/// The check of the committed state runs *before* the pending guard. A
+/// write-once claim on a committed key thus returns `AlreadyClaimed`, also
+/// when a compare-and-set for that key is pending locally.
+pub fn claim_once(
   state: ClaimsState,
   key: String,
   value: Json,
@@ -286,7 +286,7 @@ pub fn ack_local(
         ClaimsState(..state, pending: dict.delete(state.pending, op.key))
       case accepted {
         True -> Ok(#(state, [Claimed(op.key, True)], Accepted(pending_value)))
-        False -> Ok(#(state, [], Lost(get(state, op.key))))
+        False -> Ok(#(state, [], Lost(option.from_result(get(state, op.key)))))
       }
     }
   }

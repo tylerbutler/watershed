@@ -42,7 +42,7 @@
 //// the declared keys, and you repeat no list by hand:
 ////
 //// ```gleam
-//// fn player_schema() -> Schema(Player, PlayerState) {
+//// fn player_schema() -> Result(Schema(Player, PlayerState), Nil) {
 ////   schema.record2(
 ////     PlayerState,
 ////     schema.prop(name(), fn(p: PlayerState) { p.name }),
@@ -312,14 +312,17 @@ pub fn sealed(
 
 /// Seal a record-builder schema to exactly the keys that its props declare.
 /// The reserved version key is always permitted. You repeat no key list by
-/// hand, so no list can drift out of agreement. The function panics for a
-/// schema that you built with `schema(...)`, because such a schema does not
-/// declare its keys. Use `sealed(keys)` for that schema instead.
-pub fn sealed_known(schema: Schema(tag, record)) -> Schema(tag, record) {
+/// hand, so no list can drift out of agreement.
+///
+/// The result is `Error(Nil)` for a schema that you built with `schema(...)`,
+/// because such a schema does not declare its keys. Use `sealed(keys)` for
+/// that schema instead.
+pub fn sealed_known(
+  schema: Schema(tag, record),
+) -> Result(Schema(tag, record), Nil) {
   case schema.declared_keys {
-    Some(keys) -> sealed(schema, keys)
-    None ->
-      panic as "sealed_known requires a record1..record9 schema; use sealed(keys) for hand-rolled schemas"
+    Some(keys) -> Ok(sealed(schema, keys))
+    None -> Error(Nil)
   }
 }
 

@@ -65,7 +65,7 @@ fn tamper(raw: String, from: String, to: String) -> String {
 
 // --- defaults -------------------------------------------------------------
 
-pub fn version_one_limits_are_the_documented_defaults_test() {
+pub fn version_one_limits_are_the_documented_defaults_test() -> Nil {
   let limits = crdt_wire.default_limits()
   limits.room_peers |> expect.to_equal(8)
   limits.envelope_bytes |> expect.to_equal(262_144)
@@ -76,7 +76,7 @@ pub fn version_one_limits_are_the_documented_defaults_test() {
   Nil
 }
 
-pub fn protocol_version_is_exactly_one_test() {
+pub fn protocol_version_is_exactly_one_test() -> Nil {
   crdt_wire.protocol_version |> expect.to_equal(1)
   crdt_wire.root_address |> expect.to_equal("root")
   Nil
@@ -84,12 +84,12 @@ pub fn protocol_version_is_exactly_one_test() {
 
 // --- addresses ------------------------------------------------------------
 
-pub fn root_address_has_no_creator_test() {
+pub fn root_address_has_no_creator_test() -> Nil {
   crdt_wire.address_creator("root") |> expect.to_equal(Ok(""))
   Nil
 }
 
-pub fn channel_addresses_name_their_creator_test() {
+pub fn channel_addresses_name_their_creator_test() -> Nil {
   crdt_wire.channel_address("replica-b", 7)
   |> expect.to_equal("replica-b:7")
   crdt_wire.address_creator("replica-b:7")
@@ -97,7 +97,7 @@ pub fn channel_addresses_name_their_creator_test() {
   Nil
 }
 
-pub fn malformed_addresses_are_rejected_test() {
+pub fn malformed_addresses_are_rejected_test() -> Nil {
   [
     "", "replica-b", "replica-b:", ":7", "replica-b:0", "replica-b:-1",
     "replica-b:01", "replica-b:+1", "replica-b:x", "replica-b:1:2", "Root",
@@ -108,7 +108,7 @@ pub fn malformed_addresses_are_rejected_test() {
   Nil
 }
 
-pub fn replica_ids_may_not_be_empty_or_hold_a_colon_test() {
+pub fn replica_ids_may_not_be_empty_or_hold_a_colon_test() -> Nil {
   crdt_wire.valid_replica_id("replica-b") |> expect.to_be_true
   crdt_wire.valid_replica_id("") |> expect.to_be_false
   crdt_wire.valid_replica_id("a:b") |> expect.to_be_false
@@ -117,7 +117,7 @@ pub fn replica_ids_may_not_be_empty_or_hold_a_colon_test() {
 
 // --- round trips ----------------------------------------------------------
 
-pub fn hello_round_trips_test() {
+pub fn hello_round_trips_test() -> Nil {
   round_trip(crdt_wire.Hello(
     compatibility: "watershed-crdt-1",
     root: channel.OrSetChannel,
@@ -125,12 +125,12 @@ pub fn hello_round_trips_test() {
   Nil
 }
 
-pub fn channel_announcement_round_trips_test() {
+pub fn channel_announcement_round_trips_test() -> Nil {
   round_trip(crdt_wire.ChannelAnnounce(g_set_entry("replica-a:1", replica)))
   Nil
 }
 
-pub fn delta_round_trips_test() {
+pub fn delta_round_trips_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   round_trip(crdt_wire.Delta(
     crdt_wire.MessageId(replica, 17),
@@ -141,12 +141,12 @@ pub fn delta_round_trips_test() {
   Nil
 }
 
-pub fn state_request_round_trips_test() {
+pub fn state_request_round_trips_test() -> Nil {
   round_trip(crdt_wire.StateRequest)
   Nil
 }
 
-pub fn state_round_trips_and_sorts_by_address_test() {
+pub fn state_round_trips_and_sorts_by_address_test() -> Nil {
   let entries = [
     g_set_entry("replica-b:2", "replica-b"),
     g_set_entry("replica-a:1", replica),
@@ -158,7 +158,7 @@ pub fn state_round_trips_and_sorts_by_address_test() {
   Nil
 }
 
-pub fn state_encoding_ignores_entry_order_test() {
+pub fn state_encoding_ignores_entry_order_test() -> Nil {
   let left = [
     g_set_entry("replica-b:2", "replica-b"),
     g_set_entry("replica-a:1", replica),
@@ -174,7 +174,7 @@ pub fn state_encoding_ignores_entry_order_test() {
 /// `string.compare` on Erlang and on JavaScript. Both targets run this
 /// file, so a target-dependent comparator here puts two peers' `state`
 /// messages in different orders and fails on one of them.
-pub fn state_entries_sort_by_utf8_bytes_on_every_target_test() {
+pub fn state_entries_sort_by_utf8_bytes_on_every_target_test() -> Nil {
   let entries = [
     g_set_entry("peer-𝄞:1", "peer-𝄞"),
     g_set_entry("peer-\u{FFFD}:1", "peer-\u{FFFD}"),
@@ -186,17 +186,17 @@ pub fn state_entries_sort_by_utf8_bytes_on_every_target_test() {
   Nil
 }
 
-pub fn digest_round_trips_test() {
+pub fn digest_round_trips_test() -> Nil {
   round_trip(crdt_wire.Digest("0f1e2d"))
   Nil
 }
 
-pub fn rejection_round_trips_test() {
+pub fn rejection_round_trips_test() -> Nil {
   round_trip(crdt_wire.Rejected("unsupported-channel", "map is not p2p"))
   Nil
 }
 
-pub fn every_eligible_channel_type_round_trips_a_delta_test() {
+pub fn every_eligible_channel_type_round_trips_a_delta_test() -> Nil {
   [
     #(channel.InitPnCounter, channel.PnCounterEdit(3)),
     #(
@@ -229,7 +229,7 @@ pub fn every_eligible_channel_type_round_trips_a_delta_test() {
   Nil
 }
 
-pub fn envelope_field_order_is_fixed_test() {
+pub fn envelope_field_order_is_fixed_test() -> Nil {
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.StateRequest))
   raw
   |> expect.to_equal(
@@ -240,26 +240,26 @@ pub fn envelope_field_order_is_fixed_test() {
 
 // --- rejections -----------------------------------------------------------
 
-pub fn malformed_json_is_rejected_test() {
+pub fn malformed_json_is_rejected_test() -> Nil {
   let assert Error(p2p.InvalidEnvelope(_, _)) =
     crdt_wire.decode_envelope("{not json", limits())
   Nil
 }
 
-pub fn a_non_envelope_object_is_rejected_test() {
+pub fn a_non_envelope_object_is_rejected_test() -> Nil {
   let assert Error(p2p.InvalidEnvelope(_, _)) =
     crdt_wire.decode_envelope("{\"hello\":true}", limits())
   Nil
 }
 
-pub fn another_protocol_version_is_rejected_test() {
+pub fn another_protocol_version_is_rejected_test() -> Nil {
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.StateRequest))
   let assert Error(p2p.ProtocolMismatch(1, 2)) =
     crdt_wire.decode_envelope(tamper(raw, "\"v\":1", "\"v\":2"), limits())
   Nil
 }
 
-pub fn an_unknown_message_type_is_rejected_test() {
+pub fn an_unknown_message_type_is_rejected_test() -> Nil {
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.StateRequest))
   let assert Error(p2p.InvalidEnvelope(from, _)) =
     crdt_wire.decode_envelope(
@@ -270,7 +270,7 @@ pub fn an_unknown_message_type_is_rejected_test() {
   Nil
 }
 
-pub fn an_empty_sender_identity_is_rejected_test() {
+pub fn an_empty_sender_identity_is_rejected_test() -> Nil {
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.StateRequest))
   let assert Error(p2p.InvalidEnvelope(_, _)) =
     crdt_wire.decode_envelope(
@@ -285,7 +285,7 @@ pub fn an_empty_sender_identity_is_rejected_test() {
   Nil
 }
 
-pub fn an_unsupported_channel_type_is_rejected_test() {
+pub fn an_unsupported_channel_type_is_rejected_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -304,7 +304,7 @@ pub fn an_unsupported_channel_type_is_rejected_test() {
   Nil
 }
 
-pub fn an_unknown_channel_type_is_rejected_test() {
+pub fn an_unknown_channel_type_is_rejected_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -324,7 +324,7 @@ pub fn an_unknown_channel_type_is_rejected_test() {
 }
 
 /// Local counters start at 1, so zero is as forged as a negative one.
-pub fn a_non_positive_message_counter_is_rejected_test() {
+pub fn a_non_positive_message_counter_is_rejected_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -347,7 +347,7 @@ pub fn a_non_positive_message_counter_is_rejected_test() {
   Nil
 }
 
-pub fn a_malformed_message_id_is_rejected_test() {
+pub fn a_malformed_message_id_is_rejected_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -372,7 +372,7 @@ pub fn a_malformed_message_id_is_rejected_test() {
   Nil
 }
 
-pub fn a_delta_naming_an_invalid_address_is_rejected_test() {
+pub fn a_delta_naming_an_invalid_address_is_rejected_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -392,7 +392,7 @@ pub fn a_delta_naming_an_invalid_address_is_rejected_test() {
   Nil
 }
 
-pub fn delta_contents_must_match_the_declared_channel_type_test() {
+pub fn delta_contents_must_match_the_declared_channel_type_test() -> Nil {
   let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
@@ -412,7 +412,7 @@ pub fn delta_contents_must_match_the_declared_channel_type_test() {
   Nil
 }
 
-pub fn a_snapshot_must_match_the_declared_channel_type_test() {
+pub fn a_snapshot_must_match_the_declared_channel_type_test() -> Nil {
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.ChannelAnnounce(g_set_entry("replica-a:1", replica))),
@@ -426,7 +426,7 @@ pub fn a_snapshot_must_match_the_declared_channel_type_test() {
   Nil
 }
 
-pub fn a_forged_descriptor_creator_is_rejected_test() {
+pub fn a_forged_descriptor_creator_is_rejected_test() -> Nil {
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.ChannelAnnounce(g_set_entry("replica-a:1", replica))),
@@ -440,7 +440,7 @@ pub fn a_forged_descriptor_creator_is_rejected_test() {
   Nil
 }
 
-pub fn a_state_repeating_an_address_is_rejected_test() {
+pub fn a_state_repeating_an_address_is_rejected_test() -> Nil {
   let entry = g_set_entry("replica-a:1", replica)
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.State([entry, entry])))
   let assert Error(p2p.InvalidEnvelope(_, detail)) =
@@ -449,7 +449,7 @@ pub fn a_state_repeating_an_address_is_rejected_test() {
   Nil
 }
 
-pub fn an_oversize_envelope_is_rejected_before_decoding_test() {
+pub fn an_oversize_envelope_is_rejected_before_decoding_test() -> Nil {
   let raw = crdt_wire.envelope_to_string(wrap(crdt_wire.StateRequest))
   let tiny = crdt_wire.Limits(..limits(), envelope_bytes: 8)
   let assert Error(p2p.InvalidEnvelope(_, detail)) =
@@ -458,7 +458,7 @@ pub fn an_oversize_envelope_is_rejected_before_decoding_test() {
   Nil
 }
 
-pub fn an_oversize_snapshot_is_rejected_test() {
+pub fn an_oversize_snapshot_is_rejected_test() -> Nil {
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.ChannelAnnounce(g_set_entry("replica-a:1", replica))),
@@ -470,7 +470,7 @@ pub fn an_oversize_snapshot_is_rejected_test() {
   Nil
 }
 
-pub fn message_types_carry_their_wire_tag_test() {
+pub fn message_types_carry_their_wire_tag_test() -> Nil {
   crdt_wire.message_type(crdt_wire.StateRequest)
   |> expect.to_equal("stateRequest")
   crdt_wire.message_type(crdt_wire.Digest("x")) |> expect.to_equal("digest")

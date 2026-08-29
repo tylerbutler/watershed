@@ -68,7 +68,7 @@ pub fn sum_model_with_check() -> KernelModel(Int, Int, Int) {
   )
 }
 
-pub fn check_hook_catches_planted_violation_test() {
+pub fn check_hook_catches_planted_violation_test() -> Nil {
   let script = [ClientOp(0, -1), Synchronize]
   case kernel_fuzz.try_run_script(sum_model_with_check(), 1, script) {
     Error(_) -> Nil
@@ -76,7 +76,7 @@ pub fn check_hook_catches_planted_violation_test() {
   }
 }
 
-pub fn check_hook_passes_when_invariant_holds_test() {
+pub fn check_hook_passes_when_invariant_holds_test() -> Nil {
   let script = [ClientOp(0, 1), Synchronize]
   kernel_fuzz.try_run_script(sum_model_with_check(), 1, script)
   |> expect.to_be_ok
@@ -125,7 +125,7 @@ fn id_echo_model() -> KernelModel(#(Int, List(Int)), Int, List(Int)) {
   )
 }
 
-pub fn init_receives_distinct_client_indices_test() {
+pub fn init_receives_distinct_client_indices_test() -> Nil {
   // One op per client, synchronized between each so every client applies
   // them in the same (log) order.
   let script = [
@@ -143,7 +143,7 @@ pub fn init_receives_distinct_client_indices_test() {
 /// Teeth check: an `init` that ignores its identity (every client gets the
 /// same replica id — precisely the pre-H1 world a lattice kernel cannot
 /// survive) must be caught by the same script.
-pub fn constant_init_identity_is_caught_test() {
+pub fn constant_init_identity_is_caught_test() -> Nil {
   let model = KernelModel(..id_echo_model(), init: fn(_id) { #(7, []) })
   let script = [
     ClientOp(0, 0),
@@ -159,7 +159,7 @@ pub fn constant_init_identity_is_caught_test() {
   }
 }
 
-pub fn fixed_script_converges_test() {
+pub fn fixed_script_converges_test() -> Nil {
   let script = [
     ClientOp(0, 3),
     ClientOp(1, 4),
@@ -173,7 +173,7 @@ pub fn fixed_script_converges_test() {
   kernel_fuzz.run_script(sum_model(), 2, script)
 }
 
-pub fn random_scripts_converge_test() {
+pub fn random_scripts_converge_test() -> Nil {
   qcheck.run(
     config(),
     qcheck.generic_list(
@@ -232,7 +232,7 @@ fn reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
   )
 }
 
-pub fn synchronize_reaches_reactive_fixpoint_test() {
+pub fn synchronize_reaches_reactive_fixpoint_test() -> Nil {
   let script = [ClientOp(1, 1), Synchronize]
   kernel_fuzz.try_run_script(reactive_model(), 2, script)
   |> expect.to_be_ok
@@ -276,7 +276,7 @@ fn leave_model() -> KernelModel(List(#(Int, Int)), Int, List(#(Int, Int))) {
   )
 }
 
-pub fn leave_entry_applies_remove_member_at_sequence_point_test() {
+pub fn leave_entry_applies_remove_member_at_sequence_point_test() -> Nil {
   let script = [Disconnect(1), Synchronize]
   kernel_fuzz.try_run_script(leave_model(), 3, script)
   |> expect.to_be_ok
@@ -298,7 +298,7 @@ fn non_terminating_reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
   )
 }
 
-pub fn synchronize_round_cap_fails_instead_of_hanging_test() {
+pub fn synchronize_round_cap_fails_instead_of_hanging_test() -> Nil {
   let script = [ClientOp(1, 1), Synchronize]
   case kernel_fuzz.try_run_script(non_terminating_reactive_model(), 2, script) {
     Error("did not reach quiescence") -> Nil
@@ -307,7 +307,7 @@ pub fn synchronize_round_cap_fails_instead_of_hanging_test() {
   }
 }
 
-pub fn disconnected_reaction_routes_to_resend_and_replays_on_reconnect_test() {
+pub fn disconnected_reaction_routes_to_resend_and_replays_on_reconnect_test() -> Nil {
   let script = [
     ClientOp(1, 1),
     Sequence(1),
@@ -330,7 +330,7 @@ pub fn disconnected_reaction_routes_to_resend_and_replays_on_reconnect_test() {
 /// `exception.rescue` only here, to assert on the fixture *after* the
 /// expected panic — this is the one place the harness's own tests need to
 /// observe a panic's side effect rather than treat it as a bare pass/fail.
-pub fn failing_run_script_dumps_a_replayable_json_fixture_test() {
+pub fn failing_run_script_dumps_a_replayable_json_fixture_test() -> Nil {
   let fixture_path = kernel_fuzz.fixture_path("toy-sum")
   let _ = simplifile.delete(fixture_path)
 

@@ -1,7 +1,7 @@
 //// Browser-specific helpers for collaborative document routing.
 
 @target(javascript)
-import watershed/ids
+import watershed/id
 
 @target(javascript)
 /// Return the document named by the current URL, or create a new name and add
@@ -11,7 +11,7 @@ import watershed/ids
 /// the resulting URL in another tab or another browser, you join the same
 /// document.
 pub fn document_on_navigate(prefix: String) -> String {
-  document_from_url(prefix <> "-" <> ids.uuid_v4())
+  document_from_url(prefix <> "-" <> id.uuid_v4())
 }
 
 @target(javascript)

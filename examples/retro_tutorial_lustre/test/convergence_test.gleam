@@ -7,9 +7,9 @@ import gleam/list
 import gleam/option.{Some}
 import gleeunit/should
 
-import board
-import board_ops
-import doc_schema
+import retro_tutorial_lustre/board
+import retro_tutorial_lustre/board_op
+import retro_tutorial_lustre/doc_schema
 import watershed.{type Document, type OrMap}
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
@@ -59,14 +59,14 @@ fn board_of(
 ) -> board.Snapshot {
   let root = watershed.root_typed(doc)
   let assert Ok(Some(title)) = watershed.get_field(root, doc_schema.title())
-  board_ops.snapshot(title, channels.notes, channels.votes)
+  board_op.snapshot(title, channels.notes, channels.votes)
 }
 
-pub fn concurrent_adds_keep_both_notes_test() {
+pub fn concurrent_adds_keep_both_notes_test() -> Nil {
   let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-adds")
 
   let first =
-    board_ops.add_note(
+    board_op.add_note(
       a.notes,
       "user-a",
       "deploys got faster",
@@ -75,7 +75,7 @@ pub fn concurrent_adds_keep_both_notes_test() {
       1,
     )
   let second =
-    board_ops.add_note(
+    board_op.add_note(
       b.notes,
       "user-b",
       "standup stayed short",
@@ -97,11 +97,11 @@ pub fn concurrent_adds_keep_both_notes_test() {
   |> should.equal(2)
 }
 
-pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() {
+pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-votes")
 
   let id =
-    board_ops.add_note(
+    board_op.add_note(
       a.notes,
       "user-a",
       "ship week went smoothly",
@@ -111,9 +111,9 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() {
     )
   sluice_js.settle(sluice)
 
-  board_ops.upvote(a.votes, id)
-  board_ops.upvote(b.votes, id)
-  board_ops.downvote(b.votes, id)
+  board_op.upvote(a.votes, id)
+  board_op.upvote(b.votes, id)
+  board_op.downvote(b.votes, id)
   sluice_js.settle(sluice)
 
   let board_a = board_of(doc_a, a)

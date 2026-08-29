@@ -6,10 +6,10 @@
 //// every client from that signoff list.
 
 import gleam/dict.{type Dict}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order
 import gleam/string
 
 pub type PactMapState {
@@ -47,6 +47,18 @@ pub type KernelError {
   UnexpectedAccept(key: String, client: Int, detail: String)
 }
 
+/// The reasons that the kernel refuses to build an op for a local proposal.
+/// Each reason changes nothing, and the caller can retry later.
+pub type ProposeError {
+  /// A proposal for this key waits for signoffs now. One key holds one
+  /// pending proposal at a time.
+  ProposalAlreadyPending(key: String)
+  /// A delete needs a value to delete, and this key holds none.
+  KeyNotFound(key: String)
+  /// A delete needs a value to delete, and a client already deleted this key.
+  KeyAlreadyDeleted(key: String)
+}
+
 pub fn new() -> PactMapState {
   PactMapState(values: dict.new())
 }
@@ -65,31 +77,44 @@ pub fn summary_entries(state: PactMapState) -> List(#(String, Pact)) {
   dict.to_list(state.values) |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
 
-pub fn get(state: PactMapState, key: String) -> Option(Json) {
+/// The accepted value for `key`. The result is `Error(Nil)` when the key holds
+/// no accepted value, and when the room accepted a delete for it.
+pub fn get(state: PactMapState, key: String) -> Result(Json, Nil) {
   case dict.get(state.values, key) {
-    Ok(Pact(Some(Accepted(value, _)), _)) -> value
-    _ -> None
+    Ok(Pact(Some(Accepted(Some(value), _)), _)) -> Ok(value)
+    Ok(Pact(Some(Accepted(None, _)), _)) | Ok(Pact(None, _)) | Error(Nil) ->
+      Error(Nil)
   }
 }
 
-pub fn get_with_details(state: PactMapState, key: String) -> Option(Accepted) {
+/// The accepted entry for `key`, which is the value with its sequence number.
+pub fn get_with_details(
+  state: PactMapState,
+  key: String,
+) -> Result(Accepted, Nil) {
   case dict.get(state.values, key) {
-    Ok(Pact(Some(accepted), _)) -> Some(accepted)
-    _ -> None
+    Ok(Pact(Some(accepted), _)) -> Ok(accepted)
+    Ok(Pact(None, _)) | Error(Nil) -> Error(Nil)
   }
 }
 
 pub fn is_pending(state: PactMapState, key: String) -> Bool {
   case dict.get(state.values, key) {
     Ok(Pact(_, Some(_))) -> True
-    _ -> False
+    Ok(Pact(_, None)) | Error(Nil) -> False
   }
 }
 
-pub fn get_pending(state: PactMapState, key: String) -> Option(Option(Json)) {
+/// The value that a client proposed for `key` and no room accepted yet. The
+/// inner `Option` holds the proposal itself: `None` is a proposal to delete
+/// the key.
+pub fn get_pending(
+  state: PactMapState,
+  key: String,
+) -> Result(Option(Json), Nil) {
   case dict.get(state.values, key) {
-    Ok(Pact(_, Some(Pending(value, _)))) -> Some(value)
-    _ -> None
+    Ok(Pact(_, Some(Pending(value, _)))) -> Ok(value)
+    Ok(Pact(_, None)) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -97,10 +122,10 @@ pub fn get_pending(state: PactMapState, key: String) -> Option(Option(Json)) {
 /// on. `get_pending` gives the value that is pending. This function gives the
 /// clients that must sign off. Only that list can explain a stalled pact to a
 /// user.
-pub fn pending(state: PactMapState, key: String) -> Option(Pending) {
+pub fn pending(state: PactMapState, key: String) -> Result(Pending, Nil) {
   case dict.get(state.values, key) {
-    Ok(Pact(_, Some(pending))) -> Some(pending)
-    _ -> None
+    Ok(Pact(_, Some(pending))) -> Ok(pending)
+    Ok(Pact(_, None)) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -108,28 +133,33 @@ pub fn keys(state: PactMapState) -> List(String) {
   dict.keys(state.values) |> list.sort(string.compare)
 }
 
+/// Build the op for a local proposal. `value` is `None` for a proposal to
+/// delete the key.
 pub fn set(
   state: PactMapState,
   key: String,
   value: Option(Json),
   last_seen_seq: Int,
-) -> Option(PactMapOp) {
+) -> Result(PactMapOp, ProposeError) {
   case dict.get(state.values, key) {
-    Ok(Pact(_, Some(_))) -> None
-    _ -> Some(Set(key, value, last_seen_seq))
+    Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
+    Ok(Pact(_, None)) | Error(Nil) -> Ok(Set(key, value, last_seen_seq))
   }
 }
 
+/// Build the op for a local delete proposal. A delete needs a value to
+/// delete, so an absent key and an already deleted key are both refusals.
 pub fn delete(
   state: PactMapState,
   key: String,
   last_seen_seq: Int,
-) -> Option(PactMapOp) {
+) -> Result(PactMapOp, ProposeError) {
   case dict.get(state.values, key) {
-    Error(_) -> None
-    Ok(Pact(_, Some(_))) -> None
-    Ok(Pact(Some(Accepted(None, _)), None)) -> None
-    Ok(_) -> Some(Set(key, None, last_seen_seq))
+    Error(Nil) -> Error(KeyNotFound(key))
+    Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
+    Ok(Pact(Some(Accepted(None, _)), None)) -> Error(KeyAlreadyDeleted(key))
+    Ok(Pact(Some(Accepted(Some(_), _)), None)) | Ok(Pact(None, None)) ->
+      Ok(Set(key, None, last_seen_seq))
   }
 }
 
@@ -159,7 +189,7 @@ pub fn apply_set(
       case valid {
         False -> #(state, [], NoReaction)
         True -> {
-          let signoffs = connected |> list.sort(int_compare)
+          let signoffs = connected |> list.sort(int.compare)
           let pact =
             Pact(accepted: accepted, pending: Some(Pending(value, signoffs)))
           let state = PactMapState(values: dict.insert(state.values, key, pact))
@@ -247,7 +277,7 @@ pub fn remove_member(
 fn settle(
   state: PactMapState,
   key: String,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(PactMapState, List(PactMapEvent)) {
   case dict.get(state.values, key) {
     Ok(Pact(_, Some(Pending(value, _)))) -> {
@@ -255,21 +285,10 @@ fn settle(
         PactMapState(values: dict.insert(
           state.values,
           key,
-          Pact(accepted: Some(Accepted(value, seq)), pending: None),
+          Pact(accepted: Some(Accepted(value, sequence_number)), pending: None),
         ))
       #(state, [WentAccepted(key)])
     }
-    _ -> #(state, [])
-  }
-}
-
-fn int_compare(a: Int, b: Int) -> order.Order {
-  case a < b {
-    True -> order.Lt
-    False ->
-      case a > b {
-        True -> order.Gt
-        False -> order.Eq
-      }
+    Ok(Pact(_, None)) | Error(Nil) -> #(state, [])
   }
 }

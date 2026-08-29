@@ -18,7 +18,7 @@ import * as presence_js from "./build/dev/javascript/watershed/watershed/presenc
 import * as presence from "./build/dev/javascript/watershed/watershed/presence.mjs";
 import * as decode from "./build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import { Ok } from "./build/dev/javascript/prelude.mjs";
-import { body } from "./build/dev/javascript/text_lustre/doc_schema.mjs";
+import { body } from "./build/dev/javascript/text_lustre/text_lustre/doc_schema.mjs";
 
 // Dev config for `just server` (levee dev mode) — matches src/text_lustre.gleam.
 const SOCKET_URL = "ws://localhost:4000/socket/websocket?vsn=2.0.0";

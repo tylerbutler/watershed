@@ -95,19 +95,13 @@ pub fn sequenced_value(state: PnCounterState) -> Int {
 }
 
 /// Apply a signed local update optimistically, and return the outbound op with
-/// its local message id. This function handles the sign, so only the `try_*`
-/// lattice mutators can run, and they always receive a magnitude of zero or
-/// more. Those mutators do not panic.
+/// its local message id. This function handles the sign, so the lattice
+/// mutators always receive a magnitude of zero or more.
 pub fn update(
   state: PnCounterState,
   amount: Int,
 ) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp, Int) {
-  // The magnitude is non-negative by construction, so the NegativeDelta
-  // error arm is unreachable.
-  let assert Ok(#(optimistic, delta)) = case amount >= 0 {
-    True -> pn_counter.try_increment_with_delta(state.optimistic, amount)
-    False -> pn_counter.try_decrement_with_delta(state.optimistic, 0 - amount)
-  }
+  let #(optimistic, delta) = signed_delta(state.optimistic, amount)
   let message_id = state.next_pending_message_id
   let new_value = pn_counter.value(optimistic)
   #(
@@ -134,12 +128,7 @@ pub fn p2p_update(
   state: PnCounterState,
   amount: Int,
 ) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp) {
-  // The magnitude is non-negative by construction, so the NegativeDelta
-  // error arm is unreachable.
-  let assert Ok(#(_, delta)) = case amount >= 0 {
-    True -> pn_counter.try_increment_with_delta(state.optimistic, amount)
-    False -> pn_counter.try_decrement_with_delta(state.optimistic, 0 - amount)
-  }
+  let #(_optimistic, delta) = signed_delta(state.optimistic, amount)
   let sequenced = pn_counter.merge(state.sequenced, delta)
   let optimistic = pn_counter.merge(state.optimistic, delta)
   let new_value = pn_counter.value(optimistic)
@@ -385,6 +374,16 @@ pub fn from_sequenced(
     pending: [],
     next_pending_message_id: 0,
   )
+}
+
+/// The state and the sparse delta for one signed local update. The function
+/// splits the sign here, so the grow-only halves of the counter each receive a
+/// magnitude of zero or more.
+fn signed_delta(counter: PNCounter, amount: Int) -> #(PNCounter, PNCounter) {
+  case amount >= 0 {
+    True -> pn_counter.increment_with_delta(counter, amount)
+    False -> pn_counter.decrement_with_delta(counter, 0 - amount)
+  }
 }
 
 fn pop_last(

@@ -1,5 +1,6 @@
 import gleam/option.{None, Some}
 import startest/expect
+import watershed/ot_client
 import watershed/rich_text
 import watershed/rich_text_kernel.{RichTextChanged, RichTextWireOp} as kernel
 
@@ -13,7 +14,7 @@ fn delta(raw: String) -> rich_text.Delta {
   delta
 }
 
-pub fn new_summary_and_view_test() {
+pub fn new_summary_and_view_test() -> Nil {
   let state = kernel.new()
   state.sequenced |> expect.to_equal(rich_text.empty_document())
   kernel.summary(state) |> expect.to_equal(rich_text.empty_document())
@@ -26,7 +27,7 @@ pub fn new_summary_and_view_test() {
   kernel.view(from_summary) |> expect.to_equal(Ok(base))
 }
 
-pub fn immediate_and_buffered_submit_have_optimistic_view_test() {
+pub fn immediate_and_buffered_submit_have_optimistic_view_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"retain\":1},{\"insert\":\"B\"}]")
   let c = delta("[{\"retain\":2},{\"insert\":\"C\"}]")
@@ -41,14 +42,14 @@ pub fn immediate_and_buffered_submit_have_optimistic_view_test() {
   events_b |> expect.to_equal([RichTextChanged(b, True)])
   let assert Ok(#(state, wire_c, _)) = kernel.submit(state, c, 0)
   wire_c |> expect.to_equal(None)
-  state.buffer
-  |> expect.to_equal(Some(delta("[{\"retain\":1},{\"insert\":\"BC\"}]")))
+  ot_client.buffered(state.pending)
+  |> expect.to_equal(Ok(delta("[{\"retain\":1},{\"insert\":\"BC\"}]")))
   kernel.view(state)
   |> expect.to_equal(Ok(document("[{\"insert\":\"ABC\"}]")))
   kernel.summary(state) |> expect.to_equal(rich_text.empty_document())
 }
 
-pub fn ack_commits_and_releases_buffer_once_test() {
+pub fn ack_commits_and_releases_buffer_once_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"retain\":1},{\"insert\":\"B\"}]")
   let state = kernel.new()
@@ -64,8 +65,8 @@ pub fn ack_commits_and_releases_buffer_once_test() {
 
   events |> expect.to_equal([])
   state.sequenced |> expect.to_equal(document("[{\"insert\":\"A\"}]"))
-  state.inflight |> expect.to_equal(Some(b))
-  state.buffer |> expect.to_equal(None)
+  ot_client.in_flight(state.pending) |> expect.to_equal(Ok(b))
+  ot_client.buffered(state.pending) |> expect.to_equal(Error(Nil))
   let #(state, outbound) = kernel.take_outbound(state)
   outbound |> expect.to_equal(Some(RichTextWireOp(1, b)))
   let #(state, again) = kernel.take_outbound(state)
@@ -73,13 +74,13 @@ pub fn ack_commits_and_releases_buffer_once_test() {
   kernel.view(state) |> expect.to_equal(Ok(document("[{\"insert\":\"AB\"}]")))
 }
 
-pub fn unexpected_ack_is_rejected_test() {
+pub fn unexpected_ack_is_rejected_test() -> Nil {
   let unexpected = RichTextWireOp(0, delta("[{\"insert\":\"A\"}]"))
   kernel.ack_local(kernel.new(), unexpected, 1, -1)
   |> expect.to_equal(Error(kernel.UnexpectedAck("ack with nothing in flight")))
 }
 
-pub fn submit_validates_utf16_boundaries_test() {
+pub fn submit_validates_utf16_boundaries_test() -> Nil {
   let state = kernel.from_document(document("[{\"insert\":\"A😀B\"}]"))
   let split_emoji = delta("[{\"retain\":2},{\"delete\":1}]")
 
@@ -89,7 +90,7 @@ pub fn submit_validates_utf16_boundaries_test() {
   )
 }
 
-pub fn remote_apply_without_pending_and_log_gc_test() {
+pub fn remote_apply_without_pending_and_log_gc_test() -> Nil {
   let x = delta("[{\"insert\":\"X\"}]")
   let state = kernel.new()
   let assert Ok(#(state, events)) =
@@ -100,7 +101,7 @@ pub fn remote_apply_without_pending_and_log_gc_test() {
   events |> expect.to_equal([RichTextChanged(x, False)])
 }
 
-pub fn stale_reference_transforms_through_concurrency_window_test() {
+pub fn stale_reference_transforms_through_concurrency_window_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"insert\":\"B\"}]")
   let state = kernel.new()
@@ -115,7 +116,7 @@ pub fn stale_reference_transforms_through_concurrency_window_test() {
 
 /// A remote operation that sequenced already comes before the pending local
 /// layers, so the event that the kernel emits inserts in front of them.
-pub fn remote_event_is_delta_against_optimistic_view_test() {
+pub fn remote_event_is_delta_against_optimistic_view_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"retain\":1},{\"insert\":\"B\"}]")
   let x = delta("[{\"insert\":\"X\"}]")
@@ -137,7 +138,7 @@ pub fn remote_event_is_delta_against_optimistic_view_test() {
 ///
 /// The side comes from the sequence order, so the three inserts land in that
 /// order: A at seq 1, C at seq 2, and B at seq 3.
-pub fn same_position_inserts_land_in_sequence_order_test() {
+pub fn same_position_inserts_land_in_sequence_order_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"insert\":\"B\"}]")
   let c = delta("[{\"retain\":1},{\"insert\":\"C\"}]")

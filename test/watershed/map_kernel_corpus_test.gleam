@@ -22,7 +22,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import simplifile
-import startest.{describe, it}
+import startest
 import startest/expect
 import startest/test_tree.{type TestTree}
 import watershed/map_kernel.{
@@ -39,10 +39,10 @@ pub fn map_kernel_corpus_tests() -> TestTree {
     |> list.sort(string.compare)
   let assert False = scenario_files == []
     as "no corpus fixtures found — see test/fixtures/corpus/README.md"
-  describe(
+  startest.describe(
     "map_kernel corpus",
     list.map(scenario_files, fn(file) {
-      it(file, fn() { load_scenario(file) |> replay })
+      startest.it(file, fn() { load_scenario(file) |> replay })
     }),
   )
 }
@@ -222,77 +222,91 @@ fn value_decoder() -> Decoder(Json) {
 // Replay harness (models the reference MockContainerRuntimeFactory system)
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ClientSim {
-  ClientSim(state: MapState, log: List(MapEvent))
+type ClientSimulation {
+  ClientSimulation(state: MapState, log: List(MapEvent))
 }
 
-type Sim {
-  Sim(clients: Dict(String, ClientSim), queue: List(#(String, MapOp)))
+type Simulation {
+  Simulation(
+    clients: Dict(String, ClientSimulation),
+    queue: List(#(String, MapOp)),
+  )
 }
 
 fn replay(scenario: Scenario) -> Nil {
   let clients =
     scenario.clients
-    |> list.map(fn(id) { #(id, ClientSim(map_kernel.new(), [])) })
+    |> list.map(fn(id) { #(id, ClientSimulation(map_kernel.new(), [])) })
     |> dict.from_list
-  let sim =
+  let simulation =
     list.index_fold(
       scenario.steps,
-      Sim(clients:, queue: []),
-      fn(sim, step, index) { run_step(sim, scenario, step, index) },
+      Simulation(clients:, queue: []),
+      fn(simulation, step, index) {
+        run_step(simulation, scenario, step, index)
+      },
     )
   // Mirrors the generator's end-of-scenario assertion.
-  sim.queue |> expect.to_equal([])
+  simulation.queue |> expect.to_equal([])
 }
 
-fn run_step(sim: Sim, scenario: Scenario, step: Step, index: Int) -> Sim {
+fn run_step(
+  simulation: Simulation,
+  scenario: Scenario,
+  step: Step,
+  index: Int,
+) -> Simulation {
   case step {
     SetStep(client, key, value) ->
-      submit(sim, client, fn(state) { map_kernel.set(state, key, value) })
+      submit(simulation, client, fn(state) { map_kernel.set(state, key, value) })
     DeleteStep(client, key) ->
-      submit(sim, client, fn(state) { map_kernel.delete(state, key) })
-    ClearStep(client) -> submit(sim, client, map_kernel.clear)
-    ProcessSome(count) -> process(sim, scenario, count)
-    ProcessAll -> process(sim, scenario, list.length(sim.queue))
-    Check -> check(sim, scenario, index)
+      submit(simulation, client, fn(state) { map_kernel.delete(state, key) })
+    ClearStep(client) -> submit(simulation, client, map_kernel.clear)
+    ProcessSome(count) -> process(simulation, scenario, count)
+    ProcessAll -> process(simulation, scenario, list.length(simulation.queue))
+    Check -> check(simulation, scenario, index)
   }
 }
 
 /// Apply a local op optimistically on the issuing client and append the op
 /// to the global sequencing queue.
 fn submit(
-  sim: Sim,
+  simulation: Simulation,
   client_id: String,
   operate: fn(MapState) -> #(MapState, List(MapEvent), MapOp),
-) -> Sim {
-  let client = get_client(sim, client_id)
+) -> Simulation {
+  let client = get_client(simulation, client_id)
   let #(state, events, op) = operate(client.state)
-  Sim(
+  Simulation(
     clients: dict.insert(
-      sim.clients,
+      simulation.clients,
       client_id,
-      ClientSim(state:, log: list.append(client.log, events)),
+      ClientSimulation(state:, log: list.append(client.log, events)),
     ),
-    queue: list.append(sim.queue, [#(client_id, op)]),
+    queue: list.append(simulation.queue, [#(client_id, op)]),
   )
 }
 
 /// Pop `count` messages off the head of the queue (the server's total order)
 /// and deliver each to every client.
-fn process(sim: Sim, scenario: Scenario, count: Int) -> Sim {
-  case count, sim.queue {
-    0, _ -> sim
+fn process(
+  simulation: Simulation,
+  scenario: Scenario,
+  count: Int,
+) -> Simulation {
+  case count, simulation.queue {
+    0, _ -> simulation
     _, [] -> panic as "corpus step processes more messages than outstanding"
     _, [#(origin, op), ..rest] -> {
       let clients =
-        list.fold(scenario.clients, sim.clients, fn(clients, client_id) {
+        list.fold(scenario.clients, simulation.clients, fn(clients, client_id) {
           let assert Ok(client) = dict.get(clients, client_id)
           let client = case client_id == origin {
             // The originating client treats the message as an ack of its
             // oldest matching pending op; acks never emit events.
             True ->
               case map_kernel.ack_local(client.state, op) {
-                Ok(state) -> ClientSim(..client, state:)
+                Ok(state) -> ClientSimulation(..client, state:)
                 Error(error) ->
                   panic as {
                     "ack mismatch on client "
@@ -303,19 +317,23 @@ fn process(sim: Sim, scenario: Scenario, count: Int) -> Sim {
               }
             False -> {
               let #(state, events) = map_kernel.apply_remote(client.state, op)
-              ClientSim(state:, log: list.append(client.log, events))
+              ClientSimulation(state:, log: list.append(client.log, events))
             }
           }
           dict.insert(clients, client_id, client)
         })
-      process(Sim(clients:, queue: rest), scenario, count - 1)
+      process(Simulation(clients:, queue: rest), scenario, count - 1)
     }
   }
 }
 
 /// Compare every client against the oracle observation for this step, then
 /// drain the event logs (events are recorded "since the previous check").
-fn check(sim: Sim, scenario: Scenario, step_index: Int) -> Sim {
+fn check(
+  simulation: Simulation,
+  scenario: Scenario,
+  step_index: Int,
+) -> Simulation {
   let observation = case
     list.find(scenario.observations, fn(observation) {
       observation.after_step == step_index
@@ -329,7 +347,7 @@ fn check(sim: Sim, scenario: Scenario, step_index: Int) -> Sim {
   }
 
   let clients =
-    list.fold(scenario.clients, sim.clients, fn(clients, client_id) {
+    list.fold(scenario.clients, simulation.clients, fn(clients, client_id) {
       let assert Ok(client) = dict.get(clients, client_id)
       let expected = case dict.get(observation.clients, client_id) {
         Ok(expected) -> expected
@@ -347,13 +365,13 @@ fn check(sim: Sim, scenario: Scenario, step_index: Int) -> Sim {
       client.log
       |> list.map(erase_event_value)
       |> expect.to_equal(expected.events)
-      dict.insert(clients, client_id, ClientSim(..client, log: []))
+      dict.insert(clients, client_id, ClientSimulation(..client, log: []))
     })
 
   // When the queue is drained the oracle asserts convergence; assert our own.
   case observation.converged {
     True -> {
-      sim.queue |> expect.to_equal([])
+      simulation.queue |> expect.to_equal([])
       let views =
         list.map(scenario.clients, fn(client_id) {
           let assert Ok(client) = dict.get(clients, client_id)
@@ -368,11 +386,11 @@ fn check(sim: Sim, scenario: Scenario, step_index: Int) -> Sim {
     False -> Nil
   }
 
-  Sim(..sim, clients:)
+  Simulation(..simulation, clients:)
 }
 
-fn get_client(sim: Sim, client_id: String) -> ClientSim {
-  case dict.get(sim.clients, client_id) {
+fn get_client(simulation: Simulation, client_id: String) -> ClientSimulation {
+  case dict.get(simulation.clients, client_id) {
     Ok(client) -> client
     Error(_) -> panic as { "scenario references unknown client " <> client_id }
   }

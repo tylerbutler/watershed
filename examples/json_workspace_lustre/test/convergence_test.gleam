@@ -13,9 +13,10 @@
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleeunit/should
 
-import doc_schema
+import json_workspace_lustre/doc_schema
 import watershed.{type Document, type JsonOt, type SharedDirectory}
 import watershed/json_ot.{type JsonValue, Key}
 import watershed/sluice_js.{type Sluice}
@@ -55,13 +56,13 @@ fn room(
 }
 
 fn tree_of(doc: Document(doc_schema.Workspace)) -> SharedDirectory {
-  let assert Ok(Some(dir)) =
+  let assert Ok(Some(directory)) =
     watershed.resolve_directory_field(
       doc,
       watershed.root_typed(doc),
       doc_schema.tree(),
     )
-  dir
+  directory
 }
 
 /// Create a document exactly as the app does: create a fresh `JsonOt`, then
@@ -69,12 +70,17 @@ fn tree_of(doc: Document(doc_schema.Workspace)) -> SharedDirectory {
 /// channel before it submits the value.
 fn create_doc(
   doc: Document(doc_schema.Workspace),
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> JsonOt {
   let assert Ok(channel) = watershed.create_json_ot(doc)
-  watershed.directory_set(dir, path, name, watershed.json_ot_handle_of(channel))
+  watershed.directory_set(
+    directory,
+    path,
+    name,
+    watershed.json_ot_handle_of(channel),
+  )
   channel
 }
 
@@ -82,17 +88,17 @@ fn create_doc(
 /// resolve it.
 fn open_doc(
   doc: Document(doc_schema.Workspace),
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> JsonOt {
-  let assert Some(value) = watershed.directory_get(dir, path, name)
+  let assert Ok(value) = watershed.directory_get(directory, path, name)
   let assert Ok(channel) = watershed.resolve_json_ot(doc, value)
   channel
 }
 
 fn view(channel: JsonOt) -> JsonValue {
-  option.unwrap(watershed.json_ot_view(channel), json_ot.VObject([]))
+  result.unwrap(watershed.json_ot_view(channel), json_ot.VObject([]))
 }
 
 fn member(value: JsonValue, key: String) -> Option(JsonValue) {
@@ -108,11 +114,12 @@ fn member(value: JsonValue, key: String) -> Option(JsonValue) {
 
 // ── Divergent edits, one document ───────────────────────────────────────
 
-pub fn divergent_edits_on_different_keys_converge_across_reconnect_test() {
-  let #(sluice, doc_a, doc_b, dir_a, dir_b) = room("jw-divergent-edits")
-  let a = create_doc(doc_a, dir_a, "/", "config")
+pub fn divergent_edits_on_different_keys_converge_across_reconnect_test() -> Nil {
+  let #(sluice, doc_a, doc_b, directory_a, directory_b) =
+    room("jw-divergent-edits")
+  let a = create_doc(doc_a, directory_a, "/", "config")
   sluice_js.settle(sluice)
-  let b = open_doc(doc_b, dir_b, "/", "config")
+  let b = open_doc(doc_b, directory_b, "/", "config")
   sluice_js.settle(sluice)
 
   watershed.go_offline(doc_a)
@@ -143,14 +150,15 @@ pub fn divergent_edits_on_different_keys_converge_across_reconnect_test() {
   view(b) |> should.equal(expected)
 }
 
-pub fn concurrent_same_path_replacements_converge_test() {
-  let #(sluice, doc_a, doc_b, dir_a, dir_b) = room("jw-same-path-replace")
-  let a = create_doc(doc_a, dir_a, "/", "config")
+pub fn concurrent_same_path_replacements_converge_test() -> Nil {
+  let #(sluice, doc_a, doc_b, directory_a, directory_b) =
+    room("jw-same-path-replace")
+  let a = create_doc(doc_a, directory_a, "/", "config")
   watershed.submit_json_ot(a, [
     json_ot.obj_insert([Key("title")], json_ot.VString("draft")),
   ])
   sluice_js.settle(sluice)
-  let b = open_doc(doc_b, dir_b, "/", "config")
+  let b = open_doc(doc_b, directory_b, "/", "config")
   sluice_js.settle(sluice)
 
   watershed.go_offline(doc_a)
@@ -179,14 +187,14 @@ pub fn concurrent_same_path_replacements_converge_test() {
 
 // ── Concurrent increments ────────────────────────────────────────────────
 
-pub fn concurrent_increments_land_on_the_sum_test() {
-  let #(sluice, doc_a, doc_b, dir_a, dir_b) = room("jw-increments")
-  let a = create_doc(doc_a, dir_a, "/", "counter")
+pub fn concurrent_increments_land_on_the_sum_test() -> Nil {
+  let #(sluice, doc_a, doc_b, directory_a, directory_b) = room("jw-increments")
+  let a = create_doc(doc_a, directory_a, "/", "counter")
   watershed.submit_json_ot(a, [
     json_ot.obj_insert([Key("count")], json_ot.VNumber(json_ot.NInt(0))),
   ])
   sluice_js.settle(sluice)
-  let b = open_doc(doc_b, dir_b, "/", "counter")
+  let b = open_doc(doc_b, directory_b, "/", "counter")
   sluice_js.settle(sluice)
 
   watershed.go_offline(doc_a)
@@ -210,16 +218,17 @@ pub fn concurrent_increments_land_on_the_sum_test() {
 
 // ── Same-name document creation ─────────────────────────────────────────
 
-pub fn concurrent_same_name_document_creation_converges_on_one_handle_test() {
-  let #(sluice, doc_a, doc_b, dir_a, dir_b) = room("jw-same-name-create")
+pub fn concurrent_same_name_document_creation_converges_on_one_handle_test() -> Nil {
+  let #(sluice, doc_a, doc_b, directory_a, directory_b) =
+    room("jw-same-name-create")
 
   watershed.go_offline(doc_a)
   watershed.go_offline(doc_b)
-  let a = create_doc(doc_a, dir_a, "/", "config")
+  let a = create_doc(doc_a, directory_a, "/", "config")
   watershed.submit_json_ot(a, [
     json_ot.obj_insert([Key("owner")], json_ot.VString("a")),
   ])
-  let b = create_doc(doc_b, dir_b, "/", "config")
+  let b = create_doc(doc_b, directory_b, "/", "config")
   watershed.submit_json_ot(b, [
     json_ot.obj_insert([Key("owner")], json_ot.VString("b")),
   ])
@@ -229,8 +238,8 @@ pub fn concurrent_same_name_document_creation_converges_on_one_handle_test() {
 
   // Exactly one handle survives at the directory key, and both clients agree
   // on which.
-  let assert Some(value_a) = watershed.directory_get(dir_a, "/", "config")
-  let assert Some(value_b) = watershed.directory_get(dir_b, "/", "config")
+  let assert Ok(value_a) = watershed.directory_get(directory_a, "/", "config")
+  let assert Ok(value_b) = watershed.directory_get(directory_b, "/", "config")
   value_a |> should.equal(value_b)
 
   let assert Ok(winner_from_a) = watershed.resolve_json_ot(doc_a, value_a)
@@ -250,19 +259,19 @@ pub fn concurrent_same_name_document_creation_converges_on_one_handle_test() {
 
 // ── Folder delete/recreate ──────────────────────────────────────────────
 
-pub fn deleting_a_folder_does_not_break_an_already_open_document_test() {
-  let #(sluice, doc_a, doc_b, dir_a, dir_b) = room("jw-delete-open")
-  watershed.directory_create_subdirectory(dir_a, "/", "specs")
+pub fn deleting_a_folder_does_not_break_an_already_open_document_test() -> Nil {
+  let #(sluice, doc_a, doc_b, directory_a, directory_b) = room("jw-delete-open")
+  watershed.directory_create_subdirectory(directory_a, "/", "specs")
   sluice_js.settle(sluice)
-  let a = create_doc(doc_a, dir_a, "/specs", "api")
+  let a = create_doc(doc_a, directory_a, "/specs", "api")
   sluice_js.settle(sluice)
-  let b = open_doc(doc_b, dir_b, "/specs", "api")
+  let b = open_doc(doc_b, directory_b, "/specs", "api")
   sluice_js.settle(sluice)
 
   // B deletes the folder while A's document is open in an editor.
-  watershed.directory_delete_subdirectory(dir_b, "/", "specs")
+  watershed.directory_delete_subdirectory(directory_b, "/", "specs")
   sluice_js.settle(sluice)
-  watershed.directory_has_subdirectory(dir_a, "/", "specs")
+  watershed.directory_has_subdirectory(directory_a, "/", "specs")
   |> should.be_false()
 
   // The channel keeps working on both sides: deleting the folder removed
@@ -275,16 +284,18 @@ pub fn deleting_a_folder_does_not_break_an_already_open_document_test() {
   member(view(b), "still") |> should.equal(Some(json_ot.VString("alive")))
 }
 
-pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() {
-  let #(sluice, _doc_a, doc_b, dir_a, dir_b) = room("jw-recreate-while-held")
-  watershed.directory_create_subdirectory(dir_a, "/", "specs")
+pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() -> Nil {
+  let #(sluice, _doc_a, doc_b, directory_a, directory_b) =
+    room("jw-recreate-while-held")
+  watershed.directory_create_subdirectory(directory_a, "/", "specs")
   sluice_js.settle(sluice)
-  watershed.directory_has_subdirectory(dir_b, "/", "specs") |> should.be_true()
+  watershed.directory_has_subdirectory(directory_b, "/", "specs")
+  |> should.be_true()
 
   // B goes offline holding the live "/specs" and queues a write to it.
   watershed.go_offline(doc_b)
   watershed.directory_set(
-    dir_b,
+    directory_b,
     "/specs",
     "draft",
     json.string("b's stale write"),
@@ -292,8 +303,8 @@ pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() {
 
   // A deletes and recreates "/specs" while B is offline — a new instance
   // under the same path.
-  watershed.directory_delete_subdirectory(dir_a, "/", "specs")
-  watershed.directory_create_subdirectory(dir_a, "/", "specs")
+  watershed.directory_delete_subdirectory(directory_a, "/", "specs")
+  watershed.directory_create_subdirectory(directory_a, "/", "specs")
   sluice_js.settle(sluice)
 
   // B reconnects; its queued write targeted the instance that died while it
@@ -301,7 +312,10 @@ pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() {
   watershed.go_online(doc_b)
   sluice_js.settle(sluice)
 
-  watershed.directory_has_subdirectory(dir_a, "/", "specs") |> should.be_true()
-  watershed.directory_get(dir_a, "/specs", "draft") |> should.equal(None)
-  watershed.directory_get(dir_b, "/specs", "draft") |> should.equal(None)
+  watershed.directory_has_subdirectory(directory_a, "/", "specs")
+  |> should.be_true()
+  watershed.directory_get(directory_a, "/specs", "draft")
+  |> should.equal(Error(Nil))
+  watershed.directory_get(directory_b, "/specs", "draft")
+  |> should.equal(Error(Nil))
 }

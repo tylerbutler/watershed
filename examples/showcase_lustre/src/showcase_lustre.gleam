@@ -35,7 +35,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -79,7 +79,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 /// it, and this document carries every panel's ops in one log.
 const summary_threshold = 200
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("showcase")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -325,12 +325,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.panels.text {
         None -> #(model, effect.none())
         Some(panel) -> {
-          let #(panel, fx) = text_panel.update(panel, inner)
+          let #(panel, panel_effect) = text_panel.update(panel, inner)
           let #(model, announce) =
             announce(
               Model(..model, panels: Panels(..model.panels, text: Some(panel))),
             )
-          #(model, effect.batch([effect.map(fx, TextMsg), announce]))
+          #(model, effect.batch([effect.map(panel_effect, TextMsg), announce]))
         }
       }
 
@@ -338,13 +338,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.panels.playlist {
         None -> #(model, effect.none())
         Some(panel) -> {
-          let #(panel, fx) = playlist_panel.update(panel, inner)
+          let #(panel, panel_effect) = playlist_panel.update(panel, inner)
           #(
             Model(
               ..model,
               panels: Panels(..model.panels, playlist: Some(panel)),
             ),
-            effect.map(fx, PlaylistMsg),
+            effect.map(panel_effect, PlaylistMsg),
           )
         }
       }
@@ -353,7 +353,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.panels.sudoku {
         None -> #(model, effect.none())
         Some(panel) -> {
-          let #(panel, fx) = sudoku_panel.update(panel, inner)
+          let #(panel, panel_effect) = sudoku_panel.update(panel, inner)
           let #(model, announce) =
             announce(
               Model(
@@ -361,7 +361,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 panels: Panels(..model.panels, sudoku: Some(panel)),
               ),
             )
-          #(model, effect.batch([effect.map(fx, SudokuMsg), announce]))
+          #(
+            model,
+            effect.batch([effect.map(panel_effect, SudokuMsg), announce]),
+          )
         }
       }
 
@@ -369,7 +372,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.panels.canvas {
         None -> #(model, effect.none())
         Some(panel) -> {
-          let #(panel, fx) = canvas_panel.update(panel, inner)
+          let #(panel, panel_effect) = canvas_panel.update(panel, inner)
           let #(model, announce) =
             announce(
               Model(
@@ -377,7 +380,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 panels: Panels(..model.panels, canvas: Some(panel)),
               ),
             )
-          #(model, effect.batch([effect.map(fx, CanvasMsg), announce]))
+          #(
+            model,
+            effect.batch([effect.map(panel_effect, CanvasMsg), announce]),
+          )
         }
       }
 
@@ -417,13 +423,13 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         TextPanel ->
           case model.panels.text, model.maps.text {
             None, Some(map) -> {
-              let #(panel, fx) = text_panel.init(doc, map)
+              let #(panel, panel_effect) = text_panel.init(doc, map)
               #(
                 Model(
                   ..model,
                   panels: Panels(..model.panels, text: Some(panel)),
                 ),
-                effect.map(fx, TextMsg),
+                effect.map(panel_effect, TextMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -431,13 +437,14 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         PlaylistPanel ->
           case model.panels.playlist, model.maps.playlist {
             None, Some(map) -> {
-              let #(panel, fx) = playlist_panel.init(doc, map, model.user_id)
+              let #(panel, panel_effect) =
+                playlist_panel.init(doc, map, model.user_id)
               #(
                 Model(
                   ..model,
                   panels: Panels(..model.panels, playlist: Some(panel)),
                 ),
-                effect.map(fx, PlaylistMsg),
+                effect.map(panel_effect, PlaylistMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -445,13 +452,13 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         SudokuPanel ->
           case model.panels.sudoku, model.maps.sudoku {
             None, Some(map) -> {
-              let #(panel, fx) = sudoku_panel.init(doc, map)
+              let #(panel, panel_effect) = sudoku_panel.init(doc, map)
               #(
                 Model(
                   ..model,
                   panels: Panels(..model.panels, sudoku: Some(panel)),
                 ),
-                effect.map(fx, SudokuMsg),
+                effect.map(panel_effect, SudokuMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -459,13 +466,13 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         CanvasPanel ->
           case model.panels.canvas, model.maps.canvas {
             None, Some(map) -> {
-              let #(panel, fx) = canvas_panel.init(doc, map)
+              let #(panel, panel_effect) = canvas_panel.init(doc, map)
               #(
                 Model(
                   ..model,
                   panels: Panels(..model.panels, canvas: Some(panel)),
                 ),
-                effect.map(fx, CanvasMsg),
+                effect.map(panel_effect, CanvasMsg),
               )
             }
             _, _ -> #(model, effect.none())
@@ -610,7 +617,10 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
             colour: peer.meta.color,
             cursor: cursor,
           ))
-        _ -> Error(Nil)
+        roster.InText(None)
+        | roster.InPlaylist
+        | roster.InSudoku(_)
+        | roster.InCanvas(_) -> Error(Nil)
       }
     })
   let sudoku_peers =
@@ -623,7 +633,7 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
             cell: cursor.cell,
             editing: cursor.editing,
           ))
-        _ -> Error(Nil)
+        roster.InText(_) | roster.InPlaylist | roster.InCanvas(_) -> Error(Nil)
       }
     })
 
@@ -636,7 +646,10 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
             color: peer.meta.color,
             cell: cell,
           ))
-        _ -> Error(Nil)
+        roster.InCanvas(None)
+        | roster.InText(_)
+        | roster.InPlaylist
+        | roster.InSudoku(_) -> Error(Nil)
       }
     })
 
@@ -662,10 +675,10 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
   case panels.text {
     None -> #(Model(..model, panels: panels), effect.none())
     Some(editor) -> {
-      let #(editor, fx) = text_panel.set_peers(editor, text_peers)
+      let #(editor, panel_effect) = text_panel.set_peers(editor, text_peers)
       #(
         Model(..model, panels: Panels(..panels, text: Some(editor))),
-        effect.map(fx, TextMsg),
+        effect.map(panel_effect, TextMsg),
       )
     }
   }
@@ -674,8 +687,8 @@ fn push_peers(model: Model) -> #(Model, Effect(Msg)) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("shell")], [
-    html.header([class("chrome")], [
+  html.main([attribute.class("shell")], [
+    html.header([attribute.class("chrome")], [
       html.h1([], [html.text("watershed · showcase")]),
       status_line(model),
       roster_view(model),
@@ -683,8 +696,8 @@ fn view(model: Model) -> Element(Msg) {
     switcher(model),
     connection_view(model),
     error_view(model),
-    html.section([class("panel")], [panel_view(model)]),
-    html.p([class("hint")], [
+    html.section([attribute.class("panel")], [panel_view(model)]),
+    html.p([attribute.class("hint")], [
       html.text(
         "One connection, one document, four apps. Open a second tab and put it "
         <> "on a different panel — the connection underneath is shared, the "
@@ -712,23 +725,29 @@ fn roster_view(model: Model) -> Element(Msg) {
     list.map(model.peers, fn(peer) {
       chip(peer.meta.name, peer.meta.color, roster.panel_label(peer.meta.where))
     })
-  html.div([class("roster"), attribute.attribute("aria-label", "Who is here")], [
-    self,
-    ..peers
-  ])
+  html.div(
+    [
+      attribute.class("roster"),
+      attribute.attribute("aria-label", "Who is here"),
+    ],
+    [self, ..peers],
+  )
 }
 
 fn chip(name: String, color: String, where: String) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
-      html.span([class("chip-where")], [html.text(" · " <> where)]),
+      html.span([attribute.class("chip-where")], [html.text(" · " <> where)]),
     ],
   )
 }
@@ -743,7 +762,7 @@ fn status_line(model: Model) -> Element(Msg) {
     panels()
     |> list.filter(panel_ready(model, _))
     |> list.length
-  html.p([class("status")], [
+  html.p([attribute.class("status")], [
     html.text(
       connection <> " · " <> int.to_string(ready) <> " of 4 panels bootstrapped",
     ),
@@ -752,12 +771,12 @@ fn status_line(model: Model) -> Element(Msg) {
 
 fn switcher(model: Model) -> Element(Msg) {
   html.nav(
-    [class("switcher")],
+    [attribute.class("switcher")],
     list.map(panels(), fn(panel) {
       let selected = panel == model.panel
       html.button(
         [
-          class(case selected {
+          attribute.class(case selected {
             True -> "tab tab-selected"
             False -> "tab"
           }),
@@ -790,7 +809,7 @@ fn connection_view(model: Model) -> Element(Msg) {
       <> " ops in flight"
     None -> "runtime diagnostics unavailable"
   }
-  html.div([class("connection")], [
+  html.div([attribute.class("connection")], [
     html.button(
       [
         event.on_click(ToggledOffline(!model.offline)),
@@ -807,12 +826,12 @@ fn connection_view(model: Model) -> Element(Msg) {
         }),
       ],
     ),
-    html.span([class("connection-detail")], [html.text(detail)]),
+    html.span([attribute.class("connection-detail")], [html.text(detail)]),
   ])
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error"), attribute.attribute("role", "alert")], [
+  html.p([attribute.class("error"), attribute.attribute("role", "alert")], [
     html.text(option.unwrap(model.error, "")),
   ])
 }
@@ -845,10 +864,10 @@ fn panel_view(model: Model) -> Element(Msg) {
 }
 
 fn waiting_view(model: Model) -> Element(Msg) {
-  html.div([class("placeholder")], [
+  html.div([attribute.class("placeholder")], [
     html.h2([], [html.text(panel_name(model.panel))]),
     html.p([], [html.text(panel_blurb(model.panel))]),
-    html.p([class("placeholder-state")], [
+    html.p([attribute.class("placeholder-state")], [
       html.text(case panel_ready(model, model.panel) {
         True -> "child map ready"
         False -> "waiting for the child map…"

@@ -57,7 +57,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() {
+pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -90,7 +90,7 @@ pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() {
   encoded |> string.contains("\"element\":\"BM-22\"") |> expect.to_be_true()
 }
 
-pub fn g_set_snapshot_round_trips_test() {
+pub fn g_set_snapshot_round_trips_test() -> Nil {
   let #(state, _, op, _) = g_set_kernel.add(g_set_kernel.new(), "BM-17")
   let assert Ok(state) = g_set_kernel.ack_local(state, op)
   let snapshot = channel.GSetSnapshot(state.sequenced)

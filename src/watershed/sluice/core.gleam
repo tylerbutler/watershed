@@ -1,9 +1,9 @@
 //// The pure, target-agnostic core of the in-memory sluice: a floodgate-shaped
-//// sequencer over parsed wire frames.
+//// sequencer over parsed wire frame.
 ////
 //// It uses the *real* `sequencing` module of spillway, which is the same SN,
 //// MSN, and CSN logic that the production server runs. It also uses the
-//// inverse codecs in `sluice/frames`. A runtime under test thus runs
+//// inverse codecs in `sluice/frame`. A runtime under test thus runs
 //// byte-identical client code paths against an accurate server. Everything
 //// here is a pure function of the state. There is no actor, no clock, and no
 //// input or output. The Erlang driver (`watershed/sluice`) and the JavaScript
@@ -20,7 +20,7 @@ import gleam/dynamic.{type Dynamic}
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/set.{type Set}
 import gleam/string
@@ -28,7 +28,7 @@ import gleam/string
 import spillway/sequencing.{type SequenceState}
 import spillway/types.{type Client}
 
-import watershed/sluice/frames.{type Sequenced, Sequenced}
+import watershed/sluice/frame.{type Sequenced, Sequenced}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State
@@ -60,7 +60,7 @@ pub opaque type Sluice {
     /// supports one registration for each document connection, so an
     /// application puts its panel, cursor, and activity into one metadata
     /// value.
-    presence: Dict(String, frames.PresenceMeta),
+    presence: Dict(String, frame.PresenceMeta),
     /// A deterministic source of `phx_ref` values. Phoenix creates a random
     /// ref. The sluice creates `ref-1`, `ref-2`, and so on, for the same
     /// reason that it creates `sluice-client-N`. A test asserts on the frames,
@@ -170,8 +170,8 @@ pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
     False -> sluice
     True -> {
       let #(sluice, leave) =
-        sequence_system(sluice, "leave", frames.system_leave_data(client_id))
-      broadcast(sluice, "op", frames.encode_op_event([leave]))
+        sequence_system(sluice, "leave", frame.system_leave_data(client_id))
+      broadcast(sluice, "op", frame.encode_op_event([leave]))
     }
   }
 }
@@ -221,7 +221,7 @@ fn on_connect_document(
   client_id: String,
   payload: Dynamic,
 ) -> Sluice {
-  case frames.decode_connect_document(payload) {
+  case frame.decode_connect_document(payload) {
     Error(_) -> sluice
     Ok(request) -> {
       let current = sequencing.current_sn(sluice.seq)
@@ -235,8 +235,8 @@ fn on_connect_document(
       // orders it.
       let #(sluice, join) =
         Sluice(..sluice, seq: seq)
-        |> sequence_system("join", frames.system_join_data(client_id))
-      let sluice = broadcast(sluice, "op", frames.encode_op_event([join]))
+        |> sequence_system("join", frame.system_join_data(client_id))
+      let sluice = broadcast(sluice, "op", frame.encode_op_event([join]))
 
       let clients =
         dict.insert(
@@ -246,7 +246,7 @@ fn on_connect_document(
         )
       let sluice = Sluice(..sluice, clients: clients)
       let connected =
-        frames.encode_connected(
+        frame.encode_connected(
           client_id: client_id,
           tenant_id: sluice.tenant_id,
           document_id: sluice.document_id,
@@ -280,7 +280,7 @@ fn on_connect_document(
 }
 
 fn on_submit_op(sluice: Sluice, payload: Dynamic) -> Sluice {
-  case frames.decode_submit_op(payload) {
+  case frame.decode_submit_op(payload) {
     Error(_) -> sluice
     Ok(submit) ->
       list.flatten(submit.batches)
@@ -296,7 +296,7 @@ fn on_submit_op(sluice: Sluice, payload: Dynamic) -> Sluice {
 fn sequence_op(
   sluice: Sluice,
   client_id: String,
-  op: frames.SubmittedOp,
+  op: frame.SubmittedOp,
 ) -> Sluice {
   case
     sequencing.assign_sequence_number(
@@ -321,7 +321,7 @@ fn sequence_op(
           timestamp: sluice.now_ms,
           data: None,
         )
-      let event = frames.encode_op_event([sequenced])
+      let event = frame.encode_op_event([sequenced])
       Sluice(..sluice, seq: seq, log: [sequenced, ..sluice.log])
       |> broadcast("op", event)
     }
@@ -333,7 +333,7 @@ fn on_request_ops(
   client_id: String,
   payload: Dynamic,
 ) -> Sluice {
-  case frames.decode_request_ops(payload) {
+  case frame.decode_request_ops(payload) {
     Error(_) -> sluice
     Ok(from) -> {
       // Exclusive of `from`, matching floodgate's `session.since` (`o.0 > sn`)
@@ -344,14 +344,14 @@ fn on_request_ops(
       let ops = log_since(sluice.log, from)
       case ops {
         [] -> sluice
-        _ -> enqueue(sluice, client_id, "op", frames.encode_op_event(ops))
+        _ -> enqueue(sluice, client_id, "op", frame.encode_op_event(ops))
       }
     }
   }
 }
 
 fn on_noop(sluice: Sluice, payload: Dynamic) -> Sluice {
-  case frames.decode_noop(payload) {
+  case frame.decode_noop(payload) {
     Error(_) -> sluice
     Ok(#(client_id, rsn)) ->
       case sequencing.update_client_rsn(sluice.seq, client_id, rsn) {
@@ -362,10 +362,10 @@ fn on_noop(sluice: Sluice, payload: Dynamic) -> Sluice {
 }
 
 fn on_signal(sluice: Sluice, payload: Dynamic) -> Sluice {
-  case frames.decode_submit_signal(payload) {
+  case frame.decode_submit_signal(payload) {
     Error(_) -> sluice
     Ok(signal) -> {
-      let frame = frames.encode_signal(signal.client_id, signal.content)
+      let frame = frame.encode_signal(signal.client_id, signal.content)
       // Fan out to everyone *except* the author (a client never hears its own
       // ripple), stripping the `type` tag the way floodgate does.
       connected_ids(sluice)
@@ -407,7 +407,7 @@ fn on_join_presence(
               sluice,
               client_id,
               "presence_state",
-              frames.encode_presence_state(dict.to_list(sluice.presence)),
+              frame.encode_presence_state(dict.to_list(sluice.presence)),
             )
           let #(snapshot, meta) = track(snapshot, key, fields)
           Sluice(
@@ -437,7 +437,7 @@ fn on_update_presence(
         sluice,
         client_id,
         "presence_error",
-        frames.encode_presence_error(
+        frame.encode_presence_error(
           code: "not_joined",
           message: "this connection has no presence to update",
         ),
@@ -476,11 +476,11 @@ fn track(
   sluice: Sluice,
   key: String,
   fields: List(#(String, Json)),
-) -> #(Sluice, frames.PresenceMeta) {
+) -> #(Sluice, frame.PresenceMeta) {
   let phx_ref = "ref-" <> int.to_string(sluice.next_presence_ref)
   #(
     Sluice(..sluice, next_presence_ref: sluice.next_presence_ref + 1),
-    frames.PresenceMeta(key: key, phx_ref: phx_ref, fields: fields),
+    frame.PresenceMeta(key: key, phx_ref: phx_ref, fields: fields),
   )
 }
 
@@ -491,13 +491,13 @@ fn track(
 /// itself in it.
 fn broadcast_presence(
   sluice: Sluice,
-  joins joins: List(#(String, frames.PresenceMeta)),
-  leaves leaves: List(#(String, frames.PresenceMeta)),
+  joins joins: List(#(String, frame.PresenceMeta)),
+  leaves leaves: List(#(String, frame.PresenceMeta)),
 ) -> Sluice {
   broadcast(
     sluice,
     "presence_diff",
-    frames.encode_presence_diff(joins: joins, leaves: leaves),
+    frame.encode_presence_diff(joins: joins, leaves: leaves),
   )
 }
 
@@ -514,7 +514,7 @@ fn authenticated_key(
   case dict.get(sluice.clients, client_id) {
     Ok(entry) -> Ok(entry.client.user.id)
     Error(Nil) ->
-      Error(frames.encode_presence_error(
+      Error(frame.encode_presence_error(
         code: "unauthenticated",
         message: "presence requires a completed document connection",
       ))
@@ -524,19 +524,19 @@ fn authenticated_key(
 /// Read the metadata of a presence command, and refuse an attempt to claim a
 /// field that the server owns. The function removes a reserved key *inside*
 /// `meta`, and it does not refuse the command. See
-/// `frames.decode_presence_meta`. A reserved key at the top level is a claim
+/// `frame.decode_presence_meta`. A reserved key at the top level is a claim
 /// of identity, and it deserves an explicit error.
 fn read_meta(payload: Dynamic) -> Result(List(#(String, Json)), Json) {
-  case frames.names_reserved_field(payload) {
+  case frame.names_reserved_field(payload) {
     True ->
-      Error(frames.encode_presence_error(
+      Error(frame.encode_presence_error(
         code: "invalid_meta",
         message: "the server owns key, session, and ref; a client cannot set them",
       ))
     False ->
-      frames.decode_presence_meta(payload)
+      frame.decode_presence_meta(payload)
       |> result.map_error(fn(_) {
-        frames.encode_presence_error(
+        frame.encode_presence_error(
           code: "invalid_meta",
           message: "presence metadata must be a JSON object",
         )
@@ -549,24 +549,24 @@ fn read_meta(payload: Dynamic) -> Result(List(#(String, Json)), Json) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Deliver the oldest frame that the core owes to a client that is not paused,
-/// and remove that frame from the queue. The result is `None` when the core can
-/// deliver no frame, which occurs when the queue is empty and when every
-/// pending frame belongs to a paused client.
-pub fn take(sluice: Sluice) -> #(Sluice, Option(Outbound)) {
+/// and remove that frame from the queue. The result is `Error(Nil)` when the
+/// core can deliver no frame, which occurs when the queue is empty and when
+/// every pending frame belongs to a paused client.
+pub fn take(sluice: Sluice) -> #(Sluice, Result(Outbound, Nil)) {
   case pop_deliverable(sluice.outbox, sluice.paused, []) {
-    Error(Nil) -> #(sluice, None)
-    Ok(#(frame, rest)) -> #(Sluice(..sluice, outbox: rest), Some(frame))
+    Error(Nil) -> #(sluice, Error(Nil))
+    Ok(#(frame, rest)) -> #(Sluice(..sluice, outbox: rest), Ok(frame))
   }
 }
 
 /// The next frame that `take` would deliver, without a removal. The result is
-/// `None` when the core can deliver no frame. A caller can thus collect a whole
-/// broadcast group, which is the set of frames that share the sequence number
-/// of one op, before it delivers that group.
-pub fn peek(sluice: Sluice) -> Option(Outbound) {
+/// `Error(Nil)` when the core can deliver no frame. A caller can thus collect
+/// a whole broadcast group, which is the set of frames that share the sequence
+/// number of one op, before it delivers that group.
+pub fn peek(sluice: Sluice) -> Result(Outbound, Nil) {
   case pop_deliverable(sluice.outbox, sluice.paused, []) {
-    Error(Nil) -> None
-    Ok(#(frame, _rest)) -> Some(frame)
+    Error(Nil) -> Error(Nil)
+    Ok(#(frame, _rest)) -> Ok(frame)
   }
 }
 

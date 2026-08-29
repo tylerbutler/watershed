@@ -1,4 +1,4 @@
-//// Behavioural tests for `watershed_lustre.try_set_claim` and
+//// Behavioural tests for `watershed_lustre.claim_once` and
 //// `compare_and_set_claim`: the bindings that turn a `runtime.ClaimSubmitReply`
 //// into a `claims_kernel.ClaimOutcome` message.
 ////
@@ -85,19 +85,19 @@ fn room() -> #(sluice_js.Sluice, Claims, Claims) {
   )
   sluice_js.settle(sluice)
 
-  let assert Some(handle) = watershed.get(watershed.root(doc_b), captain_key)
+  let assert Ok(handle) = watershed.get(watershed.root(doc_b), captain_key)
   let assert Ok(claims_b) = watershed.resolve_claims(doc_b, handle)
   #(sluice, claims_a, claims_b)
 }
 
-// ── try_set_claim ────────────────────────────────────────────────────────────
+// ── claim_once ────────────────────────────────────────────────────────────
 
-pub fn try_set_claim_defers_then_delivers_accepted_test() -> Promise(Nil) {
+pub fn claim_once_defers_then_delivers_accepted_test() -> Promise(Nil) {
   let #(sluice, claims_a, _claims_b) = room()
   let sink = new_sink()
 
   run(
-    watershed_lustre.try_set_claim(
+    watershed_lustre.claim_once(
       claims_a,
       captain_key,
       json.string("alice"),
@@ -119,7 +119,7 @@ pub fn try_set_claim_defers_then_delivers_accepted_test() -> Promise(Nil) {
   promise.resolve(Nil)
 }
 
-pub fn try_set_claim_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
+pub fn claim_once_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
   Nil,
 ) {
   let #(sluice, claims_a, claims_b) = room()
@@ -127,7 +127,7 @@ pub fn try_set_claim_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
   // Alice claims first and settles — the seat is committed before Bob tries.
   let seed_sink = new_sink()
   run(
-    watershed_lustre.try_set_claim(
+    watershed_lustre.claim_once(
       claims_a,
       captain_key,
       json.string("alice"),
@@ -139,7 +139,7 @@ pub fn try_set_claim_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
 
   let sink = new_sink()
   run(
-    watershed_lustre.try_set_claim(
+    watershed_lustre.claim_once(
       claims_b,
       captain_key,
       json.string("bob"),
@@ -148,7 +148,7 @@ pub fn try_set_claim_on_a_held_seat_defers_then_delivers_lost_test() -> Promise(
     sink,
   )
 
-  // `AlreadyClaimed` resolves synchronously inside `watershed.try_set_claim`
+  // `AlreadyClaimed` resolves synchronously inside `watershed.claim_once`
   // — the seat is already committed, so there is no wire round trip — but the
   // binding still defers the message to a microtask rather than dispatching
   // inside the effect.
@@ -167,7 +167,7 @@ pub fn compare_and_set_claim_takes_over_and_defers_test() -> Promise(Nil) {
 
   let seed_sink = new_sink()
   run(
-    watershed_lustre.try_set_claim(
+    watershed_lustre.claim_once(
       claims_a,
       captain_key,
       json.string("alice"),

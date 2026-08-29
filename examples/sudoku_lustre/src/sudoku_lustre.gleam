@@ -24,7 +24,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lustre
-import lustre/attribute.{aria_label, class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -47,7 +47,7 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("sudoku")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -322,18 +322,18 @@ fn current_presence(model: Model) -> SudokuPresence {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · collaborative Sudoku")]),
     status_line(model),
     roster_view(model),
     panel_view(model),
-    html.div([class("toolbar")], [
+    html.div([attribute.class("toolbar")], [
       html.button([event.on_click(ReconnectClicked)], [
         html.text("Force reconnect"),
       ]),
     ]),
     error_view(model.error),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same document to solve together. Client: "
         <> model.user_id,
@@ -356,7 +356,7 @@ fn roster_view(model: Model) -> Element(Msg) {
     |> list.map(fn(peer) {
       chip(peer.meta.name, peer.meta.color, peer.meta.cursor.editing)
     })
-  html.div([class("roster"), aria_label("Players online")], [
+  html.div([attribute.class("roster"), attribute.aria_label("Players online")], [
     self_chip,
     ..peer_chips
   ])
@@ -365,15 +365,18 @@ fn roster_view(model: Model) -> Element(Msg) {
 fn chip(name: String, color: String, editing: Bool) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
       case editing {
-        True -> html.span([class("typing")], [html.text(" ✎")])
+        True -> html.span([attribute.class("typing")], [html.text(" ✎")])
         False -> html.text("")
       },
     ],
@@ -398,19 +401,20 @@ fn status_line(model: Model) -> Element(Msg) {
       }
     Failed(reason) -> "failed: " <> reason
   }
-  html.p([class("status")], [html.text(text)])
+  html.p([attribute.class("status")], [html.text(text)])
 }
 
 fn panel_view(model: Model) -> Element(Msg) {
   case model.board {
     Some(board) -> component.view(board) |> element.map(Board)
-    None -> html.p([class("status")], [html.text("bootstrapping…")])
+    None -> html.p([attribute.class("status")], [html.text("bootstrapping…")])
   }
 }
 
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("status")], [html.text("Error: " <> reason)])
+    Some(reason) ->
+      html.p([attribute.class("status")], [html.text("Error: " <> reason)])
     None -> html.text("")
   }
 }

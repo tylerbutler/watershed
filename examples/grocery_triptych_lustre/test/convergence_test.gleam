@@ -4,7 +4,7 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 
-import doc_schema
+import grocery_triptych_lustre/doc_schema
 import watershed.{type Document, type GSet, type OrSet, type TwoPSet}
 import watershed/sluice_js.{type Sluice}
 
@@ -106,7 +106,7 @@ fn sort_values(values: List(String)) -> List(String) {
   list.sort(values, string.compare)
 }
 
-pub fn add_only_operations_converge_without_duplicates_test() {
+pub fn add_only_operations_converge_without_duplicates_test() -> Nil {
   let #(sluice, client_a, client_b) = room("grocery-convergence-add-only")
 
   list.each(["milk", "bread", "milk", "eggs"], fn(item) {
@@ -128,7 +128,7 @@ pub fn add_only_operations_converge_without_duplicates_test() {
   )
 }
 
-pub fn shared_remove_retains_only_the_g_set_test() {
+pub fn shared_remove_retains_only_the_g_set_test() -> Nil {
   let #(sluice, client_a, client_b) = room("grocery-convergence-remove")
 
   add_everywhere(client_a, "milk")
@@ -141,7 +141,7 @@ pub fn shared_remove_retains_only_the_g_set_test() {
   assert_both(client_a, client_b, expected(["milk"], [], []))
 }
 
-pub fn two_p_set_readd_stays_tombstoned_test() {
+pub fn two_p_set_readd_stays_tombstoned_test() -> Nil {
   let #(sluice, client_a, client_b) =
     room("grocery-convergence-two-p-tombstone")
 
@@ -159,7 +159,7 @@ pub fn two_p_set_readd_stays_tombstoned_test() {
   assert_both(client_a, client_b, expected(["milk"], [], []))
 }
 
-pub fn or_set_remove_then_readd_becomes_present_test() {
+pub fn or_set_remove_then_readd_becomes_present_test() -> Nil {
   let #(sluice, client_a, client_b) = room("grocery-convergence-or-readd")
 
   add_everywhere(client_a, "milk")
@@ -176,7 +176,7 @@ pub fn or_set_remove_then_readd_becomes_present_test() {
   assert_both(client_a, client_b, expected(["milk"], [], ["milk"]))
 }
 
-pub fn concurrent_add_and_remove_follow_kind_specific_semantics_test() {
+pub fn concurrent_add_and_remove_follow_kind_specific_semantics_test() -> Nil {
   let #(sluice, client_a, client_b) = room("grocery-convergence-concurrent")
 
   add_everywhere(client_a, "eggs")

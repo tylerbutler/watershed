@@ -20,25 +20,25 @@ import gleam/javascript/array.{type Array}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{
-  aria_label, aria_pressed, class, classes, id, role, tabindex, type_, value,
-}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import audio
-import doc_schema
 import watershed.{type Document, type OrSet, type PactMap}
 import watershed/browser
 import watershed/client_id
 import watershed/pact_map_kernel
 import watershed/summary_policy
 import watershed_lustre
+
+import drum_machine_lustre/audio
+import drum_machine_lustre/doc_schema
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
 
@@ -67,7 +67,7 @@ const bpm_key = "bpm"
 /// between, so watching the list drain means asking.
 const signoff_poll_ms = 250
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("drum-machine")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -541,14 +541,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
   let accepted =
     watershed.pact_map_get(shared.settings, bpm_key)
-    |> option.then(decode_bpm)
-    |> option.unwrap(default_bpm)
+    |> result.try(decode_bpm)
+    |> result.unwrap(default_bpm)
 
   let proposal =
     watershed.pact_map_pending(shared.settings, bpm_key)
+    |> option.from_result
     |> option.then(fn(pending: pact_map_kernel.Pending) {
-      case pending.value |> option.then(decode_bpm) {
-        Some(bpm) ->
+      case pending.value |> option.to_result(Nil) |> result.try(decode_bpm) {
+        Ok(bpm) ->
           Some(Proposal(
             bpm: bpm,
             waiting: pending.expected_signoffs,
@@ -557,7 +558,7 @@ fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
             // reading we have seen for this proposal.
             quorum: quorum_of(model.proposal, bpm, pending.expected_signoffs),
           ))
-        None -> None
+        Error(Nil) -> None
       }
     })
 
@@ -629,10 +630,10 @@ fn quorum_of(previous: Option(Proposal), bpm: Int, waiting: List(Int)) -> Int {
   }
 }
 
-fn decode_bpm(value: Json) -> Option(Int) {
+fn decode_bpm(value: Json) -> Result(Int, Nil) {
   case json.parse(json.to_string(value), decode.int) {
-    Ok(bpm) -> Some(bpm)
-    Error(_) -> None
+    Ok(bpm) -> Ok(bpm)
+    Error(_) -> Error(Nil)
   }
 }
 
@@ -702,7 +703,7 @@ fn wrap(value: Int, modulus: Int) -> Int {
 /// toggle is decided against what the user can currently see.
 fn toggle_at(model: Model, track_index: Int, step: Int) -> Nil {
   case model.shared, track_at(track_index) {
-    Some(shared), Some(track) -> {
+    Some(shared), Ok(track) -> {
       let set = track_set(shared, track)
       let key = int.to_string(step)
       case watershed.or_set_contains(set, key) {
@@ -714,10 +715,10 @@ fn toggle_at(model: Model, track_index: Int, step: Int) -> Nil {
   }
 }
 
-fn track_at(index: Int) -> Option(Track) {
+fn track_at(index: Int) -> Result(Track, Nil) {
   case list.drop(tracks(), index) {
-    [track, ..] -> Some(track)
-    [] -> None
+    [track, ..] -> Ok(track)
+    [] -> Error(Nil)
   }
 }
 
@@ -766,7 +767,7 @@ fn steps_array(steps: List(String)) -> Array(Int) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.div([class("machine")], [
+  html.div([attribute.class("machine")], [
     html.h1([], [html.text("Collaborative drum machine")]),
     status_view(model),
     audio_gate(model),
@@ -791,11 +792,11 @@ fn audio_gate(model: Model) -> Element(Msg) {
   case model.audio_ready {
     True -> html.text("")
     False ->
-      html.div([class("gate")], [
+      html.div([attribute.class("gate")], [
         html.button([event.on_click(EnableAudioClicked)], [
           html.text("Enable audio"),
         ]),
-        html.span([class("hint")], [
+        html.span([attribute.class("hint")], [
           html.text(
             "Your browser blocks sound until you interact with the page. "
             <> "The grid works without it.",
@@ -811,16 +812,16 @@ fn audio_gate(model: Model) -> Element(Msg) {
 /// the animation. A playhead dispatched as a message per step would be ~9 full
 /// grid diffs a second at 140 BPM for a highlight that moves two elements.
 fn playhead() -> Element(Msg) {
-  html.div([class("playhead"), id("playhead")], [])
+  html.div([attribute.class("playhead"), attribute.id("playhead")], [])
 }
 
 fn transport(model: Model) -> Element(Msg) {
-  html.div([class("transport")], [
+  html.div([attribute.class("transport")], [
     html.button(
       [
         event.on_click(TransportToggled),
         attribute.disabled(!model.audio_ready),
-        aria_pressed(bool_string(model.playing)),
+        attribute.aria_pressed(bool_to_string(model.playing)),
       ],
       [
         html.text(case model.playing {
@@ -842,23 +843,23 @@ fn transport(model: Model) -> Element(Msg) {
 /// and only then does the sequencer follow it. The contrast is the demo.
 fn tempo_view(model: Model) -> Element(Msg) {
   let pending = tempo_locked(model)
-  html.div([class("tempo-block")], [
-    html.label([class("tempo")], [
+  html.div([attribute.class("tempo-block")], [
+    html.label([attribute.class("tempo")], [
       html.span([], [html.text("Tempo")]),
       html.input([
-        type_("range"),
+        attribute.type_("range"),
         attribute.min(int.to_string(min_bpm)),
         attribute.max(int.to_string(max_bpm)),
         attribute.step("1"),
-        value(int.to_string(model.bpm_draft)),
+        attribute.value(int.to_string(model.bpm_draft)),
         // A second proposal while one is in flight is rejected by the kernel,
         // so the control says so rather than silently dropping the drag.
         attribute.disabled(pending),
-        aria_label("Tempo in beats per minute"),
+        attribute.aria_label("Tempo in beats per minute"),
         event.on_input(BpmDrafted),
         event.on_change(fn(_raw) { BpmCommitted }),
       ]),
-      html.span([classes([#("bpm", True), #("ghost", pending)])], [
+      html.span([attribute.classes([#("bpm", True), #("ghost", pending)])], [
         html.text(int.to_string(model.bpm_draft) <> " BPM"),
       ]),
     ]),
@@ -871,7 +872,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
     None -> html.text("")
     Some(proposal) -> {
       let remaining = list.length(proposal.waiting)
-      html.p([class("proposal"), role("status")], [
+      html.p([attribute.class("proposal"), attribute.role("status")], [
         html.text(
           int.to_string(proposal.bpm)
           <> " BPM pending — waiting on "
@@ -885,7 +886,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
             _ -> " clients"
           },
         ),
-        html.span([class("signoffs")], [
+        html.span([attribute.class("signoffs")], [
           html.text(
             " · "
             <> case proposal.waiting {
@@ -902,7 +903,7 @@ fn proposal_view(model: Model) -> Element(Msg) {
         // Said out loud because the obvious reading of a pending bar is a vote,
         // and it is not one. Nobody is deciding; the runtime auto-submits each
         // client's acknowledgement the moment it sees the proposal.
-        html.span([class("hint")], [
+        html.span([attribute.class("hint")], [
           html.text(
             " Signing off means a client has seen the change, not that it "
             <> "agreed to it — there is nothing to agree to and no way to "
@@ -917,31 +918,31 @@ fn proposal_view(model: Model) -> Element(Msg) {
 /// Mute and volume are per-client and never leave the browser. They are
 /// listener preferences, not shared composition state.
 fn mixer(model: Model) -> Element(Msg) {
-  html.div([class("mixer")], [
-    html.span([class("hint")], [html.text("Local mix")]),
+  html.div([attribute.class("mixer")], [
+    html.span([attribute.class("hint")], [html.text("Local mix")]),
     ..list.append(
       tracks()
         |> list.index_map(fn(track, index) {
           let muted = list.contains(model.muted, index)
           html.button(
             [
-              classes([#("mute", True), #("muted", muted)]),
-              aria_pressed(bool_string(muted)),
-              aria_label("Mute " <> track_name(track)),
+              attribute.classes([#("mute", True), #("muted", muted)]),
+              attribute.aria_pressed(bool_to_string(muted)),
+              attribute.aria_label("Mute " <> track_name(track)),
               event.on_click(MuteToggled(index)),
             ],
             [html.text(track_name(track))],
           )
         }),
       [
-        html.label([class("volume")], [
+        html.label([attribute.class("volume")], [
           html.span([], [html.text("Volume")]),
           html.input([
-            type_("range"),
+            attribute.type_("range"),
             attribute.min("0"),
             attribute.max("100"),
-            value(int.to_string(model.volume)),
-            aria_label("Output volume"),
+            attribute.value(int.to_string(model.volume)),
+            attribute.aria_label("Output volume"),
             event.on_input(VolumeChanged),
           ]),
         ]),
@@ -955,7 +956,7 @@ fn mixer(model: Model) -> Element(Msg) {
 /// same tempo still run their loops out of phase, because their audio clocks
 /// started at different moments, and nothing in a CRDT fixes that.
 fn phase_caveat() -> Element(Msg) {
-  html.p([class("caveat")], [
+  html.p([attribute.class("caveat")], [
     html.text(
       "Each client runs its own clock: the pattern and the tempo converge, "
       <> "the phase does not. Two tabs play the same loop, not the same beat.",
@@ -964,7 +965,7 @@ fn phase_caveat() -> Element(Msg) {
 }
 
 fn status_view(model: Model) -> Element(Msg) {
-  html.p([class("status")], [
+  html.p([attribute.class("status")], [
     html.text(case model.status {
       Connecting -> "Connecting…"
       Ready -> "Connected as " <> model.user_id
@@ -974,8 +975,8 @@ fn status_view(model: Model) -> Element(Msg) {
 }
 
 fn toolbar(model: Model) -> Element(Msg) {
-  html.div([class("toolbar")], [
-    html.span([class("hint")], [
+  html.div([attribute.class("toolbar")], [
+    html.span([attribute.class("hint")], [
       html.text("Arrow keys move, space toggles."),
     ]),
     html.button([event.on_click(ReconnectClicked)], [
@@ -991,10 +992,10 @@ fn toolbar(model: Model) -> Element(Msg) {
 fn grid(model: Model) -> Element(Msg) {
   html.div(
     [
-      class("grid"),
-      role("grid"),
-      tabindex(0),
-      aria_label("Drum machine pattern, 4 tracks by 16 steps"),
+      attribute.class("grid"),
+      attribute.role("grid"),
+      attribute.tabindex(0),
+      attribute.aria_label("Drum machine pattern, 4 tracks by 16 steps"),
       event.on_keydown(KeyPressed),
     ],
     tracks()
@@ -1005,8 +1006,8 @@ fn grid(model: Model) -> Element(Msg) {
 }
 
 fn track_row(model: Model, track: Track, track_index: Int) -> Element(Msg) {
-  html.div([class("row"), role("row")], [
-    html.span([class("track-name")], [html.text(track_name(track))]),
+  html.div([attribute.class("row"), attribute.role("row")], [
+    html.span([attribute.class("track-name")], [html.text(track_name(track))]),
     ..range(0, step_count)
     |> list.map(fn(step) { step_view(model, track, track_index, step) })
   ])
@@ -1026,7 +1027,7 @@ fn step_view(
 
   html.button(
     [
-      classes([
+      attribute.classes([
         #("step", True),
         #("on", on),
         #("focused", focused),
@@ -1034,9 +1035,9 @@ fn step_view(
       ]),
       attribute.attribute("data-track", int.to_string(track_index)),
       attribute.attribute("data-step", int.to_string(step)),
-      role("gridcell"),
-      aria_pressed(bool_string(on)),
-      aria_label(
+      attribute.role("gridcell"),
+      attribute.aria_pressed(bool_to_string(on)),
+      attribute.aria_label(
         track_name(track)
         <> " step "
         <> int.to_string(step + 1)
@@ -1058,7 +1059,7 @@ fn range(from: Int, to: Int) -> List(Int) {
   |> list.reverse
 }
 
-fn bool_string(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"
@@ -1067,7 +1068,7 @@ fn bool_string(value: Bool) -> String {
 
 fn error_view(error: Option(String)) -> Element(Msg) {
   case error {
-    Some(reason) -> html.p([class("error")], [html.text(reason)])
+    Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
     None -> html.text("")
   }
 }

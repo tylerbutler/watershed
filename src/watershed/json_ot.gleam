@@ -157,16 +157,6 @@ pub fn subtype_component(
 // Object helpers (maintain sorted-by-key invariant)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn obj_get(
-  members: List(#(String, JsonValue)),
-  key: String,
-) -> Option(JsonValue) {
-  case list.key_find(members, key) {
-    Ok(value) -> Some(value)
-    Error(_) -> None
-  }
-}
-
 fn obj_set(
   members: List(#(String, JsonValue)),
   key: String,
@@ -232,29 +222,22 @@ fn apply_component(
   doc: JsonValue,
   component: Component,
 ) -> Result(JsonValue, OtError) {
-  case component.path {
-    [] -> edit_root(doc, component)
-    _ -> {
-      let #(parent_path, last) = split_last(component.path)
+  case split_last(component.path) {
+    // An empty path names the document itself.
+    Error(Nil) -> edit_root(doc, component)
+    Ok(#(parent_path, last)) ->
       update_at(doc, parent_path, fn(container) {
         edit_in_container(container, last, component)
       })
-    }
   }
 }
 
-fn split_last(path: List(PathKey)) -> #(List(PathKey), PathKey) {
-  do_split_last(path, [])
-}
-
-fn do_split_last(
-  path: List(PathKey),
-  acc: List(PathKey),
-) -> #(List(PathKey), PathKey) {
-  case path {
-    [] -> panic as "split_last on empty path"
-    [only] -> #(list.reverse(acc), only)
-    [first, ..rest] -> do_split_last(rest, [first, ..acc])
+/// Split the last key from a path. The result is `Error(Nil)` for an empty
+/// path, because an empty path has no last key.
+fn split_last(path: List(PathKey)) -> Result(#(List(PathKey), PathKey), Nil) {
+  case list.reverse(path) {
+    [] -> Error(Nil)
+    [last, ..reversed_init] -> Ok(#(list.reverse(reversed_init), last))
   }
 }
 
@@ -270,20 +253,20 @@ fn update_at(
     [Key(key), ..rest] ->
       case doc {
         VObject(members) ->
-          case obj_get(members, key) {
-            Some(child) ->
+          case list.key_find(members, key) {
+            Ok(child) ->
               update_at(child, rest, f)
               |> result.map(fn(updated) {
                 VObject(obj_set(members, key, updated))
               })
-            None -> Error(BadPath("object key not found: " <> key))
+            Error(Nil) -> Error(BadPath("object key not found: " <> key))
           }
         _ -> Error(BadPath("expected object at path step " <> key))
       }
     [Index(index), ..rest] ->
       case doc {
         VArray(items) ->
-          case list_at(items, index) {
+          case element_at(items, index) {
             Ok(child) ->
               update_at(child, rest, f)
               |> result.map(fn(updated) {
@@ -360,11 +343,11 @@ fn edit_member_value(
   key: String,
   f: fn(JsonValue) -> Result(JsonValue, OtError),
 ) -> Result(JsonValue, OtError) {
-  case obj_get(members, key) {
-    Some(value) ->
+  case list.key_find(members, key) {
+    Ok(value) ->
       f(value)
       |> result.map(fn(updated) { VObject(obj_set(members, key, updated)) })
-    None -> Error(BadPath("object key not found: " <> key))
+    Error(Nil) -> Error(BadPath("object key not found: " <> key))
   }
 }
 
@@ -378,7 +361,7 @@ fn edit_list_element(
       case c {
         // List replace
         Component(li: Some(value), ld: Some(_), ..) ->
-          case list_at(items, index) {
+          case element_at(items, index) {
             Ok(_) -> Ok(VArray(list_set(items, index, value)))
             Error(_) -> Error(BadPath("list replace out of range"))
           }
@@ -419,7 +402,7 @@ fn edit_element_value(
   index: Int,
   f: fn(JsonValue) -> Result(JsonValue, OtError),
 ) -> Result(JsonValue, OtError) {
-  case list_at(items, index) {
+  case element_at(items, index) {
     Ok(value) ->
       f(value)
       |> result.map(fn(updated) { VArray(list_set(items, index, updated)) })
@@ -430,21 +413,6 @@ fn edit_element_value(
 // ─────────────────────────────────────────────────────────────────────────────
 // List helpers
 // ─────────────────────────────────────────────────────────────────────────────
-
-fn list_at(items: List(JsonValue), index: Int) -> Result(JsonValue, Nil) {
-  case index < 0 {
-    True -> Error(Nil)
-    False -> do_list_at(items, index)
-  }
-}
-
-fn do_list_at(items: List(JsonValue), index: Int) -> Result(JsonValue, Nil) {
-  case items, index {
-    [], _ -> Error(Nil)
-    [first, ..], 0 -> Ok(first)
-    [_, ..rest], _ -> do_list_at(rest, index - 1)
-  }
-}
 
 fn list_set(
   items: List(JsonValue),
@@ -472,7 +440,7 @@ fn list_delete_at(
   items: List(JsonValue),
   index: Int,
 ) -> Result(List(JsonValue), Nil) {
-  case list_at(items, index) {
+  case element_at(items, index) {
     Ok(_) -> {
       let #(before, after) = list.split(items, index)
       case after {
@@ -492,7 +460,7 @@ fn list_move_element(
   case from == to {
     True -> Ok(items)
     False ->
-      case list_at(items, from) {
+      case element_at(items, from) {
         Ok(element) ->
           case list_delete_at(items, from) {
             Ok(without) -> Ok(list_insert_at(without, to, element))
@@ -509,7 +477,7 @@ fn list_move_element(
 
 /// The path length of a component, adjusted the same way as in json0. An `na`
 /// op and a subtype op both reach one step deeper than their explicit path.
-fn adj_len(c: Component) -> Int {
+fn adjusted_length(c: Component) -> Int {
   let extra = case c.na, c.subtype {
     None, None -> 0
     _, _ -> 1
@@ -518,58 +486,57 @@ fn adj_len(c: Component) -> Int {
 }
 
 /// The `commonLengthForOps(a, b)` function of json0. The result is the length
-/// of the shared operand prefix, or `None`, which is `null` in json0.
-/// `Some(-1)` is the case where `a` reaches the root.
-fn common_length(a: Component, b: Component) -> Option(Int) {
-  let alen = adj_len(a)
-  let blen = adj_len(b)
-  case alen == 0 {
-    True -> Some(-1)
+/// of the shared operand prefix, or `Error(Nil)`, which is `null` in json0.
+/// `Ok(-1)` is the case where `a` reaches the root.
+fn common_length(a: Component, b: Component) -> Result(Int, Nil) {
+  let a_length = adjusted_length(a)
+  let b_length = adjusted_length(b)
+  case a_length == 0 {
+    True -> Ok(-1)
     False ->
-      case blen == 0 {
-        True -> None
-        False -> common_loop(a.path, b.path, 0, alen - 1, blen - 1)
+      case b_length == 0 {
+        True -> Error(Nil)
+        False -> common_loop(a.path, b.path, 0, a_length - 1, b_length - 1)
       }
   }
 }
 
 fn common_loop(
-  ap: List(PathKey),
-  bp: List(PathKey),
-  i: Int,
-  alen: Int,
-  blen: Int,
-) -> Option(Int) {
-  case i >= alen {
-    True -> Some(alen)
+  a_path: List(PathKey),
+  b_path: List(PathKey),
+  index: Int,
+  a_length: Int,
+  b_length: Int,
+) -> Result(Int, Nil) {
+  case index >= a_length {
+    True -> Ok(a_length)
     False ->
-      case i >= blen {
-        True -> None
+      case index >= b_length {
+        True -> Error(Nil)
         False ->
-          case pk_at(ap, i) == pk_at(bp, i) {
-            True -> common_loop(ap, bp, i + 1, alen, blen)
-            False -> None
+          case path_key_at(a_path, index) == path_key_at(b_path, index) {
+            True -> common_loop(a_path, b_path, index + 1, a_length, b_length)
+            False -> Error(Nil)
           }
       }
   }
 }
 
-fn pk_at(path: List(PathKey), i: Int) -> Option(PathKey) {
-  case i < 0 {
-    True -> None
-    False ->
-      case list_at_generic(path, i) {
-        Ok(pk) -> Some(pk)
-        Error(_) -> None
-      }
-  }
+/// The path key at `index`. The result is `Error(Nil)` for a negative index
+/// and for an index past the end of the path.
+fn path_key_at(path: List(PathKey), index: Int) -> Result(PathKey, Nil) {
+  element_at(path, index)
 }
 
-fn list_at_generic(items: List(a), index: Int) -> Result(a, Nil) {
+/// The element at `index`. `gleam/list` has no indexed read, so this module
+/// walks the list. The result is `Error(Nil)` for a negative index and for an
+/// index past the end of the list.
+fn element_at(items: List(a), index: Int) -> Result(a, Nil) {
   case items, index {
+    _, _ if index < 0 -> Error(Nil)
     [], _ -> Error(Nil)
     [first, ..], 0 -> Ok(first)
-    [_, ..rest], _ -> list_at_generic(rest, index - 1)
+    [_, ..rest], _ -> element_at(rest, index - 1)
   }
 }
 
@@ -577,9 +544,9 @@ fn list_at_generic(items: List(a), index: Int) -> Result(a, Nil) {
 /// function only. It returns a sentinel value for a position that is not an
 /// index or is out of range. Those branches never read that sentinel.
 fn idx_at(path: List(PathKey), i: Int) -> Int {
-  case pk_at(path, i) {
-    Some(Index(n)) -> n
-    _ -> -999_999
+  case path_key_at(path, i) {
+    Ok(Index(n)) -> n
+    Ok(Key(_)) | Error(Nil) -> -999_999
   }
 }
 
@@ -615,8 +582,8 @@ fn set_idx_at(path: List(PathKey), i: Int, value: Int) -> List(PathKey) {
 
 fn append(dest: Op, c: Component) -> Op {
   case split_last_component(dest) {
-    None -> [c]
-    Some(#(init, last)) ->
+    Error(Nil) -> [c]
+    Ok(#(init, last)) ->
       case last.path == c.path {
         False -> list.append(dest, [c])
         True ->
@@ -662,7 +629,7 @@ fn merge_pair(last: Component, c: Component) -> Merge {
       }
     // list move onto its own position → drop
     _, Component(lm: Some(target), ..) ->
-      case last_index_of(c.path) == Some(target) {
+      case last_index_of(c.path) == Ok(target) {
         True -> KeepDest
         False -> NoMerge
       }
@@ -670,23 +637,17 @@ fn merge_pair(last: Component, c: Component) -> Merge {
   }
 }
 
-fn last_index_of(path: List(PathKey)) -> Option(Int) {
+fn last_index_of(path: List(PathKey)) -> Result(Int, Nil) {
   case list.last(path) {
-    Ok(Index(n)) -> Some(n)
-    _ -> None
+    Ok(Index(n)) -> Ok(n)
+    Ok(Key(_)) | Error(Nil) -> Error(Nil)
   }
 }
 
-fn split_last_component(op: Op) -> Option(#(Op, Component)) {
-  case op {
-    [] -> None
-    _ -> {
-      let reversed = list.reverse(op)
-      case reversed {
-        [last, ..rev_init] -> Some(#(list.reverse(rev_init), last))
-        [] -> None
-      }
-    }
+fn split_last_component(op: Op) -> Result(#(Op, Component), Nil) {
+  case list.reverse(op) {
+    [] -> Error(Nil)
+    [last, ..reversed_init] -> Ok(#(list.reverse(reversed_init), last))
   }
 }
 
@@ -787,15 +748,14 @@ fn transform_component(
   other: Component,
   side: Side,
 ) -> Result(List(Component), OtError) {
-  let cplength = adj_len(c)
-  let other_len = adj_len(other)
+  let cplength = adjusted_length(c)
+  let other_len = adjusted_length(other)
   let common = common_length(other, c)
   let common2 = common_length(c, other)
   use c <- result.try(apply_preimage(c, other, common2, cplength, other_len))
   case common {
-    None -> Ok([c])
-    Some(common) ->
-      transform_matrix(c, other, side, common, cplength, other_len)
+    Error(Nil) -> Ok([c])
+    Ok(common) -> transform_matrix(c, other, side, common, cplength, other_len)
   }
 }
 
@@ -805,14 +765,17 @@ fn transform_component(
 fn apply_preimage(
   c: Component,
   other: Component,
-  common2: Option(Int),
+  common2: Result(Int, Nil),
   cplength: Int,
   other_len: Int,
 ) -> Result(Component, OtError) {
   case common2 {
-    None -> Ok(c)
-    Some(k) ->
-      case other_len > cplength && pk_at(c.path, k) == pk_at(other.path, k) {
+    Error(Nil) -> Ok(c)
+    Ok(k) ->
+      case
+        other_len > cplength
+        && path_key_at(c.path, k) == path_key_at(other.path, k)
+      {
         False -> Ok(c)
         True -> {
           let oc = Component(..other, path: list.drop(other.path, cplength))
@@ -898,7 +861,7 @@ fn list_replace_branch(
   common: Int,
   common_operand: Bool,
 ) -> List(Component) {
-  case pk_at(other.path, common) == pk_at(c.path, common) {
+  case path_key_at(other.path, common) == path_key_at(c.path, common) {
     False -> [c]
     True ->
       case common_operand {
@@ -925,7 +888,7 @@ fn other_li_branch(
 ) -> List(Component) {
   let o_idx = idx_at(other.path, common)
   let c_idx = idx_at(c.path, common)
-  let same = pk_at(c.path, common) == pk_at(other.path, common)
+  let same = path_key_at(c.path, common) == path_key_at(other.path, common)
   let c1 = case c.li, c.ld, common_operand, same {
     Some(_), None, True, True ->
       case side {
@@ -959,7 +922,7 @@ fn other_ld_branch(
 ) -> List(Component) {
   let o_idx = idx_at(other.path, common)
   let c_idx = idx_at(c.path, common)
-  let same = pk_at(c.path, common) == pk_at(other.path, common)
+  let same = path_key_at(c.path, common) == path_key_at(other.path, common)
   let after_lm = case c.lm, common_operand {
     Some(lm), True ->
       case same {
@@ -1007,7 +970,7 @@ fn other_oreplace_branch(
   common_operand: Bool,
   side: Side,
 ) -> List(Component) {
-  case pk_at(c.path, common) == pk_at(other.path, common) {
+  case path_key_at(c.path, common) == path_key_at(other.path, common) {
     False -> [c]
     True ->
       case c.oi, common_operand {
@@ -1028,7 +991,7 @@ fn other_oi_branch(
   common_operand: Bool,
   side: Side,
 ) -> List(Component) {
-  case pk_at(c.path, common) == pk_at(other.path, common) {
+  case path_key_at(c.path, common) == path_key_at(other.path, common) {
     False -> [c]
     True ->
       // `other` inserts a value at a strictly-shallower path than `c`: it just
@@ -1056,7 +1019,7 @@ fn other_od_branch(
   common: Int,
   common_operand: Bool,
 ) -> List(Component) {
-  case pk_at(c.path, common) == pk_at(other.path, common) {
+  case path_key_at(c.path, common) == path_key_at(other.path, common) {
     False -> [c]
     True ->
       case common_operand {
@@ -1244,18 +1207,24 @@ fn invert_component(c: Component) -> Component {
     )
   case c.lm {
     None -> base
-    Some(target) -> {
-      let #(parent, last) = split_last(c.path)
-      let last_idx = case last {
-        Index(i) -> i
-        Key(_) -> 0
+    Some(target) ->
+      case split_last(c.path) {
+        // A list move always names a position, so its path is never empty.
+        // The arm keeps the base component, because a pure module must not
+        // panic.
+        Error(Nil) -> base
+        Ok(#(parent, last)) -> {
+          let last_index = case last {
+            Index(index) -> index
+            Key(_) -> 0
+          }
+          Component(
+            ..base,
+            path: list.append(parent, [Index(target)]),
+            lm: Some(last_index),
+          )
+        }
       }
-      Component(
-        ..base,
-        path: list.append(parent, [Index(target)]),
-        lm: Some(last_idx),
-      )
-    }
   }
 }
 
@@ -1329,8 +1298,8 @@ fn text0_parse_op(op: JsonValue) -> Result(List(TextComp), OtError) {
   }
 }
 
-fn text0_parse_component(c: JsonValue) -> Result(TextComp, OtError) {
-  case c {
+fn text0_parse_component(component: JsonValue) -> Result(TextComp, OtError) {
+  case component {
     VObject(members) -> {
       let pos = case list.key_find(members, "p") {
         Ok(VNumber(NInt(n))) -> Ok(n)
@@ -1355,10 +1324,10 @@ fn text0_serialize_op(op: List(TextComp)) -> JsonValue {
   VArray(list.map(op, text0_serialize_component))
 }
 
-fn text0_serialize_component(c: TextComp) -> JsonValue {
+fn text0_serialize_component(component: TextComp) -> JsonValue {
   // Object members are kept key-sorted for canonical equality; "d"/"i" both
   // sort before "p".
-  case c {
+  case component {
     TIns(p, s) -> VObject([#("i", VString(s)), #("p", VNumber(NInt(p)))])
     TDel(p, s) -> VObject([#("d", VString(s)), #("p", VNumber(NInt(p)))])
   }
@@ -1369,27 +1338,27 @@ fn str_inject(s1: String, pos: Int, s2: String) -> String {
   string.slice(s1, 0, pos) <> s2 <> string.drop_start(s1, pos)
 }
 
-fn text0_is_empty_component(c: TextComp) -> Bool {
-  case c {
+fn text0_is_empty_component(component: TextComp) -> Bool {
+  case component {
     TIns(_, "") | TDel(_, "") -> True
     _ -> False
   }
 }
 
-/// Append `c` to `op`. The function drops a component that does nothing, and
-/// it composes two adjacent inserts or two adjacent deletes, the same as the
-/// `text._append` function of json0. `op` is in the normal order, which is the
-/// execution order.
-fn text0_append(op: List(TextComp), c: TextComp) -> List(TextComp) {
-  case text0_is_empty_component(c) {
+/// Append `component` to `op`. The function drops a component that does
+/// nothing, and it composes two adjacent inserts or two adjacent deletes, the
+/// same as the `text._append` function of json0. `op` is in the normal order,
+/// which is the execution order.
+fn text0_append(op: List(TextComp), component: TextComp) -> List(TextComp) {
+  case text0_is_empty_component(component) {
     True -> op
     False ->
       case text0_split_last(op) {
-        None -> [c]
-        Some(#(init, last)) ->
-          case text0_merge(last, c) {
-            Ok(merged) -> list.append(init, [merged])
-            Error(Nil) -> list.append(op, [c])
+        Error(Nil) -> [component]
+        Ok(#(leading, last)) ->
+          case text0_merge(last, component) {
+            Ok(merged) -> list.append(leading, [merged])
+            Error(Nil) -> list.append(op, [component])
           }
       }
   }
@@ -1397,18 +1366,18 @@ fn text0_append(op: List(TextComp), c: TextComp) -> List(TextComp) {
 
 fn text0_split_last(
   op: List(TextComp),
-) -> option.Option(#(List(TextComp), TextComp)) {
+) -> Result(#(List(TextComp), TextComp), Nil) {
   case list.reverse(op) {
-    [] -> None
-    [last, ..rest] -> Some(#(list.reverse(rest), last))
+    [] -> Error(Nil)
+    [last, ..rest] -> Ok(#(list.reverse(rest), last))
   }
 }
 
-/// Compose `c` onto the last component `last`, when the two are adjacent edits
-/// of the same kind. That is two overlapping inserts, or two overlapping
-/// deletes.
-fn text0_merge(last: TextComp, c: TextComp) -> Result(TextComp, Nil) {
-  case last, c {
+/// Compose `component` onto the last component `last`, when the two are
+/// adjacent edits of the same kind. That is two overlapping inserts, or two
+/// overlapping deletes.
+fn text0_merge(last: TextComp, component: TextComp) -> Result(TextComp, Nil) {
+  case last, component {
     TIns(lp, li), TIns(cp, ci) ->
       case lp <= cp && cp <= lp + string.length(li) {
         True -> Ok(TIns(lp, str_inject(li, cp - lp, ci)))
@@ -1423,10 +1392,14 @@ fn text0_merge(last: TextComp, c: TextComp) -> Result(TextComp, Nil) {
   }
 }
 
-/// Move `pos` for a concurrent component `c`. For an insert, `insert_after`
+/// Move `pos` for a concurrent `component`. For an insert, `insert_after`
 /// decides whether a position exactly at the insert moves past it.
-fn text0_transform_position(pos: Int, c: TextComp, insert_after: Bool) -> Int {
-  case c {
+fn text0_transform_position(
+  pos: Int,
+  component: TextComp,
+  insert_after: Bool,
+) -> Int {
+  case component {
     TIns(cp, cs) ->
       case cp < pos || { cp == pos && insert_after } {
         True -> pos + string.length(cs)
@@ -1446,46 +1419,49 @@ fn text0_transform_position(pos: Int, c: TextComp, insert_after: Bool) -> Int {
   }
 }
 
-/// Transform the component `c` by `other`, and append each result to `dest` in
-/// the normal order. The function is asymmetric. `side` breaks a tie between
+/// Transform `component` by `other`, and append each result to `destination`
+/// in the normal order. The function is asymmetric. `side` breaks a tie between
 /// two inserts.
 fn text0_transform_component(
-  dest: List(TextComp),
-  c: TextComp,
+  destination: List(TextComp),
+  component: TextComp,
   other: TextComp,
   side: Side,
 ) -> Result(List(TextComp), OtError) {
-  case c {
+  case component {
     TIns(cp, cs) ->
       Ok(text0_append(
-        dest,
+        destination,
         TIns(text0_transform_position(cp, other, side == Rgt), cs),
       ))
     TDel(cp, cs) ->
       case other {
         TIns(op, os) -> {
           // Delete vs insert: split the delete around the inserted text.
-          let #(dest, remaining) = case cp < op {
+          let #(destination, remaining) = case cp < op {
             True -> #(
-              text0_append(dest, TDel(cp, string.slice(cs, 0, op - cp))),
+              text0_append(destination, TDel(cp, string.slice(cs, 0, op - cp))),
               string.drop_start(cs, op - cp),
             )
-            False -> #(dest, cs)
+            False -> #(destination, cs)
           }
           case remaining == "" {
-            True -> Ok(dest)
+            True -> Ok(destination)
             False ->
-              Ok(text0_append(dest, TDel(cp + string.length(os), remaining)))
+              Ok(text0_append(
+                destination,
+                TDel(cp + string.length(os), remaining),
+              ))
           }
         }
         TDel(op, os) -> {
           let clen = string.length(cs)
           let olen = string.length(os)
           case cp >= op + olen {
-            True -> Ok(text0_append(dest, TDel(cp - olen, cs)))
+            True -> Ok(text0_append(destination, TDel(cp - olen, cs)))
             False ->
               case cp + clen <= op {
-                True -> Ok(text0_append(dest, c))
+                True -> Ok(text0_append(destination, component))
                 False -> {
                   // The deletes overlap: keep only the portions `other` did not
                   // already remove.
@@ -1513,10 +1489,10 @@ fn text0_transform_component(
                       ))
                   })
                   case new_d == "" {
-                    True -> Ok(dest)
+                    True -> Ok(destination)
                     False ->
                       Ok(text0_append(
-                        dest,
+                        destination,
                         TDel(text0_transform_position(cp, other, False), new_d),
                       ))
                   }

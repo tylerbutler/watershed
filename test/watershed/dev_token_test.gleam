@@ -24,7 +24,7 @@ const document_id = "dice"
 const user_id = "user-test"
 
 @target(erlang)
-pub fn dev_token_has_three_segments_test() {
+pub fn dev_token_has_three_segments_test() -> Nil {
   let token =
     watershed_beam.dev_token(
       secret: tenant_secret,
@@ -40,7 +40,7 @@ pub fn dev_token_has_three_segments_test() {
 import gleam/list
 
 @target(erlang)
-pub fn dev_token_segments_are_nonempty_test() {
+pub fn dev_token_segments_are_nonempty_test() -> Nil {
   let token =
     watershed_beam.dev_token(
       secret: tenant_secret,
@@ -55,7 +55,7 @@ pub fn dev_token_segments_are_nonempty_test() {
 }
 
 @target(erlang)
-pub fn dev_token_header_is_hs256_jwt_test() {
+pub fn dev_token_header_is_hs256_jwt_test() -> Nil {
   let t1 =
     watershed_beam.dev_token(
       secret: tenant_secret,

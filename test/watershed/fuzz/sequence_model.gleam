@@ -11,10 +11,10 @@ import watershed/sequence_kernel
 import watershed/wire
 
 pub type SequenceCommand {
-  InsertCmd(index_seed: Int, value: String, delta: Option(Sequence(Json)))
-  DeleteCmd(index_seed: Int, delta: Option(Sequence(Json)))
-  MoveCmd(from_seed: Int, to_seed: Int, delta: Option(Sequence(Json)))
-  ReplaceCmd(index_seed: Int, value: String, delta: Option(Sequence(Json)))
+  InsertCommand(index_seed: Int, value: String, delta: Option(Sequence(Json)))
+  DeleteCommand(index_seed: Int, delta: Option(Sequence(Json)))
+  MoveCommand(from_seed: Int, to_seed: Int, delta: Option(Sequence(Json)))
+  ReplaceCommand(index_seed: Int, value: String, delta: Option(Sequence(Json)))
 }
 
 fn delta_to_json(delta: Option(Sequence(Json))) -> Json {
@@ -41,27 +41,27 @@ fn delta_decoder() -> decode.Decoder(Option(Sequence(Json))) {
 
 fn op_to_json(command: SequenceCommand) -> Json {
   case command {
-    InsertCmd(index_seed, value, delta) ->
+    InsertCommand(index_seed, value, delta) ->
       json.object([
         #("tag", json.string("Insert")),
         #("index_seed", json.int(index_seed)),
         #("value", json.string(value)),
         #("delta", delta_to_json(delta)),
       ])
-    DeleteCmd(index_seed, delta) ->
+    DeleteCommand(index_seed, delta) ->
       json.object([
         #("tag", json.string("Delete")),
         #("index_seed", json.int(index_seed)),
         #("delta", delta_to_json(delta)),
       ])
-    MoveCmd(from_seed, to_seed, delta) ->
+    MoveCommand(from_seed, to_seed, delta) ->
       json.object([
         #("tag", json.string("Move")),
         #("from_seed", json.int(from_seed)),
         #("to_seed", json.int(to_seed)),
         #("delta", delta_to_json(delta)),
       ])
-    ReplaceCmd(index_seed, value, delta) ->
+    ReplaceCommand(index_seed, value, delta) ->
       json.object([
         #("tag", json.string("Replace")),
         #("index_seed", json.int(index_seed)),
@@ -78,26 +78,26 @@ fn op_decoder() -> decode.Decoder(SequenceCommand) {
       use index_seed <- decode.field("index_seed", decode.int)
       use value <- decode.field("value", decode.string)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(InsertCmd(index_seed, value, delta))
+      decode.success(InsertCommand(index_seed, value, delta))
     }
     "Delete" -> {
       use index_seed <- decode.field("index_seed", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(DeleteCmd(index_seed, delta))
+      decode.success(DeleteCommand(index_seed, delta))
     }
     "Move" -> {
       use from_seed <- decode.field("from_seed", decode.int)
       use to_seed <- decode.field("to_seed", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(MoveCmd(from_seed, to_seed, delta))
+      decode.success(MoveCommand(from_seed, to_seed, delta))
     }
     "Replace" -> {
       use index_seed <- decode.field("index_seed", decode.int)
       use value <- decode.field("value", decode.string)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(ReplaceCmd(index_seed, value, delta))
+      decode.success(ReplaceCommand(index_seed, value, delta))
     }
-    _ -> decode.failure(InsertCmd(0, "", None), "sequence command")
+    _ -> decode.failure(InsertCommand(0, "", None), "sequence command")
   }
 }
 
@@ -111,10 +111,10 @@ fn op_generator() -> qcheck.Generator(SequenceCommand) {
   |> qcheck.map(fn(parts) {
     let value = "v" <> int.to_string(parts.3 % 5)
     case parts.0 % 4 {
-      0 -> InsertCmd(parts.1, value, None)
-      1 -> DeleteCmd(parts.1, None)
-      2 -> MoveCmd(parts.1, parts.2, None)
-      _ -> ReplaceCmd(parts.1, value, None)
+      0 -> InsertCommand(parts.1, value, None)
+      1 -> DeleteCommand(parts.1, None)
+      2 -> MoveCommand(parts.1, parts.2, None)
+      _ -> ReplaceCommand(parts.1, value, None)
     }
   })
 }
@@ -140,16 +140,16 @@ fn to_kernel_op(
   context: String,
 ) -> sequence_kernel.SequenceOp {
   case command {
-    InsertCmd(index, value, Some(delta)) ->
+    InsertCommand(index, value, Some(delta)) ->
       sequence_kernel.Insert(index, command_value(value, context), delta)
-    DeleteCmd(index, Some(delta)) -> sequence_kernel.Delete(index, delta)
-    MoveCmd(from, to, Some(delta)) -> sequence_kernel.Move(from, to, delta)
-    ReplaceCmd(index, value, Some(delta)) ->
+    DeleteCommand(index, Some(delta)) -> sequence_kernel.Delete(index, delta)
+    MoveCommand(from, to, Some(delta)) -> sequence_kernel.Move(from, to, delta)
+    ReplaceCommand(index, value, Some(delta)) ->
       sequence_kernel.Replace(index, command_value(value, context), delta)
-    InsertCmd(_, _, None)
-    | DeleteCmd(_, None)
-    | MoveCmd(_, _, None)
-    | ReplaceCmd(_, _, None) ->
+    InsertCommand(_, _, None)
+    | DeleteCommand(_, None)
+    | MoveCommand(_, _, None)
+    | ReplaceCommand(_, _, None) ->
       panic as {
         context
         <> " received an op without a delta — submit/apply_stashed must rewrite ops before routing"
@@ -167,7 +167,7 @@ fn submit_insert(
   let assert Ok(#(state, _, op, _)) =
     sequence_kernel.insert(state, index, value)
   let assert sequence_kernel.Insert(index, value, delta) = op
-  #(state, Some(InsertCmd(index, json.to_string(value), Some(delta))))
+  #(state, Some(InsertCommand(index, json.to_string(value), Some(delta))))
 }
 
 fn submit(
@@ -177,8 +177,9 @@ fn submit(
 ) -> #(sequence_kernel.SequenceState, Option(SequenceCommand)) {
   let length = sequence_kernel.length(state)
   case command {
-    InsertCmd(index_seed, value, _) -> submit_insert(state, index_seed, value)
-    DeleteCmd(index_seed, _) ->
+    InsertCommand(index_seed, value, _) ->
+      submit_insert(state, index_seed, value)
+    DeleteCommand(index_seed, _) ->
       case length == 0 {
         True -> submit_insert(state, index_seed, fallback_value(index_seed))
         False -> {
@@ -186,10 +187,10 @@ fn submit(
           let assert Ok(#(state, _, op, _)) =
             sequence_kernel.delete(state, index)
           let assert sequence_kernel.Delete(index, delta) = op
-          #(state, Some(DeleteCmd(index, Some(delta))))
+          #(state, Some(DeleteCommand(index, Some(delta))))
         }
       }
-    MoveCmd(from_seed, to_seed, _) ->
+    MoveCommand(from_seed, to_seed, _) ->
       case length == 0 {
         True -> submit_insert(state, from_seed, fallback_value(from_seed))
         False -> {
@@ -198,10 +199,10 @@ fn submit(
           let assert Ok(#(state, _, op, _)) =
             sequence_kernel.move(state, from, to)
           let assert sequence_kernel.Move(from, to, delta) = op
-          #(state, Some(MoveCmd(from, to, Some(delta))))
+          #(state, Some(MoveCommand(from, to, Some(delta))))
         }
       }
-    ReplaceCmd(index_seed, value, _) ->
+    ReplaceCommand(index_seed, value, _) ->
       case length == 0 {
         True -> submit_insert(state, index_seed, value)
         False -> {
@@ -210,7 +211,10 @@ fn submit(
           let assert Ok(#(state, _, op, _)) =
             sequence_kernel.replace(state, index, value)
           let assert sequence_kernel.Replace(index, value, delta) = op
-          #(state, Some(ReplaceCmd(index, json.to_string(value), Some(delta))))
+          #(
+            state,
+            Some(ReplaceCommand(index, json.to_string(value), Some(delta))),
+          )
         }
       }
   }
@@ -264,10 +268,10 @@ fn apply_stashed(
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(sequence_kernel.SequenceState, SequenceCommand) {
   case command {
-    InsertCmd(_, _, Some(_))
-    | DeleteCmd(_, Some(_))
-    | MoveCmd(_, _, Some(_))
-    | ReplaceCmd(_, _, Some(_)) -> {
+    InsertCommand(_, _, Some(_))
+    | DeleteCommand(_, Some(_))
+    | MoveCommand(_, _, Some(_))
+    | ReplaceCommand(_, _, Some(_)) -> {
       let #(state, _, _, _) =
         sequence_kernel.apply_stashed_op(
           state,
@@ -275,10 +279,10 @@ fn apply_stashed(
         )
       #(state, command)
     }
-    InsertCmd(_, _, None)
-    | DeleteCmd(_, None)
-    | MoveCmd(_, _, None)
-    | ReplaceCmd(_, _, None) -> {
+    InsertCommand(_, _, None)
+    | DeleteCommand(_, None)
+    | MoveCommand(_, _, None)
+    | ReplaceCommand(_, _, None) -> {
       let #(state, routed) = submit(state, command, meta)
       let assert Some(routed) = routed
       #(state, routed)

@@ -21,7 +21,7 @@ fn weights() -> script_gen.Weights {
   )
 }
 
-pub fn converges_and_matches_oracle_test() {
+pub fn converges_and_matches_oracle_test() -> Nil {
   let model = counter_model.model()
   kernel_fuzz.run(
     model,

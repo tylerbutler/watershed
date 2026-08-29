@@ -5,7 +5,8 @@ import gleam/string
 import qcheck
 import watershed/fuzz/kernel_fuzz
 import watershed/json_ot.{VBool, VObject, VString}
-import watershed/json_ot_gen.{type Rng, new_rng, rand_int}
+import watershed/json_ot_gen.{type Random}
+import watershed/ot_client
 import watershed/rich_text
 import watershed/rich_text_kernel.{type RichTextState, type RichTextWireOp} as kernel
 
@@ -19,8 +20,8 @@ type Client {
   Client(state: RichTextState, delivered: Int, outbox: List(RichTextWireOp))
 }
 
-type Sim {
-  Sim(clients: List(Client), log: List(Entry))
+type Simulation {
+  Simulation(clients: List(Client), log: List(Entry))
 }
 
 fn ids() -> List(Int) {
@@ -35,17 +36,17 @@ fn initial_document() -> rich_text.Document {
   document
 }
 
-fn get(sim: Sim, id: Int) -> Client {
-  case list.drop(sim.clients, id) {
+fn get(simulation: Simulation, id: Int) -> Client {
+  case list.drop(simulation.clients, id) {
     [client, ..] -> client
     [] -> panic as "client id out of range"
   }
 }
 
-fn put(sim: Sim, id: Int, client: Client) -> Sim {
-  Sim(
-    ..sim,
-    clients: list.index_map(sim.clients, fn(existing, index) {
+fn put(simulation: Simulation, id: Int, client: Client) -> Simulation {
+  Simulation(
+    ..simulation,
+    clients: list.index_map(simulation.clients, fn(existing, index) {
       case index == id {
         True -> client
         False -> existing
@@ -54,8 +55,8 @@ fn put(sim: Sim, id: Int, client: Client) -> Sim {
   )
 }
 
-fn new_sim() -> Sim {
-  Sim(
+fn new_simulation() -> Simulation {
+  Simulation(
     ids()
       |> list.map(fn(_id) {
         Client(kernel.from_document(initial_document()), 0, [])
@@ -68,9 +69,9 @@ fn new_sim() -> Sim {
 /// Thus deletes and formatting never split a supplementary UTF-16 character.
 fn gen_delta(
   document: rich_text.Document,
-  rng: Rng,
-) -> #(rich_text.Delta, Rng) {
-  let #(choice, rng) = rand_int(rng, 5)
+  random: Random,
+) -> #(rich_text.Delta, Random) {
+  let #(choice, random) = json_ot_gen.random_int(random, 5)
   let length = rich_text.document_length(document)
   let empty = rich_text.empty_delta()
   case choice {
@@ -80,7 +81,7 @@ fn gen_delta(
     0 -> {
       let assert Ok(delta) =
         rich_text.delta_insert_text(empty, "x", rich_text.attributes([]))
-      #(delta, rng)
+      #(delta, random)
     }
     // End insertion is always a scalar boundary.
     1 if length > 0 -> {
@@ -88,7 +89,7 @@ fn gen_delta(
         rich_text.delta_retain(empty, length, rich_text.attributes([]))
       let assert Ok(delta) =
         rich_text.delta_insert_text(prefix, "y", rich_text.attributes([]))
-      #(delta, rng)
+      #(delta, random)
     }
     // Formatting covers an entire valid document span.
     2 if length > 0 -> {
@@ -98,12 +99,12 @@ fn gen_delta(
           length,
           rich_text.attributes([#("bold", VBool(True))]),
         )
-      #(delta, rng)
+      #(delta, random)
     }
     // Deletes also cover the full document, preserving UTF-16 boundaries.
     3 if length > 0 -> {
       let assert Ok(delta) = rich_text.delta_delete(empty, length)
-      #(delta, rng)
+      #(delta, random)
     }
     // Embedded inserts exercise unit-length non-text content.
     _ -> {
@@ -113,21 +114,21 @@ fn gen_delta(
           VObject([#("image", VString("generated"))]),
           rich_text.attributes([]),
         )
-      #(delta, rng)
+      #(delta, random)
     }
   }
 }
 
-fn msn(sim: Sim) -> Int {
+fn minimum_sequence_number(simulation: Simulation) -> Int {
   let min_delivered =
-    list.fold(sim.clients, list.length(sim.log), fn(acc, client) {
+    list.fold(simulation.clients, list.length(simulation.log), fn(acc, client) {
       int.min(acc, client.delivered)
     })
   let with_outbox =
-    list.fold(sim.clients, min_delivered, fn(acc, client) {
+    list.fold(simulation.clients, min_delivered, fn(acc, client) {
       list.fold(client.outbox, acc, fn(acc, wire) { int.min(acc, wire.ref_seq) })
     })
-  list.fold(sim.log, with_outbox, fn(acc, entry) {
+  list.fold(simulation.log, with_outbox, fn(acc, entry) {
     case entry.seq > min_delivered {
       True -> int.min(acc, entry.wire.ref_seq)
       False -> acc
@@ -135,10 +136,14 @@ fn msn(sim: Sim) -> Int {
   })
 }
 
-fn submit(sim: Sim, id: Int, rng: Rng) -> #(Sim, Rng) {
-  let client = get(sim, id)
+fn submit(
+  simulation: Simulation,
+  id: Int,
+  random: Random,
+) -> #(Simulation, Random) {
+  let client = get(simulation, id)
   let assert Ok(document) = kernel.view(client.state)
-  let #(delta, rng) = gen_delta(document, rng)
+  let #(delta, random) = gen_delta(document, random)
   let #(state, maybe_wire, _) = case
     kernel.submit(client.state, delta, client.delivered)
   {
@@ -153,18 +158,20 @@ fn submit(sim: Sim, id: Int, rng: Rng) -> #(Sim, Rng) {
     None -> client.outbox
     Some(wire) -> list.append(client.outbox, [wire])
   }
-  #(put(sim, id, Client(..client, state: state, outbox: outbox)), rng)
+  #(put(simulation, id, Client(..client, state: state, outbox: outbox)), random)
 }
 
-fn sequence(sim: Sim, id: Int) -> Sim {
-  let client = get(sim, id)
+fn sequence(simulation: Simulation, id: Int) -> Simulation {
+  let client = get(simulation, id)
   case client.outbox {
-    [] -> sim
+    [] -> simulation
     [wire, ..rest] ->
       put(
-        Sim(
-          ..sim,
-          log: list.append(sim.log, [Entry(list.length(sim.log) + 1, id, wire)]),
+        Simulation(
+          ..simulation,
+          log: list.append(simulation.log, [
+            Entry(list.length(simulation.log) + 1, id, wire),
+          ]),
         ),
         id,
         Client(..client, outbox: rest),
@@ -172,12 +179,12 @@ fn sequence(sim: Sim, id: Int) -> Sim {
   }
 }
 
-fn deliver_one(sim: Sim, id: Int) -> Sim {
-  let client = get(sim, id)
-  case list.drop(sim.log, client.delivered) {
-    [] -> sim
+fn deliver_one(simulation: Simulation, id: Int) -> Simulation {
+  let client = get(simulation, id)
+  case list.drop(simulation.log, client.delivered) {
+    [] -> simulation
     [entry, ..] -> {
-      let min = msn(sim)
+      let min = minimum_sequence_number(simulation)
       case entry.author == id {
         True -> {
           let assert Ok(#(state, _)) =
@@ -187,13 +194,13 @@ fn deliver_one(sim: Sim, id: Int) -> Sim {
             None -> client.outbox
             Some(wire) -> list.append(client.outbox, [wire])
           }
-          put(sim, id, Client(state, client.delivered + 1, outbox))
+          put(simulation, id, Client(state, client.delivered + 1, outbox))
         }
         False -> {
           let assert Ok(#(state, _)) =
             kernel.apply_remote(client.state, entry.wire, entry.seq, min)
           put(
-            sim,
+            simulation,
             id,
             Client(..client, state: state, delivered: client.delivered + 1),
           )
@@ -203,62 +210,68 @@ fn deliver_one(sim: Sim, id: Int) -> Sim {
   }
 }
 
-fn deliver_until(sim: Sim, id: Int, target: Int) -> Sim {
-  case get(sim, id).delivered >= target {
-    True -> sim
-    False -> deliver_until(deliver_one(sim, id), id, target)
+fn deliver_until(simulation: Simulation, id: Int, target: Int) -> Simulation {
+  case get(simulation, id).delivered >= target {
+    True -> simulation
+    False -> deliver_until(deliver_one(simulation, id), id, target)
   }
 }
 
-fn deliver_all(sim: Sim) -> Sim {
-  list.fold(ids(), sim, fn(sim, id) {
-    deliver_until(sim, id, list.length(sim.log))
+fn deliver_all(simulation: Simulation) -> Simulation {
+  list.fold(ids(), simulation, fn(simulation, id) {
+    deliver_until(simulation, id, list.length(simulation.log))
   })
 }
 
-fn sequence_all(sim: Sim) -> Sim {
-  case list.all(sim.clients, fn(client) { client.outbox == [] }) {
-    True -> sim
-    False -> sequence_all(list.fold(ids(), sim, sequence))
+fn sequence_all(simulation: Simulation) -> Simulation {
+  case list.all(simulation.clients, fn(client) { client.outbox == [] }) {
+    True -> simulation
+    False -> sequence_all(list.fold(ids(), simulation, sequence))
   }
 }
 
-fn drain(sim: Sim) -> Sim {
-  let sim = deliver_all(sequence_all(sim))
+fn drain(simulation: Simulation) -> Simulation {
+  let simulation = deliver_all(sequence_all(simulation))
   case
-    list.all(sim.clients, fn(client) {
-      client.outbox == [] && client.delivered == list.length(sim.log)
+    list.all(simulation.clients, fn(client) {
+      client.outbox == [] && client.delivered == list.length(simulation.log)
     })
   {
-    True -> sim
-    False -> drain(sim)
+    True -> simulation
+    False -> drain(simulation)
   }
 }
 
-fn play(sim: Sim, rng: Rng, rounds: Int) -> #(Sim, Rng) {
+fn play(
+  simulation: Simulation,
+  random: Random,
+  rounds: Int,
+) -> #(Simulation, Random) {
   case rounds <= 0 {
-    True -> #(sim, rng)
+    True -> #(simulation, random)
     False -> {
-      let #(action, rng) = rand_int(rng, 10)
-      let #(id, rng) = rand_int(rng, client_count)
-      let #(sim, rng) = case action {
-        n if n < 5 -> submit(sim, id, rng)
-        n if n < 7 -> #(sequence(sim, id), rng)
-        n if n < 9 -> #(deliver_one(sim, id), rng)
-        _ -> #(deliver_one(sequence(sim, id), id), rng)
+      let #(action, random) = json_ot_gen.random_int(random, 10)
+      let #(id, random) = json_ot_gen.random_int(random, client_count)
+      let #(simulation, random) = case action {
+        n if n < 5 -> submit(simulation, id, random)
+        n if n < 7 -> #(sequence(simulation, id), random)
+        n if n < 9 -> #(deliver_one(simulation, id), random)
+        _ -> #(deliver_one(sequence(simulation, id), id), random)
       }
-      play(sim, rng, rounds - 1)
+      play(simulation, random, rounds - 1)
     }
   }
 }
 
 fn run(seed: Int) -> Result(Nil, String) {
-  let #(sim, _) = play(new_sim(), new_rng(seed), 40)
-  let sim = drain(sim)
-  let documents = list.map(sim.clients, fn(client) { client.state.sequenced })
+  let #(simulation, _) =
+    play(new_simulation(), json_ot_gen.new_random(seed), 40)
+  let simulation = drain(simulation)
+  let documents =
+    list.map(simulation.clients, fn(client) { client.state.sequenced })
   let pending =
-    list.any(sim.clients, fn(client) {
-      client.state.inflight != None || client.state.buffer != None
+    list.any(simulation.clients, fn(client) {
+      client.state.pending != ot_client.Idle
     })
   case documents {
     [] -> Ok(Nil)
@@ -269,23 +282,22 @@ fn run(seed: Int) -> Result(Nil, String) {
           Error(
             "rich-text convergence failure:\n"
             <> string.inspect(
-              list.map(sim.clients, fn(client) {
+              list.map(simulation.clients, fn(client) {
                 #(
                   rich_text.document_to_json(client.state.sequenced),
-                  client.state.inflight,
-                  client.state.buffer,
+                  client.state.pending,
                 )
               }),
             )
             <> "\nlog:\n"
-            <> string.inspect(sim.log),
+            <> string.inspect(simulation.log),
           )
       }
     }
   }
 }
 
-pub fn clients_converge_with_text_formatting_deletes_emoji_and_embeds_test() {
+pub fn clients_converge_with_text_formatting_deletes_emoji_and_embeds_test() -> Nil {
   let config = kernel_fuzz.config_from_env()
   qcheck.run(config, qcheck.uniform_int(), fn(seed) {
     case run(seed) {

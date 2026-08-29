@@ -38,7 +38,7 @@ import watershed/canonical_json
 import watershed/channel.{type ChannelOp, type ChannelType, type Snapshot}
 import watershed/p2p.{type P2pError}
 import watershed/wire
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 
 /// The only protocol version that this module uses. A peer that announces any
 /// other version gets a `ProtocolMismatch` error, before this module reads its
@@ -246,7 +246,7 @@ pub fn encode_message(message: Message) -> Json {
         #("id", encode_message_id(id)),
         #("address", json.string(address)),
         #("channelType", json.string(channel.type_to_string(channel_type))),
-        #("contents", ops.encode_channel_op(op)),
+        #("contents", wire_op.encode_channel_op(op)),
       ])
     StateRequest -> json.object([#("type", json.string(type_state_request))])
     State(entries) ->
@@ -508,7 +508,7 @@ fn validate_message(
       use op <- result.try(
         json.parse(
           json.to_string(contents),
-          ops.channel_op_decoder(channel_type),
+          wire_op.channel_op_decoder(channel_type),
         )
         |> result.replace_error(invalid(
           from,

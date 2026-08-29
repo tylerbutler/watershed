@@ -89,7 +89,12 @@ fn deferred_save() -> DeferredSave {
 }
 
 @target(javascript)
-fn save_driver(deferred: DeferredSave) {
+fn save_driver(
+  deferred: DeferredSave,
+) -> fn(
+  CrdtDocument(GSetChannel),
+  fn(Result(String, persist_js.PersistenceError)) -> Nil,
+) -> Nil {
   fn(document, done) {
     let assert Ok(values) = crdt_js.g_set_values(crdt_js.root(document))
     let DeferredSave(attempts:, pending:) = deferred
@@ -169,7 +174,7 @@ fn status_name(status: persist_controller_js.Status) -> String {
 }
 
 @target(javascript)
-pub fn pagehide_during_an_active_save_runs_an_immediate_followup_test() {
+pub fn pagehide_during_an_active_save_runs_an_immediate_followup_test() -> Nil {
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "first")
   let deferred = deferred_save()
@@ -201,7 +206,7 @@ pub fn pagehide_during_an_active_save_runs_an_immediate_followup_test() {
 }
 
 @target(javascript)
-pub fn pagehide_during_an_active_save_skips_a_redundant_followup_test() {
+pub fn pagehide_during_an_active_save_skips_a_redundant_followup_test() -> Nil {
   let document = new_document()
   let assert Ok(Nil) = crdt_js.g_set_add(crdt_js.root(document), "only")
   let deferred = deferred_save()

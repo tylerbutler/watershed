@@ -7,7 +7,7 @@
 //// kernel directly. To add a kernel, add a variant to each sum here, and then
 //// follow the compiler to every dispatch site. The compiler cannot point at
 //// the sites that are not type-driven. Use this checklist for those:
-//// - `wire/ops`: add the wire codec for the channel op.
+//// - `wire/op`: add the wire codec for the channel op.
 //// - `channel`: extend the encode and decode of the summary payload, in
 ////   `encode_snapshot` and `snapshot_decoder`.
 //// - `runtime_beam` and `runtime`: add the actor and runtime functions for the
@@ -214,7 +214,7 @@ pub type ChannelState {
 }
 
 /// A kernel op as it goes through the runtime, in the in-flight queue and in
-/// the ack matching, and over the wire, through `wire/ops`.
+/// the ack matching, and over the wire, through `wire/op`.
 pub type ChannelOp {
   MapOp(map_kernel.MapOp)
   CounterOp(counter_kernel.CounterOp)
@@ -478,49 +478,82 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
 /// Build a channel again from a stored snapshot, with the behaviour of
 /// `from_sequenced`. The contents of the snapshot become the confirmed state,
 /// and nothing is pending.
+///
+/// The error arm reports an OR-map snapshot whose value mode does not agree
+/// with the mode that the snapshot names. Every other channel kind always
+/// succeeds.
 pub fn from_snapshot(
   snapshot: Snapshot,
   replica replica: String,
-) -> ChannelState {
+) -> Result(ChannelState, String) {
   case snapshot {
-    MapSnapshot(entries) -> MapState(map_kernel.from_sequenced(entries))
-    CounterSnapshot(value) -> CounterState(counter_kernel.from_summary(value))
+    MapSnapshot(entries) -> Ok(MapState(map_kernel.from_sequenced(entries)))
+    CounterSnapshot(value) ->
+      Ok(CounterState(counter_kernel.from_summary(value)))
     PnCounterSnapshot(state) ->
-      PnCounterState(pn_counter_kernel.from_sequenced(
-        state,
-        replica_id.new(replica),
-      ))
-    OrMapSnapshot(mode, state) -> {
-      let assert Ok(kernel) =
-        or_map_kernel.from_sequenced(state, mode, replica_id.new(replica))
-      OrMapState(kernel)
-    }
+      Ok(
+        PnCounterState(pn_counter_kernel.from_sequenced(
+          state,
+          replica_id.new(replica),
+        )),
+      )
+    OrMapSnapshot(mode, state) ->
+      case or_map_kernel.from_sequenced(state, mode, replica_id.new(replica)) {
+        Ok(kernel) -> Ok(OrMapState(kernel))
+        Error(error) -> Error(or_map_kernel_error_detail(error))
+      }
     OrSetSnapshot(state) ->
-      OrSetState(or_set_kernel.from_sequenced(state, replica_id.new(replica)))
-    GSetSnapshot(state) -> GSetState(g_set_kernel.from_sequenced(state))
+      Ok(
+        OrSetState(or_set_kernel.from_sequenced(state, replica_id.new(replica))),
+      )
+    GSetSnapshot(state) -> Ok(GSetState(g_set_kernel.from_sequenced(state)))
     TwoPSetSnapshot(state) ->
-      TwoPSetState(two_p_set_kernel.from_sequenced(state))
+      Ok(TwoPSetState(two_p_set_kernel.from_sequenced(state)))
     RegisterCollectionSnapshot(registers) ->
-      RegisterCollectionState(register_collection_kernel.from_summary(registers))
-    ClaimsSnapshot(entries) -> ClaimsState(claims_kernel.from_summary(entries))
+      Ok(
+        RegisterCollectionState(register_collection_kernel.from_summary(
+          registers,
+        )),
+      )
+    ClaimsSnapshot(entries) ->
+      Ok(ClaimsState(claims_kernel.from_summary(entries)))
     TaskManagerSnapshot(queues) ->
-      TaskManagerState(task_manager_kernel.from_summary(queues))
+      Ok(TaskManagerState(task_manager_kernel.from_summary(queues)))
     PactMapSnapshot(entries) ->
-      PactMapState(pact_map_kernel.from_summary(entries))
-    JsonOtSnapshot(doc) -> JsonOtState(json_ot_kernel.from_summary(doc))
+      Ok(PactMapState(pact_map_kernel.from_summary(entries)))
+    JsonOtSnapshot(doc) -> Ok(JsonOtState(json_ot_kernel.from_summary(doc)))
     DirectorySnapshot(summary) ->
-      DirectoryState(directory_kernel.from_summary(summary))
+      Ok(DirectoryState(directory_kernel.from_summary(summary)))
     OrderedCollectionSnapshot(queue, jobs) ->
-      OrderedCollectionState(ordered_collection_kernel.from_summary(queue, jobs))
+      Ok(
+        OrderedCollectionState(ordered_collection_kernel.from_summary(
+          queue,
+          jobs,
+        )),
+      )
     SequenceSummary(state) ->
-      SequenceState(sequence_kernel.from_sequenced(
-        state,
-        replica_id.new(replica),
-      ))
+      Ok(
+        SequenceState(sequence_kernel.from_sequenced(
+          state,
+          replica_id.new(replica),
+        )),
+      )
     RichTextSnapshot(document) ->
-      RichTextState(rich_text_kernel.from_summary(document))
+      Ok(RichTextState(rich_text_kernel.from_summary(document)))
     TextSummary(state) ->
-      TextState(text_kernel.from_sequenced(state, replica_id.new(replica)))
+      Ok(TextState(text_kernel.from_sequenced(state, replica_id.new(replica))))
+  }
+}
+
+/// The detail text of an or-map kernel error, for a caller that reports a
+/// String.
+fn or_map_kernel_error_detail(error: or_map_kernel.KernelError) -> String {
+  case error {
+    or_map_kernel.UnexpectedAck(detail)
+    | or_map_kernel.UnexpectedRollback(detail)
+    | or_map_kernel.ModeMismatch(detail)
+    | or_map_kernel.CorruptDelta(detail)
+    | or_map_kernel.NegativeTally(detail) -> detail
   }
 }
 
@@ -631,9 +664,24 @@ pub fn attach_state(
     SequenceState(kernel) ->
       SequenceState(sequence_kernel.promote_attach(kernel))
     TextState(kernel) -> TextState(text_kernel.promote_attach(kernel))
-    RegisterCollectionState(_) ->
-      from_snapshot(attach_snapshot(state), replica:)
-    _ -> from_snapshot(attach_snapshot(state), replica: replica)
+    MapState(_)
+    | CounterState(_)
+    | PnCounterState(_)
+    | RegisterCollectionState(_)
+    | ClaimsState(_)
+    | TaskManagerState(_)
+    | PactMapState(_)
+    | JsonOtState(_)
+    | DirectoryState(_)
+    | OrderedCollectionState(_)
+    | RichTextState(_) ->
+      case from_snapshot(attach_snapshot(state), replica: replica) {
+        Ok(attached) -> attached
+        // The snapshot comes from `state` itself, so its value mode always
+        // agrees. The arm keeps the state as it is, because a channel must
+        // not panic.
+        Error(_) -> state
+      }
   }
 }
 
@@ -669,7 +717,8 @@ pub fn apply_remote(
         Ok(#(kernel, events)) ->
           Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), []))
         Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.ModeMismatch(detail)) ->
+        | Error(or_map_kernel.ModeMismatch(detail))
+        | Error(or_map_kernel.NegativeTally(detail)) ->
           Error(CorruptRemoteOp(detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail)) ->
@@ -714,8 +763,8 @@ pub fn apply_remote(
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), []))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
-        Error(json_ot_kernel.OtFailure(err)) ->
-          Error(CorruptRemoteOp(json_ot_error_detail(err)))
+        Error(json_ot_kernel.OtFailure(error)) ->
+          Error(CorruptRemoteOp(json_ot_error_detail(error)))
       }
     DirectoryState(kernel), DirectoryOp(op, message_id) -> {
       let #(kernel, events) =
@@ -748,8 +797,8 @@ pub fn apply_remote(
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), []))
         Error(rich_text_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
-        Error(rich_text_kernel.RichTextFailure(err)) ->
-          Error(CorruptRemoteOp(rich_text_error_detail(err)))
+        Error(rich_text_kernel.RichTextFailure(error)) ->
+          Error(CorruptRemoteOp(rich_text_error_detail(error)))
       }
     TextState(kernel), TextOp(op) -> {
       let #(kernel, events) = text_kernel.apply_remote(kernel, op)
@@ -866,8 +915,8 @@ fn directory_sequenced_meta(
   )
 }
 
-fn directory_error_detail(err: directory_kernel.KernelError) -> String {
-  case err {
+fn directory_error_detail(error: directory_kernel.KernelError) -> String {
+  case error {
     directory_kernel.UnexpectedAck(_, detail) -> "directory ack: " <> detail
     directory_kernel.UnexpectedRollback(_, detail) ->
       "directory rollback: " <> detail
@@ -962,7 +1011,8 @@ pub fn ack_local(
             | Error(or_map_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
             Error(or_map_kernel.ModeMismatch(detail))
-            | Error(or_map_kernel.CorruptDelta(detail)) ->
+            | Error(or_map_kernel.CorruptDelta(detail))
+            | Error(or_map_kernel.NegativeTally(detail)) ->
               Error(CorruptRemoteOp(detail))
           }
         NoMeta | CounterMeta(_) | PnCounterMeta(_) ->
@@ -1101,8 +1151,8 @@ pub fn ack_local(
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), None))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
-        Error(json_ot_kernel.OtFailure(err)) ->
-          Error(CorruptRemoteOp(json_ot_error_detail(err)))
+        Error(json_ot_kernel.OtFailure(error)) ->
+          Error(CorruptRemoteOp(json_ot_error_detail(error)))
       }
     DirectoryState(kernel), DirectoryOp(op, message_id) ->
       case local {
@@ -1115,7 +1165,7 @@ pub fn ack_local(
             )
           {
             Ok(kernel) -> Ok(#(DirectoryState(kernel), [], None))
-            Error(err) -> Error(UnexpectedAck(directory_error_detail(err)))
+            Error(error) -> Error(UnexpectedAck(directory_error_detail(error)))
           }
         _ -> Error(UnexpectedAck("directory ack is missing its local metadata"))
       }
@@ -1157,8 +1207,8 @@ pub fn ack_local(
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), None))
         Error(rich_text_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
-        Error(rich_text_kernel.RichTextFailure(err)) ->
-          Error(CorruptRemoteOp(rich_text_error_detail(err)))
+        Error(rich_text_kernel.RichTextFailure(error)) ->
+          Error(CorruptRemoteOp(rich_text_error_detail(error)))
       }
     TextState(kernel), TextOp(op) ->
       case local {
@@ -1177,8 +1227,8 @@ pub fn ack_local(
 
 /// A detail string for a person to read, for a failure in the pure json0
 /// algebra. The caller puts it in a `ChannelError` value.
-fn json_ot_error_detail(err: json_ot.OtError) -> String {
-  case err {
+fn json_ot_error_detail(error: json_ot.OtError) -> String {
+  case error {
     json_ot.BadPath(detail) -> "json0 bad path: " <> detail
     json_ot.BadValue(detail) -> "json0 bad value: " <> detail
     json_ot.UnknownSubtype(name) -> "json0 unknown subtype: " <> name
@@ -1187,8 +1237,8 @@ fn json_ot_error_detail(err: json_ot.OtError) -> String {
 
 /// A detail string for a person to read, for a failure in the pure rich-text
 /// algebra. The caller puts it in a `ChannelError` value.
-fn rich_text_error_detail(err: rich_text.Error) -> String {
-  case err {
+fn rich_text_error_detail(error: rich_text.Error) -> String {
+  case error {
     rich_text.Malformed(component, reason) ->
       "rich-text malformed " <> component <> ": " <> reason
     rich_text.InvalidApply(reason) -> "rich-text invalid apply: " <> reason
@@ -1235,10 +1285,12 @@ pub fn apply_p2p_local(
           Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
         Error(error) -> Error(or_map_p2p_error(error))
       }
-    OrMapState(kernel), OrMapRemoveEdit(key) -> {
-      let #(kernel, events, op) = or_map_kernel.p2p_remove(kernel, key)
-      Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
-    }
+    OrMapState(kernel), OrMapRemoveEdit(key) ->
+      case or_map_kernel.p2p_remove(kernel, key) {
+        Ok(#(kernel, events, op)) ->
+          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
     OrSetState(kernel), OrSetAddEdit(element) -> {
       let #(kernel, events, op) = or_set_kernel.p2p_add(kernel, element)
       Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), OrSetOp(op)))
@@ -1421,7 +1473,8 @@ pub fn merge_p2p_snapshot(
 fn or_map_p2p_error(error: or_map_kernel.KernelError) -> ChannelError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> UnsupportedP2p(detail)
-    or_map_kernel.CorruptDelta(detail) -> CorruptRemoteOp(detail)
+    or_map_kernel.CorruptDelta(detail) | or_map_kernel.NegativeTally(detail) ->
+      CorruptRemoteOp(detail)
     or_map_kernel.UnexpectedAck(detail)
     | or_map_kernel.UnexpectedRollback(detail) -> UnexpectedAck(detail)
   }

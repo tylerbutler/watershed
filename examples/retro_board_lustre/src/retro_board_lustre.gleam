@@ -30,7 +30,7 @@ import gleam/result
 import gleam/string
 
 import lustre
-import lustre/attribute.{class, disabled, placeholder, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -44,10 +44,10 @@ import watershed/presence_js.{type Handle}
 import watershed/summary_policy
 import watershed_lustre
 
-import board.{type NoteCard}
-import column.{type Column}
-import doc_schema
-import note.{type Note, Note}
+import retro_board_lustre/board.{type NoteCard}
+import retro_board_lustre/column.{type Column}
+import retro_board_lustre/doc_schema
+import retro_board_lustre/note.{type Note, Note}
 
 @external(javascript, "./board_ffi.mjs", "now_ms")
 fn now_ms() -> Int
@@ -66,7 +66,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 /// is a different demo. The tally is the only thing that converges.
 const vote_budget = 5
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("retro")
   let assert Ok(_) = lustre.start(app, "#app", document)
@@ -122,8 +122,8 @@ type DropTarget {
 
 fn drag_item_column(item: DragItem) -> Column {
   case item {
-    DragCard(col, _) -> col
-    ColumnFooter(col) -> col
+    DragCard(column, _) -> column
+    ColumnFooter(column) -> column
   }
 }
 
@@ -131,14 +131,15 @@ fn card_element_id(note_id: String) -> String {
   "card:" <> note_id
 }
 
-fn footer_element_id(col: Column) -> String {
-  "footer:" <> column.id(col)
+fn footer_element_id(column: Column) -> String {
+  "footer:" <> column.id(column)
 }
 
 fn parse_drop_target(element_id: String) -> Result(DropTarget, Nil) {
   case string.split_once(element_id, ":") {
     Ok(#("card", note_id)) -> Ok(OnCard(note_id))
-    Ok(#("footer", col_id)) -> column.from_id(col_id) |> result.map(AtColumnEnd)
+    Ok(#("footer", column_id)) ->
+      column.from_id(column_id) |> result.map(AtColumnEnd)
     _ -> Error(Nil)
   }
 }
@@ -172,11 +173,11 @@ fn dnd_config() -> groups.Config(DragItem) {
 /// rendered cards, then its footer. Unfiled cards are not draggable.
 fn drag_items(model: Model) -> List(DragItem) {
   column.all()
-  |> list.flat_map(fn(col) {
+  |> list.flat_map(fn(column) {
     list.append(
-      board.cards_for(model.board, col)
-        |> list.map(fn(card) { DragCard(col, card.id) }),
-      [ColumnFooter(col)],
+      board.cards_for(model.board, column)
+        |> list.map(fn(card) { DragCard(column, card.id) }),
+      [ColumnFooter(column)],
     )
   })
 }
@@ -504,8 +505,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     SharedChanged -> #(snapshot(model), effect.none())
 
-    DraftChanged(col, text) -> #(
-      Model(..model, drafts: dict.insert(model.drafts, column.id(col), text)),
+    DraftChanged(column, text) -> #(
+      Model(..model, drafts: dict.insert(model.drafts, column.id(column), text)),
       effect.none(),
     )
 
@@ -513,8 +514,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // adding in the same instant write two different keys, and the OR-map
     // keeps both — that is the add-wins headline. (The column sequences join
     // in a later rung; until then order within a column is `(created, id)`.)
-    AddClicked(col) -> {
-      let text = string.trim(draft_for(model, col))
+    AddClicked(column) -> {
+      let text = string.trim(draft_for(model, column))
       case text, model.shared {
         "", _ -> #(model, effect.none())
         _, None -> #(model, effect.none())
@@ -530,12 +531,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           let entry =
             Note(
               text: text,
-              column: column.id(col),
+              column: column.id(column),
               author: model.user_id,
               created: created,
             )
           watershed.or_map_set_json(shared.notes, id, note.to_json(entry))
-          let sequence = sequence_for(shared, col)
+          let sequence = sequence_for(shared, column)
           let result =
             watershed.sequence_insert(
               sequence,
@@ -543,19 +544,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               json.string(id),
             )
           let model =
-            Model(..model, drafts: dict.delete(model.drafts, column.id(col)))
+            Model(..model, drafts: dict.delete(model.drafts, column.id(column)))
             |> record(result, "insert")
           #(snapshot(model), effect.none())
         }
       }
     }
 
-    MoveUpClicked(col, id) -> #(
-      snapshot(move_within(model, col, id, -1)),
+    MoveUpClicked(column, id) -> #(
+      snapshot(move_within(model, column, id, -1)),
       effect.none(),
     )
-    MoveDownClicked(col, id) -> #(
-      snapshot(move_within(model, col, id, 1)),
+    MoveDownClicked(column, id) -> #(
+      snapshot(move_within(model, column, id, 1)),
       effect.none(),
     )
 
@@ -566,11 +567,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // and the register write is the authoritative one. Sweeping the id out of
     // *every* sequence (not just the source) doubles as opportunistic repair
     // of garbage left by earlier races.
-    MoveToColumnClicked(id, dest) ->
+    MoveToColumnClicked(id, destination) ->
       case model.shared {
         None -> #(model, effect.none())
         Some(shared) -> #(
-          snapshot(apply_card_drop(model, shared, id, AtColumnEnd(dest))),
+          snapshot(apply_card_drop(model, shared, id, AtColumnEnd(destination))),
           effect.none(),
         )
       }
@@ -611,7 +612,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let current = case model.shared {
         Some(shared) ->
           case watershed.or_map_value(shared.notes, id) {
-            Some(or_map_kernel.Register(value)) ->
+            Ok(or_map_kernel.Register(value)) ->
               Some(note.from_register(value).text)
             _ -> None
           }
@@ -642,7 +643,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.editing, model.shared {
         Some(#(id, text)), Some(shared) -> {
           case watershed.or_map_value(shared.notes, id) {
-            Some(or_map_kernel.Register(value)) -> {
+            Ok(or_map_kernel.Register(value)) -> {
               let edited = Note(..note.from_register(value), text: text)
               watershed.or_map_set_json(shared.notes, id, note.to_json(edited))
               Nil
@@ -669,8 +670,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
         Some(shared) -> {
           watershed.or_map_remove(shared.notes, id)
-          list.each(column.all(), fn(col) {
-            remove_from_sequence(sequence_for(shared, col), id)
+          list.each(column.all(), fn(column) {
+            remove_from_sequence(sequence_for(shared, column), id)
           })
           let editing = case model.editing {
             Some(#(editing_id, _)) if editing_id == id -> None
@@ -750,8 +751,8 @@ fn remote_peers(
   }
 }
 
-fn sequence_for(shared: SharedState, col: Column) -> SharedSequence {
-  case col {
+fn sequence_for(shared: SharedState, column: Column) -> SharedSequence {
+  case column {
     column.WentWell -> shared.went_well
     column.ToImprove -> shared.to_improve
     column.ActionItems -> shared.action_items
@@ -770,12 +771,12 @@ fn sequence_for(shared: SharedState, col: Column) -> SharedSequence {
 /// A card that is not in the sequence at all (rendered from its register via
 /// the `created` tiebreaker) gets an explicit repair on ↑/↓: its id is
 /// inserted at the start or end of the sequence.
-fn move_within(model: Model, col: Column, id: String, step: Int) -> Model {
+fn move_within(model: Model, column: Column, id: String, step: Int) -> Model {
   case model.shared {
     None -> model
     Some(shared) -> {
-      let sequence = sequence_for(shared, col)
-      let cards = board.cards_for(model.board, col)
+      let sequence = sequence_for(shared, column)
+      let cards = board.cards_for(model.board, column)
       let position =
         list.index_map(cards, fn(card, index) { #(card, index) })
         |> list.find(fn(entry) { { entry.0 }.id == id })
@@ -849,27 +850,27 @@ fn apply_card_drop(
   target: DropTarget,
 ) -> Model {
   case watershed.or_map_value(shared.notes, id) {
-    Some(or_map_kernel.Register(value)) -> {
+    Ok(or_map_kernel.Register(value)) -> {
       let dragged = note.from_register(value)
-      let dest = case target {
-        AtColumnEnd(col) -> Ok(col)
+      let destination = case target {
+        AtColumnEnd(column) -> Ok(column)
         // Dropping on a card lands in the column that card's *register* puts
         // it in — the same authority the render rule uses.
         OnCard(target_id) if target_id != id ->
           case watershed.or_map_value(shared.notes, target_id) {
-            Some(or_map_kernel.Register(target_value)) ->
+            Ok(or_map_kernel.Register(target_value)) ->
               column.from_id(note.from_register(target_value).column)
             _ -> Error(Nil)
           }
         OnCard(_) -> Error(Nil)
       }
-      case dest {
+      case destination {
         Error(Nil) -> model
-        Ok(dest_col) -> {
-          list.each(column.all(), fn(col) {
-            remove_from_sequence(sequence_for(shared, col), id)
+        Ok(destination_column) -> {
+          list.each(column.all(), fn(column) {
+            remove_from_sequence(sequence_for(shared, column), id)
           })
-          let sequence = sequence_for(shared, dest_col)
+          let sequence = sequence_for(shared, destination_column)
           let at = case target {
             AtColumnEnd(_) -> watershed.sequence_length(sequence)
             OnCard(target_id) ->
@@ -877,14 +878,14 @@ fn apply_card_drop(
               |> result.unwrap(watershed.sequence_length(sequence))
           }
           let result = watershed.sequence_insert(sequence, at, json.string(id))
-          case dragged.column == column.id(dest_col) {
+          case dragged.column == column.id(destination_column) {
             True -> Nil
             False -> {
-              let moved = Note(..dragged, column: column.id(dest_col))
+              let moved = Note(..dragged, column: column.id(destination_column))
               watershed.or_map_set_json(shared.notes, id, note.to_json(moved))
             }
           }
-          record(model, result, "move to " <> column.label(dest_col))
+          record(model, result, "move to " <> column.label(destination_column))
         }
       }
     }
@@ -981,8 +982,8 @@ fn sequence_ids(sequence: SharedSequence) -> List(String) {
   })
 }
 
-fn draft_for(model: Model, col: Column) -> String {
-  dict.get(model.drafts, column.id(col)) |> result.unwrap("")
+fn draft_for(model: Model, column: Column) -> String {
+  dict.get(model.drafts, column.id(column)) |> result.unwrap("")
 }
 
 fn log_line(model: Model, line: String) -> Model {
@@ -999,7 +1000,7 @@ fn view(model: Model) -> Element(Msg) {
   // is suppressed so the drag doesn't paint selections across the board.
   let drag_listeners = case model.dnd.info(model.dnd.model) {
     Some(_) -> [
-      class("dragging-active"),
+      attribute.class("dragging-active"),
       event.on("mousemove", {
         use client_x <- decode.field("clientX", decode.float)
         use client_y <- decode.field("clientY", decode.float)
@@ -1012,12 +1013,12 @@ fn view(model: Model) -> Element(Msg) {
     ]
     None -> []
   }
-  html.main([class("wrap"), ..drag_listeners], [
+  html.main([attribute.class("wrap"), ..drag_listeners], [
     ghost_view(model),
-    html.header([class("board-header")], [
+    html.header([attribute.class("board-header")], [
       html.h1([], [html.text("watershed · retro board")]),
       status_line(model),
-      html.span([class("budget")], [
+      html.span([attribute.class("budget")], [
         html.text(int.to_string(model.votes_remaining) <> " votes left"),
       ]),
       roster_view(model),
@@ -1027,11 +1028,11 @@ fn view(model: Model) -> Element(Msg) {
     ]),
     error_view(model),
     html.div(
-      [class("board")],
-      list.map(column.all(), fn(col) { column_view(model, col) }),
+      [attribute.class("board")],
+      list.map(column.all(), fn(column) { column_view(model, column) }),
     ),
     unfiled_view(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same document and edit from both — "
         <> "concurrent adds and votes converge. Client: "
@@ -1060,7 +1061,7 @@ fn status_line(model: Model) -> Element(Msg) {
     ]
     |> list.flatten
     |> list.length
-  html.p([class("status")], [
+  html.p([attribute.class("status")], [
     html.text(
       connection
       <> " · "
@@ -1092,91 +1093,99 @@ fn roster_view(model: Model) -> Element(Msg) {
   let peer_chips =
     model.peers
     |> list.map(fn(peer) { chip(peer.meta.name, peer.meta.color) })
-  html.div([class("roster"), attribute.aria_label("Participants online")], [
-    self_chip,
-    ..peer_chips
-  ])
+  html.div(
+    [attribute.class("roster"), attribute.aria_label("Participants online")],
+    [self_chip, ..peer_chips],
+  )
 }
 
 fn chip(name: String, color: String) -> Element(Msg) {
   html.span(
     [
-      class("chip"),
+      attribute.class("chip"),
       attribute.style("border-color", color),
       attribute.style("color", color),
     ],
     [
-      html.span([class("dot"), attribute.style("background", color)], []),
+      html.span(
+        [attribute.class("dot"), attribute.style("background", color)],
+        [],
+      ),
       html.text(name),
     ],
   )
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error")], [html.text(option.unwrap(model.last_error, ""))])
+  html.p([attribute.class("error")], [
+    html.text(option.unwrap(model.last_error, "")),
+  ])
 }
 
-fn column_view(model: Model, col: Column) -> Element(Msg) {
-  let cards = board.cards_for(model.board, col)
+fn column_view(model: Model, column: Column) -> Element(Msg) {
+  let cards = board.cards_for(model.board, column)
   let last = list.length(cards) - 1
-  let offset = column_offset(model, col)
+  let offset = column_offset(model, column)
   let card_list = case cards {
-    [] -> html.p([class("empty")], [html.text("(no cards yet)")])
+    [] -> html.p([attribute.class("empty")], [html.text("(no cards yet)")])
     cards ->
       html.ul(
-        [class("cards")],
+        [attribute.class("cards")],
         list.index_map(cards, fn(entry, index) {
-          card_view(model, entry, Some(#(col, index, last, offset + index)))
+          card_view(model, entry, Some(#(column, index, last, offset + index)))
         }),
       )
   }
   let highlight = case drop_column(model) {
-    Some(target) if target == col -> " drop-target"
+    Ok(target) if target == column -> " drop-target"
     _ -> ""
   }
   // The footer is the "drop at the end" target — it also makes an empty
   // column droppable at all. Only a live drop target while dragging.
-  let footer_id = footer_element_id(col)
+  let footer_id = footer_element_id(column)
   let footer_events = case model.dnd.info(model.dnd.model) {
     Some(_) -> model.dnd.drop_events(offset + list.length(cards), footer_id)
     None -> []
   }
-  html.section([class("column" <> highlight)], [
-    html.h2([], [html.text(column.label(col))]),
-    compose_view(model, col),
+  html.section([attribute.class("column" <> highlight)], [
+    html.h2([], [html.text(column.label(column))]),
+    compose_view(model, column),
     card_list,
     html.div(
-      [class("column-footer"), attribute.id(footer_id), ..footer_events],
+      [
+        attribute.class("column-footer"),
+        attribute.id(footer_id),
+        ..footer_events
+      ],
       [],
     ),
   ])
 }
 
 /// This column's first flat index in `drag_items`' projection.
-fn column_offset(model: Model, col: Column) -> Int {
+fn column_offset(model: Model, column: Column) -> Int {
   column.all()
-  |> list.take_while(fn(other) { other != col })
+  |> list.take_while(fn(other) { other != column })
   |> list.fold(0, fn(acc, other) {
     acc + list.length(board.cards_for(model.board, other)) + 1
   })
 }
 
 /// The column the pointer is over mid-drag, for the drop-target highlight.
-fn drop_column(model: Model) -> Option(Column) {
+fn drop_column(model: Model) -> Result(Column, Nil) {
   case model.dnd.info(model.dnd.model) {
     Some(info) ->
       case parse_drop_target(info.drop_element_id) {
-        Ok(AtColumnEnd(col)) -> Some(col)
+        Ok(AtColumnEnd(column)) -> Ok(column)
         Ok(OnCard(id)) ->
           column.all()
-          |> list.find(fn(col) {
-            board.cards_for(model.board, col)
+          |> list.find(fn(column) {
+            board.cards_for(model.board, column)
             |> list.any(fn(card) { card.id == id })
           })
-          |> option.from_result
-        Error(Nil) -> None
+        Error(Nil) -> Error(Nil)
       }
-    None -> None
+    None -> Error(Nil)
   }
 }
 
@@ -1186,21 +1195,25 @@ fn ghost_view(model: Model) -> Element(Msg) {
     Some(info) ->
       case parse_drop_target(info.drag_element_id) {
         Ok(OnCard(id)) -> card_by_id(model, id)
-        _ -> None
+        Ok(AtColumnEnd(_)) -> Error(Nil)
+        Error(Nil) -> Error(Nil)
       }
-    None -> None
+    None -> Error(Nil)
   }
   case dragged {
-    Some(card) ->
+    Ok(card) ->
       html.div(
-        [class("card ghost"), ..model.dnd.ghost_styles(model.dnd.model)],
-        [html.div([class("card-text")], [html.text(card.note.text)])],
+        [
+          attribute.class("card ghost"),
+          ..model.dnd.ghost_styles(model.dnd.model)
+        ],
+        [html.div([attribute.class("card-text")], [html.text(card.note.text)])],
       )
-    None -> html.text("")
+    Error(Nil) -> html.text("")
   }
 }
 
-fn card_by_id(model: Model, id: String) -> Option(NoteCard) {
+fn card_by_id(model: Model, id: String) -> Result(NoteCard, Nil) {
   [
     model.board.went_well,
     model.board.to_improve,
@@ -1209,19 +1222,21 @@ fn card_by_id(model: Model, id: String) -> Option(NoteCard) {
   ]
   |> list.flatten
   |> list.find(fn(card) { card.id == id })
-  |> option.from_result
 }
 
-fn compose_view(model: Model, col: Column) -> Element(Msg) {
-  let draft = draft_for(model, col)
-  html.div([class("compose")], [
+fn compose_view(model: Model, column: Column) -> Element(Msg) {
+  let draft = draft_for(model, column)
+  html.div([attribute.class("compose")], [
     html.input([
-      placeholder("Add a card…"),
-      value(draft),
-      event.on_input(fn(text) { DraftChanged(col, text) }),
+      attribute.placeholder("Add a card…"),
+      attribute.value(draft),
+      event.on_input(fn(text) { DraftChanged(column, text) }),
     ]),
     html.button(
-      [event.on_click(AddClicked(col)), disabled(string.trim(draft) == "")],
+      [
+        event.on_click(AddClicked(column)),
+        attribute.disabled(string.trim(draft) == ""),
+      ],
       [html.text("Add")],
     ),
   ])
@@ -1238,23 +1253,26 @@ fn card_view(
     None -> False
   }
   let move_controls = case place {
-    Some(#(col, index, last, _)) ->
+    Some(#(column, index, last, _)) ->
       list.append(
         [
           html.button(
-            [event.on_click(MoveUpClicked(col, entry.id)), disabled(index == 0)],
+            [
+              event.on_click(MoveUpClicked(column, entry.id)),
+              attribute.disabled(index == 0),
+            ],
             [html.text("↑")],
           ),
           html.button(
             [
-              event.on_click(MoveDownClicked(col, entry.id)),
-              disabled(index == last),
+              event.on_click(MoveDownClicked(column, entry.id)),
+              attribute.disabled(index == last),
             ],
             [html.text("↓")],
           ),
         ],
         column.all()
-          |> list.filter(fn(other) { other != col })
+          |> list.filter(fn(other) { other != column })
           |> list.map(fn(other) {
             html.button([event.on_click(MoveToColumnClicked(entry.id, other))], [
               html.text("→ " <> column.label(other)),
@@ -1265,12 +1283,12 @@ fn card_view(
   }
   let text_or_editor = case model.editing {
     Some(#(editing_id, draft)) if editing_id == entry.id ->
-      html.div([class("compose")], [
-        html.input([value(draft), event.on_input(EditDraftChanged)]),
+      html.div([attribute.class("compose")], [
+        html.input([attribute.value(draft), event.on_input(EditDraftChanged)]),
         html.button([event.on_click(EditSaved)], [html.text("Save")]),
         html.button([event.on_click(EditCancelled)], [html.text("Cancel")]),
       ])
-    _ -> html.div([class("card-text")], [html.text(entry.note.text)])
+    _ -> html.div([attribute.class("card-text")], [html.text(entry.note.text)])
   }
   // Idle: the grip arms the drag system. Dragging: every card (except the
   // one in flight) is a drop target. Mirrors the vendor's groups example —
@@ -1280,7 +1298,10 @@ fn card_view(
     Some(#(_, _, _, flat_index)), None -> #(
       [
         html.span(
-          [class("grip"), ..model.dnd.drag_events(flat_index, element_id)],
+          [
+            attribute.class("grip"),
+            ..model.dnd.drag_events(flat_index, element_id)
+          ],
           [html.text("⠿")],
         ),
       ],
@@ -1297,20 +1318,28 @@ fn card_view(
     False -> ""
   }
   html.li(
-    [class("card" <> dragging_class), attribute.id(element_id), ..drop_attrs],
+    [
+      attribute.class("card" <> dragging_class),
+      attribute.id(element_id),
+      ..drop_attrs
+    ],
     [
       text_or_editor,
       html.div(
-        [class("card-meta")],
+        [attribute.class("card-meta")],
         list.flatten([
           grip,
           [
-            html.span([class("author")], [html.text(entry.note.author)]),
-            html.span([class("tally")], [html.text(int.to_string(entry.votes))]),
+            html.span([attribute.class("author")], [
+              html.text(entry.note.author),
+            ]),
+            html.span([attribute.class("tally")], [
+              html.text(int.to_string(entry.votes)),
+            ]),
             html.button(
               [
                 event.on_click(UpvoteClicked(entry.id)),
-                disabled(model.votes_remaining <= 0),
+                attribute.disabled(model.votes_remaining <= 0),
               ],
               [html.text("▲")],
             ),
@@ -1335,10 +1364,10 @@ fn unfiled_view(model: Model) -> Element(Msg) {
   case model.board.unfiled {
     [] -> html.text("")
     cards ->
-      html.section([class("unfiled")], [
+      html.section([attribute.class("unfiled")], [
         html.h2([], [html.text("Unfiled")]),
         html.ul(
-          [class("cards")],
+          [attribute.class("cards")],
           list.map(cards, fn(entry) { card_view(model, entry, None) }),
         ),
       ])

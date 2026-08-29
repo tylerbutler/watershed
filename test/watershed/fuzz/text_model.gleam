@@ -10,15 +10,15 @@ import watershed/fuzz/kernel_fuzz.{type KernelModel, Capabilities, KernelModel}
 import watershed/text_kernel
 
 pub type TextCommand {
-  InsertCmd(index_seed: Int, value: String, delta: Option(Text))
-  DeleteRangeCmd(start_seed: Int, end_seed: Int, delta: Option(Text))
-  ReplaceRangeCmd(
+  InsertCommand(index_seed: Int, value: String, delta: Option(Text))
+  DeleteRangeCommand(start_seed: Int, end_seed: Int, delta: Option(Text))
+  ReplaceRangeCommand(
     start_seed: Int,
     end_seed: Int,
     value: String,
     delta: Option(Text),
   )
-  AppendCmd(value: String, delta: Option(Text))
+  AppendCommand(value: String, delta: Option(Text))
 }
 
 fn delta_to_json(delta: Option(Text)) -> Json {
@@ -44,21 +44,21 @@ fn delta_decoder() -> decode.Decoder(Option(Text)) {
 
 fn op_to_json(command: TextCommand) -> Json {
   case command {
-    InsertCmd(index_seed, value, delta) ->
+    InsertCommand(index_seed, value, delta) ->
       json.object([
         #("tag", json.string("Insert")),
         #("index_seed", json.int(index_seed)),
         #("value", json.string(value)),
         #("delta", delta_to_json(delta)),
       ])
-    DeleteRangeCmd(start_seed, end_seed, delta) ->
+    DeleteRangeCommand(start_seed, end_seed, delta) ->
       json.object([
         #("tag", json.string("DeleteRange")),
         #("start_seed", json.int(start_seed)),
         #("end_seed", json.int(end_seed)),
         #("delta", delta_to_json(delta)),
       ])
-    ReplaceRangeCmd(start_seed, end_seed, value, delta) ->
+    ReplaceRangeCommand(start_seed, end_seed, value, delta) ->
       json.object([
         #("tag", json.string("ReplaceRange")),
         #("start_seed", json.int(start_seed)),
@@ -66,7 +66,7 @@ fn op_to_json(command: TextCommand) -> Json {
         #("value", json.string(value)),
         #("delta", delta_to_json(delta)),
       ])
-    AppendCmd(value, delta) ->
+    AppendCommand(value, delta) ->
       json.object([
         #("tag", json.string("Append")),
         #("value", json.string(value)),
@@ -82,27 +82,27 @@ fn op_decoder() -> decode.Decoder(TextCommand) {
       use index_seed <- decode.field("index_seed", decode.int)
       use value <- decode.field("value", decode.string)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(InsertCmd(index_seed, value, delta))
+      decode.success(InsertCommand(index_seed, value, delta))
     }
     "DeleteRange" -> {
       use start_seed <- decode.field("start_seed", decode.int)
       use end_seed <- decode.field("end_seed", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(DeleteRangeCmd(start_seed, end_seed, delta))
+      decode.success(DeleteRangeCommand(start_seed, end_seed, delta))
     }
     "ReplaceRange" -> {
       use start_seed <- decode.field("start_seed", decode.int)
       use end_seed <- decode.field("end_seed", decode.int)
       use value <- decode.field("value", decode.string)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(ReplaceRangeCmd(start_seed, end_seed, value, delta))
+      decode.success(ReplaceRangeCommand(start_seed, end_seed, value, delta))
     }
     "Append" -> {
       use value <- decode.field("value", decode.string)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(AppendCmd(value, delta))
+      decode.success(AppendCommand(value, delta))
     }
-    _ -> decode.failure(InsertCmd(0, "", None), "text command")
+    _ -> decode.failure(InsertCommand(0, "", None), "text command")
   }
 }
 
@@ -150,27 +150,27 @@ fn op_generator() -> qcheck.Generator(TextCommand) {
   |> qcheck.map(fn(parts) {
     let value = value_for(parts.3)
     case parts.0 % 4 {
-      0 -> InsertCmd(parts.1, value, None)
-      1 -> DeleteRangeCmd(parts.1, parts.2, None)
-      2 -> ReplaceRangeCmd(parts.1, parts.2, value, None)
-      _ -> AppendCmd(value, None)
+      0 -> InsertCommand(parts.1, value, None)
+      1 -> DeleteRangeCommand(parts.1, parts.2, None)
+      2 -> ReplaceRangeCommand(parts.1, parts.2, value, None)
+      _ -> AppendCommand(value, None)
     }
   })
 }
 
 fn to_kernel_op(command: TextCommand, context: String) -> text_kernel.TextOp {
   case command {
-    InsertCmd(index, value, Some(delta)) ->
+    InsertCommand(index, value, Some(delta)) ->
       text_kernel.Insert(index, value, delta)
-    DeleteRangeCmd(start, end, Some(delta)) ->
+    DeleteRangeCommand(start, end, Some(delta)) ->
       text_kernel.DeleteRange(start, end, delta)
-    ReplaceRangeCmd(start, end, value, Some(delta)) ->
+    ReplaceRangeCommand(start, end, value, Some(delta)) ->
       text_kernel.ReplaceRange(start, end, value, delta)
-    AppendCmd(value, Some(delta)) -> text_kernel.Append(value, delta)
-    InsertCmd(_, _, None)
-    | DeleteRangeCmd(_, _, None)
-    | ReplaceRangeCmd(_, _, _, None)
-    | AppendCmd(_, None) ->
+    AppendCommand(value, Some(delta)) -> text_kernel.Append(value, delta)
+    InsertCommand(_, _, None)
+    | DeleteRangeCommand(_, _, None)
+    | ReplaceRangeCommand(_, _, _, None)
+    | AppendCommand(_, None) ->
       panic as {
         context
         <> " received an op without a delta — submit/apply_stashed must rewrite ops before routing"
@@ -190,7 +190,7 @@ fn submit_insert(
     None -> #(state, None)
     Some(text_kernel.Submission(op, _message_id)) -> {
       let assert text_kernel.Insert(index, value, delta) = op
-      #(state, Some(InsertCmd(index, value, Some(delta))))
+      #(state, Some(InsertCommand(index, value, Some(delta))))
     }
   }
 }
@@ -202,8 +202,9 @@ fn submit(
 ) -> #(text_kernel.TextState, Option(TextCommand)) {
   let length = text_kernel.length(state)
   case command {
-    InsertCmd(index_seed, value, _) -> submit_insert(state, index_seed, value)
-    DeleteRangeCmd(start_seed, end_seed, _) -> {
+    InsertCommand(index_seed, value, _) ->
+      submit_insert(state, index_seed, value)
+    DeleteRangeCommand(start_seed, end_seed, _) -> {
       let a = start_seed % { length + 1 }
       let b = end_seed % { length + 1 }
       let start = int.min(a, b)
@@ -214,24 +215,24 @@ fn submit(
         None -> #(state, None)
         Some(text_kernel.Submission(op, _message_id)) -> {
           let assert text_kernel.DeleteRange(start, end, delta) = op
-          #(state, Some(DeleteRangeCmd(start, end, Some(delta))))
+          #(state, Some(DeleteRangeCommand(start, end, Some(delta))))
         }
       }
     }
-    ReplaceRangeCmd(start_seed, end_seed, value, _) -> {
+    ReplaceRangeCommand(start_seed, end_seed, value, _) -> {
       let a = start_seed % { length + 1 }
       let b = end_seed % { length + 1 }
       let start = int.min(a, b)
       let end = int.max(a, b)
       submit_replace(state, start, end, value)
     }
-    AppendCmd(value, _) -> {
+    AppendCommand(value, _) -> {
       let #(state, _events, submission) = text_kernel.append(state, value)
       case submission {
         None -> #(state, None)
         Some(text_kernel.Submission(op, _message_id)) -> {
           let assert text_kernel.Append(value, delta) = op
-          #(state, Some(AppendCmd(value, Some(delta))))
+          #(state, Some(AppendCommand(value, Some(delta))))
         }
       }
     }
@@ -250,7 +251,7 @@ fn submit_replace(
     None -> #(state, None)
     Some(text_kernel.Submission(op, _message_id)) -> {
       let assert text_kernel.ReplaceRange(start, end, value, delta) = op
-      #(state, Some(ReplaceRangeCmd(start, end, value, Some(delta))))
+      #(state, Some(ReplaceRangeCommand(start, end, value, Some(delta))))
     }
   }
 }
@@ -303,10 +304,10 @@ fn apply_stashed(
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(text_kernel.TextState, TextCommand) {
   case command {
-    InsertCmd(_, _, Some(_))
-    | DeleteRangeCmd(_, _, Some(_))
-    | ReplaceRangeCmd(_, _, _, Some(_))
-    | AppendCmd(_, Some(_)) -> {
+    InsertCommand(_, _, Some(_))
+    | DeleteRangeCommand(_, _, Some(_))
+    | ReplaceRangeCommand(_, _, _, Some(_))
+    | AppendCommand(_, Some(_)) -> {
       let #(state, _events, _op, _message_id) =
         text_kernel.apply_stashed_op(
           state,
@@ -314,10 +315,10 @@ fn apply_stashed(
         )
       #(state, command)
     }
-    InsertCmd(_, _, None)
-    | DeleteRangeCmd(_, _, None)
-    | ReplaceRangeCmd(_, _, _, None)
-    | AppendCmd(_, None) ->
+    InsertCommand(_, _, None)
+    | DeleteRangeCommand(_, _, None)
+    | ReplaceRangeCommand(_, _, _, None)
+    | AppendCommand(_, None) ->
       case submit(state, command, meta) {
         #(state, Some(routed)) -> #(state, routed)
         #(state, None) -> {
@@ -330,7 +331,7 @@ fn apply_stashed(
             text_kernel.append(state, fallback_value(1))
           let assert Some(text_kernel.Submission(op, _message_id)) = submission
           let assert text_kernel.Append(value, delta) = op
-          #(state, AppendCmd(value, Some(delta)))
+          #(state, AppendCommand(value, Some(delta)))
         }
       }
   }

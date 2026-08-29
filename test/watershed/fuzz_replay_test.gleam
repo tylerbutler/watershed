@@ -101,7 +101,7 @@ fn replay_with(
   }
 }
 
-pub fn replays_every_saved_failure_fixture_test() {
+pub fn replays_every_saved_failure_fixture_test() -> Nil {
   case simplifile.read_directory(kernel_fuzz.fixtures_dir) {
     // No fixtures yet is not a failure: the directory only gets populated
     // as real failures get captured.

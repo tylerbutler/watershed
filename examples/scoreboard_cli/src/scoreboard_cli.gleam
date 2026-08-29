@@ -84,15 +84,19 @@ type PlayerState {
 /// marks a version so a read can reject a mismatched stored version. One
 /// declaration replaces the old decoder / encoder / seal-list trio.
 fn player_schema() -> schema.Schema(Player, PlayerState) {
-  schema.record4(
-    PlayerState,
-    schema.prop(player_name(), fn(p: PlayerState) { p.name }),
-    schema.optional_prop(player_last_roll(), fn(p: PlayerState) { p.last_roll }),
-    schema.prop(player_total(), fn(p: PlayerState) { p.total }),
-    schema.prop(player_rolls(), fn(p: PlayerState) { p.rolls }),
-  )
-  |> schema.versioned(1)
-  |> schema.sealed_known
+  let assert Ok(sealed) =
+    schema.record4(
+      PlayerState,
+      schema.prop(player_name(), fn(p: PlayerState) { p.name }),
+      schema.optional_prop(player_last_roll(), fn(p: PlayerState) {
+        p.last_roll
+      }),
+      schema.prop(player_total(), fn(p: PlayerState) { p.total }),
+      schema.prop(player_rolls(), fn(p: PlayerState) { p.rolls }),
+    )
+    |> schema.versioned(1)
+    |> schema.sealed_known
+  sealed
 }
 
 fn player_name() -> Field(Player, String) {
@@ -163,7 +167,7 @@ type State {
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-pub fn main() {
+pub fn main() -> Nil {
   let player_id = "player-" <> int.to_string(int.random(9000) + 1000)
   let token =
     watershed_beam.dev_token(
@@ -314,7 +318,7 @@ fn event_loop(state: State) -> Nil {
       case event {
         ValueChanged(key: "rolls", local: False, ..) | Cleared(local: False) ->
           print_scoreboard(state)
-        _ -> Nil
+        ValueChanged(..) | Cleared(..) -> Nil
       }
       event_loop(state)
     }

@@ -99,7 +99,7 @@ fn failures(log: Log) -> List(presence.PresenceError) {
   list.filter_map(events(log), fn(event) {
     case event {
       presence.Failed(error) -> Ok(error)
-      _ -> Error(Nil)
+      presence.State(_) | presence.Changed(..) -> Error(Nil)
     }
   })
 }
@@ -129,7 +129,7 @@ fn unwrap(value: Option(a), default: a) -> a {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn auto_selects_server_mode_when_advertised_test() {
+pub fn auto_selects_server_mode_when_advertised_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-auto")
   let document = sluice_js.connect(sluice, user_id: "alice")
   let #(handle, _log) = track(sluice, document, config(), Panel("sudoku"))
@@ -139,7 +139,7 @@ pub fn auto_selects_server_mode_when_advertised_test() {
 }
 
 @target(javascript)
-pub fn auto_falls_back_to_ripple_without_the_capability_test() {
+pub fn auto_falls_back_to_ripple_without_the_capability_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-fallback")
   sluice_js.disable_presence(sluice)
   let document = sluice_js.connect(sluice, user_id: "alice")
@@ -153,7 +153,7 @@ pub fn auto_falls_back_to_ripple_without_the_capability_test() {
 /// Forcing `Server` against a server without the lane is an error, not a quiet
 /// downgrade — the caller asked for connection-backed presence and would
 /// otherwise silently get heartbeat presence instead.
-pub fn forced_server_mode_without_the_capability_fails_test() {
+pub fn forced_server_mode_without_the_capability_fails_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-forced")
   sluice_js.disable_presence(sluice)
   let document = sluice_js.connect(sluice, user_id: "alice")
@@ -176,7 +176,7 @@ pub fn forced_server_mode_without_the_capability_fails_test() {
 @target(javascript)
 /// The headline property: a late client learns the whole roster at once. Under
 /// the old heartbeat model it would have waited out each peer's next beat.
-pub fn a_late_client_receives_every_existing_session_at_once_test() {
+pub fn a_late_client_receives_every_existing_session_at_once_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-late")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -196,7 +196,7 @@ pub fn a_late_client_receives_every_existing_session_at_once_test() {
 }
 
 @target(javascript)
-pub fn two_tabs_of_one_user_are_two_server_sessions_test() {
+pub fn two_tabs_of_one_user_are_two_server_sessions_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-tabs")
   let tab_one = sluice_js.connect(sluice, user_id: "alice")
   let tab_two = sluice_js.connect(sluice, user_id: "alice")
@@ -215,7 +215,7 @@ pub fn two_tabs_of_one_user_are_two_server_sessions_test() {
 }
 
 @target(javascript)
-pub fn a_metadata_update_replaces_that_session_only_test() {
+pub fn a_metadata_update_replaces_that_session_only_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-update")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -233,7 +233,7 @@ pub fn a_metadata_update_replaces_that_session_only_test() {
 @target(javascript)
 /// Socket loss removes presence with no browser involvement and no TTL — the
 /// property that motivates server presence in the first place.
-pub fn a_disconnect_removes_that_session_for_peers_test() {
+pub fn a_disconnect_removes_that_session_for_peers_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-drop")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -250,7 +250,7 @@ pub fn a_disconnect_removes_that_session_for_peers_test() {
 @target(javascript)
 /// A reconnect mints a new session, and the rejoin carries whatever metadata is
 /// current — including a change made while the socket was down.
-pub fn a_reconnect_rejoins_with_the_latest_metadata_test() {
+pub fn a_reconnect_rejoins_with_the_latest_metadata_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-rejoin")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -278,7 +278,7 @@ pub fn a_reconnect_rejoins_with_the_latest_metadata_test() {
 @target(javascript)
 /// An update arriving after the socket is gone must not recreate a presence the
 /// server has already cleaned up.
-pub fn an_update_racing_a_disconnect_resurrects_nothing_test() {
+pub fn an_update_racing_a_disconnect_resurrects_nothing_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-race")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -294,7 +294,7 @@ pub fn an_update_racing_a_disconnect_resurrects_nothing_test() {
 }
 
 @target(javascript)
-pub fn stopping_leaves_immediately_in_server_mode_test() {
+pub fn stopping_leaves_immediately_in_server_mode_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "presence-stop")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -320,7 +320,7 @@ fn ripple_config() -> presence.Config(Panel) {
 }
 
 @target(javascript)
-pub fn ripple_mode_announces_and_receives_peers_test() {
+pub fn ripple_mode_announces_and_receives_peers_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "ripple-basic")
   let alice = sluice_js.connect(sluice, user_id: "alice")
   let bob = sluice_js.connect(sluice, user_id: "bob")
@@ -335,7 +335,7 @@ pub fn ripple_mode_announces_and_receives_peers_test() {
 @target(javascript)
 /// The bug the old roster had: two tabs of one user used to overwrite each
 /// other, because the roster was keyed by user rather than by session.
-pub fn two_tabs_of_one_user_are_two_ripple_sessions_test() {
+pub fn two_tabs_of_one_user_are_two_ripple_sessions_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "ripple-tabs")
   let tab_one = sluice_js.connect(sluice, user_id: "alice")
   let tab_two = sluice_js.connect(sluice, user_id: "alice")
@@ -355,7 +355,7 @@ pub fn two_tabs_of_one_user_are_two_ripple_sessions_test() {
 @target(javascript)
 /// Two sessions under one key expire independently: silence one tab and the
 /// other survives. Driven by the logical clock, so nothing waits.
-pub fn ripple_sessions_expire_independently_test() {
+pub fn ripple_sessions_expire_independently_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "ripple-ttl")
   let tab_one = sluice_js.connect(sluice, user_id: "alice")
   let tab_two = sluice_js.connect(sluice, user_id: "alice")
@@ -396,7 +396,7 @@ fn advance_beats(sluice: sluice_js.Sluice, beats: Int) -> Nil {
 /// Presence and raw ripple traffic share a transport but not a lane: an app's
 /// own ripples must not reach presence, and presence must not surface on the
 /// app's ripple subscriber as something it has to filter.
-pub fn raw_ripples_stay_independent_of_presence_test() {
+pub fn raw_ripples_stay_independent_of_presence_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "ripple-independent")
   let alice = sluice_js.connect(sluice, user_id: "alice")

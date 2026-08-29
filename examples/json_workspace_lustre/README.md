@@ -142,8 +142,9 @@ pnpm run smoke         # the divergent-edits-across-reconnect claim against a li
   rule and a general nested folder/document scenario, pinned directly
   against `directory_kernel.check_invariants`, the seam the facade does not
   expose.
-- `src/smoke.gleam` drives two real `watershed` clients against a live
-  floodgate server end to end: seeds the tree, creates a folder and a
+- `dev/json_workspace_lustre/smoke.gleam` drives two real `watershed` clients
+  against a live floodgate server end to end: seeds the tree, creates a folder
+  and a
   document, has both clients edit different keys while offline, and
   asserts both edits present on both clients after they reconnect.
 

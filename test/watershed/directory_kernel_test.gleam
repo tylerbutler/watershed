@@ -69,43 +69,52 @@ fn meta(author: Int, seq: Int, ref: Int, cseq: Int) -> SequencedMeta {
   )
 }
 
-fn set(state: DirectoryState, path: String, key: String, value: Int) {
+fn set(
+  state: DirectoryState,
+  path: String,
+  key: String,
+  value: Int,
+) -> #(DirectoryState, List(DirectoryEvent), Int) {
   local(directory_kernel.set(state, path, key, json.int(value)))
 }
 
-fn create_sub(state: DirectoryState, path: String, name: String) {
+fn create_sub(
+  state: DirectoryState,
+  path: String,
+  name: String,
+) -> #(DirectoryState, List(DirectoryEvent), option.Option(DirectoryOp), Int) {
   local_sub(directory_kernel.create_subdirectory(state, path, name, 0))
 }
 
 // ─── basic storage ───────────────────────────────────────────────────────────
 
-pub fn new_directory_is_empty_test() {
+pub fn new_directory_is_empty_test() -> Nil {
   let state = directory_kernel.new()
   directory_kernel.entries(state, "/") |> expect.to_equal([])
-  directory_kernel.get(state, "/", "k") |> expect.to_equal(None)
+  directory_kernel.get(state, "/", "k") |> expect.to_equal(Error(Nil))
   directory_kernel.subdirectories(state, "/") |> expect.to_equal([])
 }
 
-pub fn root_set_is_optimistically_visible_test() {
+pub fn root_set_is_optimistically_visible_test() -> Nil {
   let #(state, events, _) = set(directory_kernel.new(), "/", "k", 1)
-  directory_kernel.get(state, "/", "k") |> expect.to_equal(Some(json.int(1)))
+  directory_kernel.get(state, "/", "k") |> expect.to_equal(Ok(json.int(1)))
   events |> expect.to_equal([ValueChanged("/", "k", None, True)])
 }
 
-pub fn set_carries_previous_optimistic_value_test() {
+pub fn set_carries_previous_optimistic_value_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   let #(_, events, _) = set(state, "/", "k", 2)
   events |> expect.to_equal([ValueChanged("/", "k", Some(json.int(1)), True)])
 }
 
-pub fn delete_hides_key_test() {
+pub fn delete_hides_key_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   let #(state, events, _) = local(directory_kernel.delete(state, "/", "k"))
-  directory_kernel.get(state, "/", "k") |> expect.to_equal(None)
+  directory_kernel.get(state, "/", "k") |> expect.to_equal(Error(Nil))
   events |> expect.to_equal([ValueChanged("/", "k", Some(json.int(1)), True)])
 }
 
-pub fn clear_removes_all_and_emits_test() {
+pub fn clear_removes_all_and_emits_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "a", 1)
   let #(state, _, _) = set(state, "/", "b", 2)
   let #(state, events, _) = local(directory_kernel.clear(state, "/"))
@@ -118,16 +127,21 @@ pub fn clear_removes_all_and_emits_test() {
   ])
 }
 
-pub fn set_to_missing_path_errors_test() {
+pub fn set_to_missing_path_errors_test() -> Nil {
   case directory_kernel.set(directory_kernel.new(), "/nope", "k", json.int(1)) {
     Error(directory_kernel.PathNotFound("/nope")) -> Nil
-    _ -> panic as "expected PathNotFound"
+    Error(directory_kernel.PathNotFound(_))
+    | Error(directory_kernel.UnexpectedAck(..))
+    | Error(directory_kernel.UnexpectedRollback(..))
+    | Error(directory_kernel.InvalidName(_))
+    | Error(directory_kernel.InvariantViolation(_))
+    | Ok(_) -> panic as "expected PathNotFound"
   }
 }
 
 // ─── ack transparency ────────────────────────────────────────────────────────
 
-pub fn ack_local_set_preserves_view_test() {
+pub fn ack_local_set_preserves_view_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   let before = directory_kernel.entries(state, "/")
   let state = ack(state, Set("/", "k", json.int(1)), meta(0, 1, 0, 0))
@@ -137,24 +151,28 @@ pub fn ack_local_set_preserves_view_test() {
   |> expect.to_equal([#("k", json.int(1))])
 }
 
-pub fn ack_out_of_order_errors_test() {
+pub fn ack_out_of_order_errors_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   case directory_kernel.ack_local(state, Delete("/", "k"), meta(0, 1, 0, 0)) {
     Error(directory_kernel.UnexpectedAck(_, _)) -> Nil
-    _ -> panic as "expected UnexpectedAck"
+    Error(directory_kernel.UnexpectedRollback(..))
+    | Error(directory_kernel.PathNotFound(_))
+    | Error(directory_kernel.InvalidName(_))
+    | Error(directory_kernel.InvariantViolation(_))
+    | Ok(_) -> panic as "expected UnexpectedAck"
   }
 }
 
 // ─── remote suppression ──────────────────────────────────────────────────────
 
-pub fn remote_set_emits_when_no_pending_test() {
+pub fn remote_set_emits_when_no_pending_test() -> Nil {
   let #(state, events) =
     remote(directory_kernel.new(), Set("/", "k", json.int(9)), meta(1, 1, 0, 0))
   events |> expect.to_equal([ValueChanged("/", "k", None, False)])
-  directory_kernel.get(state, "/", "k") |> expect.to_equal(Some(json.int(9)))
+  directory_kernel.get(state, "/", "k") |> expect.to_equal(Ok(json.int(9)))
 }
 
-pub fn remote_set_suppressed_when_pending_masks_test() {
+pub fn remote_set_suppressed_when_pending_masks_test() -> Nil {
   let #(state, _, _) = set(directory_kernel.new(), "/", "k", 1)
   let #(_, events) = remote(state, Set("/", "k", json.int(9)), meta(1, 1, 0, 0))
   events |> expect.to_equal([])
@@ -162,7 +180,7 @@ pub fn remote_set_suppressed_when_pending_masks_test() {
 
 // ─── subdirectory lifecycle ──────────────────────────────────────────────────
 
-pub fn create_subdirectory_visible_immediately_test() {
+pub fn create_subdirectory_visible_immediately_test() -> Nil {
   let #(state, events, op, _) = create_sub(directory_kernel.new(), "/", "a")
   op |> expect.to_equal(Some(CreateSubDirectory("/", "a")))
   events |> expect.to_equal([SubDirectoryCreated("/a", True)])
@@ -170,15 +188,15 @@ pub fn create_subdirectory_visible_immediately_test() {
   directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_true()
 }
 
-pub fn nested_storage_test() {
+pub fn nested_storage_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let #(state, _, _) = set(state, "/a", "k", 7)
-  directory_kernel.get(state, "/a", "k") |> expect.to_equal(Some(json.int(7)))
+  directory_kernel.get(state, "/a", "k") |> expect.to_equal(Ok(json.int(7)))
   // Root storage is unaffected.
-  directory_kernel.get(state, "/", "k") |> expect.to_equal(None)
+  directory_kernel.get(state, "/", "k") |> expect.to_equal(Error(Nil))
 }
 
-pub fn duplicate_create_does_not_duplicate_test() {
+pub fn duplicate_create_does_not_duplicate_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let #(state, events, op, _) = create_sub(state, "/", "a")
   op |> expect.to_equal(None)
@@ -186,16 +204,21 @@ pub fn duplicate_create_does_not_duplicate_test() {
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["a"])
 }
 
-pub fn invalid_subdir_name_errors_test() {
+pub fn invalid_subdir_name_errors_test() -> Nil {
   case
     directory_kernel.create_subdirectory(directory_kernel.new(), "/", "a/b", 0)
   {
     Error(directory_kernel.InvalidName("a/b")) -> Nil
-    _ -> panic as "expected InvalidName"
+    Error(directory_kernel.InvalidName(_))
+    | Error(directory_kernel.UnexpectedAck(..))
+    | Error(directory_kernel.UnexpectedRollback(..))
+    | Error(directory_kernel.PathNotFound(_))
+    | Error(directory_kernel.InvariantViolation(_))
+    | Ok(_) -> panic as "expected InvalidName"
   }
 }
 
-pub fn local_delete_subdirectory_hides_and_disposes_test() {
+pub fn local_delete_subdirectory_hides_and_disposes_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   // ack the create so it is sequenced
   let state = ack(state, CreateSubDirectory("/", "a"), meta(0, 1, 0, 0))
@@ -207,7 +230,7 @@ pub fn local_delete_subdirectory_hides_and_disposes_test() {
   directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_false()
 }
 
-pub fn remote_create_subdirectory_test() {
+pub fn remote_create_subdirectory_test() -> Nil {
   let #(state, events) =
     remote(
       directory_kernel.new(),
@@ -218,7 +241,7 @@ pub fn remote_create_subdirectory_test() {
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["b"])
 }
 
-pub fn remote_delete_disposes_and_clears_test() {
+pub fn remote_delete_disposes_and_clears_test() -> Nil {
   let #(state, _) =
     remote(
       directory_kernel.new(),
@@ -234,7 +257,7 @@ pub fn remote_delete_disposes_and_clears_test() {
 
 // ─── ordering ────────────────────────────────────────────────────────────────
 
-pub fn acknowledged_children_before_unacked_local_test() {
+pub fn acknowledged_children_before_unacked_local_test() -> Nil {
   // Remote create of "z" (acked, seq 1); local create of "a" (unacked seq -1).
   let #(state, _) =
     remote(
@@ -247,7 +270,7 @@ pub fn acknowledged_children_before_unacked_local_test() {
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["z", "a"])
 }
 
-pub fn lower_seq_first_test() {
+pub fn lower_seq_first_test() -> Nil {
   let #(state, _) =
     remote(
       directory_kernel.new(),
@@ -262,7 +285,7 @@ pub fn lower_seq_first_test() {
 
 // ─── summary round-trip ──────────────────────────────────────────────────────
 
-pub fn summary_round_trip_test() {
+pub fn summary_round_trip_test() -> Nil {
   let state = directory_kernel.new()
   let #(state, _) = remote(state, Set("/", "k", json.int(1)), meta(1, 1, 0, 0))
   let #(state, _) =
@@ -271,14 +294,14 @@ pub fn summary_round_trip_test() {
 
   let loaded =
     directory_kernel.from_summary(directory_kernel.summary_tree(state))
-  directory_kernel.get(loaded, "/", "k") |> expect.to_equal(Some(json.int(1)))
-  directory_kernel.get(loaded, "/a", "n") |> expect.to_equal(Some(json.int(5)))
+  directory_kernel.get(loaded, "/", "k") |> expect.to_equal(Ok(json.int(1)))
+  directory_kernel.get(loaded, "/a", "n") |> expect.to_equal(Ok(json.int(5)))
   directory_kernel.subdirectories(loaded, "/") |> expect.to_equal(["a"])
 }
 
 // ─── stale instance filter (D12) ─────────────────────────────────────────────
 
-pub fn stale_op_ignored_after_delete_recreate_test() {
+pub fn stale_op_ignored_after_delete_recreate_test() -> Nil {
   // Client sees: create /a (seq1 by client 1), then it is deleted (seq2),
   // then recreated (seq3 by client 2). A late set op authored by client 1
   // with refSeq=1 (before the recreate at seq3) targets the OLD instance and
@@ -294,10 +317,10 @@ pub fn stale_op_ignored_after_delete_recreate_test() {
   let #(state, events) =
     remote(state, Set("/a", "k", json.int(99)), meta(1, 4, 1, 0))
   events |> expect.to_equal([])
-  directory_kernel.get(state, "/a", "k") |> expect.to_equal(None)
+  directory_kernel.get(state, "/a", "k") |> expect.to_equal(Error(Nil))
 }
 
-pub fn fresh_op_applies_after_recreate_test() {
+pub fn fresh_op_applies_after_recreate_test() -> Nil {
   let state = directory_kernel.new()
   let #(state, _) =
     remote(state, CreateSubDirectory("/", "a"), meta(1, 1, 0, 0))
@@ -308,21 +331,21 @@ pub fn fresh_op_applies_after_recreate_test() {
   // Fresh set: refSeq 3 >= create seq 3, so it applies even from a non-creator.
   let #(state, _) =
     remote(state, Set("/a", "k", json.int(99)), meta(1, 4, 3, 0))
-  directory_kernel.get(state, "/a", "k") |> expect.to_equal(Some(json.int(99)))
+  directory_kernel.get(state, "/a", "k") |> expect.to_equal(Ok(json.int(99)))
 }
 
 // ─── rollback ────────────────────────────────────────────────────────────────
 
-pub fn rollback_set_reverts_test() {
+pub fn rollback_set_reverts_test() -> Nil {
   let #(state, _, id) = set(directory_kernel.new(), "/", "k", 1)
   case directory_kernel.rollback(state, Set("/", "k", json.int(1)), id) {
     Ok(#(state, _events)) ->
-      directory_kernel.get(state, "/", "k") |> expect.to_equal(None)
+      directory_kernel.get(state, "/", "k") |> expect.to_equal(Error(Nil))
     Error(_) -> panic as "rollback should succeed"
   }
 }
 
-pub fn rollback_create_disposes_test() {
+pub fn rollback_create_disposes_test() -> Nil {
   let #(state, _, _, id) = create_sub(directory_kernel.new(), "/", "a")
   case directory_kernel.rollback(state, CreateSubDirectory("/", "a"), id) {
     Ok(#(state, events)) -> {
@@ -333,7 +356,7 @@ pub fn rollback_create_disposes_test() {
   }
 }
 
-pub fn rollback_delete_reexposes_tree_test() {
+pub fn rollback_delete_reexposes_tree_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let state = ack(state, CreateSubDirectory("/", "a"), meta(0, 1, 0, 0))
   let #(state, _, _) = set(state, "/a", "k", 3)
@@ -346,7 +369,7 @@ pub fn rollback_delete_reexposes_tree_test() {
     Ok(#(state, events)) -> {
       directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_true()
       directory_kernel.get(state, "/a", "k")
-      |> expect.to_equal(Some(json.int(3)))
+      |> expect.to_equal(Ok(json.int(3)))
       expect.to_be_true(list.contains(events, Undisposed("/a")))
     }
     Error(_) -> panic as "rollback should succeed"
@@ -355,7 +378,7 @@ pub fn rollback_delete_reexposes_tree_test() {
 
 // ─── invariants ──────────────────────────────────────────────────────────────
 
-pub fn invariants_hold_after_ops_test() {
+pub fn invariants_hold_after_ops_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let #(state, _, _) = set(state, "/a", "k", 1)
   let #(state, _, _, _) = create_sub(state, "/a", "b")

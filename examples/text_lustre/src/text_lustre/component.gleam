@@ -10,12 +10,12 @@
 //// ```gleam
 //// // in the parent's update, once the child map is in hand:
 //// PanelOpened -> {
-////   let #(panel, fx) = component.init(doc, text_map)
-////   #(Model(..model, text: Some(panel)), effect.map(fx, TextMsg))
+////   let #(panel, panel_effect) = component.init(doc, text_map)
+////   #(Model(..model, text: Some(panel)), effect.map(panel_effect, TextMsg))
 //// }
 //// TextMsg(inner) -> {
-////   let #(panel, fx) = component.update(panel, inner)
-////   #(Model(..model, text: Some(panel)), effect.map(fx, TextMsg))
+////   let #(panel, panel_effect) = component.update(panel, inner)
+////   #(Model(..model, text: Some(panel)), effect.map(panel_effect, TextMsg))
 //// }
 ////
 //// // in the parent's view:
@@ -41,7 +41,7 @@
 import gleam/int
 import gleam/option.{type Option, None, Some}
 
-import lustre/attribute.{class, disabled, placeholder, rows, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -300,7 +300,7 @@ fn refresh_anchor(model: Model) -> Model {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.div([class("text-panel")], [
+  html.div([attribute.class("text-panel")], [
     editor_view(model),
     error_view(model),
     append_view(model),
@@ -316,9 +316,11 @@ fn editor_view(model: Model) -> Element(Msg) {
   case model.editor {
     Some(editor) ->
       textarea.view(editor, [
-        class("editor"),
-        rows(10),
-        placeholder("Start typing — every keystroke is one grapheme op…"),
+        attribute.class("editor"),
+        attribute.rows(10),
+        attribute.placeholder(
+          "Start typing — every keystroke is one grapheme op…",
+        ),
         attribute.attribute("aria-label", "collaborative document body"),
       ])
       |> element.map(Editor)
@@ -326,11 +328,11 @@ fn editor_view(model: Model) -> Element(Msg) {
     None ->
       html.textarea(
         [
-          class("editor"),
-          rows(10),
-          placeholder("connecting…"),
+          attribute.class("editor"),
+          attribute.rows(10),
+          attribute.placeholder("connecting…"),
           attribute.attribute("aria-label", "collaborative document body"),
-          disabled(True),
+          attribute.disabled(True),
         ],
         "",
       )
@@ -338,22 +340,25 @@ fn editor_view(model: Model) -> Element(Msg) {
 }
 
 fn append_view(model: Model) -> Element(Msg) {
-  html.div([class("compose")], [
+  html.div([attribute.class("compose")], [
     html.input([
-      placeholder("Text to append (try an emoji 🌊 or accent é)"),
-      value(model.draft_append),
+      attribute.placeholder("Text to append (try an emoji 🌊 or accent é)"),
+      attribute.value(model.draft_append),
       event.on_input(DraftAppendChanged),
       attribute.attribute("aria-label", "text to append"),
     ]),
     html.button(
-      [event.on_click(AppendClicked), disabled(model.draft_append == "")],
+      [
+        event.on_click(AppendClicked),
+        attribute.disabled(model.draft_append == ""),
+      ],
       [html.text("Append")],
     ),
   ])
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error"), attribute.attribute("role", "alert")], [
+  html.p([attribute.class("error"), attribute.attribute("role", "alert")], [
     html.text(option.unwrap(error(model), "")),
   ])
 }
@@ -368,7 +373,7 @@ fn anchor_view(model: Model) -> Element(Msg) {
     Some(_), None -> "pinned · anchor target is currently unresolvable"
     None, _ -> "no anchor pinned"
   }
-  html.section([class("anchor")], [
+  html.section([attribute.class("anchor")], [
     html.h2([], [html.text("Pinned anchor")]),
     html.p([], [
       html.text(
@@ -376,14 +381,20 @@ fn anchor_view(model: Model) -> Element(Msg) {
         <> "before it — its resolved position moves with the content.",
       ),
     ]),
-    html.p([class("anchor-detail")], [html.text(detail)]),
-    html.div([class("compose")], [
+    html.p([attribute.class("anchor-detail")], [html.text(detail)]),
+    html.div([attribute.class("compose")], [
       html.button(
-        [event.on_click(PinAnchorClicked), disabled(model.editor == None)],
+        [
+          event.on_click(PinAnchorClicked),
+          attribute.disabled(model.editor == None),
+        ],
         [html.text("Pin anchor at end")],
       ),
       html.button(
-        [event.on_click(ClearAnchorClicked), disabled(model.anchor == None)],
+        [
+          event.on_click(ClearAnchorClicked),
+          attribute.disabled(model.anchor == None),
+        ],
         [html.text("Clear anchor")],
       ),
     ]),

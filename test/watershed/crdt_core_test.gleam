@@ -3,6 +3,7 @@ import gleam/io
 import gleam/json
 import gleam/list
 import gleam/string
+import lattice_sets/g_set.{type GSet}
 import startest/expect
 
 import watershed/channel
@@ -111,7 +112,17 @@ fn render(state: channel.ChannelState) -> String {
       |> list.map(json.to_string)
       |> string.join(",")
     channel.TextState(kernel) -> text_kernel.value(kernel)
-    other -> channel.type_to_string(channel.channel_type(other))
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.RichTextState(_) ->
+      channel.type_to_string(channel.channel_type(state))
   }
 }
 
@@ -150,7 +161,7 @@ fn addresses(document: crdt_core.Document) -> List(String) {
 
 // --- identity and root ----------------------------------------------------
 
-pub fn the_first_peer_starts_at_the_configured_empty_root_test() {
+pub fn the_first_peer_starts_at_the_configured_empty_root_test() -> Nil {
   let document = document("peer-a")
   crdt_core.room(document) |> expect.to_equal(room)
   crdt_core.replica(document) |> expect.to_equal("peer-a")
@@ -163,7 +174,7 @@ pub fn the_first_peer_starts_at_the_configured_empty_root_test() {
   Nil
 }
 
-pub fn an_ineligible_root_is_refused_test() {
+pub fn an_ineligible_root_is_refused_test() -> Nil {
   let assert Error(p2p.UnsupportedChannel(channel.MapChannel)) =
     crdt_core.new(crdt_core.config(
       room: room,
@@ -175,7 +186,7 @@ pub fn an_ineligible_root_is_refused_test() {
   Nil
 }
 
-pub fn an_unusable_identity_is_refused_test() {
+pub fn an_unusable_identity_is_refused_test() -> Nil {
   [
     #("", "peer-a", "s"),
     #(room, "", "s"),
@@ -196,13 +207,13 @@ pub fn an_unusable_identity_is_refused_test() {
   })
 }
 
-pub fn an_ineligible_channel_cannot_be_created_test() {
+pub fn an_ineligible_channel_cannot_be_created_test() -> Nil {
   let assert Error(p2p.UnsupportedChannel(channel.MapChannel)) =
     crdt_core.create_channel(document("peer-a"), channel.InitMap)
   Nil
 }
 
-pub fn addresses_are_replica_scoped_and_positive_test() {
+pub fn addresses_are_replica_scoped_and_positive_test() -> Nil {
   let #(mesh, first) =
     crdt_sim.create(mesh(["peer-a"]), "peer-a", channel.InitOrSet)
   let #(_, second) = crdt_sim.create(mesh, "peer-a", channel.InitGSet)
@@ -213,7 +224,7 @@ pub fn addresses_are_replica_scoped_and_positive_test() {
 
 // --- bootstrap ------------------------------------------------------------
 
-pub fn three_peers_bootstrap_through_state_request_test() {
+pub fn three_peers_bootstrap_through_state_request_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -238,7 +249,7 @@ pub fn three_peers_bootstrap_through_state_request_test() {
   Nil
 }
 
-pub fn concurrent_channel_creation_survives_in_every_replica_test() {
+pub fn concurrent_channel_creation_survives_in_every_replica_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, a_address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let #(mesh, b_address) = crdt_sim.create(mesh, "peer-b", channel.InitGSet)
@@ -258,7 +269,7 @@ pub fn concurrent_channel_creation_survives_in_every_replica_test() {
 
 // --- delivery order -------------------------------------------------------
 
-pub fn a_delta_before_its_channel_buffers_then_applies_test() {
+pub fn a_delta_before_its_channel_buffers_then_applies_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -282,7 +293,7 @@ pub fn a_delta_before_its_channel_buffers_then_applies_test() {
   Nil
 }
 
-pub fn buffered_deltas_apply_in_arrival_order_test() {
+pub fn buffered_deltas_apply_in_arrival_order_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitText)
   let mesh =
@@ -308,7 +319,7 @@ pub fn buffered_deltas_apply_in_arrival_order_test() {
   Nil
 }
 
-pub fn a_relayed_delta_keeps_its_authors_message_id_test() {
+pub fn a_relayed_delta_keeps_its_authors_message_id_test() -> Nil {
   let mesh = mesh(["peer-a", "peer-b", "peer-c"])
   let mesh = crdt_sim.connect(mesh, "peer-a", "peer-b")
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
@@ -341,7 +352,7 @@ pub fn a_relayed_delta_keeps_its_authors_message_id_test() {
   Nil
 }
 
-pub fn reordered_and_duplicated_deltas_converge_test() {
+pub fn reordered_and_duplicated_deltas_converge_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.settle(mesh)
@@ -363,7 +374,7 @@ pub fn reordered_and_duplicated_deltas_converge_test() {
   Nil
 }
 
-pub fn duplicate_and_interleaved_state_and_deltas_converge_test() {
+pub fn duplicate_and_interleaved_state_and_deltas_converge_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitPnCounter)
   let mesh = crdt_sim.settle(mesh)
@@ -394,7 +405,7 @@ pub fn duplicate_and_interleaved_state_and_deltas_converge_test() {
   Nil
 }
 
-pub fn a_duplicate_message_id_is_suppressed_test() {
+pub fn a_duplicate_message_id_is_suppressed_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitPnCounter)
   let mesh =
@@ -417,7 +428,7 @@ pub fn a_duplicate_message_id_is_suppressed_test() {
 
 // --- partition and repair -------------------------------------------------
 
-pub fn a_partitioned_mesh_converges_after_one_edge_returns_test() {
+pub fn a_partitioned_mesh_converges_after_one_edge_returns_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.settle(mesh)
@@ -451,7 +462,7 @@ pub fn a_partitioned_mesh_converges_after_one_edge_returns_test() {
   Nil
 }
 
-pub fn a_state_merge_keeps_local_channels_and_edits_test() {
+pub fn a_state_merge_keeps_local_channels_and_edits_test() -> Nil {
   let mesh = mesh(["peer-a", "peer-b"])
   let #(mesh, a_address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let #(mesh, b_address) = crdt_sim.create(mesh, "peer-b", channel.InitOrSet)
@@ -475,7 +486,7 @@ pub fn a_state_merge_keeps_local_channels_and_edits_test() {
   Nil
 }
 
-pub fn a_digest_mismatch_asks_for_state_test() {
+pub fn a_digest_mismatch_asks_for_state_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -510,7 +521,7 @@ pub fn a_digest_mismatch_asks_for_state_test() {
 /// The point of a cross-replica digest: once two peers have converged, an
 /// exchange costs one message and asks for nothing. A replica-local digest
 /// would have them trading full state on every round forever.
-pub fn a_digest_exchange_between_converged_peers_asks_for_nothing_test() {
+pub fn a_digest_exchange_between_converged_peers_asks_for_nothing_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -545,7 +556,7 @@ pub fn a_digest_exchange_between_converged_peers_asks_for_nothing_test() {
   Nil
 }
 
-pub fn a_matching_digest_asks_for_nothing_test() {
+pub fn a_matching_digest_asks_for_nothing_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -567,7 +578,7 @@ pub fn a_matching_digest_asks_for_nothing_test() {
 /// Every eligible kernel, edited from three sides in a different order per
 /// peer, ends on one digest. This is the property the whole projection
 /// exists for, checked kind by kind rather than only on the mesh helper.
-pub fn converged_peers_share_a_digest_for_every_eligible_kind_test() {
+pub fn converged_peers_share_a_digest_for_every_eligible_kind_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, counter) = crdt_sim.create(mesh, "peer-a", channel.InitPnCounter)
   let #(mesh, tally) =
@@ -623,7 +634,7 @@ pub fn converged_peers_share_a_digest_for_every_eligible_kind_test() {
 /// authoring cursors an import needs, so two converged replicas export
 /// different bytes; the digest projection removes exactly those, so the
 /// same two replicas agree.
-pub fn the_export_keeps_what_the_digest_projects_out_test() {
+pub fn the_export_keeps_what_the_digest_projects_out_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh =
@@ -652,7 +663,7 @@ pub fn the_export_keeps_what_the_digest_projects_out_test() {
 
 // --- canonical snapshots --------------------------------------------------
 
-pub fn registry_creation_order_does_not_change_the_digest_test() {
+pub fn registry_creation_order_does_not_change_the_digest_test() -> Nil {
   let forward =
     list.fold(
       [channel.InitOrSet, channel.InitGSet, channel.InitPnCounter],
@@ -693,7 +704,7 @@ fn merge_into(
   target
 }
 
-pub fn different_delivery_orders_reach_the_same_canonical_json_test() {
+pub fn different_delivery_orders_reach_the_same_canonical_json_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.settle(mesh)
@@ -716,7 +727,7 @@ pub fn different_delivery_orders_reach_the_same_canonical_json_test() {
   Nil
 }
 
-pub fn a_snapshot_round_trips_through_export_and_import_test() {
+pub fn a_snapshot_round_trips_through_export_and_import_test() -> Nil {
   let mesh = full_mesh(["peer-a"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.edit(mesh, "peer-a", address, channel.OrSetAddEdit("fig"))
@@ -730,7 +741,7 @@ pub fn a_snapshot_round_trips_through_export_and_import_test() {
   Nil
 }
 
-pub fn importing_the_same_snapshot_twice_changes_nothing_test() {
+pub fn importing_the_same_snapshot_twice_changes_nothing_test() -> Nil {
   let mesh = full_mesh(["peer-a"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.edit(mesh, "peer-a", address, channel.OrSetAddEdit("fig"))
@@ -742,7 +753,7 @@ pub fn importing_the_same_snapshot_twice_changes_nothing_test() {
   Nil
 }
 
-pub fn a_digest_is_lowercase_sha256_hex_test() {
+pub fn a_digest_is_lowercase_sha256_hex_test() -> Nil {
   let digest = sha256.hex("watershed")
   string.length(digest) |> expect.to_equal(64)
   digest |> expect.to_equal(string.lowercase(digest))
@@ -785,7 +796,7 @@ pub fn a_digest_is_lowercase_sha256_hex_test() {
 /// A canary like the fixture document below: re-pin deliberately, after
 /// checking the new hashes match on `--target erlang` and
 /// `--target javascript`.
-pub fn each_channel_type_pins_its_digest_projection_test() {
+pub fn each_channel_type_pins_its_digest_projection_test() -> Nil {
   [
     #(
       channel.InitPnCounter,
@@ -844,7 +855,7 @@ pub fn each_channel_type_pins_its_digest_projection_test() {
   Nil
 }
 
-pub fn a_pinned_document_digest_is_identical_on_every_target_test() {
+pub fn a_pinned_document_digest_is_identical_on_every_target_test() -> Nil {
   let document = fixture_document()
 
   crdt_core.digest(document)
@@ -988,7 +999,7 @@ const fixture_forwardings = "\"forwardings\":[{\"id\":{\"replica_id\":\"peer-alp
 
 /// An oversize snapshot is refused on its byte length, before the parser
 /// ever sees it, and leaves the document untouched.
-pub fn the_snapshot_limit_rejects_an_oversize_import_test() {
+pub fn the_snapshot_limit_rejects_an_oversize_import_test() -> Nil {
   let mesh = full_mesh(["peer-a"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.edit(mesh, "peer-a", address, channel.OrSetAddEdit("fig"))
@@ -1017,7 +1028,7 @@ pub fn the_snapshot_limit_rejects_an_oversize_import_test() {
 /// so this goes through a state transfer, where the clock has to be
 /// rebuilt from the merged registers themselves. Without that, peer-b's
 /// write is stamped at 10, loses to the merged 5,000,000, and vanishes.
-pub fn a_bootstrapped_replica_wins_its_first_register_write_test() {
+pub fn a_bootstrapped_replica_wins_its_first_register_write_test() -> Nil {
   let assert Ok(#(peer_a, created)) =
     crdt_core.create_channel(
       document("peer-a"),
@@ -1097,7 +1108,7 @@ fn foreign(
   document
 }
 
-pub fn another_room_is_rejected_before_merge_test() {
+pub fn another_room_is_rejected_before_merge_test() -> Nil {
   let peer = foreign("peer-b", "other-room", compatibility)
   reject(
     document("peer-a"),
@@ -1107,7 +1118,7 @@ pub fn another_room_is_rejected_before_merge_test() {
   Nil
 }
 
-pub fn another_compatibility_tag_is_rejected_before_merge_test() {
+pub fn another_compatibility_tag_is_rejected_before_merge_test() -> Nil {
   let peer = foreign("peer-b", room, "watershed-crdt-9")
   reject(
     document("peer-a"),
@@ -1120,7 +1131,7 @@ pub fn another_compatibility_tag_is_rejected_before_merge_test() {
   Nil
 }
 
-pub fn another_root_kind_is_rejected_before_merge_test() {
+pub fn another_root_kind_is_rejected_before_merge_test() -> Nil {
   let assert Ok(peer) =
     crdt_core.new(crdt_core.config(
       room: room,
@@ -1144,7 +1155,7 @@ pub fn another_root_kind_is_rejected_before_merge_test() {
   Nil
 }
 
-pub fn another_protocol_version_is_rejected_before_merge_test() {
+pub fn another_protocol_version_is_rejected_before_merge_test() -> Nil {
   let peer = document("peer-b")
   let raw =
     string.replace(
@@ -1160,7 +1171,7 @@ pub fn another_protocol_version_is_rejected_before_merge_test() {
   Nil
 }
 
-pub fn a_replica_id_claimed_by_another_session_is_rejected_test() {
+pub fn a_replica_id_claimed_by_another_session_is_rejected_test() -> Nil {
   let assert Ok(impostor) =
     crdt_core.new(crdt_core.config(
       room: room,
@@ -1177,7 +1188,7 @@ pub fn a_replica_id_claimed_by_another_session_is_rejected_test() {
   Nil
 }
 
-pub fn a_forged_descriptor_conflict_is_rejected_test() {
+pub fn a_forged_descriptor_conflict_is_rejected_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-b", channel.InitGSet)
   let mesh = crdt_sim.settle(mesh)
@@ -1216,7 +1227,7 @@ fn forged_or_set() -> crdt_core.Document {
   document
 }
 
-pub fn an_unsupported_remote_channel_is_rejected_test() {
+pub fn an_unsupported_remote_channel_is_rejected_test() -> Nil {
   let peer = document("peer-b")
   let entry =
     crdt_wire.ChannelEntry(
@@ -1231,7 +1242,7 @@ pub fn an_unsupported_remote_channel_is_rejected_test() {
   Nil
 }
 
-pub fn a_descriptor_whose_snapshot_is_a_different_kind_is_rejected_test() {
+pub fn a_descriptor_whose_snapshot_is_a_different_kind_is_rejected_test() -> Nil {
   let peer = document("peer-b")
   let entry =
     crdt_wire.ChannelEntry(
@@ -1247,13 +1258,13 @@ pub fn a_descriptor_whose_snapshot_is_a_different_kind_is_rejected_test() {
   Nil
 }
 
-fn g_set_snapshot() {
+fn g_set_snapshot() -> GSet(String) {
   let assert channel.GSetSnapshot(state) =
     channel.snapshot(channel.new(channel.InitGSet, replica: "peer-b"))
   state
 }
 
-pub fn a_forged_creator_is_rejected_by_the_core_too_test() {
+pub fn a_forged_creator_is_rejected_by_the_core_too_test() -> Nil {
   let peer = document("peer-b")
   let entry =
     crdt_wire.ChannelEntry(
@@ -1269,7 +1280,7 @@ pub fn a_forged_creator_is_rejected_by_the_core_too_test() {
   Nil
 }
 
-pub fn a_delta_for_a_differently_typed_address_is_rejected_test() {
+pub fn a_delta_for_a_differently_typed_address_is_rejected_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-b", channel.InitGSet)
   let mesh = crdt_sim.settle(mesh)
@@ -1295,7 +1306,7 @@ pub fn a_delta_for_a_differently_typed_address_is_rejected_test() {
   Nil
 }
 
-pub fn an_edit_for_the_wrong_kernel_is_rejected_test() {
+pub fn an_edit_for_the_wrong_kernel_is_rejected_test() -> Nil {
   let document = document("peer-a")
   let before = crdt_core.digest(document)
   let assert Error(p2p.InvalidEnvelope(_, _)) =
@@ -1304,7 +1315,7 @@ pub fn an_edit_for_the_wrong_kernel_is_rejected_test() {
   Nil
 }
 
-pub fn an_unknown_address_cannot_be_resolved_test() {
+pub fn an_unknown_address_cannot_be_resolved_test() -> Nil {
   let document = document("peer-a")
   let assert Error(p2p.InvalidEnvelope(_, _)) =
     crdt_core.channel_state(document, "peer-a:1")
@@ -1321,7 +1332,7 @@ fn limited(replica: String, limits: crdt_wire.Limits) -> crdt_core.Document {
   document
 }
 
-pub fn the_channel_limit_rejects_a_local_creation_test() {
+pub fn the_channel_limit_rejects_a_local_creation_test() -> Nil {
   let limits = crdt_wire.Limits(..crdt_wire.default_limits(), channels: 2)
   let document = limited("peer-a", limits)
   let assert Ok(#(document, _)) =
@@ -1334,7 +1345,7 @@ pub fn the_channel_limit_rejects_a_local_creation_test() {
   Nil
 }
 
-pub fn the_channel_limit_rejects_a_remote_announcement_test() {
+pub fn the_channel_limit_rejects_a_remote_announcement_test() -> Nil {
   let limits = crdt_wire.Limits(..crdt_wire.default_limits(), channels: 1)
   let local = limited("peer-a", limits)
   let assert Ok(#(peer, outcome)) =
@@ -1349,7 +1360,7 @@ pub fn the_channel_limit_rejects_a_remote_announcement_test() {
 /// The buffer is a bounded FIFO that drops its oldest entry, not a gate
 /// that shuts. Rejecting the newest arrival let a single orphan delta for a
 /// channel nobody ever announces wedge the buffer permanently.
-pub fn the_delta_buffer_evicts_the_oldest_orphan_test() {
+pub fn the_delta_buffer_evicts_the_oldest_orphan_test() -> Nil {
   let limits =
     crdt_wire.Limits(..crdt_wire.default_limits(), buffered_deltas: 2)
   let local = limited("peer-a", limits)
@@ -1395,7 +1406,7 @@ pub fn the_delta_buffer_evicts_the_oldest_orphan_test() {
 }
 
 /// Version one buffers exactly 256 pre-descriptor deltas.
-pub fn the_default_delta_buffer_holds_256_test() {
+pub fn the_default_delta_buffer_holds_256_test() -> Nil {
   crdt_wire.default_limits().buffered_deltas |> expect.to_equal(256)
   Nil
 }
@@ -1404,7 +1415,7 @@ pub fn the_default_delta_buffer_holds_256_test() {
 /// as poison: the genuine announcement tried to merge it, failed, and was
 /// rejected whole — leaving the poison in place so every later
 /// announcement and state transfer for that address failed the same way.
-pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() {
+pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() -> Nil {
   let local = document("peer-a")
   let assert Ok(#(peer, created)) =
     crdt_core.create_channel(document("peer-b"), channel.InitGSet)
@@ -1456,7 +1467,7 @@ pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() {
 /// The suppression window is bounded and evicts oldest-first. Suppression
 /// is only an optimization, so an evicted id simply merges again — which is
 /// a no-op by CRDT law, asserted here rather than assumed.
-pub fn the_recent_message_window_evicts_oldest_first_test() {
+pub fn the_recent_message_window_evicts_oldest_first_test() -> Nil {
   let limits =
     crdt_wire.Limits(..crdt_wire.default_limits(), recent_message_ids: 2)
   let local = limited("peer-a", limits)
@@ -1505,7 +1516,7 @@ fn delta_id(message: crdt_wire.Message) -> crdt_wire.MessageId {
   id
 }
 
-pub fn the_envelope_limit_rejects_an_oversize_payload_test() {
+pub fn the_envelope_limit_rejects_an_oversize_payload_test() -> Nil {
   let limits =
     crdt_wire.Limits(..crdt_wire.default_limits(), envelope_bytes: 16)
   let local = limited("peer-a", limits)
@@ -1519,7 +1530,7 @@ pub fn the_envelope_limit_rejects_an_oversize_payload_test() {
   Nil
 }
 
-pub fn the_snapshot_limit_rejects_an_oversize_channel_test() {
+pub fn the_snapshot_limit_rejects_an_oversize_channel_test() -> Nil {
   let limits = crdt_wire.Limits(..crdt_wire.default_limits(), snapshot_bytes: 8)
   let local = limited("peer-a", limits)
   let peer = document("peer-b")
@@ -1531,7 +1542,7 @@ pub fn the_snapshot_limit_rejects_an_oversize_channel_test() {
   Nil
 }
 
-pub fn malformed_json_leaves_valid_local_state_alone_test() {
+pub fn malformed_json_leaves_valid_local_state_alone_test() -> Nil {
   let mesh = full_mesh(["peer-a"])
   let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitOrSet)
   let mesh = crdt_sim.edit(mesh, "peer-a", address, channel.OrSetAddEdit("fig"))
@@ -1547,7 +1558,7 @@ pub fn malformed_json_leaves_valid_local_state_alone_test() {
   Nil
 }
 
-pub fn a_rejected_state_message_merges_none_of_its_channels_test() {
+pub fn a_rejected_state_message_merges_none_of_its_channels_test() -> Nil {
   let peer = document("peer-b")
   let assert Ok(#(peer, first)) =
     crdt_core.create_channel(peer, channel.InitOrSet)
@@ -1572,7 +1583,7 @@ pub fn a_rejected_state_message_merges_none_of_its_channels_test() {
 
 // --- multi kind convergence -----------------------------------------------
 
-pub fn every_eligible_kind_converges_across_a_three_peer_mesh_test() {
+pub fn every_eligible_kind_converges_across_a_three_peer_mesh_test() -> Nil {
   let mesh = full_mesh(["peer-a", "peer-b", "peer-c"])
   let #(mesh, counter) = crdt_sim.create(mesh, "peer-a", channel.InitPnCounter)
   let #(mesh, tally) =
@@ -1609,7 +1620,7 @@ pub fn every_eligible_kind_converges_across_a_three_peer_mesh_test() {
   Nil
 }
 
-pub fn hello_carries_the_compatibility_tag_and_root_test() {
+pub fn hello_carries_the_compatibility_tag_and_root_test() -> Nil {
   let document = document("peer-a")
   let assert crdt_wire.Hello(compatibility_tag, root_kind) =
     crdt_core.hello_message(document)

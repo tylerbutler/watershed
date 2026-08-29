@@ -6,7 +6,7 @@
   "description": "Phoenix JS client dependency for the watershed Lustre JSON workspace example",
   "scripts": {
     "build": "gleam build --target javascript && esbuild build/dev/javascript/json_workspace_lustre/json_workspace_lustre.mjs --bundle --format=esm --outfile=dist/json_workspace_lustre.mjs",
-    "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/json_workspace_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
+    "build:smoke": "gleam build --target javascript && esbuild build/dev/javascript/json_workspace_lustre/json_workspace_lustre/smoke.mjs --bundle --format=esm --outfile=dist/smoke.mjs",
     "smoke": "pnpm run build:smoke && node smoke/run.mjs",
     "serve": "python3 -m http.server 8080"
   },

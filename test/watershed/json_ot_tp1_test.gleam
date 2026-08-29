@@ -29,29 +29,29 @@ fn check_tp1(doc: JsonValue, a: Op, b: Op) -> Result(Bool, String) {
 }
 
 fn try_map(
-  res: Result(t, e),
+  result: Result(t, e),
   label: String,
   then: fn(t) -> Result(Bool, String),
 ) -> Result(Bool, String) {
-  case res {
-    Ok(v) -> then(v)
-    Error(err) -> Error(label <> " failed: " <> string.inspect(err))
+  case result {
+    Ok(value) -> then(value)
+    Error(error) -> Error(label <> " failed: " <> string.inspect(error))
   }
 }
 
-pub fn tp1_converges_test() {
+pub fn tp1_converges_test() -> Nil {
   let config = kernel_fuzz.config_from_env()
   qcheck.run(config, qcheck.uniform_int(), fn(seed) {
-    let rng = json_ot_gen.new_rng(seed)
-    let #(doc, rng) = json_ot_gen.random_doc(rng)
-    let #(a, rng) = json_ot_gen.gen_op(doc, rng)
-    let #(b, _rng) = json_ot_gen.gen_op(doc, rng)
+    let random = json_ot_gen.new_random(seed)
+    let #(doc, random) = json_ot_gen.random_doc(random)
+    let #(a, random) = json_ot_gen.generate_op(doc, random)
+    let #(b, _random) = json_ot_gen.generate_op(doc, random)
     case check_tp1(doc, a, b) {
       Ok(True) -> Nil
       other -> {
         let detail = case other {
           Ok(False) -> "results diverged"
-          Error(msg) -> msg
+          Error(message) -> message
           Ok(True) -> ""
         }
         panic as {

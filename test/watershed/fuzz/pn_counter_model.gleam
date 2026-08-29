@@ -55,10 +55,10 @@ fn client_replica_id(id: Int) -> ReplicaId {
 /// only string-based `from_json`, no composable `decode.Decoder(PNCounter)`.
 /// Dumped scripts mostly contain pre-submit ops (`delta: null`), but
 /// replayed `StashedOp`/`RollbackOp` fixtures must round-trip totally.
-fn op_to_json(cmd: PnCommand) -> json.Json {
+fn op_to_json(command: PnCommand) -> json.Json {
   json.object([
-    #("amount", json.int(cmd.amount)),
-    #("delta", case cmd.delta {
+    #("amount", json.int(command.amount)),
+    #("delta", case command.delta {
       None -> json.null()
       Some(delta) -> json.string(json.to_string(pn_counter.to_json(delta)))
     }),
@@ -97,11 +97,11 @@ fn op_generator() -> qcheck.Generator(PnCommand) {
 /// A routed op must carry the delta `submit`/`apply_stashed` filled in; a
 /// `None` here is a model wiring bug, not a kernel bug — fail loudly.
 fn to_kernel_op(
-  cmd: PnCommand,
+  command: PnCommand,
   context: String,
 ) -> pn_counter_kernel.PnCounterOp {
-  case cmd.delta {
-    Some(delta) -> Update(cmd.amount, delta)
+  case command.delta {
+    Some(delta) -> Update(command.amount, delta)
     None ->
       panic as {
         context
@@ -114,31 +114,31 @@ fn to_kernel_op(
 /// cumulative delta (claims precedent). Never returns `None`.
 fn submit(
   state: PnCounterState,
-  cmd: PnCommand,
+  command: PnCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(PnCounterState, Option(PnCommand)) {
   let #(state, _events, op, _message_id) =
-    pn_counter_kernel.update(state, cmd.amount)
+    pn_counter_kernel.update(state, command.amount)
   let Update(amount, delta) = op
   #(state, Some(PnCommand(amount, Some(delta))))
 }
 
 fn apply_remote(
   state: PnCounterState,
-  cmd: PnCommand,
+  command: PnCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(PnCounterState, String) {
   let #(state, _events) =
-    pn_counter_kernel.apply_remote(state, to_kernel_op(cmd, "apply_remote"))
+    pn_counter_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
   Ok(state)
 }
 
 fn ack_local(
   state: PnCounterState,
-  cmd: PnCommand,
+  command: PnCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(PnCounterState, String) {
-  case pn_counter_kernel.ack_local(state, to_kernel_op(cmd, "ack_local")) {
+  case pn_counter_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
     Ok(state) -> Ok(state)
     Error(pn_counter_kernel.UnexpectedAck(_, detail)) -> Error(detail)
     Error(pn_counter_kernel.UnexpectedRollback(_, detail)) -> Error(detail)
@@ -157,14 +157,14 @@ fn oracle(entries: List(LogEntry(PnCommand))) -> Int {
 /// `state.pending` (local-only bookkeeping the harness doesn't track). On
 /// mismatch leaves state untouched, so a regression surfaces as a
 /// convergence failure rather than a harness panic.
-fn rollback(state: PnCounterState, cmd: PnCommand) -> PnCounterState {
+fn rollback(state: PnCounterState, command: PnCommand) -> PnCounterState {
   case list.last(state.pending) {
     Error(_) -> state
     Ok(PendingDelta(_, _, message_id)) ->
       case
         pn_counter_kernel.rollback(
           state,
-          to_kernel_op(cmd, "rollback"),
+          to_kernel_op(command, "rollback"),
           message_id,
         )
       {
@@ -181,11 +181,11 @@ fn rollback(state: PnCounterState, cmd: PnCommand) -> PnCounterState {
 /// (H2), keeping it valid for every peer's `apply_remote`/`ack_local`.
 fn apply_stashed(
   state: PnCounterState,
-  cmd: PnCommand,
+  command: PnCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(PnCounterState, PnCommand) {
   let #(state, _events, op, _message_id) =
-    pn_counter_kernel.update(state, cmd.amount)
+    pn_counter_kernel.update(state, command.amount)
   let Update(amount, delta) = op
   #(state, PnCommand(amount, Some(delta)))
 }

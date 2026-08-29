@@ -98,7 +98,7 @@ fn summarize(raw: String) -> String {
   case crdt_relay.decode_client(raw) {
     Ok(crdt_relay.Document(_, _, from, _, message)) ->
       crdt_relay.message_kind_to_string(message) <> " from " <> from
-    _ -> "opaque"
+    Ok(crdt_relay.Control(_)) | Error(_) -> "opaque"
   }
 }
 
@@ -113,7 +113,18 @@ fn error_tag(error: p2p.P2pError) -> String {
     p2p.SequencerUnavailable(_) -> "sequencerUnavailable"
     p2p.SequencerUnsupported -> "sequencerUnsupported"
     p2p.InvalidEnvelope(_, _) -> "invalidEnvelope"
-    _ -> "other"
+    p2p.UnsupportedChannel(_)
+    | p2p.RootMismatch(..)
+    | p2p.ChannelTypeMismatch(..)
+    | p2p.DocumentClosed
+    | p2p.CompatibilityMismatch(..)
+    | p2p.ProtocolMismatch(..)
+    | p2p.RoomMismatch
+    | p2p.RoomFull(_)
+    | p2p.SignalingFailed(_)
+    | p2p.PeerConnectionFailed(..)
+    | p2p.SnapshotTooLarge(..)
+    | p2p.ReplicaCollision(_) -> "other"
   }
 }
 
@@ -135,7 +146,7 @@ fn document(replica: String) -> crdt_core.Document {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_compatible_relay_is_ready_after_its_greeting_test() {
+pub fn a_compatible_relay_is_ready_after_its_greeting_test() -> Nil {
   let hub = relay_fake.new_hub()
   let client = spawn(hub, relay_fake.new_clock())
 
@@ -145,7 +156,7 @@ pub fn a_compatible_relay_is_ready_after_its_greeting_test() {
 }
 
 @target(javascript)
-pub fn a_sequencer_without_the_lane_is_unsupported_and_final_test() {
+pub fn a_sequencer_without_the_lane_is_unsupported_and_final_test() -> Nil {
   let hub = relay_fake.new_hub()
   relay_fake.set_capability(hub, False)
   let clock = relay_fake.new_clock()
@@ -162,7 +173,7 @@ pub fn a_sequencer_without_the_lane_is_unsupported_and_final_test() {
 }
 
 @target(javascript)
-pub fn a_malformed_greeting_drops_the_socket_test() {
+pub fn a_malformed_greeting_drops_the_socket_test() -> Nil {
   let hub = relay_fake.new_hub()
   relay_fake.set_greeting(hub, Some("{\"type\":"))
   let client = spawn(hub, relay_fake.new_clock())
@@ -173,7 +184,7 @@ pub fn a_malformed_greeting_drops_the_socket_test() {
 }
 
 @target(javascript)
-pub fn traffic_before_the_greeting_is_a_handshake_violation_test() {
+pub fn traffic_before_the_greeting_is_a_handshake_violation_test() -> Nil {
   let hub = relay_fake.new_hub()
   relay_fake.set_greeting(
     hub,
@@ -187,7 +198,7 @@ pub fn traffic_before_the_greeting_is_a_handshake_violation_test() {
 }
 
 @target(javascript)
-pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() {
+pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() -> Nil {
   let hub = relay_fake.new_hub()
   let client = spawn(hub, relay_fake.new_clock())
   let assert [connection] = relay_fake.open_sockets(hub)
@@ -204,7 +215,7 @@ pub fn an_oversize_frame_is_refused_before_it_is_parsed_test() {
 }
 
 @target(javascript)
-pub fn a_refusal_from_the_relay_is_reported_and_ends_the_socket_test() {
+pub fn a_refusal_from_the_relay_is_reported_and_ends_the_socket_test() -> Nil {
   let hub = relay_fake.new_hub()
   let client = spawn(hub, relay_fake.new_clock())
   let assert [connection] = relay_fake.open_sockets(hub)
@@ -227,7 +238,7 @@ pub fn a_refusal_from_the_relay_is_reported_and_ends_the_socket_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn envelopes_are_carried_unchanged_in_both_directions_test() {
+pub fn envelopes_are_carried_unchanged_in_both_directions_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let beta = document("beta")
@@ -265,7 +276,7 @@ fn escape(raw: String) -> String {
 }
 
 @target(javascript)
-pub fn a_state_request_is_answered_and_terminated_test() {
+pub fn a_state_request_is_answered_and_terminated_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let client = spawn(hub, relay_fake.new_clock())
@@ -284,7 +295,7 @@ pub fn a_state_request_is_answered_and_terminated_test() {
 }
 
 @target(javascript)
-pub fn an_attestation_quotes_the_order_actually_processed_test() {
+pub fn an_attestation_quotes_the_order_actually_processed_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let client = spawn(hub, relay_fake.new_clock())
@@ -317,7 +328,7 @@ pub fn an_attestation_quotes_the_order_actually_processed_test() {
 }
 
 @target(javascript)
-pub fn nothing_is_written_before_the_handshake_or_after_a_close_test() {
+pub fn nothing_is_written_before_the_handshake_or_after_a_close_test() -> Nil {
   let hub = relay_fake.new_hub()
   relay_fake.set_capability(hub, False)
   let alpha = document("alpha")
@@ -343,7 +354,7 @@ pub fn nothing_is_written_before_the_handshake_or_after_a_close_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_drop_retries_with_the_documented_backoff_and_cap_test() {
+pub fn a_drop_retries_with_the_documented_backoff_and_cap_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -373,7 +384,7 @@ pub fn a_drop_retries_with_the_documented_backoff_and_cap_test() {
 }
 
 @target(javascript)
-pub fn a_healthy_session_resets_the_backoff_test() {
+pub fn a_healthy_session_resets_the_backoff_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -401,7 +412,7 @@ pub fn a_healthy_session_resets_the_backoff_test() {
 }
 
 @target(javascript)
-pub fn a_socket_the_environment_refuses_is_a_failed_attempt_test() {
+pub fn a_socket_the_environment_refuses_is_a_failed_attempt_test() -> Nil {
   let hub = relay_fake.new_hub()
   relay_fake.stop(hub)
   let clock = relay_fake.new_clock()
@@ -414,7 +425,7 @@ pub fn a_socket_the_environment_refuses_is_a_failed_attempt_test() {
 }
 
 @target(javascript)
-pub fn a_closed_relay_stops_retrying_test() {
+pub fn a_closed_relay_stops_retrying_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -438,7 +449,7 @@ pub fn a_closed_relay_stops_retrying_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_retired_socket_reports_nothing_test() {
+pub fn a_retired_socket_reports_nothing_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -471,7 +482,7 @@ pub fn a_retired_socket_reports_nothing_test() {
 }
 
 @target(javascript)
-pub fn a_reconnect_timer_that_fires_late_does_nothing_test() {
+pub fn a_reconnect_timer_that_fires_late_does_nothing_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -496,7 +507,7 @@ pub fn a_reconnect_timer_that_fires_late_does_nothing_test() {
 /// has used before, so a number carried across a reconnect would be
 /// meaningless — and loudly so, because a relay retires log entries at
 /// or below the one an attestation quotes.
-pub fn the_order_high_water_mark_resets_with_every_socket_test() {
+pub fn the_order_high_water_mark_resets_with_every_socket_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let alpha = document("alpha")
@@ -531,7 +542,7 @@ pub fn the_order_high_water_mark_resets_with_every_socket_test() {
 /// again, which would freeze the log, the checkpoint, and every
 /// `SequencedOnly` replica in the room behind one entry nobody can
 /// merge.
-pub fn a_refused_envelope_is_skipped_by_order_test() {
+pub fn a_refused_envelope_is_skipped_by_order_test() -> Nil {
   let hub = relay_fake.new_hub()
   let events = transport_js.new_cell([])
   let refuse = transport_js.new_cell([])
@@ -595,7 +606,7 @@ pub fn a_refused_envelope_is_skipped_by_order_test() {
 /// that stamps no order has given the client nothing to name, and a mark
 /// that moved anyway would be telling that relay it may retire an entry
 /// nobody merged and nobody mentioned.
-pub fn an_unreportable_refusal_freezes_the_high_water_mark_test() {
+pub fn an_unreportable_refusal_freezes_the_high_water_mark_test() -> Nil {
   let hub = relay_fake.new_hub()
   let events = transport_js.new_cell([])
   let refuse = transport_js.new_cell([])
@@ -635,7 +646,7 @@ pub fn an_unreportable_refusal_freezes_the_high_water_mark_test() {
 /// a mark to freeze and carry on with. It is retired here, so the lane
 /// falls back and retries instead of sitting on a connection that can
 /// never attest again.
-pub fn a_refusal_that_cannot_be_written_retires_the_socket_test() {
+pub fn a_refusal_that_cannot_be_written_retires_the_socket_test() -> Nil {
   let hub = relay_fake.new_hub()
   let events = transport_js.new_cell([])
   let refuse = transport_js.new_cell([])
@@ -671,7 +682,7 @@ pub fn a_refusal_that_cannot_be_written_retires_the_socket_test() {
 /// thing that runs a browser tab out of memory, and the relay holds the
 /// claims that actually matter anyway — so this keeps the most recent
 /// `max_reported_skips` and counts the rest.
-pub fn the_reported_skip_list_is_bounded_test() {
+pub fn the_reported_skip_list_is_bounded_test() -> Nil {
   let hub = relay_fake.new_hub()
   let events = transport_js.new_cell([])
   let refuse = transport_js.new_cell(["always"])
@@ -747,7 +758,7 @@ fn refusing_client(
 /// A write that does not reach an open socket is reported as one. The
 /// caller's fallback depends on knowing, and a `send` that always claimed
 /// success would make a silent hole in a document's durable path.
-pub fn a_write_to_a_socket_that_is_gone_answers_false_test() {
+pub fn a_write_to_a_socket_that_is_gone_answers_false_test() -> Nil {
   let hub = relay_fake.new_hub()
   let client = spawn(hub, relay_fake.new_clock())
   let alpha = document("alpha")
@@ -765,7 +776,7 @@ pub fn a_write_to_a_socket_that_is_gone_answers_false_test() {
 @target(javascript)
 /// `abort` retires the socket the way a reported close would: one drop,
 /// and the policy's reconnect scheduled behind it.
-pub fn aborting_a_socket_drops_it_and_retries_test() {
+pub fn aborting_a_socket_drops_it_and_retries_test() -> Nil {
   let hub = relay_fake.new_hub()
   let clock = relay_fake.new_clock()
   let client = spawn(hub, clock)
@@ -785,14 +796,14 @@ pub fn aborting_a_socket_drops_it_and_retries_test() {
 }
 
 @target(javascript)
-pub fn the_backoff_sequence_is_exactly_the_documented_one_test() {
+pub fn the_backoff_sequence_is_exactly_the_documented_one_test() -> Nil {
   [0, 1, 2, 3, 4, 5, 99]
   |> list.map(crdt_sequencer_js.backoff_ms)
   |> expect.to_equal([250, 500, 1000, 2000, 5000, 5000, 5000])
 }
 
 @target(javascript)
-pub fn a_relay_that_stamps_no_order_is_still_read_test() {
+pub fn a_relay_that_stamps_no_order_is_still_read_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let client = spawn(hub, relay_fake.new_clock())
@@ -819,7 +830,7 @@ pub fn a_relay_that_stamps_no_order_is_still_read_test() {
 @target(javascript)
 /// A client declares what it understands, once, after the `hello` that
 /// admits it — and only then is it ever sent a `CheckpointRequest`.
-pub fn support_is_declared_and_the_relay_records_it_test() {
+pub fn support_is_declared_and_the_relay_records_it_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let client = spawn(hub, relay_fake.new_clock())
@@ -844,7 +855,7 @@ pub fn support_is_declared_and_the_relay_records_it_test() {
 /// A request reaches the owner as an event and nothing else: no order is
 /// noted, so the client's high-water mark — the only number it ever
 /// quotes back — is untouched by one.
-pub fn a_checkpoint_request_is_reported_and_moves_no_mark_test() {
+pub fn a_checkpoint_request_is_reported_and_moves_no_mark_test() -> Nil {
   let hub = relay_fake.new_hub()
   let alpha = document("alpha")
   let client = spawn(hub, relay_fake.new_clock())

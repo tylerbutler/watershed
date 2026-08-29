@@ -87,7 +87,7 @@ fn root_handles(doc: Document(doc_schema.Showcase)) -> List(#(String, String)) {
 /// This is the test that fails the day someone reaches for `root_typed` inside
 /// a panel — a stray `title` or `pixels` key at the root shows up here as an
 /// extra entry, whatever else still works.
-pub fn root_holds_exactly_the_declared_children_test() {
+pub fn root_holds_exactly_the_declared_children_test() -> Nil {
   let #(_sluice, doc) = room("purity")
 
   root_keys(doc)
@@ -95,7 +95,7 @@ pub fn root_holds_exactly_the_declared_children_test() {
 }
 
 /// Every declared key resolves to a map, not to a leftover scalar.
-pub fn every_child_key_resolves_to_a_map_test() {
+pub fn every_child_key_resolves_to_a_map_test() -> Nil {
   let #(_sluice, doc) = room("purity-resolves")
   let root = watershed.root_typed(doc)
 
@@ -114,7 +114,7 @@ pub fn every_child_key_resolves_to_a_map_test() {
 /// This is the property that makes four schemas safe in one document: the text
 /// panel's `title` and the sudoku panel's `title` are different keys in
 /// different maps, and neither is a root key at all.
-pub fn panel_keys_do_not_leak_into_the_root_test() {
+pub fn panel_keys_do_not_leak_into_the_root_test() -> Nil {
   let #(sluice, doc) = room("no-leak")
   let root = watershed.root_typed(doc)
 
@@ -149,7 +149,7 @@ pub fn panel_keys_do_not_leak_into_the_root_test() {
 /// loss window is before anybody has interacted, so the plan accepts it — but
 /// "they converge" is exactly the kind of claim that should be a test rather
 /// than a paragraph.
-pub fn racing_clients_agree_on_one_set_of_children_test() {
+pub fn racing_clients_agree_on_one_set_of_children_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "cold-race")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let doc_b = sluice_js.connect(sluice, "user-b")
@@ -172,7 +172,7 @@ pub fn racing_clients_agree_on_one_set_of_children_test() {
 ///
 /// This is the same claim `playlist_lustre` already makes standalone, run
 /// against the nested map — the point being that nesting changed nothing.
-pub fn playlist_converges_inside_its_child_map_test() {
+pub fn playlist_converges_inside_its_child_map_test() -> Nil {
   let #(sluice, doc_a, doc_b) = two_client_room("playlist-nested")
   let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
 
@@ -194,7 +194,7 @@ pub fn playlist_converges_inside_its_child_map_test() {
 /// The partition half is the shell's offline control asserted: `go_offline`
 /// takes the *document*, so this is also the setup for
 /// `offline_partitions_every_panel_test` below.
-pub fn canvas_converges_inside_its_child_map_test() {
+pub fn canvas_converges_inside_its_child_map_test() -> Nil {
   let #(sluice, doc_a, doc_b) = two_client_room("canvas-nested")
   let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
 
@@ -218,7 +218,7 @@ pub fn canvas_converges_inside_its_child_map_test() {
 /// cannot be scoped, because the connection is per-document. It also covers the
 /// join the canvas exists to demonstrate: the offline client's cells are not
 /// replayed on return, the two states join.
-pub fn offline_partitions_every_panel_test() {
+pub fn offline_partitions_every_panel_test() -> Nil {
   let #(sluice, doc_a, doc_b) = two_client_room("partition")
   let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
   let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
@@ -313,7 +313,7 @@ fn or_map_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(canvas_schema.CanvasDoc),
 ) -> watershed.OrMap {
-  let assert Some(handle) = watershed.get(watershed.untyped(map), "pixels")
+  let assert Ok(handle) = watershed.get(watershed.untyped(map), "pixels")
   let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
   pixels
 }
@@ -349,7 +349,7 @@ fn sequence_of(
   doc: Document(doc_schema.Showcase),
   map: TypedMap(playlist_schema.PlaylistDoc),
 ) -> watershed.SharedSequence {
-  let assert Some(handle) = watershed.get(watershed.untyped(map), "tracks")
+  let assert Ok(handle) = watershed.get(watershed.untyped(map), "tracks")
   let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
   sequence
 }

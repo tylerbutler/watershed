@@ -3,16 +3,16 @@ import lattice_core/replica_id
 import startest/expect
 import watershed/or_set_kernel.{ElementAdded, ElementRemoved}
 
-fn rid(name: String) -> replica_id.ReplicaId {
+fn replica(name: String) -> replica_id.ReplicaId {
   replica_id.new(name)
 }
 
 fn new_a() -> or_set_kernel.OrSetState {
-  or_set_kernel.new(rid("a"))
+  or_set_kernel.new(replica("a"))
 }
 
 fn new_b() -> or_set_kernel.OrSetState {
-  or_set_kernel.new(rid("b"))
+  or_set_kernel.new(replica("b"))
 }
 
 fn expect_coherent(state: or_set_kernel.OrSetState) -> Nil {
@@ -30,7 +30,7 @@ fn ack(
   state
 }
 
-pub fn add_is_optimistically_visible_test() {
+pub fn add_is_optimistically_visible_test() -> Nil {
   let #(state, events, op, message_id) = or_set_kernel.add(new_a(), "alice")
 
   or_set_kernel.values(state) |> expect.to_equal(["alice"])
@@ -41,7 +41,7 @@ pub fn add_is_optimistically_visible_test() {
   expect_coherent(state)
 }
 
-pub fn remote_add_is_idempotent_test() {
+pub fn remote_add_is_idempotent_test() -> Nil {
   let #(_, _, op, _) = or_set_kernel.add(new_a(), "alice")
   let #(state, first_events) = or_set_kernel.apply_remote(new_b(), op)
   let #(state, second_events) = or_set_kernel.apply_remote(state, op)
@@ -52,7 +52,7 @@ pub fn remote_add_is_idempotent_test() {
   expect_coherent(state)
 }
 
-pub fn concurrent_add_survives_observed_remove_test() {
+pub fn concurrent_add_survives_observed_remove_test() -> Nil {
   let #(state_a, _, add_a, _) = or_set_kernel.add(new_a(), "alice")
   let state_a = ack(state_a, add_a)
   let #(state_b, _) = or_set_kernel.apply_remote(new_b(), add_a)
@@ -68,7 +68,7 @@ pub fn concurrent_add_survives_observed_remove_test() {
   expect_coherent(observer)
 }
 
-pub fn rollback_recomputes_optimistic_from_remaining_pending_test() {
+pub fn rollback_recomputes_optimistic_from_remaining_pending_test() -> Nil {
   let #(state, _, op1, _) = or_set_kernel.add(new_a(), "alice")
   let #(state, _, op2, message_id2) = or_set_kernel.add(state, "bob")
   let assert Ok(#(state, events)) =
@@ -81,12 +81,12 @@ pub fn rollback_recomputes_optimistic_from_remaining_pending_test() {
   expect_coherent(state)
 }
 
-pub fn summary_round_trips_and_rebrands_test() {
+pub fn summary_round_trips_and_rebrands_test() -> Nil {
   let #(state, _, op, _) = or_set_kernel.add(new_a(), "alice")
   let state = ack(state, op)
 
   let raw = json.to_string(or_set_kernel.summary(state))
-  let assert Ok(loaded) = or_set_kernel.from_summary(raw, rid("c"))
+  let assert Ok(loaded) = or_set_kernel.from_summary(raw, replica("c"))
 
   or_set_kernel.values(loaded) |> expect.to_equal(["alice"])
   loaded.pending |> expect.to_equal([])

@@ -8,7 +8,7 @@ pub fn main() -> Nil {
   gleeunit.main()
 }
 
-pub fn late_success_keeps_failure_feedback_test() {
+pub fn late_success_keeps_failure_feedback_test() -> Nil {
   let failed_feedback = Some(bootstrap_guard.warning("connection failed: boom"))
 
   bootstrap_guard.failure_latched(Some("boom"))
@@ -22,7 +22,7 @@ pub fn late_success_keeps_failure_feedback_test() {
   |> should.equal(failed_feedback)
 }
 
-pub fn success_feedback_updates_when_not_failed_test() {
+pub fn success_feedback_updates_when_not_failed_test() -> Nil {
   bootstrap_guard.failure_latched(None)
   |> should.equal(False)
 

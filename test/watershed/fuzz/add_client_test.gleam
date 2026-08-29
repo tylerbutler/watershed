@@ -100,7 +100,7 @@ fn model_accepting_joiner_ids(
 
 /// With 3 initial clients, the first joiner's identity must be exactly 3 —
 /// the client count before the join.
-pub fn add_client_passes_fresh_identity_test() {
+pub fn add_client_passes_fresh_identity_test() -> Nil {
   let script = [ClientOp(1, 1), Synchronize, AddClient]
   kernel_fuzz.try_run_script(model_accepting_joiner_ids([3]), 3, script)
   |> expect_ok
@@ -108,7 +108,7 @@ pub fn add_client_passes_fresh_identity_test() {
 
 /// Identities are append-only and never reused: the second joiner gets 4,
 /// not 3 again — a model accepting only 3 must fail on the second join.
-pub fn add_client_identities_are_never_reused_test() {
+pub fn add_client_identities_are_never_reused_test() -> Nil {
   let script = [ClientOp(1, 1), Synchronize, AddClient, AddClient]
   kernel_fuzz.try_run_script(model_accepting_joiner_ids([3, 4]), 3, script)
   |> expect_ok
@@ -118,7 +118,7 @@ pub fn add_client_identities_are_never_reused_test() {
   }
 }
 
-pub fn add_client_joins_and_converges_test() {
+pub fn add_client_joins_and_converges_test() -> Nil {
   let script = [
     ClientOp(1, 1),
     Synchronize,
@@ -132,7 +132,7 @@ pub fn add_client_joins_and_converges_test() {
   |> expect_ok
 }
 
-pub fn add_client_errors_without_load_from_synced_capability_test() {
+pub fn add_client_errors_without_load_from_synced_capability_test() -> Nil {
   let script = [ClientOp(1, 1), Synchronize, AddClient]
   case kernel_fuzz.try_run_script(model_without_load_from_synced(), 3, script) {
     Error(_) -> Nil
@@ -141,7 +141,7 @@ pub fn add_client_errors_without_load_from_synced_capability_test() {
   }
 }
 
-pub fn add_client_catches_planted_insertion_order_bug_test() {
+pub fn add_client_catches_planted_insertion_order_bug_test() -> Nil {
   // Two ops in a specific order land in the log; a correct summary join
   // must preserve that order. The buggy model reverses it, which two
   // distinct ops make observable via convergence.

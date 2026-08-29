@@ -13,9 +13,7 @@ import lustre/effect.{type Effect}
 
 import watershed/crdt_js.{type CrdtDocument}
 import watershed/p2p
-import watershed/p2p_transport_js.{
-  type Signaling, Roster, Signaling, signaling_session,
-}
+import watershed/p2p_transport_js.{type Signaling, Roster, Signaling}
 import watershed/schema
 import watershed/transport_js.{type Cell}
 
@@ -25,7 +23,7 @@ fn solo_signaling() -> Signaling {
   Signaling(
     join: fn(room, peer, on_signal) {
       on_signal(Roster([]))
-      Ok(signaling_session(room: room, peer_id: peer))
+      Ok(p2p_transport_js.signaling_session(room: room, peer_id: peer))
     },
     send: fn(_session, _to, _payload) { Nil },
     leave: fn(_session) { Nil },
@@ -89,7 +87,7 @@ fn flush() -> Promise(Nil) {
   promise.wait(0)
 }
 
-pub fn init_crdt_snapshots_existing_text_and_exposes_a_typed_handle_test() {
+pub fn init_crdt_snapshots_existing_text_and_exposes_a_typed_handle_test() -> Nil {
   let document = text_document()
   let handle = crdt_js.root(document)
   let assert Ok(Nil) = crdt_js.text_append(handle, "hello")
@@ -98,7 +96,8 @@ pub fn init_crdt_snapshots_existing_text_and_exposes_a_typed_handle_test() {
 
   assert textarea.value(model) == "hello"
   assert textarea.length(model) == 5
-  let assert Ok("hello") = crdt_js.text_value(textarea.channel(model))
+  let assert Ok(value) = crdt_js.text_value(textarea.channel(model))
+  assert value == "hello"
 }
 
 pub fn init_crdt_subscribes_and_replays_text_events_test() -> Promise(Nil) {

@@ -109,17 +109,17 @@ pub fn sequenced_entries(state: MapState) -> List(#(String, Json)) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An optimistic read: the sequenced data with the pending local changes over
-/// it.
-pub fn get(state: MapState, key: String) -> Option(Json) {
+/// it. The result is `Error(Nil)` when the map holds no value for the key.
+pub fn get(state: MapState, key: String) -> Result(Json, Nil) {
   case latest_pending_for(state.pending, key) {
-    None -> dict.get(state.sequenced, key) |> option.from_result
-    Some(PendingLifetime(_, sets)) -> list.last(sets) |> option.from_result
-    Some(PendingDelete(_)) | Some(PendingClear) -> None
+    Error(Nil) -> dict.get(state.sequenced, key)
+    Ok(PendingLifetime(_, sets)) -> list.last(sets)
+    Ok(PendingDelete(_)) | Ok(PendingClear) -> Error(Nil)
   }
 }
 
 pub fn has(state: MapState, key: String) -> Bool {
-  get(state, key) != None
+  result.is_ok(get(state, key))
 }
 
 pub fn size(state: MapState) -> Int {
@@ -142,11 +142,7 @@ pub fn entries(state: MapState) -> List(#(String, Json)) {
       // later at its lifetime's position, not here.
       case has_pending_delete_or_clear(state.pending, key) {
         True -> Error(Nil)
-        False ->
-          case get(state, key) {
-            Some(value) -> Ok(#(key, value))
-            None -> Error(Nil)
-          }
+        False -> get(state, key) |> result.map(fn(value) { #(key, value) })
       }
     })
 
@@ -167,7 +163,7 @@ pub fn entries(state: MapState) -> List(#(String, Json)) {
             False -> Error(Nil)
           }
         }
-        _ -> Error(Nil)
+        PendingDelete(_) | PendingClear -> Error(Nil)
       }
     })
 
@@ -187,13 +183,14 @@ pub fn set(
   // A new lifetime starts if there's no pending entry for the key, or the
   // latest one is a delete/clear (which terminates the prior lifetime).
   let pending = case latest_pending_for(state.pending, key) {
-    Some(PendingLifetime(_, _)) ->
+    Ok(PendingLifetime(_, _)) ->
       append_to_latest_lifetime(state.pending, key, value)
-    _ -> list.append(state.pending, [PendingLifetime(key, [value])])
+    Ok(PendingDelete(_)) | Ok(PendingClear) | Error(Nil) ->
+      list.append(state.pending, [PendingLifetime(key, [value])])
   }
   #(
     MapState(..state, pending: pending),
-    [ValueChanged(key, previous, Some(value), True)],
+    [ValueChanged(key, option.from_result(previous), Some(value), True)],
     Set(key, value),
   )
 }
@@ -207,8 +204,8 @@ pub fn delete(
   // Speculative deletion still sends the op, but only emits if we locally
   // observed a value disappear.
   let events = case previous {
-    Some(value) -> [ValueChanged(key, Some(value), None, True)]
-    None -> []
+    Ok(value) -> [ValueChanged(key, Some(value), None, True)]
+    Error(Nil) -> []
   }
   #(MapState(..state, pending: pending), events, Delete(key))
 }
@@ -332,7 +329,10 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
             }),
             pending: list.append(before, after),
           ))
-        _ -> Error(UnexpectedAck(op, "expected pending delete for key " <> key))
+        Ok(#(_, PendingLifetime(_, _), _))
+        | Ok(#(_, PendingClear, _))
+        | Error(Nil) ->
+          Error(UnexpectedAck(op, "expected pending delete for key " <> key))
       }
     Set(key, _) ->
       case split_at_first_for_key(state.pending, key) {
@@ -357,7 +357,10 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
             pending: pending,
           ))
         }
-        _ ->
+        Ok(#(_, PendingLifetime(_, []), _))
+        | Ok(#(_, PendingDelete(_), _))
+        | Ok(#(_, PendingClear, _))
+        | Error(Nil) ->
           Error(UnexpectedAck(op, "expected pending lifetime for key " <> key))
       }
   }
@@ -373,10 +376,9 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
 fn latest_pending_for(
   pending: List(PendingEntry),
   key: String,
-) -> Option(PendingEntry) {
+) -> Result(PendingEntry, Nil) {
   list.reverse(pending)
   |> list.find(fn(entry) { pending_matches_key(entry, key) })
-  |> option.from_result
 }
 
 fn pending_matches_key(entry: PendingEntry, key: String) -> Bool {
@@ -422,7 +424,8 @@ fn last_delete_or_clear_index(
     case pair.1 {
       PendingClear -> pair.0
       PendingDelete(k) if k == key -> pair.0
-      _ -> acc
+      PendingDelete(_) -> acc
+      PendingLifetime(_, _) -> acc
     }
   })
 }

@@ -63,7 +63,7 @@ fn room(
 }
 
 fn pixels_of(doc: Document(doc_schema.CanvasDoc)) -> OrMap {
-  let assert Some(handle) = watershed.get(watershed.root(doc), "pixels")
+  let assert Ok(handle) = watershed.get(watershed.root(doc), "pixels")
   let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
   pixels
 }
@@ -76,7 +76,7 @@ fn paint(pixels: OrMap, x: Int, y: Int, color: Int) -> Nil {
 /// The palette index at a cell, as the app reads it back.
 fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
   case watershed.or_map_value(pixels, grid.encode(x, y)) {
-    Some(or_map_kernel.Register(value)) -> Some(value)
+    Ok(or_map_kernel.Register(value)) -> Some(value)
     _ -> option.None
   }
 }
@@ -95,7 +95,7 @@ fn picture(pixels: OrMap) -> List(#(String, String)) {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn two_clients_painting_disjoint_regions_converge_test() {
+pub fn two_clients_painting_disjoint_regions_converge_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("pixel-disjoint")
 
   // A paints a short row, B paints a column somewhere else.
@@ -108,7 +108,7 @@ pub fn two_clients_painting_disjoint_regions_converge_test() {
   color_at(a, 40, 21) |> should.equal(Some("9"))
 }
 
-pub fn painting_the_same_cell_settles_on_one_colour_test() {
+pub fn painting_the_same_cell_settles_on_one_colour_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("pixel-same-cell")
 
   // The most likely collision in the app: two people reaching for one pixel.
@@ -122,7 +122,7 @@ pub fn painting_the_same_cell_settles_on_one_colour_test() {
   color_at(a, 32, 32) |> option.is_some |> should.be_true
 }
 
-pub fn erasing_writes_a_colour_rather_than_removing_a_key_test() {
+pub fn erasing_writes_a_colour_rather_than_removing_a_key_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("pixel-erase")
 
   paint(a, 5, 5, 7)
@@ -140,7 +140,7 @@ pub fn erasing_writes_a_colour_rather_than_removing_a_key_test() {
   |> should.be_true
 }
 
-pub fn a_late_joiner_replays_the_picture_test() {
+pub fn a_late_joiner_replays_the_picture_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, _b) = room("pixel-late-join")
 
   list.each([1, 2, 3], fn(x) { paint(a, x, 1, 6) })
@@ -155,7 +155,7 @@ pub fn a_late_joiner_replays_the_picture_test() {
 
 // ── The offline toggle ───────────────────────────────────────────────────────
 
-pub fn regions_painted_while_offline_join_on_reconnect_test() {
+pub fn regions_painted_while_offline_join_on_reconnect_test() -> Nil {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-join")
 
   watershed.go_offline(doc_a)
@@ -179,7 +179,7 @@ pub fn regions_painted_while_offline_join_on_reconnect_test() {
   color_at(a, 1, 63) |> should.equal(Some("9"))
 }
 
-pub fn a_cell_contested_across_an_offline_window_converges_test() {
+pub fn a_cell_contested_across_an_offline_window_converges_test() -> Nil {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-contested")
 
   watershed.go_offline(doc_a)
@@ -199,7 +199,7 @@ pub fn a_cell_contested_across_an_offline_window_converges_test() {
   picture(a) |> should.equal(picture(b))
 }
 
-pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() {
+pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() -> Nil {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-stroke")
 
   paint(a, 0, 2, 4)
@@ -223,7 +223,7 @@ pub fn a_whole_stroke_made_offline_arrives_on_reconnect_test() {
   picture(a) |> should.equal(picture(b))
 }
 
-pub fn repainting_one_cell_offline_converges_test() {
+pub fn repainting_one_cell_offline_converges_test() -> Nil {
   let #(sluice, doc_a, _doc_b, a, b) = room("pixel-offline-repaint")
 
   watershed.go_offline(doc_a)

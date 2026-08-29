@@ -21,7 +21,7 @@ fn weights() -> script_gen.Weights {
   )
 }
 
-pub fn converges_and_preserves_cache_invariant_test() {
+pub fn converges_and_preserves_cache_invariant_test() -> Nil {
   let model = sequence_model.model()
   kernel_fuzz.run(
     model,
@@ -31,7 +31,7 @@ pub fn converges_and_preserves_cache_invariant_test() {
   )
 }
 
-pub fn command_json_round_trips_with_and_without_delta_test() {
+pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
   let model = sequence_model.model()
   let raw_value = "quoted \"value\" with \\ slash and\nnewline"
   let assert Ok(#(_, _, insert_op, _)) =
@@ -79,18 +79,18 @@ pub fn command_json_round_trips_with_and_without_delta_test() {
   ) = replace_op
 
   let commands = [
-    sequence_model.InsertCmd(9, raw_value, None),
-    sequence_model.InsertCmd(
+    sequence_model.InsertCommand(9, raw_value, None),
+    sequence_model.InsertCommand(
       insert_index,
       json.to_string(insert_value),
       Some(insert_delta),
     ),
-    sequence_model.DeleteCmd(8, None),
-    sequence_model.DeleteCmd(delete_index, Some(delete_delta)),
-    sequence_model.MoveCmd(7, 6, None),
-    sequence_model.MoveCmd(move_from, move_to, Some(move_delta)),
-    sequence_model.ReplaceCmd(5, replace_value, None),
-    sequence_model.ReplaceCmd(
+    sequence_model.DeleteCommand(8, None),
+    sequence_model.DeleteCommand(delete_index, Some(delete_delta)),
+    sequence_model.MoveCommand(7, 6, None),
+    sequence_model.MoveCommand(move_from, move_to, Some(move_delta)),
+    sequence_model.ReplaceCommand(5, replace_value, None),
+    sequence_model.ReplaceCommand(
       replace_index,
       json.to_string(replace_json_value),
       Some(replace_delta),
@@ -103,7 +103,7 @@ pub fn command_json_round_trips_with_and_without_delta_test() {
   })
 }
 
-pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test() {
+pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test() -> Nil {
   let model = sequence_model.model()
   let assert Some(apply_stashed) = model.capabilities.apply_stashed
   let assert Ok(#(_, _, persisted_op, _)) =
@@ -114,7 +114,7 @@ pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test
     )
   let assert sequence_kernel.Insert(index, value, delta) = persisted_op
   let persisted =
-    sequence_model.InsertCmd(index, json.to_string(value), Some(delta))
+    sequence_model.InsertCommand(index, json.to_string(value), Some(delta))
   let #(state, routed) =
     apply_stashed(
       sequence_kernel.new(replica_id.new("stashed-client")),
@@ -125,14 +125,14 @@ pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test
   state.pending |> expect.to_equal([sequence_kernel.PendingOp(persisted_op, 0)])
   let assert Ok(_) = sequence_kernel.ack_local(state, persisted_op)
 
-  let generated = sequence_model.InsertCmd(9, "generated \"value\"", None)
+  let generated = sequence_model.InsertCommand(9, "generated \"value\"", None)
   let #(state, routed) =
     apply_stashed(
       sequence_kernel.new(replica_id.new("generated-client")),
       generated,
       kernel_fuzz.SubmitMeta(1, 0),
     )
-  let assert sequence_model.InsertCmd(0, encoded, Some(delta)) = routed
+  let assert sequence_model.InsertCommand(0, encoded, Some(delta)) = routed
   encoded |> expect.to_equal(json.to_string(json.string("generated \"value\"")))
   let routed_op =
     sequence_kernel.Insert(0, json.string("generated \"value\""), delta)
@@ -141,7 +141,7 @@ pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test
   Nil
 }
 
-pub fn model_summary_load_rebrands_and_can_ack_test() {
+pub fn model_summary_load_rebrands_and_can_ack_test() -> Nil {
   let model = sequence_model.model()
   let assert Some(load_from_synced) = model.capabilities.load_from_synced
   let assert Ok(#(source, _, confirmed_op, _)) =
@@ -168,11 +168,11 @@ pub fn model_summary_load_rebrands_and_can_ack_test() {
   |> expect.to_equal([json.string("confirmed"), json.string("new")])
 }
 
-pub fn shared_replica_id_is_caught_test() {
+pub fn shared_replica_id_is_caught_test() -> Nil {
   let model = sequence_model.model()
   let script = [
-    ClientOp(1, sequence_model.InsertCmd(0, "a", None)),
-    ClientOp(2, sequence_model.InsertCmd(0, "b", None)),
+    ClientOp(1, sequence_model.InsertCommand(0, "a", None)),
+    ClientOp(2, sequence_model.InsertCommand(0, "b", None)),
     Synchronize,
   ]
   // The production model intentionally has no index-based list oracle. This

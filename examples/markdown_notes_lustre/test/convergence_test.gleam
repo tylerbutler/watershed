@@ -21,7 +21,7 @@ import gleam/string
 import gleeunit/should
 
 @target(javascript)
-import doc_schema
+import markdown_notes_lustre/doc_schema
 @target(javascript)
 import markdown_notes_lustre/p2p_fake
 @target(javascript)
@@ -29,14 +29,16 @@ import markdown_notes_lustre/sidebar
 @target(javascript)
 import markdown_notes_lustre/toolbar
 @target(javascript)
-import watershed/crdt_js.{type CrdtConnection, type CrdtDocument, type Handle}
+import watershed/crdt_js.{
+  type Config, type CrdtConnection, type CrdtDocument, type Handle,
+}
 @target(javascript)
 import watershed/or_map_kernel
 @target(javascript)
 import watershed/persist_js
 @target(javascript)
 import watershed/schema.{
-  type OrMapChannel, type OrSetChannel, type SequenceChannel,
+  type OrMapChannel, type OrSetChannel, type SequenceChannel, type TextChannel,
 }
 @target(javascript)
 import watershed/transport_js.{type Cell}
@@ -91,7 +93,11 @@ fn spawn(world: p2p_fake.World, room: String, label: String) -> Member {
   Member(document:, connection:, replica: crdt_js.replica_id(document))
 }
 
-fn config(world: p2p_fake.World, room: String, label: String) {
+fn config(
+  world: p2p_fake.World,
+  room: String,
+  label: String,
+) -> Config(OrMapChannel) {
   crdt_js.config(
     room_id: room,
     replica_label: label,
@@ -104,7 +110,7 @@ fn config(world: p2p_fake.World, room: String, label: String) {
 fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
   let root = crdt_js.root(document)
   let tags = case crdt_js.or_map_value(root, key: doc_schema.tags_key()) {
-    Ok(Some(or_map_kernel.Register(address))) -> {
+    Ok(Ok(or_map_kernel.Register(address))) -> {
       let assert Ok(tags) =
         crdt_js.resolve_channel(
           document,
@@ -126,7 +132,7 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
     }
   }
   let order = case crdt_js.or_map_value(root, key: doc_schema.order_key()) {
-    Ok(Some(or_map_kernel.Register(address))) -> {
+    Ok(Ok(or_map_kernel.Register(address))) -> {
       let assert Ok(order) =
         crdt_js.resolve_channel(
           document,
@@ -152,7 +158,7 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
 
 fn channels_of(document: CrdtDocument(OrMapChannel)) -> Channels {
   let root = crdt_js.root(document)
-  let assert Ok(Some(or_map_kernel.Register(tags_address))) =
+  let assert Ok(Ok(or_map_kernel.Register(tags_address))) =
     crdt_js.or_map_value(root, key: doc_schema.tags_key())
   let assert Ok(tags) =
     crdt_js.resolve_channel(
@@ -160,7 +166,7 @@ fn channels_of(document: CrdtDocument(OrMapChannel)) -> Channels {
       doc_schema.tags_kind(),
       address: tags_address,
     )
-  let assert Ok(Some(or_map_kernel.Register(order_address))) =
+  let assert Ok(Ok(or_map_kernel.Register(order_address))) =
     crdt_js.or_map_value(root, key: doc_schema.order_key())
   let assert Ok(order) =
     crdt_js.resolve_channel(
@@ -175,7 +181,7 @@ fn create_note(
   document: CrdtDocument(OrMapChannel),
   channels: Channels,
   name: String,
-) {
+) -> Handle(TextChannel) {
   let assert Ok(text) = crdt_js.create_channel(document, doc_schema.text_kind())
   let assert Ok(Nil) = crdt_js.text_append(text, "# " <> name <> "\n")
   let assert Ok(Nil) =
@@ -194,15 +200,15 @@ fn open_note(
   document: CrdtDocument(OrMapChannel),
   channels: Channels,
   name: String,
-) {
-  let assert Ok(Some(or_map_kernel.Register(address))) =
+) -> Handle(TextChannel) {
+  let assert Ok(Ok(or_map_kernel.Register(address))) =
     crdt_js.or_map_value(channels.root, key: name)
   let assert Ok(text) =
     crdt_js.resolve_channel(document, doc_schema.text_kind(), address: address)
   text
 }
 
-fn text_value(text) -> String {
+fn text_value(text: Handle(TextChannel)) -> String {
   let assert Ok(value) = crdt_js.text_value(text)
   value
 }
@@ -263,13 +269,13 @@ fn memory_storage(memory: Memory) -> persist_js.Storage {
           case transport_js.get_cell(decision) {
             NoDecision ->
               transport_js.set_cell(decision, WriteSnapshot(snapshot))
-            _ -> Nil
+            WriteSnapshot(_) | AbortUpdate -> Nil
           }
         },
         fn() {
           case transport_js.get_cell(decision) {
             NoDecision -> transport_js.set_cell(decision, AbortUpdate)
-            _ -> Nil
+            WriteSnapshot(_) | AbortUpdate -> Nil
           }
         },
       )
@@ -288,7 +294,7 @@ fn memory_storage(memory: Memory) -> persist_js.Storage {
 // ── Address round trip ───────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn created_note_opens_identically_on_the_other_client_test() {
+pub fn created_note_opens_identically_on_the_other_client_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn2-round-trip")
 
   let text_a = create_note(alpha.document, channels_a, "meeting notes")
@@ -303,7 +309,7 @@ pub fn created_note_opens_identically_on_the_other_client_test() {
 // ── MN3: concurrent typing in one note ───────────────────────────────────────
 
 @target(javascript)
-pub fn concurrent_typing_in_one_note_converges_test() {
+pub fn concurrent_typing_in_one_note_converges_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn3-typing")
 
   let text_a = create_note(alpha.document, channels_a, "draft")
@@ -321,7 +327,7 @@ pub fn concurrent_typing_in_one_note_converges_test() {
 // ── MN4: race 1, toolbar vs. typing inside a word ───────────────────────────
 
 @target(javascript)
-pub fn race_one_bold_vs_concurrent_typing_inside_word_test() {
+pub fn race_one_bold_vs_concurrent_typing_inside_word_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn4-race-one")
 
   let text_a = create_note(alpha.document, channels_a, "fmt")
@@ -345,7 +351,7 @@ pub fn race_one_bold_vs_concurrent_typing_inside_word_test() {
 // ── MN5: race 2, partitioned edits reconverge ───────────────────────────────
 
 @target(javascript)
-pub fn race_two_divergent_offline_edits_reconverge_test() {
+pub fn race_two_divergent_offline_edits_reconverge_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn5-offline")
 
   let text_a = create_note(alpha.document, channels_a, "field notes")
@@ -383,7 +389,7 @@ pub fn race_two_divergent_offline_edits_reconverge_test() {
 // ── MN5: race 4, delete while editing ───────────────────────────────────────
 
 @target(javascript)
-pub fn race_four_delete_while_editing_keeps_the_channel_working_test() {
+pub fn race_four_delete_while_editing_keeps_the_channel_working_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn5-delete")
 
   let text_a = create_note(alpha.document, channels_a, "doomed")
@@ -402,7 +408,7 @@ pub fn race_four_delete_while_editing_keeps_the_channel_working_test() {
 }
 
 @target(javascript)
-pub fn race_four_concurrent_reset_beats_remove_test() {
+pub fn race_four_concurrent_reset_beats_remove_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn5-reset")
 
   let text_a = create_note(alpha.document, channels_a, "contested")
@@ -427,7 +433,7 @@ pub fn race_four_concurrent_reset_beats_remove_test() {
 // ── MN7: race 5, re-tag vs. untag ───────────────────────────────────────────
 
 @target(javascript)
-pub fn race_five_readd_beats_concurrent_untag_test() {
+pub fn race_five_readd_beats_concurrent_untag_test() -> Nil {
   let #(world, alpha, _beta, channels_a, channels_b) = room("mn7-retag")
 
   let _ = create_note(alpha.document, channels_a, "todo")
@@ -449,7 +455,7 @@ pub fn race_five_readd_beats_concurrent_untag_test() {
 // ── MN8: race 6, create vs. reorder ──────────────────────────────────────────
 
 @target(javascript)
-pub fn race_six_create_vs_reorder_converges_test() {
+pub fn race_six_create_vs_reorder_converges_test() -> Nil {
   let #(world, alpha, _beta, channels_a, channels_b) = room("mn8-reorder")
 
   let _ = create_note(alpha.document, channels_a, "one")
@@ -465,7 +471,7 @@ pub fn race_six_create_vs_reorder_converges_test() {
 }
 
 @target(javascript)
-pub fn race_six_doubled_create_renders_once_test() {
+pub fn race_six_doubled_create_renders_once_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn8-doubled")
 
   let _ = create_note(alpha.document, channels_a, "dup")
@@ -480,7 +486,7 @@ pub fn race_six_doubled_create_renders_once_test() {
 // ── Race 3: concurrent create, same name ─────────────────────────────────────
 
 @target(javascript)
-pub fn concurrent_create_same_name_converges_on_one_handle_test() {
+pub fn concurrent_create_same_name_converges_on_one_handle_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn2-create-race")
 
   let _ = create_note(alpha.document, channels_a, "shared")
@@ -489,9 +495,9 @@ pub fn concurrent_create_same_name_converges_on_one_handle_test() {
 
   note_names(channels_a) |> should.equal(["shared"])
   note_names(channels_b) |> should.equal(["shared"])
-  let assert Ok(Some(or_map_kernel.Register(address_a))) =
+  let assert Ok(Ok(or_map_kernel.Register(address_a))) =
     crdt_js.or_map_value(channels_a.root, key: "shared")
-  let assert Ok(Some(or_map_kernel.Register(address_b))) =
+  let assert Ok(Ok(or_map_kernel.Register(address_b))) =
     crdt_js.or_map_value(channels_b.root, key: "shared")
   address_a |> should.equal(address_b)
 
@@ -504,7 +510,7 @@ pub fn concurrent_create_same_name_converges_on_one_handle_test() {
 // ── Persistence: save, drop, load, edit, attach ─────────────────────────────
 
 @target(javascript)
-pub fn save_drop_load_edit_and_attach_converges_test() {
+pub fn save_drop_load_edit_and_attach_converges_test() -> Nil {
   let #(world, alpha, beta, channels_a, channels_b) = room("mn-persistence")
 
   let _text_a = create_note(alpha.document, channels_a, "archive")

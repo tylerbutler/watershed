@@ -1,6 +1,6 @@
 //// Deterministic random JSON document and json0 op generation, shared by the
 //// TP1 property test and the multi-client convergence test. A faithful port of
-//// ottypes/json0's `test/json0-generator.coffee`: `gen_op` emits *valid*
+//// ottypes/json0's `test/json0-generator.coffee`: `generate_op` emits *valid*
 //// random ops for a snapshot (skipping legacy `si`/`sd` string ops, which the
 //// text0 subtype covers instead), threading the working document through
 //// `json_ot.apply` so later components see earlier mutations.
@@ -10,47 +10,47 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import watershed/json_ot.{
-  type Component, type JsonValue, type PathKey, Index, Key, NInt, VArray, VNull,
-  VNumber, VObject, VString,
+  type Component, type JsonValue, type PathKey, Index, Key, NInt, VArray, VBool,
+  VNull, VNumber, VObject, VString,
 }
 
-const rng_modulus = 2_147_483_647
+const random_modulus = 2_147_483_647
 
-pub type Rng {
-  Rng(Int)
+pub type Random {
+  Random(Int)
 }
 
-pub fn new_rng(seed: Int) -> Rng {
+pub fn new_random(seed: Int) -> Random {
   // Fold the (possibly negative) qcheck seed into 1..modulus-1.
-  let s = seed % { rng_modulus - 1 }
+  let s = seed % { random_modulus - 1 }
   let s = case s < 0 {
-    True -> s + { rng_modulus - 1 }
+    True -> s + { random_modulus - 1 }
     False -> s
   }
-  Rng(s + 1)
+  Random(s + 1)
 }
 
-fn step(rng: Rng) -> #(Int, Rng) {
-  let Rng(s) = rng
-  let s2 = { s * 48_271 } % rng_modulus
-  #(s2, Rng(s2))
+fn step(random: Random) -> #(Int, Random) {
+  let Random(s) = random
+  let s2 = { s * 48_271 } % random_modulus
+  #(s2, Random(s2))
 }
 
 /// Uniform int in `[0, n)`. Returns 0 for non-positive `n`.
-pub fn rand_int(rng: Rng, n: Int) -> #(Int, Rng) {
+pub fn random_int(random: Random, n: Int) -> #(Int, Random) {
   case n <= 0 {
-    True -> #(0, rng)
+    True -> #(0, random)
     False -> {
-      let #(v, rng) = step(rng)
-      #(v % n, rng)
+      let #(v, random) = step(random)
+      #(v % n, random)
     }
   }
 }
 
 /// Uniform real in `[0.0, 1.0)`.
-pub fn rand_real(rng: Rng) -> #(Float, Rng) {
-  let #(v, rng) = step(rng)
-  #(int.to_float(v) /. int.to_float(rng_modulus), rng)
+pub fn random_real(random: Random) -> #(Float, Random) {
+  let #(v, random) = step(random)
+  #(int.to_float(v) /. int.to_float(random_modulus), random)
 }
 
 fn fold_times(n: Int, init: acc, f: fn(acc) -> acc) -> acc {
@@ -66,94 +66,94 @@ fn fold_times(n: Int, init: acc, f: fn(acc) -> acc) -> acc {
 
 const words = ["a", "b", "c", "d", "e", "f", "g", "h"]
 
-fn random_word(rng: Rng) -> #(String, Rng) {
-  let #(i, rng) = rand_int(rng, list.length(words))
+fn random_word(random: Random) -> #(String, Random) {
+  let #(i, random) = random_int(random, list.length(words))
   let word = case list.drop(words, i) {
     [w, ..] -> w
     [] -> "a"
   }
-  #(word, rng)
+  #(word, random)
 }
 
 /// Build a canonical (key-sorted, de-duplicated) object value.
-fn mk_obj(pairs: List(#(String, JsonValue))) -> JsonValue {
+fn make_object(pairs: List(#(String, JsonValue))) -> JsonValue {
   let sorted =
     pairs
     |> list.fold([], fn(acc, kv) {
-      let #(k, v) = kv
+      let #(key, v) = kv
       // last write wins on duplicate keys
-      let without = list.filter(acc, fn(e: #(String, JsonValue)) { e.0 != k })
-      [#(k, v), ..without]
+      let without = list.filter(acc, fn(e: #(String, JsonValue)) { e.0 != key })
+      [#(key, v), ..without]
     })
     |> list.sort(fn(x, y) { string.compare(x.0, y.0) })
   VObject(sorted)
 }
 
-fn random_thing(rng: Rng, depth: Int) -> #(JsonValue, Rng) {
+fn random_thing(random: Random, depth: Int) -> #(JsonValue, Random) {
   let bound = case depth <= 0 {
     True -> 4
     False -> 6
   }
-  let #(k, rng) = rand_int(rng, bound)
-  case k {
-    0 -> #(VNull, rng)
-    1 -> #(VString(""), rng)
+  let #(choice, random) = random_int(random, bound)
+  case choice {
+    0 -> #(VNull, random)
+    1 -> #(VString(""), random)
     2 -> {
-      let #(w, rng) = random_word(rng)
-      #(VString(w), rng)
+      let #(w, random) = random_word(random)
+      #(VString(w), random)
     }
     3 -> {
-      let #(n, rng) = rand_int(rng, 50)
-      #(VNumber(NInt(n)), rng)
+      let #(n, random) = random_int(random, 50)
+      #(VNumber(NInt(n)), random)
     }
     4 -> {
-      let #(count, rng) = rand_int(rng, 4)
-      let #(pairs, rng) =
-        fold_times(count + 1, #([], rng), fn(acc) {
-          let #(ps, rng) = acc
-          let #(key, rng) = random_word(rng)
-          let #(v, rng) = random_thing(rng, depth - 1)
-          #([#(key, v), ..ps], rng)
+      let #(count, random) = random_int(random, 4)
+      let #(pairs, random) =
+        fold_times(count + 1, #([], random), fn(acc) {
+          let #(ps, random) = acc
+          let #(key, random) = random_word(random)
+          let #(v, random) = random_thing(random, depth - 1)
+          #([#(key, v), ..ps], random)
         })
-      #(mk_obj(pairs), rng)
+      #(make_object(pairs), random)
     }
     _ -> {
-      let #(count, rng) = rand_int(rng, 4)
-      let #(items, rng) =
-        fold_times(count + 1, #([], rng), fn(acc) {
-          let #(xs, rng) = acc
-          let #(v, rng) = random_thing(rng, depth - 1)
-          #([v, ..xs], rng)
+      let #(count, random) = random_int(random, 4)
+      let #(items, random) =
+        fold_times(count + 1, #([], random), fn(acc) {
+          let #(xs, random) = acc
+          let #(v, random) = random_thing(random, depth - 1)
+          #([v, ..xs], random)
         })
-      #(VArray(list.reverse(items)), rng)
+      #(VArray(list.reverse(items)), random)
     }
   }
 }
 
 /// A random top-level document. Always a container so ops have somewhere to go.
-pub fn random_doc(rng: Rng) -> #(JsonValue, Rng) {
-  let #(coin, rng) = rand_real(rng)
+pub fn random_doc(random: Random) -> #(JsonValue, Random) {
+  let #(coin, random) = random_real(random)
   case coin <. 0.5 {
     True -> {
-      let #(count, rng) = rand_int(rng, 4)
-      let #(pairs, rng) =
-        fold_times(count + 2, #([], rng), fn(acc) {
-          let #(ps, rng) = acc
-          let #(key, rng) = random_word(rng)
-          let #(v, rng) = random_thing(rng, 2)
-          #([#(key, v), ..ps], rng)
+      let #(count, random) = random_int(random, 4)
+      let #(pairs, random) =
+        fold_times(count + 2, #([], random), fn(acc) {
+          let #(ps, random) = acc
+          let #(key, random) = random_word(random)
+          let #(v, random) = random_thing(random, 2)
+          #([#(key, v), ..ps], random)
         })
-      #(mk_obj(pairs), rng)
+      #(make_object(pairs), random)
     }
     False -> {
-      let #(count, rng) = rand_int(rng, 4)
-      let #(items, rng) =
-        fold_times(count + 2, #([], rng), fn(acc) {
-          let #(xs, rng) = acc
-          let #(v, rng) = random_thing(rng, 2)
-          #([v, ..xs], rng)
+      let #(count, random) = random_int(random, 4)
+      let #(items, random) =
+        fold_times(count + 2, #([], random), fn(acc) {
+          let #(xs, random) = acc
+          let #(v, random) = random_thing(random, 2)
+          #([v, ..xs], random)
         })
-      #(VArray(list.reverse(items)), rng)
+      #(VArray(list.reverse(items)), random)
     }
   }
 }
@@ -167,8 +167,8 @@ fn value_at(doc: JsonValue, path: List(PathKey)) -> Option(JsonValue) {
     [] -> Some(doc)
     [step, ..rest] ->
       case doc, step {
-        VObject(members), Key(k) ->
-          case list.key_find(members, k) {
+        VObject(members), Key(key) ->
+          case list.key_find(members, key) {
             Ok(v) -> value_at(v, rest)
             Error(_) -> None
           }
@@ -177,43 +177,52 @@ fn value_at(doc: JsonValue, path: List(PathKey)) -> Option(JsonValue) {
             [v, ..] if i >= 0 -> value_at(v, rest)
             _ -> None
           }
-        _, _ -> None
+        VNull, _
+        | VBool(_), _
+        | VNumber(_), _
+        | VString(_), _
+        | VArray(_), Key(_)
+        | VObject(_), Index(_)
+        -> None
       }
   }
 }
 
 /// Descend a random path into `doc`, mirroring json0's `randomPath`.
-fn random_path(doc: JsonValue, rng: Rng) -> #(List(PathKey), Rng) {
-  random_path_loop(doc, rng, [])
+fn random_path(doc: JsonValue, random: Random) -> #(List(PathKey), Random) {
+  random_path_loop(doc, random, [])
 }
 
 fn random_path_loop(
   data: JsonValue,
-  rng: Rng,
+  random: Random,
   acc: List(PathKey),
-) -> #(List(PathKey), Rng) {
-  let #(coin, rng) = rand_real(rng)
+) -> #(List(PathKey), Random) {
+  let #(coin, random) = random_real(random)
   case coin >. 0.85 {
-    False -> #(list.reverse(acc), rng)
+    False -> #(list.reverse(acc), random)
     True ->
       case data {
-        VObject([]) -> #(list.reverse(acc), rng)
+        VObject([]) -> #(list.reverse(acc), random)
         VObject(members) -> {
-          let #(idx, rng) = rand_int(rng, list.length(members))
-          case list.drop(members, idx) {
-            [#(k, v), ..] -> random_path_loop(v, rng, [Key(k), ..acc])
-            [] -> #(list.reverse(acc), rng)
+          let #(index, random) = random_int(random, list.length(members))
+          case list.drop(members, index) {
+            [#(key, v), ..] -> random_path_loop(v, random, [Key(key), ..acc])
+            [] -> #(list.reverse(acc), random)
           }
         }
-        VArray([]) -> #(list.reverse(acc), rng)
+        VArray([]) -> #(list.reverse(acc), random)
         VArray(items) -> {
-          let #(idx, rng) = rand_int(rng, list.length(items))
-          case list.drop(items, idx) {
-            [v, ..] -> random_path_loop(v, rng, [Index(idx), ..acc])
-            [] -> #(list.reverse(acc), rng)
+          let #(index, random) = random_int(random, list.length(items))
+          case list.drop(items, index) {
+            [v, ..] -> random_path_loop(v, random, [Index(index), ..acc])
+            [] -> #(list.reverse(acc), random)
           }
         }
-        _ -> #(list.reverse(acc), rng)
+        VNull | VBool(_) | VNumber(_) | VString(_) -> #(
+          list.reverse(acc),
+          random,
+        )
       }
   }
 }
@@ -231,137 +240,154 @@ fn parent_is_list(path: List(PathKey)) -> Option(Bool) {
 fn existing_keys(v: JsonValue) -> List(String) {
   case v {
     VObject(members) -> list.map(members, fn(m) { m.0 })
-    _ -> []
+    VNull | VBool(_) | VNumber(_) | VString(_) | VArray(_) -> []
   }
 }
 
-fn random_new_key(v: JsonValue, rng: Rng) -> #(String, Rng) {
+fn random_new_key(v: JsonValue, random: Random) -> #(String, Random) {
   let taken = existing_keys(v)
-  random_new_key_loop(taken, rng, 0)
+  random_new_key_loop(taken, random, 0)
 }
 
 fn random_new_key_loop(
   taken: List(String),
-  rng: Rng,
+  random: Random,
   tries: Int,
-) -> #(String, Rng) {
-  let #(w, rng) = random_word(rng)
+) -> #(String, Random) {
+  let #(w, random) = random_word(random)
   case list.contains(taken, w), tries < 8 {
-    True, True -> random_new_key_loop(taken, rng, tries + 1)
-    True, False -> #(w <> int.to_string(tries), rng)
-    False, _ -> #(w, rng)
+    True, True -> random_new_key_loop(taken, random, tries + 1)
+    True, False -> #(w <> int.to_string(tries), random)
+    False, _ -> #(w, random)
   }
 }
 
 /// Generate a single valid component for `doc`, or `None` if the chosen spot
 /// affords no op we model. String/bool/null leaves are handled via replace.
-fn gen_component(doc: JsonValue, rng: Rng) -> #(Option(Component), Rng) {
-  let #(path, rng) = random_path(doc, rng)
+fn generate_component(
+  doc: JsonValue,
+  random: Random,
+) -> #(Option(Component), Random) {
+  let #(path, random) = random_path(doc, random)
   case value_at(doc, path) {
-    None -> #(None, rng)
+    None -> #(None, random)
     Some(operand) -> {
       let is_list = parent_is_list(path)
-      gen_component_for(doc, path, operand, is_list, rng)
+      generate_component_for(doc, path, operand, is_list, random)
     }
   }
 }
 
-fn gen_component_for(
+fn generate_component_for(
   doc: JsonValue,
   path: List(PathKey),
   operand: JsonValue,
   parent: Option(Bool),
-  rng: Rng,
-) -> #(Option(Component), Rng) {
+  random: Random,
+) -> #(Option(Component), Random) {
   let is_root = parent == None
-  let #(r1, rng) = rand_real(rng)
+  let #(r1, random) = random_real(random)
   // List move: only when parent is a list.
   case parent == Some(True) && r1 <. 0.4 {
     True -> {
       // newIndex ranges over the parent list's length.
-      let parent_len = case value_at(doc, drop_last(path)) {
+      let parent_length = case value_at(doc, drop_last(path)) {
         Some(VArray(items)) -> list.length(items)
-        _ -> 1
+        Some(VNull)
+        | Some(VBool(_))
+        | Some(VNumber(_))
+        | Some(VString(_))
+        | Some(VObject(_))
+        | None -> 1
       }
-      let #(new_index, rng) = rand_int(rng, int_max(1, parent_len))
-      #(Some(json_ot.list_move(path, new_index)), rng)
+      let #(new_index, random) = random_int(random, int_max(1, parent_length))
+      #(Some(json_ot.list_move(path, new_index)), random)
     }
     False -> {
-      let #(r2, rng) = rand_real(rng)
+      let #(r2, random) = random_real(random)
       let want_replace = { r2 <. 0.3 || operand == VNull } && !is_root
       case want_replace {
         True -> {
-          let #(newv, rng) = random_thing(rng, 1)
+          let #(new_value, random) = random_thing(random, 1)
           case parent {
             Some(True) -> #(
-              Some(json_ot.list_replace(path, operand, newv)),
-              rng,
+              Some(json_ot.list_replace(path, operand, new_value)),
+              random,
             )
-            _ -> #(Some(json_ot.obj_replace(path, operand, newv)), rng)
+            Some(False) | None -> #(
+              Some(json_ot.obj_replace(path, operand, new_value)),
+              random,
+            )
           }
         }
-        False -> gen_structural(path, operand, is_root, parent, rng)
+        False -> generate_structural(path, operand, is_root, parent, random)
       }
     }
   }
 }
 
-fn gen_structural(
+fn generate_structural(
   path: List(PathKey),
   operand: JsonValue,
   is_root: Bool,
   parent: Option(Bool),
-  rng: Rng,
-) -> #(Option(Component), Rng) {
+  random: Random,
+) -> #(Option(Component), Random) {
   case operand {
     VNumber(_) -> {
-      let #(inc, rng) = rand_int(rng, 10)
-      let delta = inc - 3
+      let #(increment, random) = random_int(random, 10)
+      let delta = increment - 3
       case delta == 0 {
-        True -> #(None, rng)
-        False -> #(Some(json_ot.number_add(path, NInt(delta))), rng)
+        True -> #(None, random)
+        False -> #(Some(json_ot.number_add(path, NInt(delta))), random)
       }
     }
     VArray(items) -> {
-      let len = list.length(items)
-      let #(coin, rng) = rand_real(rng)
-      case coin >. 0.5 || len == 0 {
+      let length = list.length(items)
+      let #(coin, random) = random_real(random)
+      case coin >. 0.5 || length == 0 {
         True -> {
-          let #(pos, rng) = rand_int(rng, len + 1)
-          let #(newv, rng) = random_thing(rng, 1)
+          let #(position, random) = random_int(random, length + 1)
+          let #(new_value, random) = random_thing(random, 1)
           #(
-            Some(json_ot.list_insert(list.append(path, [Index(pos)]), newv)),
-            rng,
+            Some(json_ot.list_insert(
+              list.append(path, [Index(position)]),
+              new_value,
+            )),
+            random,
           )
         }
         False -> {
-          let #(pos, rng) = rand_int(rng, len)
-          case list.drop(items, pos) {
+          let #(position, random) = random_int(random, length)
+          case list.drop(items, position) {
             [v, ..] -> #(
-              Some(json_ot.list_delete(list.append(path, [Index(pos)]), v)),
-              rng,
+              Some(json_ot.list_delete(list.append(path, [Index(position)]), v)),
+              random,
             )
-            [] -> #(None, rng)
+            [] -> #(None, random)
           }
         }
       }
     }
     VObject(members) -> {
-      let #(coin, rng) = rand_real(rng)
+      let #(coin, random) = random_real(random)
       case coin >. 0.5 || list.is_empty(members) {
         True -> {
-          let #(k, rng) = random_new_key(operand, rng)
-          let #(newv, rng) = random_thing(rng, 1)
-          #(Some(json_ot.obj_insert(list.append(path, [Key(k)]), newv)), rng)
+          let #(key, random) = random_new_key(operand, random)
+          let #(new_value, random) = random_thing(random, 1)
+          #(
+            Some(json_ot.obj_insert(list.append(path, [Key(key)]), new_value)),
+            random,
+          )
         }
         False -> {
-          let #(idx, rng) = rand_int(rng, list.length(members))
-          case list.drop(members, idx) {
-            [#(k, v), ..] -> #(
-              Some(json_ot.obj_delete(list.append(path, [Key(k)]), v)),
-              rng,
+          let #(index, random) = random_int(random, list.length(members))
+          case list.drop(members, index) {
+            [#(key, v), ..] -> #(
+              Some(json_ot.obj_delete(list.append(path, [Key(key)]), v)),
+              random,
             )
-            [] -> #(None, rng)
+            [] -> #(None, random)
           }
         }
       }
@@ -370,74 +396,87 @@ fn gen_structural(
     // replace. Both need a parent to attach to.
     VString(s) ->
       case is_root {
-        True -> #(None, rng)
+        True -> #(None, random)
         False -> {
-          let #(coin, rng) = rand_real(rng)
+          let #(coin, random) = random_real(random)
           case coin <. 0.6 {
-            True -> gen_text0_component(path, s, rng)
-            False -> gen_leaf_replace(path, operand, parent, rng)
+            True -> generate_text0_component(path, s, random)
+            False -> generate_leaf_replace(path, operand, parent, random)
           }
         }
       }
     // Bool / Null leaves: replace at parent if we can, else skip.
-    _ ->
+    VNull | VBool(_) ->
       case is_root {
-        True -> #(None, rng)
-        False -> gen_leaf_replace(path, operand, parent, rng)
+        True -> #(None, random)
+        False -> generate_leaf_replace(path, operand, parent, random)
       }
   }
 }
 
 /// Replace a leaf value with a fresh random value, at either a list or object
 /// slot depending on the parent.
-fn gen_leaf_replace(
+fn generate_leaf_replace(
   path: List(PathKey),
   operand: JsonValue,
   parent: Option(Bool),
-  rng: Rng,
-) -> #(Option(Component), Rng) {
-  let #(newv, rng) = random_thing(rng, 1)
+  random: Random,
+) -> #(Option(Component), Random) {
+  let #(new_value, random) = random_thing(random, 1)
   case parent {
-    Some(True) -> #(Some(json_ot.list_replace(path, operand, newv)), rng)
-    _ -> #(Some(json_ot.obj_replace(path, operand, newv)), rng)
+    Some(True) -> #(
+      Some(json_ot.list_replace(path, operand, new_value)),
+      random,
+    )
+    Some(False) | None -> #(
+      Some(json_ot.obj_replace(path, operand, new_value)),
+      random,
+    )
   }
 }
 
 /// A random valid text0 subtype op over the string `s`: an insert of a word at
 /// a random position, or a delete of a real substring. Deletes reference the
 /// actual text so they always apply.
-fn gen_text0_component(
+fn generate_text0_component(
   path: List(PathKey),
   s: String,
-  rng: Rng,
-) -> #(Option(Component), Rng) {
-  let len = string.length(s)
-  let #(coin, rng) = rand_real(rng)
-  case coin <. 0.5 || len == 0 {
+  random: Random,
+) -> #(Option(Component), Random) {
+  let length = string.length(s)
+  let #(coin, random) = random_real(random)
+  case coin <. 0.5 || length == 0 {
     True -> {
-      let #(pos, rng) = rand_int(rng, len + 1)
-      let #(w, rng) = random_word(rng)
-      #(Some(json_ot.subtype_component(path, "text0", text0_ins(pos, w))), rng)
+      let #(position, random) = random_int(random, length + 1)
+      let #(w, random) = random_word(random)
+      #(
+        Some(json_ot.subtype_component(path, "text0", text0_ins(position, w))),
+        random,
+      )
     }
     False -> {
-      let #(pos, rng) = rand_int(rng, len)
-      let #(count, rng) = rand_int(rng, len - pos)
-      let dlen = count + 1
-      let removed = string.slice(s, pos, dlen)
+      let #(position, random) = random_int(random, length)
+      let #(count, random) = random_int(random, length - position)
+      let delete_length = count + 1
+      let removed = string.slice(s, position, delete_length)
       #(
-        Some(json_ot.subtype_component(path, "text0", text0_del(pos, removed))),
-        rng,
+        Some(json_ot.subtype_component(
+          path,
+          "text0",
+          text0_del(position, removed),
+        )),
+        random,
       )
     }
   }
 }
 
-fn text0_ins(pos: Int, s: String) -> JsonValue {
-  VArray([VObject([#("i", VString(s)), #("p", VNumber(NInt(pos)))])])
+fn text0_ins(position: Int, s: String) -> JsonValue {
+  VArray([VObject([#("i", VString(s)), #("p", VNumber(NInt(position)))])])
 }
 
-fn text0_del(pos: Int, s: String) -> JsonValue {
-  VArray([VObject([#("d", VString(s)), #("p", VNumber(NInt(pos)))])])
+fn text0_del(position: Int, s: String) -> JsonValue {
+  VArray([VObject([#("d", VString(s)), #("p", VNumber(NInt(position)))])])
 }
 
 fn drop_last(path: List(PathKey)) -> List(PathKey) {
@@ -456,27 +495,27 @@ fn int_max(a: Int, b: Int) -> Int {
 
 /// Generate a compound op valid for `doc`, threading the working document
 /// through `apply` so later components see earlier mutations.
-pub fn gen_op(doc: JsonValue, rng: Rng) -> #(json_ot.Op, Rng) {
-  gen_op_loop(doc, rng, 0.95, [])
+pub fn generate_op(doc: JsonValue, random: Random) -> #(json_ot.Op, Random) {
+  generate_op_loop(doc, random, 0.95, [])
 }
 
-fn gen_op_loop(
+fn generate_op_loop(
   work: JsonValue,
-  rng: Rng,
+  random: Random,
   pct: Float,
   acc: List(Component),
-) -> #(json_ot.Op, Rng) {
-  let #(coin, rng) = rand_real(rng)
+) -> #(json_ot.Op, Random) {
+  let #(coin, random) = random_real(random)
   case coin <. pct {
-    False -> #(list.reverse(acc), rng)
+    False -> #(list.reverse(acc), random)
     True -> {
-      let #(maybe, rng) = gen_component(work, rng)
+      let #(maybe, random) = generate_component(work, random)
       case maybe {
-        None -> #(list.reverse(acc), rng)
+        None -> #(list.reverse(acc), random)
         Some(c) ->
           case json_ot.apply(work, [c]) {
-            Ok(work2) -> gen_op_loop(work2, rng, pct *. 0.6, [c, ..acc])
-            Error(_) -> #(list.reverse(acc), rng)
+            Ok(work2) -> generate_op_loop(work2, random, pct *. 0.6, [c, ..acc])
+            Error(_) -> #(list.reverse(acc), random)
           }
       }
     }

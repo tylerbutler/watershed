@@ -31,7 +31,7 @@ import gleam/int
 import gleam/option.{type Option, None, Some}
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -53,7 +53,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 
 const document_id = "pixel-canvas"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let assert Ok(_) = lustre.start(app, "#app", Nil)
   Nil
@@ -88,7 +88,7 @@ type Msg {
   ToggledOffline(Bool)
 }
 
-fn init(_args) -> #(Model, Effect(Msg)) {
+fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   // A distinct user per tab, so two tabs are two clients rather than one.
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
@@ -185,12 +185,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.div([class("app")], [
+  html.div([attribute.class("app")], [
     html.h1([], [html.text("watershed · pixel canvas")]),
-    html.p([class("status")], [html.text(status_line(model))]),
+    html.p([attribute.class("status")], [html.text(status_line(model))]),
     panel_view(model),
     toolbar(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open a second tab on the same URL and paint over the same cells. "
         <> "Go offline in one, keep painting in both, then come back.",
@@ -203,13 +203,13 @@ fn view(model: Model) -> Element(Msg) {
 fn panel_view(model: Model) -> Element(Msg) {
   case model.canvas {
     Some(canvas) -> component.view(canvas) |> element.map(Canvas)
-    None -> html.p([class("status")], [html.text("connecting…")])
+    None -> html.p([attribute.class("status")], [html.text("connecting…")])
   }
 }
 
 fn toolbar(model: Model) -> Element(Msg) {
   let connected = option.is_some(model.doc)
-  html.div([class("toolbar")], [
+  html.div([attribute.class("toolbar")], [
     html.button(
       [
         event.on_click(ToggledOffline(!model.offline)),
@@ -256,7 +256,7 @@ fn error_line(model: Model) -> Element(Msg) {
   }
   case reason {
     None -> element.none()
-    Some(reason) -> html.p([class("error")], [html.text(reason)])
+    Some(reason) -> html.p([attribute.class("error")], [html.text(reason)])
   }
 }
 

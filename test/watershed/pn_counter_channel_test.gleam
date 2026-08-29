@@ -58,7 +58,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_pn_counter_updates_and_then_emits_ops_test() {
+pub fn detached_pn_counter_updates_and_then_emits_ops_test() -> Nil {
   let address = "pnc-1"
   let core =
     bootstrap()
@@ -71,12 +71,12 @@ pub fn detached_pn_counter_updates_and_then_emits_ops_test() {
     #(address, channel.PnCounterEvent(pn_counter_kernel.Updated(5, 5))),
   ])
   outbound |> expect.to_equal([])
-  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Some(5))
+  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Ok(5))
 
   // A decrement moves the optimistic value the other way.
   let assert Ok(#(core, _, _)) =
     runtime_core.pn_counter_update(core, address, -2)
-  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Some(3))
+  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Ok(3))
 
   let assert Ok(#(core, _, _)) =
     runtime_core.set(core, "root", "count", handle.encode_handle(address))
@@ -97,7 +97,7 @@ pub fn detached_pn_counter_updates_and_then_emits_ops_test() {
   encoded |> string.contains("\"amount\":4") |> expect.to_be_true()
 }
 
-pub fn pn_counter_snapshot_round_trips_test() {
+pub fn pn_counter_snapshot_round_trips_test() -> Nil {
   let #(state, _, op, _) =
     pn_counter_kernel.update(pn_counter_kernel.new(replica_id.new("r1")), 9)
   let assert Ok(state) = pn_counter_kernel.ack_local(state, op)
@@ -112,13 +112,13 @@ pub fn pn_counter_snapshot_round_trips_test() {
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
 }
 
-pub fn pn_counter_channel_type_round_trips_test() {
+pub fn pn_counter_channel_type_round_trips_test() -> Nil {
   channel.type_to_string(channel.PnCounterChannel)
   |> channel.type_from_string
   |> expect.to_equal(Ok(channel.PnCounterChannel))
 }
 
-pub fn detached_pn_counter_attaches_with_optimistic_value_test() {
+pub fn detached_pn_counter_attaches_with_optimistic_value_test() -> Nil {
   let address = "pnc-2"
   let core =
     bootstrap()
@@ -132,5 +132,5 @@ pub fn detached_pn_counter_attaches_with_optimistic_value_test() {
   attach_outbound |> list.length |> expect.to_equal(2)
 
   // The attach preserves the detached optimistic value.
-  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Some(3))
+  runtime_core.pn_counter_value(core, address) |> expect.to_equal(Ok(3))
 }

@@ -16,7 +16,7 @@ import spillway/types
 
 import watershed/presence
 import watershed/sluice/core.{type Outbound, type Sluice}
-import watershed/sluice/frames as frames_codec
+import watershed/sluice/frame as frame_codec
 import watershed/wire
 import watershed/wire/socket
 
@@ -71,13 +71,18 @@ fn connect(sluice: Sluice, last_seen: option.Option(Int)) -> #(Sluice, String) {
 }
 
 /// Submit a single map op from `client_id`.
-fn submit(sluice: Sluice, client_id: String, csn: Int, rsn: Int) -> Sluice {
+fn submit(
+  sluice: Sluice,
+  client_id: String,
+  client_sequence_number: Int,
+  reference_sequence_number: Int,
+) -> Sluice {
   let op =
     wire.OutboundOp(
-      client_sequence_number: csn,
-      reference_sequence_number: rsn,
+      client_sequence_number: client_sequence_number,
+      reference_sequence_number: reference_sequence_number,
       op_type: "op",
-      contents: json.object([#("n", json.int(csn))]),
+      contents: json.object([#("n", json.int(client_sequence_number))]),
       metadata: None,
     )
   let payload = socket.encode_submit_op(client_id, [[op]])
@@ -87,8 +92,8 @@ fn submit(sluice: Sluice, client_id: String, csn: Int, rsn: Int) -> Sluice {
 /// Drain every deliverable frame, oldest first.
 fn drain(sluice: Sluice) -> #(Sluice, List(Outbound)) {
   case core.take(sluice) {
-    #(sluice, None) -> #(sluice, [])
-    #(sluice, Some(frame)) -> {
+    #(sluice, Error(Nil)) -> #(sluice, [])
+    #(sluice, Ok(frame)) -> {
       let #(sluice, rest) = drain(sluice)
       #(sluice, [frame, ..rest])
     }
@@ -110,7 +115,7 @@ fn op_of(frame: Outbound) -> types.SequencedDocumentMessage {
 // Tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn connect_replies_with_connected_frame_test() {
+pub fn connect_replies_with_connected_frame_test() -> Nil {
   let #(sluice, client_id) = connect(core.new("default", "dice"), None)
   let #(_hub, frames) = drain(sluice)
 
@@ -140,7 +145,7 @@ pub fn connect_replies_with_connected_frame_test() {
 /// A second client's arrival is broadcast to the room as a sequenced `"join"`,
 /// so an already-connected replica widens its roster rather than staying on the
 /// membership it was handed at connect time.
-pub fn join_is_broadcast_to_the_existing_room_test() {
+pub fn join_is_broadcast_to_the_existing_room_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -156,7 +161,7 @@ pub fn join_is_broadcast_to_the_existing_room_test() {
   join.message_type |> expect.to_equal("join")
   join.client_id |> expect.to_equal(None)
   join.data
-  |> expect.to_equal(Some(frames_codec.system_join_data(c2)))
+  |> expect.to_equal(Some(frame_codec.system_join_data(c2)))
 
   let assert [handshake] = of_event(frames, "connect_document_success")
   let assert Ok(connected) =
@@ -173,7 +178,7 @@ pub fn join_is_broadcast_to_the_existing_room_test() {
 /// A departing client is announced to the room as a sequenced `"leave"`. This
 /// is what drains a consensus signoff and re-releases a held queue job on every
 /// surviving replica, at one agreed sequence point.
-pub fn disconnect_broadcasts_a_leave_test() {
+pub fn disconnect_broadcasts_a_leave_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -186,12 +191,12 @@ pub fn disconnect_broadcasts_a_leave_test() {
   broadcast.client_id |> expect.to_equal(c1)
   let leave = op_of(broadcast)
   leave.message_type |> expect.to_equal("leave")
-  leave.data |> expect.to_equal(Some(frames_codec.system_leave_data(c2)))
+  leave.data |> expect.to_equal(Some(frame_codec.system_leave_data(c2)))
 }
 
 /// A connection that never completed `connect_document` is not in the roster,
 /// so dropping it announces nothing — there is no membership change to report.
-pub fn disconnect_before_handshake_sequences_nothing_test() {
+pub fn disconnect_before_handshake_sequences_nothing_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -206,7 +211,7 @@ pub fn disconnect_before_handshake_sequences_nothing_test() {
   core.connected_ids(sluice) |> expect.to_equal([c1])
 }
 
-pub fn sequencing_is_monotone_per_document_test() {
+pub fn sequencing_is_monotone_per_document_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -227,7 +232,7 @@ pub fn sequencing_is_monotone_per_document_test() {
   sns |> expect.to_equal([3, 3, 4, 4])
 }
 
-pub fn author_echo_carries_client_sequence_number_test() {
+pub fn author_echo_carries_client_sequence_number_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -252,7 +257,7 @@ pub fn author_echo_carries_client_sequence_number_test() {
 /// It is the *reason* a reconnecting client has to send `requestOps`: it ignores
 /// `initialMessages` (its core already holds that history), so the handshake
 /// alone leaves it below the checkpoint with nothing inbound to close the gap.
-pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() {
+pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -303,7 +308,7 @@ pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() {
   |> expect.to_equal(["op", "op", "join"])
 }
 
-pub fn signal_fan_out_excludes_author_and_strips_type_test() {
+pub fn signal_fan_out_excludes_author_and_strips_type_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -328,7 +333,7 @@ pub fn signal_fan_out_excludes_author_and_strips_type_test() {
   ripple.signal_type |> expect.to_equal(None)
 }
 
-pub fn peek_reveals_next_frame_without_consuming_test() {
+pub fn peek_reveals_next_frame_without_consuming_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -336,20 +341,20 @@ pub fn peek_reveals_next_frame_without_consuming_test() {
   let sluice = submit(sluice, c1, 1, 0)
 
   // Peek reports the pending echo but leaves it queued...
-  let assert Some(peeked) = core.peek(sluice)
+  let assert Ok(peeked) = core.peek(sluice)
   peeked.client_id |> expect.to_equal(c1)
   peeked.event |> expect.to_equal("op")
 
   // ...so a subsequent take still delivers the same frame.
   let #(sluice, taken) = core.take(sluice)
-  let assert Some(frame) = taken
+  let assert Ok(frame) = taken
   frame.client_id |> expect.to_equal(c1)
 
   // With the queue drained, peek agrees nothing is deliverable.
-  core.peek(sluice) |> expect.to_equal(None)
+  core.peek(sluice) |> expect.to_equal(Error(Nil))
 }
 
-pub fn peek_skips_paused_clients_test() {
+pub fn peek_skips_paused_clients_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -360,11 +365,11 @@ pub fn peek_skips_paused_clients_test() {
   let sluice = core.pause(sluice, c1)
   let sluice = submit(sluice, c1, 1, 0)
 
-  let assert Some(peeked) = core.peek(sluice)
+  let assert Ok(peeked) = core.peek(sluice)
   peeked.client_id |> expect.to_equal(c2)
 }
 
-pub fn pause_holds_a_clients_frames_until_resume_test() {
+pub fn pause_holds_a_clients_frames_until_resume_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -441,7 +446,7 @@ fn sessions_of(entries: List(presence.PresenceEntry(Panel))) -> List(String) {
   list.map(entries, fn(entry) { entry.session_id })
 }
 
-pub fn handshake_advertises_presence_v1_test() {
+pub fn handshake_advertises_presence_v1_test() -> Nil {
   let #(sluice, _) = connect(core.new("default", "dice"), None)
   let #(_hub, frames) = drain(sluice)
   let assert [handshake, ..] = frames
@@ -458,7 +463,7 @@ pub fn handshake_advertises_presence_v1_test() {
   |> expect.to_be_true
 }
 
-pub fn presence_capability_can_be_withheld_test() {
+pub fn presence_capability_can_be_withheld_test() -> Nil {
   let sluice = core.set_presence_supported(core.new("default", "dice"), False)
   let #(sluice, _) = connect(sluice, None)
   let #(_hub, frames) = drain(sluice)
@@ -479,7 +484,7 @@ pub fn presence_capability_can_be_withheld_test() {
 /// Phoenix's join ordering: the snapshot is taken *before* the joiner is
 /// tracked, so it learns of its own session from the diff that follows. A
 /// snapshot that already contained the joiner would make the diff a duplicate.
-pub fn joining_presence_sends_state_then_broadcasts_a_diff_test() {
+pub fn joining_presence_sends_state_then_broadcasts_a_diff_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -502,7 +507,7 @@ pub fn joining_presence_sends_state_then_broadcasts_a_diff_test() {
 /// The second joiner's snapshot carries the first — this is the whole point of
 /// server presence: a late client gets the roster at once, with no heartbeat to
 /// wait out.
-pub fn a_late_joiner_receives_the_existing_roster_in_its_snapshot_test() {
+pub fn a_late_joiner_receives_the_existing_roster_in_its_snapshot_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -519,7 +524,7 @@ pub fn a_late_joiner_receives_the_existing_roster_in_its_snapshot_test() {
 
 /// Two connections authenticated as the same user are two sessions under one
 /// key, not one entry overwriting the other.
-pub fn two_connections_share_a_key_as_separate_sessions_test() {
+pub fn two_connections_share_a_key_as_separate_sessions_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -539,7 +544,7 @@ pub fn two_connections_share_a_key_as_separate_sessions_test() {
   presence.by_key(entries, "user") |> list.length |> expect.to_equal(2)
 }
 
-pub fn updating_presence_is_one_leave_and_join_test() {
+pub fn updating_presence_is_one_leave_and_join_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
@@ -559,7 +564,7 @@ pub fn updating_presence_is_one_leave_and_join_test() {
   |> expect.to_equal([Panel("text")])
 }
 
-pub fn leaving_presence_broadcasts_only_leaves_test() {
+pub fn leaving_presence_broadcasts_only_leaves_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let sluice = presence_push(sluice, c1, "joinPresence", panel("sudoku"))
@@ -583,7 +588,7 @@ pub fn leaving_presence_broadcasts_only_leaves_test() {
 
 /// Socket loss removes presence with no browser involvement — the property the
 /// heartbeat fallback can only approximate with a TTL.
-pub fn disconnect_removes_presence_for_the_survivors_test() {
+pub fn disconnect_removes_presence_for_the_survivors_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, c2) = connect(sluice, None)
@@ -600,7 +605,7 @@ pub fn disconnect_removes_presence_for_the_survivors_test() {
 
 /// Presence must never be attributable to a socket that has not authenticated —
 /// there is no user to derive a key from.
-pub fn joining_presence_before_the_handshake_is_rejected_test() {
+pub fn joining_presence_before_the_handshake_is_rejected_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, client_id) = core.register(sluice)
   let sluice = presence_push(sluice, client_id, "joinPresence", panel("sudoku"))
@@ -615,7 +620,7 @@ pub fn joining_presence_before_the_handshake_is_rejected_test() {
   ))
 }
 
-pub fn claiming_a_server_owned_field_is_rejected_test() {
+pub fn claiming_a_server_owned_field_is_rejected_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -636,7 +641,7 @@ pub fn claiming_a_server_owned_field_is_rejected_test() {
 
 /// A reserved field *inside* `meta` is stripped rather than rejected, and the
 /// server's own value is what reaches the wire.
-pub fn reserved_fields_inside_meta_are_replaced_test() {
+pub fn reserved_fields_inside_meta_are_replaced_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
@@ -662,7 +667,7 @@ pub fn reserved_fields_inside_meta_are_replaced_test() {
   ])
 }
 
-pub fn updating_presence_without_joining_is_rejected_test() {
+pub fn updating_presence_without_joining_is_rejected_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)

@@ -4,7 +4,6 @@
 import startest/expect
 import watershed/json_ot.{
   type JsonValue, type Op, Key, Lft, NInt, Rgt, VNumber, VObject, VString,
-  subtype_component,
 }
 
 fn ins(p: Int, s: String) -> JsonValue {
@@ -26,23 +25,23 @@ fn apply0(doc: String, op: JsonValue) -> JsonValue {
 
 // ── apply ──────────────────────────────────────────────────────────────────
 
-pub fn text0_apply_insert_test() {
+pub fn text0_apply_insert_test() -> Nil {
   apply0("hello", t0([ins(5, " world")]))
   |> expect.to_equal(VString("hello world"))
 }
 
-pub fn text0_apply_delete_test() {
+pub fn text0_apply_delete_test() -> Nil {
   apply0("hello world", t0([del(5, " world")]))
   |> expect.to_equal(VString("hello"))
 }
 
-pub fn text0_apply_sequential_components_test() {
+pub fn text0_apply_sequential_components_test() -> Nil {
   // Components execute in order against the running snapshot.
   apply0("ac", t0([ins(1, "b"), ins(3, "d")]))
   |> expect.to_equal(VString("abcd"))
 }
 
-pub fn text0_apply_delete_mismatch_errors_test() {
+pub fn text0_apply_delete_mismatch_errors_test() -> Nil {
   json_ot.apply_subtype("text0", VString("hello"), t0([del(0, "xxx")]))
   |> expect.to_equal(
     Error(json_ot.BadValue("text0 delete does not match the document text")),
@@ -51,7 +50,7 @@ pub fn text0_apply_delete_mismatch_errors_test() {
 
 // ── invert ───────────────────────────────────────────────────────────────────
 
-pub fn text0_invert_round_trips_test() {
+pub fn text0_invert_round_trips_test() -> Nil {
   let doc = VObject([#("t", VString("hello"))])
   let op = text_edit(t0([ins(5, " world"), del(0, "he")]))
   let assert Ok(edited) = json_ot.apply(doc, op)
@@ -75,10 +74,10 @@ fn tp1(doc: JsonValue, a: Op, b: Op) -> #(JsonValue, JsonValue) {
 }
 
 fn text_edit(op: JsonValue) -> Op {
-  [subtype_component([Key("t")], "text0", op)]
+  [json_ot.subtype_component([Key("t")], "text0", op)]
 }
 
-pub fn text0_concurrent_inserts_converge_test() {
+pub fn text0_concurrent_inserts_converge_test() -> Nil {
   let doc = VObject([#("t", VString("hello"))])
   let a = text_edit(t0([ins(0, "A")]))
   let b = text_edit(t0([ins(0, "B")]))
@@ -86,7 +85,7 @@ pub fn text0_concurrent_inserts_converge_test() {
   left |> expect.to_equal(right)
 }
 
-pub fn text0_insert_vs_delete_converge_test() {
+pub fn text0_insert_vs_delete_converge_test() -> Nil {
   let doc = VObject([#("t", VString("hello world"))])
   let a = text_edit(t0([ins(5, "XYZ")]))
   let b = text_edit(t0([del(0, "hello")]))
@@ -94,7 +93,7 @@ pub fn text0_insert_vs_delete_converge_test() {
   left |> expect.to_equal(right)
 }
 
-pub fn text0_overlapping_deletes_converge_test() {
+pub fn text0_overlapping_deletes_converge_test() -> Nil {
   let doc = VObject([#("t", VString("abcdef"))])
   let a = text_edit(t0([del(1, "bcd")]))
   let b = text_edit(t0([del(2, "cde")]))
@@ -102,7 +101,7 @@ pub fn text0_overlapping_deletes_converge_test() {
   left |> expect.to_equal(right)
 }
 
-pub fn text0_multi_component_ops_converge_test() {
+pub fn text0_multi_component_ops_converge_test() -> Nil {
   let doc = VObject([#("t", VString("the quick brown fox"))])
   // a: drop the leading "the ", then append "!" (positions are sequential).
   let a = text_edit(t0([del(0, "the "), ins(15, "!")]))
@@ -115,7 +114,7 @@ pub fn text0_multi_component_ops_converge_test() {
 /// Insert-at-same-position ties are broken by `side`, so left/right disagree on
 /// order but each pair (a then b*) vs (b then a*) still converges — verified
 /// above. Here we pin the concrete resolved string for the insert tie.
-pub fn text0_insert_tie_resolves_by_side_test() {
+pub fn text0_insert_tie_resolves_by_side_test() -> Nil {
   let doc = VObject([#("t", VString(""))])
   let a = text_edit(t0([ins(0, "A")]))
   let b = text_edit(t0([ins(0, "B")]))

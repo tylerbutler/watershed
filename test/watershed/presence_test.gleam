@@ -82,7 +82,7 @@ fn keys_and_sessions(
   list.map(entries, fn(entry) { #(entry.key, entry.session_id) })
 }
 
-pub fn presence_state_populates_the_roster_test() {
+pub fn presence_state_populates_the_roster_test() -> Nil {
   let #(tracker, events) =
     presence.apply_state(
       presence.tracker(),
@@ -104,7 +104,7 @@ pub fn presence_state_populates_the_roster_test() {
   |> expect.to_be_true
 }
 
-pub fn reserved_fields_are_hidden_from_the_app_decoder_test() {
+pub fn reserved_fields_are_hidden_from_the_app_decoder_test() -> Nil {
   // A decoder that succeeds only when the metadata carries *nothing* but the
   // app's own field — so it fails outright if `phx_ref` or `client_id` leaks.
   let strict = {
@@ -136,7 +136,7 @@ pub fn reserved_fields_are_hidden_from_the_app_decoder_test() {
   ])
 }
 
-pub fn diffs_before_the_initial_state_are_queued_then_applied_test() {
+pub fn diffs_before_the_initial_state_are_queued_then_applied_test() -> Nil {
   // A remote join can outrun the snapshot. It must not be lost, and it must not
   // be applied to a roster that does not exist yet.
   let #(queued, early) =
@@ -160,7 +160,7 @@ pub fn diffs_before_the_initial_state_are_queued_then_applied_test() {
   |> expect.to_equal([#("user:alice", "client-17"), #("user:bob", "client-42")])
 }
 
-pub fn one_of_two_sessions_under_a_key_leaves_test() {
+pub fn one_of_two_sessions_under_a_key_leaves_test() -> Nil {
   let tracker =
     synced([
       #("user:alice", [
@@ -184,7 +184,7 @@ pub fn one_of_two_sessions_under_a_key_leaves_test() {
   |> expect.to_equal([#("user:alice", "client-18")])
 }
 
-pub fn duplicate_join_and_unknown_leave_are_ignored_test() {
+pub fn duplicate_join_and_unknown_leave_are_ignored_test() -> Nil {
   let tracker = synced([#("user:alice", [meta("A1", "client-17", "r0c0")])])
 
   // Replaying a join we already hold, and a leave for a ref we never saw.
@@ -200,7 +200,7 @@ pub fn duplicate_join_and_unknown_leave_are_ignored_test() {
   |> expect.to_equal([])
 }
 
-pub fn a_second_presence_state_is_ignored_until_reset_test() {
+pub fn a_second_presence_state_is_ignored_until_reset_test() -> Nil {
   let tracker = synced([#("user:alice", [meta("A1", "client-17", "r0c0")])])
 
   let #(tracker, events) =
@@ -225,7 +225,7 @@ pub fn a_second_presence_state_is_ignored_until_reset_test() {
   |> expect.to_equal([#("user:bob", "client-42")])
 }
 
-pub fn a_metadata_update_is_one_leave_and_join_for_a_session_test() {
+pub fn a_metadata_update_is_one_leave_and_join_for_a_session_test() -> Nil {
   let tracker = synced([#("user:alice", [meta("A1", "client-17", "r0c0")])])
 
   let #(_, events) =
@@ -252,7 +252,7 @@ pub fn a_metadata_update_is_one_leave_and_join_for_a_session_test() {
   ])
 }
 
-pub fn a_malformed_meta_drops_only_its_own_entry_test() {
+pub fn a_malformed_meta_drops_only_its_own_entry_test() -> Nil {
   let broken =
     json.object([
       #("phx_ref", json.string("B1")),
@@ -278,7 +278,7 @@ pub fn a_malformed_meta_drops_only_its_own_entry_test() {
   |> expect.to_equal([#("user:alice", "client-17")])
 }
 
-pub fn entries_sort_by_key_then_session_test() {
+pub fn entries_sort_by_key_then_session_test() -> Nil {
   let tracker =
     synced([
       #("user:bob", [meta("B1", "client-2", "r0c0")]),
@@ -297,7 +297,7 @@ pub fn entries_sort_by_key_then_session_test() {
   ])
 }
 
-pub fn by_key_and_remote_entries_filter_test() {
+pub fn by_key_and_remote_entries_filter_test() -> Nil {
   let entries =
     presence.tracker_entries(
       synced([
@@ -320,7 +320,7 @@ pub fn by_key_and_remote_entries_filter_test() {
 
 // ── Ripple mode ──────────────────────────────────────────────────────────────
 
-pub fn ripple_envelope_round_trips_test() {
+pub fn ripple_envelope_round_trips_test() -> Nil {
   let encoded =
     presence.encode_ripple("user:alice", encode_cursor, Cursor("r2c2"))
     |> json.to_string
@@ -329,7 +329,7 @@ pub fn ripple_envelope_round_trips_test() {
   |> expect.to_equal(Ok(#("user:alice", Cursor("r2c2"))))
 }
 
-pub fn ripple_decoder_rejects_a_foreign_kind_test() {
+pub fn ripple_decoder_rejects_a_foreign_kind_test() -> Nil {
   let foreign =
     json.object([
       #("kind", json.string("chat")),
@@ -343,7 +343,7 @@ pub fn ripple_decoder_rejects_a_foreign_kind_test() {
   |> expect.to_be_true
 }
 
-pub fn two_sessions_under_one_key_stay_separate_test() {
+pub fn two_sessions_under_one_key_stay_separate_test() -> Nil {
   // The bug the old roster had: both tabs share a user, and one used to
   // overwrite the other.
   let #(sessions, _) =
@@ -371,7 +371,7 @@ pub fn two_sessions_under_one_key_stay_separate_test() {
   |> expect.to_equal([#("user:alice", "client-1"), #("user:alice", "client-2")])
 }
 
-pub fn a_bare_heartbeat_reports_nothing_test() {
+pub fn a_bare_heartbeat_reports_nothing_test() -> Nil {
   let #(sessions, _) =
     presence.observe_session(
       presence.sessions(),
@@ -394,7 +394,7 @@ pub fn a_bare_heartbeat_reports_nothing_test() {
   |> expect.to_be_true
 }
 
-pub fn changed_metadata_reports_a_leave_and_a_join_test() {
+pub fn changed_metadata_reports_a_leave_and_a_join_test() -> Nil {
   let #(sessions, _) =
     presence.observe_session(
       presence.sessions(),
@@ -422,7 +422,7 @@ pub fn changed_metadata_reports_a_leave_and_a_join_test() {
   |> expect.to_equal([Cursor("r0c0")])
 }
 
-pub fn sessions_expire_independently_at_the_ttl_boundary_test() {
+pub fn sessions_expire_independently_at_the_ttl_boundary_test() -> Nil {
   let #(sessions, _) =
     presence.observe_session(
       presence.sessions(),
@@ -452,7 +452,7 @@ pub fn sessions_expire_independently_at_the_ttl_boundary_test() {
   |> expect.to_equal([#("user:alice", "client-2")])
 }
 
-pub fn forgetting_an_unknown_session_reports_nothing_test() {
+pub fn forgetting_an_unknown_session_reports_nothing_test() -> Nil {
   let #(_, diff) = presence.forget_session(presence.sessions(), "client-9")
 
   presence.diff_is_empty(diff)

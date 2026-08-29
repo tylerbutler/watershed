@@ -15,47 +15,48 @@ fn apply_ok(doc: JsonValue, op: json_ot.Op) -> JsonValue {
 
 // ── number ──────────────────────────────────────────────────────────────────
 
-pub fn number_add_at_root_test() {
+pub fn number_add_at_root_test() -> Nil {
   json_ot.apply(VNumber(NInt(1)), [json_ot.number_add([], NInt(2))])
   |> expect.to_equal(Ok(VNumber(NInt(3))))
 }
 
-pub fn number_add_in_list_test() {
+pub fn number_add_in_list_test() -> Nil {
   apply_ok(parse("[1]"), [json_ot.number_add([Index(0)], NInt(2))])
   |> expect.to_equal(parse("[3]"))
 }
 
-pub fn number_add_wrong_type_errors_test() {
+pub fn number_add_wrong_type_errors_test() -> Nil {
   case json_ot.apply(VString("a"), [json_ot.number_add([], NInt(1))]) {
     Error(json_ot.BadValue(_)) -> Nil
-    _ -> panic as "expected BadValue"
+    Error(json_ot.BadPath(_)) | Error(json_ot.UnknownSubtype(_)) | Ok(_) ->
+      panic as "expected BadValue"
   }
 }
 
 // ── object ──────────────────────────────────────────────────────────────────
 
-pub fn object_insert_test() {
+pub fn object_insert_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
     json_ot.obj_insert([Key("y")], VString("b")),
   ])
   |> expect.to_equal(parse("{\"x\":\"a\",\"y\":\"b\"}"))
 }
 
-pub fn object_delete_test() {
+pub fn object_delete_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
     json_ot.obj_delete([Key("x")], VString("a")),
   ])
   |> expect.to_equal(parse("{}"))
 }
 
-pub fn object_replace_test() {
+pub fn object_replace_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
     json_ot.obj_replace([Key("x")], VString("a"), VString("b")),
   ])
   |> expect.to_equal(parse("{\"x\":\"b\"}"))
 }
 
-pub fn nested_object_edit_test() {
+pub fn nested_object_edit_test() -> Nil {
   apply_ok(parse("{\"a\":{\"b\":1}}"), [
     json_ot.number_add([Key("a"), Key("b")], NInt(4)),
   ])
@@ -64,52 +65,52 @@ pub fn nested_object_edit_test() {
 
 // ── list ────────────────────────────────────────────────────────────────────
 
-pub fn list_insert_front_test() {
+pub fn list_insert_front_test() -> Nil {
   apply_ok(parse("[\"b\",\"c\"]"), [
     json_ot.list_insert([Index(0)], VString("a")),
   ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn list_insert_middle_test() {
+pub fn list_insert_middle_test() -> Nil {
   apply_ok(parse("[\"a\",\"c\"]"), [
     json_ot.list_insert([Index(1)], VString("b")),
   ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn list_insert_end_test() {
+pub fn list_insert_end_test() -> Nil {
   apply_ok(parse("[\"a\",\"b\"]"), [
     json_ot.list_insert([Index(2)], VString("c")),
   ])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn list_delete_test() {
+pub fn list_delete_test() -> Nil {
   apply_ok(parse("[\"a\",\"b\",\"c\"]"), [
     json_ot.list_delete([Index(1)], VString("b")),
   ])
   |> expect.to_equal(parse("[\"a\",\"c\"]"))
 }
 
-pub fn list_replace_test() {
+pub fn list_replace_test() -> Nil {
   apply_ok(parse("[\"a\",\"x\",\"b\"]"), [
     json_ot.list_replace([Index(1)], VString("x"), VString("y")),
   ])
   |> expect.to_equal(parse("[\"a\",\"y\",\"b\"]"))
 }
 
-pub fn list_move_backward_test() {
+pub fn list_move_backward_test() -> Nil {
   apply_ok(parse("[\"b\",\"a\",\"c\"]"), [json_ot.list_move([Index(1)], 0)])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn list_move_forward_test() {
+pub fn list_move_forward_test() -> Nil {
   apply_ok(parse("[\"b\",\"a\",\"c\"]"), [json_ot.list_move([Index(0)], 1)])
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn multi_component_op_test() {
+pub fn multi_component_op_test() -> Nil {
   apply_ok(parse("{\"x\":1}"), [
     json_ot.number_add([Key("x")], NInt(2)),
     json_ot.obj_insert([Key("y")], VString("hi")),
@@ -117,7 +118,7 @@ pub fn multi_component_op_test() {
   |> expect.to_equal(parse("{\"x\":3,\"y\":\"hi\"}"))
 }
 
-pub fn object_keys_are_sorted_test() {
+pub fn object_keys_are_sorted_test() -> Nil {
   // Insertion order differs from sorted order; equality must be canonical.
   let a =
     apply_ok(parse("{}"), [

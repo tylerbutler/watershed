@@ -4,8 +4,6 @@
 //// the Erlang build of watershed ignores it.
 
 @target(javascript)
-import gleam/dynamic.{type Dynamic}
-@target(javascript)
 import gleam/javascript/promise.{type Promise}
 
 @target(javascript)
@@ -23,14 +21,15 @@ pub type Cell(a)
 /// `on_join` runs after every successful join. Phoenix joins again by itself
 /// after a socket reconnect, so `on_join` is also the re-handshake hook.
 ///
-/// `on_event` receives `(event_name, parsed_payload)`. The payload is a
-/// JavaScript object, ready for the dynamic decoders of Gleam.
+/// `on_event` receives `(event_name, payload_json)`. `payload_json` is the
+/// event's payload, serialized to a JSON string on the JavaScript side, ready
+/// for `gleam/json`'s decoders on the Gleam side.
 @external(javascript, "./transport_ffi.mjs", "connect")
 pub fn connect(
   url url: String,
   topic topic: String,
   join_payload join_payload: String,
-  on_event on_event: fn(String, Dynamic) -> Nil,
+  on_event on_event: fn(String, String) -> Nil,
   on_join on_join: fn() -> Nil,
   on_close on_close: fn() -> Nil,
 ) -> Channel

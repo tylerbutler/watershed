@@ -33,7 +33,7 @@ import watershed/channel
 import watershed/client_id
 import watershed/pact_map_kernel
 import watershed/runtime_core.{type Core}
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 
 const our_client_id = "default_doc_2"
 
@@ -47,7 +47,7 @@ const reconnect_client_id = "default_doc_9"
 // Seeding
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn roster_seeds_from_initial_clients_test() {
+pub fn roster_seeds_from_initial_clients_test() -> Nil {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
   members(core)
@@ -57,7 +57,7 @@ pub fn roster_seeds_from_initial_clients_test() {
 /// The server builds `initialClients` from the document's presence map, which
 /// need not yet contain the client it is answering — so self is unioned in
 /// rather than assumed present.
-pub fn roster_includes_self_when_absent_from_initial_clients_test() {
+pub fn roster_includes_self_when_absent_from_initial_clients_test() -> Nil {
   let core = bootstrap_with([])
 
   members(core) |> expect.to_equal(ids([our_client_id]))
@@ -67,39 +67,39 @@ pub fn roster_includes_self_when_absent_from_initial_clients_test() {
 // Join / leave
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn join_widens_the_roster_test() {
+pub fn join_widens_the_roster_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
 
-  let core = apply(core, join_msg(third_client_id, 1))
+  let core = apply(core, join_message(third_client_id, 1))
 
   members(core)
   |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
 }
 
-pub fn leave_narrows_the_roster_test() {
+pub fn leave_narrows_the_roster_test() -> Nil {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
-  let core = apply(core, leave_msg(third_client_id, 1))
+  let core = apply(core, leave_message(third_client_id, 1))
 
   members(core) |> expect.to_equal(ids([our_client_id, peer_client_id]))
 }
 
 /// A re-joining client id is already in the set; membership is a set, not a
 /// count, so the second join is not a second member.
-pub fn repeated_join_is_idempotent_test() {
+pub fn repeated_join_is_idempotent_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
 
-  let core = apply(core, join_msg(peer_client_id, 1))
+  let core = apply(core, join_message(peer_client_id, 1))
 
   members(core) |> expect.to_equal(ids([our_client_id, peer_client_id]))
 }
 
 /// A leave for a client that never joined leaves the roster untouched, the
 /// same way it is a no-op for every kernel.
-pub fn leave_for_unknown_client_is_noop_test() {
+pub fn leave_for_unknown_client_is_noop_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
 
-  let core = apply(core, leave_msg("default_doc_77", 1))
+  let core = apply(core, leave_message("default_doc_77", 1))
 
   members(core) |> expect.to_equal(ids([our_client_id, peer_client_id]))
 }
@@ -107,12 +107,12 @@ pub fn leave_for_unknown_client_is_noop_test() {
 /// A malformed payload is ignored rather than failing the batch — but it must
 /// not be *silently* the same as a well-formed one, which is what reading the
 /// wrong field amounted to before.
-pub fn membership_message_without_data_is_ignored_test() {
+pub fn membership_message_without_data_is_ignored_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
   let before = members(core)
 
-  let core = apply(core, system_msg("join", None, 1))
-  let core = apply(core, system_msg("leave", None, 2))
+  let core = apply(core, system_message("join", None, 1))
+  let core = apply(core, system_message("leave", None, 2))
 
   members(core) |> expect.to_equal(before)
 }
@@ -120,7 +120,7 @@ pub fn membership_message_without_data_is_ignored_test() {
 /// A `"join"` payload is an object, a `"leave"` payload a bare string. Feeding
 /// each the other's shape must not move the roster — if it did, the two
 /// decoders would be interchangeable and the distinction meaningless.
-pub fn membership_payload_shapes_are_not_interchangeable_test() {
+pub fn membership_payload_shapes_are_not_interchangeable_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
   let before = members(core)
 
@@ -128,8 +128,8 @@ pub fn membership_payload_shapes_are_not_interchangeable_test() {
   let object =
     json.to_string(json.object([#("clientId", json.string(peer_client_id))]))
 
-  let core = apply(core, system_msg("join", Some(bare), 1))
-  let core = apply(core, system_msg("leave", Some(object), 2))
+  let core = apply(core, system_message("join", Some(bare), 1))
+  let core = apply(core, system_message("leave", Some(object), 2))
 
   members(core) |> expect.to_equal(before)
 }
@@ -142,7 +142,7 @@ pub fn membership_payload_shapes_are_not_interchangeable_test() {
 /// over at the hand-off to live. Pinning the hand-off matters because the
 /// checkpoint roster is stale by definition — everything that happened since
 /// is in the log, and once the log is exhausted the handshake is authoritative.
-pub fn go_live_adopts_the_handshake_roster_over_the_checkpoint_test() {
+pub fn go_live_adopts_the_handshake_roster_over_the_checkpoint_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [peer_client_id, third_client_id],
@@ -158,7 +158,7 @@ pub fn go_live_adopts_the_handshake_roster_over_the_checkpoint_test() {
 /// The checkpoint roster is a starting point, not a fixed set: the sequenced
 /// membership messages replayed after it still move it, and a proposal
 /// sequenced later is judged against the moved roster.
-pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() {
+pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
@@ -166,10 +166,10 @@ pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() {
       at: 5,
       initial_clients: [],
       initial_messages: [
-        leave_msg(third_client_id, 6),
-        pact_set_msg(
+        leave_message(third_client_id, 6),
+        pact_set_message(
           author: peer_client_id,
-          sn: 7,
+          sequence_number: 7,
           key: "bpm",
           value: json.int(128),
         ),
@@ -177,7 +177,7 @@ pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() {
     )
 
   // The departed client is not owed a signoff the pact would wait on forever.
-  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id]))
@@ -192,7 +192,7 @@ pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() {
 /// reconstruct the same list — with a rosterless checkpoint it saw an empty
 /// room, froze a signoff list of one, and treated a pact the room was still
 /// deciding as already settled.
-pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_test() {
+pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
@@ -200,16 +200,16 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
       at: 5,
       initial_clients: [],
       initial_messages: [
-        pact_set_msg(
+        pact_set_message(
           author: peer_client_id,
-          sn: 6,
+          sequence_number: 6,
           key: "bpm",
           value: json.int(128),
         ),
       ],
     )
 
-  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
@@ -222,7 +222,7 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
 /// Entering reconnect holds the roster we already had. The ops sequenced while
 /// we were away are about to be replayed, and they belong to the room as it was
 /// then — the handshake's roster is held aside for the hand-off.
-pub fn reconnect_holds_the_roster_for_the_gap_test() {
+pub fn reconnect_holds_the_roster_for_the_gap_test() -> Nil {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
   let core =
@@ -243,7 +243,7 @@ pub fn reconnect_holds_the_roster_for_the_gap_test() {
 /// to. This is the same time-shift that broke a cold join, over a shorter
 /// window: a proposal sequenced while we were away froze its signoff list from
 /// the clients present *then*, and every replica must reconstruct that list.
-pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() {
+pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
@@ -265,9 +265,9 @@ pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() {
 
   // The gap: a proposal sequenced while all three were still present.
   let gap = [
-    pact_set_msg(
+    pact_set_message(
       author: peer_client_id,
-      sn: 6,
+      sequence_number: 6,
       key: "bpm",
       value: json.int(128),
     ),
@@ -277,14 +277,15 @@ pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() {
     runtime_core.resume_bootstrap(core, checkpoint: 6, deltas: gap)
   {
     Ok(runtime_core.Complete(core)) -> core
-    _ -> panic as "expected the gap replay to complete the reconnect"
+    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
+      panic as "expected the gap replay to complete the reconnect"
   }
 
   // Frozen from the room at SN 6 — the third client had not left yet, and the
   // reconnected id did not exist. Judged against the post-reconnect room this
   // would instead read `[peer, reconnect]`: a signoff owed by a client that was
   // not there, and none owed by one that was.
-  let assert Some(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
@@ -316,8 +317,8 @@ fn null_dynamic() -> Dynamic {
   }
 }
 
-fn apply(core: Core, msg: types.SequencedDocumentMessage) -> Core {
-  case runtime_core.handle_sequenced(core, msg) {
+fn apply(core: Core, sequenced: types.SequencedDocumentMessage) -> Core {
+  case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, _)) -> core
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
@@ -365,19 +366,19 @@ fn bootstrap_from_summary(
 }
 
 /// A sequenced `PactMap` proposal, as a peer's `Set` arrives on the wire.
-fn pact_set_msg(
+fn pact_set_message(
   author author: String,
-  sn sn: Int,
+  sequence_number sequence_number: Int,
   key key: String,
   value value: json.Json,
 ) -> types.SequencedDocumentMessage {
   let contents =
-    ops.encode_pact_map_envelope(
+    wire_op.encode_pact_map_envelope(
       "pact",
       pact_map_kernel.Set(key, Some(value), 0),
     )
   types.SequencedDocumentMessage(
-    ..system_msg("op", None, sn),
+    ..system_message("op", None, sequence_number),
     client_id: Some(author),
     client_sequence_number: 1,
     contents: to_dynamic(contents),
@@ -393,8 +394,11 @@ fn to_dynamic(value: json.Json) -> Dynamic {
 
 /// A sequenced `"join"`: payload is an object carrying the arriving client's
 /// id, encoded as JSON text in `data`.
-fn join_msg(joining: String, sn: Int) -> types.SequencedDocumentMessage {
-  system_msg(
+fn join_message(
+  joining: String,
+  sequence_number: Int,
+) -> types.SequencedDocumentMessage {
+  system_message(
     "join",
     Some(
       json.to_string(
@@ -404,27 +408,34 @@ fn join_msg(joining: String, sn: Int) -> types.SequencedDocumentMessage {
         ]),
       ),
     ),
-    sn,
+    sequence_number,
   )
 }
 
 /// A sequenced `"leave"`: payload is the departing client's id as a bare JSON
 /// string, encoded as JSON text in `data`.
-fn leave_msg(leaving: String, sn: Int) -> types.SequencedDocumentMessage {
-  system_msg("leave", Some(json.to_string(json.string(leaving))), sn)
+fn leave_message(
+  leaving: String,
+  sequence_number: Int,
+) -> types.SequencedDocumentMessage {
+  system_message(
+    "leave",
+    Some(json.to_string(json.string(leaving))),
+    sequence_number,
+  )
 }
 
-fn system_msg(
+fn system_message(
   message_type: String,
   data: option.Option(String),
-  sn: Int,
+  sequence_number: Int,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: None,
-    sequence_number: sn,
+    sequence_number: sequence_number,
     minimum_sequence_number: 0,
     client_sequence_number: -1,
-    reference_sequence_number: sn - 1,
+    reference_sequence_number: sequence_number - 1,
     message_type: message_type,
     contents: null_dynamic(),
     metadata: None,

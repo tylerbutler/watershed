@@ -13,7 +13,9 @@ import startest/expect
 import watershed/fuzz/kernel_fuzz.{
   type LogEntry, Capabilities, ClientOp, KernelModel, Synchronize,
 }
-import watershed/fuzz/or_map_model.{type OrMapCommand, CmdIncrement, CmdRemove}
+import watershed/fuzz/or_map_model.{
+  type OrMapCommand, CommandIncrement, CommandRemove,
+}
 import watershed/fuzz/script_gen
 import watershed/or_map_kernel.{Increment, TallyMode}
 
@@ -27,7 +29,7 @@ fn weights() -> script_gen.Weights {
   )
 }
 
-pub fn converges_and_matches_oracle_test() {
+pub fn converges_and_matches_oracle_test() -> Nil {
   let model = or_map_model.model()
   kernel_fuzz.run(
     model,
@@ -37,7 +39,7 @@ pub fn converges_and_matches_oracle_test() {
   )
 }
 
-pub fn op_json_round_trips_with_and_without_delta_test() {
+pub fn op_json_round_trips_with_and_without_delta_test() -> Nil {
   let model = or_map_model.model()
   let assert Ok(#(_state, _events, op, _message_id)) =
     or_map_kernel.increment(
@@ -47,11 +49,11 @@ pub fn op_json_round_trips_with_and_without_delta_test() {
     )
   let assert Increment(key, amount, delta) = op
 
-  [CmdIncrement("a", 3, None), CmdIncrement(key, amount, Some(delta))]
-  |> list.each(fn(cmd) {
+  [CommandIncrement("a", 3, None), CommandIncrement(key, amount, Some(delta))]
+  |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(cmd)), model.op_decoder)
-    decoded |> expect.to_equal(cmd)
+      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+    decoded |> expect.to_equal(command)
   })
 }
 
@@ -63,9 +65,9 @@ fn authorless_remove_oracle(
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(#(dict.new(), dict.new()), fn(state, item) {
       let #(dots, tallies) = state
-      let #(seq, #(_author, cmd)) = item
-      case cmd {
-        CmdIncrement(key, amount, _) -> {
+      let #(seq, #(_author, command)) = item
+      case command {
+        CommandIncrement(key, amount, _) -> {
           let existing = dict.get(dots, key) |> result.unwrap([])
           let tally = dict.get(tallies, key) |> result.unwrap(0)
           #(
@@ -73,7 +75,7 @@ fn authorless_remove_oracle(
             dict.insert(tallies, key, tally + amount),
           )
         }
-        CmdRemove(key, ref_seq, _) -> {
+        CommandRemove(key, ref_seq, _) -> {
           let remaining =
             dict.get(dots, key)
             |> result.unwrap([])
@@ -97,11 +99,11 @@ fn authorless_remove_oracle(
   })
 }
 
-pub fn oracle_author_clause_is_load_bearing_test() {
+pub fn oracle_author_clause_is_load_bearing_test() -> Nil {
   let model = or_map_model.model()
   let script = [
-    ClientOp(1, CmdIncrement("a", 5, None)),
-    ClientOp(1, CmdRemove("a", 0, None)),
+    ClientOp(1, CommandIncrement("a", 5, None)),
+    ClientOp(1, CommandRemove("a", 0, None)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(model, client_count, script) |> expect.to_be_ok
@@ -121,15 +123,15 @@ pub fn oracle_author_clause_is_load_bearing_test() {
   }
 }
 
-pub fn shared_replica_id_loses_increments_test() {
+pub fn shared_replica_id_loses_increments_test() -> Nil {
   let model = or_map_model.model()
   let buggy =
     KernelModel(..model, init: fn(_id) {
       or_map_kernel.new(replica_id.new("client-0"), TallyMode)
     })
   let script = [
-    ClientOp(1, CmdIncrement("a", 3, None)),
-    ClientOp(2, CmdIncrement("a", 5, None)),
+    ClientOp(1, CommandIncrement("a", 3, None)),
+    ClientOp(2, CommandIncrement("a", 5, None)),
     Synchronize,
   ]
   case kernel_fuzz.try_run_script(buggy, client_count, script) {

@@ -3,7 +3,7 @@
 ////
 //// The Erlang side hashes with `gleam/crypto`. The JavaScript side cannot use
 //// that package. Its FFI has a static import of `node:crypto`, which breaks
-//// every browser bundle that includes it. `ids.gleam` documents the same
+//// every browser bundle that includes it. `id.gleam` documents the same
 //// problem for random bytes.
 ////
 //// Web Crypto is safe in a browser, but `crypto.subtle.digest` is

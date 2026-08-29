@@ -2,7 +2,7 @@
 ////
 //// The central sequencer broadcasts the operations without a change. This
 //// kernel keeps one local operation in flight at most, and it composes the
-//// later edits into `buffer`. The kernel can thus transform every received
+//// later edits into one buffer. The kernel can thus transform every received
 //// operation through a complete concurrency window.
 ////
 //// The transform side comes from the sequence order, and not from an
@@ -14,17 +14,22 @@
 //// module doc of `ot_client` describes why an identity does not work here.
 
 import gleam/list
-import gleam/option.{type Option, None, Some}
+import gleam/option.{type Option, None}
 import gleam/result
 import watershed/ot_client
 import watershed/rich_text
 
 pub type RichTextState {
   RichTextState(
+    /// The server-confirmed document.
     sequenced: rich_text.Document,
+    /// The sequenced operations that a concurrency window can still contain.
     log: List(ot_client.LogEntry(rich_text.Delta)),
-    inflight: Option(rich_text.Delta),
-    buffer: Option(rich_text.Delta),
+    /// The unacknowledged local edits. The type holds the one operation on the
+    /// wire, and the composed buffer of the later edits behind it.
+    pending: ot_client.Pending(rich_text.Delta),
+    /// An operation that an acknowledgement released onto the wire, which waits
+    /// to be sent. `take_outbound` removes it.
     outbound: Option(RichTextWireOp),
   )
 }
@@ -52,8 +57,7 @@ pub fn from_document(document: rich_text.Document) -> RichTextState {
   RichTextState(
     sequenced: document,
     log: [],
-    inflight: None,
-    buffer: None,
+    pending: ot_client.Idle,
     outbound: None,
   )
 }
@@ -71,20 +75,13 @@ pub fn summary(state: RichTextState) -> rich_text.Document {
 /// The optimistic document. This is the confirmed state with the pending
 /// local edits after it.
 pub fn view(state: RichTextState) -> Result(rich_text.Document, KernelError) {
-  use after_inflight <- result.try(apply_optional(
-    state.sequenced,
-    state.inflight,
-  ))
-  apply_optional(after_inflight, state.buffer)
-}
-
-fn apply_optional(
-  document: rich_text.Document,
-  maybe_delta: Option(rich_text.Delta),
-) -> Result(rich_text.Document, KernelError) {
-  case maybe_delta {
-    None -> Ok(document)
-    Some(delta) -> apply_op(document, delta)
+  case state.pending {
+    ot_client.Idle -> Ok(state.sequenced)
+    ot_client.InFlight(delta) -> apply_op(state.sequenced, delta)
+    ot_client.InFlightAndBuffered(delta, buffered) -> {
+      use after_delta <- result.try(apply_op(state.sequenced, delta))
+      apply_op(after_delta, buffered)
+    }
   }
 }
 
@@ -135,22 +132,16 @@ pub fn submit(
   use current <- result.try(view(state))
   use _ <- result.try(apply_op(current, delta))
   let events = [RichTextChanged(delta, True)]
-  case state.inflight {
-    None ->
-      Ok(#(
-        RichTextState(..state, inflight: Some(delta)),
-        Some(RichTextWireOp(ref_seq, delta)),
-        events,
-      ))
-    Some(_) -> {
-      let buffer_result = case state.buffer {
-        None -> Ok(delta)
-        Some(buffer) -> compose(buffer, delta)
-      }
-      use buffer <- result.try(buffer_result)
-      Ok(#(RichTextState(..state, buffer: Some(buffer)), None, events))
-    }
-  }
+  use #(pending, to_send) <- result.try(ot_client.hold_local(
+    state.pending,
+    delta,
+    compose,
+  ))
+  Ok(#(
+    RichTextState(..state, pending: pending),
+    option.map(to_send, RichTextWireOp(ref_seq, _)),
+    events,
+  ))
 }
 
 /// Integrate a sequenced operation from another author. The kernel advances
@@ -173,18 +164,10 @@ pub fn apply_remote(
     ),
   )
   use sequenced <- result.try(apply_op(state.sequenced, head_delta))
-  use #(inflight, remote_after_inflight) <- result.try(
+  use #(pending, remote_after_pending) <- result.try(
     ot_client.rebase_pending(
-      state.inflight,
+      state.pending,
       head_delta,
-      fn(local, remote) { transform(local, remote, rich_text.Left) },
-      fn(remote, local) { transform(remote, local, rich_text.Right) },
-    ),
-  )
-  use #(buffer, remote_after_buffer) <- result.try(
-    ot_client.rebase_pending(
-      state.buffer,
-      remote_after_inflight,
       fn(local, remote) { transform(local, remote, rich_text.Left) },
       fn(remote, local) { transform(remote, local, rich_text.Right) },
     ),
@@ -195,17 +178,11 @@ pub fn apply_remote(
       msn,
     )
   let state =
-    RichTextState(
-      ..state,
-      sequenced: sequenced,
-      log: log,
-      inflight: inflight,
-      buffer: buffer,
-    )
-  Ok(#(state, [RichTextChanged(remote_after_buffer, False)]))
+    RichTextState(..state, sequenced: sequenced, log: log, pending: pending)
+  Ok(#(state, [RichTextChanged(remote_after_pending, False)]))
 }
 
-/// Commit the in-flight operation, which the kernel can have rebased. The
+/// Commit the operation on the wire, which the kernel can have rebased. The
 /// function ignores the echoed body on purpose, because the FIFO order of the
 /// acknowledgement identifies the operation.
 pub fn ack_local(
@@ -214,31 +191,29 @@ pub fn ack_local(
   seq: Int,
   msn: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
-  case state.inflight {
-    None -> Error(UnexpectedAck("ack with nothing in flight"))
-    Some(inflight) -> {
-      use sequenced <- result.try(apply_op(state.sequenced, inflight))
-      let log =
-        ot_client.gc_log(
-          list.append(state.log, [ot_client.LogEntry(seq, inflight)]),
-          msn,
-        )
-      let #(next_inflight, outbound) =
-        ot_client.promote_buffer(state.buffer, seq, RichTextWireOp)
-      Ok(
-        #(
-          RichTextState(
-            sequenced: sequenced,
-            log: log,
-            inflight: next_inflight,
-            buffer: None,
-            outbound: outbound,
-          ),
-          [],
-        ),
-      )
-    }
-  }
+  use in_flight <- result.try(
+    ot_client.in_flight(state.pending)
+    |> result.replace_error(UnexpectedAck("ack with nothing in flight")),
+  )
+  use sequenced <- result.try(apply_op(state.sequenced, in_flight))
+  let log =
+    ot_client.gc_log(
+      list.append(state.log, [ot_client.LogEntry(seq, in_flight)]),
+      msn,
+    )
+  let #(pending, outbound) =
+    ot_client.promote_buffer(state.pending, seq, RichTextWireOp)
+  Ok(
+    #(
+      RichTextState(
+        sequenced: sequenced,
+        log: log,
+        pending: pending,
+        outbound: outbound,
+      ),
+      [],
+    ),
+  )
 }
 
 /// Take the operation that an acknowledgement released. After that, each

@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import qcheck
 import startest/expect
 import watershed/map_kernel.{
@@ -23,10 +24,10 @@ fn ack(
 
 fn expect_unexpected_ack(
   result: Result(map_kernel.MapState, map_kernel.KernelError),
-) {
+) -> Nil {
   case result {
     Error(map_kernel.UnexpectedAck(_, _)) -> Nil
-    _ -> panic as "expected UnexpectedAck error"
+    Ok(_) -> panic as "expected UnexpectedAck error"
   }
 }
 
@@ -34,22 +35,22 @@ fn expect_unexpected_ack(
 // Basic reads and local operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn new_map_is_empty_test() {
+pub fn new_map_is_empty_test() -> Nil {
   let state = map_kernel.new()
   map_kernel.entries(state) |> expect.to_equal([])
   map_kernel.size(state) |> expect.to_equal(0)
-  map_kernel.get(state, "missing") |> expect.to_equal(None)
+  map_kernel.get(state, "missing") |> expect.to_equal(Error(Nil))
   map_kernel.has(state, "missing") |> expect.to_be_false()
 }
 
-pub fn set_is_optimistically_visible_test() {
+pub fn set_is_optimistically_visible_test() -> Nil {
   let #(state, events, op) = map_kernel.set(map_kernel.new(), "k", json.int(1))
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(1)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
   op |> expect.to_equal(Set("k", json.int(1)))
   events |> expect.to_equal([ValueChanged("k", None, Some(json.int(1)), True)])
 }
 
-pub fn set_event_carries_previous_optimistic_value_test() {
+pub fn set_event_carries_previous_optimistic_value_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(_, events, _) = map_kernel.set(state, "k", json.int(2))
   events
@@ -58,21 +59,21 @@ pub fn set_event_carries_previous_optimistic_value_test() {
   ])
 }
 
-pub fn consecutive_sets_aggregate_into_one_lifetime_test() {
+pub fn consecutive_sets_aggregate_into_one_lifetime_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, _, _) = map_kernel.set(state, "k", json.int(2))
   state.pending
   |> expect.to_equal([PendingLifetime("k", [json.int(1), json.int(2)])])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(2)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn delete_after_set_terminates_lifetime_test() {
+pub fn delete_after_set_terminates_lifetime_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, events, op) = map_kernel.delete(state, "k")
   op |> expect.to_equal(Delete("k"))
   events
   |> expect.to_equal([ValueChanged("k", Some(json.int(1)), None, True)])
-  map_kernel.get(state, "k") |> expect.to_equal(None)
+  map_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
   // A set after the delete starts a fresh lifetime.
   let #(state, _, _) = map_kernel.set(state, "k", json.int(3))
   state.pending
@@ -83,14 +84,14 @@ pub fn delete_after_set_terminates_lifetime_test() {
   ])
 }
 
-pub fn delete_of_missing_key_sends_op_without_event_test() {
+pub fn delete_of_missing_key_sends_op_without_event_test() -> Nil {
   let #(state, events, op) = map_kernel.delete(map_kernel.new(), "ghost")
   op |> expect.to_equal(Delete("ghost"))
   events |> expect.to_equal([])
   state.pending |> expect.to_equal([PendingDelete("ghost")])
 }
 
-pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() {
+pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _, _) = map_kernel.set(state, "b", json.int(2))
@@ -112,40 +113,40 @@ pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() {
 // Remote operations and event suppression
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn apply_remote_set_emits_event_test() {
+pub fn apply_remote_set_emits_event_test() -> Nil {
   let #(state, events) =
     map_kernel.apply_remote(map_kernel.new(), Set("k", json.int(7)))
   events
   |> expect.to_equal([ValueChanged("k", None, Some(json.int(7)), False)])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(7)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(7)))
 }
 
-pub fn remote_set_masked_by_local_pending_set_test() {
+pub fn remote_set_masked_by_local_pending_set_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, events) = map_kernel.apply_remote(state, Set("k", json.int(9)))
   // Sequenced data updates, but the local pending value wins optimistically
   // and no event is emitted.
   events |> expect.to_equal([])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(1)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
 }
 
-pub fn remote_delete_masked_by_local_pending_set_test() {
+pub fn remote_delete_masked_by_local_pending_set_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("k", json.int(1)))
   let #(state, _, _) = map_kernel.set(state, "k", json.int(2))
   let #(state, events) = map_kernel.apply_remote(state, Delete("k"))
   events |> expect.to_equal([])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(2)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn remote_delete_emits_event_even_for_missing_key_test() {
+pub fn remote_delete_emits_event_even_for_missing_key_test() -> Nil {
   // Mirrors the TS kernel: remote deletes emit unconditionally when not
   // masked, even if the key was absent.
   let #(_, events) = map_kernel.apply_remote(map_kernel.new(), Delete("ghost"))
   events |> expect.to_equal([ValueChanged("ghost", None, None, False)])
 }
 
-pub fn remote_clear_spares_events_for_locally_pending_keys_test() {
+pub fn remote_clear_spares_events_for_locally_pending_keys_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -161,7 +162,7 @@ pub fn remote_clear_spares_events_for_locally_pending_keys_test() {
   map_kernel.entries(state) |> expect.to_equal([#("b", json.int(20))])
 }
 
-pub fn remote_clear_masked_by_local_pending_clear_test() {
+pub fn remote_clear_masked_by_local_pending_clear_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _, _) = map_kernel.clear(state)
@@ -170,23 +171,23 @@ pub fn remote_clear_masked_by_local_pending_clear_test() {
   map_kernel.entries(state) |> expect.to_equal([])
 }
 
-pub fn set_racing_remote_clear_survives_test() {
+pub fn set_racing_remote_clear_survives_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, _) = map_kernel.apply_remote(state, map_kernel.Clear)
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(1)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
   // Our set sequences after the clear, so it wins on all clients.
   let state = ack(state, Set("k", json.int(1)))
   map_kernel.entries(state) |> expect.to_equal([#("k", json.int(1))])
 }
 
-pub fn delete_vs_remote_set_converges_test() {
+pub fn delete_vs_remote_set_converges_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("k", json.int(1)))
   let #(state, _, _) = map_kernel.delete(state, "k")
   // A remote set sequences before our delete: masked, and our delete wins.
   let #(state, events) = map_kernel.apply_remote(state, Set("k", json.int(9)))
   events |> expect.to_equal([])
-  map_kernel.get(state, "k") |> expect.to_equal(None)
+  map_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
   let state = ack(state, Delete("k"))
   map_kernel.entries(state) |> expect.to_equal([])
 }
@@ -195,27 +196,27 @@ pub fn delete_vs_remote_set_converges_test() {
 // Acks
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn ack_set_commits_pending_to_sequenced_test() {
+pub fn ack_set_commits_pending_to_sequenced_test() -> Nil {
   let #(state, _, op) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let state = ack(state, op)
   state.pending |> expect.to_equal([])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(1)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
   map_kernel.entries(state) |> expect.to_equal([#("k", json.int(1))])
 }
 
-pub fn ack_multi_set_lifetime_commits_fifo_test() {
+pub fn ack_multi_set_lifetime_commits_fifo_test() -> Nil {
   let #(state, _, op1) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, _, op2) = map_kernel.set(state, "k", json.int(2))
   let state = ack(state, op1)
   // Oldest set committed; newest still pending and still wins optimistically.
   state.pending |> expect.to_equal([PendingLifetime("k", [json.int(2)])])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(2)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(2)))
   let state = ack(state, op2)
   state.pending |> expect.to_equal([])
-  map_kernel.get(state, "k") |> expect.to_equal(Some(json.int(2)))
+  map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn ack_clear_requires_queue_head_test() {
+pub fn ack_clear_requires_queue_head_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, _, _) = map_kernel.clear(state)
   // Acking the clear before the set is an ordering violation.
@@ -227,7 +228,7 @@ pub fn ack_clear_requires_queue_head_test() {
   map_kernel.entries(state) |> expect.to_equal([])
 }
 
-pub fn ack_without_pending_is_an_error_test() {
+pub fn ack_without_pending_is_an_error_test() -> Nil {
   expect_unexpected_ack(map_kernel.ack_local(
     map_kernel.new(),
     Set("k", json.int(1)),
@@ -236,12 +237,12 @@ pub fn ack_without_pending_is_an_error_test() {
   expect_unexpected_ack(map_kernel.ack_local(map_kernel.new(), map_kernel.Clear))
 }
 
-pub fn ack_delete_expecting_lifetime_is_an_error_test() {
+pub fn ack_delete_expecting_lifetime_is_an_error_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   expect_unexpected_ack(map_kernel.ack_local(state, Delete("k")))
 }
 
-pub fn ack_set_delete_set_sequence_test() {
+pub fn ack_set_delete_set_sequence_test() -> Nil {
   let #(state, _, op1) = map_kernel.set(map_kernel.new(), "k", json.int(1))
   let #(state, _, op2) = map_kernel.delete(state, "k")
   let #(state, _, op3) = map_kernel.set(state, "k", json.int(3))
@@ -252,7 +253,7 @@ pub fn ack_set_delete_set_sequence_test() {
   map_kernel.entries(state) |> expect.to_equal([#("k", json.int(3))])
 }
 
-pub fn pending_clear_acks_only_after_earlier_ops_test() {
+pub fn pending_clear_acks_only_after_earlier_ops_test() -> Nil {
   let #(state, _, set_op) = map_kernel.set(map_kernel.new(), "a", json.int(1))
   let #(state, _, clear_op) = map_kernel.clear(state)
   let #(state, _, set_op2) = map_kernel.set(state, "a", json.int(2))
@@ -272,7 +273,7 @@ pub fn pending_clear_acks_only_after_earlier_ops_test() {
 // Iteration order
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn iteration_follows_insertion_order_test() {
+pub fn iteration_follows_insertion_order_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -281,7 +282,7 @@ pub fn iteration_follows_insertion_order_test() {
   map_kernel.keys(state) |> expect.to_equal(["a", "b"])
 }
 
-pub fn remote_delete_then_set_moves_key_to_end_test() {
+pub fn remote_delete_then_set_moves_key_to_end_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -290,7 +291,7 @@ pub fn remote_delete_then_set_moves_key_to_end_test() {
   map_kernel.keys(state) |> expect.to_equal(["b", "a"])
 }
 
-pub fn pending_keys_iterate_after_sequenced_keys_test() {
+pub fn pending_keys_iterate_after_sequenced_keys_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _, _) = map_kernel.set(state, "b", json.int(2))
@@ -298,7 +299,7 @@ pub fn pending_keys_iterate_after_sequenced_keys_test() {
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
 }
 
-pub fn pending_set_on_sequenced_key_keeps_position_test() {
+pub fn pending_set_on_sequenced_key_keeps_position_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -307,7 +308,7 @@ pub fn pending_set_on_sequenced_key_keeps_position_test() {
   |> expect.to_equal([#("a", json.int(10)), #("b", json.int(2))])
 }
 
-pub fn local_delete_then_set_repositions_key_test() {
+pub fn local_delete_then_set_repositions_key_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -319,7 +320,7 @@ pub fn local_delete_then_set_repositions_key_test() {
   |> expect.to_equal([#("b", json.int(2)), #("a", json.int(3))])
 }
 
-pub fn lifetime_before_pending_clear_is_not_iterated_test() {
+pub fn lifetime_before_pending_clear_is_not_iterated_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "a", json.int(1))
   let #(state, _, _) = map_kernel.clear(state)
   let #(state, _, _) = map_kernel.set(state, "b", json.int(2))
@@ -330,7 +331,7 @@ pub fn lifetime_before_pending_clear_is_not_iterated_test() {
 // Summary seed (from_sequenced / sequenced_entries)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn from_sequenced_round_trips_entries_test() {
+pub fn from_sequenced_round_trips_entries_test() -> Nil {
   let entries = [
     #("die", json.int(4)),
     #("label", json.string("x")),
@@ -340,10 +341,10 @@ pub fn from_sequenced_round_trips_entries_test() {
   // Insertion order is preserved and there are no pending edits.
   map_kernel.sequenced_entries(state) |> expect.to_equal(entries)
   map_kernel.entries(state) |> expect.to_equal(entries)
-  map_kernel.get(state, "label") |> expect.to_equal(Some(json.string("x")))
+  map_kernel.get(state, "label") |> expect.to_equal(Ok(json.string("x")))
 }
 
-pub fn from_sequenced_supports_further_edits_test() {
+pub fn from_sequenced_supports_further_edits_test() -> Nil {
   let state = map_kernel.from_sequenced([#("a", json.int(1))])
   // A remote set on the seeded state extends it; a local set overlays.
   let #(state, _) = map_kernel.apply_remote(state, Set("b", json.int(2)))
@@ -418,7 +419,7 @@ fn submit_local(
 }
 
 /// `get`/`has` agree with `entries` for every key in play.
-pub fn point_reads_agree_with_iteration_test() {
+pub fn point_reads_agree_with_iteration_test() -> Nil {
   qcheck.run(
     qcheck.default_config() |> qcheck.with_test_count(1000),
     qcheck.tuple2(ops_generator(), ops_generator()),
@@ -434,11 +435,10 @@ pub fn point_reads_agree_with_iteration_test() {
       list.each(["a", "b", "c", "d"], fn(key) {
         let from_entries =
           list.find(entries, fn(entry) { entry.0 == key })
-          |> option.from_result
-          |> option.map(fn(entry) { entry.1 })
+          |> result.map(fn(entry) { entry.1 })
         map_kernel.get(state, key) |> expect.to_equal(from_entries)
         map_kernel.has(state, key)
-        |> expect.to_equal(from_entries != option.None)
+        |> expect.to_equal(from_entries != Error(Nil))
       })
     },
   )

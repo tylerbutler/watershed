@@ -57,7 +57,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() {
+pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -92,7 +92,7 @@ pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() {
   encoded |> string.contains("\"element\":\"stake-3\"") |> expect.to_be_true()
 }
 
-pub fn two_p_set_snapshot_round_trips_test() {
+pub fn two_p_set_snapshot_round_trips_test() -> Nil {
   let #(state, _, add_op, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
   let assert Ok(state) = two_p_set_kernel.ack_local(state, add_op)

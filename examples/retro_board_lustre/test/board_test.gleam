@@ -7,17 +7,17 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
 
-import board.{NoteCard}
-import column
-import note.{type Note, Note}
+import retro_board_lustre/board.{NoteCard}
+import retro_board_lustre/column
+import retro_board_lustre/note.{type Note, Note}
 
-fn note_in(col: String, created: Int) -> Note {
-  Note(text: "card", column: col, author: "web-1", created: created)
+fn note_in(column: String, created: Int) -> Note {
+  Note(text: "card", column: column, author: "web-1", created: created)
 }
 
 const no_votes = []
 
-pub fn id_in_two_sequences_renders_once_in_the_register_column_test() {
+pub fn id_in_two_sequences_renders_once_in_the_register_column_test() -> Nil {
   // A half-landed concurrent move: both sequences claim the note.
   let board =
     board.render([#("n1", note_in("to_improve", 1))], no_votes, [
@@ -38,7 +38,7 @@ pub fn id_in_two_sequences_renders_once_in_the_register_column_test() {
   ])
 }
 
-pub fn id_only_in_a_wrong_column_sequence_renders_at_the_register_columns_tail_test() {
+pub fn id_only_in_a_wrong_column_sequence_renders_at_the_register_columns_tail_test() -> Nil {
   // The register says action_items but only went_well's sequence has the id.
   let board =
     board.render([#("n1", note_in("action_items", 5))], no_votes, [
@@ -59,7 +59,7 @@ pub fn id_only_in_a_wrong_column_sequence_renders_at_the_register_columns_tail_t
   ])
 }
 
-pub fn unsequenced_notes_render_in_created_order_with_id_tiebreak_test() {
+pub fn unsequenced_notes_render_in_created_order_with_id_tiebreak_test() -> Nil {
   let board =
     board.render(
       [
@@ -82,7 +82,7 @@ pub fn unsequenced_notes_render_in_created_order_with_id_tiebreak_test() {
   |> should.equal([None, None, None])
 }
 
-pub fn deleted_note_ids_are_skipped_and_raw_indexes_keep_their_gaps_test() {
+pub fn deleted_note_ids_are_skipped_and_raw_indexes_keep_their_gaps_test() -> Nil {
   // "gone" was deleted from the notes map but its sequence entry remains.
   // The card after the gap must keep its RAW index (2, not 1) — sequence ops
   // address raw positions.
@@ -102,7 +102,7 @@ pub fn deleted_note_ids_are_skipped_and_raw_indexes_keep_their_gaps_test() {
   board.total_occurrences(board, "gone") |> should.equal(0)
 }
 
-pub fn duplicate_id_in_one_sequence_renders_once_at_its_first_index_test() {
+pub fn duplicate_id_in_one_sequence_renders_once_at_its_first_index_test() -> Nil {
   let board =
     board.render([#("n1", note_in("went_well", 1))], no_votes, [
       #(column.WentWell, ["n1", "n1"]),
@@ -114,7 +114,7 @@ pub fn duplicate_id_in_one_sequence_renders_once_at_its_first_index_test() {
   |> should.equal([#("n1", Some(0))])
 }
 
-pub fn unknown_column_registers_route_to_unfiled_test() {
+pub fn unknown_column_registers_route_to_unfiled_test() -> Nil {
   // A future build's column id, and the codec fallback's empty string.
   let board =
     board.render(
@@ -136,7 +136,7 @@ pub fn unknown_column_registers_route_to_unfiled_test() {
   board.total_occurrences(board, "n1") |> should.equal(1)
 }
 
-pub fn orphan_votes_are_ignored_test() {
+pub fn orphan_votes_are_ignored_test() -> Nil {
   // A tally for a deleted note: unreachable, not rendered, not crashing.
   let board =
     board.render(
@@ -154,7 +154,7 @@ pub fn orphan_votes_are_ignored_test() {
   board.total_occurrences(board, "gone") |> should.equal(0)
 }
 
-pub fn a_never_voted_note_defaults_to_zero_test() {
+pub fn a_never_voted_note_defaults_to_zero_test() -> Nil {
   let board =
     board.render([#("n1", note_in("action_items", 1))], no_votes, [
       #(column.WentWell, []),

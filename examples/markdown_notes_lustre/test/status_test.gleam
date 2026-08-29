@@ -4,14 +4,19 @@
 @target(javascript)
 import gleeunit/should
 @target(javascript)
-import lustre/dev/query
+import lustre/dev/query.{type Query}
 @target(javascript)
-import lustre/dev/simulate
+import lustre/dev/simulate.{type Simulation}
+@target(javascript)
+import lustre/element.{type Element}
 
 @target(javascript)
 import markdown_notes_lustre
 
-fn started() {
+fn started() -> Simulation(
+  markdown_notes_lustre.Model,
+  markdown_notes_lustre.Msg,
+) {
   simulate.application(
     init: markdown_notes_lustre.init,
     update: markdown_notes_lustre.update,
@@ -20,22 +25,29 @@ fn started() {
   |> simulate.start("status-test-room")
 }
 
-fn smoke(name: String) {
+fn smoke(name: String) -> Query {
   query.element(matching: query.data("smoke", name))
 }
 
-fn find(view, selector) {
+fn find(
+  view: Element(markdown_notes_lustre.Msg),
+  selector: Query,
+) -> Element(markdown_notes_lustre.Msg) {
   query.find(in: view, matching: selector) |> should.be_ok
 }
 
-fn should_read(view, name: String, text: String) {
+fn should_read(
+  view: Element(markdown_notes_lustre.Msg),
+  name: String,
+  text: String,
+) -> Nil {
   view
   |> find(smoke(name))
   |> query.has(matching: query.text(text))
   |> should.be_true
 }
 
-pub fn signaling_failure_is_reported_on_screen_test() {
+pub fn signaling_failure_is_reported_on_screen_test() -> Nil {
   started()
   |> simulate.message(markdown_notes_lustre.SignalingFailed(
     "signaling service closed the socket",
@@ -47,13 +59,13 @@ pub fn signaling_failure_is_reported_on_screen_test() {
   )
 }
 
-pub fn storage_durability_is_unstated_until_the_browser_answers_test() {
+pub fn storage_durability_is_unstated_until_the_browser_answers_test() -> Nil {
   started()
   |> simulate.view
   |> should_read("storage-status", "storage · opening local snapshot…")
 }
 
-pub fn refused_persistence_is_named_as_evictable_test() {
+pub fn refused_persistence_is_named_as_evictable_test() -> Nil {
   started()
   |> simulate.message(markdown_notes_lustre.StorageDurability(False))
   |> simulate.view
@@ -63,7 +75,7 @@ pub fn refused_persistence_is_named_as_evictable_test() {
   )
 }
 
-pub fn granted_persistence_is_named_as_durable_test() {
+pub fn granted_persistence_is_named_as_durable_test() -> Nil {
   started()
   |> simulate.message(markdown_notes_lustre.StorageDurability(True))
   |> simulate.view

@@ -53,9 +53,9 @@
 //// author already rebased it under another id. The two replicas then give
 //// opposite sides to the same pair, and the document forks.
 
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order
 import gleam/result
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,22 +83,70 @@ pub fn to_head_context(
   ref_seq: Int,
   seq: Int,
   op: op,
-  transform_against: fn(op, LogEntry(op)) -> Result(op, err),
-) -> Result(op, err) {
+  transform_against: fn(op, LogEntry(op)) -> Result(op, error),
+) -> Result(op, error) {
   log
   |> list.filter(fn(e) { e.seq > ref_seq && e.seq < seq })
-  |> list.sort(fn(a, b) { seq_compare(a.seq, b.seq) })
+  |> list.sort(fn(a, b) { int.compare(a.seq, b.seq) })
   |> list.try_fold(op, transform_against)
 }
 
-fn seq_compare(a: Int, b: Int) -> order.Order {
-  case a < b {
-    True -> order.Lt
-    False ->
-      case a > b {
-        True -> order.Gt
-        False -> order.Eq
-      }
+// ─────────────────────────────────────────────────────────────────────────────
+// Unacknowledged local edits
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The local edits that wait for an acknowledgement.
+///
+/// A buffered edit exists only behind an op that is already on the wire. This
+/// type states that rule, so a kernel cannot hold a buffer with an empty wire
+/// slot.
+pub type Pending(op) {
+  /// No local op waits for an acknowledgement.
+  Idle
+  /// One op is on the wire. The op is written against the sequenced state.
+  InFlight(op: op)
+  /// One op is on the wire, and every later local edit is composed into
+  /// `buffered`. `buffered` is written against the sequenced state with `op`
+  /// applied.
+  InFlightAndBuffered(op: op, buffered: op)
+}
+
+/// The op that is on the wire. The result is `Error(Nil)` when no op waits for
+/// an acknowledgement.
+pub fn in_flight(pending: Pending(op)) -> Result(op, Nil) {
+  case pending {
+    Idle -> Error(Nil)
+    InFlight(op) -> Ok(op)
+    InFlightAndBuffered(op, _) -> Ok(op)
+  }
+}
+
+/// The composed local edits that wait behind the op on the wire. The result is
+/// `Error(Nil)` when there is no such edit.
+pub fn buffered(pending: Pending(op)) -> Result(op, Nil) {
+  case pending {
+    Idle -> Error(Nil)
+    InFlight(_) -> Error(Nil)
+    InFlightAndBuffered(_, buffered) -> Ok(buffered)
+  }
+}
+
+/// Record a local edit. The edit becomes the op on the wire when the wire slot
+/// is free. The edit joins the buffer in every other case, through `compose`.
+/// The second element of the result is the op to send, and it is `None` when
+/// the kernel must hold the edit.
+pub fn hold_local(
+  pending: Pending(op),
+  edit: op,
+  compose: fn(op, op) -> Result(op, error),
+) -> Result(#(Pending(op), Option(op)), error) {
+  case pending {
+    Idle -> Ok(#(InFlight(edit), Some(edit)))
+    InFlight(op) -> Ok(#(InFlightAndBuffered(op, edit), None))
+    InFlightAndBuffered(op, buffered) -> {
+      use composed <- result.try(compose(buffered, edit))
+      Ok(#(InFlightAndBuffered(op, composed), None))
+    }
   }
 }
 
@@ -106,31 +154,37 @@ fn seq_compare(a: Int, b: Int) -> order.Order {
 // Pending-op rebase
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Rebase an optional pending local op, which is `inflight` or `buffer`, past
-/// an incoming remote op. The function returns the rebased local op and the
-/// remote op advanced past it. The next pending layer must transform against
-/// that advanced remote op, and so must the visible remote event of the
-/// kernel.
+/// Rebase every unacknowledged local op past an incoming remote op. The
+/// function returns the rebased local ops and the remote op advanced past all
+/// of them. The visible remote event of the kernel must use that advanced op.
 ///
-/// The pending local op sequences after the remote op, because the client
-/// reads the sequenced stream in order. The `rebase_local` closure must thus
-/// give the local op the side of the later op, and `advance_remote` must give
-/// the remote op the side of the earlier op.
+/// The kernel rebases the op on the wire first, and then the buffer, which
+/// lives one context deeper. The function advances the remote op past each
+/// layer in that order, so every rebase is well formed.
 ///
-/// The local result is `None` when there is no pending op to rebase. The
-/// function then returns the remote op without a change.
+/// A pending local op sequences after the remote op, because the client reads
+/// the sequenced stream in order. The `rebase_local` closure must thus give the
+/// local op the side of the later op, and `advance_remote` must give the remote
+/// op the side of the earlier op.
 pub fn rebase_pending(
-  local: Option(op),
+  pending: Pending(op),
   remote: op,
-  rebase_local: fn(op, op) -> Result(op, err),
-  advance_remote: fn(op, op) -> Result(op, err),
-) -> Result(#(Option(op), op), err) {
-  case local {
-    None -> Ok(#(None, remote))
-    Some(local) -> {
-      use rebased <- result.try(rebase_local(local, remote))
-      use advanced <- result.try(advance_remote(remote, local))
-      Ok(#(Some(rebased), advanced))
+  rebase_local: fn(op, op) -> Result(op, error),
+  advance_remote: fn(op, op) -> Result(op, error),
+) -> Result(#(Pending(op), op), error) {
+  case pending {
+    Idle -> Ok(#(Idle, remote))
+    InFlight(op) -> {
+      use rebased <- result.try(rebase_local(op, remote))
+      use advanced <- result.try(advance_remote(remote, op))
+      Ok(#(InFlight(rebased), advanced))
+    }
+    InFlightAndBuffered(op, buffered) -> {
+      use rebased_op <- result.try(rebase_local(op, remote))
+      use after_op <- result.try(advance_remote(remote, op))
+      use rebased_buffer <- result.try(rebase_local(buffered, after_op))
+      use advanced <- result.try(advance_remote(after_op, buffered))
+      Ok(#(InFlightAndBuffered(rebased_op, rebased_buffer), advanced))
     }
   }
 }
@@ -150,23 +204,27 @@ pub fn gc_log(log: List(LogEntry(op)), msn: Int) -> List(LogEntry(op)) {
 // Single-inflight / buffer promotion
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Release a buffered op as the next in-flight op after an ack. The function
-/// sets the reference sequence of the wire envelope to the `seq` of the ack,
-/// because the buffer is expressed against `sequenced` with the acked op
-/// applied.
+/// Retire the op that the server acknowledged. A buffered edit becomes the next
+/// op on the wire, and the function builds its wire envelope. The reference
+/// sequence of that envelope is the `seq` of the acknowledgement, because the
+/// buffer is written against `sequenced` with the acknowledged op applied.
 ///
-/// The result is the new `inflight` and `outbound` pair. It is `#(None, None)`
-/// when the buffer was empty. This is a plain function over an `Option` and a
-/// wire constructor, and not over kernel state, so every kernel can share it
-/// whatever the shape of its state record is.
+/// The second element of the result is `None` when there was no buffered edit.
+/// This is a plain function over a `Pending` value and a wire constructor, and
+/// not over kernel state, so every kernel can share it whatever the shape of
+/// its state record is.
 pub fn promote_buffer(
-  buffer: Option(op),
+  pending: Pending(op),
   seq: Int,
   make_wire: fn(Int, op) -> wire,
-) -> #(Option(op), Option(wire)) {
-  case buffer {
-    None -> #(None, None)
-    Some(buffer) -> #(Some(buffer), Some(make_wire(seq, buffer)))
+) -> #(Pending(op), Option(wire)) {
+  case pending {
+    Idle -> #(Idle, None)
+    InFlight(_) -> #(Idle, None)
+    InFlightAndBuffered(_, buffered) -> #(
+      InFlight(buffered),
+      Some(make_wire(seq, buffered)),
+    )
   }
 }
 

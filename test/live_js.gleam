@@ -129,16 +129,14 @@ fn reconnect_into_a_quiet_room() -> Promise(Bool) {
   watershed.go_online(doc_a)
 
   use caught_up <- promise.await(
-    wait_until(fn() { watershed.get(map_a, "from-b") == Some(json.bool(True)) }),
+    wait_until(fn() { watershed.get(map_a, "from-b") == Ok(json.bool(True)) }),
   )
 
   // Caught up is not the same as live. An edit made now has to reach the wire,
   // which it cannot do from the catching-up holding state.
   watershed.set(map_a, "after", json.string("live"))
   use live <- promise.await(
-    wait_until(fn() {
-      watershed.get(map_b, "after") == Some(json.string("live"))
-    }),
+    wait_until(fn() { watershed.get(map_b, "after") == Ok(json.string("live")) }),
   )
 
   finish("reconnect_into_a_quiet_room", doc_a, doc_b, [
@@ -167,9 +165,7 @@ fn reconnect_with_nothing_missed() -> Promise(Bool) {
 
   watershed.set(map_a, "after", json.string("live"))
   use live <- promise.await(
-    wait_until(fn() {
-      watershed.get(map_b, "after") == Some(json.string("live"))
-    }),
+    wait_until(fn() { watershed.get(map_b, "after") == Ok(json.string("live")) }),
   )
 
   finish("reconnect_with_nothing_missed", doc_a, doc_b, [
@@ -196,14 +192,14 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
 
   // Held means held, in both directions.
   let isolated =
-    watershed.get(map_b, "offline-a") == None
-    && watershed.get(map_a, "offline-b") == None
+    watershed.get(map_b, "offline-a") == Error(Nil)
+    && watershed.get(map_a, "offline-b") == Error(Nil)
 
   watershed.go_online(doc_a)
   use merged <- promise.await(
     wait_until(fn() {
-      watershed.get(map_b, "offline-a") == Some(json.string("a"))
-      && watershed.get(map_a, "offline-b") == Some(json.string("b"))
+      watershed.get(map_b, "offline-a") == Ok(json.string("a"))
+      && watershed.get(map_a, "offline-b") == Ok(json.string("b"))
     }),
   )
 
@@ -249,7 +245,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   watershed.set(map_a, "post", json.string("after-summary"))
   use delivered <- promise.await(
     wait_until(fn() {
-      watershed.get(map_b, "post") == Some(json.string("after-summary"))
+      watershed.get(map_b, "post") == Ok(json.string("after-summary"))
     }),
   )
 
@@ -257,7 +253,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   let map_c = watershed.root(doc_c)
   use joined <- promise.await(
     wait_until(fn() {
-      watershed.get(map_c, "post") == Some(json.string("after-summary"))
+      watershed.get(map_c, "post") == Ok(json.string("after-summary"))
     }),
   )
   // It seeded from the checkpoint rather than replaying from zero: its drift
@@ -376,7 +372,7 @@ fn connect_client(document: String, user: String) -> Promise(Document(root)) {
 /// starts breaking things.
 fn settle(map_a: SharedMap, map_b: SharedMap) -> Promise(Bool) {
   watershed.set(map_a, "k1", json.int(1))
-  wait_until(fn() { watershed.get(map_b, "k1") == Some(json.int(1)) })
+  wait_until(fn() { watershed.get(map_b, "k1") == Ok(json.int(1)) })
 }
 
 @target(javascript)

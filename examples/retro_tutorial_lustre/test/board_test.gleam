@@ -3,8 +3,8 @@
 import gleam/list
 import gleeunit/should
 
-import board.{NoteCard}
-import note.{type Note, Note}
+import retro_tutorial_lustre/board.{NoteCard}
+import retro_tutorial_lustre/note.{type Note, Note}
 
 fn note_in(column: String, created: Int, text: String) -> Note {
   Note(text: text, column: column, author: "web-1", created: created)
@@ -21,7 +21,7 @@ fn total_occurrences(snapshot: board.Snapshot, id: String) -> Int {
   |> list.count(fn(card) { card.id == id })
 }
 
-pub fn notes_group_by_column_and_sort_by_created_then_id_test() {
+pub fn notes_group_by_column_and_sort_by_created_then_id_test() -> Nil {
   let snapshot =
     board.snapshot(
       "Sprint retro",
@@ -38,7 +38,7 @@ pub fn notes_group_by_column_and_sort_by_created_then_id_test() {
   |> should.equal(["note-b", "note-a", "note-z"])
 }
 
-pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() {
+pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() -> Nil {
   let snapshot =
     board.snapshot(
       "Sprint retro",
@@ -57,7 +57,7 @@ pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() {
   total_occurrences(snapshot, "gone") |> should.equal(0)
 }
 
-pub fn unknown_columns_route_to_unfiled_test() {
+pub fn unknown_columns_route_to_unfiled_test() -> Nil {
   let snapshot =
     board.snapshot(
       "Sprint retro",

@@ -24,6 +24,18 @@
 ////   reconcile.
 //// - **Heartbeat.** A periodic `noop` frame advances the MSN of the server
 ////   while the client is idle.
+////
+//// ## Why this module panics
+////
+//// A library must not panic. This module is the one exception in the package,
+//// because it is an OTP actor. The panics are all inside the message loop, and
+//// they all report a fault that the actor cannot repair: a channel push that
+//// the transport refused, a summary or a history fetch that failed, a
+//// bootstrap that the core refused, a fatal nack, and a server frame that does
+//// not decode. Each one crashes the actor, which is the OTP way to report such
+//// a fault. Place the runtime under a supervisor to restart it. The
+//// synchronous API of the package returns a `Result` instead, so a caller
+//// never meets a panic on a normal path.
 
 @target(erlang)
 import gleam/dict.{type Dict}
@@ -77,7 +89,7 @@ import watershed/claims_kernel
 @target(erlang)
 import watershed/git_storage
 @target(erlang)
-import watershed/ids
+import watershed/id
 @target(erlang)
 import watershed/json_ot
 @target(erlang)
@@ -85,6 +97,7 @@ import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/ordered_collection_kernel
 
+@target(erlang)
 import watershed/pact_map_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy}
@@ -295,7 +308,7 @@ pub type Msg {
     task_id: String,
     reply: Subject(Result(Nil, String)),
   )
-  TrySetClaim(
+  ClaimOnce(
     address: String,
     key: String,
     value: Json,
@@ -360,17 +373,21 @@ pub type Msg {
     reply: Subject(Result(summary_blob.SummaryBlob, String)),
   )
   // Reads
-  GetValue(address: String, key: String, reply: Subject(Option(Json)))
-  /// The optimistic value of the counter. The reply is `None` when the address
+  GetValue(address: String, key: String, reply: Subject(Result(Json, Nil)))
+  /// The optimistic value of the counter. The reply is `Error(Nil)` when the address
   /// does not exist, and when it does not name a counter channel.
-  GetCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The optimistic value of the PN-counter. The reply is `None` when the
+  GetCounterValue(address: String, reply: Subject(Result(Int, Nil)))
+  /// The optimistic value of the PN-counter. The reply is `Error(Nil)` when the
   /// address does not exist, and when it does not name a PN-counter channel.
-  GetPnCounterValue(address: String, reply: Subject(Option(Int)))
-  /// The accepted value of the PactMap for `key`. The reply is `None` when the
+  GetPnCounterValue(address: String, reply: Subject(Result(Int, Nil)))
+  /// The accepted value of the PactMap for `key`. The reply is `Error(Nil)` when the
   /// value is pending, when the key is absent, and when the address does not
   /// name a PactMap channel.
-  GetPactMapValue(address: String, key: String, reply: Subject(Option(Json)))
+  GetPactMapValue(
+    address: String,
+    key: String,
+    reply: Subject(Result(Json, Nil)),
+  )
   /// Every key with an accepted pact or a pending pact, in the PactMap at
   /// `address`.
   GetPactMapKeys(address: String, reply: Subject(List(String)))
@@ -378,25 +395,25 @@ pub type Msg {
   /// has accepted yet.
   GetPactMapPending(address: String, key: String, reply: Subject(Bool))
   /// The pending proposal for `key`, which is the value with the signoff list
-  /// that it waits on. The reply is `None` when nothing is pending, and when
+  /// that it waits on. The reply is `Error(Nil)` when nothing is pending, and when
   /// the address does not name a PactMap.
   GetPactMapPendingDetails(
     address: String,
     key: String,
-    reply: Subject(Option(pact_map_kernel.Pending)),
+    reply: Subject(Result(pact_map_kernel.Pending, Nil)),
   )
   /// The accepted entry for `key`, which is the value with its sequence
-  /// number. The reply is `None` when the key has no accepted value.
+  /// number. The reply is `Error(Nil)` when the key has no accepted value.
   GetPactMapAccepted(
     address: String,
     key: String,
-    reply: Subject(Option(pact_map_kernel.Accepted)),
+    reply: Subject(Result(pact_map_kernel.Accepted, Nil)),
   )
   /// The number of items in the queue of the ordered collection at `address`,
-  /// which are the items that no client acquired yet. The reply is `None` when
+  /// which are the items that no client acquired yet. The reply is `Error(Nil)` when
   /// the address does not exist, and when it does not name an
   /// ordered-collection channel.
-  GetOrderedSize(address: String, reply: Subject(Option(Int)))
+  GetOrderedSize(address: String, reply: Subject(Result(Int, Nil)))
   /// The values in the queue at `address`, which no client acquired yet, front
   /// first.
   GetOrderedQueue(address: String, reply: Subject(List(Json)))
@@ -406,17 +423,20 @@ pub type Msg {
     address: String,
     reply: Subject(List(#(String, ordered_collection_kernel.JobEntry))),
   )
-  /// The optimistic document of the json0 channel. The reply is `None` when
+  /// The optimistic document of the json0 channel. The reply is `Error(Nil)` when
   /// the address does not exist, and when it does not name a json0 channel.
-  GetJsonOtView(address: String, reply: Subject(Option(json_ot.JsonValue)))
-  /// The optimistic document of the rich-text channel. The reply is `None`
+  GetJsonOtView(address: String, reply: Subject(Result(json_ot.JsonValue, Nil)))
+  /// The optimistic document of the rich-text channel. The reply is `Error(Nil)`
   /// when the address does not exist, and when it does not name a rich-text
   /// channel.
-  GetRichTextView(address: String, reply: Subject(Option(rich_text.Document)))
+  GetRichTextView(
+    address: String,
+    reply: Subject(Result(rich_text.Document, Nil)),
+  )
   GetOrMapValue(
     address: String,
     key: String,
-    reply: Subject(Option(OrMapValue)),
+    reply: Subject(Result(OrMapValue, Nil)),
   )
   GetOrMapEntries(address: String, reply: Subject(List(#(String, OrMapValue))))
   GetOrMapKeys(address: String, reply: Subject(List(String)))
@@ -475,7 +495,7 @@ pub type Msg {
     address: String,
     path: String,
     key: String,
-    reply: Subject(Option(Json)),
+    reply: Subject(Result(Json, Nil)),
   )
   DirectoryEntries(
     address: String,
@@ -497,15 +517,15 @@ pub type Msg {
     address: String,
     key: String,
     policy: ReadPolicy,
-    reply: Subject(Option(Json)),
+    reply: Subject(Result(Json, Nil)),
   )
   GetRegisterVersions(
     address: String,
     key: String,
-    reply: Subject(Option(List(Json))),
+    reply: Subject(Result(List(Json), Nil)),
   )
   GetRegisterKeys(address: String, reply: Subject(List(String)))
-  GetClaim(address: String, key: String, reply: Subject(Option(Json)))
+  GetClaim(address: String, key: String, reply: Subject(Result(Json, Nil)))
   HasClaim(address: String, key: String, reply: Subject(Bool))
   TaskAssigned(address: String, task_id: String, reply: Subject(Bool))
   TaskQueued(address: String, task_id: String, reply: Subject(Bool))
@@ -798,12 +818,12 @@ fn client_id_of(state: State) -> Option(String) {
   case state.phase {
     Ready(core, _) -> Some(core.client_id)
     Reconnecting(core) -> Some(core.client_id)
-    _ -> None
+    Connecting(_) | Failed(_) -> None
   }
 }
 
 @target(erlang)
-pub fn try_set_claim(
+pub fn claim_once(
   runtime: Subject(Msg),
   address: String,
   key: String,
@@ -811,7 +831,7 @@ pub fn try_set_claim(
 ) -> ClaimSubmitReply {
   let outcome = process.new_subject()
   process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TrySetClaim(address, key, value, outcome, reply)
+    ClaimOnce(address, key, value, outcome, reply)
   })
 }
 
@@ -833,7 +853,7 @@ pub fn get_claim(
   runtime: Subject(Msg),
   address: String,
   key: String,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
     GetClaim(address, key, reply)
   })
@@ -982,7 +1002,7 @@ fn aquamarine_transport(
             codec: phoenix.codec(),
           )
         {
-          Error(err) -> callbacks.on_fail(string.inspect(err))
+          Error(error) -> callbacks.on_fail(string.inspect(error))
           Ok(channel) -> {
             callbacks.on_ready(aquamarine_handle(channel))
             aquamarine_receive_loop(channel, callbacks)
@@ -1018,7 +1038,7 @@ fn aquamarine_receive_loop(
       callbacks.on_event(incoming.event, incoming.payload)
       aquamarine_receive_loop(channel, callbacks)
     }
-    Error(err) -> callbacks.on_close(string.inspect(err))
+    Error(error) -> callbacks.on_close(string.inspect(error))
   }
 }
 
@@ -1026,7 +1046,7 @@ fn aquamarine_receive_loop(
 fn aquamarine_push(channel: Channel, event: String, payload: Json) -> Nil {
   case aquamarine.push(channel, event, payload) {
     Ok(Nil) -> Nil
-    Error(err) -> panic as { "channel push failed: " <> string.inspect(err) }
+    Error(error) -> panic as { "channel push failed: " <> string.inspect(error) }
   }
 }
 
@@ -1049,7 +1069,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
               reference_sequence_number: core.last_seen_sn,
             ),
           )
-        _, _ -> Nil
+        Ready(_, None), None
+        | Ready(_, Some(_)), _
+        | Connecting(_), _
+        | Reconnecting(_), _
+        | Failed(_), _
+        -> Nil
       }
       actor.continue(state)
     }
@@ -1084,14 +1109,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
                 Error(_reason) -> actor.continue(state)
               }
           }
-        _, _, _ -> actor.continue(state)
+        Ready(_, None), Some(_), None
+        | Ready(_, None), None, _
+        | Ready(_, Some(_)), _, _
+        | Connecting(_), _, _
+        | Reconnecting(_), _, _
+        | Failed(_), _, _
+        -> actor.continue(state)
       }
     }
 
     ChannelReady(channel) -> {
       let last_seen = case state.phase {
         Reconnecting(core) -> Some(core.last_seen_sn)
-        _ -> None
+        Connecting(_) | Ready(_, _) | Failed(_) -> None
       }
       push(
         channel,
@@ -1108,7 +1139,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       case state.phase {
         Ready(core, _) -> actor.continue(begin_reconnect(state, core))
         Reconnecting(core) -> actor.continue(begin_reconnect(state, core))
-        _ -> actor.continue(fail(state, "channel closed: " <> reason))
+        Connecting(_) | Failed(_) ->
+          actor.continue(fail(state, "channel closed: " <> reason))
       }
 
     Inbound(event, payload) -> handle_inbound(state, event, payload)
@@ -1251,9 +1283,9 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     CompleteTask(address, task_id, reply) ->
       handle_task_complete(state, address, task_id, reply)
-    TrySetClaim(address, key, value, outcome, reply) ->
+    ClaimOnce(address, key, value, outcome, reply) ->
       handle_claim_submit(state, address, key, outcome, reply, fn(core) {
-        runtime_core.try_set_claim(core, address, key, value)
+        runtime_core.claim_once(core, address, key, value)
       })
     CompareAndSetClaim(address, key, value, outcome, reply) ->
       handle_claim_submit(state, address, key, outcome, reply, fn(core) {
@@ -1355,27 +1387,30 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     }
 
     GetValue(address, key, reply) -> {
-      process.send(reply, read(state, None, runtime_core.get(_, address, key)))
+      process.send(
+        reply,
+        read(state, Error(Nil), runtime_core.get(_, address, key)),
+      )
       actor.continue(state)
     }
     GetCounterValue(address, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.counter_value(_, address)),
+        read(state, Error(Nil), runtime_core.counter_value(_, address)),
       )
       actor.continue(state)
     }
     GetPnCounterValue(address, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.pn_counter_value(_, address)),
+        read(state, Error(Nil), runtime_core.pn_counter_value(_, address)),
       )
       actor.continue(state)
     }
     GetPactMapValue(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.pact_map_get(_, address, key)),
+        read(state, Error(Nil), runtime_core.pact_map_get(_, address, key)),
       )
       actor.continue(state)
     }
@@ -1396,14 +1431,14 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     GetPactMapPendingDetails(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.pact_map_pending(_, address, key)),
+        read(state, Error(Nil), runtime_core.pact_map_pending(_, address, key)),
       )
       actor.continue(state)
     }
     GetPactMapAccepted(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.pact_map_get_with_details(
+        read(state, Error(Nil), runtime_core.pact_map_get_with_details(
           _,
           address,
           key,
@@ -1414,7 +1449,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     GetOrderedSize(address, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.ordered_size(_, address)),
+        read(state, Error(Nil), runtime_core.ordered_size(_, address)),
       )
       actor.continue(state)
     }
@@ -1435,21 +1470,21 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     GetJsonOtView(address, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.json_ot_view(_, address)),
+        read(state, Error(Nil), runtime_core.json_ot_view(_, address)),
       )
       actor.continue(state)
     }
     GetRichTextView(address, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.rich_text_view(_, address)),
+        read(state, Error(Nil), runtime_core.rich_text_view(_, address)),
       )
       actor.continue(state)
     }
     GetOrMapValue(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.or_map_value(_, address, key)),
+        read(state, Error(Nil), runtime_core.or_map_value(_, address, key)),
       )
       actor.continue(state)
     }
@@ -1550,7 +1585,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     DirectoryGet(address, path, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.directory_get(_, address, path, key)),
+        read(state, Error(Nil), runtime_core.directory_get(
+          _,
+          address,
+          path,
+          key,
+        )),
       )
       actor.continue(state)
     }
@@ -1597,14 +1637,19 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     GetRegisterValue(address, key, policy, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.register_read(_, address, key, policy)),
+        read(state, Error(Nil), runtime_core.register_read(
+          _,
+          address,
+          key,
+          policy,
+        )),
       )
       actor.continue(state)
     }
     GetRegisterVersions(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.register_versions(_, address, key)),
+        read(state, Error(Nil), runtime_core.register_versions(_, address, key)),
       )
       actor.continue(state)
     }
@@ -1618,7 +1663,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
     GetClaim(address, key, reply) -> {
       process.send(
         reply,
-        read(state, None, runtime_core.get_claim(_, address, key)),
+        read(state, Error(Nil), runtime_core.get_claim(_, address, key)),
       )
       actor.continue(state)
     }
@@ -1752,7 +1797,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         // Reuse the retryable-nack path: close the channel and enter the
         // reconnecting phase; the receiver's ChannelClosed drives the rejoin.
         Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
-        _ -> actor.continue(state)
+        Connecting(_) | Reconnecting(_) | Failed(_) -> actor.continue(state)
       }
 
     Shutdown -> {
@@ -1778,18 +1823,18 @@ fn create_channel(
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let address = ids.uuid_v4()
+      let address = id.uuid_v4()
       let core = runtime_core.create_detached(core, address, init)
       process.send(reply, Ok(address))
       actor.continue(State(..state, phase: Ready(core, resubmit_at)))
     }
     Reconnecting(core) -> {
-      let address = ids.uuid_v4()
+      let address = id.uuid_v4()
       let core = runtime_core.create_detached(core, address, init)
       process.send(reply, Ok(address))
       actor.continue(State(..state, phase: Reconnecting(core)))
     }
-    _ -> {
+    Connecting(_) | Failed(_) -> {
       process.send(
         reply,
         Error(verb <> " requires a ready document connection"),
@@ -1808,7 +1853,8 @@ fn resolve_sequence_address(
     Ready(core, _) | Reconnecting(core) ->
       runtime_core.require_channel_type(core, address, SequenceChannel)
       |> result.map_error(string.inspect)
-    _ -> Error("resolve_sequence requires a ready document connection")
+    Connecting(_) | Failed(_) ->
+      Error("resolve_sequence requires a ready document connection")
   }
 }
 
@@ -1818,7 +1864,8 @@ fn resolve_text_address(state: State, address: String) -> Result(Nil, String) {
     Ready(core, _) | Reconnecting(core) ->
       runtime_core.require_channel_type(core, address, TextChannel)
       |> result.map_error(string.inspect)
-    _ -> Error("resolve_text requires a ready document connection")
+    Connecting(_) | Failed(_) ->
+      Error("resolve_text requires a ready document connection")
   }
 }
 
@@ -1844,8 +1891,8 @@ fn handle_inbound(
         Connecting(_) -> {
           let summary = case connected.summary_context {
             None -> None
-            Some(ctx) ->
-              case fetch_summary(state, ctx) {
+            Some(context) ->
+              case fetch_summary(state, context) {
                 Ok(summary) -> Some(summary)
                 Error(reason) -> panic as { "summary load failed: " <> reason }
               }
@@ -1882,7 +1929,7 @@ fn handle_inbound(
           settle_reconnect(state, core, checkpoint)
         }
         // A late duplicate success; nothing to do.
-        _ -> actor.continue(state)
+        Ready(_, _) | Failed(_) -> actor.continue(state)
       }
     }
 
@@ -1927,7 +1974,7 @@ fn handle_inbound(
         }
         // Ops before/without a connected session (or while reconnecting)
         // carry no state we can trust; ignore them.
-        _ -> actor.continue(state)
+        Connecting(_) | Reconnecting(_) | Failed(_) -> actor.continue(state)
       }
 
     "nack" -> {
@@ -1940,7 +1987,7 @@ fn handle_inbound(
           case state.phase {
             Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
             // Already tearing the channel down; the pending reconnect covers it.
-            _ -> actor.continue(state)
+            Connecting(_) | Reconnecting(_) | Failed(_) -> actor.continue(state)
           }
       }
     }
@@ -2076,8 +2123,13 @@ fn handle_claim_submit(
           process.send(reply, WrongChannelType)
           actor.continue(state)
         }
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        // The core refused the claim for a reason that is not a channel type
+        // mismatch. The actor reports the same refusal and stays alive: one
+        // bad call must not take the whole document down.
+        Error(_) -> {
+          process.send(reply, WrongChannelType)
+          actor.continue(state)
+        }
         Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
           process.send(reply, AlreadyClaimed(current_value))
           actor.continue(state)
@@ -2111,8 +2163,13 @@ fn handle_claim_submit(
           process.send(reply, WrongChannelType)
           actor.continue(state)
         }
-        Error(core_error) ->
-          panic as { "claim submit failed: " <> string.inspect(core_error) }
+        // The core refused the claim for a reason that is not a channel type
+        // mismatch. The actor reports the same refusal and stays alive: one
+        // bad call must not take the whole document down.
+        Error(_) -> {
+          process.send(reply, WrongChannelType)
+          actor.continue(state)
+        }
         Ok(runtime_core.ClaimAlreadyClaimed(current_value)) -> {
           process.send(reply, AlreadyClaimed(current_value))
           actor.continue(state)
@@ -2135,7 +2192,12 @@ fn handle_claim_submit(
         }
       }
 
-    _ -> panic as "claim submit before the document connection is ready"
+    // The connection is not ready yet. The actor refuses the claim instead
+    // of a crash.
+    Connecting(_) | Failed(_) -> {
+      process.send(reply, WrongChannelType)
+      actor.continue(state)
+    }
   }
 }
 
@@ -2204,7 +2266,7 @@ fn handle_ordered_acquire(
   address: String,
   reply: Subject(String),
 ) -> actor.Next(State, Msg) {
-  let acquire_id = ids.uuid_v4()
+  let acquire_id = id.uuid_v4()
   process.send(reply, acquire_id)
   edit(state, fn(core) {
     runtime_core.ordered_acquire(core, address, acquire_id)
@@ -2223,13 +2285,18 @@ fn handle_ordered_acquire_with_outcome(
   outcome: Subject(ordered_collection_kernel.AcquireOutcome),
   reply: Subject(String),
 ) -> actor.Next(State, Msg) {
-  let acquire_id = ids.uuid_v4()
+  let acquire_id = id.uuid_v4()
   process.send(reply, acquire_id)
   case state.phase {
     Ready(core, resubmit_at) ->
       case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
-        Error(core_error) ->
-          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        // The core refused the acquire, for example because the address
+        // names another kernel. The actor resolves the waiter at once and
+        // stays alive.
+        Error(_) -> {
+          process.send(outcome, ordered_collection_kernel.Aborted)
+          actor.continue(state)
+        }
         Ok(#(core, events, outbound, immediate_outcome)) -> {
           let state =
             register_acquire_waiter(
@@ -2250,8 +2317,13 @@ fn handle_ordered_acquire_with_outcome(
       }
     Reconnecting(core) ->
       case runtime_core.ordered_acquire_submit(core, address, acquire_id) {
-        Error(core_error) ->
-          panic as { "ordered acquire failed: " <> string.inspect(core_error) }
+        // The core refused the acquire, for example because the address
+        // names another kernel. The actor resolves the waiter at once and
+        // stays alive.
+        Error(_) -> {
+          process.send(outcome, ordered_collection_kernel.Aborted)
+          actor.continue(state)
+        }
         Ok(#(core, events, _outbound, immediate_outcome)) -> {
           let state =
             register_acquire_waiter(
@@ -2265,7 +2337,7 @@ fn handle_ordered_acquire_with_outcome(
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
-    _ -> {
+    Connecting(_) | Failed(_) -> {
       process.send(outcome, ordered_collection_kernel.Aborted)
       actor.continue(state)
     }
@@ -2330,8 +2402,13 @@ fn handle_task_volunteer(
   case state.phase {
     Ready(core, resubmit_at) ->
       case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        // The core refused the volunteer, for example because the address
+        // names another kernel. The actor reports no assignment and stays
+        // alive.
+        Error(_) -> {
+          process.send(reply, task_manager_kernel.DisconnectedBeforeAssignment)
+          actor.continue(state)
+        }
         Ok(#(core, events, outbound, outcome)) -> {
           process.send(reply, outcome)
           case resubmit_at, state.channel {
@@ -2345,15 +2422,24 @@ fn handle_task_volunteer(
       }
     Reconnecting(core) ->
       case runtime_core.task_manager_volunteer(core, address, task_id) {
-        Error(core_error) ->
-          panic as { "task volunteer failed: " <> string.inspect(core_error) }
+        // The core refused the volunteer, for example because the address
+        // names another kernel. The actor reports no assignment and stays
+        // alive.
+        Error(_) -> {
+          process.send(reply, task_manager_kernel.DisconnectedBeforeAssignment)
+          actor.continue(state)
+        }
         Ok(#(core, events, _outbound, outcome)) -> {
           process.send(reply, outcome)
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
-    _ -> panic as "task volunteer before the document connection is ready"
+    // The connection is not ready yet, so no assignment can happen.
+    Connecting(_) | Failed(_) -> {
+      process.send(reply, task_manager_kernel.DisconnectedBeforeAssignment)
+      actor.continue(state)
+    }
   }
 }
 
@@ -2384,8 +2470,10 @@ fn edit(
   case state.phase {
     Ready(core, resubmit_at) -> {
       case operate(core) {
-        Error(core_error) ->
-          panic as { "local edit failed: " <> string.inspect(core_error) }
+        // The core refused the edit, for example because the address names
+        // another kernel, or because the edit is out of bounds. The actor
+        // drops the edit and stays alive.
+        Error(_) -> actor.continue(state)
         Ok(#(core, events, outbound)) -> {
           // Push immediately only when fully synced with a live channel;
           // otherwise the op stays in-flight and `resubmit` sends it once, so a
@@ -2402,8 +2490,10 @@ fn edit(
     }
     Reconnecting(core) -> {
       case operate(core) {
-        Error(core_error) ->
-          panic as { "local edit failed: " <> string.inspect(core_error) }
+        // The core refused the edit, for example because the address names
+        // another kernel, or because the edit is out of bounds. The actor
+        // drops the edit and stays alive.
+        Error(_) -> actor.continue(state)
         Ok(#(core, events, _outbound)) -> {
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Reconnecting(core)))
@@ -2411,8 +2501,9 @@ fn edit(
       }
     }
     // Edits are only reachable through handles returned after await_ready,
-    // so this is either a race with a failure or API misuse.
-    _ -> panic as "edit before the document connection is ready"
+    // so this is either a race with a failure or API misuse. The actor drops
+    // the edit and stays alive.
+    Connecting(_) | Failed(_) -> actor.continue(state)
   }
 }
 
@@ -2471,7 +2562,7 @@ fn edit_sequence_with_result(
           actor.continue(state)
         }
       }
-    _ -> {
+    Connecting(_) | Failed(_) -> {
       process.send(
         reply,
         Error(verb <> " before the document connection is ready"),
@@ -2536,7 +2627,7 @@ fn edit_text_with_result(
           actor.continue(state)
         }
       }
-    _ -> {
+    Connecting(_) | Failed(_) -> {
       process.send(
         reply,
         Error(verb <> " before the document connection is ready"),
@@ -2564,8 +2655,13 @@ fn edit_with_result(
           process.send(reply, Error("task is not assigned: " <> task_id))
           actor.continue(state)
         }
-        Error(core_error) ->
-          panic as { verb <> " failed: " <> string.inspect(core_error) }
+        Error(core_error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(core_error)),
+          )
+          actor.continue(state)
+        }
         Ok(#(core, events, outbound)) -> {
           process.send(reply, Ok(Nil))
           case resubmit_at, state.channel {
@@ -2584,8 +2680,13 @@ fn edit_with_result(
           process.send(reply, Error("task is not assigned: " <> task_id))
           actor.continue(state)
         }
-        Error(core_error) ->
-          panic as { verb <> " failed: " <> string.inspect(core_error) }
+        Error(core_error) -> {
+          process.send(
+            reply,
+            Error(verb <> " failed: " <> string.inspect(core_error)),
+          )
+          actor.continue(state)
+        }
         Ok(#(core, events, _outbound)) -> {
           process.send(reply, Ok(Nil))
           fan_out(state.subscribers, events)
@@ -2593,7 +2694,13 @@ fn edit_with_result(
         }
       }
     }
-    _ -> panic as { verb <> " before the document connection is ready" }
+    Connecting(_) | Failed(_) -> {
+      process.send(
+        reply,
+        Error(verb <> " requires a ready document connection"),
+      )
+      actor.continue(state)
+    }
   }
 }
 
@@ -2602,7 +2709,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
   case state.phase {
     Ready(core, _) -> extract(core)
     Reconnecting(core) -> extract(core)
-    _ -> default
+    Connecting(_) | Failed(_) -> default
   }
 }
 
@@ -2705,7 +2812,12 @@ fn handle_summarize(
           actor.continue(state)
         }
       }
-    _, _ -> {
+    Ready(_, None), None
+    | Ready(_, Some(_)), _
+    | Connecting(_), _
+    | Reconnecting(_), _
+    | Failed(_), _
+    -> {
       process.send(
         reply,
         Error("summarize is only available once the connection is fully synced"),
@@ -2736,14 +2848,17 @@ fn do_summarize(
         <> "in-flight edits have been acknowledged",
       )
   })
-  use tree_sha <- result.try(git_storage.upload_summary(
-    base_url: http_base_url(state),
-    tenant: state.connect_message.tenant_id,
-    token: token,
-    sequence_number: core.last_seen_sn,
-    members: runtime_core.summary_members(core),
-    channels: runtime_core.summary_channels(core),
-  ))
+  use tree_sha <- result.try(
+    git_storage.upload_summary(
+      base_url: http_base_url(state),
+      tenant: state.connect_message.tenant_id,
+      token: token,
+      sequence_number: core.last_seen_sn,
+      members: runtime_core.summary_members(core),
+      channels: runtime_core.summary_channels(core),
+    )
+    |> result.map_error(git_storage.error_to_string),
+  )
   let #(core, outbound) =
     runtime_core.build_summarize(
       core,
@@ -2808,6 +2923,7 @@ fn fetch_missing_deltas(
         from: from,
         to: to,
       )
+      |> result.map_error(git_storage.error_to_string)
   }
 }
 
@@ -2826,6 +2942,7 @@ fn fetch_document_versions(
         document: state.connect_message.document_id,
         count: count,
       )
+      |> result.map_error(git_storage.error_to_string)
   }
 }
 
@@ -2843,13 +2960,14 @@ fn fetch_version_blob(
         token: token,
         handle: handle,
       )
+      |> result.map_error(git_storage.error_to_string)
   }
 }
 
 @target(erlang)
 fn fetch_summary(
   state: State,
-  ctx: SummaryContext,
+  context: SummaryContext,
 ) -> Result(runtime_core.Summary, String) {
   case state.connect_message.token {
     None -> Error("loading a summarized document requires an auth token")
@@ -2858,9 +2976,10 @@ fn fetch_summary(
         base_url: http_base_url(state),
         tenant: state.connect_message.tenant_id,
         token: token,
-        handle: ctx.handle,
+        handle: context.handle,
       )
-      // `ctx` locates the blob; the blob says what it holds and when it was
+      |> result.map_error(git_storage.error_to_string)
+      // `context` locates the blob; the blob says what it holds and when it was
       // captured. See `runtime_core.summary_from_blob` for why the context's
       // sequence number is deliberately not the load point.
       |> result.map(runtime_core.summary_from_blob)
@@ -2951,7 +3070,7 @@ fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
 fn notify_session_lost(state: State) -> Nil {
   case state.phase {
     Ready(_, _) -> notify_presence(state, PresenceSessionLost)
-    _ -> Nil
+    Connecting(_) | Reconnecting(_) | Failed(_) -> Nil
   }
 }
 
@@ -2959,7 +3078,7 @@ fn notify_session_lost(state: State) -> Nil {
 fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
   case phase {
     Connecting(waiters) -> list.each(waiters, process.send(_, result))
-    _ -> Nil
+    Ready(_, _) | Reconnecting(_) | Failed(_) -> Nil
   }
 }
 
@@ -2967,8 +3086,10 @@ fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
 fn require(result: Result(t, e), context: String) -> t {
   case result {
     Ok(value) -> value
-    Error(err) ->
-      panic as { "failed to decode " <> context <> ": " <> string.inspect(err) }
+    Error(error) ->
+      panic as {
+        "failed to decode " <> context <> ": " <> string.inspect(error)
+      }
   }
 }
 

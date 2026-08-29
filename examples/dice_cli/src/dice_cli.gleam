@@ -16,10 +16,9 @@ import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
 import gleam/string
 
-import watershed/map_kernel.{type MapEvent, ValueChanged}
+import watershed/map_kernel.{type MapEvent, Cleared, ValueChanged}
 import watershed_beam
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -56,7 +55,7 @@ type DiceDoc
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
-pub fn main() {
+pub fn main() -> Nil {
   let token =
     watershed_beam.dev_token(
       secret: tenant_secret,
@@ -96,8 +95,8 @@ fn run(doc: watershed_beam.Document(DiceDoc)) -> Nil {
     entries -> {
       io.println("Current entries:")
       list.each(entries, fn(entry) {
-        let #(k, v) = entry
-        io.println("  " <> k <> " = " <> json.to_string(v))
+        let #(key, value) = entry
+        io.println("  " <> key <> " = " <> json.to_string(value))
       })
     }
   }
@@ -161,8 +160,8 @@ fn print_snapshot(map: watershed_beam.SharedMap) -> Nil {
     _ -> {
       io.println("  entries:")
       list.each(entries, fn(entry) {
-        let #(k, v) = entry
-        io.println("    " <> k <> " = " <> json.to_string(v))
+        let #(key, value) = entry
+        io.println("    " <> key <> " = " <> json.to_string(value))
       })
     }
   }
@@ -170,14 +169,14 @@ fn print_snapshot(map: watershed_beam.SharedMap) -> Nil {
 
 fn print_die(label: String, map: watershed_beam.SharedMap) -> Nil {
   case watershed_beam.get(map, die_key) {
-    None -> io.println(label <> ": (missing)")
-    Some(v) -> io.println(label <> ": " <> json.to_string(v))
+    Error(Nil) -> io.println(label <> ": (missing)")
+    Ok(value) -> io.println(label <> ": " <> json.to_string(value))
   }
 }
 
 fn print_event(event: MapEvent) -> Nil {
   case event {
     ValueChanged(key: k, ..) -> io.println("  event: changed key " <> k)
-    _ -> io.println("  event: " <> string.inspect(event))
+    Cleared(..) -> io.println("  event: " <> string.inspect(event))
   }
 }

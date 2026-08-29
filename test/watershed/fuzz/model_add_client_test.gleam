@@ -11,7 +11,7 @@ import watershed/fuzz/kernel_fuzz.{AddClient, ClientOp, Synchronize}
 import watershed/fuzz/map_model
 import watershed/map_kernel.{Set}
 
-pub fn counter_add_client_joins_and_converges_test() {
+pub fn counter_add_client_joins_and_converges_test() -> Nil {
   let script = [
     ClientOp(1, Increment(5)),
     Synchronize,
@@ -23,7 +23,7 @@ pub fn counter_add_client_joins_and_converges_test() {
   |> expect_ok
 }
 
-pub fn map_add_client_joins_and_converges_test() {
+pub fn map_add_client_joins_and_converges_test() -> Nil {
   let script = [
     ClientOp(1, Set("a", json.int(1))),
     ClientOp(2, Set("b", json.int(2))),

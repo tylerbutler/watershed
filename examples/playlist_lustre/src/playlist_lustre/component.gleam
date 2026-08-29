@@ -21,7 +21,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-import lustre/attribute.{class, disabled, placeholder, value}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -175,8 +175,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // native lattice primitive.
     RenameClicked(index) ->
       case list_at(model.tracks, index) {
-        None -> #(model, effect.none())
-        Some(existing) -> {
+        Error(Nil) -> #(model, effect.none())
+        Ok(existing) -> {
           let renamed = Track(..existing, title: bump_title(existing.title))
           #(
             mutate(model, "replace", fn(seq) {
@@ -259,11 +259,11 @@ fn bump_title(title: String) -> String {
   }
 }
 
-fn list_at(items: List(a), index: Int) -> Option(a) {
+fn list_at(items: List(a), index: Int) -> Result(a, Nil) {
   case items, index {
-    [], _ -> None
-    _, index if index < 0 -> None
-    [first, ..], 0 -> Some(first)
+    [], _ -> Error(Nil)
+    _, index if index < 0 -> Error(Nil)
+    [first, ..], 0 -> Ok(first)
     [_, ..rest], _ -> list_at(rest, index - 1)
   }
 }
@@ -271,7 +271,7 @@ fn list_at(items: List(a), index: Int) -> Option(a) {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 pub fn view(model: Model) -> Element(Msg) {
-  html.div([class("playlist-panel")], [
+  html.div([attribute.class("playlist-panel")], [
     compose_view(model),
     error_view(model),
     tracks_view(model),
@@ -279,21 +279,21 @@ pub fn view(model: Model) -> Element(Msg) {
 }
 
 fn compose_view(model: Model) -> Element(Msg) {
-  html.div([class("compose")], [
+  html.div([attribute.class("compose")], [
     html.input([
-      placeholder("Track title"),
-      value(model.draft_title),
+      attribute.placeholder("Track title"),
+      attribute.value(model.draft_title),
       event.on_input(DraftTitleChanged),
     ]),
     html.input([
-      placeholder("Artist"),
-      value(model.draft_artist),
+      attribute.placeholder("Artist"),
+      attribute.value(model.draft_artist),
       event.on_input(DraftArtistChanged),
     ]),
     html.button(
       [
         event.on_click(AddClicked),
-        disabled(string.trim(model.draft_title) == ""),
+        attribute.disabled(string.trim(model.draft_title) == ""),
       ],
       [html.text("Add")],
     ),
@@ -301,16 +301,18 @@ fn compose_view(model: Model) -> Element(Msg) {
 }
 
 fn error_view(model: Model) -> Element(Msg) {
-  html.p([class("error")], [html.text(option.unwrap(model.last_error, ""))])
+  html.p([attribute.class("error")], [
+    html.text(option.unwrap(model.last_error, "")),
+  ])
 }
 
 fn tracks_view(model: Model) -> Element(Msg) {
   case model.tracks {
-    [] -> html.p([class("empty")], [html.text("(playlist is empty)")])
+    [] -> html.p([attribute.class("empty")], [html.text("(playlist is empty)")])
     tracks -> {
       let last = list.length(tracks) - 1
       html.ul(
-        [class("tracks")],
+        [attribute.class("tracks")],
         list.index_map(tracks, fn(entry, index) {
           track_row(entry, index, last)
         }),
@@ -320,20 +322,28 @@ fn tracks_view(model: Model) -> Element(Msg) {
 }
 
 fn track_row(entry: Track, index: Int, last: Int) -> Element(Msg) {
-  html.li([class("track")], [
-    html.span([class("ordinal")], [html.text(int.to_string(index + 1) <> ".")]),
-    html.div([class("track-body")], [
-      html.div([class("track-title")], [html.text(entry.title)]),
-      html.div([class("track-artist")], [
+  html.li([attribute.class("track")], [
+    html.span([attribute.class("ordinal")], [
+      html.text(int.to_string(index + 1) <> "."),
+    ]),
+    html.div([attribute.class("track-body")], [
+      html.div([attribute.class("track-title")], [html.text(entry.title)]),
+      html.div([attribute.class("track-artist")], [
         html.text(entry.artist <> " · added by " <> entry.added_by),
       ]),
     ]),
-    html.div([class("track-controls")], [
-      html.button([event.on_click(MoveUpClicked(index)), disabled(index == 0)], [
-        html.text("↑"),
-      ]),
+    html.div([attribute.class("track-controls")], [
       html.button(
-        [event.on_click(MoveDownClicked(index)), disabled(index == last)],
+        [event.on_click(MoveUpClicked(index)), attribute.disabled(index == 0)],
+        [
+          html.text("↑"),
+        ],
+      ),
+      html.button(
+        [
+          event.on_click(MoveDownClicked(index)),
+          attribute.disabled(index == last),
+        ],
         [html.text("↓")],
       ),
       html.button([event.on_click(RenameClicked(index))], [html.text("Rename")]),

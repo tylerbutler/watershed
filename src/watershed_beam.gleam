@@ -2,11 +2,11 @@
 //// SharedMap. The JavaScript counterpart is `watershed`.
 ////
 //// ```gleam
-//// let assert Ok(doc) = watershed_beam.connect(
+//// use doc <- result.try(watershed_beam.connect(
 ////   host: "localhost", port: 4000,
 ////   tenant: "default", document: "dice",
 ////   token: jwt, user_id: "user-1",
-//// )
+//// ))
 //// let map = watershed_beam.root(doc)
 //// watershed_beam.set(map, "die", json.int(4))
 //// let value = watershed_beam.get(map, "die")
@@ -29,8 +29,6 @@ import gleam/bit_array
 import gleam/crypto
 @target(erlang)
 import gleam/dict
-@target(erlang)
-import gleam/dynamic.{type Dynamic}
 @target(erlang)
 import gleam/erlang/process.{type Subject}
 @target(erlang)
@@ -105,6 +103,8 @@ import watershed/task_manager_kernel
 import watershed/text_kernel
 @target(erlang)
 import watershed/two_p_set_kernel
+@target(erlang)
+import watershed/wire
 @target(erlang)
 import watershed/wire/summary_blob.{type SummaryBlob}
 
@@ -480,8 +480,8 @@ pub fn get_field(
   field: Field(s, a),
 ) -> Result(Option(a), FieldError) {
   case get(typed_map.map, schema.field_key(field)) {
-    None -> Ok(None)
-    Some(stored) -> schema.decode_value(field, stored) |> result.map(Some)
+    Error(Nil) -> Ok(None)
+    Ok(stored) -> schema.decode_value(field, stored) |> result.map(Some)
   }
 }
 
@@ -527,9 +527,10 @@ pub fn resolve_child(
   field: ChildField(s, c),
 ) -> Result(Option(TypedMap(c)), String) {
   case get(typed_map.map, schema.child_key(field)) {
-    None -> Ok(None)
-    Some(value) ->
-      resolve(document, value) |> result.map(fn(m) { Some(typed(m)) })
+    Error(Nil) -> Ok(None)
+    Ok(value) ->
+      resolve(document, value)
+      |> result.map(fn(resolved) { Some(typed(resolved)) })
   }
 }
 
@@ -623,8 +624,8 @@ fn get_channel_field(
   resolver: fn(Document(root), Json) -> Result(shared, String),
 ) -> Result(Option(shared), String) {
   case get(typed_map.map, schema.channel_field_key(field)) {
-    None -> Ok(None)
-    Some(value) -> resolver(document, value) |> result.map(Some)
+    Error(Nil) -> Ok(None)
+    Ok(value) -> resolver(document, value) |> result.map(Some)
   }
 }
 
@@ -1459,9 +1460,9 @@ pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
 }
 
 @target(erlang)
-/// The current optimistic value of the counter. The result is `None` when the
+/// The current optimistic value of the counter. The result is `Error(Nil)` when the
 /// address does not name a counter channel.
-pub fn counter_value(counter: SharedCounter) -> Option(Int) {
+pub fn counter_value(counter: SharedCounter) -> Result(Int, Nil) {
   process.call(counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetCounterValue(counter.address, reply)
   })
@@ -1562,9 +1563,9 @@ pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
 }
 
 @target(erlang)
-/// The current optimistic document of the json0 channel. The result is `None`
+/// The current optimistic document of the json0 channel. The result is `Error(Nil)`
 /// when the address does not name a json0 channel.
-pub fn json_ot_view(json_ot: JsonOt) -> Option(json_ot.JsonValue) {
+pub fn json_ot_view(json_ot: JsonOt) -> Result(json_ot.JsonValue, Nil) {
   process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetJsonOtView(json_ot.address, reply)
   })
@@ -1646,8 +1647,10 @@ pub fn submit_rich_text(
 
 @target(erlang)
 /// The current optimistic rich-text document of the channel. The result is
-/// `None` when the address does not name a rich-text channel.
-pub fn rich_text_view(rich_text: SharedRichText) -> Option(rich_text.Document) {
+/// `Error(Nil)` when the address does not name a rich-text channel.
+pub fn rich_text_view(
+  rich_text: SharedRichText,
+) -> Result(rich_text.Document, Nil) {
   process.call(rich_text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetRichTextView(rich_text.address, reply)
   })
@@ -1735,7 +1738,7 @@ pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
 }
 
 @target(erlang)
-pub fn or_map_value(or_map: OrMap, key: String) -> Option(OrMapValue) {
+pub fn or_map_value(or_map: OrMap, key: String) -> Result(OrMapValue, Nil) {
   process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetOrMapValue(or_map.address, key, reply)
   })
@@ -2199,7 +2202,7 @@ pub fn register_read(
   collection: RegisterCollection,
   key: String,
   policy: ReadPolicy,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetRegisterValue(collection.address, key, policy, reply)
   })
@@ -2209,7 +2212,7 @@ pub fn register_read(
 pub fn register_get(
   collection: RegisterCollection,
   key: String,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   register_read(collection, key, Atomic)
 }
 
@@ -2217,7 +2220,7 @@ pub fn register_get(
 pub fn register_versions(
   collection: RegisterCollection,
   key: String,
-) -> Option(List(Json)) {
+) -> Result(List(Json), Nil) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetRegisterVersions(collection.address, key, reply)
   })
@@ -2282,12 +2285,12 @@ pub fn resolve_claims(
 }
 
 @target(erlang)
-pub fn try_set_claim(
+pub fn claim_once(
   claims: Claims,
   key: String,
   value: Json,
 ) -> runtime_beam.ClaimSubmitReply {
-  runtime_beam.try_set_claim(claims.runtime, claims.address, key, value)
+  runtime_beam.claim_once(claims.runtime, claims.address, key, value)
 }
 
 @target(erlang)
@@ -2300,7 +2303,7 @@ pub fn compare_and_set_claim(
 }
 
 @target(erlang)
-pub fn get_claim(claims: Claims, key: String) -> Option(Json) {
+pub fn get_claim(claims: Claims, key: String) -> Result(Json, Nil) {
   runtime_beam.get_claim(claims.runtime, claims.address, key)
 }
 
@@ -2697,12 +2700,12 @@ pub fn directory_delete_subdirectory(
 
 @target(erlang)
 /// The current optimistic value at `key`, in the subdirectory at `path`. The
-/// result is `None` when the key is absent.
+/// result is `Error(Nil)` when the key is absent.
 pub fn directory_get(
   dir: SharedDirectory,
   path: String,
   key: String,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.DirectoryGet(dir.address, path, key, reply)
   })
@@ -2811,9 +2814,9 @@ pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
 }
 
 @target(erlang)
-/// The current optimistic value of the counter. The result is `None` when the
+/// The current optimistic value of the counter. The result is `Error(Nil)` when the
 /// address does not name a PN-counter channel.
-pub fn pn_counter_value(pn_counter: PnCounter) -> Option(Int) {
+pub fn pn_counter_value(pn_counter: PnCounter) -> Result(Int, Nil) {
   process.call(pn_counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPnCounterValue(pn_counter.address, reply)
   })
@@ -2895,10 +2898,10 @@ pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
 }
 
 @target(erlang)
-/// The accepted value for `key`. The result is `None` when the value is
+/// The accepted value for `key`. The result is `Error(Nil)` when the value is
 /// pending, when the key is absent, and when the address does not name a
 /// PactMap channel.
-pub fn pact_map_get(pact_map: PactMap, key: String) -> Option(Json) {
+pub fn pact_map_get(pact_map: PactMap, key: String) -> Result(Json, Nil) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapValue(pact_map.address, key, reply)
   })
@@ -2941,7 +2944,7 @@ pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
 }
 
 @target(erlang)
-/// The clients whose agreement `key` still waits on. The result is `None` when
+/// The clients whose agreement `key` still waits on. The result is `Error(Nil)` when
 /// nothing is pending.
 ///
 /// This list changes a progress indicator into an explanation.
@@ -2953,19 +2956,19 @@ pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
 pub fn pact_map_pending_signoffs(
   pact_map: PactMap,
   key: String,
-) -> Option(List(Int)) {
+) -> Result(List(Int), Nil) {
   pact_map_pending(pact_map, key)
-  |> option.map(fn(pending) { pending.expected_signoffs })
+  |> result.map(fn(pending) { pending.expected_signoffs })
 }
 
 @target(erlang)
 /// The full pending proposal for `key`, which is the value that waits for
-/// agreement, with the signoff list that it waits on. The result is `None` when
+/// agreement, with the signoff list that it waits on. The result is `Error(Nil)` when
 /// nothing is pending.
 pub fn pact_map_pending(
   pact_map: PactMap,
   key: String,
-) -> Option(pact_map_kernel.Pending) {
+) -> Result(pact_map_kernel.Pending, Nil) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapPendingDetails(pact_map.address, key, reply)
   })
@@ -2973,12 +2976,12 @@ pub fn pact_map_pending(
 
 @target(erlang)
 /// The accepted entry for `key`: the agreed value, with the sequence number
-/// that it settled at. The result is `None` when the key is absent, and when
+/// that it settled at. The result is `Error(Nil)` when the key is absent, and when
 /// the value is still pending.
 pub fn pact_map_get_with_details(
   pact_map: PactMap,
   key: String,
-) -> Option(pact_map_kernel.Accepted) {
+) -> Result(pact_map_kernel.Accepted, Nil) {
   process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetPactMapAccepted(pact_map.address, key, reply)
   })
@@ -3096,9 +3099,9 @@ pub fn ordered_release(
 }
 
 @target(erlang)
-/// The number of items in the collection now. The result is `None` when the
+/// The number of items in the collection now. The result is `Error(Nil)` when the
 /// address does not name an ordered-collection channel.
-pub fn ordered_size(collection: OrderedCollection) -> Option(Int) {
+pub fn ordered_size(collection: OrderedCollection) -> Result(Int, Nil) {
   process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetOrderedSize(collection.address, reply)
   })
@@ -3144,8 +3147,9 @@ pub fn subscribe_ordered_collection(
 /// belongs to one document. It does not sequence, and no server stores it. Use
 /// a ripple for transient presence, which is a cursor, a selection, or a typing
 /// indicator. Such data must **not** go into a DDS.
-pub type Ripple =
-  SignalMessage
+pub opaque type Ripple {
+  Ripple(signal: SignalMessage)
+}
 
 @target(erlang)
 /// Broadcast an ephemeral ripple to every other connected client. A ripple has
@@ -3171,7 +3175,9 @@ pub fn subscribe_ripples(document: Document(root)) -> Subject(Ripple) {
   let subject = process.new_subject()
   process.send(
     document.runtime,
-    runtime_beam.SubscribeRipple(fn(ripple) { process.send(subject, ripple) }),
+    runtime_beam.SubscribeRipple(fn(signal) {
+      process.send(subject, Ripple(signal))
+    }),
   )
   subject
 }
@@ -3179,21 +3185,22 @@ pub fn subscribe_ripples(document: Document(root)) -> Subject(Ripple) {
 @target(erlang)
 /// The `type` tag of the ripple, if the ripple has one.
 pub fn ripple_type(ripple: Ripple) -> Option(String) {
-  ripple.signal_type
+  ripple.signal.signal_type
 }
 
 @target(erlang)
-/// The JSON payload of the ripple, as a `Dynamic` value, for the caller to
-/// decode.
-pub fn ripple_content(ripple: Ripple) -> Dynamic {
-  ripple.content
+/// The JSON payload of the ripple. The wire carries only JSON in this field.
+/// The function gives the payload as `Json`, and the caller decodes it with
+/// `gleam/json`.
+pub fn ripple_content(ripple: Ripple) -> Json {
+  wire.dynamic_to_json(ripple.signal.content)
 }
 
 @target(erlang)
 /// The id of the client that sent the ripple, if the server stamped one. The
 /// result is `None` for a ripple that the server produced.
 pub fn ripple_client_id(ripple: Ripple) -> Option(String) {
-  ripple.client_id
+  ripple.signal.client_id
 }
 
 @target(erlang)
@@ -3345,7 +3352,7 @@ pub fn clear(map: SharedMap) -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-pub fn get(map: SharedMap, key: String) -> Option(Json) {
+pub fn get(map: SharedMap, key: String) -> Result(Json, Nil) {
   process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
     runtime_beam.GetValue(map.address, key, reply)
   })
@@ -3353,7 +3360,7 @@ pub fn get(map: SharedMap, key: String) -> Option(Json) {
 
 @target(erlang)
 pub fn has(map: SharedMap, key: String) -> Bool {
-  get(map, key) != None
+  result.is_ok(get(map, key))
 }
 
 @target(erlang)

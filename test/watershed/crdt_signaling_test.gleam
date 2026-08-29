@@ -48,7 +48,7 @@ const room = "trip-planning"
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn client_frames_round_trip_test() {
+pub fn client_frames_round_trip_test() -> Nil {
   [
     Join(room: room, peer: "alpha"),
     Signal(to: "beta", payload: Offer("v=0 offer")),
@@ -64,7 +64,7 @@ pub fn client_frames_round_trip_test() {
 }
 
 @target(javascript)
-pub fn server_frames_round_trip_test() {
+pub fn server_frames_round_trip_test() -> Nil {
   [
     crdt_signaling.Joined(room: room, peer: "beta", peers: ["alpha"]),
     crdt_signaling.PeerJoined("gamma"),
@@ -83,7 +83,7 @@ pub fn server_frames_round_trip_test() {
 @target(javascript)
 /// The whole security claim of the design, stated as a test: no document
 /// envelope, and no fragment of one, decodes as a client frame.
-pub fn document_envelopes_are_not_client_frames_test() {
+pub fn document_envelopes_are_not_client_frames_test() -> Nil {
   let document = pn_counter_document("alpha")
   let assert Ok(#(document, outcome)) =
     crdt_core.edit(document, crdt_wire.root_address, channel.PnCounterEdit(1))
@@ -111,7 +111,7 @@ pub fn document_envelopes_are_not_client_frames_test() {
 }
 
 @target(javascript)
-pub fn unknown_tags_and_broken_json_are_refused_test() {
+pub fn unknown_tags_and_broken_json_are_refused_test() -> Nil {
   [
     "{\"t\":\"relay\",\"payload\":\"anything\"}",
     "{\"t\":\"join\"}",
@@ -128,7 +128,7 @@ pub fn unknown_tags_and_broken_json_are_refused_test() {
 }
 
 @target(javascript)
-pub fn oversize_frames_are_refused_before_parsing_test() {
+pub fn oversize_frames_are_refused_before_parsing_test() -> Nil {
   let padding = string.repeat("x", crdt_signaling.max_frame_bytes)
   let raw =
     crdt_signaling.client_to_string(Signal(to: "beta", payload: Offer(padding)))
@@ -141,7 +141,7 @@ pub fn oversize_frames_are_refused_before_parsing_test() {
 }
 
 @target(javascript)
-pub fn empty_and_overlong_ids_are_refused_test() {
+pub fn empty_and_overlong_ids_are_refused_test() -> Nil {
   crdt_signaling.client_to_string(Join(room: "", peer: "alpha"))
   |> crdt_signaling.decode_client
   |> expect.to_equal(Error(crdt_signaling.InvalidId("room id is empty")))
@@ -161,7 +161,7 @@ pub fn empty_and_overlong_ids_are_refused_test() {
 @target(javascript)
 /// The bound is bytes, not graphemes: 128 four-byte emoji are 512 bytes
 /// of id echoed to every member of a room, however short they look.
-pub fn ids_are_bounded_by_utf8_bytes_test() {
+pub fn ids_are_bounded_by_utf8_bytes_test() -> Nil {
   let emoji = string.repeat("🤝", 33)
   { string.length(emoji) <= crdt_signaling.max_id_bytes }
   |> expect.to_be_true()
@@ -184,7 +184,7 @@ pub fn ids_are_bounded_by_utf8_bytes_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn the_first_peer_joins_an_empty_room_test() {
+pub fn the_first_peer_joins_an_empty_room_test() -> Nil {
   let #(rooms, actions) =
     crdt_signaling.handle_frame(
       crdt_signaling.new_rooms(),
@@ -204,7 +204,7 @@ pub fn the_first_peer_joins_an_empty_room_test() {
 /// The transport's discovery contract: the smaller of any two peers must
 /// learn about the larger. Announcing to both sides satisfies it for
 /// every pair, which is what this asserts.
-pub fn a_join_is_announced_in_both_directions_test() {
+pub fn a_join_is_announced_in_both_directions_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha"), #(2, "beta")])
   let #(rooms, actions) = join(rooms, 3, "gamma")
 
@@ -222,7 +222,7 @@ pub fn a_join_is_announced_in_both_directions_test() {
 }
 
 @target(javascript)
-pub fn the_ninth_peer_is_refused_test() {
+pub fn the_ninth_peer_is_refused_test() -> Nil {
   let limit = crdt_signaling.room_limit()
   let filled =
     upto(limit)
@@ -242,7 +242,7 @@ pub fn the_ninth_peer_is_refused_test() {
 }
 
 @target(javascript)
-pub fn a_duplicate_peer_id_is_refused_test() {
+pub fn a_duplicate_peer_id_is_refused_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha")])
   let #(rooms, actions) = join(rooms, 2, "alpha")
 
@@ -258,7 +258,7 @@ pub fn a_duplicate_peer_id_is_refused_test() {
 }
 
 @target(javascript)
-pub fn joining_twice_on_one_connection_is_refused_test() {
+pub fn joining_twice_on_one_connection_is_refused_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha")])
   let #(rooms, actions) = join(rooms, 1, "alpha-again")
 
@@ -277,7 +277,7 @@ pub fn joining_twice_on_one_connection_is_refused_test() {
 }
 
 @target(javascript)
-pub fn a_leave_is_announced_and_an_empty_room_is_deleted_test() {
+pub fn a_leave_is_announced_and_an_empty_room_is_deleted_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha"), #(2, "beta")])
 
   let #(rooms, actions) =
@@ -300,7 +300,7 @@ pub fn a_leave_is_announced_and_an_empty_room_is_deleted_test() {
 }
 
 @target(javascript)
-pub fn a_disconnect_notifies_the_room_test() {
+pub fn a_disconnect_notifies_the_room_test() -> Nil {
   let rooms =
     joined(crdt_signaling.new_rooms(), [
       #(1, "alpha"),
@@ -322,7 +322,7 @@ pub fn a_disconnect_notifies_the_room_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_payload_goes_to_one_named_peer_test() {
+pub fn a_payload_goes_to_one_named_peer_test() -> Nil {
   let rooms =
     joined(crdt_signaling.new_rooms(), [
       #(1, "alpha"),
@@ -349,7 +349,7 @@ pub fn a_payload_goes_to_one_named_peer_test() {
 @target(javascript)
 /// Naming a peer in another room is a peer addressing across the only
 /// boundary this protocol has. Terminal, and the target hears nothing.
-pub fn a_target_in_another_room_closes_the_sender_test() {
+pub fn a_target_in_another_room_closes_the_sender_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha")])
   let #(rooms, _) =
     crdt_signaling.handle_frame(
@@ -383,7 +383,7 @@ pub fn a_target_in_another_room_closes_the_sender_test() {
 /// racing a leave, which every mesh does constantly. The frame is
 /// dropped and the sender keeps its membership: closing it would let any
 /// peer take another down by leaving at the wrong moment.
-pub fn a_signal_to_a_departed_peer_is_dropped_not_fatal_test() {
+pub fn a_signal_to_a_departed_peer_is_dropped_not_fatal_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha"), #(2, "beta")])
   let #(rooms, _) = crdt_signaling.disconnect(rooms, 2)
 
@@ -424,7 +424,7 @@ pub fn a_signal_to_a_departed_peer_is_dropped_not_fatal_test() {
 /// The cross-room check reads an index rather than scanning every room,
 /// so the index has to stay honest as rooms fill and empty. Peer ids are
 /// unique inside a room and not across them, which is why it counts.
-pub fn a_departed_cross_room_target_becomes_a_drop_test() {
+pub fn a_departed_cross_room_target_becomes_a_drop_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha")])
   let #(rooms, _) =
     crdt_signaling.handle_frame(
@@ -492,7 +492,7 @@ pub fn a_departed_cross_room_target_becomes_a_drop_test() {
 
 @target(javascript)
 /// Which refusals end a connection, stated once, as a list.
-pub fn only_violations_are_terminal_test() {
+pub fn only_violations_are_terminal_test() -> Nil {
   [
     crdt_signaling.FrameTooLarge(99_999),
     crdt_signaling.Malformed("not a signaling frame"),
@@ -512,7 +512,7 @@ pub fn only_violations_are_terminal_test() {
 }
 
 @target(javascript)
-pub fn signalling_before_joining_is_refused_test() {
+pub fn signalling_before_joining_is_refused_test() -> Nil {
   let #(rooms, actions) =
     crdt_signaling.handle_frame(
       crdt_signaling.new_rooms(),
@@ -531,7 +531,7 @@ pub fn signalling_before_joining_is_refused_test() {
 @target(javascript)
 /// A refused frame must not disturb the room it was refused from, on any
 /// of the paths that can refuse one.
-pub fn refusals_leave_the_registry_untouched_test() {
+pub fn refusals_leave_the_registry_untouched_test() -> Nil {
   let rooms = joined(crdt_signaling.new_rooms(), [#(1, "alpha"), #(2, "beta")])
   let before = crdt_signaling.members(rooms, room)
 
@@ -554,7 +554,7 @@ pub fn refusals_leave_the_registry_untouched_test() {
 @target(javascript)
 /// `serve` classifies by frame type, never by contents — which is what
 /// makes a service's instrumentation honest.
-pub fn serve_tags_frames_by_type_test() {
+pub fn serve_tags_frames_by_type_test() -> Nil {
   let rooms = crdt_signaling.new_rooms()
   let #(rooms, actions, tag) =
     crdt_signaling.serve(
@@ -614,7 +614,7 @@ pub fn serve_tags_frames_by_type_test() {
 /// A registry-level refusal is a refusal, not a `join` that happened to
 /// produce a close. A service whose instrumentation could not tell them
 /// apart would report a room that is turning every peer away as healthy.
-pub fn serve_tags_registry_refusals_as_rejections_test() {
+pub fn serve_tags_registry_refusals_as_rejections_test() -> Nil {
   let limit = crdt_signaling.room_limit()
   let rooms =
     upto(limit)
@@ -696,7 +696,10 @@ fn record_failed(cell: Cell(List(String))) -> fn(Signal) -> Nil {
     case signal {
       p2p_transport_js.Failed(detail) ->
         transport_js.set_cell(cell, [detail, ..transport_js.get_cell(cell)])
-      _ -> Nil
+      p2p_transport_js.Roster(_)
+      | p2p_transport_js.PeerJoined(_)
+      | p2p_transport_js.PeerLeft(_)
+      | p2p_transport_js.Message(_, _) -> Nil
     }
   }
 }
@@ -707,7 +710,7 @@ fn record_failed(cell: Cell(List(String))) -> fn(Signal) -> Nil {
 /// current join's roster deadline nor swallow the current socket's own
 /// failure — the state a socket's callbacks act on has to be the state of
 /// the join that opened it.
-pub fn a_late_close_from_an_old_socket_does_not_swallow_the_new_joins_failure_test() {
+pub fn a_late_close_from_an_old_socket_does_not_swallow_the_new_joins_failure_test() -> Nil {
   install_stub()
   let failures = transport_js.new_cell([])
   let signaling =

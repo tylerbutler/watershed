@@ -42,22 +42,22 @@ fn origin() -> schema.Field(Player, Point) {
 
 // ── Accessors ────────────────────────────────────────────────────────────────
 
-pub fn field_key_returns_key_test() {
+pub fn field_key_returns_key_test() -> Nil {
   schema.field_key(name()) |> expect.to_equal("name")
 }
 
-pub fn child_key_returns_key_test() {
+pub fn child_key_returns_key_test() -> Nil {
   let roster: schema.ChildField(Player, Player) = schema.child_field("roster")
   schema.child_key(roster) |> expect.to_equal("roster")
 }
 
-pub fn channel_field_key_returns_key_test() {
+pub fn channel_field_key_returns_key_test() -> Nil {
   let notes: schema.ChannelField(Player, schema.OrSetChannel) =
     schema.channel_field("notes")
   schema.channel_field_key(notes) |> expect.to_equal("notes")
 }
 
-pub fn channel_field_kind_is_phantom_test() {
+pub fn channel_field_kind_is_phantom_test() -> Nil {
   // The kind tag scopes a field to one resolver family at compile time:
   // passing this CounterChannel field to `resolve_or_set_field` would be a
   // type error (pinned here as documentation — it cannot be a runtime case).
@@ -66,25 +66,25 @@ pub fn channel_field_kind_is_phantom_test() {
   schema.channel_field_key(score) |> expect.to_equal("score")
 }
 
-pub fn pn_counter_channel_field_test() {
+pub fn pn_counter_channel_field_test() -> Nil {
   let tally: schema.ChannelField(Player, schema.PnCounterChannel) =
     schema.channel_field("tally")
   schema.channel_field_key(tally) |> expect.to_equal("tally")
 }
 
-pub fn pact_map_channel_field_test() {
+pub fn pact_map_channel_field_test() -> Nil {
   let config: schema.ChannelField(Player, schema.PactMapChannel) =
     schema.channel_field("config")
   schema.channel_field_key(config) |> expect.to_equal("config")
 }
 
-pub fn ordered_collection_channel_field_test() {
+pub fn ordered_collection_channel_field_test() -> Nil {
   let jobs: schema.ChannelField(Player, schema.OrderedCollectionChannel) =
     schema.channel_field("jobs")
   schema.channel_field_key(jobs) |> expect.to_equal("jobs")
 }
 
-pub fn rich_text_channel_field_test() {
+pub fn rich_text_channel_field_test() -> Nil {
   let body: schema.ChannelField(Player, schema.RichTextChannel) =
     schema.channel_field("body")
   schema.channel_field_key(body) |> expect.to_equal("body")
@@ -92,22 +92,22 @@ pub fn rich_text_channel_field_test() {
 
 // ── Round-trips: encode_value then decode_value ──────────────────────────────
 
-pub fn string_round_trip_test() {
+pub fn string_round_trip_test() -> Nil {
   let stored = schema.encode_value(name(), "ada")
   schema.decode_value(name(), stored) |> expect.to_equal(Ok("ada"))
 }
 
-pub fn int_round_trip_test() {
+pub fn int_round_trip_test() -> Nil {
   let stored = schema.encode_value(total(), 42)
   schema.decode_value(total(), stored) |> expect.to_equal(Ok(42))
 }
 
-pub fn bool_round_trip_test() {
+pub fn bool_round_trip_test() -> Nil {
   let stored = schema.encode_value(active(), True)
   schema.decode_value(active(), stored) |> expect.to_equal(Ok(True))
 }
 
-pub fn record_round_trip_test() {
+pub fn record_round_trip_test() -> Nil {
   let stored = schema.encode_value(origin(), Point(x: 3, y: 7))
   schema.decode_value(origin(), stored)
   |> expect.to_equal(Ok(Point(x: 3, y: 7)))
@@ -115,21 +115,21 @@ pub fn record_round_trip_test() {
 
 // ── Decode failures ──────────────────────────────────────────────────────────
 
-pub fn decode_wrong_type_is_invalid_test() {
+pub fn decode_wrong_type_is_invalid_test() -> Nil {
   // A String stored where an Int field expects a number.
   let stored = json.string("not a number")
   case schema.decode_value(total(), stored) {
     Error(Invalid(_)) -> Nil
-    other -> panic as { "expected Invalid, got " <> string_of(other) }
+    other -> panic as { "expected Invalid, got " <> result_to_string(other) }
   }
 }
 
-pub fn decode_missing_record_field_is_invalid_test() {
+pub fn decode_missing_record_field_is_invalid_test() -> Nil {
   // A partial object missing "y" should fail the Point decoder.
   let stored = json.object([#("x", json.int(1))])
   case schema.decode_value(origin(), stored) {
     Error(Invalid(_)) -> Nil
-    other -> panic as { "expected Invalid, got " <> string_of(other) }
+    other -> panic as { "expected Invalid, got " <> result_to_string(other) }
   }
 }
 
@@ -139,25 +139,25 @@ pub fn decode_missing_record_field_is_invalid_test() {
 // an absent value is `Ok(None)`, a present value decodes, and a type-confused
 // remote write surfaces as `Error(Invalid)` rather than crashing the fan-out.
 
-pub fn decode_optional_absent_is_none_test() {
+pub fn decode_optional_absent_is_none_test() -> Nil {
   schema.decode_optional(total(), None)
   |> expect.to_equal(Ok(None))
 }
 
-pub fn decode_optional_present_decodes_test() {
+pub fn decode_optional_present_decodes_test() -> Nil {
   schema.decode_optional(total(), Some(json.int(5)))
   |> expect.to_equal(Ok(Some(5)))
 }
 
-pub fn decode_optional_type_confused_is_invalid_test() {
+pub fn decode_optional_type_confused_is_invalid_test() -> Nil {
   // A remote peer wrote a String where the field expects an Int.
   case schema.decode_optional(total(), Some(json.string("nope"))) {
     Error(Invalid(_)) -> Nil
-    other -> panic as { "expected Invalid, got " <> string_of(other) }
+    other -> panic as { "expected Invalid, got " <> result_to_string(other) }
   }
 }
 
-fn string_of(result: Result(a, schema.FieldError)) -> String {
+fn result_to_string(result: Result(a, schema.FieldError)) -> String {
   case result {
     Ok(_) -> "Ok(_)"
     Error(schema.Missing(key)) -> "Missing(" <> key <> ")"
@@ -209,14 +209,14 @@ fn apply_ops(
   })
 }
 
-pub fn decode_entries_round_trip_test() {
+pub fn decode_entries_round_trip_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
   let entries = apply_ops([], schema.encode_ops(profile_schema(), value))
   schema.decode_entries(profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
 
-pub fn raw_schema_ops_are_puts_test() {
+pub fn raw_schema_ops_are_puts_test() -> Nil {
   // The raw `schema(decoder, to_entries)` constructor wraps entries as Puts.
   let value = Profile(name: "ada", score: 3, last: None)
   schema.encode_ops(profile_schema(), value)
@@ -227,22 +227,22 @@ pub fn raw_schema_ops_are_puts_test() {
   ])
 }
 
-pub fn decode_entries_optional_absent_defaults_test() {
+pub fn decode_entries_optional_absent_defaults_test() -> Nil {
   // A map missing the optional "last" key still decodes.
   let entries = [#("name", json.string("grace")), #("score", json.int(9))]
   schema.decode_entries(profile_schema(), entries)
   |> expect.to_equal(Ok(Profile(name: "grace", score: 9, last: None)))
 }
 
-pub fn decode_entries_missing_required_is_invalid_test() {
+pub fn decode_entries_missing_required_is_invalid_test() -> Nil {
   let entries = [#("name", json.string("no score"))]
   case schema.decode_entries(profile_schema(), entries) {
     Error(Invalid(_)) -> Nil
-    other -> panic as { "expected Invalid, got " <> string_of(other) }
+    other -> panic as { "expected Invalid, got " <> result_to_string(other) }
   }
 }
 
-pub fn sealed_rejects_unknown_key_test() {
+pub fn sealed_rejects_unknown_key_test() -> Nil {
   let sealed = schema.sealed(profile_schema(), ["name", "score", "last"])
   let entries = [
     #("name", json.string("ada")),
@@ -251,11 +251,11 @@ pub fn sealed_rejects_unknown_key_test() {
   ]
   case schema.decode_entries(sealed, entries) {
     Error(schema.UnknownKeys(keys)) -> keys |> expect.to_equal(["rogue"])
-    other -> panic as { "expected UnknownKeys, got " <> string_of(other) }
+    other -> panic as { "expected UnknownKeys, got " <> result_to_string(other) }
   }
 }
 
-pub fn open_schema_ignores_unknown_key_test() {
+pub fn open_schema_ignores_unknown_key_test() -> Nil {
   // Without `sealed`, extra keys are tolerated (forward compat).
   let entries = [
     #("name", json.string("ada")),
@@ -266,17 +266,17 @@ pub fn open_schema_ignores_unknown_key_test() {
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
 }
 
-pub fn versioned_stamp_entry_test() {
+pub fn versioned_stamp_entry_test() -> Nil {
   let versioned = schema.versioned(profile_schema(), 2)
   schema.stamp_entry(versioned)
   |> expect.to_equal(Some(#(schema.version_key, json.int(2))))
 }
 
-pub fn unversioned_stamp_entry_is_none_test() {
+pub fn unversioned_stamp_entry_is_none_test() -> Nil {
   schema.stamp_entry(profile_schema()) |> expect.to_equal(None)
 }
 
-pub fn versioned_matching_version_decodes_test() {
+pub fn versioned_matching_version_decodes_test() -> Nil {
   let versioned = schema.versioned(profile_schema(), 2)
   let entries = [
     #("name", json.string("ada")),
@@ -287,7 +287,7 @@ pub fn versioned_matching_version_decodes_test() {
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
 }
 
-pub fn versioned_mismatch_is_schema_mismatch_test() {
+pub fn versioned_mismatch_is_schema_mismatch_test() -> Nil {
   let versioned = schema.versioned(profile_schema(), 2)
   let entries = [
     #("name", json.string("ada")),
@@ -296,11 +296,12 @@ pub fn versioned_mismatch_is_schema_mismatch_test() {
   ]
   case schema.decode_entries(versioned, entries) {
     Error(schema.SchemaMismatch(expected: 2, found: 1)) -> Nil
-    other -> panic as { "expected SchemaMismatch, got " <> string_of(other) }
+    other ->
+      panic as { "expected SchemaMismatch, got " <> result_to_string(other) }
   }
 }
 
-pub fn versioned_unstamped_is_accepted_test() {
+pub fn versioned_unstamped_is_accepted_test() -> Nil {
   // A map written before versioning (no __schema key) is still readable.
   let versioned = schema.versioned(profile_schema(), 2)
   let entries = [#("name", json.string("ada")), #("score", json.int(1))]
@@ -327,21 +328,21 @@ fn built_profile_schema() -> schema.Schema(Player, Profile) {
   )
 }
 
-pub fn builder_round_trip_some_test() {
+pub fn builder_round_trip_some_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
   let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
   schema.decode_entries(built_profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
 
-pub fn builder_round_trip_none_test() {
+pub fn builder_round_trip_none_test() -> Nil {
   let value = Profile(name: "grace", score: 9, last: None)
   let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
   schema.decode_entries(built_profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
 
-pub fn optional_none_writes_delete_test() {
+pub fn optional_none_writes_delete_test() -> Nil {
   // Decision 1: an absent optional removes the key. Writing a `None` record
   // over stale entries must not read back as `Some`.
   let stale = [
@@ -358,14 +359,14 @@ pub fn optional_none_writes_delete_test() {
   |> expect.to_equal(Ok(value))
 }
 
-pub fn optional_some_writes_put_test() {
+pub fn optional_some_writes_put_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
   schema.encode_ops(built_profile_schema(), value)
   |> list.contains(schema.Put("last", json.int(6)))
   |> expect.to_equal(True)
 }
 
-pub fn optional_stored_null_reads_as_none_test() {
+pub fn optional_stored_null_reads_as_none_test() -> Nil {
   // Legacy/foreign writers may store an explicit null; read it as None
   // rather than a decode failure.
   let entries = [
@@ -377,8 +378,8 @@ pub fn optional_stored_null_reads_as_none_test() {
   |> expect.to_equal(Ok(Profile(name: "ada", score: 3, last: None)))
 }
 
-pub fn sealed_known_rejects_undeclared_key_test() {
-  let sealed = schema.sealed_known(built_profile_schema())
+pub fn sealed_known_rejects_undeclared_key_test() -> Nil {
+  let assert Ok(sealed) = schema.sealed_known(built_profile_schema())
   let entries = [
     #("name", json.string("ada")),
     #("score", json.int(1)),
@@ -386,12 +387,12 @@ pub fn sealed_known_rejects_undeclared_key_test() {
   ]
   case schema.decode_entries(sealed, entries) {
     Error(schema.UnknownKeys(keys)) -> keys |> expect.to_equal(["rogue"])
-    other -> panic as { "expected UnknownKeys, got " <> string_of(other) }
+    other -> panic as { "expected UnknownKeys, got " <> result_to_string(other) }
   }
 }
 
-pub fn sealed_known_admits_version_key_test() {
-  let s =
+pub fn sealed_known_admits_version_key_test() -> Nil {
+  let assert Ok(sealed) =
     built_profile_schema()
     |> schema.versioned(1)
     |> schema.sealed_known
@@ -400,7 +401,7 @@ pub fn sealed_known_admits_version_key_test() {
     #("score", json.int(1)),
     #(schema.version_key, json.int(1)),
   ]
-  schema.decode_entries(s, entries)
+  schema.decode_entries(sealed, entries)
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
 }
 
@@ -408,7 +409,7 @@ type Solo {
   Solo(name: String)
 }
 
-pub fn record1_round_trip_test() {
+pub fn record1_round_trip_test() -> Nil {
   let s = schema.record1(Solo, schema.prop(name(), fn(s: Solo) { s.name }))
   let value = Solo(name: "lin")
   let entries = apply_ops([], schema.encode_ops(s, value))
@@ -433,7 +434,7 @@ fn int_field(key: String) -> schema.Field(Player, Int) {
   schema.field(key, json.int, decode.int)
 }
 
-pub fn record9_round_trip_test() {
+pub fn record9_round_trip_test() -> Nil {
   let s =
     schema.record9(
       Nine,
@@ -452,7 +453,7 @@ pub fn record9_round_trip_test() {
   schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
 }
 
-pub fn sealed_allows_version_key_test() {
+pub fn sealed_allows_version_key_test() -> Nil {
   // The reserved version key must not trip the seal check.
   let s =
     profile_schema()
@@ -467,7 +468,7 @@ pub fn sealed_allows_version_key_test() {
   |> expect.to_equal(Ok(Profile(name: "ada", score: 1, last: None)))
 }
 
-pub fn sequence_channel_field_test() {
+pub fn sequence_channel_field_test() -> Nil {
   let items: schema.ChannelField(Player, schema.SequenceChannel) =
     schema.channel_field("items")
   schema.channel_field_key(items) |> expect.to_equal("items")
@@ -479,13 +480,13 @@ pub fn sequence_channel_field_test() {
 // Like every ChannelField, it carries only the key at runtime; the kind
 // guides the compiler to the matching facade resolver family.
 
-pub fn text_channel_field_key_returns_key_test() {
+pub fn text_channel_field_key_returns_key_test() -> Nil {
   let body: schema.ChannelField(Player, schema.TextChannel) =
     schema.channel_field("body")
   schema.channel_field_key(body) |> expect.to_equal("body")
 }
 
-pub fn text_channel_kind_is_phantom_test() {
+pub fn text_channel_kind_is_phantom_test() -> Nil {
   // The kind tag scopes a field to one resolver family at compile time:
   // passing a TextChannel field to `resolve_sequence_field` or
   // `resolve_counter_field` would be a type error (pinned here as
@@ -498,7 +499,7 @@ pub fn text_channel_kind_is_phantom_test() {
   schema.channel_field_key(items) |> expect.to_equal("items")
 }
 
-pub fn text_channel_composes_with_typed_map_fields_test() {
+pub fn text_channel_composes_with_typed_map_fields_test() -> Nil {
   // A typed map tagged `Player` can hold plain Fields *and* ChannelFields of
   // any kind — all share the same phantom schema tag. This confirms TextChannel
   // integrates with the full field vocabulary without special machinery.
@@ -514,7 +515,7 @@ pub fn text_channel_composes_with_typed_map_fields_test() {
   schema.channel_field_key(notes) |> expect.to_equal("notes")
 }
 
-pub fn text_channel_composes_with_child_field_test() {
+pub fn text_channel_composes_with_child_field_test() -> Nil {
   // A typed map can mix ChildField (nested typed map), plain Field, and
   // ChannelField(TextChannel) — all bound to the same schema phantom.
   let roster: schema.ChildField(Player, Player) = schema.child_field("roster")
@@ -524,7 +525,7 @@ pub fn text_channel_composes_with_child_field_test() {
   schema.channel_field_key(bio) |> expect.to_equal("bio")
 }
 
-pub fn text_channel_field_in_record_schema_test() {
+pub fn text_channel_field_in_record_schema_test() -> Nil {
   // ChannelFields are declared alongside the Schema's plain fields; here we
   // confirm the phantom tag stays coherent: all accessors are tagged Player
   // and no runtime error occurs when querying keys from both field kinds in

@@ -111,7 +111,7 @@ import watershed/crdt_wire.{type Message}
 @target(javascript)
 import watershed/g_set_kernel
 @target(javascript)
-import watershed/ids
+import watershed/id
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapValue}
 @target(javascript)
@@ -843,7 +843,7 @@ fn digest_message(cell: Cell(State)) -> Message {
 pub fn new_document(
   config: Config(root),
 ) -> Result(CrdtDocument(root), P2pError) {
-  let session = ids.uuid_v4()
+  let session = id.uuid_v4()
   let replica = config.label <> "-" <> session
   let core =
     crdt_core.config(
@@ -1259,19 +1259,25 @@ fn note_roster(cell: Cell(State), peers: List(String)) -> Nil {
 /// late joiner would see that result.
 fn settle_readiness(cell: Cell(State)) -> Nil {
   let state = transport_js.get_cell(cell)
-  case resolved(state), state.roster, state.bootstrap, state.transport {
-    True, _, _, _ -> Nil
-    _, False, _, _ -> Nil
-    _, _, WaitingForState(_), _ -> Nil
-    _, _, _, None -> Nil
-    _, _, _, Some(transport) ->
-      case p2p_transport_js.known_peers(transport) {
-        [] -> {
-          let state = transport_js.get_cell(cell)
-          transport_js.set_cell(cell, State(..state, bootstrap: Bootstrapped))
-          resolve_ready(cell, Ok(Nil))
-        }
-        _ -> Nil
+  case resolved(state), state.roster {
+    True, _ -> Nil
+    _, False -> Nil
+    False, True ->
+      case state.bootstrap, state.transport {
+        WaitingForState(_), _ -> Nil
+        Joining, None | Bootstrapped, None -> Nil
+        Joining, Some(transport) | Bootstrapped, Some(transport) ->
+          case p2p_transport_js.known_peers(transport) {
+            [] -> {
+              let state = transport_js.get_cell(cell)
+              transport_js.set_cell(
+                cell,
+                State(..state, bootstrap: Bootstrapped),
+              )
+              resolve_ready(cell, Ok(Nil))
+            }
+            _ -> Nil
+          }
       }
   }
 }
@@ -1413,7 +1419,11 @@ fn publish_state(cell: Cell(State)) -> Nil {
       )
       publish(cell, relay, digest, state.document)
     }
-    _, Some(_), _ -> Nil
+    _, Some(_), RelayOff
+    | _, Some(_), RelayOpening
+    | _, Some(_), RelayPrimaryPhase
+    | _, Some(_), RelayUnsupportedPhase
+    -> Nil
   }
 }
 
@@ -1467,7 +1477,13 @@ fn publish_while_primary(cell: Cell(State)) -> Nil {
       transport_js.set_cell(cell, State(..state, published: digest))
       publish(cell, relay, digest, state.document)
     }
-    _, _, _ -> Nil
+    True, _, _
+    | _, None, _
+    | _, Some(_), RelayOff
+    | _, Some(_), RelayOpening
+    | _, Some(_), RelaySyncing
+    | _, Some(_), RelayUnsupportedPhase
+    -> Nil
   }
 }
 
@@ -1509,7 +1525,10 @@ fn relay_checkpoint_requested(cell: Cell(State)) -> Nil {
       // coalescer owed the relay has just been written.
       clear_publication(cell)
     }
-    _, Some(_), _ -> Nil
+    _, Some(_), RelayOff
+    | _, Some(_), RelayOpening
+    | _, Some(_), RelayUnsupportedPhase
+    -> Nil
   }
 }
 
@@ -1551,7 +1570,7 @@ fn relay_attested(cell: Cell(State), attested: String) -> Nil {
         True -> emit(cell, RelayCheckpointed(attested))
         False -> Nil
       }
-    _, _ -> Nil
+    _, RelayOff | _, RelayOpening | _, RelayUnsupportedPhase -> Nil
   }
 }
 
@@ -1697,7 +1716,8 @@ fn relay_dropped(cell: Cell(State), detail: String) -> Nil {
           ..state,
           phase: case state.phase {
             RelayUnsupportedPhase -> RelayUnsupportedPhase
-            _ -> RelayOpening
+            RelayOff | RelayOpening | RelaySyncing | RelayPrimaryPhase ->
+              RelayOpening
           },
           path: PeerToPeer,
           published: "",
@@ -2094,7 +2114,7 @@ fn handle_peer_close(cell: Cell(State), peer_id: String) -> Nil {
 fn rebootstrap(cell: Cell(State), lost: String) -> Nil {
   let state = transport_js.get_cell(cell)
   case resolved(state), state.bootstrap {
-    True, _ -> Nil
+    True, Joining | True, WaitingForState(_) | True, Bootstrapped -> Nil
     False, WaitingForState(peer_id) if peer_id == lost -> {
       case greeted_peers(state) {
         [peer_id, ..] -> request_state(cell, peer_id)
@@ -2104,7 +2124,8 @@ fn rebootstrap(cell: Cell(State), lost: String) -> Nil {
         }
       }
     }
-    False, _ -> settle_readiness(cell)
+    False, Joining | False, WaitingForState(_) | False, Bootstrapped ->
+      settle_readiness(cell)
   }
 }
 
@@ -2373,7 +2394,8 @@ fn greet(cell: Cell(State), peer_id: String) -> Nil {
         // The first validated peer of a replica that is not ready yet is
         // also its bootstrap source: readiness waits on this reply.
         False, Joining -> request_state(cell, peer_id)
-        _, _ -> send(cell, peer_id, crdt_core.state_request_message())
+        True, Joining | _, WaitingForState(_) | _, Bootstrapped ->
+          send(cell, peer_id, crdt_core.state_request_message())
       }
       // And, while the relay is the delta path, what this replica holds
       // — so a peer that never sees this relay's traffic can ask for
@@ -2485,7 +2507,7 @@ fn broadcast(cell: Cell(State), message: Message) -> Nil {
           peer_broadcast(cell, message)
         }
       }
-    _, _ -> peer_broadcast(cell, message)
+    Sequenced, None | PeerToPeer, _ -> peer_broadcast(cell, message)
   }
 }
 
@@ -2556,7 +2578,11 @@ fn nudge_peers(cell: Cell(State)) -> Nil {
           )
         }
       }
-    _, _, _ -> Nil
+    False, Sequenced, None
+    | False, PeerToPeer, _
+    | True, Sequenced, _
+    | True, PeerToPeer, _
+    -> Nil
   }
 }
 
@@ -2588,9 +2614,13 @@ fn flush_nudge(cell: Cell(State)) -> Nil {
       publish_owed: False,
     ),
   )
-  case state.closed, state.nudge_dirty, state.path, state.transport {
-    False, True, Sequenced, Some(_) -> broadcast_digest(cell)
-    _, _, _, _ -> Nil
+  case state.closed, state.nudge_dirty {
+    False, True ->
+      case state.path, state.transport {
+        Sequenced, Some(_) -> broadcast_digest(cell)
+        Sequenced, None | PeerToPeer, _ -> Nil
+      }
+    False, False | True, _ -> Nil
   }
   case state.closed, state.publish_owed {
     False, True -> publish_while_primary(cell)
@@ -2636,7 +2666,11 @@ fn has_greeted_peer(state: State) -> Bool {
 fn should_sync(state: State) -> Bool {
   case state.closed, state.path, state.transport {
     False, PeerToPeer, Some(_) -> has_greeted_peer(state)
-    _, _, _ -> False
+    False, PeerToPeer, None
+    | False, Sequenced, _
+    | True, PeerToPeer, _
+    | True, Sequenced, _
+    -> False
   }
 }
 
@@ -3223,11 +3257,11 @@ pub fn or_map_remove(
 pub fn or_map_value(
   handle: Handle(schema.OrMapChannel),
   key key: String,
-) -> Result(Option(OrMapValue), P2pError) {
+) -> Result(Result(OrMapValue, Nil), P2pError) {
   use state <- read(handle, channel.OrMapChannel)
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.get(kernel, key)
-    _ -> None
+    _ -> Error(Nil)
   }
 }
 
@@ -3239,13 +3273,13 @@ pub fn or_map_tally(
 ) -> Result(Int, P2pError) {
   use value <- result.try(or_map_value(handle, key))
   case value {
-    Some(or_map_kernel.Tally(tally)) -> Ok(tally)
-    Some(or_map_kernel.Register(_)) ->
+    Ok(or_map_kernel.Tally(tally)) -> Ok(tally)
+    Ok(or_map_kernel.Register(_)) ->
       Error(p2p.InvalidEnvelope(
         address(handle),
         "key " <> key <> " holds a register, not a tally",
       ))
-    None -> Ok(0)
+    Error(Nil) -> Ok(0)
   }
 }
 

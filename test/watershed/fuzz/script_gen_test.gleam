@@ -17,7 +17,7 @@ fn config() -> qcheck.Config {
 
 /// `AddClient` (F2) is one of the command kinds `command_generator` can
 /// produce: with all weight on `add_client`, every draw must be `AddClient`.
-pub fn command_generator_can_produce_add_client_test() {
+pub fn command_generator_can_produce_add_client_test() -> Nil {
   let op_generator = qcheck.bounded_int(from: -5, to: 5)
   let weights =
     Weights(
@@ -44,7 +44,7 @@ pub fn command_generator_can_produce_add_client_test() {
 /// needed for client 0 to have someone to observe). Uses non-default
 /// weights so `rollback_op`/`stashed_op` (0 by default) are actually
 /// exercised by this check.
-pub fn generated_scripts_never_author_from_client_zero_test() {
+pub fn generated_scripts_never_author_from_client_zero_test() -> Nil {
   let op_generator = qcheck.bounded_int(from: -5, to: 5)
   let weights =
     Weights(..script_gen.default_weights(), rollback_op: 10, stashed_op: 10)

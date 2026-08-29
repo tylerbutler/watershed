@@ -52,10 +52,21 @@ import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "root"
+
+/// Where the core reads its ops from now. A replay reads a complete, ordered
+/// log, so it needs none of the protections that guard the live lane. The
+/// position is one value, and not a flag, because the two positions name two
+/// different behaviours.
+pub type IngestPosition {
+  /// The core folds historical messages at a past sequence point.
+  Replaying
+  /// The core reads the live lane at the newest sequence point.
+  Live
+}
 
 pub type Core {
   Core(
@@ -98,7 +109,7 @@ pub type Core {
     /// absent. To apply those protections during a replay is incorrect. To add
     /// *self* to the quorum of an op that sequenced before this client joined
     /// puts the client in a room that it was not in.
-    replaying: Bool,
+    ingest: IngestPosition,
     /// The sequence number of the newest checkpoint that this client knows
     /// about. That checkpoint is the blob that the client started from, a
     /// summarize op that it saw after that, or one that it wrote itself. The
@@ -173,6 +184,9 @@ pub type CoreError {
   /// corrupt. A valid empty edit never reaches this path. The kernel reports
   /// such an edit as a success that changes nothing. See `text_kernel`.
   TextOpFailed(address: String, detail: String)
+  /// A channel snapshot in the summary does not describe a channel that this
+  /// client can build. The document cannot start from that summary.
+  BadSummaryChannel(address: String, detail: String)
 }
 
 pub type Bootstrapped {
@@ -256,7 +270,10 @@ pub fn bootstrap(
       summary,
       Summary(sequence_number: 0, channels: [], members: []),
     )
-  let #(channels, channel_order) = seed_channels(seeded, connected.client_id)
+  use #(channels, channel_order) <- result.try(seed_channels(
+    seeded,
+    connected.client_id,
+  ))
 
   let core =
     Core(
@@ -280,8 +297,8 @@ pub fn bootstrap(
       members: set.from_list(seed_members),
       live_members: roster_of(connected),
       // Suppresses the live-path defences in `quorum_of` while history is
-      // being reconstructed. See `replaying` on `Core`.
-      replaying: True,
+      // being reconstructed. See `ingest` on `Core`.
+      ingest: Replaying,
       owed: dict.new(),
     )
 
@@ -309,26 +326,27 @@ pub fn resume_bootstrap(
   }
 }
 
-/// Fold the historical messages into the core, with `replaying` set for exactly
+/// Fold the historical messages into the core, with `ingest` at `Replaying` for
 /// the length of the fold.
 ///
-/// The flag is set here, and not across a whole bootstrap, because it turns off
-/// the safety protections. The reconnect path reaches `Ready` by a route that
-/// never passes through `settle_bootstrap`. A flag that a hand-off had to clear
-/// would thus stay set on that route, and it would disable `quorum_of` for the
-/// rest of the session. To set and clear the flag around the fold makes that
-/// fault impossible: nothing outside a replay can observe the flag.
+/// The position moves here, and not across a whole bootstrap, because
+/// `Replaying` turns off the safety protections. The reconnect path reaches
+/// `Ready` by a route that never passes through `settle_bootstrap`. A position
+/// that a hand-off had to reset would thus stay at `Replaying` on that route,
+/// and it would disable `quorum_of` for the rest of the session. To move the
+/// position around the fold only makes that fault impossible: nothing outside
+/// a replay can observe `Replaying`.
 fn replay(
   core: Core,
   messages: List(SequencedDocumentMessage),
 ) -> Result(Core, CoreError) {
   use core <- result.map(
-    list.try_fold(messages, Core(..core, replaying: True), fn(core, msg) {
+    list.try_fold(messages, Core(..core, ingest: Replaying), fn(core, msg) {
       handle_sequenced(core, msg)
       |> result.map(fn(outcome) { outcome.0 })
     }),
   )
-  Core(..core, replaying: False)
+  Core(..core, ingest: Live)
 }
 
 /// The hand-off from the replay to the live traffic.
@@ -409,7 +427,7 @@ pub fn ops_since_summary(core: Core) -> Int {
 /// claim about the confirmed state at one sequence point, so every condition
 /// that puts the core away from that point refuses the summary:
 ///
-///   - `replaying`: the core is at a historical position, and the roster that
+///   - `Replaying`: the core is at a historical position, and the roster that
 ///     it would record is the room at the checkpoint, and not the room now.
 ///   - `in_flight`: there is a local edit that the blob would omit, and it
 ///     would report nothing. `summarize` refuses in this state, so the policy
@@ -417,7 +435,7 @@ pub fn ops_since_summary(core: Core) -> Int {
 ///   - `out_of_order`: a `requestOps` round is open, so the confirmed state is
 ///     a prefix of the state that the server already sequenced.
 pub fn wants_summary(core: Core, policy: Policy) -> Bool {
-  !core.replaying
+  core.ingest == Live
   && core.in_flight == []
   && core.out_of_order == []
   && ops_since_summary(core) >= summary_policy.policy_threshold(policy)
@@ -456,7 +474,7 @@ pub fn build_summarize(
 ) -> #(Core, wire.OutboundOp) {
   let csn = core.next_csn
   let outbound =
-    ops.outbound_summarize_op(
+    wire_op.outbound_summarize_op(
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
       handle: handle,
@@ -476,31 +494,37 @@ pub fn build_summarize(
 fn seed_channels(
   seeded: List(#(String, Snapshot)),
   replica replica: String,
-) -> #(Dict(String, ChannelState), List(String)) {
-  let #(channels, channel_order) =
-    list.fold(seeded, #(dict.new(), []), fn(acc, entry) {
+) -> Result(#(Dict(String, ChannelState), List(String)), CoreError) {
+  use #(channels, channel_order) <- result.try(
+    list.try_fold(seeded, #(dict.new(), []), fn(acc, entry) {
       let #(channels, channel_order) = acc
       let #(address, snapshot) = entry
-      #(
-        dict.insert(
-          channels,
-          address,
-          channel.from_snapshot(snapshot, replica: replica),
-        ),
-        list.unique(list.append(channel_order, [address])),
+      use state <- result.try(
+        channel.from_snapshot(snapshot, replica: replica)
+        |> result.map_error(fn(detail) {
+          BadSummaryChannel(address: address, detail: detail)
+        }),
       )
-    })
+      Ok(#(
+        dict.insert(channels, address, state),
+        list.unique(list.append(channel_order, [address])),
+      ))
+    }),
+  )
 
   case dict.has_key(channels, root_address) {
-    True -> #(channels, channel_order)
-    False -> #(
-      dict.insert(
-        channels,
-        root_address,
-        channel.new(channel.InitMap, replica: replica),
-      ),
-      [root_address, ..channel_order],
-    )
+    True -> Ok(#(channels, channel_order))
+    False ->
+      Ok(
+        #(
+          dict.insert(
+            channels,
+            root_address,
+            channel.new(channel.InitMap, replica: replica),
+          ),
+          [root_address, ..channel_order],
+        ),
+      )
   }
 }
 
@@ -544,7 +568,7 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
     // the quorum of an op sequenced before we reconnected claims a signoff for
     // an id that did not exist when that op was made, and no other replica
     // agrees. `go_live` clears this when the gap closes.
-    replaying: True,
+    ingest: Replaying,
   )
 }
 
@@ -580,10 +604,10 @@ pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
 ///
 /// This function is the equivalent of `settle_bootstrap`, for the route that
 /// never passes through it. It exists so that exactly one place on this path
-/// clears `replaying`. The flag thus cannot stay set past the gap and disable
-/// `quorum_of` for the rest of the session.
+/// puts `ingest` back at `Live`. The replay position thus cannot outlast the
+/// gap and disable `quorum_of` for the rest of the session.
 pub fn go_live(core: Core) -> Core {
-  Core(..core, replaying: False)
+  Core(..core, ingest: Live)
 }
 
 /// The quorum that the core judges a sequenced op against: the roster at the
@@ -611,9 +635,9 @@ pub fn go_live(core: Core) -> Core {
 /// An author of `None` is a system message, and not the client `0`. The earlier
 /// code converted it to `0` and added a member that never signs off.
 fn quorum_of(core: Core, author: Option(String)) -> List(Int) {
-  case core.replaying {
-    True -> core.members |> set.to_list
-    False -> quorum_with_live_defences(core, author)
+  case core.ingest {
+    Replaying -> core.members |> set.to_list
+    Live -> quorum_with_live_defences(core, author)
   }
 }
 
@@ -680,7 +704,7 @@ fn restamp_in_flight(
         ),
       ],
       [
-        ops.outbound_channel_op(
+        wire_op.outbound_channel_op(
           address: address,
           client_sequence_number: csn,
           reference_sequence_number: core.last_seen_sn,
@@ -700,7 +724,7 @@ fn restamp_in_flight(
         ),
       ],
       [
-        ops.outbound_attach_op(
+        wire_op.outbound_attach_op(
           address: address,
           client_sequence_number: csn,
           reference_sequence_number: core.last_seen_sn,
@@ -743,7 +767,7 @@ fn restamp_task_manager(
               ),
             ],
             [
-              ops.outbound_channel_op(
+              wire_op.outbound_channel_op(
                 address: address,
                 client_sequence_number: csn,
                 reference_sequence_number: core.last_seen_sn,
@@ -761,13 +785,19 @@ fn restamp_task_manager(
             )
           #(core, csn, [], [])
         }
-        Ok(#(_, _, _)) ->
-          panic as "task-manager resubmit returned inconsistent op metadata"
-        Error(err) ->
-          panic as { "task-manager resubmit failed: " <> string.inspect(err) }
+        // The kernel reports an op without its pending record, or the
+        // reverse. The runtime drops the resubmit, because it cannot stamp an
+        // op that it cannot match to an ack later. The op was never acked, so
+        // no committed data is lost.
+        Ok(#(_, _, _)) -> #(core, csn, [], [])
+        // The kernel refused the resubmit. The runtime drops the op for the
+        // same reason.
+        Error(_) -> #(core, csn, [], [])
       }
     }
-    _, _ -> panic as "task-manager resubmit missing channel state or metadata"
+    // The channel is gone, or the in-flight entry carries metadata of another
+    // kernel. There is nothing to stamp again.
+    _, _ -> #(core, csn, [], [])
   }
 }
 
@@ -808,7 +838,7 @@ fn restamp_directory(
               ),
             ],
             [
-              ops.outbound_channel_op(
+              wire_op.outbound_channel_op(
                 address: address,
                 client_sequence_number: csn,
                 reference_sequence_number: core.last_seen_sn,
@@ -820,7 +850,9 @@ fn restamp_directory(
         None -> #(core, csn, [], [])
       }
     }
-    _ -> panic as "directory resubmit missing channel state"
+    // The channel is gone, or the address now names another kernel. There is
+    // nothing to stamp again.
+    _ -> #(core, csn, [], [])
   }
 }
 
@@ -931,7 +963,7 @@ fn stamp_outbound(
 ) -> #(Core, wire.OutboundOp) {
   let csn = core.next_csn
   let outbound =
-    ops.outbound_channel_op(
+    wire_op.outbound_channel_op(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
@@ -1125,9 +1157,9 @@ fn handle_op(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
-  case ops.decode_op_contents(msg.contents) {
+  case wire_op.decode_op_contents(msg.contents) {
     Error(_) -> Error(BadOpContents(msg.sequence_number))
-    Ok(ops.AttachOp(address, snapshot)) ->
+    Ok(wire_op.AttachOp(address, snapshot)) ->
       case is_own_op(core, msg.client_id) {
         True ->
           ack_own_attach(
@@ -1139,7 +1171,7 @@ fn handle_op(
           )
         False -> remote_attach(core, msg.sequence_number, address, snapshot)
       }
-    Ok(ops.ChannelOp(address, raw_contents)) ->
+    Ok(wire_op.ChannelOp(address, raw_contents)) ->
       // The op envelope carries no channel type; the registry is the
       // authoritative source, so decode against the addressed channel's own
       // grammar. Channels are always attached before their ops arrive.
@@ -1149,7 +1181,7 @@ fn handle_op(
           case
             decode.run(
               raw_contents,
-              ops.channel_op_decoder(channel.channel_type(state)),
+              wire_op.channel_op_decoder(channel.channel_type(state)),
             )
           {
             Error(_) -> Error(BadOpContents(msg.sequence_number))
@@ -1213,18 +1245,15 @@ fn remote_attach(
 ) {
   case has_channel(core, address) {
     True -> Error(DuplicateAttach(address, sequence_number))
-    False ->
-      Ok(
-        #(
-          add_attached_channel(
-            core,
-            address,
-            channel.from_snapshot(snapshot, replica: core.client_id),
-          ),
-          [],
-          [],
-        ),
+    False -> {
+      use state <- result.try(
+        channel.from_snapshot(snapshot, replica: core.client_id)
+        |> result.map_error(fn(detail) {
+          BadSummaryChannel(address: address, detail: detail)
+        }),
       )
+      Ok(#(add_attached_channel(core, address, state), [], []))
+    }
   }
 }
 
@@ -1516,7 +1545,10 @@ pub fn set(
       // Attaching dependencies first can reshape `core.channels`, so re-read
       // the kernel afterwards (its own type cannot change underneath us).
       let #(core, attach_outbound) = attach_dependencies(core, value)
-      let assert Ok(channel.MapState(kernel)) = dict.get(core.channels, address)
+      use located <- result.try(locate_map(core, address))
+      let kernel = case located {
+        Detached(kernel) | Attached(kernel) -> kernel
+      }
       let #(kernel, events, op) = map_kernel.set(kernel, key, value)
       let #(core, events, outbound) =
         stamp_attached(
@@ -1680,11 +1712,11 @@ pub fn pn_counter_update(
 
 /// Propose `value` for `key` in the PactMap at `address`. `value` is a JSON
 /// payload, or `None` for a delete. Unlike an optimistic kernel, a consensus
-/// PactMap does **not** apply the value locally. The kernel returns an
-/// `Option(PactMapOp)` value to submit, and that value is `None` when a value is
-/// already pending for the key, which changes nothing. The value takes effect
-/// when the `Set` op sequences. The released-ops loop emits the `Accept` op of
-/// the setter by itself.
+/// PactMap does **not** apply the value locally. The kernel returns the op to
+/// submit, or a `ProposeError` value when a value is already pending for the
+/// key, which changes nothing. The value takes effect when the `Set` op
+/// sequences. The released-ops loop emits the `Accept` op of the setter by
+/// itself.
 pub fn pact_map_set(
   core: Core,
   address: String,
@@ -1701,9 +1733,9 @@ pub fn pact_map_set(
 
 /// Propose a delete for `key` in the PactMap at `address`. A delete writes a
 /// tombstone. This function submits an op only, the same as `pact_map_set`, and
-/// the delete takes effect when that op sequences. A `None` result from the
-/// kernel changes nothing. The kernel gives that result when a value is already
-/// pending, when the key is absent, and when the key already holds a
+/// the delete takes effect when that op sequences. A `ProposeError` value from
+/// the kernel changes nothing. The kernel gives that result when a value is
+/// already pending, when the key is absent, and when the key already holds a
 /// tombstone.
 pub fn pact_map_delete(
   core: Core,
@@ -1721,7 +1753,8 @@ pub fn pact_map_delete(
 fn pact_map_submit(
   core: Core,
   address: String,
-  produce: fn(pact_map_kernel.PactMapState) -> Option(pact_map_kernel.PactMapOp),
+  produce: fn(pact_map_kernel.PactMapState) ->
+    Result(pact_map_kernel.PactMapOp, pact_map_kernel.ProposeError),
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
   CoreError,
@@ -1733,8 +1766,9 @@ fn pact_map_submit(
     Ok(Detached(_)) -> Ok(#(core, [], []))
     Ok(Attached(kernel)) ->
       case produce(kernel) {
-        None -> Ok(#(core, [], []))
-        Some(op) ->
+        // A refusal changes nothing, and the caller can retry later.
+        Error(_) -> Ok(#(core, [], []))
+        Ok(op) ->
           Ok(stamp_attached(
             core,
             address,
@@ -1796,7 +1830,7 @@ pub fn ordered_add(
 
 /// Acquire the head of the queue at `address`, under the `acquire_id` value that
 /// the caller supplies. Create that id in the runtime layer, with
-/// `ids.uuid_v4`. An attached channel is not optimistic. The kernel removes the
+/// `id.uuid_v4`. An attached channel is not optimistic. The kernel removes the
 /// item when the op sequences, and the `Acquired` event delivers it. The
 /// `acquire_id` value is the key of the later `complete` or `release` call. A
 /// detached channel acquires the item immediately.
@@ -2027,7 +2061,8 @@ fn directory_storage_edit(
               [],
             ),
           )
-        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+        Error(error) ->
+          Error(DirectoryOpFailed(address, directory_detail(error)))
       }
     Ok(Attached(kernel)) -> {
       case run(kernel) {
@@ -2047,7 +2082,8 @@ fn directory_storage_edit(
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
-        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+        Error(error) ->
+          Error(DirectoryOpFailed(address, directory_detail(error)))
       }
     }
   }
@@ -2090,7 +2126,8 @@ fn directory_subdir_edit(
               [],
             ),
           )
-        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+        Error(error) ->
+          Error(DirectoryOpFailed(address, directory_detail(error)))
       }
     Ok(Attached(kernel)) ->
       case run(kernel) {
@@ -2115,13 +2152,14 @@ fn directory_subdir_edit(
               [],
             ),
           )
-        Error(err) -> Error(DirectoryOpFailed(address, directory_detail(err)))
+        Error(error) ->
+          Error(DirectoryOpFailed(address, directory_detail(error)))
       }
   }
 }
 
-fn directory_detail(err: directory_kernel.KernelError) -> String {
-  case err {
+fn directory_detail(error: directory_kernel.KernelError) -> String {
+  case error {
     directory_kernel.PathNotFound(path) -> "path not found: " <> path
     directory_kernel.InvalidName(name) -> "invalid subdirectory name: " <> name
     directory_kernel.UnexpectedAck(_, detail) -> detail
@@ -2155,7 +2193,7 @@ pub fn submit_json_ot(
               [],
             ),
           )
-        Error(err) -> Error(AckMismatch(json_ot_kernel_error_detail(err)))
+        Error(error) -> Error(AckMismatch(json_ot_kernel_error_detail(error)))
       }
     Ok(Attached(kernel)) ->
       case json_ot_kernel.submit(kernel, components, core.last_seen_sn) {
@@ -2176,19 +2214,22 @@ pub fn submit_json_ot(
               [],
             ),
           )
-        Error(err) -> Error(AckMismatch(json_ot_kernel_error_detail(err)))
+        Error(error) -> Error(AckMismatch(json_ot_kernel_error_detail(error)))
       }
   }
 }
 
-/// The current optimistic json0 document of the channel. The result is `None`
+/// The current optimistic json0 document of the channel. The result is `Error(Nil)`
 /// when the address does not name a json0 channel, and when the core cannot
 /// compute the view.
-pub fn json_ot_view(core: Core, address: String) -> Option(json_ot.JsonValue) {
+pub fn json_ot_view(
+  core: Core,
+  address: String,
+) -> Result(json_ot.JsonValue, Nil) {
   case find_channel(core, address) {
-    Some(channel.JsonOtState(kernel)) ->
-      option.from_result(json_ot_kernel.view(kernel))
-    _ -> None
+    Ok(channel.JsonOtState(kernel)) ->
+      json_ot_kernel.view(kernel) |> result.replace_error(Nil)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -2216,7 +2257,7 @@ pub fn submit_rich_text(
               [],
             ),
           )
-        Error(err) -> Error(AckMismatch(rich_text_kernel_error_detail(err)))
+        Error(error) -> Error(AckMismatch(rich_text_kernel_error_detail(error)))
       }
     Ok(Attached(kernel)) ->
       case rich_text_kernel.submit(kernel, delta, core.last_seen_sn) {
@@ -2237,27 +2278,27 @@ pub fn submit_rich_text(
               [],
             ),
           )
-        Error(err) -> Error(AckMismatch(rich_text_kernel_error_detail(err)))
+        Error(error) -> Error(AckMismatch(rich_text_kernel_error_detail(error)))
       }
   }
 }
 
 /// The current optimistic rich-text document of the channel. The result is
-/// `None` when the address does not name a rich-text channel, and when the core
+/// `Error(Nil)` when the address does not name a rich-text channel, and when the core
 /// cannot compute the view.
 pub fn rich_text_view(
   core: Core,
   address: String,
-) -> Option(rich_text.Document) {
+) -> Result(rich_text.Document, Nil) {
   case find_channel(core, address) {
-    Some(channel.RichTextState(kernel)) ->
-      option.from_result(rich_text_kernel.view(kernel))
-    _ -> None
+    Ok(channel.RichTextState(kernel)) ->
+      rich_text_kernel.view(kernel) |> result.replace_error(Nil)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
-fn json_ot_kernel_error_detail(err: json_ot_kernel.KernelError) -> String {
-  case err {
+fn json_ot_kernel_error_detail(error: json_ot_kernel.KernelError) -> String {
+  case error {
     json_ot_kernel.UnexpectedAck(detail) -> detail
     json_ot_kernel.OtFailure(ot) ->
       case ot {
@@ -2268,8 +2309,10 @@ fn json_ot_kernel_error_detail(err: json_ot_kernel.KernelError) -> String {
   }
 }
 
-fn rich_text_kernel_error_detail(err: rich_text_kernel.KernelError) -> String {
-  case err {
+fn rich_text_kernel_error_detail(
+  error: rich_text_kernel.KernelError,
+) -> String {
+  case error {
     rich_text_kernel.UnexpectedAck(detail) -> detail
     rich_text_kernel.RichTextFailure(algebra) ->
       case algebra {
@@ -2307,7 +2350,8 @@ pub fn or_map_increment(
           Error(OrMapModeMismatch(address, detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail)) ->
+        | Error(or_map_kernel.CorruptDelta(detail))
+        | Error(or_map_kernel.NegativeTally(detail)) ->
           Error(AckMismatch(detail))
       }
     Ok(Attached(kernel)) ->
@@ -2325,7 +2369,8 @@ pub fn or_map_increment(
           Error(OrMapModeMismatch(address, detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail)) ->
+        | Error(or_map_kernel.CorruptDelta(detail))
+        | Error(or_map_kernel.NegativeTally(detail)) ->
           Error(AckMismatch(detail))
       }
   }
@@ -2357,14 +2402,19 @@ pub fn or_map_set(
           Error(OrMapModeMismatch(address, detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail)) ->
+        | Error(or_map_kernel.CorruptDelta(detail))
+        | Error(or_map_kernel.NegativeTally(detail)) ->
           Error(AckMismatch(detail))
       }
     Ok(Attached(_)) -> {
       let #(core, attach_outbound) =
         attach_dependencies_from_register_string(core, value)
-      let assert Ok(channel.OrMapState(kernel)) =
-        dict.get(core.channels, address)
+      // Re-read the channel. Attaching the dependencies of the value rewrites
+      // `core.channels`, so the kernel found above is stale.
+      use located <- result.try(locate_or_map(core, address))
+      let kernel = case located {
+        Detached(kernel) | Attached(kernel) -> kernel
+      }
       case or_map_kernel.set_register(kernel, key, value, timestamp) {
         Ok(#(kernel, events, op, message_id)) -> {
           let #(core, events, outbound) =
@@ -2382,7 +2432,8 @@ pub fn or_map_set(
           Error(OrMapModeMismatch(address, detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail)) ->
+        | Error(or_map_kernel.CorruptDelta(detail))
+        | Error(or_map_kernel.NegativeTally(detail)) ->
           Error(AckMismatch(detail))
       }
     }
@@ -2399,29 +2450,48 @@ pub fn or_map_remove(
 ) {
   case locate_or_map(core, address) {
     Error(core_error) -> Error(core_error)
-    Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
-        or_map_kernel.remove(kernel, key)
-      Ok(
-        #(
-          put_detached_channel(core, address, channel.OrMapState(kernel)),
-          tag_or_map_events(address, events),
-          [],
-        ),
-      )
-    }
+    Ok(Detached(kernel)) ->
+      case or_map_kernel.remove(kernel, key) {
+        Ok(#(kernel, events, _op, _message_id)) ->
+          Ok(
+            #(
+              put_detached_channel(core, address, channel.OrMapState(kernel)),
+              tag_or_map_events(address, events),
+              [],
+            ),
+          )
+        Error(error) -> Error(or_map_kernel_error(address, error))
+      }
 
-    Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) = or_map_kernel.remove(kernel, key)
-      Ok(stamp_attached(
-        core,
-        address,
-        channel.OrMapState(kernel),
-        tag_or_map_events(address, events),
-        channel.OrMapOp(op),
-        channel.OrMapMeta(message_id),
-      ))
-    }
+    Ok(Attached(kernel)) ->
+      case or_map_kernel.remove(kernel, key) {
+        Ok(#(kernel, events, op, message_id)) ->
+          Ok(stamp_attached(
+            core,
+            address,
+            channel.OrMapState(kernel),
+            tag_or_map_events(address, events),
+            channel.OrMapOp(op),
+            channel.OrMapMeta(message_id),
+          ))
+        Error(error) -> Error(or_map_kernel_error(address, error))
+      }
+  }
+}
+
+/// Convert an error of the or-map kernel into a `CoreError` value. A mode
+/// mismatch is incorrect use of the API. Every other error means the pending
+/// queue and the acks no longer agree.
+fn or_map_kernel_error(
+  address: String,
+  error: or_map_kernel.KernelError,
+) -> CoreError {
+  case error {
+    or_map_kernel.ModeMismatch(detail) -> OrMapModeMismatch(address, detail)
+    or_map_kernel.UnexpectedAck(detail)
+    | or_map_kernel.UnexpectedRollback(detail)
+    | or_map_kernel.CorruptDelta(detail)
+    | or_map_kernel.NegativeTally(detail) -> AckMismatch(detail)
   }
 }
 
@@ -2864,9 +2934,13 @@ pub fn register_write(
       )
     }
     Ok(Attached(_)) -> {
+      // Attaching the dependencies of the value rewrites `core.channels`, so
+      // the kernel found above is stale. Read it again.
       let #(core, attach_outbound) = attach_dependencies(core, value)
-      let assert Ok(channel.RegisterCollectionState(kernel)) =
-        dict.get(core.channels, address)
+      use located <- result.try(locate_register_collection(core, address))
+      let kernel = case located {
+        Detached(kernel) | Attached(kernel) -> kernel
+      }
       let op =
         register_collection_kernel.write(kernel, key, value, core.last_seen_sn)
       let #(core, events, outbound) =
@@ -2893,7 +2967,7 @@ pub type ClaimSubmitResult {
   ClaimAlreadyPendingLocally
 }
 
-pub fn try_set_claim(
+pub fn claim_once(
   core: Core,
   address: String,
   key: String,
@@ -2903,8 +2977,8 @@ pub fn try_set_claim(
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case claims_kernel.get(kernel, key) {
-        Some(current_value) -> Ok(ClaimAlreadyClaimed(current_value))
-        None -> {
+        Ok(current_value) -> Ok(ClaimAlreadyClaimed(current_value))
+        Error(Nil) -> {
           let kernel = claims_kernel.set_detached(kernel, key, value)
           let core =
             put_detached_channel(core, address, channel.ClaimsState(kernel))
@@ -2916,7 +2990,7 @@ pub fn try_set_claim(
         }
       }
     Ok(Attached(kernel)) ->
-      case claims_kernel.try_set_claim(kernel, key, value, core.last_seen_sn) {
+      case claims_kernel.claim_once(kernel, key, value, core.last_seen_sn) {
         Ok(claims_kernel.AlreadyClaimed(current_value)) ->
           Ok(ClaimAlreadyClaimed(current_value))
         Ok(claims_kernel.Submitted(kernel, op)) -> {
@@ -3587,7 +3661,7 @@ fn submit_attaches(
         let snapshot = channel.attach_snapshot(state)
         let csn = core.next_csn
         let outbound_op =
-          ops.outbound_attach_op(
+          wire_op.outbound_attach_op(
             address: address,
             client_sequence_number: csn,
             reference_sequence_number: core.last_seen_sn,
@@ -3631,7 +3705,7 @@ fn stamp_attached(
 ) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)) {
   let csn = core.next_csn
   let outbound =
-    ops.outbound_channel_op(
+    wire_op.outbound_channel_op(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
@@ -3785,83 +3859,86 @@ fn tag_task_manager_events(
 // Reads
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn get(core: Core, address: String, key: String) -> Option(Json) {
+pub fn get(core: Core, address: String, key: String) -> Result(Json, Nil) {
   case find_channel(core, address) {
-    Some(channel.MapState(kernel)) -> map_kernel.get(kernel, key)
-    _ -> None
+    Ok(channel.MapState(kernel)) -> map_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 pub fn has(core: Core, address: String, key: String) -> Bool {
-  get(core, address, key) != None
+  result.is_ok(get(core, address, key))
 }
 
 pub fn size(core: Core, address: String) -> Int {
   case find_channel(core, address) {
-    Some(channel.MapState(kernel)) -> map_kernel.size(kernel)
-    _ -> 0
+    Ok(channel.MapState(kernel)) -> map_kernel.size(kernel)
+    Ok(_) | Error(Nil) -> 0
   }
 }
 
 pub fn keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.MapState(kernel)) -> map_kernel.keys(kernel)
-    _ -> []
+    Ok(channel.MapState(kernel)) -> map_kernel.keys(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
 pub fn entries(core: Core, address: String) -> List(#(String, Json)) {
   case find_channel(core, address) {
-    Some(channel.MapState(kernel)) -> map_kernel.entries(kernel)
-    _ -> []
+    Ok(channel.MapState(kernel)) -> map_kernel.entries(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
-/// The current optimistic value of the counter. The result is `None` when the
+/// The current optimistic value of the counter. The result is `Error(Nil)` when the
 /// address does not exist, and when it does not name a counter channel.
-pub fn counter_value(core: Core, address: String) -> Option(Int) {
+pub fn counter_value(core: Core, address: String) -> Result(Int, Nil) {
   case find_channel(core, address) {
-    Some(channel.CounterState(kernel)) -> Some(kernel.value)
-    _ -> None
+    Ok(channel.CounterState(kernel)) -> Ok(kernel.value)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
-/// The current optimistic value of the PN-counter. The result is `None` when the
+/// The current optimistic value of the PN-counter. The result is `Error(Nil)` when the
 /// address does not exist, and when it does not name a PN-counter channel.
-pub fn pn_counter_value(core: Core, address: String) -> Option(Int) {
+pub fn pn_counter_value(core: Core, address: String) -> Result(Int, Nil) {
   case find_channel(core, address) {
-    Some(channel.PnCounterState(kernel)) ->
-      Some(pn_counter_kernel.value(kernel))
-    _ -> None
+    Ok(channel.PnCounterState(kernel)) -> Ok(pn_counter_kernel.value(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 /// The accepted value for `key` in the PactMap at `address`. The result is
-/// `None` when the key has no accepted value, because it is still pending or it
+/// `Error(Nil)` when the key has no accepted value, because it is still pending or it
 /// is absent, and when the address does not name a PactMap channel.
-pub fn pact_map_get(core: Core, address: String, key: String) -> Option(Json) {
+pub fn pact_map_get(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(Json, Nil) {
   case find_channel(core, address) {
-    Some(channel.PactMapState(kernel)) -> pact_map_kernel.get(kernel, key)
-    _ -> None
+    Ok(channel.PactMapState(kernel)) -> pact_map_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 /// The accepted entry for `key`, which is the value with its sequence number.
-/// The result is `None` when the key is absent.
+/// The result is `Error(Nil)` when the key is absent.
 pub fn pact_map_get_with_details(
   core: Core,
   address: String,
   key: String,
-) -> Option(pact_map_kernel.Accepted) {
+) -> Result(pact_map_kernel.Accepted, Nil) {
   case find_channel(core, address) {
-    Some(channel.PactMapState(kernel)) ->
+    Ok(channel.PactMapState(kernel)) ->
       pact_map_kernel.get_with_details(kernel, key)
-    _ -> None
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 /// The pending proposal for `key`, which is its value with the signoff list that
-/// it still waits on. The result is `None` when nothing is pending, and when the
+/// it still waits on. The result is `Error(Nil)` when nothing is pending, and when the
 /// address does not name a PactMap.
 ///
 /// The kernel freezes the signoff list from the connected roster when the `Set`
@@ -3871,10 +3948,10 @@ pub fn pact_map_pending(
   core: Core,
   address: String,
   key: String,
-) -> Option(pact_map_kernel.Pending) {
+) -> Result(pact_map_kernel.Pending, Nil) {
   case find_channel(core, address) {
-    Some(channel.PactMapState(kernel)) -> pact_map_kernel.pending(kernel, key)
-    _ -> None
+    Ok(channel.PactMapState(kernel)) -> pact_map_kernel.pending(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -3882,28 +3959,27 @@ pub fn pact_map_pending(
 /// has accepted yet.
 pub fn pact_map_is_pending(core: Core, address: String, key: String) -> Bool {
   case find_channel(core, address) {
-    Some(channel.PactMapState(kernel)) ->
-      pact_map_kernel.is_pending(kernel, key)
-    _ -> False
+    Ok(channel.PactMapState(kernel)) -> pact_map_kernel.is_pending(kernel, key)
+    Ok(_) | Error(Nil) -> False
   }
 }
 
 /// Every key with an accepted pact or a pending pact, sorted.
 pub fn pact_map_keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.PactMapState(kernel)) -> pact_map_kernel.keys(kernel)
-    _ -> []
+    Ok(channel.PactMapState(kernel)) -> pact_map_kernel.keys(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
 /// The number of items that wait in the queue at `address`. The count does not
-/// include an acquired job. The result is `None` when the address does not
+/// include an acquired job. The result is `Error(Nil)` when the address does not
 /// exist, and when it does not name an ordered collection.
-pub fn ordered_size(core: Core, address: String) -> Option(Int) {
+pub fn ordered_size(core: Core, address: String) -> Result(Int, Nil) {
   case find_channel(core, address) {
-    Some(channel.OrderedCollectionState(kernel)) ->
-      Some(ordered_collection_kernel.size(kernel))
-    _ -> None
+    Ok(channel.OrderedCollectionState(kernel)) ->
+      Ok(ordered_collection_kernel.size(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -3911,9 +3987,9 @@ pub fn ordered_size(core: Core, address: String) -> Option(Int) {
 /// first.
 pub fn ordered_queue(core: Core, address: String) -> List(Json) {
   case find_channel(core, address) {
-    Some(channel.OrderedCollectionState(kernel)) ->
+    Ok(channel.OrderedCollectionState(kernel)) ->
       ordered_collection_kernel.summary_queue(kernel)
-    _ -> []
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -3924,9 +4000,9 @@ pub fn ordered_jobs(
   address: String,
 ) -> List(#(String, ordered_collection_kernel.JobEntry)) {
   case find_channel(core, address) {
-    Some(channel.OrderedCollectionState(kernel)) ->
+    Ok(channel.OrderedCollectionState(kernel)) ->
       ordered_collection_kernel.summary_jobs(kernel)
-    _ -> []
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -3934,17 +4010,17 @@ pub fn or_map_value(
   core: Core,
   address: String,
   key: String,
-) -> Option(or_map_kernel.OrMapValue) {
+) -> Result(or_map_kernel.OrMapValue, Nil) {
   case find_channel(core, address) {
-    Some(channel.OrMapState(kernel)) -> or_map_kernel.get(kernel, key)
-    _ -> None
+    Ok(channel.OrMapState(kernel)) -> or_map_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 pub fn or_map_keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.OrMapState(kernel)) -> or_map_kernel.keys(kernel)
-    _ -> []
+    Ok(channel.OrMapState(kernel)) -> or_map_kernel.keys(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -3953,36 +4029,36 @@ pub fn or_map_entries(
   address: String,
 ) -> List(#(String, or_map_kernel.OrMapValue)) {
   case find_channel(core, address) {
-    Some(channel.OrMapState(kernel)) -> or_map_kernel.entries(kernel)
-    _ -> []
+    Ok(channel.OrMapState(kernel)) -> or_map_kernel.entries(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
 pub fn or_set_contains(core: Core, address: String, element: String) -> Bool {
   case find_channel(core, address) {
-    Some(channel.OrSetState(kernel)) -> or_set_kernel.contains(kernel, element)
-    _ -> False
+    Ok(channel.OrSetState(kernel)) -> or_set_kernel.contains(kernel, element)
+    Ok(_) | Error(Nil) -> False
   }
 }
 
 pub fn or_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.OrSetState(kernel)) -> or_set_kernel.values(kernel)
-    _ -> []
+    Ok(channel.OrSetState(kernel)) -> or_set_kernel.values(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
 pub fn sequence_values(core: Core, address: String) -> List(Json) {
   case find_channel(core, address) {
-    Some(channel.SequenceState(kernel)) -> sequence_kernel.values(kernel)
-    _ -> []
+    Ok(channel.SequenceState(kernel)) -> sequence_kernel.values(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
 pub fn sequence_length(core: Core, address: String) -> Int {
   case find_channel(core, address) {
-    Some(channel.SequenceState(kernel)) -> sequence_kernel.length(kernel)
-    _ -> 0
+    Ok(channel.SequenceState(kernel)) -> sequence_kernel.length(kernel)
+    Ok(_) | Error(Nil) -> 0
   }
 }
 
@@ -3991,8 +4067,8 @@ pub fn sequence_length(core: Core, address: String) -> Int {
 /// channel.
 pub fn text_value(core: Core, address: String) -> String {
   case find_channel(core, address) {
-    Some(channel.TextState(kernel)) -> text_kernel.value(kernel)
-    _ -> ""
+    Ok(channel.TextState(kernel)) -> text_kernel.value(kernel)
+    Ok(_) | Error(Nil) -> ""
   }
 }
 
@@ -4001,8 +4077,8 @@ pub fn text_value(core: Core, address: String) -> String {
 /// channel.
 pub fn text_length(core: Core, address: String) -> Int {
   case find_channel(core, address) {
-    Some(channel.TextState(kernel)) -> text_kernel.length(kernel)
-    _ -> 0
+    Ok(channel.TextState(kernel)) -> text_kernel.length(kernel)
+    Ok(_) | Error(Nil) -> 0
   }
 }
 
@@ -4017,12 +4093,12 @@ pub fn text_substring(
   end: Int,
 ) -> Result(String, String) {
   case find_channel(core, address) {
-    Some(channel.TextState(kernel)) ->
+    Ok(channel.TextState(kernel)) ->
       case text_kernel.substring(kernel, start, end) {
         Ok(value) -> Ok(value)
         Error(error) -> Error(text_kernel.edit_error_detail(error))
       }
-    _ ->
+    Ok(_) | Error(Nil) ->
       Error(
         "text substring requires a text channel at "
         <> address
@@ -4044,12 +4120,12 @@ pub fn text_anchor_at(
   bias: text_kernel.Bias,
 ) -> Result(text_kernel.TextAnchor, String) {
   case find_channel(core, address) {
-    Some(channel.TextState(kernel)) ->
+    Ok(channel.TextState(kernel)) ->
       case text_kernel.anchor_at(kernel, index, bias) {
         Ok(anchor) -> Ok(anchor)
         Error(error) -> Error(text_kernel.anchor_error_detail(error))
       }
-    _ ->
+    Ok(_) | Error(Nil) ->
       Error(
         "text anchor_at requires a text channel at "
         <> address
@@ -4067,12 +4143,12 @@ pub fn text_resolve_anchor(
   anchor: text_kernel.TextAnchor,
 ) -> Result(Int, String) {
   case find_channel(core, address) {
-    Some(channel.TextState(kernel)) ->
+    Ok(channel.TextState(kernel)) ->
       case text_kernel.resolve_anchor(kernel, anchor) {
         Ok(index) -> Ok(index)
         Error(error) -> Error(text_kernel.anchor_error_detail(error))
       }
-    _ ->
+    Ok(_) | Error(Nil) ->
       Error(
         "text resolve_anchor requires a text channel at "
         <> address
@@ -4140,15 +4216,15 @@ fn format_json_decode_error(error: json.DecodeError) -> String {
 
 pub fn g_set_contains(core: Core, address: String, element: String) -> Bool {
   case find_channel(core, address) {
-    Some(channel.GSetState(kernel)) -> g_set_kernel.contains(kernel, element)
-    _ -> False
+    Ok(channel.GSetState(kernel)) -> g_set_kernel.contains(kernel, element)
+    Ok(_) | Error(Nil) -> False
   }
 }
 
 pub fn g_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.GSetState(kernel)) -> g_set_kernel.values(kernel)
-    _ -> []
+    Ok(channel.GSetState(kernel)) -> g_set_kernel.values(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -4158,16 +4234,16 @@ pub fn two_p_set_contains(
   element: String,
 ) -> Bool {
   case find_channel(core, address) {
-    Some(channel.TwoPSetState(kernel)) ->
+    Ok(channel.TwoPSetState(kernel)) ->
       two_p_set_kernel.contains(kernel, element)
-    _ -> False
+    Ok(_) | Error(Nil) -> False
   }
 }
 
 pub fn two_p_set_values(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.TwoPSetState(kernel)) -> two_p_set_kernel.values(kernel)
-    _ -> []
+    Ok(channel.TwoPSetState(kernel)) -> two_p_set_kernel.values(kernel)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -4178,11 +4254,11 @@ pub fn directory_get(
   address: String,
   path: String,
   key: String,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   case find_channel(core, address) {
-    Some(channel.DirectoryState(kernel)) ->
+    Ok(channel.DirectoryState(kernel)) ->
       directory_kernel.get(kernel, path, key)
-    _ -> None
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -4194,9 +4270,8 @@ pub fn directory_entries(
   path: String,
 ) -> List(#(String, Json)) {
   case find_channel(core, address) {
-    Some(channel.DirectoryState(kernel)) ->
-      directory_kernel.entries(kernel, path)
-    _ -> []
+    Ok(channel.DirectoryState(kernel)) -> directory_kernel.entries(kernel, path)
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -4208,9 +4283,9 @@ pub fn directory_subdirectories(
   path: String,
 ) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.DirectoryState(kernel)) ->
+    Ok(channel.DirectoryState(kernel)) ->
       directory_kernel.subdirectories(kernel, path)
-    _ -> []
+    Ok(_) | Error(Nil) -> []
   }
 }
 
@@ -4221,9 +4296,9 @@ pub fn directory_has_subdirectory(
   name: String,
 ) -> Bool {
   case find_channel(core, address) {
-    Some(channel.DirectoryState(kernel)) ->
+    Ok(channel.DirectoryState(kernel)) ->
       directory_kernel.has_subdirectory(kernel, path, name)
-    _ -> False
+    Ok(_) | Error(Nil) -> False
   }
 }
 
@@ -4232,11 +4307,11 @@ pub fn register_read(
   address: String,
   key: String,
   policy: register_collection_kernel.ReadPolicy,
-) -> Option(Json) {
+) -> Result(Json, Nil) {
   case find_channel(core, address) {
-    Some(channel.RegisterCollectionState(kernel)) ->
+    Ok(channel.RegisterCollectionState(kernel)) ->
       register_collection_kernel.read(kernel, key, policy)
-    _ -> None
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -4244,33 +4319,37 @@ pub fn register_versions(
   core: Core,
   address: String,
   key: String,
-) -> Option(List(Json)) {
+) -> Result(List(Json), Nil) {
   case find_channel(core, address) {
-    Some(channel.RegisterCollectionState(kernel)) ->
+    Ok(channel.RegisterCollectionState(kernel)) ->
       register_collection_kernel.read_versions(kernel, key)
-    _ -> None
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 pub fn register_keys(core: Core, address: String) -> List(String) {
   case find_channel(core, address) {
-    Some(channel.RegisterCollectionState(kernel)) ->
+    Ok(channel.RegisterCollectionState(kernel)) ->
       register_collection_kernel.keys(kernel)
-    _ -> []
+    Ok(_) | Error(Nil) -> []
   }
 }
 
-pub fn get_claim(core: Core, address: String, key: String) -> Option(Json) {
+pub fn get_claim(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(Json, Nil) {
   case find_channel(core, address) {
-    Some(channel.ClaimsState(kernel)) -> claims_kernel.get(kernel, key)
-    _ -> None
+    Ok(channel.ClaimsState(kernel)) -> claims_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
 pub fn has_claim(core: Core, address: String, key: String) -> Bool {
   case find_channel(core, address) {
-    Some(channel.ClaimsState(kernel)) -> claims_kernel.has(kernel, key)
-    _ -> False
+    Ok(channel.ClaimsState(kernel)) -> claims_kernel.has(kernel, key)
+    Ok(_) | Error(Nil) -> False
   }
 }
 
@@ -4280,14 +4359,14 @@ pub fn task_manager_assigned(
   task_id: String,
 ) -> Bool {
   case find_channel(core, address) {
-    Some(channel.TaskManagerState(kernel)) ->
+    Ok(channel.TaskManagerState(kernel)) ->
       task_manager_kernel.assigned(
         kernel,
         task_id,
         client_id_to_int(core.client_id),
         True,
       )
-    _ -> False
+    Ok(_) | Error(Nil) -> False
   }
 }
 
@@ -4297,14 +4376,14 @@ pub fn task_manager_queued(
   task_id: String,
 ) -> Bool {
   case find_channel(core, address) {
-    Some(channel.TaskManagerState(kernel)) ->
+    Ok(channel.TaskManagerState(kernel)) ->
       task_manager_kernel.queued(
         kernel,
         task_id,
         client_id_to_int(core.client_id),
         True,
       )
-    _ -> False
+    Ok(_) | Error(Nil) -> False
   }
 }
 
@@ -4313,21 +4392,15 @@ pub fn task_manager_queues(
   address: String,
 ) -> List(#(String, List(Int))) {
   case find_channel(core, address) {
-    Some(channel.TaskManagerState(kernel)) ->
+    Ok(channel.TaskManagerState(kernel)) ->
       task_manager_kernel.summary_queues(kernel)
-    _ -> []
+    Ok(_) | Error(Nil) -> []
   }
 }
 
-fn find_channel(core: Core, address: String) -> Option(ChannelState) {
-  case dict.get(core.channels, address) {
-    Ok(state) -> Some(state)
-    Error(_) ->
-      case dict.get(core.detached, address) {
-        Ok(state) -> Some(state)
-        Error(_) -> None
-      }
-  }
+fn find_channel(core: Core, address: String) -> Result(ChannelState, Nil) {
+  dict.get(core.channels, address)
+  |> result.lazy_or(fn() { dict.get(core.detached, address) })
 }
 
 fn put_attached_channel(

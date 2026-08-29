@@ -3,7 +3,7 @@
 //// no browser — the in-memory `sluice_js` delivers every frame explicitly,
 //// so `settle` drains the room before the assertions read it.
 ////
-//// This is a UI convenience, not a security boundary: `try_set_claim` and
+//// This is a UI convenience, not a security boundary: `claim_once` and
 //// `compare_and_set_claim` are ordinary channel writes any client can make.
 //// What these tests demonstrate is that the *election* converges to exactly
 //// one winner even when several clients contend for the seat at once — the
@@ -16,8 +16,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
-import doc_schema
-import release_readiness
+import release_checklist_lustre/doc_schema
+import release_checklist_lustre/release_readiness
 import watershed.{type Claims, type Document}
 import watershed/sluice_js.{type Sluice}
 
@@ -47,7 +47,7 @@ fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
   let claims =
     docs
     |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-      let assert Some(value) = watershed.get(watershed.root(doc), captain_key)
+      let assert Ok(value) = watershed.get(watershed.root(doc), captain_key)
       let assert Ok(claims) = watershed.resolve_claims(doc, value)
       claims
     })
@@ -67,22 +67,22 @@ fn captain_of(claims: List(Claims), index: Int) -> Claims {
 /// read_captain` decodes it.
 fn committed_captain(claims: Claims) -> Option(String) {
   case watershed.get_claim(claims, captain_key) {
-    Some(value) ->
+    Ok(value) ->
       case json.parse(json.to_string(value), decode.string) {
         Ok(user_id) -> Some(user_id)
         Error(_) -> None
       }
-    None -> None
+    Error(Nil) -> None
   }
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn first_writer_wins_the_captain_seat_test() {
+pub fn first_writer_wins_the_captain_seat_test() -> Nil {
   let #(sluice, claims) = room("captain-first-writer", ["user-a", "user-b"])
 
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -93,21 +93,21 @@ pub fn first_writer_wins_the_captain_seat_test() {
   committed_captain(captain_of(claims, 1)) |> should.equal(Some("user-a"))
 }
 
-pub fn a_second_claim_after_commit_is_rejected_test() {
+pub fn a_second_claim_after_commit_is_rejected_test() -> Nil {
   let #(sluice, claims) = room("captain-already-claimed", ["user-a", "user-b"])
 
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
     )
   sluice_js.settle(sluice)
 
-  // B tries to claim a seat that is already taken. `try_set_claim` is
+  // B tries to claim a seat that is already taken. `claim_once` is
   // write-once: this must not disturb the committed captain.
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
@@ -118,26 +118,26 @@ pub fn a_second_claim_after_commit_is_rejected_test() {
   committed_captain(captain_of(claims, 1)) |> should.equal(Some("user-a"))
 }
 
-pub fn concurrent_captain_claims_converge_on_one_winner_test() {
+pub fn concurrent_captain_claims_converge_on_one_winner_test() -> Nil {
   let #(sluice, claims) =
     room("captain-concurrent", ["user-a", "user-b", "user-c"])
 
   // All three reach for the seat in the same instant — nobody has seen
   // anybody else's claim yet.
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
     )
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 1),
       captain_key,
       json.string("user-b"),
     )
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 2),
       captain_key,
       json.string("user-c"),
@@ -183,11 +183,11 @@ pub fn concurrent_captain_claims_converge_on_one_winner_test() {
   })
 }
 
-pub fn compare_and_set_takes_the_seat_over_test() {
+pub fn compare_and_set_takes_the_seat_over_test() -> Nil {
   let #(sluice, claims) = room("captain-takeover", ["user-a", "user-b"])
 
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),
@@ -211,12 +211,12 @@ pub fn compare_and_set_takes_the_seat_over_test() {
   release_readiness.is_captain(Some("user-b"), "user-b") |> should.be_true
 }
 
-pub fn concurrent_takeover_attempts_converge_on_one_winner_test() {
+pub fn concurrent_takeover_attempts_converge_on_one_winner_test() -> Nil {
   let #(sluice, claims) =
     room("captain-takeover-race", ["user-a", "user-b", "user-c"])
 
   let _ =
-    watershed.try_set_claim(
+    watershed.claim_once(
       captain_of(claims, 0),
       captain_key,
       json.string("user-a"),

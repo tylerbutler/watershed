@@ -62,7 +62,7 @@ fn continuations() -> List(#(String, String)) {
 }
 
 @target(javascript)
-pub fn every_continuation_reaches_the_peer_that_started_it_test() {
+pub fn every_continuation_reaches_the_peer_that_started_it_test() -> Nil {
   // The control. Without it, the guard tests below would pass just as well
   // against an FFI that reported nothing at all.
   continuations()
@@ -72,7 +72,7 @@ pub fn every_continuation_reaches_the_peer_that_started_it_test() {
 }
 
 @target(javascript)
-pub fn no_continuation_reaches_a_peer_recreated_under_the_same_id_test() {
+pub fn no_continuation_reaches_a_peer_recreated_under_the_same_id_test() -> Nil {
   // The peer is closed and a new one is created under the same ID before
   // the operation settles. Neither generation may hear from it: the first
   // is gone, and the second is a different connection whose SDP, remote
@@ -82,13 +82,13 @@ pub fn no_continuation_reaches_a_peer_recreated_under_the_same_id_test() {
 }
 
 @target(javascript)
-pub fn no_continuation_reaches_a_closed_peer_test() {
+pub fn no_continuation_reaches_a_closed_peer_test() -> Nil {
   continuations()
   |> list.each(fn(entry) { closed_continuation(entry.0) |> expect.to_equal("") })
 }
 
 @target(javascript)
-pub fn an_incoming_document_channel_is_accepted_test() {
+pub fn an_incoming_document_channel_is_accepted_test() -> Nil {
   // Driven with the Gleam constant, so the label the FFI admits and the
   // label this module advertises cannot drift apart.
   incoming_channel(p2p_transport_js.document_channel_label)
@@ -96,7 +96,7 @@ pub fn an_incoming_document_channel_is_accepted_test() {
 }
 
 @target(javascript)
-pub fn an_incoming_channel_with_a_foreign_label_is_rejected_test() {
+pub fn an_incoming_channel_with_a_foreign_label_is_rejected_test() -> Nil {
   // A peer opening some other channel is not speaking this protocol. It is
   // reported and the channel is closed, rather than being adopted as the
   // document channel and fed to the application.
@@ -107,7 +107,7 @@ pub fn an_incoming_channel_with_a_foreign_label_is_rejected_test() {
 }
 
 @target(javascript)
-pub fn a_second_incoming_channel_is_rejected_test() {
+pub fn a_second_incoming_channel_is_rejected_test() -> Nil {
   second_channel()
   |> expect.to_equal(
     "gen1 invalid unexpected second data channel: watershed-crdt-v1,"

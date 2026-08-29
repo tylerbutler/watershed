@@ -14,22 +14,22 @@
 //// Register leaves are wall-clock LWW tie-broken by replica id, so no test
 //// asserts *which* value wins a race — only that the room agrees.
 
-import doc_schema
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
-import gleam/option.{Some}
+import gleam/option
 import gleam/result
 import gleam/string
 import gleeunit/should
+import retro_board_lustre/doc_schema
 
 import watershed.{type Document}
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
 
-import board
-import column.{type Column}
-import note.{type Note, Note}
+import retro_board_lustre/board
+import retro_board_lustre/column.{type Column}
+import retro_board_lustre/note.{type Note, Note}
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -65,9 +65,13 @@ fn room(
   watershed.set(root, "notes", watershed.or_map_handle_of(notes))
   let assert Ok(votes) = watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
   watershed.set(root, "votes", watershed.or_map_handle_of(votes))
-  list.each(column.all(), fn(col) {
+  list.each(column.all(), fn(column) {
     let assert Ok(sequence) = watershed.create_sequence(doc_a)
-    watershed.set(root, column.id(col), watershed.sequence_handle_of(sequence))
+    watershed.set(
+      root,
+      column.id(column),
+      watershed.sequence_handle_of(sequence),
+    )
   })
   sluice_js.settle(sluice)
 
@@ -76,21 +80,24 @@ fn room(
 
 fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
   let root = watershed.root(doc)
-  let assert Some(notes_handle) = watershed.get(root, "notes")
+  let assert Ok(notes_handle) = watershed.get(root, "notes")
   let assert Ok(notes) = watershed.resolve_or_map(doc, notes_handle)
-  let assert Some(votes_handle) = watershed.get(root, "votes")
+  let assert Ok(votes_handle) = watershed.get(root, "votes")
   let assert Ok(votes) = watershed.resolve_or_map(doc, votes_handle)
   let assert [went_well, to_improve, action_items] =
-    list.map(column.all(), fn(col) {
-      let assert Some(handle) = watershed.get(root, column.id(col))
+    list.map(column.all(), fn(column) {
+      let assert Ok(handle) = watershed.get(root, column.id(column))
       let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
       sequence
     })
   Channels(notes:, votes:, went_well:, to_improve:, action_items:)
 }
 
-fn sequence_for(channels: Channels, col: Column) -> watershed.SharedSequence {
-  case col {
+fn sequence_for(
+  channels: Channels,
+  column: Column,
+) -> watershed.SharedSequence {
+  case column {
     column.WentWell -> channels.went_well
     column.ToImprove -> channels.to_improve
     column.ActionItems -> channels.action_items
@@ -99,11 +106,16 @@ fn sequence_for(channels: Channels, col: Column) -> watershed.SharedSequence {
 
 /// Add a card exactly as the app does: one register write keyed by a fresh
 /// note id, plus an append to the column's sequence.
-fn add_note(channels: Channels, id: String, text: String, col: Column) -> Nil {
+fn add_note(
+  channels: Channels,
+  id: String,
+  text: String,
+  column: Column,
+) -> Nil {
   let entry =
-    Note(text: text, column: column.id(col), author: id, created: 1000)
+    Note(text: text, column: column.id(column), author: id, created: 1000)
   watershed.or_map_set_json(channels.notes, id, note.to_json(entry))
-  let sequence = sequence_for(channels, col)
+  let sequence = sequence_for(channels, column)
   let assert Ok(Nil) =
     watershed.sequence_insert(
       sequence,
@@ -154,7 +166,7 @@ fn sequence_ids(sequence: watershed.SharedSequence) -> List(String) {
 /// A note's converged tally, as the vote pill reads it.
 fn tally(channels: Channels, id: String) -> Int {
   case watershed.or_map_value(channels.votes, id) {
-    Some(or_map_kernel.Tally(count)) -> count
+    Ok(or_map_kernel.Tally(count)) -> count
     _ -> 0
   }
 }
@@ -163,7 +175,7 @@ fn tally(channels: Channels, id: String) -> Int {
 
 /// The headline. Two people add a card in the same instant; under a naive
 /// last-writer-wins map one card disappears, under the OR-map both survive.
-pub fn concurrent_adds_in_same_column_both_survive_test() {
+pub fn concurrent_adds_in_same_column_both_survive_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-add")
 
   // Same tick, no coordination — neither client has seen the other's add.
@@ -184,7 +196,7 @@ pub fn concurrent_adds_in_same_column_both_survive_test() {
 
 /// Two tabs reordering the same column at once land on one order — the
 /// sequence kernel's business; the board just has to agree with itself.
-pub fn concurrent_reorders_in_same_column_converge_test() {
+pub fn concurrent_reorders_in_same_column_converge_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-reorder")
 
   add_note(a, "note-1", "first", column.ActionItems)
@@ -208,20 +220,21 @@ pub fn concurrent_reorders_in_same_column_converge_test() {
 
 /// The three-op move as the app performs it: sweep the id out of every
 /// sequence, append to the destination, rewrite the register last.
-fn move_note(channels: Channels, id: String, dest: Column) -> Nil {
+fn move_note(channels: Channels, id: String, destination: Column) -> Nil {
   case watershed.or_map_value(channels.notes, id) {
-    Some(or_map_kernel.Register(value)) -> {
-      list.each(column.all(), fn(col) {
-        remove_from_sequence(sequence_for(channels, col), id)
+    Ok(or_map_kernel.Register(value)) -> {
+      list.each(column.all(), fn(column) {
+        remove_from_sequence(sequence_for(channels, column), id)
       })
-      let sequence = sequence_for(channels, dest)
+      let sequence = sequence_for(channels, destination)
       let assert Ok(Nil) =
         watershed.sequence_insert(
           sequence,
           watershed.sequence_length(sequence),
           json.string(id),
         )
-      let moved = Note(..note.from_register(value), column: column.id(dest))
+      let moved =
+        Note(..note.from_register(value), column: column.id(destination))
       watershed.or_map_set_json(channels.notes, id, note.to_json(moved))
     }
     _ -> panic as "move_note: note not present"
@@ -249,7 +262,7 @@ fn remove_from_sequence(sequence: watershed.SharedSequence, id: String) -> Nil {
 /// two sequences — and both tabs must end up rendering it exactly once, in the
 /// same column. Which column wins is wall-clock LWW and deliberately not
 /// asserted.
-pub fn concurrent_cross_column_moves_render_the_note_exactly_once_test() {
+pub fn concurrent_cross_column_moves_render_the_note_exactly_once_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-cross-column-race")
 
   add_note(a, "note-1", "flaky tests", column.WentWell)
@@ -265,7 +278,7 @@ pub fn concurrent_cross_column_moves_render_the_note_exactly_once_test() {
 
 /// A third participant joining after the dust settles sees the same board —
 /// pins snapshot/replay of a five-channel document.
-pub fn late_joiner_sees_the_full_board_test() {
+pub fn late_joiner_sees_the_full_board_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, _b) = room("retro-late-joiner")
 
   add_note(a, "note-1", "pairing worked", column.WentWell)
@@ -288,7 +301,7 @@ pub fn late_joiner_sees_the_full_board_test() {
 /// same tick. Tier 1 (unconditional): the room converges. Tier 2 (pinned
 /// after observing a real run): the outcome the kernel's add-wins bias
 /// produces.
-pub fn edit_vs_delete_converges_test() {
+pub fn edit_vs_delete_converges_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-edit-vs-delete")
 
   add_note(a, "note-1", "original text", column.WentWell)
@@ -297,7 +310,7 @@ pub fn edit_vs_delete_converges_test() {
   // A edits exactly as the app's save path does: re-read the register,
   // rewrite only the text. B deletes exactly as the delete button does:
   // observed remove plus the sequence sweep.
-  let assert Some(or_map_kernel.Register(value)) =
+  let assert Ok(or_map_kernel.Register(value)) =
     watershed.or_map_value(a.notes, "note-1")
   let edited = Note(..note.from_register(value), text: "edited text")
   watershed.or_map_set_json(a.notes, "note-1", note.to_json(edited))
@@ -316,7 +329,7 @@ pub fn edit_vs_delete_converges_test() {
   // dot B never saw — so the edit survives and the note resurrects with the
   // edited text. Delete wins only when nobody is touching the note. If the
   // kernel's remove semantics ever change, this test documents the change.
-  let assert Some(or_map_kernel.Register(survivor)) =
+  let assert Ok(or_map_kernel.Register(survivor)) =
     watershed.or_map_value(a.notes, "note-1")
   note.from_register(survivor).text |> should.equal("edited text")
 
@@ -336,7 +349,7 @@ pub fn edit_vs_delete_converges_test() {
 
 /// The counter-bug page's claim made executable: under `get → +1 → set` one of
 /// these upvotes is silently lost; under tally mode they sum.
-pub fn concurrent_upvotes_sum_to_two_test() {
+pub fn concurrent_upvotes_sum_to_two_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-upvote")
 
   add_note(a, "note-1", "ship week went smoothly", column.WentWell)
@@ -351,7 +364,7 @@ pub fn concurrent_upvotes_sum_to_two_test() {
   board_of(a) |> should.equal(board_of(b))
 }
 
-pub fn concurrent_up_and_down_net_zero_test() {
+pub fn concurrent_up_and_down_net_zero_test() -> Nil {
   let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-up-down")
 
   add_note(a, "note-1", "retro ran long", column.ToImprove)

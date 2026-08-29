@@ -61,7 +61,7 @@ fn must_replace_range(
   #(state, op, message_id)
 }
 
-pub fn insert_delete_replace_append_are_optimistic_test() {
+pub fn insert_delete_replace_append_are_optimistic_test() -> Nil {
   let #(state, insert_a, id0) = must_insert(new_a(), 0, "hello")
   id0 |> expect.to_equal(0)
   text_kernel.value(state) |> expect.to_equal("hello")
@@ -103,7 +103,7 @@ pub fn insert_delete_replace_append_are_optimistic_test() {
   text_kernel.length(state) |> expect.to_equal(12)
 }
 
-pub fn valid_empty_edits_are_no_ops_test() {
+pub fn valid_empty_edits_are_no_ops_test() -> Nil {
   let #(base, _, _) = must_insert(new_a(), 0, "hello")
 
   text_kernel.insert(base, 2, "")
@@ -134,7 +134,7 @@ pub fn valid_empty_edits_are_no_ops_test() {
   events |> expect.to_equal([text_kernel.TextChanged("helo")])
 }
 
-pub fn invalid_bounds_return_edit_errors_test() {
+pub fn invalid_bounds_return_edit_errors_test() -> Nil {
   text_kernel.insert(new_a(), 1, "x")
   |> expect.to_equal(Error(text_kernel.InsertOutOfBounds(1, 0)))
   text_kernel.delete_range(new_a(), 0, 1)
@@ -154,7 +154,7 @@ pub fn invalid_bounds_return_edit_errors_test() {
   |> expect.to_equal("substring range 0..1 invalid for length 0")
 }
 
-pub fn emoji_and_combining_grapheme_semantics_test() {
+pub fn emoji_and_combining_grapheme_semantics_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "a👍é")
   text_kernel.length(state) |> expect.to_equal(3)
   text_kernel.value(state) |> expect.to_equal("a👍é")
@@ -170,7 +170,7 @@ pub fn emoji_and_combining_grapheme_semantics_test() {
   text_kernel.length(state) |> expect.to_equal(4)
 }
 
-pub fn multi_codepoint_graphemes_are_single_units_test() {
+pub fn multi_codepoint_graphemes_are_single_units_test() -> Nil {
   // "e" + combining acute (U+0301) is one grapheme cluster rendered as "é",
   // distinct from the precomposed "é" used elsewhere in this suite. A
   // family emoji joined by ZWJ (U+200D) is also a single grapheme cluster
@@ -201,7 +201,7 @@ pub fn multi_codepoint_graphemes_are_single_units_test() {
   text_kernel.length(state) |> expect.to_equal(2)
 }
 
-pub fn replace_range_with_identical_text_sends_without_event_test() {
+pub fn replace_range_with_identical_text_sends_without_event_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello world")
 
   let assert Ok(#(next_state, events, Some(text_kernel.Submission(op, _)))) =
@@ -219,11 +219,15 @@ pub fn replace_range_with_identical_text_sends_without_event_test() {
   }
   case op {
     text_kernel.ReplaceRange(start: 0, end: 5, value: "hello", delta: _) -> Nil
-    _ -> panic as "expected a ReplaceRange op for the identical-text replace"
+    text_kernel.ReplaceRange(..)
+    | text_kernel.Insert(..)
+    | text_kernel.DeleteRange(..)
+    | text_kernel.Append(..) ->
+      panic as "expected a ReplaceRange op for the identical-text replace"
   }
 }
 
-pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
+pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() -> Nil {
   let #(state_a, first_op, _) = must_insert(new_a(), 0, "a")
   let #(state_a, second_op, _) = must_insert(state_a, 1, "b")
   let before_ack = text_kernel.value(state_a)
@@ -247,7 +251,7 @@ pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() {
   second_events |> expect.to_equal([])
 }
 
-pub fn ack_local_with_message_id_validates_message_id_test() {
+pub fn ack_local_with_message_id_validates_message_id_test() -> Nil {
   let #(state, op, message_id) = must_insert(new_a(), 0, "a")
 
   text_kernel.ack_local_with_message_id(state, op, message_id + 1)
@@ -264,7 +268,7 @@ pub fn ack_local_with_message_id_validates_message_id_test() {
   text_kernel.sequenced_value(state) |> expect.to_equal("a")
 }
 
-pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() {
+pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() -> Nil {
   let #(state_a, local_op, local_message_id) = must_insert(new_a(), 0, "a")
   let #(_, remote_op, _) = must_insert(new_b(), 0, "b")
 
@@ -280,7 +284,7 @@ pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() {
   text_kernel.value(state_a) |> expect.to_equal("ab")
 }
 
-pub fn rollback_replays_remaining_pending_test() {
+pub fn rollback_replays_remaining_pending_test() -> Nil {
   let #(state, first, _) = must_insert(new_a(), 0, "a")
   let #(state, second, second_id) = must_insert(state, 1, "b")
   let assert Ok(#(state, events)) =
@@ -291,7 +295,7 @@ pub fn rollback_replays_remaining_pending_test() {
   ack(state, first) |> text_kernel.sequenced_value |> expect.to_equal("a")
 }
 
-pub fn rollback_mismatch_is_a_kernel_error_test() {
+pub fn rollback_mismatch_is_a_kernel_error_test() -> Nil {
   let #(state, first, first_id) = must_insert(new_a(), 0, "a")
   let #(state, _second, _) = must_insert(state, 1, "b")
 
@@ -301,7 +305,7 @@ pub fn rollback_mismatch_is_a_kernel_error_test() {
   )
 }
 
-pub fn ack_local_on_empty_pending_queue_is_a_kernel_error_test() {
+pub fn ack_local_on_empty_pending_queue_is_a_kernel_error_test() -> Nil {
   let #(_, op, _) = must_insert(new_a(), 0, "a")
 
   text_kernel.ack_local(new_a(), op)
@@ -310,7 +314,7 @@ pub fn ack_local_on_empty_pending_queue_is_a_kernel_error_test() {
   |> expect.to_equal(Error(text_kernel.UnexpectedAck("pending queue is empty")))
 }
 
-pub fn rollback_on_empty_pending_queue_is_a_kernel_error_test() {
+pub fn rollback_on_empty_pending_queue_is_a_kernel_error_test() -> Nil {
   let #(_, op, message_id) = must_insert(new_a(), 0, "a")
 
   text_kernel.rollback(new_a(), op, message_id)
@@ -319,7 +323,7 @@ pub fn rollback_on_empty_pending_queue_is_a_kernel_error_test() {
   )
 }
 
-pub fn summary_round_trips_and_rebrands_test() {
+pub fn summary_round_trips_and_rebrands_test() -> Nil {
   let #(state, op, _) = must_insert(new_a(), 0, "a")
   let state = ack(state, op)
   let #(state, _, _) = must_insert(state, 1, "pending")
@@ -337,7 +341,7 @@ pub fn summary_round_trips_and_rebrands_test() {
   ack(loaded, op_c) |> text_kernel.sequenced_value |> expect.to_equal("ac")
 }
 
-pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() {
+pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() -> Nil {
   let #(_, op, _) = must_insert(new_a(), 0, "a")
   let #(state, events, replayed_op, message_id) =
     text_kernel.apply_stashed_op(new_a(), op)
@@ -355,7 +359,7 @@ pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() {
   text_kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
 
-pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() {
+pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "a")
   let #(state, _, _) = must_append(state, "b")
   let state = text_kernel.promote_attach(state)
@@ -366,7 +370,7 @@ pub fn promote_attach_commits_optimistic_view_and_clears_pending_test() {
   text_kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
 
-pub fn concurrent_inserts_at_same_index_converge_test() {
+pub fn concurrent_inserts_at_same_index_converge_test() -> Nil {
   let #(state_a, insert_a, _) = must_insert(new_a(), 0, "a")
   let #(state_b, insert_b, _) = must_insert(new_b(), 0, "b")
 
@@ -376,7 +380,7 @@ pub fn concurrent_inserts_at_same_index_converge_test() {
   text_kernel.value(state_a) |> expect.to_equal(text_kernel.value(state_b))
 }
 
-pub fn overlapping_delete_range_and_replace_range_converge_test() {
+pub fn overlapping_delete_range_and_replace_range_converge_test() -> Nil {
   let #(state_a, seed_op, _) = must_insert(new_a(), 0, "abcdef")
   let state_a = ack(state_a, seed_op)
   let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_op)
@@ -394,7 +398,7 @@ pub fn overlapping_delete_range_and_replace_range_converge_test() {
   text_kernel.check_cache_coherence(state_b) |> expect.to_equal(Ok(Nil))
 }
 
-pub fn append_concurrent_with_insert_converges_test() {
+pub fn append_concurrent_with_insert_converges_test() -> Nil {
   let #(state_a, seed_op, _) = must_insert(new_a(), 0, "abc")
   let state_a = ack(state_a, seed_op)
   let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_op)
@@ -410,7 +414,7 @@ pub fn append_concurrent_with_insert_converges_test() {
   text_kernel.value(state_a) |> expect.to_equal(text_kernel.value(state_b))
 }
 
-pub fn anchor_at_and_resolve_track_position_test() {
+pub fn anchor_at_and_resolve_track_position_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello")
   let assert Ok(anchor) = text_kernel.anchor_at(state, 5, After)
 
@@ -418,7 +422,7 @@ pub fn anchor_at_and_resolve_track_position_test() {
   text_kernel.resolve_anchor(state, anchor) |> expect.to_equal(Ok(9))
 }
 
-pub fn start_and_end_anchors_track_boundaries_test() {
+pub fn start_and_end_anchors_track_boundaries_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "abc")
 
   text_kernel.resolve_anchor(state, text_kernel.start_anchor())
@@ -431,7 +435,7 @@ pub fn start_and_end_anchors_track_boundaries_test() {
   |> expect.to_equal(Ok(5))
 }
 
-pub fn anchor_at_out_of_bounds_returns_error_test() {
+pub fn anchor_at_out_of_bounds_returns_error_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "abc")
 
   text_kernel.anchor_at(state, 4, Before)
@@ -442,7 +446,7 @@ pub fn anchor_at_out_of_bounds_returns_error_test() {
   |> expect.to_equal("anchor target is unknown; re-anchor")
 }
 
-pub fn anchor_json_round_trips_test() {
+pub fn anchor_json_round_trips_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "abc")
   let assert Ok(anchor) = text_kernel.anchor_at(state, 2, After)
 
@@ -454,7 +458,7 @@ pub fn anchor_json_round_trips_test() {
   decoded |> expect.to_equal(anchor)
 }
 
-pub fn anchor_from_json_rejects_malformed_json_test() {
+pub fn anchor_from_json_rejects_malformed_json_test() -> Nil {
   case text_kernel.anchor_from_json("not json") {
     Error(_) -> Nil
     Ok(_) -> panic as "expected malformed JSON to fail to decode"
@@ -482,7 +486,7 @@ pub fn anchor_from_json_rejects_malformed_json_test() {
   }
 }
 
-pub fn anchor_resolves_unknown_target_until_merged_test() {
+pub fn anchor_resolves_unknown_target_until_merged_test() -> Nil {
   let #(alice, seed_op, _) = must_insert(new_a(), 0, "abc")
   let alice = ack(alice, seed_op)
 
@@ -494,7 +498,7 @@ pub fn anchor_resolves_unknown_target_until_merged_test() {
   |> expect.to_equal(Error(text_kernel.UnknownAnchorTarget))
 }
 
-pub fn anchor_survives_merge_of_concurrent_edits_test() {
+pub fn anchor_survives_merge_of_concurrent_edits_test() -> Nil {
   let #(base, seed_op, _) = must_insert(new_a(), 0, "abc")
   let base = ack(base, seed_op)
   let assert Ok(anchor) = text_kernel.anchor_at(base, 2, Before)

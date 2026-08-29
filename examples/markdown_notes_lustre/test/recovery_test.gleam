@@ -5,14 +5,16 @@ import gleam/list
 @target(javascript)
 import gleeunit/should
 @target(javascript)
-import lustre/dev/query
+import lustre/dev/query.{type Query}
 @target(javascript)
-import lustre/dev/simulate
+import lustre/dev/simulate.{type Simulation}
+@target(javascript)
+import lustre/element.{type Element}
 
 @target(javascript)
-import doc_schema
-@target(javascript)
 import markdown_notes_lustre
+@target(javascript)
+import markdown_notes_lustre/doc_schema
 @target(javascript)
 import markdown_notes_lustre/p2p_fake
 @target(javascript)
@@ -36,7 +38,11 @@ type Channels {
   )
 }
 
-fn simulation_with_open_note() {
+fn simulation_with_open_note() -> #(
+  Simulation(markdown_notes_lustre.Model, markdown_notes_lustre.Msg),
+  CrdtDocument(OrMapChannel),
+  Channels,
+) {
   let #(document, channels) = seeded_document()
   let simulation =
     simulate.application(
@@ -106,32 +112,35 @@ fn create_note(
   text
 }
 
-fn smoke(name: String) {
+fn smoke(name: String) -> Query {
   query.element(matching: query.data("smoke", name))
 }
 
-fn note_button(name: String) {
+fn note_button(name: String) -> Query {
   query.element(
     matching: query.data("smoke", "note-open")
     |> query.and(query.data("note-name", name)),
   )
 }
 
-fn find(view, selector) {
+fn find(
+  view: Element(markdown_notes_lustre.Msg),
+  selector: Query,
+) -> Element(markdown_notes_lustre.Msg) {
   query.find(in: view, matching: selector) |> should.be_ok
 }
 
-fn should_be_disabled(element) {
+fn should_be_disabled(element: Element(markdown_notes_lustre.Msg)) -> Nil {
   query.matches(target: element, selector: query.attribute("disabled", ""))
   |> should.be_true
 }
 
-fn should_be_enabled(element) {
+fn should_be_enabled(element: Element(markdown_notes_lustre.Msg)) -> Nil {
   query.matches(target: element, selector: query.attribute("disabled", ""))
   |> should.be_false
 }
 
-pub fn save_failure_locks_mutations_but_keeps_remote_rendering_test() {
+pub fn save_failure_locks_mutations_but_keeps_remote_rendering_test() -> Nil {
   let #(simulation, document, channels) = simulation_with_open_note()
 
   let gated =
@@ -162,7 +171,7 @@ pub fn save_failure_locks_mutations_but_keeps_remote_rendering_test() {
   Nil
 }
 
-pub fn recovery_success_clears_the_gate_and_marks_saved_test() {
+pub fn recovery_success_clears_the_gate_and_marks_saved_test() -> Nil {
   let #(simulation, _, _) = simulation_with_open_note()
 
   let recovered =

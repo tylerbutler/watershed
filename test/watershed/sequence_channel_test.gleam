@@ -16,7 +16,7 @@ import watershed/map_kernel
 import watershed/runtime_core.{type Core}
 import watershed/sequence_kernel
 import watershed/wire.{type OutboundOp}
-import watershed/wire/ops
+import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
@@ -65,12 +65,12 @@ fn bootstrap() -> Core {
 fn decode_attach(op: OutboundOp) -> #(String, channel.Snapshot) {
   let assert Ok(dynamic_value) =
     json.parse(json.to_string(op.contents), decode.dynamic)
-  let assert Ok(ops.AttachOp(address, snapshot)) =
-    ops.decode_op_contents(dynamic_value)
+  let assert Ok(wire_op.AttachOp(address, snapshot)) =
+    wire_op.decode_op_contents(dynamic_value)
   #(address, snapshot)
 }
 
-pub fn detached_sequence_attaches_then_emits_ops_test() {
+pub fn detached_sequence_attaches_then_emits_ops_test() -> Nil {
   let address = "sequence-1"
   let core =
     bootstrap()
@@ -91,16 +91,16 @@ pub fn detached_sequence_attaches_then_emits_ops_test() {
     runtime_core.set(core, "root", "items", handle.encode_handle(address))
   let #(child_address, child_snapshot) = decode_attach(child_attach)
   child_address |> expect.to_equal(address)
-  let assert channel.SequenceState(child_kernel) =
+  let assert Ok(channel.SequenceState(child_kernel)) =
     channel.from_snapshot(child_snapshot, replica: client_id)
   sequence_kernel.values(child_kernel) |> expect.to_equal([json.string("a")])
 
   let assert Ok(dynamic_value) =
     json.parse(json.to_string(root_handle_op.contents), decode.dynamic)
-  let assert Ok(ops.ChannelOp("root", contents)) =
-    ops.decode_op_contents(dynamic_value)
+  let assert Ok(wire_op.ChannelOp("root", contents)) =
+    wire_op.decode_op_contents(dynamic_value)
   let assert Ok(channel.MapOp(map_kernel.Set("items", value))) =
-    decode.run(contents, ops.channel_op_decoder(channel.MapChannel))
+    decode.run(contents, wire_op.channel_op_decoder(channel.MapChannel))
   value |> expect.to_equal(handle.encode_handle(address))
 
   let assert Ok(#(core, _, [op])) =
@@ -113,7 +113,7 @@ pub fn detached_sequence_attaches_then_emits_ops_test() {
   runtime_core.sequence_length(core, address) |> expect.to_equal(1)
 }
 
-pub fn sequence_invalid_index_is_explicit_core_error_test() {
+pub fn sequence_invalid_index_is_explicit_core_error_test() -> Nil {
   let core =
     bootstrap()
     |> runtime_core.create_detached("sequence-1", channel.InitSequence)
@@ -127,7 +127,7 @@ pub fn sequence_invalid_index_is_explicit_core_error_test() {
   )
 }
 
-pub fn attached_sequence_move_and_delete_emit_ops_test() {
+pub fn attached_sequence_move_and_delete_emit_ops_test() -> Nil {
   let address = "sequence-1"
   let core =
     bootstrap()
@@ -160,7 +160,7 @@ pub fn attached_sequence_move_and_delete_emit_ops_test() {
   runtime_core.sequence_length(core, address) |> expect.to_equal(2)
 }
 
-pub fn sequence_same_shape_treats_equivalent_numbers_as_equal_test() {
+pub fn sequence_same_shape_treats_equivalent_numbers_as_equal_test() -> Nil {
   let assert Ok(#(_, _, op, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("client-a")),
@@ -174,7 +174,7 @@ pub fn sequence_same_shape_treats_equivalent_numbers_as_equal_test() {
   |> expect.to_be_true()
 }
 
-pub fn sequence_same_shape_rejects_altered_delta_test() {
+pub fn sequence_same_shape_rejects_altered_delta_test() -> Nil {
   let assert Ok(#(_, _, op, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("client-a")),
@@ -193,7 +193,7 @@ pub fn sequence_same_shape_rejects_altered_delta_test() {
   |> expect.to_be_false()
 }
 
-pub fn attached_sequence_insert_attaches_nested_handle_first_test() {
+pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
   let address = "sequence-1"
   let child = "child-1"
   let nested_handle =
@@ -229,7 +229,7 @@ pub fn attached_sequence_insert_attaches_nested_handle_first_test() {
   Nil
 }
 
-pub fn attached_sequence_replace_attaches_nested_handle_first_test() {
+pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
   let address = "sequence-1"
   let child = "child-1"
   let nested_handle =
@@ -267,7 +267,7 @@ pub fn attached_sequence_replace_attaches_nested_handle_first_test() {
   Nil
 }
 
-pub fn sequence_edit_errors_preserve_optimistic_state_test() {
+pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
   let address = "sequence-1"
   let empty =
     bootstrap()
@@ -324,7 +324,7 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() {
   runtime_core.sequence_length(populated, address) |> expect.to_equal(1)
 }
 
-pub fn sequence_wrong_type_and_unknown_address_errors_test() {
+pub fn sequence_wrong_type_and_unknown_address_errors_test() -> Nil {
   let core = bootstrap()
 
   runtime_core.sequence_insert(core, "root", 0, json.string("a"))
@@ -341,7 +341,7 @@ pub fn sequence_wrong_type_and_unknown_address_errors_test() {
   )
 }
 
-pub fn sequence_summary_round_trips_test() {
+pub fn sequence_summary_round_trips_test() -> Nil {
   let assert Ok(#(state, _, op, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("a")),
@@ -363,7 +363,7 @@ pub fn sequence_summary_round_trips_test() {
   channel.same_snapshot(summary, decoded) |> expect.to_be_true()
 }
 
-pub fn sequence_discovers_nested_handles_test() {
+pub fn sequence_discovers_nested_handles_test() -> Nil {
   let assert Ok(#(state, _, _, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("a")),

@@ -314,7 +314,7 @@ fn saw(cell: Cell(List(String)), fragment: String) -> Bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn the_root_is_the_configured_kind_test() {
+pub fn the_root_is_the_configured_kind_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -328,7 +328,7 @@ pub fn the_root_is_the_configured_kind_test() {
 
 @target(javascript)
 /// The label is for people; the identity that authors writes is not it.
-pub fn authorship_identity_is_label_plus_a_session_id_test() {
+pub fn authorship_identity_is_label_plus_a_session_id_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let one = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -343,7 +343,7 @@ pub fn authorship_identity_is_label_plus_a_session_id_test() {
 }
 
 @target(javascript)
-pub fn a_label_that_cannot_be_a_replica_id_is_refused_test() {
+pub fn a_label_that_cannot_be_a_replica_id_is_refused_test() -> Nil {
   let world = p2p_fake.new_world()
   let readies = transport_js.new_cell([])
   let statuses = transport_js.new_cell([])
@@ -397,7 +397,7 @@ fn replica_suffix(reported: List(String)) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_lone_replica_is_ready_before_connect_returns_test() {
+pub fn a_lone_replica_is_ready_before_connect_returns_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -415,7 +415,7 @@ pub fn a_lone_replica_is_ready_before_connect_returns_test() {
 }
 
 @target(javascript)
-pub fn a_late_replica_is_ready_only_after_a_state_transfer_test() {
+pub fn a_late_replica_is_ready_only_after_a_state_transfer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -457,7 +457,7 @@ pub fn a_late_replica_is_ready_only_after_a_state_transfer_test() {
 /// The transport retires such a peer with a `PeerClosed` *status* and
 /// never calls `on_peer_close`, so a facade that only listened to the
 /// callback would leave `on_ready` unresolved forever.
-pub fn a_peer_that_vanishes_before_opening_still_settles_readiness_test() {
+pub fn a_peer_that_vanishes_before_opening_still_settles_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -479,7 +479,7 @@ pub fn a_peer_that_vanishes_before_opening_still_settles_readiness_test() {
 @target(javascript)
 /// The status stream and the readiness callback must never disagree: by
 /// the time either observer runs, the document is ready.
-pub fn readiness_is_visible_from_the_status_that_announces_it_test() {
+pub fn readiness_is_visible_from_the_status_that_announces_it_test() -> Nil {
   let world = p2p_fake.new_world()
   let observed = transport_js.new_cell([])
   let assert Ok(document) =
@@ -506,7 +506,29 @@ pub fn readiness_is_visible_from_the_status_that_announces_it_test() {
               observed,
               "ready status " <> bool(crdt_js.readiness_resolved(document)),
             )
-          _ -> Nil
+          crdt_js.Transport(..)
+          | crdt_js.TransportError(..)
+          | crdt_js.Joined(..)
+          | crdt_js.RosterKnown(..)
+          | crdt_js.AwaitingState(..)
+          | crdt_js.PeerReady(..)
+          | crdt_js.PeerGone(..)
+          | crdt_js.PeerRejected(..)
+          | crdt_js.StateMerged(..)
+          | crdt_js.RejectedByPeer(..)
+          | crdt_js.Failed(..)
+          | crdt_js.SubscriberFailed(..)
+          | crdt_js.RelayConnecting(..)
+          | crdt_js.RelayUnsupported(..)
+          | crdt_js.RelaySyncingStatus
+          | crdt_js.RelayRecovering
+          | crdt_js.RelayPrimary(..)
+          | crdt_js.RelayCheckpointRequested
+          | crdt_js.RelayCheckpointed(..)
+          | crdt_js.RelayFallback(..)
+          | crdt_js.RelayRetry(..)
+          | crdt_js.RelayRejected(..)
+          | crdt_js.RelayFailed(..) -> Nil
         }
       },
       rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
@@ -532,7 +554,7 @@ fn boom(_reason: String) -> Nil {
 }
 
 @target(javascript)
-pub fn readiness_resolves_exactly_once_test() {
+pub fn readiness_resolves_exactly_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -554,7 +576,7 @@ pub fn readiness_resolves_exactly_once_test() {
 }
 
 @target(javascript)
-pub fn closing_before_readiness_resolves_it_once_test() {
+pub fn closing_before_readiness_resolves_it_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let _alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -568,7 +590,7 @@ pub fn closing_before_readiness_resolves_it_once_test() {
 }
 
 @target(javascript)
-pub fn a_signaling_failure_before_readiness_is_typed_and_final_test() {
+pub fn a_signaling_failure_before_readiness_is_typed_and_final_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.fail_join(world, "no signaling service")
   let alpha =
@@ -586,7 +608,7 @@ pub fn a_signaling_failure_before_readiness_is_typed_and_final_test() {
 /// not be told it is ready with an empty document just because nobody
 /// has been announced *yet* — it waits for the roster, and then for one
 /// valid `state`.
-pub fn an_asynchronous_adapter_waits_for_its_roster_before_readiness_test() {
+pub fn an_asynchronous_adapter_waits_for_its_roster_before_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, p2p_fake.signaling(world), "alpha", p2p.pn_counter_root(), tag)
@@ -626,7 +648,7 @@ pub fn an_asynchronous_adapter_waits_for_its_roster_before_readiness_test() {
 /// The same adapter, watched from the callback itself: when `on_ready`
 /// runs, the room's state is already merged. This is the property the
 /// two-browser gate asserts, in one process.
-pub fn a_late_joiner_sees_the_merged_state_from_on_ready_test() {
+pub fn a_late_joiner_sees_the_merged_state_from_on_ready_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, p2p_fake.signaling(world), "alpha", p2p.pn_counter_root(), tag)
@@ -662,7 +684,29 @@ pub fn a_late_joiner_sees_the_merged_state_from_on_ready_test() {
       on_status: fn(status) {
         case status {
           crdt_js.StateMerged(_, _) -> push(observed, "merged")
-          _ -> Nil
+          crdt_js.Transport(..)
+          | crdt_js.TransportError(..)
+          | crdt_js.Joined(..)
+          | crdt_js.RosterKnown(..)
+          | crdt_js.AwaitingState(..)
+          | crdt_js.Ready
+          | crdt_js.PeerReady(..)
+          | crdt_js.PeerGone(..)
+          | crdt_js.PeerRejected(..)
+          | crdt_js.RejectedByPeer(..)
+          | crdt_js.Failed(..)
+          | crdt_js.SubscriberFailed(..)
+          | crdt_js.RelayConnecting(..)
+          | crdt_js.RelayUnsupported(..)
+          | crdt_js.RelaySyncingStatus
+          | crdt_js.RelayRecovering
+          | crdt_js.RelayPrimary(..)
+          | crdt_js.RelayCheckpointRequested
+          | crdt_js.RelayCheckpointed(..)
+          | crdt_js.RelayFallback(..)
+          | crdt_js.RelayRetry(..)
+          | crdt_js.RelayRejected(..)
+          | crdt_js.RelayFailed(..) -> Nil
         }
       },
       rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
@@ -675,7 +719,7 @@ pub fn a_late_joiner_sees_the_merged_state_from_on_ready_test() {
 @target(javascript)
 /// A roster that names peers who then all vanish leaves this replica
 /// alone in the room, and owed its readiness result.
-pub fn a_roster_whose_peers_all_vanish_still_settles_readiness_test() {
+pub fn a_roster_whose_peers_all_vanish_still_settles_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -692,7 +736,7 @@ pub fn a_roster_whose_peers_all_vanish_still_settles_readiness_test() {
 /// Signaling that dies after `join` returned and before the roster
 /// arrives is the hang this contract exists to prevent: the wait ends
 /// once, with the typed error.
-pub fn signaling_that_fails_before_the_roster_resolves_readiness_test() {
+pub fn signaling_that_fails_before_the_roster_resolves_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, p2p_fake.signaling(world), "alpha", p2p.pn_counter_root(), tag)
@@ -726,7 +770,7 @@ pub fn signaling_that_fails_before_the_roster_resolves_readiness_test() {
 /// Signaling that fails *after* readiness is reported and nothing more:
 /// an open mesh does not need signaling, and a second readiness result
 /// would be a lie about a document that is already live.
-pub fn signaling_that_fails_after_readiness_is_status_only_test() {
+pub fn signaling_that_fails_after_readiness_is_status_only_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, p2p_fake.signaling(world), "alpha", p2p.pn_counter_root(), tag)
@@ -757,7 +801,7 @@ pub fn signaling_that_fails_after_readiness_is_status_only_test() {
 /// must not cost the bootstrap. The `stateRequest` is sent after
 /// `AwaitingState` is emitted, and the merge that follows is what makes
 /// this replica ready.
-pub fn a_throwing_status_handler_does_not_skip_the_state_request_test() {
+pub fn a_throwing_status_handler_does_not_skip_the_state_request_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -787,7 +831,29 @@ pub fn a_throwing_status_handler_does_not_skip_the_state_request_test() {
         push(seen, render(status))
         case status {
           crdt_js.AwaitingState(_) -> boom("status handler exploded")
-          _ -> Nil
+          crdt_js.Transport(..)
+          | crdt_js.TransportError(..)
+          | crdt_js.Joined(..)
+          | crdt_js.RosterKnown(..)
+          | crdt_js.Ready
+          | crdt_js.PeerReady(..)
+          | crdt_js.PeerGone(..)
+          | crdt_js.PeerRejected(..)
+          | crdt_js.StateMerged(..)
+          | crdt_js.RejectedByPeer(..)
+          | crdt_js.Failed(..)
+          | crdt_js.SubscriberFailed(..)
+          | crdt_js.RelayConnecting(..)
+          | crdt_js.RelayUnsupported(..)
+          | crdt_js.RelaySyncingStatus
+          | crdt_js.RelayRecovering
+          | crdt_js.RelayPrimary(..)
+          | crdt_js.RelayCheckpointRequested
+          | crdt_js.RelayCheckpointed(..)
+          | crdt_js.RelayFallback(..)
+          | crdt_js.RelayRetry(..)
+          | crdt_js.RelayRejected(..)
+          | crdt_js.RelayFailed(..) -> Nil
         }
       },
       rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
@@ -803,7 +869,7 @@ pub fn a_throwing_status_handler_does_not_skip_the_state_request_test() {
 @target(javascript)
 /// And one that throws on the readiness statuses themselves: readiness
 /// still resolves, exactly once, and the callback still runs.
-pub fn a_throwing_status_handler_does_not_suppress_readiness_test() {
+pub fn a_throwing_status_handler_does_not_suppress_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let readies = transport_js.new_cell([])
   let assert Ok(document) =
@@ -827,7 +893,28 @@ pub fn a_throwing_status_handler_does_not_suppress_readiness_test() {
         case status {
           crdt_js.Ready -> boom("ready handler exploded")
           crdt_js.Failed(_) -> boom("failed handler exploded")
-          _ -> Nil
+          crdt_js.Transport(..)
+          | crdt_js.TransportError(..)
+          | crdt_js.Joined(..)
+          | crdt_js.RosterKnown(..)
+          | crdt_js.AwaitingState(..)
+          | crdt_js.PeerReady(..)
+          | crdt_js.PeerGone(..)
+          | crdt_js.PeerRejected(..)
+          | crdt_js.StateMerged(..)
+          | crdt_js.RejectedByPeer(..)
+          | crdt_js.SubscriberFailed(..)
+          | crdt_js.RelayConnecting(..)
+          | crdt_js.RelayUnsupported(..)
+          | crdt_js.RelaySyncingStatus
+          | crdt_js.RelayRecovering
+          | crdt_js.RelayPrimary(..)
+          | crdt_js.RelayCheckpointRequested
+          | crdt_js.RelayCheckpointed(..)
+          | crdt_js.RelayFallback(..)
+          | crdt_js.RelayRetry(..)
+          | crdt_js.RelayRejected(..)
+          | crdt_js.RelayFailed(..) -> Nil
         }
       },
       rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
@@ -847,7 +934,7 @@ pub fn a_throwing_status_handler_does_not_suppress_readiness_test() {
 @target(javascript)
 /// The failure path, where a throwing handler would otherwise swallow
 /// the one answer a caller is owed.
-pub fn a_throwing_status_handler_does_not_suppress_a_failed_readiness_test() {
+pub fn a_throwing_status_handler_does_not_suppress_a_failed_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.fail_join(world, "no signaling service")
   let readies = transport_js.new_cell([])
@@ -880,7 +967,7 @@ pub fn a_throwing_status_handler_does_not_suppress_a_failed_readiness_test() {
 @target(javascript)
 /// A readiness callback that throws is contained too: the transport, the
 /// document, and every status after it are untouched.
-pub fn a_throwing_readiness_callback_does_not_stop_the_document_test() {
+pub fn a_throwing_readiness_callback_does_not_stop_the_document_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -918,7 +1005,7 @@ pub fn a_throwing_readiness_callback_does_not_stop_the_document_test() {
 /// readiness hostage. Every greeted peer is asked for state, so the
 /// first answer from *any* of them is the bootstrap — not only the one
 /// that happened to greet first.
-pub fn a_silent_bootstrap_peer_does_not_hold_readiness_test() {
+pub fn a_silent_bootstrap_peer_does_not_hold_readiness_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   // `carol` opens a channel, greets, and answers nothing after that.
@@ -949,7 +1036,7 @@ pub fn a_silent_bootstrap_peer_does_not_hold_readiness_test() {
 }
 
 @target(javascript)
-pub fn a_local_edit_is_visible_immediately_and_broadcast_test() {
+pub fn a_local_edit_is_visible_immediately_and_broadcast_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -978,7 +1065,7 @@ pub fn a_local_edit_is_visible_immediately_and_broadcast_test() {
 }
 
 @target(javascript)
-pub fn a_peer_that_leaves_is_reported_and_the_document_survives_test() {
+pub fn a_peer_that_leaves_is_reported_and_the_document_survives_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1003,7 +1090,7 @@ pub fn a_peer_that_leaves_is_reported_and_the_document_survives_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_compatibility_mismatch_closes_only_that_peer_test() {
+pub fn a_compatibility_mismatch_closes_only_that_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1028,7 +1115,7 @@ pub fn a_compatibility_mismatch_closes_only_that_peer_test() {
 }
 
 @target(javascript)
-pub fn a_root_mismatch_is_rejected_test() {
+pub fn a_root_mismatch_is_rejected_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1041,14 +1128,14 @@ pub fn a_root_mismatch_is_rejected_test() {
 }
 
 @target(javascript)
-pub fn a_message_before_hello_closes_the_peer_test() {
+pub fn a_message_before_hello_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
   let raw = raw_peer(world, hub, "mallory")
   p2p_fake.settle(world)
 
-  let #(document, delta) = raw_delta(raw.document, 4)
+  let #(_document, delta) = raw_delta(raw.document, 4)
   send_raw(raw, crdt_js.replica_id(alpha.document), delta)
   p2p_fake.settle(world)
 
@@ -1061,11 +1148,10 @@ pub fn a_message_before_hello_closes_the_peer_test() {
     string.contains(entry, "invalidEnvelope")
   })
   |> expect.to_be_true()
-  let _ = document
 }
 
 @target(javascript)
-pub fn a_forged_sender_closes_the_peer_test() {
+pub fn a_forged_sender_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1094,7 +1180,7 @@ pub fn a_forged_sender_closes_the_peer_test() {
 }
 
 @target(javascript)
-pub fn a_repeated_delta_merges_once_and_reports_once_test() {
+pub fn a_repeated_delta_merges_once_and_reports_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1129,7 +1215,7 @@ pub fn a_repeated_delta_merges_once_and_reports_once_test() {
 /// first one started a state transfer; every one after it would start
 /// another, so a peer could make this replica serialize and upload its
 /// whole document as often as it asked.
-pub fn a_repeated_hello_does_not_repeat_the_state_transfer_test() {
+pub fn a_repeated_hello_does_not_repeat_the_state_transfer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1160,7 +1246,7 @@ pub fn a_repeated_hello_does_not_repeat_the_state_transfer_test() {
 /// A data channel can be open before its `hello` has been validated. A
 /// peer in that state has proved nothing about the room, the protocol,
 /// the tag or the root, so it is not sent this document's deltas.
-pub fn deltas_are_not_broadcast_before_the_handshake_test() {
+pub fn deltas_are_not_broadcast_before_the_handshake_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1195,7 +1281,7 @@ pub fn deltas_are_not_broadcast_before_the_handshake_test() {
 }
 
 @target(javascript)
-pub fn a_malformed_payload_closes_the_peer_test() {
+pub fn a_malformed_payload_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1218,7 +1304,7 @@ pub fn a_malformed_payload_closes_the_peer_test() {
 @target(javascript)
 /// The one message that explains a link about to disappear must reach the
 /// application rather than being dropped as "no local state changed".
-pub fn a_rejection_from_a_peer_is_reported_test() {
+pub fn a_rejection_from_a_peer_is_reported_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1257,7 +1343,7 @@ pub fn a_rejection_from_a_peer_is_reported_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_created_channel_reaches_every_peer_test() {
+pub fn a_created_channel_reaches_every_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1280,7 +1366,7 @@ pub fn a_created_channel_reaches_every_peer_test() {
 }
 
 @target(javascript)
-pub fn resolving_with_the_wrong_kind_is_a_typed_error_test() {
+pub fn resolving_with_the_wrong_kind_is_a_typed_error_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -1308,7 +1394,7 @@ pub fn resolving_with_the_wrong_kind_is_a_typed_error_test() {
 @target(javascript)
 /// Every eligible kind, created through the generic constructor, mutated
 /// and read back through its own typed operations.
-pub fn every_eligible_kind_mutates_and_reads_test() {
+pub fn every_eligible_kind_mutates_and_reads_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -1325,7 +1411,7 @@ pub fn every_eligible_kind_mutates_and_reads_test() {
   let assert Ok(Nil) = crdt_js.or_map_increment(tally, key: "votes", amount: 2)
   crdt_js.or_map_tally(tally, key: "votes") |> expect.to_equal(Ok(5))
   crdt_js.or_map_value(tally, key: "votes")
-  |> expect.to_equal(Ok(Some(or_map_kernel.Tally(5))))
+  |> expect.to_equal(Ok(Ok(or_map_kernel.Tally(5))))
   crdt_js.or_map_entries(tally)
   |> expect.to_equal(Ok([#("votes", or_map_kernel.Tally(5))]))
   let assert Ok(Nil) = crdt_js.or_map_remove(tally, key: "votes")
@@ -1338,7 +1424,7 @@ pub fn every_eligible_kind_mutates_and_reads_test() {
     )
   let assert Ok(Nil) = crdt_js.or_map_set(registers, key: "city", value: "Oslo")
   crdt_js.or_map_value(registers, key: "city")
-  |> expect.to_equal(Ok(Some(or_map_kernel.Register("Oslo"))))
+  |> expect.to_equal(Ok(Ok(or_map_kernel.Register("Oslo"))))
   // A tally operation on a register map is the kernel's mode mismatch.
   case crdt_js.or_map_increment(registers, key: "city", amount: 1) {
     Error(p2p.InvalidEnvelope(_, detail)) ->
@@ -1415,7 +1501,7 @@ pub fn every_eligible_kind_mutates_and_reads_test() {
 }
 
 @target(javascript)
-pub fn text_length_and_anchors_track_positions_test() {
+pub fn text_length_and_anchors_track_positions_test() -> Nil {
   let assert Ok(document) =
     crdt_js.new_document(crdt_js.config(
       room_id: room,
@@ -1451,7 +1537,7 @@ pub fn text_length_and_anchors_track_positions_test() {
 }
 
 @target(javascript)
-pub fn text_anchor_errors_are_typed_p2p_errors_test() {
+pub fn text_anchor_errors_are_typed_p2p_errors_test() -> Nil {
   let assert Ok(document) =
     crdt_js.new_document(crdt_js.config(
       room_id: room,
@@ -1481,7 +1567,7 @@ pub fn text_anchor_errors_are_typed_p2p_errors_test() {
 @target(javascript)
 /// An ineligible kind has no `CrdtKind` to name it, so this is the only
 /// route left: a snapshot claiming one. It is refused.
-pub fn an_ineligible_channel_cannot_be_imported_test() {
+pub fn an_ineligible_channel_cannot_be_imported_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -1502,7 +1588,7 @@ pub fn an_ineligible_channel_cannot_be_imported_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn subscriptions_are_address_scoped_and_removable_test() {
+pub fn subscriptions_are_address_scoped_and_removable_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -1552,7 +1638,7 @@ pub fn subscriptions_are_address_scoped_and_removable_test() {
 }
 
 @target(javascript)
-pub fn a_throwing_subscriber_is_contained_test() {
+pub fn a_throwing_subscriber_is_contained_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -1580,7 +1666,7 @@ pub fn a_throwing_subscriber_is_contained_test() {
 }
 
 @target(javascript)
-pub fn a_remote_merge_reports_each_event_once_test() {
+pub fn a_remote_merge_reports_each_event_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1612,7 +1698,7 @@ pub fn a_remote_merge_reports_each_event_once_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_snapshot_round_trips_and_reattaches_test() {
+pub fn a_snapshot_round_trips_and_reattaches_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1666,7 +1752,7 @@ pub fn a_snapshot_round_trips_and_reattaches_test() {
 }
 
 @target(javascript)
-pub fn an_import_validates_room_tag_and_root_test() {
+pub fn an_import_validates_room_tag_and_root_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -1712,7 +1798,7 @@ pub fn an_import_validates_room_tag_and_root_test() {
 }
 
 @target(javascript)
-pub fn merge_snapshot_is_a_join_and_is_idempotent_test() {
+pub fn merge_snapshot_is_a_join_and_is_idempotent_test() -> Nil {
   let signaling = hub_signaling(new_hub())
   let assert Ok(source) =
     crdt_js.new_document(crdt_js.config(
@@ -1777,7 +1863,7 @@ pub fn merge_snapshot_is_a_join_and_is_idempotent_test() {
 }
 
 @target(javascript)
-pub fn merge_snapshot_propagates_to_attached_peers_test() {
+pub fn merge_snapshot_propagates_to_attached_peers_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -1830,7 +1916,7 @@ pub fn merge_snapshot_propagates_to_attached_peers_test() {
 }
 
 @target(javascript)
-pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_test() {
+pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -1927,7 +2013,7 @@ pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_
 }
 
 @target(javascript)
-pub fn an_imported_snapshot_stays_detached_after_a_missing_sequencer_test() {
+pub fn an_imported_snapshot_stays_detached_after_a_missing_sequencer_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let assert Ok(source) =
@@ -1987,7 +2073,7 @@ pub fn an_imported_snapshot_stays_detached_after_a_missing_sequencer_test() {
 }
 
 @target(javascript)
-pub fn an_imported_snapshot_stays_detached_after_a_synchronous_attach_failure_and_can_retry_test() {
+pub fn an_imported_snapshot_stays_detached_after_a_synchronous_attach_failure_and_can_retry_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let gate = transport_js.new_cell(Some("no signaling service"))
@@ -2088,7 +2174,7 @@ pub fn an_imported_snapshot_stays_detached_after_a_synchronous_attach_failure_an
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_closed_document_refuses_reads_and_writes_test() {
+pub fn a_closed_document_refuses_reads_and_writes_test() -> Nil {
   let world = p2p_fake.new_world()
   let alpha =
     spawn(world, hub_signaling(new_hub()), "alpha", p2p.pn_counter_root(), tag)
@@ -2116,7 +2202,7 @@ pub fn a_closed_document_refuses_reads_and_writes_test() {
 }
 
 @target(javascript)
-pub fn attaching_twice_is_refused_test() {
+pub fn attaching_twice_is_refused_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -2245,7 +2331,7 @@ fn tick_intervals(
 /// snapshots and digests — not only the two endpoints of the edge that
 /// came back — and the handles and subscription taken before the split are
 /// the ones read after it.
-pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() {
+pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2400,7 +2486,7 @@ pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() {
 /// visible events would leave `alpha` behind forever. Advancing the
 /// interval must converge all three, and `alpha` must count the catch-up
 /// it pulled across the healed edge.
-pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() {
+pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2517,7 +2603,7 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() {
 /// fan out as their own deltas and ride the next beat rather than arming a
 /// second timer. Each document is measured on its own clock, so the count
 /// is the document's own and not the whole mesh's.
-pub fn an_active_mesh_heartbeats_on_a_recurring_interval_test() {
+pub fn an_active_mesh_heartbeats_on_a_recurring_interval_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock_alpha = relay_fake.new_clock()
   let clock_beta = relay_fake.new_clock()
@@ -2563,7 +2649,7 @@ pub fn an_active_mesh_heartbeats_on_a_recurring_interval_test() {
 /// having been seen) since the digest last went out — so a converged,
 /// untouched room costs one digest and then nothing, however many
 /// intervals pass.
-pub fn an_idle_document_does_not_keep_broadcasting_digests_test() {
+pub fn an_idle_document_does_not_keep_broadcasting_digests_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let hub = hub_signaling(new_hub())
@@ -2607,7 +2693,7 @@ pub fn an_idle_document_does_not_keep_broadcasting_digests_test() {
 /// When the last validated peer leaves, the heartbeat has nobody to tell
 /// and cancels itself. The mesh goes quiet rather than beating into an
 /// empty room, and the clock it armed on fires nothing thereafter.
-pub fn the_last_validated_peer_leaving_cancels_the_heartbeat_test() {
+pub fn the_last_validated_peer_leaving_cancels_the_heartbeat_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock_alpha = relay_fake.new_clock()
   let clock_beta = relay_fake.new_clock()
@@ -2641,7 +2727,7 @@ pub fn the_last_validated_peer_leaving_cancels_the_heartbeat_test() {
 /// Closing a document cancels the live heartbeat it armed, and the clock
 /// it armed on fires nothing afterwards — a closed document is off the
 /// mesh, not a timer that keeps waking.
-pub fn closing_a_document_cancels_its_heartbeat_test() {
+pub fn closing_a_document_cancels_its_heartbeat_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock_alpha = relay_fake.new_clock()
   let clock_beta = relay_fake.new_clock()
@@ -2668,7 +2754,7 @@ pub fn closing_a_document_cancels_its_heartbeat_test() {
 /// exactly once and does not re-arm, so it cannot spin. The guard is the
 /// canceller not yet being stored when the inline tick reads it: the tick
 /// sees no live timer, sends one digest, and lapses instead of recursing.
-pub fn a_synchronous_scheduler_fires_one_heartbeat_without_looping_test() {
+pub fn a_synchronous_scheduler_fires_one_heartbeat_without_looping_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let calls = transport_js.new_cell(0)
@@ -2719,7 +2805,7 @@ pub fn a_synchronous_scheduler_fires_one_heartbeat_without_looping_test() {
 /// A document with no validated peer fans its edits out to nobody and owes
 /// nobody a digest, so it never touches the scheduler — no busy loop, no
 /// idle chatter.
-pub fn a_lone_mesh_document_never_arms_a_digest_test() {
+pub fn a_lone_mesh_document_never_arms_a_digest_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let alpha =
@@ -2745,7 +2831,7 @@ pub fn a_lone_mesh_document_never_arms_a_digest_test() {
 @target(javascript)
 /// A peer whose digest matches records it as the last successful
 /// comparison and counts no repair.
-pub fn a_matching_digest_is_recorded_without_a_repair_test() {
+pub fn a_matching_digest_is_recorded_without_a_repair_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2771,7 +2857,7 @@ pub fn a_matching_digest_is_recorded_without_a_repair_test() {
 @target(javascript)
 /// A peer left behind a merge it never saw counts the repair when a
 /// digest tells it so, and catches up on the existing state path.
-pub fn a_lagging_peer_counts_the_repair_it_pulls_test() {
+pub fn a_lagging_peer_counts_the_repair_it_pulls_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2814,7 +2900,7 @@ pub fn a_lagging_peer_counts_the_repair_it_pulls_test() {
 /// back and actually moves the document nothing is repaired — so a request
 /// that is never answered counts nothing, and a redundant answer that
 /// changes nothing counts nothing either.
-pub fn a_digest_that_is_never_answered_counts_no_repair_test() {
+pub fn a_digest_that_is_never_answered_counts_no_repair_test() -> Nil {
   let world = p2p_fake.new_world()
   let hub = hub_signaling(new_hub())
   let alpha = spawn(world, hub, "alpha", p2p.pn_counter_root(), tag)
@@ -2855,7 +2941,7 @@ pub fn a_digest_that_is_never_answered_counts_no_repair_test() {
 /// A peer that boots from an imported snapshot carries that state into the
 /// mesh: it reaches a peer on the handshake exchange, and anti-entropy
 /// keeps the two converged.
-pub fn an_imported_snapshot_reaches_the_mesh_test() {
+pub fn an_imported_snapshot_reaches_the_mesh_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2930,7 +3016,7 @@ pub fn an_imported_snapshot_reaches_the_mesh_test() {
 /// forever, for a document nobody is editing. The count is the evidence:
 /// a quiescent document hashes itself once and every digest after that is
 /// the same answer.
-pub fn an_idle_mesh_hashes_the_document_once_test() {
+pub fn an_idle_mesh_hashes_the_document_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -2998,7 +3084,7 @@ pub fn an_idle_mesh_hashes_the_document_once_test() {
 /// never saw added, and an OR-Set removal, neither of which changes the
 /// membership a subscriber sees. The repair count and the equal digests
 /// are what say the comparison was made against the document as it is.
-pub fn a_cached_digest_still_repairs_an_event_less_change_test() {
+pub fn a_cached_digest_still_repairs_an_event_less_change_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
@@ -3053,7 +3139,7 @@ pub fn a_cached_digest_still_repairs_an_event_less_change_test() {
 /// An imported snapshot carries no digest with it, and cannot be answered
 /// from one. The document is new, so its first digest is computed from
 /// what it imported and every one after that is reused.
-pub fn an_imported_snapshot_hashes_itself_once_test() {
+pub fn an_imported_snapshot_hashes_itself_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let signaling = p2p_fake.signaling(world)
   let assert Ok(source) =

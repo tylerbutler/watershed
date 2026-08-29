@@ -3,7 +3,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 import simplifile
-import startest.{describe, it}
+import startest
 import startest/expect
 import startest/test_tree.{type TestTree}
 import watershed/json_ot.{type JsonValue, VObject}
@@ -18,13 +18,15 @@ pub fn rich_text_fixture_tests() -> TestTree {
     files
     |> list.filter(string.ends_with(_, ".json"))
     |> list.sort(string.compare)
-  describe(
+  startest.describe(
     "shared rich text oracle",
-    list.map(files, fn(file) { it(file, fn() { replay_fixture(file) }) }),
+    list.map(files, fn(file) {
+      startest.it(file, fn() { replay_fixture(file) })
+    }),
   )
 }
 
-pub fn normalization_and_malformed_input_test() {
+pub fn normalization_and_malformed_input_test() -> Nil {
   let assert Ok(delta) =
     rich_text.delta_from_json_string(
       "[{\"delete\":1},{\"insert\":\"a\"},{\"delete\":2},{\"retain\":3}]",
@@ -51,7 +53,7 @@ pub fn normalization_and_malformed_input_test() {
   )
 }
 
-pub fn compose_apply_invert_and_utf16_test() {
+pub fn compose_apply_invert_and_utf16_test() -> Nil {
   utf16.boundary("A😀B", 2) |> expect.to_equal(False)
   let assert Ok(base) =
     rich_text.document_from_json_string("[{\"insert\":\"A😀B\"}]")
@@ -72,7 +74,7 @@ pub fn compose_apply_invert_and_utf16_test() {
   |> expect.to_equal(Error(rich_text.InvalidBoundary(2)))
 }
 
-pub fn direct_algebra_surrogate_boundaries_are_checked_test() {
+pub fn direct_algebra_surrogate_boundaries_are_checked_test() -> Nil {
   let assert Ok(emoji) =
     rich_text.delta_from_json_string("[{\"insert\":\"😀\"}]")
   let assert Ok(split) =
@@ -97,7 +99,7 @@ pub fn direct_algebra_surrogate_boundaries_are_checked_test() {
   }
 }
 
-pub fn delete_then_insert_cursor_and_selection_test() {
+pub fn delete_then_insert_cursor_and_selection_test() -> Nil {
   // The retain holds the insertion after the deleted prefix in canonical
   // operation order. The delete must leave `offset` unchanged so the cursor
   // and range collapse before later operations are considered.
@@ -118,7 +120,7 @@ pub fn delete_then_insert_cursor_and_selection_test() {
   |> expect.to_equal(Ok(rich_text.Selection(1, 0)))
 }
 
-pub fn same_position_side_and_selection_test() {
+pub fn same_position_side_and_selection_test() -> Nil {
   let assert Ok(a) = rich_text.delta_from_json_string("[{\"insert\":\"A\"}]")
   let assert Ok(b) = rich_text.delta_from_json_string("[{\"insert\":\"B\"}]")
   let assert Ok(left) = rich_text.transform(a, b, rich_text.Left)
@@ -136,7 +138,7 @@ pub fn same_position_side_and_selection_test() {
   |> expect.to_equal(Ok(rich_text.Selection(2, 0)))
 }
 
-fn replay_fixture(file: String) {
+fn replay_fixture(file: String) -> Nil {
   let assert Ok(raw) = simplifile.read(fixture_dir <> "/" <> file)
   let assert Ok(VObject(root)) = json_ot.from_json_string(raw)
   let base_json = required(root, "base")
@@ -195,12 +197,12 @@ fn replay_fixture(file: String) {
   check_cursor_and_selection(root, a, composed)
 }
 
-fn expect_document(actual: rich_text.Document, expected: JsonValue) {
+fn expect_document(actual: rich_text.Document, expected: JsonValue) -> Nil {
   let assert Ok(expected) = rich_text.document_from_json(expected)
   actual |> encoded_document |> expect.to_equal(encoded_document(expected))
 }
 
-fn expect_delta(actual: rich_text.Delta, expected: JsonValue) {
+fn expect_delta(actual: rich_text.Delta, expected: JsonValue) -> Nil {
   let assert Ok(expected) = rich_text.delta_from_json(expected)
   actual |> encoded_delta |> expect.to_equal(encoded_delta(expected))
 }
@@ -234,7 +236,7 @@ fn check_cursor_and_selection(
   root: List(#(String, JsonValue)),
   a: rich_text.Delta,
   composed: Option(rich_text.Delta),
-) {
+) -> Nil {
   let cursor = object(required(root, "cursor"))
   let cursor_delta = through_delta(required(cursor, "through"), a, composed)
   rich_text.transform_position(

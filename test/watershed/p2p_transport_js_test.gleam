@@ -128,7 +128,17 @@ fn render_error(error: p2p.P2pError) -> String {
       "PeerConnectionFailed " <> peer <> " " <> detail
     p2p.InvalidEnvelope(peer, detail) ->
       "InvalidEnvelope " <> peer <> " " <> detail
-    other -> string.inspect(other)
+    p2p.UnsupportedChannel(_)
+    | p2p.RootMismatch(..)
+    | p2p.ChannelTypeMismatch(..)
+    | p2p.DocumentClosed
+    | p2p.CompatibilityMismatch(..)
+    | p2p.ProtocolMismatch(..)
+    | p2p.RoomMismatch
+    | p2p.SequencerUnavailable(_)
+    | p2p.SequencerUnsupported
+    | p2p.SnapshotTooLarge(..)
+    | p2p.ReplicaCollision(_) -> string.inspect(error)
   }
 }
 
@@ -203,13 +213,13 @@ fn negotiate_as_offerer(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn ice_configuration_ships_no_defaults_test() {
+pub fn ice_configuration_ships_no_defaults_test() -> Nil {
   p2p_transport_js.rtc_configuration_json([])
   |> expect.to_equal("{\"iceServers\":[]}")
 }
 
 @target(javascript)
-pub fn ice_configuration_uses_browser_rtc_configuration_shape_test() {
+pub fn ice_configuration_uses_browser_rtc_configuration_shape_test() -> Nil {
   [
     p2p_transport_js.ice_server(urls: ["stun:stun.example:3478"]),
     p2p_transport_js.ice_server(urls: [
@@ -232,7 +242,7 @@ pub fn ice_configuration_uses_browser_rtc_configuration_shape_test() {
 }
 
 @target(javascript)
-pub fn public_stun_preset_is_stun_only_and_credential_free_test() {
+pub fn public_stun_preset_is_stun_only_and_credential_free_test() -> Nil {
   // The preset must never grow a TURN url or a credential: it is the
   // "nothing deployed, nothing secret" option, and a credential in a
   // shipped library would be everyone's credential.
@@ -247,7 +257,7 @@ pub fn public_stun_preset_is_stun_only_and_credential_free_test() {
 }
 
 @target(javascript)
-pub fn document_channel_is_unordered_and_reliable_test() {
+pub fn document_channel_is_unordered_and_reliable_test() -> Nil {
   p2p_transport_js.document_channel_label
   |> expect.to_equal("watershed-crdt-v1")
 
@@ -258,12 +268,12 @@ pub fn document_channel_is_unordered_and_reliable_test() {
 }
 
 @target(javascript)
-pub fn room_limit_is_the_core_default_test() {
+pub fn room_limit_is_the_core_default_test() -> Nil {
   p2p_transport_js.room_limit() |> expect.to_equal(8)
 }
 
 @target(javascript)
-pub fn caller_ice_configuration_reaches_every_connection_test() {
+pub fn caller_ice_configuration_reaches_every_connection_test() -> Nil {
   let world = p2p_fake.new_world()
   let servers = [
     p2p_transport_js.ice_server(urls: ["stun:stun.example:3478"]),
@@ -298,7 +308,7 @@ pub fn caller_ice_configuration_reaches_every_connection_test() {
 }
 
 @target(javascript)
-pub fn empty_room_or_peer_id_is_rejected_test() {
+pub fn empty_room_or_peer_id_is_rejected_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, callbacks) = recorder()
 
@@ -324,7 +334,7 @@ pub fn empty_room_or_peer_id_is_rejected_test() {
 }
 
 @target(javascript)
-pub fn signaling_join_failure_is_typed_test() {
+pub fn signaling_join_failure_is_typed_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, callbacks) = recorder()
   p2p_fake.fail_join(world, "room admission refused")
@@ -345,7 +355,7 @@ pub fn signaling_join_failure_is_typed_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn two_peers_negotiate_and_open_one_channel_each_test() {
+pub fn two_peers_negotiate_and_open_one_channel_each_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, events_a) = start_meshed(world, "peer-a")
   let #(b, events_b) = start_meshed(world, "peer-b")
@@ -367,7 +377,7 @@ pub fn two_peers_negotiate_and_open_one_channel_each_test() {
 }
 
 @target(javascript)
-pub fn only_the_smaller_peer_offers_test() {
+pub fn only_the_smaller_peer_offers_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _) = start_meshed(world, "peer-z")
   let #(_, _) = start_meshed(world, "peer-a")
@@ -380,7 +390,7 @@ pub fn only_the_smaller_peer_offers_test() {
 }
 
 @target(javascript)
-pub fn document_strings_cross_the_data_channel_verbatim_test() {
+pub fn document_strings_cross_the_data_channel_verbatim_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, _) = start_meshed(world, "peer-a")
   let #(b, events_b) = start_meshed(world, "peer-b")
@@ -403,7 +413,7 @@ pub fn document_strings_cross_the_data_channel_verbatim_test() {
 }
 
 @target(javascript)
-pub fn signaling_carries_only_offers_answers_and_candidates_test() {
+pub fn signaling_carries_only_offers_answers_and_candidates_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, _) = start_meshed(world, "peer-a")
   let #(_, _) = start_meshed(world, "peer-b")
@@ -426,7 +436,7 @@ pub fn signaling_carries_only_offers_answers_and_candidates_test() {
 }
 
 @target(javascript)
-pub fn broadcast_reaches_every_open_peer_test() {
+pub fn broadcast_reaches_every_open_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, _) = start_meshed(world, "peer-a")
   let #(_, events_b) = start_meshed(world, "peer-b")
@@ -441,7 +451,7 @@ pub fn broadcast_reaches_every_open_peer_test() {
 }
 
 @target(javascript)
-pub fn send_to_a_peer_without_an_open_channel_reports_not_delivered_test() {
+pub fn send_to_a_peer_without_an_open_channel_reports_not_delivered_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, _, deliver) = swap(start_scripted(world, "peer-a"))
   deliver(PeerJoined("peer-z"))
@@ -470,7 +480,7 @@ fn swap(
 @target(javascript)
 /// A roster to the newcomer and nothing to the room: the shape of an
 /// adapter that answers "who is here?" on join and never announces.
-pub fn only_the_newcomer_being_told_still_opens_the_link_test() {
+pub fn only_the_newcomer_being_told_still_opens_the_link_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_join_notice(world, p2p_fake.NotifyNewcomer)
   let #(z, _) = start_meshed(world, "peer-z")
@@ -489,7 +499,7 @@ pub fn only_the_newcomer_being_told_still_opens_the_link_test() {
 @target(javascript)
 /// The mirror shape: only the members already in the room hear about a
 /// newcomer. It carries the pair whose existing member offers.
-pub fn only_the_existing_member_being_told_still_opens_the_link_test() {
+pub fn only_the_existing_member_being_told_still_opens_the_link_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_join_notice(world, p2p_fake.NotifyExistingMembers)
   let #(a, _) = start_meshed(world, "peer-a")
@@ -507,7 +517,7 @@ pub fn only_the_existing_member_being_told_still_opens_the_link_test() {
 /// discovery contract in `Signaling` calls out: the side that offers was
 /// told nothing, so the link waits for it to learn — by any route, once,
 /// with nothing repeated on the side that already knew.
-pub fn a_link_only_the_larger_side_knows_about_opens_when_the_smaller_learns_test() {
+pub fn a_link_only_the_larger_side_knows_about_opens_when_the_smaller_learns_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_join_notice(world, p2p_fake.NotifyExistingMembers)
   let #(z, events_z) = start_meshed(world, "peer-z")
@@ -536,7 +546,7 @@ pub fn a_link_only_the_larger_side_knows_about_opens_when_the_smaller_learns_tes
 /// shape sufficient: a roster carries only the pairs whose newcomer sorts
 /// first, exactly as a notice to the room carries only the pairs whose
 /// existing member does.
-pub fn a_roster_does_not_carry_a_newcomer_that_sorts_last_test() {
+pub fn a_roster_does_not_carry_a_newcomer_that_sorts_last_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_join_notice(world, p2p_fake.NotifyNewcomer)
   let #(a, _) = start_meshed(world, "peer-a")
@@ -561,7 +571,7 @@ pub fn a_roster_does_not_carry_a_newcomer_that_sorts_last_test() {
 @target(javascript)
 /// An offer that overtakes its `PeerJoined` is enough on its own, and the
 /// `PeerJoined` behind it adds nothing.
-pub fn an_offer_that_arrives_before_its_peer_joined_is_answered_once_test() {
+pub fn an_offer_that_arrives_before_its_peer_joined_is_answered_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, _, deliver) = swap(start_scripted(world, "peer-z"))
 
@@ -581,7 +591,7 @@ pub fn an_offer_that_arrives_before_its_peer_joined_is_answered_once_test() {
 /// The same ordering on the offering side. A peer that has already offered
 /// is sending its own channel in-band, so the late `PeerJoined` must not
 /// add a second one — whatever the peer IDs sort to.
-pub fn a_peer_that_offered_first_gets_no_second_channel_test() {
+pub fn a_peer_that_offered_first_gets_no_second_channel_test() -> Nil {
   let world = p2p_fake.new_world()
   // "peer-a" < "peer-z", so peer-a would normally create the channel.
   let #(transport, _, deliver) = swap(start_scripted(world, "peer-a"))
@@ -603,7 +613,7 @@ pub fn a_peer_that_offered_first_gets_no_second_channel_test() {
 /// A `createDataChannel` that fails leaves the peer connected and channel-
 /// less, so the next time the adapter mentions that peer the channel is
 /// attempted again rather than assumed to exist.
-pub fn a_channel_that_could_not_be_created_is_retried_on_the_next_notice_test() {
+pub fn a_channel_that_could_not_be_created_is_retried_on_the_next_notice_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   p2p_fake.set_channel_failure(world, True)
@@ -630,7 +640,7 @@ pub fn a_channel_that_could_not_be_created_is_retried_on_the_next_notice_test() 
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn impolite_peer_ignores_a_colliding_offer_test() {
+pub fn impolite_peer_ignores_a_colliding_offer_test() -> Nil {
   let world = p2p_fake.new_world()
   // "peer-a" < "peer-z": peer-a offers, and is the impolite side.
   let #(_, _, deliver) = swap(start_scripted(world, "peer-a"))
@@ -650,7 +660,7 @@ pub fn impolite_peer_ignores_a_colliding_offer_test() {
 }
 
 @target(javascript)
-pub fn polite_peer_rolls_back_on_a_colliding_offer_test() {
+pub fn polite_peer_rolls_back_on_a_colliding_offer_test() -> Nil {
   let world = p2p_fake.new_world()
   // "peer-z" > "peer-a": peer-z answers, and is the polite side.
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
@@ -675,7 +685,7 @@ pub fn polite_peer_rolls_back_on_a_colliding_offer_test() {
 }
 
 @target(javascript)
-pub fn an_ignored_offer_suppresses_only_its_own_candidate_failure_test() {
+pub fn an_ignored_offer_suppresses_only_its_own_candidate_failure_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -695,7 +705,7 @@ pub fn an_ignored_offer_suppresses_only_its_own_candidate_failure_test() {
 }
 
 @target(javascript)
-pub fn a_candidate_failure_with_no_ignored_offer_is_reported_test() {
+pub fn a_candidate_failure_with_no_ignored_offer_is_reported_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -715,7 +725,7 @@ pub fn a_candidate_failure_with_no_ignored_offer_is_reported_test() {
 /// description arrives. If a rejection skipped that clearing, this peer —
 /// the impolite side — would read every later remote offer as a collision
 /// and refuse all of them, and the link would never open again.
-pub fn a_failed_offer_does_not_wedge_the_collision_guard_test() {
+pub fn a_failed_offer_does_not_wedge_the_collision_guard_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   p2p_fake.set_offer_failure(world, True)
@@ -742,7 +752,7 @@ pub fn a_failed_offer_does_not_wedge_the_collision_guard_test() {
 /// The same "finally" for the answer stage: an offer that could not be
 /// applied is not remembered as applied, so its retransmission is answered
 /// instead of dropped as a duplicate.
-pub fn a_failed_answer_stage_forgets_the_offer_it_could_not_apply_test() {
+pub fn a_failed_answer_stage_forgets_the_offer_it_could_not_apply_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, events, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -773,7 +783,7 @@ pub fn a_failed_answer_stage_forgets_the_offer_it_could_not_apply_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn remote_candidates_queue_until_a_remote_description_exists_test() {
+pub fn remote_candidates_queue_until_a_remote_description_exists_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -798,7 +808,7 @@ pub fn remote_candidates_queue_until_a_remote_description_exists_test() {
 }
 
 @target(javascript)
-pub fn candidates_after_a_remote_description_apply_immediately_test() {
+pub fn candidates_after_a_remote_description_apply_immediately_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -813,7 +823,7 @@ pub fn candidates_after_a_remote_description_apply_immediately_test() {
 }
 
 @target(javascript)
-pub fn a_candidate_flood_before_a_description_closes_the_peer_test() {
+pub fn a_candidate_flood_before_a_description_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -838,7 +848,7 @@ pub fn a_candidate_flood_before_a_description_closes_the_peer_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn duplicate_peer_joined_creates_one_connection_test() {
+pub fn duplicate_peer_joined_creates_one_connection_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   deliver(PeerJoined("peer-z"))
@@ -854,7 +864,7 @@ pub fn duplicate_peer_joined_creates_one_connection_test() {
 }
 
 @target(javascript)
-pub fn our_own_join_echo_is_ignored_test() {
+pub fn our_own_join_echo_is_ignored_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, _, deliver) = swap(start_scripted(world, "peer-a"))
   deliver(PeerJoined("peer-a"))
@@ -863,7 +873,7 @@ pub fn our_own_join_echo_is_ignored_test() {
 }
 
 @target(javascript)
-pub fn a_duplicate_offer_is_answered_once_test() {
+pub fn a_duplicate_offer_is_answered_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -879,7 +889,7 @@ pub fn a_duplicate_offer_is_answered_once_test() {
 }
 
 @target(javascript)
-pub fn a_duplicate_answer_is_applied_once_test() {
+pub fn a_duplicate_answer_is_applied_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-a"))
   deliver(PeerJoined("peer-z"))
@@ -896,7 +906,7 @@ pub fn a_duplicate_answer_is_applied_once_test() {
 }
 
 @target(javascript)
-pub fn an_unsolicited_answer_is_dropped_test() {
+pub fn an_unsolicited_answer_is_dropped_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -908,7 +918,7 @@ pub fn an_unsolicited_answer_is_dropped_test() {
 }
 
 @target(javascript)
-pub fn a_duplicate_candidate_is_queued_once_test() {
+pub fn a_duplicate_candidate_is_queued_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, _, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -924,7 +934,7 @@ pub fn a_duplicate_candidate_is_queued_once_test() {
 }
 
 @target(javascript)
-pub fn a_duplicate_peer_left_closes_once_test() {
+pub fn a_duplicate_peer_left_closes_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -941,7 +951,7 @@ pub fn a_duplicate_peer_left_closes_once_test() {
 }
 
 @target(javascript)
-pub fn close_peer_is_idempotent_test() {
+pub fn close_peer_is_idempotent_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -960,7 +970,7 @@ pub fn close_peer_is_idempotent_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_ninth_room_member_is_rejected_with_room_full_test() {
+pub fn a_ninth_room_member_is_rejected_with_room_full_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
 
@@ -983,7 +993,7 @@ pub fn a_ninth_room_member_is_rejected_with_room_full_test() {
 }
 
 @target(javascript)
-pub fn a_full_room_rejects_an_offer_from_a_new_peer_test() {
+pub fn a_full_room_rejects_an_offer_from_a_new_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   upto(7)
@@ -1001,7 +1011,7 @@ pub fn a_full_room_rejects_an_offer_from_a_new_peer_test() {
 }
 
 @target(javascript)
-pub fn a_departure_frees_a_room_slot_test() {
+pub fn a_departure_frees_a_room_slot_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, _, deliver) = swap(start_scripted(world, "peer-a"))
   upto(7)
@@ -1021,7 +1031,7 @@ pub fn a_departure_frees_a_room_slot_test() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-pub fn a_non_string_message_closes_the_peer_test() {
+pub fn a_non_string_message_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -1036,7 +1046,7 @@ pub fn a_non_string_message_closes_the_peer_test() {
 }
 
 @target(javascript)
-pub fn asynchronous_failures_reach_the_typed_error_callback_test() {
+pub fn asynchronous_failures_reach_the_typed_error_callback_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(_, events, deliver) = swap(start_scripted(world, "peer-a"))
   deliver(PeerJoined("peer-z"))
@@ -1051,7 +1061,7 @@ pub fn asynchronous_failures_reach_the_typed_error_callback_test() {
 }
 
 @target(javascript)
-pub fn a_connection_that_cannot_be_constructed_is_dropped_test() {
+pub fn a_connection_that_cannot_be_constructed_is_dropped_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_open_failure(world, True)
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
@@ -1072,7 +1082,7 @@ pub fn a_connection_that_cannot_be_constructed_is_dropped_test() {
 }
 
 @target(javascript)
-pub fn an_offer_from_a_peer_we_cannot_connect_to_is_not_answered_test() {
+pub fn an_offer_from_a_peer_we_cannot_connect_to_is_not_answered_test() -> Nil {
   let world = p2p_fake.new_world()
   p2p_fake.set_open_failure(world, True)
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-z"))
@@ -1088,7 +1098,7 @@ pub fn an_offer_from_a_peer_we_cannot_connect_to_is_not_answered_test() {
 @target(javascript)
 /// A facade may well close a peer from inside `on_peer_open`. The status
 /// stream must still end on the closure, not on the opening it replaced.
-pub fn closing_a_peer_from_its_own_open_callback_ends_on_closed_test() {
+pub fn closing_a_peer_from_its_own_open_callback_ends_on_closed_test() -> Nil {
   let world = p2p_fake.new_world()
   let events = transport_js.new_cell([])
   let handle = transport_js.new_cell(None)
@@ -1135,7 +1145,7 @@ pub fn closing_a_peer_from_its_own_open_callback_ends_on_closed_test() {
 }
 
 @target(javascript)
-pub fn a_terminal_connection_failure_closes_the_peer_test() {
+pub fn a_terminal_connection_failure_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -1159,7 +1169,7 @@ pub fn a_terminal_connection_failure_closes_the_peer_test() {
 }
 
 @target(javascript)
-pub fn ice_states_are_reported_and_failure_closes_the_peer_test() {
+pub fn ice_states_are_reported_and_failure_closes_the_peer_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -1180,7 +1190,7 @@ pub fn ice_states_are_reported_and_failure_closes_the_peer_test() {
 }
 
 @target(javascript)
-pub fn a_peer_channel_closing_drops_it_from_presence_test() {
+pub fn a_peer_channel_closing_drops_it_from_presence_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, _) = start_meshed(world, "peer-a")
   let #(b, events_b) = start_meshed(world, "peer-b")
@@ -1202,7 +1212,7 @@ pub fn a_peer_channel_closing_drops_it_from_presence_test() {
 /// A peer that dies while still negotiating is announced as closed all the
 /// same. Ending its status stream on `PeerConnecting` would leave a facade
 /// rendering a spinner for a peer that no longer exists.
-pub fn a_connecting_peer_that_never_opened_still_reports_closed_test() {
+pub fn a_connecting_peer_that_never_opened_still_reports_closed_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -1223,7 +1233,7 @@ pub fn a_connecting_peer_that_never_opened_still_reports_closed_test() {
 }
 
 @target(javascript)
-pub fn close_reports_closed_for_peers_that_never_opened_test() {
+pub fn close_reports_closed_for_peers_that_never_opened_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, events, deliver) = swap(start_scripted(world, "peer-z"))
   deliver(PeerJoined("peer-a"))
@@ -1241,7 +1251,7 @@ pub fn close_reports_closed_for_peers_that_never_opened_test() {
 /// Application callbacks are the application's business, including the
 /// ones that blow up. Whatever they do, the transport has already closed
 /// every connection and left the room by the time the first one runs.
-pub fn closing_leaves_signaling_even_when_a_status_callback_throws_test() {
+pub fn closing_leaves_signaling_even_when_a_status_callback_throws_test() -> Nil {
   let world = p2p_fake.new_world()
   let events = transport_js.new_cell([])
   let callbacks =
@@ -1256,7 +1266,14 @@ pub fn closing_leaves_signaling_even_when_a_status_callback_throws_test() {
         case status {
           p2p_transport_js.PeerClosed(_) ->
             panic as "the application's status callback blew up"
-          _ -> Nil
+          p2p_transport_js.SignalingJoined(..)
+          | p2p_transport_js.SignalingRoster(_)
+          | p2p_transport_js.SignalingLeft
+          | p2p_transport_js.PeerConnecting(_)
+          | p2p_transport_js.PeerOpen(_)
+          | p2p_transport_js.PeerFailed(..)
+          | p2p_transport_js.IceState(..)
+          | p2p_transport_js.PeerCount(_) -> Nil
         }
       },
       on_error: fn(error) { push(events, "error " <> render_error(error)) },
@@ -1291,7 +1308,7 @@ pub fn closing_leaves_signaling_even_when_a_status_callback_throws_test() {
 }
 
 @target(javascript)
-pub fn close_clears_peers_and_leaves_signaling_once_test() {
+pub fn close_clears_peers_and_leaves_signaling_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, events_a) = start_meshed(world, "peer-a")
   let #(b, _) = start_meshed(world, "peer-b")
@@ -1316,7 +1333,7 @@ pub fn close_clears_peers_and_leaves_signaling_once_test() {
 }
 
 @target(javascript)
-pub fn a_closed_transport_ignores_later_signals_test() {
+pub fn a_closed_transport_ignores_later_signals_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(a, events_a, deliver) = swap(start_scripted(world, "peer-a"))
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -1334,7 +1351,7 @@ pub fn a_closed_transport_ignores_later_signals_test() {
 }
 
 @target(javascript)
-pub fn signals_delivered_during_join_are_handled_after_the_session_exists_test() {
+pub fn signals_delivered_during_join_are_handled_after_the_session_exists_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(events, callbacks) = recorder()
   let sent = transport_js.new_cell([])
@@ -1397,14 +1414,23 @@ pub fn signals_delivered_during_join_are_handled_after_the_session_exists_test()
 /// it is gone. Both drop the peer first, so a callback that throws cannot
 /// leave a dead connection tracked, addressable by `broadcast`, and
 /// holding a room slot.
-pub fn a_throwing_callback_cannot_keep_a_terminally_failed_peer_alive_test() {
+pub fn a_throwing_callback_cannot_keep_a_terminally_failed_peer_alive_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, deliver) =
     start_with_exploding_callbacks(world, "peer-a", fn(status, _error) {
       case status {
         Some(p2p_transport_js.IceState(_, "failed")) ->
           panic as "the application's status callback blew up"
-        _ -> Nil
+        Some(p2p_transport_js.IceState(..))
+        | Some(p2p_transport_js.SignalingJoined(..))
+        | Some(p2p_transport_js.SignalingRoster(_))
+        | Some(p2p_transport_js.SignalingLeft)
+        | Some(p2p_transport_js.PeerConnecting(_))
+        | Some(p2p_transport_js.PeerOpen(_))
+        | Some(p2p_transport_js.PeerClosed(_))
+        | Some(p2p_transport_js.PeerFailed(..))
+        | Some(p2p_transport_js.PeerCount(_))
+        | None -> Nil
       }
     })
   negotiate_as_offerer(world, deliver, "peer-z")
@@ -1423,14 +1449,28 @@ pub fn a_throwing_callback_cannot_keep_a_terminally_failed_peer_alive_test() {
 }
 
 @target(javascript)
-pub fn a_throwing_callback_cannot_keep_a_foreign_speaking_peer_alive_test() {
+pub fn a_throwing_callback_cannot_keep_a_foreign_speaking_peer_alive_test() -> Nil {
   let world = p2p_fake.new_world()
   let #(transport, deliver) =
     start_with_exploding_callbacks(world, "peer-a", fn(_status, error) {
       case error {
         Some(p2p.InvalidEnvelope(_, _)) ->
           panic as "the application's error callback blew up"
-        _ -> Nil
+        Some(p2p.UnsupportedChannel(_))
+        | Some(p2p.RootMismatch(..))
+        | Some(p2p.ChannelTypeMismatch(..))
+        | Some(p2p.DocumentClosed)
+        | Some(p2p.CompatibilityMismatch(..))
+        | Some(p2p.ProtocolMismatch(..))
+        | Some(p2p.RoomMismatch)
+        | Some(p2p.RoomFull(_))
+        | Some(p2p.SignalingFailed(_))
+        | Some(p2p.SequencerUnavailable(_))
+        | Some(p2p.SequencerUnsupported)
+        | Some(p2p.PeerConnectionFailed(..))
+        | Some(p2p.SnapshotTooLarge(..))
+        | Some(p2p.ReplicaCollision(_))
+        | None -> Nil
       }
     })
   negotiate_as_offerer(world, deliver, "peer-z")

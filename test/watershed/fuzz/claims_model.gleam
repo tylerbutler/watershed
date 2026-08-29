@@ -48,22 +48,22 @@ pub type ClaimCommand {
   ClaimCommand(kind: ClaimKind, key: String, value: Json, ref_seq: Int)
 }
 
-fn to_claim(cmd: ClaimCommand) -> claims_kernel.ClaimOp {
-  Claim(cmd.key, cmd.value, cmd.ref_seq)
+fn to_claim(command: ClaimCommand) -> claims_kernel.ClaimOp {
+  Claim(command.key, command.value, command.ref_seq)
 }
 
-fn op_to_json(cmd: ClaimCommand) -> Json {
+fn op_to_json(command: ClaimCommand) -> Json {
   json.object([
     #(
       "kind",
-      json.string(case cmd.kind {
+      json.string(case command.kind {
         TrySet -> "try"
         Cas -> "cas"
       }),
     ),
-    #("key", json.string(cmd.key)),
-    #("value", cmd.value),
-    #("ref_seq", json.int(cmd.ref_seq)),
+    #("key", json.string(command.key)),
+    #("value", command.value),
+    #("ref_seq", json.int(command.ref_seq)),
   ])
 }
 
@@ -101,34 +101,34 @@ fn op_generator() -> qcheck.Generator(ClaimCommand) {
 
 fn submit(
   state: ClaimsState,
-  cmd: ClaimCommand,
+  command: ClaimCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(ClaimsState, option.Option(ClaimCommand)) {
   // One pending claim per key: a second submit for a key already pending is a
   // kernel usage error, so drop it here (no op routed) rather than provoke one.
-  case dict.has_key(state.pending, cmd.key) {
+  case dict.has_key(state.pending, command.key) {
     True -> #(state, None)
     False -> {
-      let result = case cmd.kind {
+      let result = case command.kind {
         TrySet ->
-          claims_kernel.try_set_claim(
+          claims_kernel.claim_once(
             state,
-            cmd.key,
-            cmd.value,
+            command.key,
+            command.value,
             meta.last_seen_seq,
           )
         Cas ->
           claims_kernel.compare_and_set_claim(
             state,
-            cmd.key,
-            cmd.value,
+            command.key,
+            command.value,
             meta.last_seen_seq,
           )
       }
       case result {
         Ok(Submitted(state, op)) -> #(
           state,
-          Some(ClaimCommand(cmd.kind, op.key, op.value, op.ref_seq)),
+          Some(ClaimCommand(command.kind, op.key, op.value, op.ref_seq)),
         )
         // Write-once on a committed key: resolved synchronously, no op sent.
         Ok(AlreadyClaimed(_)) -> #(state, None)
@@ -141,20 +141,20 @@ fn submit(
 
 fn apply_remote(
   state: ClaimsState,
-  cmd: ClaimCommand,
+  command: ClaimCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ClaimsState, String) {
   let #(state, _events) =
-    claims_kernel.apply_remote(state, to_claim(cmd), meta.sequence_number)
+    claims_kernel.apply_remote(state, to_claim(command), meta.sequence_number)
   Ok(state)
 }
 
 fn ack_local(
   state: ClaimsState,
-  cmd: ClaimCommand,
+  command: ClaimCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ClaimsState, String) {
-  case claims_kernel.ack_local(state, to_claim(cmd), meta.sequence_number) {
+  case claims_kernel.ack_local(state, to_claim(command), meta.sequence_number) {
     Ok(#(state, _events, _outcome)) -> Ok(state)
     Error(claims_kernel.UnexpectedAck(_, detail)) -> Error(detail)
     Error(claims_kernel.UnexpectedRollback(_, detail)) -> Error(detail)
@@ -172,14 +172,14 @@ fn oracle(entries: List(LogEntry(ClaimCommand))) -> List(#(String, Json, Int)) {
     kernel_fuzz.log_ops(entries),
     dict.new(),
     fn(claims, entry, i) {
-      let cmd = entry.1
+      let command = entry.1
       let seq = i + 1
-      let accepted = case dict.get(claims, cmd.key) {
+      let accepted = case dict.get(claims, command.key) {
         Error(_) -> True
-        Ok(#(_value, entry_seq)) -> cmd.ref_seq == entry_seq
+        Ok(#(_value, entry_seq)) -> command.ref_seq == entry_seq
       }
       case accepted {
-        True -> dict.insert(claims, cmd.key, #(cmd.value, seq))
+        True -> dict.insert(claims, command.key, #(command.value, seq))
         False -> claims
       }
     },

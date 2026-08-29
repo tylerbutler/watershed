@@ -3,11 +3,10 @@
 //// explicitly, so `settle` drains the room before the assertions read it.
 
 import gleam/list
-import gleam/option.{Some}
 import gleam/string
 import gleeunit/should
 
-import doc_schema
+import release_checklist_lustre/doc_schema
 import watershed.{type Document, type OrSet}
 import watershed/sluice_js.{type Sluice}
 
@@ -40,7 +39,7 @@ fn room(name: String) -> #(Sluice, OrSet, OrSet) {
 }
 
 fn checks_of(doc: Document(doc_schema.Checklist)) -> OrSet {
-  let assert Some(value) = watershed.get(watershed.root(doc), checks_key)
+  let assert Ok(value) = watershed.get(watershed.root(doc), checks_key)
   let assert Ok(set) = watershed.resolve_or_set(doc, value)
   set
 }
@@ -62,7 +61,7 @@ fn toggle(set: OrSet, id: String) -> Nil {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-pub fn two_clients_converge_on_a_checklist_test() {
+pub fn two_clients_converge_on_a_checklist_test() -> Nil {
   let #(sluice, a, b) = room("checklist-converge")
 
   toggle(a, "tests_passing")
@@ -73,7 +72,7 @@ pub fn two_clients_converge_on_a_checklist_test() {
   completed(b) |> should.equal(["changelog_updated", "tests_passing"])
 }
 
-pub fn concurrently_completing_the_same_gate_is_not_a_conflict_test() {
+pub fn concurrently_completing_the_same_gate_is_not_a_conflict_test() -> Nil {
   let #(sluice, a, b) = room("checklist-same-gate")
 
   // Two people reaching for the same gate is the most likely collision in
@@ -86,7 +85,7 @@ pub fn concurrently_completing_the_same_gate_is_not_a_conflict_test() {
   completed(b) |> should.equal(["security_review"])
 }
 
-pub fn a_concurrent_completion_survives_a_reopen_test() {
+pub fn a_concurrent_completion_survives_a_reopen_test() -> Nil {
   let #(sluice, a, b) = room("checklist-add-wins")
 
   watershed.or_set_add(a, "docs_updated")
@@ -106,7 +105,7 @@ pub fn a_concurrent_completion_survives_a_reopen_test() {
   completed(b) |> should.equal(["docs_updated"])
 }
 
-pub fn a_gate_toggles_off_and_back_on_test() {
+pub fn a_gate_toggles_off_and_back_on_test() -> Nil {
   let #(sluice, a, b) = room("checklist-retoggle")
 
   toggle(a, "tests_passing")
@@ -122,7 +121,7 @@ pub fn a_gate_toggles_off_and_back_on_test() {
   completed(b) |> should.equal(["tests_passing"])
 }
 
-pub fn a_late_joiner_replays_the_checklist_test() {
+pub fn a_late_joiner_replays_the_checklist_test() -> Nil {
   let #(sluice, a, _b) = room("checklist-late-join")
 
   list.each(["tests_passing", "docs_updated"], fn(id) {

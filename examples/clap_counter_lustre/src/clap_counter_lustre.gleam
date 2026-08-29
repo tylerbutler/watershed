@@ -35,7 +35,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 import lustre
-import lustre/attribute.{class}
+import lustre/attribute
 import lustre/effect.{type Effect}
 import lustre/element.{type Element}
 import lustre/element/html
@@ -64,7 +64,7 @@ const default_signaling = "ws://localhost:4400/"
 /// a URL attaches one, and everything else about the app is unchanged.
 const relay_param = "relay"
 
-pub fn main() {
+pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let assert Ok(_) =
     lustre.start(app, "#app", browser.document_on_navigate("clap"))
@@ -328,17 +328,20 @@ fn short(replica: String) -> String {
 // ── View ─────────────────────────────────────────────────────────────────────
 
 fn view(model: Model) -> Element(Msg) {
-  html.main([class("wrap")], [
+  html.main([attribute.class("wrap")], [
     html.h1([], [html.text("watershed · peer-to-peer claps")]),
     status_line(model),
-    html.div([class("count")], [html.text(int.to_string(model.claps))]),
-    html.div([class("controls")], [
-      html.button([class("clap-button"), event.on_click(ClapClicked)], [
-        html.text("👏 Clap"),
-      ]),
+    html.div([attribute.class("count")], [html.text(int.to_string(model.claps))]),
+    html.div([attribute.class("controls")], [
+      html.button(
+        [attribute.class("clap-button"), event.on_click(ClapClicked)],
+        [
+          html.text("👏 Clap"),
+        ],
+      ),
     ]),
     errors_view(model),
-    html.p([class("hint")], [
+    html.p([attribute.class("hint")], [
       html.text(
         "Open this URL in a second tab and hold the button down in both. "
         <> "No server sequences the claps; the tabs merge them directly. "
@@ -363,14 +366,16 @@ fn status_line(model: Model) -> Element(Msg) {
     "" -> ""
     state -> " · relay " <> state
   }
-  html.p([class("status")], [html.text(connection <> " · " <> peers <> relay)])
+  html.p([attribute.class("status")], [
+    html.text(connection <> " · " <> peers <> relay),
+  ])
 }
 
 fn errors_view(model: Model) -> Element(Msg) {
   case model.errors {
     [] -> element.none()
     errors ->
-      html.section([class("errors")], [
+      html.section([attribute.class("errors")], [
         html.h2([], [html.text("Connection errors")]),
         html.pre([], [html.text(string.join(list.reverse(errors), "\n"))]),
       ])
