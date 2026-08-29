@@ -54,8 +54,8 @@ const ensuredArms = section(
       <code>Error</code> — but a write it makes before <code>connected</code>{" "}
       doesn't survive either: the runtime drops an edit made before the
       connection is ready instead of queuing it. Batch it with the
-      channel-creating calls and wait for <code>connected</code> before firing
-      any of bootstrap, not just the calls that would otherwise fail loudly.
+      channel-creating calls. Wait for <code>connected</code> before running
+      any bootstrap call, including <code>ensure_field</code>.
       That's a separate concern from two clients both creating a channel{" "}
       <em>after</em> the connection is ready — the next section covers that
       race, which <code>ensure_*</code> resolves on its own.
