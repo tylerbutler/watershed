@@ -233,9 +233,23 @@ pub fn two_clients_converge_via_consistent_quorum_test() -> Nil {
 
   // Set sequences at 2 (author = client 1); both apply it and go pending.
   let #(a1, _, owed_a) =
-    apply(a0, set_operation, seq: 2, author: 1, self_id: 1, quorum: quorum)
+    apply(
+      a0,
+      set_operation,
+      sequence_number: 2,
+      author: 1,
+      self_id: 1,
+      quorum: quorum,
+    )
   let #(b1, _, owed_b) =
-    apply(b0, set_operation, seq: 2, author: 1, self_id: 2, quorum: quorum)
+    apply(
+      b0,
+      set_operation,
+      sequence_number: 2,
+      author: 1,
+      self_id: 2,
+      quorum: quorum,
+    )
   // Both clients are in the signoff list, so both owe an Accept.
   owed_a
   |> expect.to_equal([channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))])
@@ -248,16 +262,16 @@ pub fn two_clients_converge_via_consistent_quorum_test() -> Nil {
 
   // Client 1's Accept sequences at 3; still pending (client 2 outstanding).
   let #(a2, _, _) =
-    apply(a1, accept, seq: 3, author: 1, self_id: 1, quorum: quorum)
+    apply(a1, accept, sequence_number: 3, author: 1, self_id: 1, quorum: quorum)
   let #(b2, _, _) =
-    apply(b1, accept, seq: 3, author: 1, self_id: 2, quorum: quorum)
+    apply(b1, accept, sequence_number: 3, author: 1, self_id: 2, quorum: quorum)
   is_pending(a2, "bm-17") |> expect.to_be_true()
 
   // Client 2's Accept sequences at 4; the value settles on both replicas.
   let #(a3, _, _) =
-    apply(a2, accept, seq: 4, author: 2, self_id: 1, quorum: quorum)
+    apply(a2, accept, sequence_number: 4, author: 2, self_id: 1, quorum: quorum)
   let #(b3, _, _) =
-    apply(b2, accept, seq: 4, author: 2, self_id: 2, quorum: quorum)
+    apply(b2, accept, sequence_number: 4, author: 2, self_id: 2, quorum: quorum)
 
   is_pending(a3, "bm-17") |> expect.to_be_false()
   get(a3, "bm-17")
@@ -279,16 +293,30 @@ pub fn pending_value_settles_when_signer_leaves_test() -> Nil {
   let set_operation =
     channel.PactMapOperation(pact_map_kernel.Set("bm-17", Some(value), 0))
   let #(state, _, _) =
-    apply(state, set_operation, seq: 2, author: 1, self_id: 1, quorum: quorum)
+    apply(
+      state,
+      set_operation,
+      sequence_number: 2,
+      author: 1,
+      self_id: 1,
+      quorum: quorum,
+    )
 
   // Client 1 accepts at 3; still pending on client 2's outstanding signoff.
   let accept = channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))
   let #(state, _, _) =
-    apply(state, accept, seq: 3, author: 1, self_id: 1, quorum: quorum)
+    apply(
+      state,
+      accept,
+      sequence_number: 3,
+      author: 1,
+      self_id: 1,
+      quorum: quorum,
+    )
   is_pending(state, "bm-17") |> expect.to_be_true()
 
-  // Instead of accepting, client 2 leaves at seq 5: its signoff is dropped, the
-  // signoff list empties, and the value settles to accepted.
+  // Instead of accepting, client 2 leaves at sequence_number 5: its signoff is
+  // dropped, the signoff list empties, and the value settles to accepted.
   let #(state, events) = channel.on_leave(state, 2, 5)
   events
   |> expect.to_equal([
@@ -301,7 +329,7 @@ pub fn pending_value_settles_when_signer_leaves_test() -> Nil {
 fn apply(
   state: channel.ChannelState,
   operation: channel.ChannelOperation,
-  seq seq: Int,
+  sequence_number sequence_number: Int,
   author author: Int,
   self_id self_id: Int,
   quorum quorum: List(Int),
@@ -312,9 +340,9 @@ fn apply(
 ) {
   let meta =
     channel.SequencedMeta(
-      seq: seq,
-      last_seen_sn: seq - 1,
-      min_seq: 0,
+      sequence_number: sequence_number,
+      last_seen_sequence_number: sequence_number - 1,
+      minimum_sequence_number: 0,
       author: author,
       self: self_id,
       quorum: quorum,

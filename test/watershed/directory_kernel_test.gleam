@@ -70,12 +70,17 @@ fn remote(
   directory_kernel.apply_remote(state, operation, m, 0)
 }
 
-fn meta(author: Int, seq: Int, ref: Int, cseq: Int) -> SequencedMeta {
+fn meta(
+  author: Int,
+  sequence_number: Int,
+  reference_sequence_number: Int,
+  client_sequence_number: Int,
+) -> SequencedMeta {
   SequencedMeta(
     author: author,
-    sequence_number: seq,
-    reference_sequence_number: ref,
-    client_sequence_number: cseq,
+    sequence_number: sequence_number,
+    reference_sequence_number: reference_sequence_number,
+    client_sequence_number: client_sequence_number,
   )
 }
 
@@ -274,7 +279,8 @@ pub fn remote_delete_disposes_and_clears_test() -> Nil {
 // ─── ordering ────────────────────────────────────────────────────────────────
 
 pub fn acknowledged_children_before_unacked_local_test() -> Nil {
-  // Remote create of "z" (acked, seq 1); local create of "a" (unacked seq -1).
+  // Remote create of "z" (acked, sequence_number 1); local create of "a"
+  // (unacked sequence_number -1).
   let #(state, _) =
     remote(
       directory_kernel.new(),
@@ -286,7 +292,7 @@ pub fn acknowledged_children_before_unacked_local_test() -> Nil {
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["z", "a"])
 }
 
-pub fn lower_seq_first_test() -> Nil {
+pub fn lower_sequence_number_first_test() -> Nil {
   let #(state, _) =
     remote(
       directory_kernel.new(),
@@ -295,7 +301,7 @@ pub fn lower_seq_first_test() -> Nil {
     )
   let #(state, _) =
     remote(state, CreateSubDirectory("/", "x"), meta(1, 1, 0, 0))
-  // x has lower seq (1) than y (2), so it sorts first.
+  // x has lower sequence_number (1) than y (2), so it sorts first.
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["x", "y"])
 }
 
@@ -344,7 +350,8 @@ pub fn fresh_operation_applies_after_recreate_test() -> Nil {
     remote(state, DeleteSubDirectory("/", "a"), meta(1, 2, 1, 0))
   let #(state, _) =
     remote(state, CreateSubDirectory("/", "a"), meta(2, 3, 0, 0))
-  // Fresh set: refSeq 3 >= create seq 3, so it applies even from a non-creator.
+  // Fresh set: refSeq 3 >= create sequence_number 3, so it applies even from a
+  // non-creator.
   let #(state, _) =
     remote(state, Set("/a", "k", json.int(99)), meta(1, 4, 3, 0))
   directory_kernel.get(state, "/a", "k") |> expect.to_equal(Ok(json.int(99)))
@@ -376,7 +383,8 @@ pub fn rollback_delete_reexposes_tree_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let state = ack(state, CreateSubDirectory("/", "a"), meta(0, 1, 0, 0))
   let #(state, _, _) = set(state, "/a", "k", 3)
-  // cseq must carry the set's message id (1): acks match pending by id.
+  // client_sequence_number must carry the set's message id (1): acks match
+  // pending by id.
   let state = ack(state, Set("/a", "k", json.int(3)), meta(0, 2, 1, 1))
   let #(state, _, _, id) =
     local_sub(directory_kernel.delete_subdirectory(state, "/", "a"))

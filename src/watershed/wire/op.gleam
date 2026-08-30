@@ -430,7 +430,7 @@ pub fn encode_register_collection_envelope(
 
 pub fn encode_register_collection_operation(operation: WriteOperation) -> Json {
   case operation {
-    Write(key, value, ref_seq) ->
+    Write(key, value, reference_sequence_number) ->
       json.object([
         #("type", json.string("registerWrite")),
         #("key", json.string(key)),
@@ -441,7 +441,7 @@ pub fn encode_register_collection_operation(operation: WriteOperation) -> Json {
             #("value", value),
           ]),
         ),
-        #("refSeq", json.int(ref_seq)),
+        #("refSeq", json.int(reference_sequence_number)),
       ])
   }
 }
@@ -458,7 +458,7 @@ pub fn encode_claim_envelope(
 
 pub fn encode_claim_operation(operation: ClaimOperation) -> Json {
   case operation {
-    Claim(key, value, ref_seq) ->
+    Claim(key, value, reference_sequence_number) ->
       json.object([
         #("type", json.string("claim")),
         #("key", json.string(key)),
@@ -469,7 +469,7 @@ pub fn encode_claim_operation(operation: ClaimOperation) -> Json {
             #("value", value),
           ]),
         ),
-        #("refSeq", json.int(ref_seq)),
+        #("refSeq", json.int(reference_sequence_number)),
       ])
   }
 }
@@ -478,7 +478,7 @@ pub fn encode_claim_operation(operation: ClaimOperation) -> Json {
 /// that the components were written against, and the json0 component array.
 pub fn encode_json_ot_operation(operation: JsonOtWireOperation) -> Json {
   json.object([
-    #("refSeq", json.int(operation.ref_seq)),
+    #("refSeq", json.int(operation.reference_sequence_number)),
     #("components", json_ot.operation_to_json(operation.components)),
   ])
 }
@@ -488,7 +488,7 @@ pub fn encode_json_ot_operation(operation: JsonOtWireOperation) -> Json {
 /// JSON array of that delta.
 pub fn encode_rich_text_operation(operation: RichTextWireOperation) -> Json {
   json.object([
-    #("refSeq", json.int(operation.ref_seq)),
+    #("refSeq", json.int(operation.reference_sequence_number)),
     #("delta", rich_text.delta_to_json(operation.delta)),
   ])
 }
@@ -638,12 +638,12 @@ pub fn encode_pact_map_operation(
   operation: pact_map_kernel.PactMapOperation,
 ) -> Json {
   case operation {
-    pact_map_kernel.Set(key, value, ref_seq) ->
+    pact_map_kernel.Set(key, value, reference_sequence_number) ->
       json.object([
         #("type", json.string("pactMapSet")),
         #("key", json.string(key)),
         #("value", encode_pact_map_value(value)),
-        #("refSeq", json.int(ref_seq)),
+        #("refSeq", json.int(reference_sequence_number)),
       ])
     pact_map_kernel.Accept(key) ->
       json.object([
@@ -684,8 +684,8 @@ pub fn pact_map_operation_decoder() -> Decoder(pact_map_kernel.PactMapOperation)
     "pactMapSet" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", pact_map_value_decoder())
-      use ref_seq <- decode.field("refSeq", decode.int)
-      decode.success(pact_map_kernel.Set(key, value, ref_seq))
+      use reference_sequence_number <- decode.field("refSeq", decode.int)
+      decode.success(pact_map_kernel.Set(key, value, reference_sequence_number))
     }
     "pactMapAccept" -> {
       use key <- decode.field("key", decode.string)
@@ -1128,8 +1128,8 @@ pub fn register_collection_operation_decoder() -> Decoder(WriteOperation) {
     "registerWrite" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
-      use ref_seq <- decode.field("refSeq", decode.int)
-      decode.success(Write(key, value, ref_seq))
+      use reference_sequence_number <- decode.field("refSeq", decode.int)
+      decode.success(Write(key, value, reference_sequence_number))
     }
     _ -> decode.failure(Write("", json.null(), 0), "RegisterCollectionOp")
   }
@@ -1141,17 +1141,17 @@ pub fn claim_operation_decoder() -> Decoder(ClaimOperation) {
     "claim" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
-      use ref_seq <- decode.field("refSeq", decode.int)
-      decode.success(Claim(key, value, ref_seq))
+      use reference_sequence_number <- decode.field("refSeq", decode.int)
+      decode.success(Claim(key, value, reference_sequence_number))
     }
     _ -> decode.failure(Claim("", json.null(), 0), "ClaimOp")
   }
 }
 
 pub fn json_ot_operation_decoder() -> Decoder(JsonOtWireOperation) {
-  use ref_seq <- decode.field("refSeq", decode.int)
+  use reference_sequence_number <- decode.field("refSeq", decode.int)
   use components <- decode.field("components", json_ot.operation_decoder())
-  decode.success(JsonOtWireOperation(ref_seq, components))
+  decode.success(JsonOtWireOperation(reference_sequence_number, components))
 }
 
 /// A strict decoder for a rich-text operation envelope. The `delta` field must
@@ -1159,9 +1159,9 @@ pub fn json_ot_operation_decoder() -> Decoder(JsonOtWireOperation) {
 /// retain operations. A malformed delta fails the whole decode. The decoder
 /// does not drop the operation.
 pub fn rich_text_operation_decoder() -> Decoder(RichTextWireOperation) {
-  use ref_seq <- decode.field("refSeq", decode.int)
+  use reference_sequence_number <- decode.field("refSeq", decode.int)
   use delta <- decode.field("delta", rich_text_delta_decoder())
-  decode.success(RichTextWireOperation(ref_seq, delta))
+  decode.success(RichTextWireOperation(reference_sequence_number, delta))
 }
 
 fn rich_text_delta_decoder() -> Decoder(rich_text.Delta) {

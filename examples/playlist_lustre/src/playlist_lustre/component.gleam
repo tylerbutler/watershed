@@ -157,15 +157,15 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // are disabled at the ends, but a concurrent delete can still invalidate
     // the index between render and click — hence the Result.
     MoveUpClicked(index) -> #(
-      mutate(model, "move", fn(seq) {
-        watershed.sequence_move(seq, index, index - 1)
+      mutate(model, "move", fn(sequence) {
+        watershed.sequence_move(sequence, index, index - 1)
       }),
       effect.none(),
     )
 
     MoveDownClicked(index) -> #(
-      mutate(model, "move", fn(seq) {
-        watershed.sequence_move(seq, index, index + 1)
+      mutate(model, "move", fn(sequence) {
+        watershed.sequence_move(sequence, index, index + 1)
       }),
       effect.none(),
     )
@@ -179,8 +179,12 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         Ok(existing) -> {
           let renamed = Track(..existing, title: bump_title(existing.title))
           #(
-            mutate(model, "replace", fn(seq) {
-              watershed.sequence_replace(seq, index, track.to_json(renamed))
+            mutate(model, "replace", fn(sequence) {
+              watershed.sequence_replace(
+                sequence,
+                index,
+                track.to_json(renamed),
+              )
             }),
             effect.none(),
           )
@@ -188,7 +192,9 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     RemoveClicked(index) -> #(
-      mutate(model, "delete", fn(seq) { watershed.sequence_delete(seq, index) }),
+      mutate(model, "delete", fn(sequence) {
+        watershed.sequence_delete(sequence, index)
+      }),
       effect.none(),
     )
   }

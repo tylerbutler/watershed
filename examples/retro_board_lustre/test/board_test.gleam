@@ -33,7 +33,7 @@ pub fn id_in_two_sequences_renders_once_in_the_register_column_test() -> Nil {
       id: "n1",
       note: note_in("to_improve", 1),
       votes: 0,
-      seq_index: Some(0),
+      sequence_index: Some(0),
     ),
   ])
 }
@@ -54,7 +54,7 @@ pub fn id_only_in_a_wrong_column_sequence_renders_at_the_register_columns_tail_t
       id: "n1",
       note: note_in("action_items", 5),
       votes: 0,
-      seq_index: None,
+      sequence_index: None,
     ),
   ])
 }
@@ -78,7 +78,7 @@ pub fn unsequenced_notes_render_in_created_order_with_id_tiebreak_test() -> Nil 
   |> list.map(fn(card) { card.id })
   |> should.equal(["nb", "na", "nz"])
   board.went_well
-  |> list.map(fn(card) { card.seq_index })
+  |> list.map(fn(card) { card.sequence_index })
   |> should.equal([None, None, None])
 }
 
@@ -97,7 +97,7 @@ pub fn deleted_note_ids_are_skipped_and_raw_indexes_keep_their_gaps_test() -> Ni
       ],
     )
   board.went_well
-  |> list.map(fn(card) { #(card.id, card.seq_index) })
+  |> list.map(fn(card) { #(card.id, card.sequence_index) })
   |> should.equal([#("n1", Some(0)), #("n2", Some(2))])
   board.total_occurrences(board, "gone") |> should.equal(0)
 }
@@ -110,7 +110,7 @@ pub fn duplicate_id_in_one_sequence_renders_once_at_its_first_index_test() -> Ni
       #(column.ActionItems, []),
     ])
   board.went_well
-  |> list.map(fn(card) { #(card.id, card.seq_index) })
+  |> list.map(fn(card) { #(card.id, card.sequence_index) })
   |> should.equal([#("n1", Some(0))])
 }
 

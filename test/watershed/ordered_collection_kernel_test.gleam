@@ -33,7 +33,7 @@ pub fn new_state_is_empty_test() -> Nil {
   ordered_collection_kernel.summary_jobs(state) |> expect.to_equal([])
 }
 
-pub fn detached_add_then_acquire_returns_value_at_seq_zero_test() -> Nil {
+pub fn detached_add_then_acquire_returns_value_at_sequence_number_zero_test() -> Nil {
   let #(state, add_events) =
     ordered_collection_kernel.add_detached(
       ordered_collection_kernel.new(),

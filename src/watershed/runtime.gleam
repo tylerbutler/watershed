@@ -1906,8 +1906,8 @@ fn diagnostics_from_core(
   Diagnostics(
     phase: phase,
     client_id: Some(core.client_id),
-    last_seen_sequence_number: Some(core.last_seen_sn),
-    next_client_sequence_number: Some(core.next_csn),
+    last_seen_sequence_number: Some(core.last_seen_sequence_number),
+    next_client_sequence_number: Some(core.next_client_sequence_number),
     in_flight_count: list.length(core.in_flight),
     buffered_out_of_order_count: list.length(core.out_of_order),
     resubmit_checkpoint: checkpoint,
@@ -1960,9 +1960,9 @@ pub fn operations_since_summary(runtime: Runtime) -> Int {
 /// The delay keeps the cost of a room low. Every client crosses the threshold
 /// on the same operation. Each client then waits for a different interval,
 /// which comes from its id. The first summary that sequences advances
-/// `last_summary_sn` on every client, and the rest of the room checks again on
-/// its wake-up and stops. A lost race costs one unnecessary upload, and nothing
-/// more.
+/// `last_summary_sequence_number` on every client, and the rest of the room
+/// checks again on its wake-up and stops. A lost race costs one unnecessary
+/// upload, and nothing more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
   case state.auto_summary, state.summary_armed {
@@ -2041,7 +2041,7 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
                 base_url: state.http_base_url,
                 tenant: state.connect_message.tenant_id,
                 token: token,
-                sequence_number: core.last_seen_sn,
+                sequence_number: core.last_seen_sequence_number,
                 members: runtime_core.summary_members(core),
                 channels: runtime_core.summary_channels(core),
               )
@@ -2165,12 +2165,20 @@ fn on_join(cell: Cell(State)) -> Nil {
       case state.phase {
         Connecting -> push_connect(channel, state.connect_message, None)
         Reconnecting(core) ->
-          push_connect(channel, state.connect_message, Some(core.last_seen_sn))
+          push_connect(
+            channel,
+            state.connect_message,
+            Some(core.last_seen_sequence_number),
+          )
         Ready(core, _) -> {
           // Rejoin without an intervening close event; treat as reconnect.
           cell_set(cell, State(..state, phase: Reconnecting(core)))
           notify_session_lost(cell, state.phase)
-          push_connect(channel, state.connect_message, Some(core.last_seen_sn))
+          push_connect(
+            channel,
+            state.connect_message,
+            Some(core.last_seen_sequence_number),
+          )
         }
         Failed(_) -> Nil
       }
@@ -2237,7 +2245,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           let checkpoint =
             option.unwrap(
               connected.checkpoint_sequence_number,
-              core.last_seen_sn,
+              core.last_seen_sequence_number,
             )
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in `on_operation` needs an operation
@@ -2472,7 +2480,7 @@ fn settle_reconnect(
   checkpoint: Int,
 ) -> Nil {
   let state = cell_get(cell)
-  case core.last_seen_sn >= checkpoint {
+  case core.last_seen_sequence_number >= checkpoint {
     True -> {
       let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
       send_outbound(state.channel, core.client_id, outbound)

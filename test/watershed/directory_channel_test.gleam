@@ -268,7 +268,8 @@ pub fn directory_snapshot_round_trips_test() -> Nil {
 }
 
 /// Ack a directory operation locally, sequencing it at the next SN (test-only:
-/// seq numbers here are nominal, the round-trip only reads sequenced storage).
+/// sequence_number numbers here are nominal, the round-trip only reads
+/// sequenced storage).
 fn ack(
   state: directory_kernel.DirectoryState,
   operation: directory_kernel.DirectoryOperation,

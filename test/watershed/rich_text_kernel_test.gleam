@@ -137,7 +137,8 @@ pub fn remote_event_is_delta_against_optimistic_view_test() -> Nil {
 /// adapter arguments/priority can otherwise pass ordinary non-tied TP1 cases.
 ///
 /// The side comes from the sequence order, so the three inserts land in that
-/// order: A at seq 1, C at seq 2, and B at seq 3.
+/// order: A at sequence_number 1, C at sequence_number 2, and B at
+/// sequence_number 3.
 pub fn same_position_inserts_land_in_sequence_order_test() -> Nil {
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"insert\":\"B\"}]")

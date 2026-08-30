@@ -12,47 +12,50 @@ import watershed/ot_client.{Idle, InFlight, InFlightAndBuffered, LogEntry}
 // Concurrency-window transform (to_head_context)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A toy "op" is just the trace of entry seqs it was folded against, so the
-/// order `to_head_context` visits entries is directly observable.
-fn record_seq(
+/// A toy "op" is just the trace of entry sequence_numbers it was folded
+/// against, so the order `to_head_context` visits entries is directly
+/// observable.
+fn record_sequence_number(
   current: List(Int),
   entry: ot_client.LogEntry(List(Int)),
 ) -> Result(List(Int), Nil) {
-  Ok([entry.seq, ..current])
+  Ok([entry.sequence_number, ..current])
 }
 
-pub fn to_head_context_folds_window_in_seq_order_test() -> Nil {
-  // Log entries deliberately out of order; the window (ref_seq=1, seq=5)
-  // should only include seq 2, 3, 4, folded oldest-first.
+pub fn to_head_context_folds_window_in_sequence_number_order_test() -> Nil {
+  // Log entries deliberately out of order; the window
+  // (reference_sequence_number=1, sequence_number=5) should only include
+  // sequence_number 2, 3, 4, folded oldest-first.
   let log = [
-    LogEntry(seq: 3, operation: []),
-    LogEntry(seq: 1, operation: []),
-    LogEntry(seq: 4, operation: []),
-    LogEntry(seq: 2, operation: []),
-    LogEntry(seq: 5, operation: []),
+    LogEntry(sequence_number: 3, operation: []),
+    LogEntry(sequence_number: 1, operation: []),
+    LogEntry(sequence_number: 4, operation: []),
+    LogEntry(sequence_number: 2, operation: []),
+    LogEntry(sequence_number: 5, operation: []),
   ]
-  ot_client.to_head_context(log, 1, 5, [], record_seq)
+  ot_client.to_head_context(log, 1, 5, [], record_sequence_number)
   |> expect.to_equal(Ok([4, 3, 2]))
 }
 
 pub fn to_head_context_excludes_boundary_entries_test() -> Nil {
-  // Entries at exactly ref_seq or seq are excluded (strict window).
+  // Entries at exactly reference_sequence_number or sequence_number are
+  // excluded (strict window).
   let log = [
-    LogEntry(seq: 1, operation: []),
-    LogEntry(seq: 2, operation: []),
-    LogEntry(seq: 3, operation: []),
+    LogEntry(sequence_number: 1, operation: []),
+    LogEntry(sequence_number: 2, operation: []),
+    LogEntry(sequence_number: 3, operation: []),
   ]
-  ot_client.to_head_context(log, 1, 3, [], record_seq)
+  ot_client.to_head_context(log, 1, 3, [], record_sequence_number)
   |> expect.to_equal(Ok([2]))
 }
 
 pub fn to_head_context_empty_window_returns_operation_unchanged_test() -> Nil {
-  ot_client.to_head_context([], 0, 1, [42], record_seq)
+  ot_client.to_head_context([], 0, 1, [42], record_sequence_number)
   |> expect.to_equal(Ok([42]))
 }
 
 pub fn to_head_context_propagates_transform_error_test() -> Nil {
-  let log = [LogEntry(seq: 2, operation: [])]
+  let log = [LogEntry(sequence_number: 2, operation: [])]
   let fail = fn(_current: List(Int), _entry: ot_client.LogEntry(List(Int))) {
     Error(Nil)
   }
@@ -143,18 +146,18 @@ pub fn pending_reads_report_each_layer_test() -> Nil {
 // Concurrency-log GC (gc_log)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn gc_log_retains_only_entries_above_msn_test() -> Nil {
+pub fn gc_log_retains_only_entries_above_minimum_sequence_number_test() -> Nil {
   let log = [
-    LogEntry(seq: 1, operation: Nil),
-    LogEntry(seq: 2, operation: Nil),
-    LogEntry(seq: 3, operation: Nil),
+    LogEntry(sequence_number: 1, operation: Nil),
+    LogEntry(sequence_number: 2, operation: Nil),
+    LogEntry(sequence_number: 3, operation: Nil),
   ]
   ot_client.gc_log(log, 2)
-  |> expect.to_equal([LogEntry(seq: 3, operation: Nil)])
+  |> expect.to_equal([LogEntry(sequence_number: 3, operation: Nil)])
 }
 
-pub fn gc_log_keeps_everything_when_msn_is_zero_test() -> Nil {
-  let log = [LogEntry(seq: 1, operation: Nil)]
+pub fn gc_log_keeps_everything_when_minimum_sequence_number_is_zero_test() -> Nil {
+  let log = [LogEntry(sequence_number: 1, operation: Nil)]
   ot_client.gc_log(log, 0) |> expect.to_equal(log)
 }
 
@@ -163,10 +166,10 @@ pub fn gc_log_keeps_everything_when_msn_is_zero_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Wire {
-  Wire(ref_seq: Int, operation: String)
+  Wire(reference_sequence_number: Int, operation: String)
 }
 
-pub fn promote_buffer_stamps_ref_seq_to_ack_seq_test() -> Nil {
+pub fn promote_buffer_stamps_reference_sequence_number_to_ack_sequence_number_test() -> Nil {
   ot_client.promote_buffer(
     InFlightAndBuffered("acked", "buffered-op"),
     42,

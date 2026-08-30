@@ -465,8 +465,8 @@ pub fn bootstrap_empty_document_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   core.client_id |> expect.to_equal(our_client_id)
-  core.last_seen_sn |> expect.to_equal(1)
-  core.next_csn |> expect.to_equal(1)
+  core.last_seen_sequence_number |> expect.to_equal(1)
+  core.next_client_sequence_number |> expect.to_equal(1)
   root_entries(core) |> expect.to_equal([])
 }
 
@@ -496,7 +496,7 @@ pub fn bootstrap_replays_initial_messages_test() -> Nil {
 
   root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
   root_has(core, "count") |> expect.to_be_false()
-  core.last_seen_sn |> expect.to_equal(5)
+  core.last_seen_sequence_number |> expect.to_equal(5)
 }
 
 pub fn bootstrap_truncated_history_requests_prefix_test() -> Nil {
@@ -527,7 +527,7 @@ pub fn bootstrap_truncated_history_requests_prefix_test() -> Nil {
       from |> expect.to_equal(0)
       to |> expect.to_equal(2)
       checkpoint |> expect.to_equal(5)
-      core.last_seen_sn |> expect.to_equal(0)
+      core.last_seen_sequence_number |> expect.to_equal(0)
       #(core, checkpoint)
     }
     Ok(runtime_core.Complete(_)) | Error(_) ->
@@ -549,7 +549,7 @@ pub fn bootstrap_truncated_history_requests_prefix_test() -> Nil {
     runtime_core.resume_bootstrap(core, checkpoint: checkpoint, deltas: prefix)
   {
     Ok(runtime_core.Complete(core)) -> {
-      core.last_seen_sn |> expect.to_equal(5)
+      core.last_seen_sequence_number |> expect.to_equal(5)
       root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
       root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
     }
@@ -631,7 +631,7 @@ pub fn resume_bootstrap_pages_large_gaps_test() -> Nil {
     )
   {
     Ok(runtime_core.Complete(core)) -> {
-      core.last_seen_sn |> expect.to_equal(7)
+      core.last_seen_sequence_number |> expect.to_equal(7)
       root_get(core, "last") |> expect.to_equal(Ok(json.int(6)))
       root_get(core, "k4") |> expect.to_equal(Ok(json.int(4)))
       root_size(core) |> expect.to_equal(6)
@@ -721,10 +721,10 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() -> Nil {
 pub fn bootstrap_from_summary_replays_the_upload_window_test() -> Nil {
   // The hazard this pins: a summary blob captured at SN 5 whose pointer the
   // server recorded at SN 8, because peers kept writing while the blob
-  // uploaded. Seeding from the pointer would set `last_seen_sn` to 8 with the
-  // served history starting at 9 — contiguous, no gap detected, and operations
-  // 6-8 silently lost. Seeding from the blob's own SN makes the same window a
-  // visible prefix that the catch-up path fills.
+  // uploaded. Seeding from the pointer would set `last_seen_sequence_number` to
+  // 8 with the served history starting at 9 — contiguous, no gap detected, and
+  // operations 6-8 silently lost. Seeding from the blob's own SN makes the same
+  // window a visible prefix that the catch-up path fills.
   let summary = root_summary(5, [#("die", json.int(4))])
   let tail = [
     map_operation_message(
@@ -785,7 +785,7 @@ pub fn bootstrap_from_summary_replays_the_upload_window_test() -> Nil {
   root_get(core, "also") |> expect.to_equal(Ok(json.int(2)))
   // The tail buffered during the gap drains once the prefix lands.
   root_get(core, "tail") |> expect.to_equal(Ok(json.int(1)))
-  core.last_seen_sn |> expect.to_equal(9)
+  core.last_seen_sequence_number |> expect.to_equal(9)
 }
 
 pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() -> Nil {
@@ -818,7 +818,7 @@ pub fn bootstrap_from_summary_seeds_and_applies_deltas_test() -> Nil {
   // Seeded from the summary, then the deltas applied: die deleted, count added.
   root_has(core, "die") |> expect.to_be_false()
   root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
-  core.last_seen_sn |> expect.to_equal(8)
+  core.last_seen_sequence_number |> expect.to_equal(8)
 }
 
 pub fn bootstrap_from_summary_no_deltas_test() -> Nil {
@@ -839,7 +839,7 @@ pub fn bootstrap_from_summary_no_deltas_test() -> Nil {
 
   root_entries(core)
   |> expect.to_equal([#("a", json.int(1)), #("b", json.int(2))])
-  core.last_seen_sn |> expect.to_equal(5)
+  core.last_seen_sequence_number |> expect.to_equal(5)
   // The confirmed entries a fresh summarize would capture round-trip exactly.
   runtime_core.summary_channels(core)
   |> expect.to_equal([
@@ -856,7 +856,7 @@ pub fn bootstrap_dedupes_own_join_push_test() -> Nil {
   let #(core, events) =
     apply(core, join_message(sequence_number: 3, joining: our_client_id))
   events |> expect.to_equal([])
-  core.last_seen_sn |> expect.to_equal(3)
+  core.last_seen_sequence_number |> expect.to_equal(3)
 
   // The stream continues seamlessly after the deduped push.
   let #(core, _) =
@@ -923,7 +923,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
   events |> expect.to_equal([])
   request_operations_from |> expect.to_equal(Some(1))
   root_has(core, "die") |> expect.to_be_false()
-  core.last_seen_sn |> expect.to_equal(1)
+  core.last_seen_sequence_number |> expect.to_equal(1)
 
   // A further out-of-order operation extends the buffer without re-requesting.
   let #(core, _, request_operations_from) =
@@ -937,7 +937,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
       ),
     )
   request_operations_from |> expect.to_equal(None)
-  core.last_seen_sn |> expect.to_equal(1)
+  core.last_seen_sequence_number |> expect.to_equal(1)
 
   // The missing operations (SN 2, 3) arrive; the buffer drains contiguously and
   // the catch-up completes with events for every applied operation.
@@ -952,7 +952,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
       ),
     )
   request_operations_from |> expect.to_equal(None)
-  core.last_seen_sn |> expect.to_equal(2)
+  core.last_seen_sequence_number |> expect.to_equal(2)
 
   let #(core, _, request_operations_from) =
     ingest(
@@ -965,7 +965,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
       ),
     )
   // SN 3 applies, then buffered SN 4 and SN 5 drain in one go.
-  core.last_seen_sn |> expect.to_equal(5)
+  core.last_seen_sequence_number |> expect.to_equal(5)
   request_operations_from |> expect.to_equal(None)
   root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
   root_get(core, "count") |> expect.to_equal(Ok(json.int(9)))
@@ -973,7 +973,7 @@ pub fn sequence_gap_buffers_and_requests_catch_up_test() -> Nil {
   root_get(core, "b") |> expect.to_equal(Ok(json.int(2)))
 }
 
-pub fn system_messages_only_advance_sn_test() -> Nil {
+pub fn system_messages_only_advance_sequence_number_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   // join contents ({clientId: ...}) would fail the map envelope decoder,
@@ -981,7 +981,7 @@ pub fn system_messages_only_advance_sn_test() -> Nil {
   let #(core, events) =
     apply(core, join_message(sequence_number: 2, joining: "someone"))
   events |> expect.to_equal([])
-  core.last_seen_sn |> expect.to_equal(2)
+  core.last_seen_sequence_number |> expect.to_equal(2)
 }
 
 pub fn unknown_address_operations_are_fatal_test() -> Nil {
@@ -1026,7 +1026,7 @@ pub fn undecodable_operation_contents_are_fatal_test() -> Nil {
 // Outbound stamping + ack round-trip
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn local_operations_stamp_csn_and_rsn_test() -> Nil {
+pub fn local_operations_stamp_client_sequence_number_and_reference_sequence_number_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 7)
 
   let #(core, events, first) = root_set(core, "die", json.int(4))
@@ -1044,7 +1044,7 @@ pub fn local_operations_stamp_csn_and_rsn_test() -> Nil {
   first.client_sequence_number |> expect.to_equal(1)
   first.reference_sequence_number |> expect.to_equal(7)
   second.client_sequence_number |> expect.to_equal(2)
-  core.next_csn |> expect.to_equal(3)
+  core.next_client_sequence_number |> expect.to_equal(3)
   root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
 }
 
@@ -1090,7 +1090,7 @@ pub fn acks_match_fifo_across_multiple_operations_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 2,
+      client_sequence_number: 2,
       address: "root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
@@ -1110,7 +1110,7 @@ pub fn acks_match_fifo_across_multiple_operations_test() -> Nil {
   core.in_flight |> expect.to_equal([])
 }
 
-pub fn ack_with_wrong_csn_is_fatal_test() -> Nil {
+pub fn ack_with_wrong_client_sequence_number_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(4))
 
@@ -1213,7 +1213,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
     )
   core.client_id |> expect.to_equal(reconnect_client_id)
   // Kernel + in-flight survive the reconnect; only the id changed.
-  core.last_seen_sn |> expect.to_equal(1)
+  core.last_seen_sequence_number |> expect.to_equal(1)
 
   // Catch-up replays operation "a" under the OLD client id: it reconciles (acks
   // the head) rather than double-applying, and emits no events.
@@ -1233,7 +1233,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 2,
+      client_sequence_number: 2,
       address: "root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
@@ -1243,7 +1243,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   // Our own new join advances last_seen to the checkpoint.
   let #(core, _) =
     apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
-  core.last_seen_sn |> expect.to_equal(3)
+  core.last_seen_sequence_number |> expect.to_equal(3)
 
   // Resubmit the survivor with a fresh CSN under the new client id.
   let #(core, outbound) = runtime_core.resubmit(core)
@@ -1251,13 +1251,13 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 3,
+      client_sequence_number: 3,
       address: "root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
   ])
-  core.next_csn |> expect.to_equal(4)
+  core.next_client_sequence_number |> expect.to_equal(4)
   case outbound {
     [operation] -> {
       operation.client_sequence_number |> expect.to_equal(3)
@@ -1377,26 +1377,26 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
   let #(core, outbound) = runtime_core.resubmit(core)
 
   // Fresh sequential CSNs, new client id, order preserved, RSN = last_seen.
-  core.next_csn |> expect.to_equal(7)
+  core.next_client_sequence_number |> expect.to_equal(7)
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 4,
+      client_sequence_number: 4,
       address: "root",
       operation: channel.MapOperation(Set("a", json.int(1))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 5,
+      client_sequence_number: 5,
       address: "root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 6,
+      client_sequence_number: 6,
       address: "root",
       operation: channel.MapOperation(Delete("a")),
       meta: channel.NoMeta,
@@ -1580,7 +1580,7 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 2,
+      client_sequence_number: 2,
       address: "rich",
       operation: channel.RichTextOperation(
         rich_text_kernel.RichTextWireOperation(2, second),
@@ -1751,20 +1751,20 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: our_client_id,
-      csn: 1,
+      client_sequence_number: 1,
       address: "child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 2,
+      client_sequence_number: 2,
       address: "root",
       operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 3,
+      client_sequence_number: 3,
       address: "child",
       operation: channel.MapOperation(Set("a", json.int(2))),
       meta: channel.NoMeta,
@@ -1852,7 +1852,7 @@ pub fn attach_ack_pops_with_no_events_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 2,
+      client_sequence_number: 2,
       address: "root",
       operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
       meta: channel.NoMeta,
@@ -1923,20 +1923,20 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: reconnect_client_id,
-      csn: 4,
+      client_sequence_number: 4,
       address: "child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 5,
+      client_sequence_number: 5,
       address: "root",
       operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
-      csn: 6,
+      client_sequence_number: 6,
       address: "child",
       operation: channel.MapOperation(Set("a", json.int(2))),
       meta: channel.NoMeta,
@@ -2368,7 +2368,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     operation: channel.ClaimsOperation(claims_kernel.Claim(
       key: "owner",
       value: json.string("alice"),
-      ref_seq: 2,
+      reference_sequence_number: 2,
     )),
   ))
 
@@ -2389,7 +2389,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     operation: channel.ClaimsOperation(claims_kernel.Claim(
       key: "owner",
       value: json.string("alice"),
-      ref_seq: 2,
+      reference_sequence_number: 2,
     )),
   ))
 
@@ -2962,9 +2962,9 @@ fn register_attach_message(
 
 fn register_version(
   value: Json,
-  seq: Int,
+  sequence_number: Int,
 ) -> register_collection_kernel.VersionedValue {
-  register_collection_kernel.VersionedValue(value, seq)
+  register_collection_kernel.VersionedValue(value, sequence_number)
 }
 
 pub fn detached_register_write_produces_no_outbound_test() -> Nil {
@@ -3028,7 +3028,11 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
   |> expect.to_equal(DecodedChannelOperation(
     address: "registers",
     operation: channel.RegisterCollectionOperation(
-      register_collection_kernel.Write("station", json.string("A"), ref_seq: 2),
+      register_collection_kernel.Write(
+        "station",
+        json.string("A"),
+        reference_sequence_number: 2,
+      ),
     ),
   ))
   runtime_core.register_read(
@@ -3050,7 +3054,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
         operation: register_collection_kernel.Write(
           "station",
           json.string("A"),
-          ref_seq: 2,
+          reference_sequence_number: 2,
         ),
       ),
     )
@@ -3109,7 +3113,7 @@ pub fn register_collection_ack_with_wrong_shape_is_fatal_test() -> Nil {
       operation: register_collection_kernel.Write(
         "station",
         json.string("B"),
-        ref_seq: 2,
+        reference_sequence_number: 2,
       ),
     ),
   )
@@ -3161,7 +3165,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
         operation: register_collection_kernel.Write(
           "station",
           json.string("Remote"),
-          ref_seq: 5,
+          reference_sequence_number: 5,
         ),
       ),
     )
@@ -3228,20 +3232,20 @@ pub fn owed_operation_is_auto_submitted_after_sequenced_batch_test() -> Nil {
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
-      csn: 1,
+      client_sequence_number: 1,
       address: "root",
       operation: owed,
       meta: channel.NoMeta,
     ),
   ])
-  core.next_csn |> expect.to_equal(2)
+  core.next_client_sequence_number |> expect.to_equal(2)
 
   // ... and it is auto-submit only — not applied locally (it applies when it
   // comes back sequenced).
   root_has(core, "owed") |> expect.to_equal(False)
 }
 
-pub fn multiple_owed_operations_drain_in_order_with_sequential_csns_test() -> Nil {
+pub fn multiple_owed_operations_drain_in_order_with_sequential_client_sequence_numbers_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
   let first = channel.MapOperation(Set("first", json.int(1)))
@@ -3268,7 +3272,7 @@ pub fn multiple_owed_operations_drain_in_order_with_sequential_csns_test() -> Ni
     #(1, DecodedChannelOperation(address: "root", operation: first)),
     #(2, DecodedChannelOperation(address: "root", operation: second)),
   ])
-  core.next_csn |> expect.to_equal(3)
+  core.next_client_sequence_number |> expect.to_equal(3)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3679,14 +3683,15 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil 
       ),
     )
 
-  let before_csn = core.next_csn
+  let before_client_sequence_number = core.next_client_sequence_number
   let before_in_flight = core.in_flight
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.text_insert(core, "doc", 2, "")
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
-  core.next_csn |> expect.to_equal(before_csn)
+  core.next_client_sequence_number
+  |> expect.to_equal(before_client_sequence_number)
   core.in_flight |> expect.to_equal(before_in_flight)
   runtime_core.text_value(core, "doc") |> expect.to_equal("seed")
 }

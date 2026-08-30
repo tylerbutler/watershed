@@ -337,10 +337,10 @@ function describeOp(ddsId, op) {
   if (ddsId === "claims") {
     // The op carries the ref SN it was filed against — printing it shows
     // why the sequencer accepts or rejects the claim.
-    return `claim ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
+    return `claim ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.reference_sequence_number})`;
   }
   if (ddsId === "registers") {
-    return `revise ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.ref_seq})`;
+    return `revise ${op.key} → ${JSON.parse(json.to_string(op.value))} (ref ${op.reference_sequence_number})`;
   }
   if (ddsId === "ordered") {
     if (op instanceof orderedKernel.Add) {
@@ -359,7 +359,7 @@ function describeOp(ddsId, op) {
   if (ddsId === "pact") {
     if (op instanceof pactKernel.Set) {
       const value = readOptionalJsonString(op.value) ?? "deleted";
-      return `propose ${op.key} → ${value} (ref ${op.ref_seq})`;
+      return `propose ${op.key} → ${value} (ref ${op.reference_sequence_number})`;
     }
     return `accept ${op.key}`;
   }
@@ -1222,7 +1222,7 @@ export function initDemo() {
 
   function deliver(target, originId, ddsId, op, seq, counterSeq = seq) {
     // Every op advances the container SN on every replica — all structures
-    // ride the one stream. Claims file their `ref_seq` against this.
+    // ride the one stream. Claims file their `reference_sequence_number` against this.
     target.lastSeq = seq;
     if (ddsId === "map") {
       if (target.id === originId) {

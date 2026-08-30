@@ -39,12 +39,13 @@ watershed state: the document only ever needs to carry *who won each match*.
 ## Reads use `Atomic`, not `Lww`
 
 `register_get`/`register_read(..., Atomic)` returns the linearizable CAS
-winner — the write whose `ref_seq` matched the register's current atomic
-version when it sequenced. `Lww` (last write by sequence order) would make
-this indistinguishable from an `OrMap` register in `RegisterMode`, which is
-exactly what this demo exists to *not* be. `register_versions` retrieves
-every sequenced write, oldest first, including CAS losers — the "N other
-report(s) received" detail on a reported match card.
+winner — the write whose `reference_sequence_number` matched the register's
+current atomic version when it sequenced. `Lww` (last write by sequence
+order) would make this indistinguishable from an `OrMap` register in
+`RegisterMode`, which is exactly what this demo exists to *not* be.
+`register_versions` retrieves every sequenced write, oldest first, including
+CAS losers — the "N other report(s) received" detail on a reported match
+card.
 
 ## Writes are non-optimistic
 

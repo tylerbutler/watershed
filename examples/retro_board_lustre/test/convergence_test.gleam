@@ -341,7 +341,7 @@ pub fn edit_vs_delete_converges_test() -> Nil {
   let rendered = board_of(a)
   board.total_occurrences(rendered, "note-1") |> should.equal(1)
   rendered.went_well
-  |> list.map(fn(card) { card.seq_index })
+  |> list.map(fn(card) { card.sequence_index })
   |> should.equal([option.None])
 }
 

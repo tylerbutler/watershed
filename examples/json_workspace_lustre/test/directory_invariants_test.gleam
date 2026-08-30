@@ -17,12 +17,17 @@ import watershed/directory_kernel.{
   CreateSubDirectory, DeleteSubDirectory, SequencedMeta, Set,
 }
 
-fn meta(author: Int, seq: Int, ref_seq: Int, cseq: Int) -> SequencedMeta {
+fn meta(
+  author: Int,
+  sequence_number: Int,
+  reference_sequence_number: Int,
+  client_sequence_number: Int,
+) -> SequencedMeta {
   SequencedMeta(
     author: author,
-    sequence_number: seq,
-    reference_sequence_number: ref_seq,
-    client_sequence_number: cseq,
+    sequence_number: sequence_number,
+    reference_sequence_number: reference_sequence_number,
+    client_sequence_number: client_sequence_number,
   )
 }
 
@@ -39,8 +44,9 @@ fn remote(
 
 pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() -> Nil {
   // The room's server log, as every client eventually sees it: client 1
-  // creates "/specs" (seq 1), deletes it (seq 2), and client 2 recreates it
-  // (seq 3) — all before client 1's queued write is sequenced.
+  // creates "/specs" (sequence_number 1), deletes it (sequence_number 2), and
+  // client 2 recreates it (sequence_number 3) — all before client 1's queued
+  // write is sequenced.
   let state =
     directory_kernel.new()
     |> remote(CreateSubDirectory("/", "specs"), meta(1, 1, 0, 0))
@@ -48,9 +54,9 @@ pub fn a_stale_write_queued_before_a_delete_and_recreate_is_dropped_test() -> Ni
     |> remote(CreateSubDirectory("/", "specs"), meta(2, 3, 0, 0))
 
   // Client 1 queued this write against the instance it last saw live — the
-  // one that died at seq 2 — while it was offline. Its reference sequence
-  // number (1) predates the recreate (seq 3), so the write targets a dead
-  // instance and must not land on the live one.
+  // one that died at sequence_number 2 — while it was offline. Its reference
+  // sequence number (1) predates the recreate (sequence_number 3), so the write
+  // targets a dead instance and must not land on the live one.
   let state =
     remote(
       state,

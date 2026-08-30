@@ -74,8 +74,8 @@ pub type Core {
     channels: Dict(String, ChannelState),
     channel_order: List(String),
     detached: Dict(String, ChannelState),
-    next_csn: Int,
-    last_seen_sn: Int,
+    next_client_sequence_number: Int,
+    last_seen_sequence_number: Int,
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
     /// The connected roster, as the integer ids that the kernels use to
@@ -128,7 +128,7 @@ pub type Core {
     /// The correctness of the document does not depend on this value. It exists
     /// so that `wants_summary` can measure the drift after the last checkpoint
     /// without a request to the server.
-    last_summary_sn: Int,
+    last_summary_sequence_number: Int,
     /// A buffer for each channel, which holds the *owed* follow-up operations
     /// that a kernel released while it applied a sequenced operation. One
     /// example is a consensus `Accept` operation in reaction to a `Set`
@@ -144,14 +144,14 @@ pub type Core {
 pub type InFlight {
   InFlightOperation(
     client_id: String,
-    csn: Int,
+    client_sequence_number: Int,
     address: String,
     operation: channel.ChannelOperation,
     meta: channel.LocalOperationMeta,
   )
   InFlightAttach(
     client_id: String,
-    csn: Int,
+    client_sequence_number: Int,
     address: String,
     snapshot: Snapshot,
   )
@@ -281,12 +281,12 @@ pub fn bootstrap(
       channels: channels,
       channel_order: channel_order,
       detached: dict.new(),
-      next_csn: 1,
-      last_seen_sn: last_seen,
+      next_client_sequence_number: 1,
+      last_seen_sequence_number: last_seen,
       // The blob we loaded *is* the newest checkpoint we know of; a document
       // with no summary has none, and every operation in its log is
       // outstanding.
-      last_summary_sn: last_seen,
+      last_summary_sequence_number: last_seen,
       in_flight: [],
       out_of_order: [],
       // Seeded from the checkpoint, **not** from the handshake's roster, and
@@ -305,7 +305,10 @@ pub fn bootstrap(
 
   use core <- result.try(replay(core, connected.initial_messages))
   let checkpoint =
-    option.unwrap(connected.checkpoint_sequence_number, core.last_seen_sn)
+    option.unwrap(
+      connected.checkpoint_sequence_number,
+      core.last_seen_sequence_number,
+    )
   Ok(settle_bootstrap(core, checkpoint))
 }
 
@@ -314,9 +317,9 @@ pub fn resume_bootstrap(
   checkpoint checkpoint: Int,
   deltas deltas: List(SequencedDocumentMessage),
 ) -> Result(Bootstrapped, CoreError) {
-  let before = core.last_seen_sn
+  let before = core.last_seen_sequence_number
   use core <- result.try(replay(core, deltas))
-  case core.out_of_order != [] && core.last_seen_sn == before {
+  case core.out_of_order != [] && core.last_seen_sequence_number == before {
     True ->
       Error(HistoryGap(
         "history catch-up made no progress past sequence number "
@@ -369,7 +372,10 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
       Complete(
         Core(
           ..core,
-          last_seen_sn: int.max(core.last_seen_sn, checkpoint),
+          last_seen_sequence_number: int.max(
+            core.last_seen_sequence_number,
+            checkpoint,
+          ),
           members: core.live_members,
         ),
       )
@@ -377,7 +383,7 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
       MissingPrefix(
         core: core,
         checkpoint: checkpoint,
-        from: core.last_seen_sn,
+        from: core.last_seen_sequence_number,
         to: head.sequence_number - 1,
       )
   }
@@ -386,10 +392,10 @@ fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
 /// The roster to record in a summary, as kernel-side integer ids.
 ///
 /// `summarize` runs on a synchronized client only. At that moment
-/// `core.members` *is* the roster at `core.last_seen_sn`, which is the sequence
-/// number that the blob records. That pair makes the checkpoint roster
-/// meaningful, and it is the reason that the client captures the two values
-/// together.
+/// `core.members` *is* the roster at `core.last_seen_sequence_number`, which is
+/// the sequence number that the blob records. That pair makes the checkpoint
+/// roster meaningful, and it is the reason that the client captures the two
+/// values together.
 pub fn summary_members(core: Core) -> List(Int) {
   core.members |> set.to_list |> list.sort(by: int.compare)
 }
@@ -418,7 +424,7 @@ pub fn is_synced(core: Core) -> Bool {
 /// this number much less than the number of writes. Messages are the correct
 /// unit, because a client that joins replays messages.
 pub fn operations_since_summary(core: Core) -> Int {
-  int.max(0, core.last_seen_sn - core.last_summary_sn)
+  int.max(0, core.last_seen_sequence_number - core.last_summary_sequence_number)
 }
 
 /// Whether this client must summarize now, under `policy`.
@@ -448,8 +454,8 @@ pub fn wants_summary(core: Core, policy: Policy) -> Bool {
 /// client in the room crosses the threshold on the same operation. A derived
 /// delay thus spreads the clients deterministically. A test can reproduce it,
 /// and neither target needs a random number generator. The first summary that
-/// sequences advances the `last_summary_sn` value of every other client, so the
-/// rest of the room checks again and stops.
+/// sequences advances the `last_summary_sequence_number` value of every other
+/// client, so the rest of the room checks again and stops.
 ///
 /// The multiplication does necessary work. A server gives out the client ids in
 /// sequence, so `id % window` puts a whole room within a few milliseconds of
@@ -473,11 +479,11 @@ pub fn build_summarize(
   message message: String,
   head head: String,
 ) -> #(Core, wire.OutboundOperation) {
-  let csn = core.next_csn
+  let client_sequence_number = core.next_client_sequence_number
   let outbound =
     wire_op.outbound_summarize_operation(
-      client_sequence_number: csn,
-      reference_sequence_number: core.last_seen_sn,
+      client_sequence_number: client_sequence_number,
+      reference_sequence_number: core.last_seen_sequence_number,
       handle: handle,
       message: message,
       parents: [],
@@ -488,7 +494,11 @@ pub fn build_summarize(
   // waiting for the echo would leave the policy re-arming on every operation in
   // between.
   #(
-    Core(..core, next_csn: csn + 1, last_summary_sn: core.last_seen_sn),
+    Core(
+      ..core,
+      next_client_sequence_number: client_sequence_number + 1,
+      last_summary_sequence_number: core.last_seen_sequence_number,
+    ),
     outbound,
   )
 }
@@ -548,12 +558,12 @@ fn seed_channels(
 /// shorter interval. `settle_bootstrap` takes the new roster after the gap
 /// closes.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
-  // `members` is left exactly as it was: it is the roster at `last_seen_sn`,
-  // which is precisely where the replay about to happen starts. The gap's own
-  // `join`/`leave` messages then advance it — including the `leave` for the id
-  // we held before dropping and the `join` for the one we were just assigned —
-  // so the roster arrives at the post-reconnect room by walking the log rather
-  // than by being told the answer up front.
+  // `members` is left exactly as it was: it is the roster at
+  // `last_seen_sequence_number`, which is precisely where the replay about to
+  // happen starts. The gap's own `join`/`leave` messages then advance it —
+  // including the `leave` for the id we held before dropping and the `join` for
+  // the one we were just assigned — so the roster arrives at the post-reconnect
+  // room by walking the log rather than by being told the answer up front.
   //
   // The handshake's roster is not discarded, just deferred: `settle_bootstrap`
   // adopts `live_members` when the gap closes. That ordering is what keeps the
@@ -581,25 +591,26 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
 ///
 /// A reconnect must ask for its own gap. `adopt_reconnect` does not replay
 /// `initial_messages`, and that is deliberate. Only an inbound sequenced
-/// operation can thus move `last_seen_sn` up to the checkpoint of the
-/// handshake, and no server sends one without a request. floodgate ignores
+/// operation can thus move `last_seen_sequence_number` up to the checkpoint of
+/// the handshake, and no server sends one without a request. floodgate ignores
 /// `lastSeenSequenceNumber` completely, and it removes the joining client from
 /// the broadcast of the *own* join operation of that client. A client that
 /// rejoins a room where no other client writes thus receives nothing at all. To
 /// wait for the next edit of a peer is not a catch-up plan. It is a chance, and
 /// a quiet room never gives it.
 ///
-/// The result is `last_seen_sn`, and not `last_seen_sn + 1`. `requestOps`
-/// excludes `from` on both servers, and this value agrees with what
-/// `handle_sequenced` already asks for when a live operation shows a gap.
+/// The result is `last_seen_sequence_number`, and not
+/// `last_seen_sequence_number + 1`. `requestOps` excludes `from` on both
+/// servers, and this value agrees with what `handle_sequenced` already asks for
+/// when a live operation shows a gap.
 ///
 /// The checkpoint is almost always ahead on a write reconnect, because floodgate
 /// sequences the `join` operation of the rejoining client and reports *that*
 /// operation as the checkpoint. This function thus returns `Some` also for a
 /// reconnect that missed no application traffic.
 pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
-  case checkpoint > core.last_seen_sn {
-    True -> Some(core.last_seen_sn)
+  case checkpoint > core.last_seen_sequence_number {
+    True -> Some(core.last_seen_sequence_number)
     False -> None
   }
 }
@@ -669,26 +680,37 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
 }
 
 pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOperation)) {
-  let #(core, next_csn, new_in_flight, outbound) =
-    list.fold(core.in_flight, #(core, core.next_csn, [], []), fn(acc, entry) {
-      let #(core, csn, entries, outbounds) = acc
-      let #(core, next_csn, restamped, outbound) =
-        restamp_in_flight(core, entry, csn)
-      #(
-        core,
-        next_csn,
-        list.append(entries, restamped),
-        list.append(outbounds, outbound),
-      )
-    })
+  let #(core, next_client_sequence_number, new_in_flight, outbound) =
+    list.fold(
+      core.in_flight,
+      #(core, core.next_client_sequence_number, [], []),
+      fn(acc, entry) {
+        let #(core, client_sequence_number, entries, outbounds) = acc
+        let #(core, next_client_sequence_number, restamped, outbound) =
+          restamp_in_flight(core, entry, client_sequence_number)
+        #(
+          core,
+          next_client_sequence_number,
+          list.append(entries, restamped),
+          list.append(outbounds, outbound),
+        )
+      },
+    )
 
-  #(Core(..core, next_csn: next_csn, in_flight: new_in_flight), outbound)
+  #(
+    Core(
+      ..core,
+      next_client_sequence_number: next_client_sequence_number,
+      in_flight: new_in_flight,
+    ),
+    outbound,
+  )
 }
 
 fn restamp_in_flight(
   core: Core,
   entry: InFlight,
-  csn: Int,
+  client_sequence_number: Int,
 ) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case entry {
     InFlightOperation(
@@ -696,19 +718,33 @@ fn restamp_in_flight(
       operation: channel.TaskManagerOperation(operation),
       meta: meta,
       ..,
-    ) -> restamp_task_manager(core, address, operation, meta, csn)
+    ) ->
+      restamp_task_manager(
+        core,
+        address,
+        operation,
+        meta,
+        client_sequence_number,
+      )
     InFlightOperation(
       address: address,
       operation: channel.DirectoryOperation(operation, message_id),
       ..,
-    ) -> restamp_directory(core, address, operation, message_id, csn)
+    ) ->
+      restamp_directory(
+        core,
+        address,
+        operation,
+        message_id,
+        client_sequence_number,
+      )
     InFlightOperation(address: address, operation: operation, meta: meta, ..) -> #(
       core,
-      csn + 1,
+      client_sequence_number + 1,
       [
         InFlightOperation(
           client_id: core.client_id,
-          csn: csn,
+          client_sequence_number: client_sequence_number,
           address: address,
           operation: operation,
           meta: meta,
@@ -717,19 +753,19 @@ fn restamp_in_flight(
       [
         wire_op.outbound_channel_operation(
           address: address,
-          client_sequence_number: csn,
-          reference_sequence_number: core.last_seen_sn,
+          client_sequence_number: client_sequence_number,
+          reference_sequence_number: core.last_seen_sequence_number,
           operation: operation,
         ),
       ],
     )
     InFlightAttach(address: address, snapshot: snapshot, ..) -> #(
       core,
-      csn + 1,
+      client_sequence_number + 1,
       [
         InFlightAttach(
           client_id: core.client_id,
-          csn: csn,
+          client_sequence_number: client_sequence_number,
           address: address,
           snapshot: snapshot,
         ),
@@ -737,8 +773,8 @@ fn restamp_in_flight(
       [
         wire_op.outbound_attach_operation(
           address: address,
-          client_sequence_number: csn,
-          reference_sequence_number: core.last_seen_sn,
+          client_sequence_number: client_sequence_number,
+          reference_sequence_number: core.last_seen_sequence_number,
           snapshot: snapshot,
         ),
       ],
@@ -751,11 +787,18 @@ fn restamp_task_manager(
   address: String,
   operation: task_manager_kernel.TaskManagerOperation,
   meta: channel.LocalOperationMeta,
-  csn: Int,
+  client_sequence_number: Int,
 ) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case meta, dict.get(core.channels, address) {
     channel.TaskManagerMeta(message_id), Ok(channel.TaskManagerState(kernel)) -> {
-      case task_manager_kernel.resubmit(kernel, operation, message_id, csn) {
+      case
+        task_manager_kernel.resubmit(
+          kernel,
+          operation,
+          message_id,
+          client_sequence_number,
+        )
+      {
         Ok(#(kernel, Some(next_operation), Some(pending))) -> {
           let next_channel_operation =
             channel.TaskManagerOperation(next_operation)
@@ -768,11 +811,11 @@ fn restamp_task_manager(
             )
           #(
             core,
-            csn + 1,
+            client_sequence_number + 1,
             [
               InFlightOperation(
                 client_id: core.client_id,
-                csn: csn,
+                client_sequence_number: client_sequence_number,
                 address: address,
                 operation: next_channel_operation,
                 meta: next_meta,
@@ -781,8 +824,8 @@ fn restamp_task_manager(
             [
               wire_op.outbound_channel_operation(
                 address: address,
-                client_sequence_number: csn,
-                reference_sequence_number: core.last_seen_sn,
+                client_sequence_number: client_sequence_number,
+                reference_sequence_number: core.last_seen_sequence_number,
                 operation: next_channel_operation,
               ),
             ],
@@ -795,21 +838,21 @@ fn restamp_task_manager(
               address,
               channel.TaskManagerState(kernel),
             )
-          #(core, csn, [], [])
+          #(core, client_sequence_number, [], [])
         }
         // The kernel reports an operation without its pending record, or the
         // reverse. The runtime drops the resubmit, because it cannot stamp an
         // operation that it cannot match to an ack later. The operation was
         // never acked, so no committed data is lost.
-        Ok(#(_, _, _)) -> #(core, csn, [], [])
+        Ok(#(_, _, _)) -> #(core, client_sequence_number, [], [])
         // The kernel refused the resubmit. The runtime drops the operation for
         // the same reason.
-        Error(_) -> #(core, csn, [], [])
+        Error(_) -> #(core, client_sequence_number, [], [])
       }
     }
     // The channel is gone, or the in-flight entry carries metadata of another
     // kernel. There is nothing to stamp again.
-    _, _ -> #(core, csn, [], [])
+    _, _ -> #(core, client_sequence_number, [], [])
   }
 }
 
@@ -825,7 +868,7 @@ fn restamp_directory(
   address: String,
   operation: directory_kernel.DirectoryOperation,
   message_id: Int,
-  csn: Int,
+  client_sequence_number: Int,
 ) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case dict.get(core.channels, address) {
     Ok(channel.DirectoryState(kernel)) -> {
@@ -840,11 +883,11 @@ fn restamp_directory(
             channel.DirectoryOperation(next_operation, message_id)
           #(
             core,
-            csn + 1,
+            client_sequence_number + 1,
             [
               InFlightOperation(
                 client_id: core.client_id,
-                csn: csn,
+                client_sequence_number: client_sequence_number,
                 address: address,
                 operation: next_channel_operation,
                 meta: channel.DirectoryMeta(message_id),
@@ -853,19 +896,19 @@ fn restamp_directory(
             [
               wire_op.outbound_channel_operation(
                 address: address,
-                client_sequence_number: csn,
-                reference_sequence_number: core.last_seen_sn,
+                client_sequence_number: client_sequence_number,
+                reference_sequence_number: core.last_seen_sequence_number,
                 operation: next_channel_operation,
               ),
             ],
           )
         }
-        None -> #(core, csn, [], [])
+        None -> #(core, client_sequence_number, [], [])
       }
     }
     // The channel is gone, or the address now names another kernel. There is
     // nothing to stamp again.
-    _ -> #(core, csn, [], [])
+    _ -> #(core, client_sequence_number, [], [])
   }
 }
 
@@ -877,12 +920,13 @@ pub fn handle_sequenced(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(#(Core, Ingested), CoreError) {
-  let next = core.last_seen_sn + 1
+  let next = core.last_seen_sequence_number + 1
   case msg.sequence_number {
-    sn if sn < next -> Ok(#(core, Ingested([], [], None, [])))
-    sn if sn > next -> {
+    sequence_number if sequence_number < next ->
+      Ok(#(core, Ingested([], [], None, [])))
+    sequence_number if sequence_number > next -> {
       let request = case core.out_of_order {
-        [] -> Some(core.last_seen_sn)
+        [] -> Some(core.last_seen_sequence_number)
         _ -> None
       }
       let core =
@@ -982,22 +1026,22 @@ fn stamp_outbound(
   address: String,
   operation: channel.ChannelOperation,
 ) -> #(Core, wire.OutboundOperation) {
-  let csn = core.next_csn
+  let client_sequence_number = core.next_client_sequence_number
   let outbound =
     wire_op.outbound_channel_operation(
       address: address,
-      client_sequence_number: csn,
-      reference_sequence_number: core.last_seen_sn,
+      client_sequence_number: client_sequence_number,
+      reference_sequence_number: core.last_seen_sequence_number,
       operation: operation,
     )
   let core =
     Core(
       ..core,
-      next_csn: csn + 1,
+      next_client_sequence_number: client_sequence_number + 1,
       in_flight: list.append(core.in_flight, [
         InFlightOperation(
           client_id: core.client_id,
-          csn: csn,
+          client_sequence_number: client_sequence_number,
           address: address,
           operation: operation,
           meta: channel.NoMeta,
@@ -1014,7 +1058,7 @@ fn apply_one(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
-  let core = Core(..core, last_seen_sn: msg.sequence_number)
+  let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
   case msg.message_type {
     "op" -> handle_operation(core, msg)
     "join" -> handle_join(core, msg)
@@ -1030,7 +1074,10 @@ fn apply_one(
         #(
           Core(
             ..core,
-            last_summary_sn: int.max(core.last_summary_sn, msg.sequence_number),
+            last_summary_sequence_number: int.max(
+              core.last_summary_sequence_number,
+              msg.sequence_number,
+            ),
           ),
           [],
           [],
@@ -1079,10 +1126,10 @@ fn handle_join(
 /// sending the client that left to every attached channel. The server gives the
 /// leave a sequence number and carries the id of that client in `data`. Every
 /// replica thus settles the per-client kernel state deterministically at the
-/// same `leave_seq` value. That state is the queue jobs that a kernel releases
-/// again, and the consensus signoffs that it removes. A channel with no
-/// membership behaviour does nothing. The function ignores a malformed payload,
-/// and it does not fail the whole batch.
+/// same `leave_sequence_number` value. That state is the queue jobs that a
+/// kernel releases again, and the consensus signoffs that it removes. A channel
+/// with no membership behaviour does nothing. The function ignores a malformed
+/// payload, and it does not fail the whole batch.
 fn handle_leave(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -1138,9 +1185,11 @@ fn drain_buffer(
   CoreError,
 ) {
   case core.out_of_order {
-    [head, ..rest] if head.sequence_number <= core.last_seen_sn ->
+    [head, ..rest] if head.sequence_number <= core.last_seen_sequence_number ->
       drain_buffer(Core(..core, out_of_order: rest))
-    [head, ..rest] if head.sequence_number == core.last_seen_sn + 1 -> {
+    [head, ..rest]
+      if head.sequence_number == core.last_seen_sequence_number + 1
+    -> {
       use #(core, events, resolutions) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
         head,
@@ -1293,9 +1342,9 @@ fn apply_remote_channel(
 ) {
   let meta =
     SequencedMeta(
-      seq: sequence_number,
-      last_seen_sn: core.last_seen_sn,
-      min_seq: minimum_sequence_number,
+      sequence_number: sequence_number,
+      last_seen_sequence_number: core.last_seen_sequence_number,
+      minimum_sequence_number: minimum_sequence_number,
       author: option.map(message_client_id, client_id_to_int)
         |> option.unwrap(0),
       self: client_id_to_int(core.client_id),
@@ -1348,7 +1397,7 @@ pub fn enqueue_owed(
 fn ack_own_attach(
   core: Core,
   message_client_id: Option(String),
-  csn: Int,
+  client_sequence_number: Int,
   address: String,
   echoed: Snapshot,
 ) -> Result(
@@ -1359,20 +1408,20 @@ fn ack_own_attach(
     [] ->
       Error(AckMismatch(
         "own attach sequenced with csn "
-        <> int.to_string(csn)
+        <> int.to_string(client_sequence_number)
         <> " but in-flight queue is empty",
       ))
     [head, ..rest] ->
       case head {
         InFlightAttach(
           client_id: client_id,
-          csn: head_csn,
+          client_sequence_number: head_client_sequence_number,
           address: head_address,
           snapshot: snapshot,
         ) ->
           case
             Some(client_id) == message_client_id
-            && head_csn == csn
+            && head_client_sequence_number == client_sequence_number
             && head_address == address
             && channel.same_snapshot(snapshot, echoed)
           {
@@ -1380,17 +1429,20 @@ fn ack_own_attach(
             False ->
               Error(AckMismatch(
                 "expected attach ack for csn "
-                <> int.to_string(head_csn)
+                <> int.to_string(head_client_sequence_number)
                 <> ", got csn "
-                <> int.to_string(csn),
+                <> int.to_string(client_sequence_number),
               ))
           }
-        InFlightOperation(csn: head_csn, ..) ->
+        InFlightOperation(
+          client_sequence_number: head_client_sequence_number,
+          ..,
+        ) ->
           Error(AckMismatch(
             "expected channel op ack for csn "
-            <> int.to_string(head_csn)
+            <> int.to_string(head_client_sequence_number)
             <> ", got attach ack for csn "
-            <> int.to_string(csn),
+            <> int.to_string(client_sequence_number),
           ))
       }
   }
@@ -1399,7 +1451,7 @@ fn ack_own_attach(
 fn ack_own_operation(
   core: Core,
   message_client_id: Option(String),
-  csn: Int,
+  client_sequence_number: Int,
   address: String,
   state: ChannelState,
   echoed: channel.ChannelOperation,
@@ -1413,42 +1465,42 @@ fn ack_own_operation(
     [] ->
       Error(AckMismatch(
         "own op sequenced with csn "
-        <> int.to_string(csn)
+        <> int.to_string(client_sequence_number)
         <> " but in-flight queue is empty",
       ))
     [head, ..rest] ->
       case head {
         InFlightOperation(
           client_id: client_id,
-          csn: head_csn,
+          client_sequence_number: head_client_sequence_number,
           address: head_address,
           operation: operation,
           meta: meta,
         ) ->
           case
             Some(client_id) == message_client_id
-            && head_csn == csn
+            && head_client_sequence_number == client_sequence_number
             && head_address == address
             && channel.same_shape(operation, echoed)
           {
             False ->
               Error(AckMismatch(
                 "expected ack for csn "
-                <> int.to_string(head_csn)
+                <> int.to_string(head_client_sequence_number)
                 <> ", got csn "
-                <> int.to_string(csn),
+                <> int.to_string(client_sequence_number),
               ))
             True -> {
               let sequenced_meta =
                 SequencedMeta(
-                  seq: sequence_number,
-                  last_seen_sn: core.last_seen_sn,
-                  min_seq: minimum_sequence_number,
+                  sequence_number: sequence_number,
+                  last_seen_sequence_number: core.last_seen_sequence_number,
+                  minimum_sequence_number: minimum_sequence_number,
                   author: client_id_to_int(core.client_id),
                   self: client_id_to_int(core.client_id),
                   quorum: quorum_of(core, Some(core.client_id)),
                   roster: set.to_list(core.members),
-                  reference_sequence_number: core.last_seen_sn,
+                  reference_sequence_number: core.last_seen_sequence_number,
                 )
               case channel.applies_own_on_sequence(state) {
                 // Consensus kernels (PactMap) take effect only on sequencing,
@@ -1507,12 +1559,12 @@ fn ack_own_operation(
               }
             }
           }
-        InFlightAttach(csn: head_csn, ..) ->
+        InFlightAttach(client_sequence_number: head_client_sequence_number, ..) ->
           Error(AckMismatch(
             "expected attach ack for csn "
-            <> int.to_string(head_csn)
+            <> int.to_string(head_client_sequence_number)
             <> ", got channel op ack for csn "
-            <> int.to_string(csn),
+            <> int.to_string(client_sequence_number),
           ))
       }
   }
@@ -1752,7 +1804,12 @@ pub fn pact_map_set(
   CoreError,
 ) {
   pact_map_submit(core, address, fn(kernel) {
-    pact_map_kernel.set(kernel, key, Some(value), core.last_seen_sn)
+    pact_map_kernel.set(
+      kernel,
+      key,
+      Some(value),
+      core.last_seen_sequence_number,
+    )
   })
 }
 
@@ -1771,7 +1828,7 @@ pub fn pact_map_delete(
   CoreError,
 ) {
   pact_map_submit(core, address, fn(kernel) {
-    pact_map_kernel.delete(kernel, key, core.last_seen_sn)
+    pact_map_kernel.delete(kernel, key, core.last_seen_sequence_number)
   })
 }
 
@@ -2211,7 +2268,13 @@ pub fn submit_json_ot(
   case locate_json_ot(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
-      case json_ot_kernel.submit(kernel, components, core.last_seen_sn) {
+      case
+        json_ot_kernel.submit(
+          kernel,
+          components,
+          core.last_seen_sequence_number,
+        )
+      {
         Ok(#(kernel, _wire, events)) ->
           Ok(
             #(
@@ -2223,7 +2286,13 @@ pub fn submit_json_ot(
         Error(error) -> Error(AckMismatch(json_ot_kernel_error_detail(error)))
       }
     Ok(Attached(kernel)) ->
-      case json_ot_kernel.submit(kernel, components, core.last_seen_sn) {
+      case
+        json_ot_kernel.submit(
+          kernel,
+          components,
+          core.last_seen_sequence_number,
+        )
+      {
         Ok(#(kernel, Some(wire), events)) ->
           Ok(stamp_attached(
             core,
@@ -2276,7 +2345,9 @@ pub fn submit_rich_text(
   case locate_rich_text(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
-      case rich_text_kernel.submit(kernel, delta, core.last_seen_sn) {
+      case
+        rich_text_kernel.submit(kernel, delta, core.last_seen_sequence_number)
+      {
         Ok(#(kernel, _wire, events)) ->
           Ok(
             #(
@@ -2288,7 +2359,9 @@ pub fn submit_rich_text(
         Error(error) -> Error(AckMismatch(rich_text_kernel_error_detail(error)))
       }
     Ok(Attached(kernel)) ->
-      case rich_text_kernel.submit(kernel, delta, core.last_seen_sn) {
+      case
+        rich_text_kernel.submit(kernel, delta, core.last_seen_sequence_number)
+      {
         Ok(#(kernel, Some(wire), events)) ->
           Ok(stamp_attached(
             core,
@@ -2982,7 +3055,12 @@ pub fn register_write(
         Detached(kernel) | Attached(kernel) -> kernel
       }
       let operation =
-        register_collection_kernel.write(kernel, key, value, core.last_seen_sn)
+        register_collection_kernel.write(
+          kernel,
+          key,
+          value,
+          core.last_seen_sequence_number,
+        )
       let #(core, events, outbound) =
         stamp_attached(
           core,
@@ -3030,7 +3108,14 @@ pub fn claim_once(
         }
       }
     Ok(Attached(kernel)) ->
-      case claims_kernel.claim_once(kernel, key, value, core.last_seen_sn) {
+      case
+        claims_kernel.claim_once(
+          kernel,
+          key,
+          value,
+          core.last_seen_sequence_number,
+        )
+      {
         Ok(claims_kernel.AlreadyClaimed(current_value)) ->
           Ok(ClaimAlreadyClaimed(current_value))
         Ok(claims_kernel.Submitted(kernel, operation)) -> {
@@ -3083,7 +3168,7 @@ pub fn compare_and_set_claim(
           kernel,
           key,
           value,
-          core.last_seen_sn,
+          core.last_seen_sequence_number,
         )
       {
         Ok(claims_kernel.Submitted(kernel, operation)) -> {
@@ -3144,7 +3229,7 @@ pub fn task_manager_volunteer(
       ))
     }
     Ok(Attached(kernel)) -> {
-      let message_id = core.next_csn
+      let message_id = core.next_client_sequence_number
       let #(kernel, operation, outcome) =
         task_manager_kernel.volunteer(
           kernel,
@@ -3207,7 +3292,7 @@ pub fn task_manager_abandon(
       )
     }
     Ok(Attached(kernel)) -> {
-      let message_id = core.next_csn
+      let message_id = core.next_client_sequence_number
       let #(kernel, operation, events) =
         task_manager_kernel.abandon(
           kernel,
@@ -3280,7 +3365,7 @@ pub fn task_manager_complete(
       }
     }
     Ok(Attached(kernel)) -> {
-      let message_id = core.next_csn
+      let message_id = core.next_client_sequence_number
       case
         task_manager_kernel.complete(
           kernel,
@@ -3614,7 +3699,8 @@ fn locate_channel(
     Error(_) ->
       case dict.get(core.channels, address) {
         Ok(state) -> Ok(Attached(state))
-        Error(_) -> Error(UnknownChannel(address, core.last_seen_sn))
+        Error(_) ->
+          Error(UnknownChannel(address, core.last_seen_sequence_number))
       }
   }
 }
@@ -3699,12 +3785,12 @@ fn submit_attaches(
       Error(_) -> #(core, outbound)
       Ok(state) -> {
         let snapshot = channel.attach_snapshot(state)
-        let csn = core.next_csn
+        let client_sequence_number = core.next_client_sequence_number
         let outbound_operation =
           wire_op.outbound_attach_operation(
             address: address,
-            client_sequence_number: csn,
-            reference_sequence_number: core.last_seen_sn,
+            client_sequence_number: client_sequence_number,
+            reference_sequence_number: core.last_seen_sequence_number,
             snapshot: snapshot,
           )
         let core =
@@ -3719,11 +3805,11 @@ fn submit_attaches(
               list.append(core.channel_order, [address]),
             ),
             detached: dict.delete(core.detached, address),
-            next_csn: csn + 1,
+            next_client_sequence_number: client_sequence_number + 1,
             in_flight: list.append(core.in_flight, [
               InFlightAttach(
                 client_id: core.client_id,
-                csn: csn,
+                client_sequence_number: client_sequence_number,
                 address: address,
                 snapshot: snapshot,
               ),
@@ -3743,23 +3829,23 @@ fn stamp_attached(
   operation: channel.ChannelOperation,
   meta: channel.LocalOperationMeta,
 ) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)) {
-  let csn = core.next_csn
+  let client_sequence_number = core.next_client_sequence_number
   let outbound =
     wire_op.outbound_channel_operation(
       address: address,
-      client_sequence_number: csn,
-      reference_sequence_number: core.last_seen_sn,
+      client_sequence_number: client_sequence_number,
+      reference_sequence_number: core.last_seen_sequence_number,
       operation: operation,
     )
   let core =
     Core(
       ..core,
       channels: dict.insert(core.channels, address, state),
-      next_csn: csn + 1,
+      next_client_sequence_number: client_sequence_number + 1,
       in_flight: list.append(core.in_flight, [
         InFlightOperation(
           client_id: core.client_id,
-          csn: csn,
+          client_sequence_number: client_sequence_number,
           address: address,
           operation: operation,
           meta: meta,
@@ -4235,7 +4321,7 @@ fn format_json_decode_error(error: json.DecodeError) -> String {
   case error {
     json.UnexpectedEndOfInput -> "unexpected end of input"
     json.UnexpectedByte(byte) -> "unexpected byte: " <> byte
-    json.UnexpectedSequence(seq) -> "unexpected sequence: " <> seq
+    json.UnexpectedSequence(bytes) -> "unexpected sequence: " <> bytes
     json.UnableToDecode(errors) ->
       "unable to decode: "
       <> string.join(

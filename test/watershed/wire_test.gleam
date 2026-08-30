@@ -107,7 +107,7 @@ pub fn encode_connect_document_has_required_fields_test() -> Nil {
   )
 }
 
-pub fn encode_connect_document_includes_last_seen_sn_test() -> Nil {
+pub fn encode_connect_document_includes_last_seen_sequence_number_test() -> Nil {
   let encoded =
     socket.encode_connect_document(test_connect_message(), Some(42))
     |> json.to_string
@@ -441,7 +441,8 @@ pub fn decode_operation_message_test() -> Nil {
   operation.client_sequence_number |> expect.to_equal(2)
   operation.message_type |> expect.to_equal("op")
 
-  // System messages carry a null clientId and only advance last_seen_sn.
+  // System messages carry a null clientId and only advance
+  // last_seen_sequence_number.
   join.client_id |> expect.to_equal(None)
   join.message_type |> expect.to_equal("join")
 }
@@ -1478,7 +1479,11 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
 
 pub fn register_collection_operation_round_trip_test() -> Nil {
   let operation =
-    register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
+    register_collection_kernel.Write(
+      "station",
+      json.string("A"),
+      reference_sequence_number: 7,
+    )
   let encoded =
     wire_op.encode_register_collection_envelope("registers", operation)
     |> json.to_string
@@ -1499,7 +1504,11 @@ fn register_collection_envelope_decoder() -> decode.Decoder(
 
 pub fn register_collection_channel_operation_stage_two_decode_test() -> Nil {
   let operation =
-    register_collection_kernel.Write("station", json.string("A"), ref_seq: 7)
+    register_collection_kernel.Write(
+      "station",
+      json.string("A"),
+      reference_sequence_number: 7,
+    )
   let encoded =
     wire_op.encode_channel_envelope(
       "registers",

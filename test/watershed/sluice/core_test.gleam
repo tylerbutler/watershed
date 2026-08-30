@@ -231,12 +231,12 @@ pub fn sequencing_is_monotone_per_document_test() -> Nil {
   // Each operation is broadcast to both clients: 2 operations × 2 clients = 4
   // frames.
   list.length(operations) |> expect.to_equal(4)
-  let sns =
+  let sequence_numbers =
     list.map(operations, fn(frame) { operation_of(frame).sequence_number })
   // The two handshakes sequenced a join apiece (SN 1 and 2), so the first
   // operation's echoes carry SN 3 and the second's SN 4 — still monotone, which
   // is the property under test.
-  sns |> expect.to_equal([3, 3, 4, 4])
+  sequence_numbers |> expect.to_equal([3, 3, 4, 4])
 }
 
 pub fn author_echo_carries_client_sequence_number_test() -> Nil {

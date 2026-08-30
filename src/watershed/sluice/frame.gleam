@@ -144,8 +144,11 @@ fn submit_operation_decoder() -> Decoder(SubmitOperation) {
 fn submitted_operation_decoder() -> Decoder(SubmittedOperation) {
   use operation_type <- decode.field("type", decode.string)
   use contents <- decode.field("contents", wire.json_value_decoder())
-  use csn <- decode.field("clientSequenceNumber", decode.int)
-  use rsn <- decode.field("referenceSequenceNumber", decode.int)
+  use client_sequence_number <- decode.field("clientSequenceNumber", decode.int)
+  use reference_sequence_number <- decode.field(
+    "referenceSequenceNumber",
+    decode.int,
+  )
   use metadata <- decode.optional_field(
     "metadata",
     None,
@@ -154,8 +157,8 @@ fn submitted_operation_decoder() -> Decoder(SubmittedOperation) {
   decode.success(SubmittedOperation(
     operation_type: operation_type,
     contents: contents,
-    client_sequence_number: csn,
-    reference_sequence_number: rsn,
+    client_sequence_number: client_sequence_number,
+    reference_sequence_number: reference_sequence_number,
     metadata: metadata,
   ))
 }
@@ -174,8 +177,11 @@ pub fn decode_noop(payload: Dynamic) -> Result(#(String, Int), String) {
 
 fn noop_decoder() -> Decoder(#(String, Int)) {
   use client_id <- decode.field("clientId", decode.string)
-  use rsn <- decode.field("referenceSequenceNumber", decode.int)
-  decode.success(#(client_id, rsn))
+  use reference_sequence_number <- decode.field(
+    "referenceSequenceNumber",
+    decode.int,
+  )
+  decode.success(#(client_id, reference_sequence_number))
 }
 
 /// Decode a `submitSignal` payload and reduce it to its first content batch
@@ -382,7 +388,7 @@ pub type PresenceMeta {
 /// `phx_ref` and `client_id` beside the fields of the application, and a scalar
 /// or an array has no position for them. The function drops each key that the
 /// server owns, and it does not trust such a key. A client cannot select its
-/// own ref, session, or presence key.
+/// own reference_sequence_number, session, or presence key.
 pub fn decode_presence_meta(
   payload: Dynamic,
 ) -> Result(List(#(String, Json)), String) {

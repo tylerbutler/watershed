@@ -6,10 +6,11 @@
 //// log: every increment adds a live dot and contributes its amount to that
 //// key's cumulative tally; every remove keeps only dots that the remover had
 //// not observed when it submitted. A remover observes (i) all delivered
-//// operations with sequence number `<= ref_seq` and (ii) its own pending
-//// operations, which are exactly that same author's earlier log entries.
-//// Therefore a dot survives `CommandRemove(key, ref_seq)` iff `dot.seq >
-//// ref_seq && dot.author != remover`.
+//// operations with sequence number `<= reference_sequence_number` and (ii) its
+//// own pending operations, which are exactly that same author's earlier log
+//// entries. Therefore a dot survives `CommandRemove(key,
+//// reference_sequence_number)` iff `dot.sequence_number >
+//// reference_sequence_number && dot.author != remover`.
 ////
 //// Tallies never reset when a key is removed: the kernel's `own_tallies`
 //// ledger makes every routed delta carry that replica's cumulative PN-counter
@@ -36,7 +37,11 @@ import watershed/or_map_kernel.{
 
 pub type OrMapCommand {
   CommandIncrement(key: String, amount: Int, delta: Option(ORMapDelta))
-  CommandRemove(key: String, ref_seq: Int, delta: Option(ORMapDelta))
+  CommandRemove(
+    key: String,
+    reference_sequence_number: Int,
+    delta: Option(ORMapDelta),
+  )
 }
 
 type OracleState {
@@ -63,11 +68,11 @@ pub fn operation_to_json(command: OrMapCommand) -> json.Json {
         #("amount", json.int(amount)),
         #("delta", delta_to_json(delta)),
       ])
-    CommandRemove(key, ref_seq, delta) ->
+    CommandRemove(key, reference_sequence_number, delta) ->
       json.object([
         #("tag", json.string("Remove")),
         #("key", json.string(key)),
-        #("ref_seq", json.int(ref_seq)),
+        #("ref_seq", json.int(reference_sequence_number)),
         #("delta", delta_to_json(delta)),
       ])
   }
@@ -98,9 +103,9 @@ pub fn operation_decoder() -> decode.Decoder(OrMapCommand) {
     }
     "Remove" -> {
       use key <- decode.field("key", decode.string)
-      use ref_seq <- decode.field("ref_seq", decode.int)
+      use reference_sequence_number <- decode.field("ref_seq", decode.int)
       use delta <- decode.field("delta", delta_decoder())
-      decode.success(CommandRemove(key, ref_seq, delta))
+      decode.success(CommandRemove(key, reference_sequence_number, delta))
     }
     _ -> decode.failure(CommandIncrement("", 0, None), "Increment or Remove")
   }
@@ -139,7 +144,8 @@ fn command_to_kernel_operation(
 ) -> or_map_kernel.OrMapOperation {
   case command {
     CommandIncrement(key, amount, Some(delta)) -> Increment(key, amount, delta)
-    CommandRemove(key, _ref_seq, Some(delta)) -> Remove(key, delta)
+    CommandRemove(key, _reference_sequence_number, Some(delta)) ->
+      Remove(key, delta)
     CommandIncrement(_, _, None) | CommandRemove(_, _, None) ->
       panic as {
         context
@@ -164,7 +170,10 @@ fn submit(
       let assert Ok(#(state, _events, operation, _message_id)) =
         or_map_kernel.remove(state, key)
       let assert Remove(_, delta) = operation
-      #(state, Some(CommandRemove(key, meta.last_seen_seq, Some(delta))))
+      #(
+        state,
+        Some(CommandRemove(key, meta.last_seen_sequence_number, Some(delta))),
+      )
     }
   }
 }
@@ -262,12 +271,14 @@ fn remove_observed_dots(
   dots: Dict(String, List(#(Int, Int))),
   key: String,
   author: Int,
-  ref_seq: Int,
+  reference_sequence_number: Int,
 ) -> Dict(String, List(#(Int, Int))) {
   let remaining =
     dict.get(dots, key)
     |> result.unwrap([])
-    |> list.filter(fn(dot) { dot.1 > ref_seq && dot.0 != author })
+    |> list.filter(fn(dot) {
+      dot.1 > reference_sequence_number && dot.0 != author
+    })
   case remaining {
     [] -> dict.delete(dots, key)
     _ -> dict.insert(dots, key, remaining)
@@ -278,17 +289,22 @@ fn apply_oracle_operation(
   state: OracleState,
   entry: #(Int, #(Int, OrMapCommand)),
 ) -> OracleState {
-  let #(seq, #(author, command)) = entry
+  let #(sequence_number, #(author, command)) = entry
   case command {
     CommandIncrement(key, amount, _) ->
       OracleState(
-        dots: add_dot(state.dots, key, #(author, seq)),
+        dots: add_dot(state.dots, key, #(author, sequence_number)),
         tallies: add_tally(state.tallies, key, amount),
       )
-    CommandRemove(key, ref_seq, _) ->
+    CommandRemove(key, reference_sequence_number, _) ->
       OracleState(
         ..state,
-        dots: remove_observed_dots(state.dots, key, author, ref_seq),
+        dots: remove_observed_dots(
+          state.dots,
+          key,
+          author,
+          reference_sequence_number,
+        ),
       )
   }
 }

@@ -764,10 +764,10 @@ fn sequence_for(shared: SharedState, column: Column) -> SharedSequence {
 ///
 /// Rendered position is not sequence position — the render rule skips garbage
 /// entries, so every sequence operation here uses the cards' **raw**
-/// `seq_index`. `sequence_move` interprets the destination after the source is
-/// removed, which makes the neighbour's raw index the correct destination in
-/// both directions (up: the neighbour has not shifted; down: it has shifted
-/// into the slot just before where the moved card must land).
+/// `sequence_index`. `sequence_move` interprets the destination after the
+/// source is removed, which makes the neighbour's raw index the correct
+/// destination in both directions (up: the neighbour has not shifted; down: it
+/// has shifted into the slot just before where the moved card must land).
 ///
 /// A card that is not in the sequence at all (rendered from its register via
 /// the `created` tiebreaker) gets an explicit repair on ↑/↓: its id is
@@ -789,10 +789,10 @@ fn move_within(model: Model, column: Column, id: String, step: Int) -> Model {
             |> list.drop(int.max(0, index + step))
             |> list.first
             |> result.replace_error(Nil)
-          case index + step < 0, card.seq_index, neighbour {
+          case index + step < 0, card.sequence_index, neighbour {
             True, _, _ -> model
             _, Some(from), Ok(to_card) ->
-              case to_card.seq_index {
+              case to_card.sequence_index {
                 Some(to) ->
                   record(
                     model,

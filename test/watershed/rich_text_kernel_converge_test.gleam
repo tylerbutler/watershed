@@ -15,7 +15,7 @@ import watershed/rich_text_kernel.{
 const client_count = 3
 
 type Entry {
-  Entry(seq: Int, author: Int, wire: RichTextWireOperation)
+  Entry(sequence_number: Int, author: Int, wire: RichTextWireOperation)
 }
 
 type Client {
@@ -132,11 +132,13 @@ fn minimum_sequence_number(simulation: Simulation) -> Int {
     })
   let with_outbox =
     list.fold(simulation.clients, min_delivered, fn(acc, client) {
-      list.fold(client.outbox, acc, fn(acc, wire) { int.min(acc, wire.ref_seq) })
+      list.fold(client.outbox, acc, fn(acc, wire) {
+        int.min(acc, wire.reference_sequence_number)
+      })
     })
   list.fold(simulation.log, with_outbox, fn(acc, entry) {
-    case entry.seq > min_delivered {
-      True -> int.min(acc, entry.wire.ref_seq)
+    case entry.sequence_number > min_delivered {
+      True -> int.min(acc, entry.wire.reference_sequence_number)
       False -> acc
     }
   })
@@ -194,7 +196,12 @@ fn deliver_one(simulation: Simulation, id: Int) -> Simulation {
       case entry.author == id {
         True -> {
           let assert Ok(#(state, _)) =
-            kernel.ack_local(client.state, entry.wire, entry.seq, min)
+            kernel.ack_local(
+              client.state,
+              entry.wire,
+              entry.sequence_number,
+              min,
+            )
           let #(state, released) = kernel.take_outbound(state)
           let outbox = case released {
             None -> client.outbox
@@ -204,7 +211,12 @@ fn deliver_one(simulation: Simulation, id: Int) -> Simulation {
         }
         False -> {
           let assert Ok(#(state, _)) =
-            kernel.apply_remote(client.state, entry.wire, entry.seq, min)
+            kernel.apply_remote(
+              client.state,
+              entry.wire,
+              entry.sequence_number,
+              min,
+            )
           put(
             simulation,
             id,

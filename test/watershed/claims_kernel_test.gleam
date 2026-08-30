@@ -51,9 +51,9 @@ fn expect_already_pending(
 fn ack(
   state: ClaimsState,
   operation: ClaimOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(ClaimsState, List(ClaimEvent), ClaimOutcome) {
-  case claims_kernel.ack_local(state, operation, seq) {
+  case claims_kernel.ack_local(state, operation, sequence_number) {
     Ok(triple) -> triple
     Error(_) -> panic as "expected ack_local to succeed"
   }
@@ -113,7 +113,7 @@ pub fn set_detached_is_visible_immediately_test() -> Nil {
   claims_kernel.has(state, "key") |> expect.to_be_true()
 }
 
-pub fn set_detached_summary_persists_seq_zero_test() -> Nil {
+pub fn set_detached_summary_persists_sequence_number_zero_test() -> Nil {
   let state =
     claims_kernel.set_detached(
       claims_kernel.new(),
@@ -136,9 +136,10 @@ pub fn summary_round_trip_preserves_committed_reads_test() -> Nil {
   claims_kernel.get(loaded, "missing") |> expect.to_equal(Error(Nil))
 }
 
-pub fn cas_against_loaded_seq_zero_entry_succeeds_test() -> Nil {
-  // A loaded entry carries seq 0; CAS captures ref_seq = 0, and the equality
-  // acceptance path accepts it against that seq-0 entry.
+pub fn cas_against_loaded_sequence_number_zero_entry_succeeds_test() -> Nil {
+  // A loaded entry carries sequence_number 0; CAS captures
+  // reference_sequence_number = 0, and the equality acceptance path accepts it
+  // against that sequence_number-0 entry.
   let loaded = claims_kernel.from_summary([#("key", string_value("v0"), 0)])
   let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(
@@ -147,7 +148,8 @@ pub fn cas_against_loaded_seq_zero_entry_succeeds_test() -> Nil {
       string_value("v1"),
       7,
     ))
-  // ref_seq is the entry's seq (0), not last_seen_seq (7).
+  // reference_sequence_number is the entry's sequence_number (0), not
+  // last_seen_sequence_number (7).
   operation |> expect.to_equal(Claim("key", string_value("v1"), 0))
   let #(state, _events, outcome) = ack(state, operation, 1)
   outcome |> expect.to_equal(Accepted(string_value("v1")))
@@ -218,7 +220,8 @@ pub fn duplicate_pending_claim_errors_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn first_sequenced_operation_wins_on_every_client_test() -> Nil {
-  // Client A and B race key "k". A is sequenced first (seq 1), B second (seq 2).
+  // Client A and B race key "k". A is sequenced first (sequence_number 1), B
+  // second (sequence_number 2).
   let #(state_a, operation_a) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
@@ -254,8 +257,8 @@ pub fn first_sequenced_operation_wins_on_every_client_test() -> Nil {
 }
 
 pub fn rejected_remote_operation_leaves_state_unchanged_test() -> Nil {
-  // Commit "k"="A" at seq 1, then a stale operation with a non-matching
-  // ref_seq.
+  // Commit "k"="A" at sequence_number 1, then a stale operation with a
+  // non-matching reference_sequence_number.
   let #(state, operation_a) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
@@ -313,7 +316,8 @@ pub fn remote_win_does_not_disturb_local_pending_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn cas_succeeds_on_unclaimed_key_test() -> Nil {
-  // No entry: ref_seq falls back to last_seen_seq.
+  // No entry: reference_sequence_number falls back to
+  // last_seen_sequence_number.
   let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(
       claims_kernel.new(),
@@ -335,7 +339,8 @@ pub fn cas_succeeds_when_unchallenged_test() -> Nil {
       0,
     ))
   let #(state, _e, _o) = ack(state, op1, 1)
-  // Entry seq is 1, so CAS captures ref_seq = 1 (ignoring last_seen_seq = 9).
+  // Entry sequence_number is 1, so CAS captures reference_sequence_number = 1
+  // (ignoring last_seen_sequence_number = 9).
   let #(state, op2) =
     submitted(claims_kernel.compare_and_set_claim(
       state,
@@ -350,7 +355,7 @@ pub fn cas_succeeds_when_unchallenged_test() -> Nil {
 }
 
 pub fn concurrent_cas_first_writer_wins_test() -> Nil {
-  // Both clients start from committed "k"="v0" at seq 1.
+  // Both clients start from committed "k"="v0" at sequence_number 1.
   let base = claims_kernel.from_summary([#("k", string_value("v0"), 1)])
   let #(state1, cas1) =
     submitted(claims_kernel.compare_and_set_claim(
@@ -369,7 +374,7 @@ pub fn concurrent_cas_first_writer_wins_test() -> Nil {
   cas1 |> expect.to_equal(Claim("k", string_value("v1"), 1))
   cas2 |> expect.to_equal(Claim("k", string_value("v2"), 1))
 
-  // cas1 sequenced first (seq 2), cas2 second (seq 3).
+  // cas1 sequenced first (sequence_number 2), cas2 second (sequence_number 3).
   let #(state1, _e, outcome1) = ack(state1, cas1, 2)
   outcome1 |> expect.to_equal(Accepted(string_value("v1")))
   let #(state1, ev) = claims_kernel.apply_remote(state1, cas2, 3)
@@ -384,9 +389,10 @@ pub fn concurrent_cas_first_writer_wins_test() -> Nil {
 
 pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   // Ported from claims.spec.ts:420 ("CAS rejects when refSeq is greater than
-  // entry sequenceNumber"). Two CAS operations both capture ref_seq = 2; the
-  // first sequenced advances the entry to seq 3, so the second — ref_seq 2
-  // against entry seq 3 — must be rejected.
+  // entry sequenceNumber"). Two CAS operations both capture
+  // reference_sequence_number = 2; the first sequenced advances the entry to
+  // sequence_number 3, so the second — reference_sequence_number 2 against
+  // entry sequence_number 3 — must be rejected.
   let #(state, op0) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
@@ -396,7 +402,7 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
     ))
   let #(state, _e, _o) = ack(state, op0, 1)
 
-  // Client 1's first CAS wins normally (entry seq 1 -> 2).
+  // Client 1's first CAS wins normally (entry sequence_number 1 -> 2).
   let #(state, cas1) =
     submitted(claims_kernel.compare_and_set_claim(
       state,
@@ -407,7 +413,8 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   cas1 |> expect.to_equal(Claim("k", string_value("value1"), 1))
   let #(state, _e, _o) = ack(state, cas1, 2)
 
-  // Now two competing CAS operations, both observing entry seq 2 -> ref_seq 2.
+  // Now two competing CAS operations, both observing entry sequence_number 2 ->
+  // reference_sequence_number 2.
   let #(state_c1, cas2) =
     submitted(claims_kernel.compare_and_set_claim(
       state,
@@ -415,7 +422,7 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
       string_value("value1again"),
       0,
     ))
-  // Client 2 built from the same committed view (entry seq 2).
+  // Client 2 built from the same committed view (entry sequence_number 2).
   let base2 = claims_kernel.from_summary([#("k", string_value("value1"), 2)])
   let #(state_c2, cas3) =
     submitted(claims_kernel.compare_and_set_claim(
@@ -427,7 +434,8 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   cas2 |> expect.to_equal(Claim("k", string_value("value1again"), 2))
   cas3 |> expect.to_equal(Claim("k", string_value("value2"), 2))
 
-  // cas2 sequenced first (seq 3) advances the entry; cas3 (seq 4) then loses.
+  // cas2 sequenced first (sequence_number 3) advances the entry; cas3
+  // (sequence_number 4) then loses.
   let #(state_c1, _e, outcome2) = ack(state_c1, cas2, 3)
   outcome2 |> expect.to_equal(Accepted(string_value("value1again")))
   let #(state_c2, _e) = claims_kernel.apply_remote(state_c2, cas2, 3)
@@ -439,15 +447,15 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   |> expect.to_equal(Ok(string_value("value1again")))
 }
 
-pub fn write_once_operation_with_stale_high_ref_seq_is_rejected_test() -> Nil {
+pub fn write_once_operation_with_stale_high_reference_sequence_number_is_rejected_test() -> Nil {
   // The operation that actually discriminates `==` from `>=` (the port above
   // asserts the right spec outcomes but passes under both rules). A write-once
-  // claim captures `ref_seq` from the container-wide last sequence number,
-  // which can exceed a key's own older committed SN — e.g. a client whose
-  // container advanced on other channels while it never saw an early, low-SN
-  // claim on this key. Such an operation MUST be rejected (write-once holds);
-  // `==` rejects it, `>=` would wrongly accept and overwrite the committed
-  // claim.
+  // claim captures `reference_sequence_number` from the container-wide last
+  // sequence number, which can exceed a key's own older committed SN — e.g. a
+  // client whose container advanced on other channels while it never saw an
+  // early, low-SN claim on this key. Such an operation MUST be rejected
+  // (write-once holds); `==` rejects it, `>=` would wrongly accept and
+  // overwrite the committed claim.
   let state = claims_kernel.from_summary([#("k", string_value("A"), 2)])
   let stale = Claim("k", string_value("B"), 5)
   let #(after, events) = claims_kernel.apply_remote(state, stale, 6)
@@ -520,7 +528,8 @@ pub fn rollback_with_no_pending_errors_test() -> Nil {
 }
 
 pub fn stashed_operation_reregisters_pending_and_returns_operation_verbatim_test() -> Nil {
-  // The original ref_seq (3) must be preserved for resubmission.
+  // The original reference_sequence_number (3) must be preserved for
+  // resubmission.
   let operation = Claim("k", string_value("v"), 3)
   let #(state, resubmit) =
     stashed(claims_kernel.apply_stashed_operation(
@@ -623,8 +632,9 @@ pub fn summary_round_trips_values_and_sequence_numbers_test() -> Nil {
 }
 
 pub fn cas_after_load_uses_persisted_sequence_number_test() -> Nil {
-  // Loaded entry carries seq 5; CAS captures ref_seq = 5 (not last_seen 99),
-  // and the equality path accepts against seq 5.
+  // Loaded entry carries sequence_number 5; CAS captures
+  // reference_sequence_number = 5 (not last_seen 99), and the equality path
+  // accepts against sequence_number 5.
   let loaded = claims_kernel.from_summary([#("k", string_value("v0"), 5)])
   let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(

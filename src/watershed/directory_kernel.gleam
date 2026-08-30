@@ -74,11 +74,11 @@ pub type DirectoryNode {
 }
 
 /// The sequence data that identifies a directory instance and that orders the
-/// sibling directories. `seq` is the server sequence number of the create
-/// operation. It is `-1` while a local create has no ack, and `0` when a client
-/// created the directory while it was detached.
+/// sibling directories. `sequence_number` is the server sequence number of the
+/// create operation. It is `-1` while a local create has no ack, and `0` when a
+/// client created the directory while it was detached.
 pub type CreateInfo {
-  CreateInfo(seq: Int, client_seq: Int)
+  CreateInfo(sequence_number: Int, client_sequence_number: Int)
 }
 
 pub type StorageState {
@@ -594,7 +594,7 @@ pub fn size(state: DirectoryState, path: String) -> Int {
 /// The names of the child directories that are visible optimistically at
 /// `path`. The function orders them with `seqDataComparator`. An acked
 /// directory and a detached directory come before a local one with no ack, and
-/// a lower `seq` or `client_seq` value comes first.
+/// a lower `sequence_number` or `client_sequence_number` value comes first.
 pub fn subdirectories(state: DirectoryState, path: String) -> List(String) {
   case get_working_directory(state, path) {
     Error(Nil) -> []
@@ -651,15 +651,15 @@ fn optimistic_subdir_names(node: DirectoryNode) -> List(String) {
 }
 
 fn compare_create_info(a: CreateInfo, b: CreateInfo) -> Order {
-  let a_acknowledged = a.seq >= 0
-  let b_acknowledged = b.seq >= 0
+  let a_acknowledged = a.sequence_number >= 0
+  let b_acknowledged = b.sequence_number >= 0
   case a_acknowledged, b_acknowledged {
     True, False -> order.Lt
     False, True -> order.Gt
     True, True | False, False ->
-      case a.seq == b.seq {
-        True -> int.compare(a.client_seq, b.client_seq)
-        False -> int.compare(a.seq, b.seq)
+      case a.sequence_number == b.sequence_number {
+        True -> int.compare(a.client_sequence_number, b.client_sequence_number)
+        False -> int.compare(a.sequence_number, b.sequence_number)
       }
   }
 }
@@ -996,13 +996,13 @@ fn undispose_tree(
 /// that a pending remove hides, and a child that is already disposed, the same
 /// as the `subdirectories()` iterator of FluidFramework.
 ///
-/// Then reset the instance identity of this node. Set the create seq back to
-/// unknown, which is `-1`, and set the creators to the local client only. That
-/// client stands for the create operation that it has pending, or that it can
-/// send later. Then drop the sequenced storage and the sequenced children, and
-/// keep every pending value. A node that a marker retained thus carries a new
-/// identity when a later create revives it, and it does not keep the identity
-/// of the deleted instance.
+/// Then reset the instance identity of this node. Set the create
+/// sequence_number back to unknown, which is `-1`, and set the creators to the
+/// local client only. That client stands for the create operation that it has
+/// pending, or that it can send later. Then drop the sequenced storage and the
+/// sequenced children, and keep every pending value. A node that a marker
+/// retained thus carries a new identity when a later create revives it, and it
+/// does not keep the identity of the deleted instance.
 ///
 /// The function writes each cleared copy back into its marker slot first, so
 /// the retained aliases stay in agreement. FluidFramework changes the shared
@@ -1142,9 +1142,9 @@ fn apply_remote_subdir(
 /// D12: whether this sequenced message is for the current live instance of
 /// `node`. For a remote operation, where `target` is `None`, one of three
 /// conditions must hold. The author is a creator. Or a client created the
-/// instance while the directory was detached. Or the create seq of the instance
-/// is known to the other clients, which means it is not `-1`, and it is before
-/// the reference sequence number of the operation.
+/// instance while the directory was detached. Or the create sequence_number of
+/// the instance is known to the other clients, which means it is not `-1`, and
+/// it is before the reference sequence number of the operation.
 fn is_message_for_current_instance(
   node: DirectoryNode,
   meta: SequencedMeta,
@@ -1156,9 +1156,10 @@ fn is_message_for_current_instance(
   }
   let by_creator = list.contains(node.creators, meta.author)
   let by_detached = node.detached_created
-  let by_ref =
-    node.create.seq != -1 && node.create.seq <= meta.reference_sequence_number
-  targets_this && { by_creator || by_detached || by_ref }
+  let by_reference =
+    node.create.sequence_number != -1
+    && node.create.sequence_number <= meta.reference_sequence_number
+  targets_this && { by_creator || by_detached || by_reference }
 }
 
 fn remote_storage_set(
@@ -1249,7 +1250,7 @@ fn remote_create_subdir(
   // Mirror FF `processCreateSubDirectoryMessage` (remote branch): fold the
   // current optimistic instance (a locally-pending create, or an existing
   // sequenced child) into sequenced children — the SAME single copy, never a
-  // duplicate — stamping seq and recording the author as a creator.
+  // duplicate — stamping sequence_number and recording the author as a creator.
   case optimistic_child(node, name, True) {
     Ok(existing) -> {
       let #(revived, _) = case existing.disposed {
@@ -1261,15 +1262,15 @@ fn remote_create_subdir(
           ..revived,
           creators: add_creator(revived.creators, meta.author),
         )
-      // Stamp the create seq only if still unknown (a fresh optimistic-only
-      // instance, or one whose identity a sequenced delete reset) AND this
-      // parent instance was itself active when this message arrived (FF's re-stamp guard in
-      // `processCreateSubDirectoryMessage`); an already-sequenced instance
-      // keeps its original seq.
+      // Stamp the create sequence_number only if still unknown (a fresh
+      // optimistic-only instance, or one whose identity a sequenced delete
+      // reset) AND this parent instance was itself active when this message
+      // arrived (FF's re-stamp guard in `processCreateSubDirectoryMessage`); an
+      // already-sequenced instance keeps its original sequence_number.
       let revived = case
-        node.create.seq != -1
-        && node.create.seq <= meta.sequence_number
-        && revived.create.seq == -1
+        node.create.sequence_number != -1
+        && node.create.sequence_number <= meta.sequence_number
+        && revived.create.sequence_number == -1
       {
         True -> DirectoryNode(..revived, create: create)
         False -> revived
@@ -1538,18 +1539,19 @@ fn ack_create_subdir(
           // FF's re-insert of `pendingEntry.subdir` when the sequenced slot is
           // empty — e.g. a create/delete/recreate where an earlier delete
           // cleared the slot.) A disposed instance is revived whole
-          // (`undisposeSubdirectoryTree`), and the create seq is stamped only
-          // if still unknown and this parent instance was active when this message arrived
-          // (FF's re-stamp guard); self is already a creator from submit time.
+          // (`undisposeSubdirectoryTree`), and the create sequence_number is
+          // stamped only if still unknown and this parent instance was active
+          // when this message arrived (FF's re-stamp guard); self is already a
+          // creator from submit time.
           Error(Nil) -> {
             let #(child, _revive_events) = case marker_node.disposed {
               True -> undispose_tree(marker_node)
               False -> #(marker_node, [])
             }
             let child = case
-              node.create.seq != -1
-              && node.create.seq <= meta.sequence_number
-              && child.create.seq == -1
+              node.create.sequence_number != -1
+              && node.create.sequence_number <= meta.sequence_number
+              && child.create.sequence_number == -1
             {
               True -> DirectoryNode(..child, create: create)
               False -> child

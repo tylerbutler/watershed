@@ -6,13 +6,13 @@
 ////
 //// The simulator mirrors `kernel_fuzz`'s delivery model: clients submit
 //// operations optimistically (stamped with their last-delivered SN as
-//// `ref_seq`), a sequencer assigns a total order, and every client delivers
-//// the whole log in SN order — acking its own operations, `apply_remote`-ing
-//// others'. Each client keeps a single operation in flight and composes later
-//// edits into a buffer, so a client's operations never overlap each other's
-//// windows, but other clients' operations interleave between them — exercising
-//// the concurrency-window transform, not just the trivial single-operation
-//// case.
+//// `reference_sequence_number`), a sequencer assigns a total order, and every
+//// client delivers the whole log in SN order — acking its own operations,
+//// `apply_remote`-ing others'. Each client keeps a single operation in flight
+//// and composes later edits into a buffer, so a client's operations never
+//// overlap each other's windows, but other clients' operations interleave
+//// between them — exercising the concurrency-window transform, not just the
+//// trivial single-operation case.
 
 import gleam/int
 import gleam/list
@@ -34,7 +34,7 @@ fn ids() -> List(Int) {
 
 /// One sequenced entry in the shared log.
 type Entry {
-  Entry(seq: Int, author: Int, wire: JsonOtWireOperation)
+  Entry(sequence_number: Int, author: Int, wire: JsonOtWireOperation)
 }
 
 type ClientSimulation {
@@ -82,12 +82,13 @@ fn put(simulation: Simulation, id: Int, c: ClientSimulation) -> Simulation {
 
 /// The minimum sequence number (Fluid MSN): the oldest reference point any
 /// operation still in the system may need. A live client contributes its
-/// `delivered` cursor (the lowest `ref_seq` it can still stamp on a future
-/// operation), while an operation already in flight (queued or
-/// sequenced-but-not-everywhere-delivered) pins the MSN down to the `ref_seq`
-/// it was authored against, since receivers still need its concurrency window.
-/// A real sequencer derives this from the `ref_seq` clients stamp on their
-/// operations; the simulator reconstructs it from global state.
+/// `delivered` cursor (the lowest `reference_sequence_number` it can still
+/// stamp on a future operation), while an operation already in flight (queued
+/// or sequenced-but-not-everywhere-delivered) pins the MSN down to the
+/// `reference_sequence_number` it was authored against, since receivers still
+/// need its concurrency window. A real sequencer derives this from the
+/// `reference_sequence_number` clients stamp on their operations; the simulator
+/// reconstructs it from global state.
 fn minimum_sequence_number(simulation: Simulation) -> Int {
   let min_delivered =
     list.fold(simulation.clients, list.length(simulation.log), fn(acc, c) {
@@ -96,13 +97,15 @@ fn minimum_sequence_number(simulation: Simulation) -> Int {
   // Operations still queued to send pin the MSN to their reference point.
   let with_outbox =
     list.fold(simulation.clients, min_delivered, fn(acc, c) {
-      list.fold(c.outbox, acc, fn(acc, wire) { int.min(acc, wire.ref_seq) })
+      list.fold(c.outbox, acc, fn(acc, wire) {
+        int.min(acc, wire.reference_sequence_number)
+      })
     })
   // Sequenced operations not yet delivered by every client still need their
   // window.
   list.fold(simulation.log, with_outbox, fn(acc, entry) {
-    case entry.seq > min_delivered {
-      True -> int.min(acc, entry.wire.ref_seq)
+    case entry.sequence_number > min_delivered {
+      True -> int.min(acc, entry.wire.reference_sequence_number)
       False -> acc
     }
   })
@@ -129,8 +132,8 @@ fn do_submit(
       case components {
         [] -> #(simulation, random)
         _ ->
-          // ref_seq = this client's last-delivered SN, exactly what a live
-          // client stamps on the envelope.
+          // reference_sequence_number = this client's last-delivered SN,
+          // exactly what a live client stamps on the envelope.
           case kernel.submit(c.state, components, c.delivered) {
             Error(e) -> panic as { "submit failed: " <> string.inspect(e) }
             Ok(#(state, maybe_wire, _events)) -> {
@@ -160,11 +163,11 @@ fn do_sequence(simulation: Simulation, id: Int) -> Simulation {
   case c.outbox {
     [] -> simulation
     [wire, ..rest] -> {
-      let seq = list.length(simulation.log) + 1
+      let sequence_number = list.length(simulation.log) + 1
       let simulation =
         Simulation(
           ..simulation,
-          log: list.append(simulation.log, [Entry(seq, id, wire)]),
+          log: list.append(simulation.log, [Entry(sequence_number, id, wire)]),
         )
       put(simulation, id, ClientSimulation(..c, outbox: rest))
     }
@@ -182,7 +185,9 @@ fn do_deliver_one(simulation: Simulation, id: Int) -> Simulation {
       let min = minimum_sequence_number(simulation)
       case entry.author == id {
         True ->
-          case kernel.ack_local(c.state, entry.wire, entry.seq, min) {
+          case
+            kernel.ack_local(c.state, entry.wire, entry.sequence_number, min)
+          {
             Error(e) -> panic as { "ack failed: " <> string.inspect(e) }
             Ok(#(state, _events)) -> {
               let #(state, released) = kernel.take_outbound(state)
@@ -203,7 +208,9 @@ fn do_deliver_one(simulation: Simulation, id: Int) -> Simulation {
             }
           }
         False ->
-          case kernel.apply_remote(c.state, entry.wire, entry.seq, min) {
+          case
+            kernel.apply_remote(c.state, entry.wire, entry.sequence_number, min)
+          {
             Error(e) -> panic as { "apply_remote failed: " <> string.inspect(e) }
             Ok(#(state, _events)) ->
               put(
@@ -336,7 +343,12 @@ fn converged(simulation: Simulation) -> Result(Nil, String) {
             <> "\nlog:\n"
             <> string.inspect(
               list.map(simulation.log, fn(e) {
-                #(e.seq, e.author, e.wire.ref_seq, e.wire.components)
+                #(
+                  e.sequence_number,
+                  e.author,
+                  e.wire.reference_sequence_number,
+                  e.wire.components,
+                )
               }),
             ),
           )

@@ -12,8 +12,8 @@
 //// kernels. It broadcasts an operation without a change, with the reference
 //// sequence number (RSN) that the author wrote it against. A receiver must
 //// thus transform that operation past every operation that sequenced in the
-//// window `(operation.ref_seq, operation.seq)`, because the author did not see
-//// those operations.
+//// window `(operation.reference_sequence_number, operation.sequence_number)`,
+//// because the author did not see those operations.
 ////
 //// For the context to stay consistent, no earlier unacked operation of the
 //// same author can come before the incoming operation in that window. If one
@@ -49,8 +49,8 @@ import watershed/ot_client.{LogEntry}
 
 /// A sequenced operation that the kernel keeps for the concurrency window. The
 /// kernel already transformed it into the context that it was applied in, which
-/// is the head context at its `seq`. This is an alias for the shared log-entry
-/// shape of `ot_client`, with the `Operation` type of json0.
+/// is the head context at its `sequence_number`. This is an alias for the
+/// shared log-entry shape of `ot_client`, with the `Operation` type of json0.
 type LogEntry =
   ot_client.LogEntry(Operation)
 
@@ -62,8 +62,9 @@ pub type JsonOtState {
     /// order.
     sequenced: JsonValue,
     /// The sequenced operations in head context, oldest first. The kernel keeps
-    /// an operation while a future `(ref_seq, seq)` window can contain it,
-    /// which is while `seq > MSN`.
+    /// an operation while a future `(reference_sequence_number,
+    /// sequence_number)` window can contain it, which is while `sequence_number
+    /// > MSN`.
     log: List(LogEntry),
     /// The unacknowledged local edits. `ot_client.InFlight` holds the one
     /// operation on the wire, which the kernel rebases as the remote operations
@@ -83,9 +84,9 @@ pub type JsonOtState {
 /// An operation in its wire form: the components with the reference sequence
 /// number that the author wrote them against. The receiver needs that number to
 /// rebuild its concurrency window. The sequencer envelope supplies `author` and
-/// `seq`.
+/// `sequence_number`.
 pub type JsonOtWireOperation {
-  JsonOtWireOperation(ref_seq: Int, components: Operation)
+  JsonOtWireOperation(reference_sequence_number: Int, components: Operation)
 }
 
 /// The kernel emits this event when the observable document changes. There is
@@ -190,8 +191,9 @@ pub fn invert(operation: Operation) -> Operation {
 /// Write a local edit against the current optimistic view.
 ///
 /// If no operation is in flight, the edit goes on the wire, and the function
-/// returns it as a wire operation to send. That operation carries `ref_seq`,
-/// which is the last sequence number that the client received.
+/// returns it as a wire operation to send. That operation carries
+/// `reference_sequence_number`, which is the last sequence number that the
+/// client received.
 ///
 /// If an operation is in flight, the function composes the edit into the buffer
 /// and holds it until an ack retires the operation on the wire. One operation
@@ -200,7 +202,7 @@ pub fn invert(operation: Operation) -> Operation {
 pub fn submit(
   state: JsonOtState,
   components: Operation,
-  ref_seq: Int,
+  reference_sequence_number: Int,
 ) -> Result(
   #(JsonOtState, Option(JsonOtWireOperation), List(JsonOtEvent)),
   KernelError,
@@ -214,7 +216,7 @@ pub fn submit(
   )
   Ok(#(
     JsonOtState(..state, pending: pending),
-    option.map(to_send, JsonOtWireOperation(ref_seq, _)),
+    option.map(to_send, JsonOtWireOperation(reference_sequence_number, _)),
     events_for(components, True),
   ))
 }
@@ -223,15 +225,16 @@ pub fn submit(
 // Remote operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a sequenced operation that another client wrote. `seq` is its sequence
-/// number, and `msn` is the minimum sequence number, which the log garbage
-/// collection uses.
+/// Apply a sequenced operation that another client wrote. `sequence_number` is
+/// its sequence number, and `minimum_sequence_number` is the minimum sequence
+/// number, which the log garbage collection uses.
 ///
 /// The kernel transforms the operation into head context past every operation
-/// that sequenced in `(ref_seq, seq)`. No operation in that window can come
-/// from the same author, because one operation is in flight at most, so the
-/// window has no gap. The kernel then applies the operation, logs it, and
-/// rebases every unacknowledged local edit past it.
+/// that sequenced in `(reference_sequence_number, sequence_number)`. No
+/// operation in that window can come from the same author, because one
+/// operation is in flight at most, so the window has no gap. The kernel then
+/// applies the operation, logs it, and rebases every unacknowledged local edit
+/// past it.
 ///
 /// The incoming operation sequenced after every operation in its window, so it
 /// is `Rgt` there. It sequenced before the operation on the wire and before the
@@ -239,14 +242,14 @@ pub fn submit(
 pub fn apply_remote(
   state: JsonOtState,
   wire: JsonOtWireOperation,
-  seq: Int,
-  msn: Int,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
 ) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
   use operation_head <- result.try(
     ot_client.to_head_context(
       state.log,
-      wire.ref_seq,
-      seq,
+      wire.reference_sequence_number,
+      sequence_number,
       wire.components,
       fn(current, e) { transform(current, e.operation, Rgt) },
     ),
@@ -262,8 +265,8 @@ pub fn apply_remote(
   )
   let log =
     ot_client.gc_log(
-      list.append(state.log, [LogEntry(seq, operation_head)]),
-      msn,
+      list.append(state.log, [LogEntry(sequence_number, operation_head)]),
+      minimum_sequence_number,
     )
   let state =
     JsonOtState(..state, sequenced: sequenced, log: log, pending: pending)
@@ -281,9 +284,10 @@ pub fn apply_remote(
 ///
 /// If there is a buffer, the kernel releases it as the next operation on the
 /// wire and puts it in `outbound`, for the runtime to send with
-/// `take_outbound`. That operation carries `ref_seq = seq`, because the buffer
-/// is expressed against `sequenced` with the acked operation applied. The
-/// optimistic view does not change, so the kernel emits no event.
+/// `take_outbound`. That operation carries `reference_sequence_number =
+/// sequence_number`, because the buffer is expressed against `sequenced` with
+/// the acked operation applied. The optimistic view does not change, so the
+/// kernel emits no event.
 ///
 /// The `_wire` value that the sequencer echoes is the original operation that
 /// the client submitted. The sequencer never transforms, so that value does not
@@ -292,8 +296,8 @@ pub fn apply_remote(
 pub fn ack_local(
   state: JsonOtState,
   _wire: JsonOtWireOperation,
-  seq: Int,
-  msn: Int,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
 ) -> Result(#(JsonOtState, List(JsonOtEvent)), KernelError) {
   use in_flight <- result.try(
     ot_client.in_flight(state.pending)
@@ -301,10 +305,17 @@ pub fn ack_local(
   )
   use sequenced <- result.try(apply_operation(state.sequenced, in_flight))
   let log =
-    ot_client.gc_log(list.append(state.log, [LogEntry(seq, in_flight)]), msn)
+    ot_client.gc_log(
+      list.append(state.log, [LogEntry(sequence_number, in_flight)]),
+      minimum_sequence_number,
+    )
   // Release the buffer as the next operation on the wire, if there is one.
   let #(pending, to_send) =
-    ot_client.promote_buffer(state.pending, seq, JsonOtWireOperation)
+    ot_client.promote_buffer(
+      state.pending,
+      sequence_number,
+      JsonOtWireOperation,
+    )
   let state =
     JsonOtState(
       sequenced: sequenced,

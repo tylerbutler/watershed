@@ -1073,7 +1073,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
             "noop",
             socket.encode_noop(
               core.client_id,
-              reference_sequence_number: core.last_seen_sn,
+              reference_sequence_number: core.last_seen_sequence_number,
             ),
           )
         Ready(_, None), None
@@ -1128,7 +1128,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     ChannelReady(channel) -> {
       let last_seen = case state.phase {
-        Reconnecting(core) -> Some(core.last_seen_sn)
+        Reconnecting(core) -> Some(core.last_seen_sequence_number)
         Connecting(_) | Ready(_, _) | Failed(_) -> None
       }
       push(
@@ -1923,7 +1923,7 @@ fn handle_inbound(
           let checkpoint =
             option.unwrap(
               connected.checkpoint_sequence_number,
-              core.last_seen_sn,
+              core.last_seen_sequence_number,
             )
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in the `"op"` handler below needs an
@@ -2047,7 +2047,7 @@ fn settle_reconnect(
   core: runtime_core.Core,
   checkpoint: Int,
 ) -> actor.Next(State, Msg) {
-  case core.last_seen_sn >= checkpoint {
+  case core.last_seen_sequence_number >= checkpoint {
     True -> {
       let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
       send_outbound(state.channel, core.client_id, outbound)
@@ -2806,9 +2806,9 @@ fn maybe_request_operations(
 /// The delay keeps the cost of a room low. Every client crosses the threshold
 /// on the same operation. Each client then waits for a different interval,
 /// which comes from its id. The first summary that sequences advances
-/// `last_summary_sn` on every client, and the rest of the room checks again in
-/// `MaybeSummarize` and stops. A lost race costs one unnecessary upload, and
-/// nothing more.
+/// `last_summary_sequence_number` on every client, and the rest of the room
+/// checks again in `MaybeSummarize` and stops. A lost race costs one
+/// unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
   case state.auto_summary, state.summary_armed {
     Some(policy), False ->
@@ -2889,7 +2889,7 @@ fn do_summarize(
       base_url: http_base_url(state),
       tenant: state.connect_message.tenant_id,
       token: token,
-      sequence_number: core.last_seen_sn,
+      sequence_number: core.last_seen_sequence_number,
       members: runtime_core.summary_members(core),
       channels: runtime_core.summary_channels(core),
     )

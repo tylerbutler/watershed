@@ -333,10 +333,10 @@ pub fn claim_once(
 
 /// A compare-and-set claim on `key`. It takes the key from the client that
 /// holds it now, if no write has sequenced after the committed entry that this
-/// call reads its `ref_seq` from. It delivers its outcome in the same way as
-/// `claim_once`. Here `Lost` means that a concurrent attempt to take the key
-/// won the race. It does not mean that another client already claimed the
-/// key.
+/// call reads its `reference_sequence_number` from. It delivers its outcome in
+/// the same way as `claim_once`. Here `Lost` means that a concurrent attempt to
+/// take the key won the race. It does not mean that another client already
+/// claimed the key.
 pub fn compare_and_set_claim(
   claims: Claims,
   key: String,

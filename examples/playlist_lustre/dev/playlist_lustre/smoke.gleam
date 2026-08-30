@@ -90,7 +90,7 @@ fn run_scenario(
           log("SMOKE FAIL: A could not ensure the sequence: " <> reason)
           exit(1)
         }
-        Ok(seq_a) -> seed_then_resolve(doc_b, seq_a)
+        Ok(sequence_a) -> seed_then_resolve(doc_b, sequence_a)
       }
     },
   )
@@ -99,12 +99,12 @@ fn run_scenario(
 /// A seeds three tracks, then B resolves the same sequence from the root map.
 fn seed_then_resolve(
   doc_b: Document(doc_schema.PlaylistDoc),
-  seq_a: SharedSequence,
+  sequence_a: SharedSequence,
 ) -> Nil {
   log("smoke: seeding three tracks from A")
-  insert_track(seq_a, "Windowlicker", "Aphex Twin")
-  insert_track(seq_a, "Xtal", "Aphex Twin")
-  insert_track(seq_a, "Alberto Balsalm", "Aphex Twin")
+  insert_track(sequence_a, "Windowlicker", "Aphex Twin")
+  insert_track(sequence_a, "Xtal", "Aphex Twin")
+  insert_track(sequence_a, "Alberto Balsalm", "Aphex Twin")
 
   // Wait for A's attach + inserts to reach B, then resolve on B.
   use <- delay(2000)
@@ -118,17 +118,20 @@ fn seed_then_resolve(
           log("SMOKE FAIL: B could not resolve the sequence: " <> reason)
           exit(1)
         }
-        Ok(seq_b) -> concurrent_phase(seq_a, seq_b)
+        Ok(sequence_b) -> concurrent_phase(sequence_a, sequence_b)
       }
     },
   )
 }
 
 /// The real test: a move on A racing a replace on B, with no coordination.
-fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
+fn concurrent_phase(
+  sequence_a: SharedSequence,
+  sequence_b: SharedSequence,
+) -> Nil {
   use <- delay(500)
-  let seeded_a = titles(seq_a)
-  let seeded_b = titles(seq_b)
+  let seeded_a = titles(sequence_a)
+  let seeded_b = titles(sequence_b)
   log("smoke: seeded A = " <> string.join(seeded_a, ", "))
   log("smoke: seeded B = " <> string.join(seeded_b, ", "))
 
@@ -136,10 +139,10 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
   // A lifts track 0 to the end; destinations are interpreted after removal,
   // so index 2 is the tail of the 2-element list left behind.
   log("smoke: concurrent move on A, replace on B")
-  let move_result = watershed.sequence_move(seq_a, 0, 2)
+  let move_result = watershed.sequence_move(sequence_a, 0, 2)
   let replace_result =
     watershed.sequence_replace(
-      seq_b,
+      sequence_b,
       1,
       track.to_json(Track(
         title: "Xtal (remaster)",
@@ -149,11 +152,11 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
     )
 
   // An index past the end must be refused rather than silently clamped.
-  let out_of_bounds = watershed.sequence_delete(seq_a, 99)
+  let out_of_bounds = watershed.sequence_delete(sequence_a, 99)
 
   use <- delay(3000)
-  let final_a = titles(seq_a)
-  let final_b = titles(seq_b)
+  let final_a = titles(sequence_a)
+  let final_b = titles(sequence_b)
   log("smoke: final A = " <> string.join(final_a, ", "))
   log("smoke: final B = " <> string.join(final_b, ", "))
 

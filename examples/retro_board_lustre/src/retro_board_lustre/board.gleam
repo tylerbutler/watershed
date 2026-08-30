@@ -42,7 +42,7 @@ pub type NoteCard {
     /// skipped garbage still occupies sequence positions and sequence
     /// operations address raw indexes. `None` for notes rendered from the
     /// register alone.
-    seq_index: Option(Int),
+    sequence_index: Option(Int),
   )
 }
 
@@ -153,13 +153,13 @@ fn card(
   id: String,
   n: Note,
   votes_by_id: Dict(String, Int),
-  seq_index: Option(Int),
+  sequence_index: Option(Int),
 ) -> NoteCard {
   NoteCard(
     id: id,
     note: n,
     votes: dict.get(votes_by_id, id) |> result.unwrap(0),
-    seq_index: seq_index,
+    sequence_index: sequence_index,
   )
 }
 

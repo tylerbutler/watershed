@@ -8,7 +8,8 @@
 //// So the wire operation is a `DirectoryCommand` that captures
 //// `reference_sequence_number` (= the author's delivered cursor at submit)
 //// and `client_sequence_number` (= the local message id the submit
-//// assigned) — mirroring `or_map_model`'s `CommandRemove(..., ref_seq)`.
+//// assigned) — mirroring `or_map_model`'s `CommandRemove(...,
+//// reference_sequence_number)`.
 ////
 //// ## Oracle soundness
 ////
@@ -204,7 +205,7 @@ fn submit(
   command: DirectoryCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(DirectoryState, Option(DirectoryCommand)) {
-  let reference_sequence_number = meta.last_seen_seq
+  let reference_sequence_number = meta.last_seen_sequence_number
   case command.operation {
     Set(path, key, value) ->
       case directory_kernel.set(state, path, key, value) {
@@ -358,7 +359,7 @@ fn resubmit(
     option.map(out, fn(operation) {
       DirectoryCommand(
         operation,
-        meta.last_seen_seq,
+        meta.last_seen_sequence_number,
         command.client_sequence_number,
       )
     }),
@@ -379,7 +380,7 @@ fn apply_stashed(
   {
     Ok(#(state, _events, Some(operation), message_id)) -> #(
       state,
-      DirectoryCommand(operation, meta.last_seen_seq, message_id),
+      DirectoryCommand(operation, meta.last_seen_sequence_number, message_id),
     )
     // The stashed operation was a local no-operation (its target path wasn't
     // reachable, or a create/delete that dedups against existing state), so
@@ -397,7 +398,11 @@ fn apply_stashed(
 /// `apply_remote` and `ack_local` both treat a delete of an absent subdir as a
 /// no-operation, leaving `observe` unchanged everywhere.
 fn nop_command(meta: kernel_fuzz.SubmitMeta) -> DirectoryCommand {
-  DirectoryCommand(DeleteSubDirectory("/", "\u{1}nop"), meta.last_seen_seq, 0)
+  DirectoryCommand(
+    DeleteSubDirectory("/", "\u{1}nop"),
+    meta.last_seen_sequence_number,
+    0,
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,17 +453,17 @@ fn canonicalize(tree: Tree) -> Tree {
 }
 
 fn oracle(entries: List(LogEntry(DirectoryCommand))) -> Tree {
-  let #(state, _seq) =
+  let #(state, _sequence_number) =
     list.fold(
       kernel_fuzz.log_operations(entries),
       #(directory_kernel.new(), 1),
       fn(acc, item) {
-        let #(state, seq) = acc
+        let #(state, sequence_number) = acc
         let #(author, command) = item
         let meta =
           SequencedMeta(
             author: author,
-            sequence_number: seq,
+            sequence_number: sequence_number,
             reference_sequence_number: command.reference_sequence_number,
             client_sequence_number: command.client_sequence_number,
           )
@@ -467,7 +472,7 @@ fn oracle(entries: List(LogEntry(DirectoryCommand))) -> Tree {
         // marker-retained (pending) nodes, so a sentinel is fine here.
         let #(state, _events) =
           directory_kernel.apply_remote(state, command.operation, meta, -1)
-        #(state, seq + 1)
+        #(state, sequence_number + 1)
       },
     )
   observe(state)

@@ -1,0 +1,3 @@
+package = "watershed"
+kind = "Breaking"
+body = "Rename the abbreviated sequence terms to their full domain names: `seq` and `sn` to `sequence_number`, `ref_seq` and `rsn` to `reference_sequence_number`, `csn` and `cseq` to `client_sequence_number`, `msn` and `min_seq` to `minimum_sequence_number`. This covers `channel.SequencedMeta`, `runtime_core.Core`, every kernel argument, and the `Diagnostics`-adjacent fields. The `refSeq` JSON key and the Phoenix `phx_ref` field are unchanged."

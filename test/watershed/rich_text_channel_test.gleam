@@ -38,15 +38,15 @@ fn delta(raw: String) -> rich_text.Delta {
 }
 
 fn meta(
-  seq seq: Int,
-  min_seq min_seq: Int,
+  sequence_number sequence_number: Int,
+  minimum_sequence_number minimum_sequence_number: Int,
   author author: Int,
   self_id self_id: Int,
 ) -> channel.SequencedMeta {
   channel.SequencedMeta(
-    seq: seq,
-    last_seen_sn: seq - 1,
-    min_seq: min_seq,
+    sequence_number: sequence_number,
+    last_seen_sequence_number: sequence_number - 1,
+    minimum_sequence_number: minimum_sequence_number,
     author: author,
     self: self_id,
     quorum: [author, self_id],
@@ -137,7 +137,7 @@ pub fn rich_text_operation_decoder_rejects_malformed_operation_test() -> Nil {
   Nil
 }
 
-pub fn rich_text_operation_decoder_rejects_missing_ref_seq_test() -> Nil {
+pub fn rich_text_operation_decoder_rejects_missing_reference_sequence_number_test() -> Nil {
   let assert Ok(dynamic_value) =
     json.parse("{\"delta\":[{\"insert\":\"x\"}]}", decode.dynamic)
   let _ =
@@ -210,7 +210,7 @@ pub fn rich_text_attach_state_reconstructs_from_snapshot_test() -> Nil {
 
 // ── same_shape / same_snapshot ───────────────────────────────────────────────
 
-pub fn rich_text_same_shape_requires_ref_seq_and_delta_equality_test() -> Nil {
+pub fn rich_text_same_shape_requires_reference_sequence_number_and_delta_equality_test() -> Nil {
   let operation =
     rich_text_kernel.RichTextWireOperation(1, delta("[{\"insert\":\"A\"}]"))
   let same_operation =
@@ -221,11 +221,11 @@ pub fn rich_text_same_shape_requires_ref_seq_and_delta_equality_test() -> Nil {
   )
   |> expect.to_be_true()
 
-  let different_ref_seq =
+  let different_reference_sequence_number =
     rich_text_kernel.RichTextWireOperation(2, delta("[{\"insert\":\"A\"}]"))
   channel.same_shape(
     channel.RichTextOperation(operation),
-    channel.RichTextOperation(different_ref_seq),
+    channel.RichTextOperation(different_reference_sequence_number),
   )
   |> expect.to_be_false()
 
@@ -293,7 +293,12 @@ pub fn rich_text_apply_remote_dispatch_test() -> Nil {
     channel.apply_remote(
       state,
       operation,
-      meta(seq: 1, min_seq: 1, author: 0, self_id: 1),
+      meta(
+        sequence_number: 1,
+        minimum_sequence_number: 1,
+        author: 0,
+        self_id: 1,
+      ),
     )
   owed |> expect.to_equal([])
   let assert channel.RichTextState(kernel) = state
@@ -320,7 +325,12 @@ pub fn rich_text_ack_local_dispatch_uses_no_meta_test() -> Nil {
       state,
       channel.RichTextOperation(wire_op),
       channel.NoMeta,
-      meta(seq: 1, min_seq: -1, author: 0, self_id: 0),
+      meta(
+        sequence_number: 1,
+        minimum_sequence_number: -1,
+        author: 0,
+        self_id: 0,
+      ),
     )
   events |> expect.to_equal([])
   resolution |> expect.to_equal(None)
@@ -343,7 +353,12 @@ pub fn rich_text_take_outbound_drains_buffered_operation_test() -> Nil {
       state,
       channel.RichTextOperation(wire_a),
       channel.NoMeta,
-      meta(seq: 1, min_seq: -1, author: 0, self_id: 0),
+      meta(
+        sequence_number: 1,
+        minimum_sequence_number: -1,
+        author: 0,
+        self_id: 0,
+      ),
     )
 
   let #(state, outbound) = channel.take_outbound(state)
@@ -368,7 +383,12 @@ pub fn rich_text_wrong_channel_type_errors_test() -> Nil {
     channel.apply_remote(
       state,
       operation,
-      meta(seq: 1, min_seq: -1, author: 0, self_id: 1),
+      meta(
+        sequence_number: 1,
+        minimum_sequence_number: -1,
+        author: 0,
+        self_id: 1,
+      ),
     )
     |> expect.to_be_error()
   Nil

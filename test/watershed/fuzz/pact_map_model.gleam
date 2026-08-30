@@ -21,7 +21,7 @@ import watershed/pact_map_kernel.{
 }
 
 pub type PactCommand {
-  CommandSet(key: String, value: Option(Json), ref_seq: Int)
+  CommandSet(key: String, value: Option(Json), reference_sequence_number: Int)
   CommandAccept(key: String)
 }
 
@@ -41,7 +41,8 @@ fn command_to_kernel_operation(
   command: PactCommand,
 ) -> pact_map_kernel.PactMapOperation {
   case command {
-    CommandSet(key, value, ref_seq) -> Set(key, value, ref_seq)
+    CommandSet(key, value, reference_sequence_number) ->
+      Set(key, value, reference_sequence_number)
     CommandAccept(key) -> Accept(key)
   }
 }
@@ -50,19 +51,20 @@ fn kernel_operation_to_command(
   operation: pact_map_kernel.PactMapOperation,
 ) -> PactCommand {
   case operation {
-    Set(key, value, ref_seq) -> CommandSet(key, value, ref_seq)
+    Set(key, value, reference_sequence_number) ->
+      CommandSet(key, value, reference_sequence_number)
     Accept(key) -> CommandAccept(key)
   }
 }
 
 fn operation_to_json(command: PactCommand) -> Json {
   case command {
-    CommandSet(key, value, ref_seq) ->
+    CommandSet(key, value, reference_sequence_number) ->
       json.object([
         #("tag", json.string("Set")),
         #("key", json.string(key)),
         #("value", option_json(value)),
-        #("ref_seq", json.int(ref_seq)),
+        #("ref_seq", json.int(reference_sequence_number)),
       ])
     CommandAccept(key) ->
       json.object([#("tag", json.string("Accept")), #("key", json.string(key))])
@@ -92,8 +94,8 @@ fn operation_decoder() -> decode.Decoder(PactCommand) {
     "Set" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", option_decoder())
-      use ref_seq <- decode.field("ref_seq", decode.int)
-      decode.success(CommandSet(key, value, ref_seq))
+      use reference_sequence_number <- decode.field("ref_seq", decode.int)
+      decode.success(CommandSet(key, value, reference_sequence_number))
     }
     "Accept" -> {
       use key <- decode.field("key", decode.string)
@@ -133,13 +135,24 @@ fn submit(
   case command {
     CommandAccept(_) -> #(state, None)
     CommandSet(key, None, _) ->
-      case pact_map_kernel.delete(state.kernel, key, meta.last_seen_seq) {
+      case
+        pact_map_kernel.delete(
+          state.kernel,
+          key,
+          meta.last_seen_sequence_number,
+        )
+      {
         Ok(operation) -> #(state, Some(kernel_operation_to_command(operation)))
         Error(_) -> #(state, None)
       }
     CommandSet(key, Some(value), _) ->
       case
-        pact_map_kernel.set(state.kernel, key, Some(value), meta.last_seen_seq)
+        pact_map_kernel.set(
+          state.kernel,
+          key,
+          Some(value),
+          meta.last_seen_sequence_number,
+        )
       {
         Ok(operation) -> #(state, Some(kernel_operation_to_command(operation)))
         Error(_) -> #(state, None)
@@ -256,11 +269,16 @@ fn load_from_synced(state: ModelState, _id: Int) -> ModelState {
   )
 }
 
-fn valid_set(state: OracleState, key: String, ref_seq: Int) -> Bool {
+fn valid_set(
+  state: OracleState,
+  key: String,
+  reference_sequence_number: Int,
+) -> Bool {
   case dict.get(state.values, key) {
     Error(_) -> True
     Ok(Pact(_, Some(_))) -> False
-    Ok(Pact(Some(Accepted(_, seq)), None)) -> seq <= ref_seq
+    Ok(Pact(Some(Accepted(_, sequence_number)), None)) ->
+      sequence_number <= reference_sequence_number
     Ok(Pact(None, None)) -> True
   }
 }
@@ -269,11 +287,11 @@ fn oracle_set(
   state: OracleState,
   key: String,
   value: Option(Json),
-  ref_seq: Int,
-  seq: Int,
+  reference_sequence_number: Int,
+  sequence_number: Int,
   connected: List(Int),
 ) -> OracleState {
-  case valid_set(state, key, ref_seq) {
+  case valid_set(state, key, reference_sequence_number) {
     False -> state
     True -> {
       let accepted = case dict.get(state.values, key) {
@@ -286,7 +304,7 @@ fn oracle_set(
           OracleState(values: dict.insert(
             state.values,
             key,
-            Pact(Some(Accepted(value, seq)), None),
+            Pact(Some(Accepted(value, sequence_number)), None),
           ))
         _ ->
           OracleState(values: dict.insert(
@@ -303,13 +321,13 @@ fn oracle_accept(
   state: OracleState,
   key: String,
   client: Int,
-  seq: Int,
+  sequence_number: Int,
 ) -> OracleState {
   case dict.get(state.values, key) {
     Ok(Pact(accepted, Some(Pending(value, signoffs)))) -> {
       let signoffs = list.filter(signoffs, fn(id) { id != client })
       let pact = case signoffs {
-        [] -> Pact(Some(Accepted(value, seq)), None)
+        [] -> Pact(Some(Accepted(value, sequence_number)), None)
         _ -> Pact(accepted, Some(Pending(value, signoffs)))
       }
       OracleState(values: dict.insert(state.values, key, pact))
@@ -318,7 +336,11 @@ fn oracle_accept(
   }
 }
 
-fn oracle_leave(state: OracleState, client: Int, seq: Int) -> OracleState {
+fn oracle_leave(
+  state: OracleState,
+  client: Int,
+  sequence_number: Int,
+) -> OracleState {
   dict.to_list(state.values)
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
   |> list.fold(state, fn(state, entry) {
@@ -327,7 +349,7 @@ fn oracle_leave(state: OracleState, client: Int, seq: Int) -> OracleState {
       Pact(accepted, Some(Pending(value, signoffs))) -> {
         let signoffs = list.filter(signoffs, fn(id) { id != client })
         let pact = case signoffs {
-          [] -> Pact(Some(Accepted(value, seq)), None)
+          [] -> Pact(Some(Accepted(value, sequence_number)), None)
           _ -> Pact(accepted, Some(Pending(value, signoffs)))
         }
         OracleState(values: dict.insert(state.values, key, pact))
@@ -348,22 +370,29 @@ fn oracle(entries: List(LogEntry(PactCommand))) -> List(#(String, Pact)) {
       #(OracleState(values: dict.new()), [0, 1, 2]),
       fn(acc, entry, i) {
         let #(state, connected) = acc
-        let seq = i + 1
+        let sequence_number = i + 1
         case entry {
           kernel_fuzz.OperationEntry(
             _author,
-            CommandSet(key, value, ref_seq),
+            CommandSet(key, value, reference_sequence_number),
             connected,
           ) -> #(
-            oracle_set(state, key, value, ref_seq, seq, connected),
+            oracle_set(
+              state,
+              key,
+              value,
+              reference_sequence_number,
+              sequence_number,
+              connected,
+            ),
             connected,
           )
           kernel_fuzz.OperationEntry(author, CommandAccept(key), _) -> #(
-            oracle_accept(state, key, author, seq),
+            oracle_accept(state, key, author, sequence_number),
             connected,
           )
           kernel_fuzz.LeaveEntry(client) -> #(
-            oracle_leave(state, client, seq),
+            oracle_leave(state, client, sequence_number),
             connected_after_disconnect(connected, client),
           )
         }

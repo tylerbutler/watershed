@@ -187,7 +187,8 @@ pub fn one_of_two_sessions_under_a_key_leaves_test() -> Nil {
 pub fn duplicate_join_and_unknown_leave_are_ignored_test() -> Nil {
   let tracker = synced([#("user:alice", [meta("A1", "client-17", "r0c0")])])
 
-  // Replaying a join we already hold, and a leave for a ref we never saw.
+  // Replaying a join we already hold, and a leave for a
+  // reference_sequence_number we never saw.
   let #(_, events) =
     presence.apply_diff(
       tracker,

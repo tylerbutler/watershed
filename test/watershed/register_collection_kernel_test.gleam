@@ -15,13 +15,13 @@ fn string_value(value: String) -> Json {
 fn ack(
   state: RegisterState,
   operation: WriteOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(RegisterState, List(RegisterEvent), Bool) {
-  register_collection_kernel.ack_local(state, operation, seq)
+  register_collection_kernel.ack_local(state, operation, sequence_number)
 }
 
-fn summary(value: Json, seq: Int) -> Register {
-  let version = VersionedValue(value, seq)
+fn summary(value: Json, sequence_number: Int) -> Register {
+  let version = VersionedValue(value, sequence_number)
   Register(atomic: version, versions: [version])
 }
 
@@ -56,7 +56,7 @@ pub fn write_detached_is_visible_immediately_test() -> Nil {
   |> expect.to_equal(Ok([string_value("v")]))
 }
 
-pub fn detached_summary_persists_seq_zero_test() -> Nil {
+pub fn detached_summary_persists_sequence_number_zero_test() -> Nil {
   let #(state, _events) =
     register_collection_kernel.write_detached(
       register_collection_kernel.new(),
@@ -195,7 +195,7 @@ pub fn prune_boundary_includes_equal_sequence_number_test() -> Nil {
   |> expect.to_equal(Ok([string_value("B"), string_value("C")]))
 }
 
-pub fn ref_seq_equal_to_atomic_sequence_wins_test() -> Nil {
+pub fn reference_sequence_number_equal_to_atomic_sequence_wins_test() -> Nil {
   let state =
     register_collection_kernel.from_summary([
       #("k", summary(string_value("A"), 1)),
@@ -215,7 +215,7 @@ pub fn ref_seq_equal_to_atomic_sequence_wins_test() -> Nil {
   |> expect.to_equal(Ok(string_value("B")))
 }
 
-pub fn ref_seq_less_than_atomic_sequence_loses_test() -> Nil {
+pub fn reference_sequence_number_less_than_atomic_sequence_loses_test() -> Nil {
   let state =
     register_collection_kernel.from_summary([
       #("k", summary(string_value("A"), 2)),

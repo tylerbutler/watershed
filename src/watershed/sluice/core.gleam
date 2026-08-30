@@ -50,7 +50,7 @@ pub opaque type Sluice {
   Sluice(
     document_id: String,
     tenant_id: String,
-    seq: SequenceState,
+    sequence_state: SequenceState,
     /// The full operation history, in ascending order of sequence number. A
     /// late joiner and a reconnect both replay from this list. Plan decision 5
     /// says that version 1 has no summary store.
@@ -62,7 +62,7 @@ pub opaque type Sluice {
     /// value.
     presence: Dict(String, frame.PresenceMeta),
     /// A deterministic source of `phx_ref` values. Phoenix creates a random
-    /// ref. The sluice creates `ref-1`, `ref-2`, and so on, for the same
+    /// reference. The sluice creates `ref-1`, `ref-2`, and so on, for the same
     /// reason that it creates `sluice-client-N`. A test asserts on the frames,
     /// so the frames must be reproducible.
     next_presence_ref: Int,
@@ -90,7 +90,7 @@ pub fn new(
   Sluice(
     document_id: document_id,
     tenant_id: tenant_id,
-    seq: sequencing.new(),
+    sequence_state: sequencing.new(),
     log: [],
     clients: dict.new(),
     presence: dict.new(),
@@ -156,7 +156,7 @@ pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
   let sluice =
     Sluice(
       ..sluice,
-      seq: sequencing.client_leave(sluice.seq, client_id),
+      sequence_state: sequencing.client_leave(sluice.sequence_state, client_id),
       clients: dict.delete(sluice.clients, client_id),
       paused: set.delete(sluice.paused, client_id),
     )
@@ -224,17 +224,18 @@ fn on_connect_document(
   case frame.decode_connect_document(payload) {
     Error(_) -> sluice
     Ok(request) -> {
-      let current = sequencing.current_sn(sluice.seq)
+      let current = sequencing.current_sn(sluice.sequence_state)
       // Join the sequencer at the current SN — the catch-up below brings the
       // client level with the document before any live operation is delivered.
-      let seq = sequencing.client_join(sluice.seq, client_id, current)
+      let sequence_state =
+        sequencing.client_join(sluice.sequence_state, client_id, current)
 
       // Sequence the join *before* the joiner is added to `clients`, so the
       // broadcast reaches the existing room only: the joiner receives its own
       // copy through `initial_messages` instead, which is how a real server
       // orders it.
       let #(sluice, join) =
-        Sluice(..sluice, seq: seq)
+        Sluice(..sluice, sequence_state: sequence_state)
         |> sequence_system("join", frame.system_join_data(client_id))
       let sluice = broadcast(sluice, "op", frame.encode_operation_event([join]))
 
@@ -251,7 +252,9 @@ fn on_connect_document(
           tenant_id: sluice.tenant_id,
           document_id: sluice.document_id,
           scopes: request.client.scopes,
-          checkpoint_sequence_number: sequencing.current_sn(sluice.seq),
+          checkpoint_sequence_number: sequencing.current_sn(
+            sluice.sequence_state,
+          ),
           initial_clients: connected_ids(sluice),
           // The whole retained log, *not* the slice after the request's
           // `lastSeenSequenceNumber`. Floodgate ignores that field entirely and
@@ -301,19 +304,23 @@ fn sequence_operation(
 ) -> Sluice {
   case
     sequencing.assign_sequence_number(
-      sluice.seq,
+      sluice.sequence_state,
       client_id,
       operation.client_sequence_number,
       operation.reference_sequence_number,
     )
   {
     sequencing.SequenceError(_) -> sluice
-    sequencing.SequenceOk(state: seq, assigned_sn: sn, msn: msn) -> {
+    sequencing.SequenceOk(
+      state: sequence_state,
+      assigned_sn: sequence_number,
+      msn: minimum_sequence_number,
+    ) -> {
       let sequenced =
         Sequenced(
           client_id: Some(client_id),
-          sequence_number: sn,
-          minimum_sequence_number: msn,
+          sequence_number: sequence_number,
+          minimum_sequence_number: minimum_sequence_number,
           client_sequence_number: operation.client_sequence_number,
           reference_sequence_number: operation.reference_sequence_number,
           operation_type: operation.operation_type,
@@ -323,7 +330,10 @@ fn sequence_operation(
           data: None,
         )
       let event = frame.encode_operation_event([sequenced])
-      Sluice(..sluice, seq: seq, log: [sequenced, ..sluice.log])
+      Sluice(..sluice, sequence_state: sequence_state, log: [
+        sequenced,
+        ..sluice.log
+      ])
       |> broadcast("op", event)
     }
   }
@@ -337,12 +347,12 @@ fn on_request_operations(
   case frame.decode_request_operations(payload) {
     Error(_) -> sluice
     Ok(from) -> {
-      // Exclusive of `from`, matching floodgate's `session.since` (`o.0 > sn`)
-      // and what the runtime means when it asks: `from` is the last SN it has,
-      // not the first it wants. This used to be `from - 1`, one operation
-      // generous — harmless in itself, since the runtime drops the duplicate,
-      // but it meant the sluice could never catch an off-by-one on the client
-      // side.
+      // Exclusive of `from`, matching floodgate's `session.since` (`o.0 >
+      // sequence_number`) and what the runtime means when it asks: `from` is
+      // the last SN it has, not the first it wants. This used to be `from - 1`,
+      // one operation generous — harmless in itself, since the runtime drops
+      // the duplicate, but it meant the sluice could never catch an off-by-one
+      // on the client side.
       let operations = log_since(sluice.log, from)
       case operations {
         [] -> sluice
@@ -361,9 +371,15 @@ fn on_request_operations(
 fn on_noop(sluice: Sluice, payload: Dynamic) -> Sluice {
   case frame.decode_noop(payload) {
     Error(_) -> sluice
-    Ok(#(client_id, rsn)) ->
-      case sequencing.update_client_rsn(sluice.seq, client_id, rsn) {
-        Ok(seq) -> Sluice(..sluice, seq: seq)
+    Ok(#(client_id, reference_sequence_number)) ->
+      case
+        sequencing.update_client_rsn(
+          sluice.sequence_state,
+          client_id,
+          reference_sequence_number,
+        )
+      {
+        Ok(sequence_state) -> Sluice(..sluice, sequence_state: sequence_state)
         Error(_) -> sluice
       }
   }
@@ -600,7 +616,7 @@ pub fn connected_ids(sluice: Sluice) -> List(String) {
 
 /// The current server sequence number.
 pub fn sequence_number(sluice: Sluice) -> Int {
-  sequencing.current_sn(sluice.seq)
+  sequencing.current_sn(sluice.sequence_state)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,22 +656,32 @@ fn sequence_system(
   message_type: String,
   data: String,
 ) -> #(Sluice, Sequenced) {
-  let sn = sequencing.current_sn(sluice.seq) + 1
-  let seq = sequencing.SequenceState(..sluice.seq, sequence_number: sn)
+  let sequence_number = sequencing.current_sn(sluice.sequence_state) + 1
+  let sequence_state =
+    sequencing.SequenceState(
+      ..sluice.sequence_state,
+      sequence_number: sequence_number,
+    )
   let message =
     Sequenced(
       client_id: None,
-      sequence_number: sn,
-      minimum_sequence_number: sequencing.current_msn(seq),
+      sequence_number: sequence_number,
+      minimum_sequence_number: sequencing.current_msn(sequence_state),
       client_sequence_number: -1,
-      reference_sequence_number: sn - 1,
+      reference_sequence_number: sequence_number - 1,
       operation_type: message_type,
       contents: json.null(),
       metadata: None,
       timestamp: sluice.now_ms,
       data: Some(data),
     )
-  #(Sluice(..sluice, seq: seq, log: [message, ..sluice.log]), message)
+  #(
+    Sluice(..sluice, sequence_state: sequence_state, log: [
+      message,
+      ..sluice.log
+    ]),
+    message,
+  )
 }
 
 /// The operations whose sequence number is more than `after`, in ascending

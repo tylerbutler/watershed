@@ -3,7 +3,7 @@
 //// This kernel is not optimistic, the same as `claims_kernel`. A local write
 //// is not visible until its operation sequences. Unlike claims, the kernel
 //// keeps every sequenced write as a version. It updates the atomic slot only
-//// if the write knew the current atomic version (`ref_seq >=
+//// if the write knew the current atomic version (`reference_sequence_number >=
 //// atomic.sequence_number`).
 
 import gleam/dict.{type Dict}
@@ -26,10 +26,11 @@ pub type VersionedValue {
   VersionedValue(value: Json, sequence_number: Int)
 }
 
-/// The one register-collection operation. `ref_seq` is the last sequence number
-/// that the author saw at submit time. A resubmit keeps that value.
+/// The one register-collection operation. `reference_sequence_number` is the
+/// last sequence number that the author saw at submit time. A resubmit keeps
+/// that value.
 pub type WriteOperation {
-  Write(key: String, value: Json, ref_seq: Int)
+  Write(key: String, value: Json, reference_sequence_number: Int)
 }
 
 pub type RegisterEvent {
@@ -114,13 +115,13 @@ pub fn write(
   _state: RegisterState,
   key: String,
   value: Json,
-  last_seen_seq: Int,
+  last_seen_sequence_number: Int,
 ) -> WriteOperation {
-  Write(key, value, last_seen_seq)
+  Write(key, value, last_seen_sequence_number)
 }
 
-/// The detached apply path. There is no sequencer yet, so `ref_seq` and `seq`
-/// are both zero.
+/// The detached apply path. There is no sequencer yet, so
+/// `reference_sequence_number` and `sequence_number` are both zero.
 pub fn write_detached(
   state: RegisterState,
   key: String,
@@ -133,15 +134,15 @@ pub fn write_detached(
 pub fn apply_remote(
   state: RegisterState,
   operation: WriteOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(RegisterState, List(RegisterEvent)) {
   let #(state, _is_winner, events) =
     apply_write(
       state,
       operation.key,
       operation.value,
-      operation.ref_seq,
-      seq,
+      operation.reference_sequence_number,
+      sequence_number,
       False,
     )
   #(state, events)
@@ -150,15 +151,15 @@ pub fn apply_remote(
 pub fn ack_local(
   state: RegisterState,
   operation: WriteOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(RegisterState, List(RegisterEvent), Bool) {
   let #(state, is_winner, events) =
     apply_write(
       state,
       operation.key,
       operation.value,
-      operation.ref_seq,
-      seq,
+      operation.reference_sequence_number,
+      sequence_number,
       True,
     )
   #(state, events, is_winner)
@@ -174,7 +175,7 @@ pub fn rollback(
 }
 
 /// The kernel resubmits a stashed operation without a change. In particular, it
-/// keeps `ref_seq`.
+/// keeps `reference_sequence_number`.
 pub fn apply_stashed_operation(
   state: RegisterState,
   operation: WriteOperation,
@@ -186,22 +187,24 @@ fn apply_write(
   state: RegisterState,
   key: String,
   value: Json,
-  ref_seq: Int,
-  seq: Int,
+  reference_sequence_number: Int,
+  sequence_number: Int,
   local: Bool,
 ) -> #(RegisterState, Bool, List(RegisterEvent)) {
-  let new_version = VersionedValue(value, seq)
+  let new_version = VersionedValue(value, sequence_number)
   let #(register, is_winner) = case dict.get(state.registers, key) {
     Error(_) -> #(Register(new_version, [new_version]), True)
     Ok(Register(atomic, versions)) -> {
-      let is_winner = ref_seq >= atomic.sequence_number
+      let is_winner = reference_sequence_number >= atomic.sequence_number
       let atomic = case is_winner {
         True -> new_version
         False -> atomic
       }
       let versions =
         versions
-        |> list.drop_while(fn(version) { version.sequence_number <= ref_seq })
+        |> list.drop_while(fn(version) {
+          version.sequence_number <= reference_sequence_number
+        })
         |> list.append([new_version])
       #(Register(atomic, versions), is_winner)
     }

@@ -68,16 +68,16 @@ document ripples.
 `subscribe_field` (decoded `FieldChange`), `subscribe_typed` (whole-map events).
 
 **Claims writes** — `claim_once(claims, key, value, to_msg:)` and
-`compare_and_set_claim(claims, key, value, to_msg:)` submit a claim and deliver
-its `claims_kernel.ClaimOutcome` (`Accepted` / `Lost` / `Aborted`) as a message
-once the outcome is known, the same deferred-to-microtask way every other
-callback in this package arrives. Claims reads are not optimistic — nothing
-about `get_claim`/`has_claim` changes until that message lands — so render the
-interval between calling either effect and its outcome as pending. `claim_once`
-is write-once and resolves `Lost` synchronously if the key is already claimed;
-`compare_and_set_claim` takes it regardless of who holds it, so long as
-nobody's write has landed since the committed entry it captures its `ref_seq`
-from.
+`compare_and_set_claim(claims, key, value, to_msg:)` submit a claim and
+deliver its `claims_kernel.ClaimOutcome` (`Accepted` / `Lost` / `Aborted`)
+as a message once the outcome is known, the same deferred-to-microtask way
+every other callback in this package arrives. Claims reads are not
+optimistic — nothing about `get_claim`/`has_claim` changes until that
+message lands — so render the interval between calling either effect and its
+outcome as pending. `claim_once` is write-once and resolves `Lost`
+synchronously if the key is already claimed; `compare_and_set_claim` takes
+it regardless of who holds it, so long as nobody's write has landed since
+the committed entry it captures its `reference_sequence_number` from.
 
 **Declarative bootstrap** — each dispatches its resolved channel once it settles,
 so a document's nested structure is an `effect.batch` in `init`:

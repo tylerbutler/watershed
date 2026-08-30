@@ -17,28 +17,28 @@ import watershed/register_collection_kernel.{
 }
 
 pub type WriteCommand {
-  WriteCommand(key: String, value: Json, ref_seq: Int)
+  WriteCommand(key: String, value: Json, reference_sequence_number: Int)
 }
 
 fn to_write(
   command: WriteCommand,
 ) -> register_collection_kernel.WriteOperation {
-  Write(command.key, command.value, command.ref_seq)
+  Write(command.key, command.value, command.reference_sequence_number)
 }
 
 fn operation_to_json(command: WriteCommand) -> Json {
   json.object([
     #("key", json.string(command.key)),
     #("value", command.value),
-    #("ref_seq", json.int(command.ref_seq)),
+    #("ref_seq", json.int(command.reference_sequence_number)),
   ])
 }
 
 fn operation_decoder() -> decode.Decoder(WriteCommand) {
   use key <- decode.field("key", decode.string)
   use value <- decode.field("value", decode.int)
-  use ref_seq <- decode.field("ref_seq", decode.int)
-  decode.success(WriteCommand(key, json.int(value), ref_seq))
+  use reference_sequence_number <- decode.field("ref_seq", decode.int)
+  decode.success(WriteCommand(key, json.int(value), reference_sequence_number))
 }
 
 fn operation_generator() -> qcheck.Generator(WriteCommand) {
@@ -66,11 +66,15 @@ fn submit(
       state,
       command.key,
       command.value,
-      meta.last_seen_seq,
+      meta.last_seen_sequence_number,
     )
   #(
     state,
-    Some(WriteCommand(operation.key, operation.value, operation.ref_seq)),
+    Some(WriteCommand(
+      operation.key,
+      operation.value,
+      operation.reference_sequence_number,
+    )),
   )
 }
 
@@ -108,12 +112,13 @@ fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
     dict.new(),
     fn(registers, entry, i) {
       let command = entry.1
-      let seq = i + 1
-      let version = VersionedValue(command.value, seq)
+      let sequence_number = i + 1
+      let version = VersionedValue(command.value, sequence_number)
       let #(register, _is_winner) = case dict.get(registers, command.key) {
         Error(_) -> #(Register(version, [version]), True)
         Ok(Register(atomic, versions)) -> {
-          let is_winner = command.ref_seq >= atomic.sequence_number
+          let is_winner =
+            command.reference_sequence_number >= atomic.sequence_number
           let atomic = case is_winner {
             True -> version
             False -> atomic
@@ -121,7 +126,7 @@ fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
           let versions =
             versions
             |> list.drop_while(fn(existing) {
-              existing.sequence_number <= command.ref_seq
+              existing.sequence_number <= command.reference_sequence_number
             })
             |> list.append([version])
           #(Register(atomic, versions), is_winner)
@@ -153,7 +158,14 @@ fn apply_stashed(
 ) -> #(RegisterState, WriteCommand) {
   let #(state, operation) =
     register_collection_kernel.apply_stashed_operation(state, to_write(command))
-  #(state, WriteCommand(operation.key, operation.value, operation.ref_seq))
+  #(
+    state,
+    WriteCommand(
+      operation.key,
+      operation.value,
+      operation.reference_sequence_number,
+    ),
+  )
 }
 
 pub fn model() -> KernelModel(

@@ -3,9 +3,9 @@
 //// There is no process and there are no side effects. Every operation returns
 //// the new state with the events and the outbound operation that it produced.
 //// The runtime actor owns the sequencing work: the CSN, the RSN, and the ack
-//// matching by `(client_id, csn)`. The kernel assumes only that the acks
-//// arrive in submission order (FIFO). The TypeScript kernel makes the same
-//// assumption in its reference-identity asserts.
+//// matching by `(client_id, client_sequence_number)`. The kernel assumes only
+//// that the acks arrive in submission order (FIFO). The TypeScript kernel
+//// makes the same assumption in its reference-identity asserts.
 ////
 //// The state is split the same way as in the TypeScript kernel:
 //// - `sequenced`: the values that the server confirmed, with

@@ -3,12 +3,13 @@
 //// consensus kernels:
 ////
 //// - The model operation is `ClaimCommand`, carrying the claim *kind*
-////   (write-once vs CAS) plus a `ref_seq` slot. `gen_operation` leaves
-////   `ref_seq` at 0; `submit` computes the real `ref_seq` from
-////   `SubmitMeta.last_seen_seq` (via the kernel) and returns the rewritten
-////   command for the harness to route. A submit that sends no operation — a
-////   write-once claim on a committed key, or a duplicate suppressed to keep
-////   one pending claim per key — returns `None`.
+////   (write-once vs CAS) plus a `reference_sequence_number` slot.
+////   `gen_operation` leaves `reference_sequence_number` at 0; `submit`
+////   computes the real `reference_sequence_number` from
+////   `SubmitMeta.last_seen_sequence_number` (via the kernel) and returns the
+////   rewritten command for the harness to route. A submit that sends no
+////   operation — a write-once claim on a committed key, or a duplicate
+////   suppressed to keep one pending claim per key — returns `None`.
 //// - `ack_preserves_view` is `False`: acking a winning claim first makes it
 ////   visible (reads are committed-only), which is correct, not a bug.
 ////
@@ -16,13 +17,13 @@
 //// does not call the kernel), so a kernel that forgot to advance an entry's
 //// stored sequence number on accept would diverge from it and be caught at the
 //// next `Synchronize`. The `>=`-vs-`==` acceptance mutation is NOT catchable
-//// here: this is a single-DDS model, so a client's `ref_seq` (its channel
-//// delivered cursor) can never exceed a key's committed sequence number at
-//// sequencing time, making the two rules observationally equivalent on every
-//// reachable schedule. In production `ref_seq` comes from the container-wide
-//// last sequence number, which CAN exceed a key's SN — so the `==` choice is
-//// pinned by the kernel unit test
-//// `write_once_operation_with_stale_high_ref_seq_is_rejected_test`.
+//// here: this is a single-DDS model, so a client's `reference_sequence_number`
+//// (its channel delivered cursor) can never exceed a key's committed sequence
+//// number at sequencing time, making the two rules observationally equivalent
+//// on every reachable schedule. In production `reference_sequence_number`
+//// comes from the container-wide last sequence number, which CAN exceed a
+//// key's SN — so the `==` choice is pinned by the kernel unit test
+//// `write_once_operation_with_stale_high_reference_sequence_number_is_rejected_test`.
 
 import gleam/dict
 import gleam/dynamic/decode
@@ -43,14 +44,20 @@ pub type ClaimKind {
   Cas
 }
 
-/// The generated operation. `ref_seq` is a slot filled by `submit` (0 until
-/// then) — see the module note on why it is computed, never generated.
+/// The generated operation. `reference_sequence_number` is a slot filled by
+/// `submit` (0 until then) — see the module note on why it is computed, never
+/// generated.
 pub type ClaimCommand {
-  ClaimCommand(kind: ClaimKind, key: String, value: Json, ref_seq: Int)
+  ClaimCommand(
+    kind: ClaimKind,
+    key: String,
+    value: Json,
+    reference_sequence_number: Int,
+  )
 }
 
 fn command_to_claim(command: ClaimCommand) -> claims_kernel.ClaimOperation {
-  Claim(command.key, command.value, command.ref_seq)
+  Claim(command.key, command.value, command.reference_sequence_number)
 }
 
 fn operation_to_json(command: ClaimCommand) -> Json {
@@ -64,7 +71,7 @@ fn operation_to_json(command: ClaimCommand) -> Json {
     ),
     #("key", json.string(command.key)),
     #("value", command.value),
-    #("ref_seq", json.int(command.ref_seq)),
+    #("ref_seq", json.int(command.reference_sequence_number)),
   ])
 }
 
@@ -72,12 +79,17 @@ fn operation_decoder() -> decode.Decoder(ClaimCommand) {
   use kind <- decode.field("kind", decode.string)
   use key <- decode.field("key", decode.string)
   use value <- decode.field("value", decode.int)
-  use ref_seq <- decode.field("ref_seq", decode.int)
+  use reference_sequence_number <- decode.field("ref_seq", decode.int)
   let kind = case kind {
     "cas" -> Cas
     _ -> TrySet
   }
-  decode.success(ClaimCommand(kind, key, json.int(value), ref_seq))
+  decode.success(ClaimCommand(
+    kind,
+    key,
+    json.int(value),
+    reference_sequence_number,
+  ))
 }
 
 /// Two keys keep races frequent; small integer values shrink well.
@@ -117,14 +129,14 @@ fn submit(
             state,
             command.key,
             command.value,
-            meta.last_seen_seq,
+            meta.last_seen_sequence_number,
           )
         Cas ->
           claims_kernel.compare_and_set_claim(
             state,
             command.key,
             command.value,
-            meta.last_seen_seq,
+            meta.last_seen_sequence_number,
           )
       }
       case result {
@@ -134,7 +146,7 @@ fn submit(
             command.kind,
             operation.key,
             operation.value,
-            operation.ref_seq,
+            operation.reference_sequence_number,
           )),
         )
         // Write-once on a committed key: resolved synchronously, no operation
@@ -191,13 +203,15 @@ fn oracle(entries: List(LogEntry(ClaimCommand))) -> List(#(String, Json, Int)) {
     dict.new(),
     fn(claims, entry, i) {
       let command = entry.1
-      let seq = i + 1
+      let sequence_number = i + 1
       let accepted = case dict.get(claims, command.key) {
         Error(_) -> True
-        Ok(#(_value, entry_seq)) -> command.ref_seq == entry_seq
+        Ok(#(_value, entry_sequence_number)) ->
+          command.reference_sequence_number == entry_sequence_number
       }
       case accepted {
-        True -> dict.insert(claims, command.key, #(command.value, seq))
+        True ->
+          dict.insert(claims, command.key, #(command.value, sequence_number))
         False -> claims
       }
     },
@@ -205,8 +219,8 @@ fn oracle(entries: List(LogEntry(ClaimCommand))) -> List(#(String, Json, Int)) {
   |> dict.to_list
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
   |> list.map(fn(entry) {
-    let #(key, #(value, seq)) = entry
-    #(key, value, seq)
+    let #(key, #(value, sequence_number)) = entry
+    #(key, value, sequence_number)
   })
 }
 

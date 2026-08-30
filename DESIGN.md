@@ -154,20 +154,21 @@ sections themselves get plain headings — no per-section eyebrows.
   (`claim_once` only — CAS re-claim is an explicit non-goal for the demo).
   Reads are **non-optimistic**, so the holder cell always prints in ink and
   a filed claim never shows as the holder — magenta annotates only the op in
-  flight (`claim filed · outcome unknown`, dashed underline on the `—`),
-  the inverse of the other views where magenta marks an optimistic value.
+  flight (`claim filed · outcome unknown`, dashed underline on the `—`), the
+  inverse of the other views where magenta marks an optimistic value.
   Claiming a committed slot is refused locally and synchronously (`already
   claimed — nothing sent`: no dot, no SN, note self-clears). The deferred
   outcome resolves at `ack_local`: a losing claim leaves a persistent
   magenta margin note (`lost — A holds it`) and logs an overprint-italic
   non-event (`#06 rejected — spillway-gate held · first writer wins`). Ops
-  print their `ref_seq` in the log (`claim north-levee → A (ref 0)`), fed
-  from a per-client last-delivered SN. Baseline pre-claims `pump-house` by
-  `Survey` via `from_summary` (persisted seq numbers keep CAS honest after
-  load). Claims have no unclaim op, so reset tears off a fresh sheet — both
-  replicas reload the baseline summary locally — guarded by an epoch counter
-  that makes the sequencer drop claims still in flight (otherwise a reset
-  mid-flight would commit on one replica and fail to ack on the other).
+  print their `reference_sequence_number` in the log (`claim north-levee → A
+  (ref 0)`), fed from a per-client last-delivered SN. Baseline pre-claims
+  `pump-house` by `Survey` via `from_summary` (persisted seq numbers keep
+  CAS honest after load). Claims have no unclaim op, so reset tears off a
+  fresh sheet — both replicas reload the baseline summary locally — guarded
+  by an epoch counter that makes the sequencer drop claims still in flight
+  (otherwise a reset mid-flight would commit on one replica and fail to ack
+  on the other).
 - The ordered collection is framed as a **task queue**: queued work prints in
   FIFO order, acquired jobs move into a held-job row with their owner (`A`/`B`),
   and add/acquire/complete/release are non-optimistic until sequenced. Its race

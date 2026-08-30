@@ -68,21 +68,23 @@ fn authorless_remove_oracle(
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(#(dict.new(), dict.new()), fn(state, item) {
       let #(dots, tallies) = state
-      let #(seq, #(_author, command)) = item
+      let #(sequence_number, #(_author, command)) = item
       case command {
         CommandIncrement(key, amount, _) -> {
           let existing = dict.get(dots, key) |> result.unwrap([])
           let tally = dict.get(tallies, key) |> result.unwrap(0)
           #(
-            dict.insert(dots, key, list.append(existing, [seq])),
+            dict.insert(dots, key, list.append(existing, [sequence_number])),
             dict.insert(tallies, key, tally + amount),
           )
         }
-        CommandRemove(key, ref_seq, _) -> {
+        CommandRemove(key, reference_sequence_number, _) -> {
           let remaining =
             dict.get(dots, key)
             |> result.unwrap([])
-            |> list.filter(fn(dot_seq) { dot_seq > ref_seq })
+            |> list.filter(fn(dot_sequence_number) {
+              dot_sequence_number > reference_sequence_number
+            })
           let dots = case remaining {
             [] -> dict.delete(dots, key)
             _ -> dict.insert(dots, key, remaining)

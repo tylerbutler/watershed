@@ -40,13 +40,13 @@ import simplifile
 
 /// Metadata threaded into `submit` from day one. Counter and map ignore it;
 /// claims (and later CAS-style consensus kernels) must compute an operation's
-/// `ref_seq` at submit time from the submitting client's delivered cursor,
-/// which is exactly `last_seen_seq` (the sequence number of the last operation
-/// this client has processed — server SNs are 1-based log positions, so a
-/// client that has delivered N operations has last seen SN N; 0 before it has
-/// seen any).
+/// `reference_sequence_number` at submit time from the submitting client's
+/// delivered cursor, which is exactly `last_seen_sequence_number` (the sequence
+/// number of the last operation this client has processed — server SNs are
+/// 1-based log positions, so a client that has delivered N operations has last
+/// seen SN N; 0 before it has seen any).
 pub type SubmitMeta {
-  SubmitMeta(client_id: Int, last_seen_seq: Int)
+  SubmitMeta(client_id: Int, last_seen_sequence_number: Int)
 }
 
 /// Metadata threaded through `apply_remote`/`ack_local` from day one. Counter
@@ -131,7 +131,7 @@ pub type KernelModel(state, operation, view) {
     // already-committed key, or a duplicate suppressed to keep the kernel's
     // one-pending-per-key invariant) and may return a *rewritten* operation
     // whose contents were computed at submit time from `SubmitMeta` (claims
-    // fills in `ref_seq` from the client's delivered cursor).
+    // fills in `reference_sequence_number` from the client's delivered cursor).
     submit: fn(state, operation, SubmitMeta) -> #(state, Option(operation)),
     apply_remote: fn(state, operation, SequencedMeta) -> Result(state, String),
     ack_local: fn(state, operation, SequencedMeta) -> Result(state, String),
@@ -749,7 +749,10 @@ fn reconnect(
             resubmit(
               state,
               operation,
-              SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+              SubmitMeta(
+                client_id: index,
+                last_seen_sequence_number: client.delivered,
+              ),
             )
           case out {
             Some(rewritten) -> #(state, [rewritten, ..acc_operations])
@@ -790,7 +793,10 @@ fn rollback_operation(
         model.submit(
           client.state,
           operation,
-          SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+          SubmitMeta(
+            client_id: index,
+            last_seen_sequence_number: client.delivered,
+          ),
         )
       // A submit that produced no operation (a consensus-kernel no-operation)
       // has nothing to roll back; otherwise roll back the operation the submit
@@ -832,7 +838,10 @@ fn stashed_operation(
         apply_stashed(
           client.state,
           operation,
-          SubmitMeta(client_id: index, last_seen_seq: client.delivered),
+          SubmitMeta(
+            client_id: index,
+            last_seen_sequence_number: client.delivered,
+          ),
         )
       let simulation =
         update_client(simulation, index, fn(client) {
@@ -899,7 +908,10 @@ fn interpret(
         model.submit(
           existing.state,
           operation,
-          SubmitMeta(client_id: index, last_seen_seq: existing.delivered),
+          SubmitMeta(
+            client_id: index,
+            last_seen_sequence_number: existing.delivered,
+          ),
         )
       let simulation =
         update_client(simulation, index, fn(client) {

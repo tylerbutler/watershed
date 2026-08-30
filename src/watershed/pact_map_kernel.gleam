@@ -29,7 +29,7 @@ pub type Pending {
 }
 
 pub type PactMapOperation {
-  Set(key: String, value: Option(Json), ref_seq: Int)
+  Set(key: String, value: Option(Json), reference_sequence_number: Int)
   Accept(key: String)
 }
 
@@ -139,11 +139,12 @@ pub fn set(
   state: PactMapState,
   key: String,
   value: Option(Json),
-  last_seen_seq: Int,
+  last_seen_sequence_number: Int,
 ) -> Result(PactMapOperation, ProposeError) {
   case dict.get(state.values, key) {
     Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
-    Ok(Pact(_, None)) | Error(Nil) -> Ok(Set(key, value, last_seen_seq))
+    Ok(Pact(_, None)) | Error(Nil) ->
+      Ok(Set(key, value, last_seen_sequence_number))
   }
 }
 
@@ -152,27 +153,27 @@ pub fn set(
 pub fn delete(
   state: PactMapState,
   key: String,
-  last_seen_seq: Int,
+  last_seen_sequence_number: Int,
 ) -> Result(PactMapOperation, ProposeError) {
   case dict.get(state.values, key) {
     Error(Nil) -> Error(KeyNotFound(key))
     Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
     Ok(Pact(Some(Accepted(None, _)), None)) -> Error(KeyAlreadyDeleted(key))
     Ok(Pact(Some(Accepted(Some(_), _)), None)) | Ok(Pact(None, None)) ->
-      Ok(Set(key, None, last_seen_seq))
+      Ok(Set(key, None, last_seen_sequence_number))
   }
 }
 
 pub fn apply_set(
   state: PactMapState,
   operation: PactMapOperation,
-  seq: Int,
+  sequence_number: Int,
   connected: List(Int),
   self_id: Int,
 ) -> #(PactMapState, List(PactMapEvent), SetReaction) {
   case operation {
     Accept(_) -> #(state, [], NoReaction)
-    Set(key, value, ref_seq) -> {
+    Set(key, value, reference_sequence_number) -> {
       let current = dict.get(state.values, key)
       let accepted = case current {
         Ok(Pact(accepted, _)) -> accepted
@@ -181,8 +182,8 @@ pub fn apply_set(
       let valid = case current {
         Error(_) -> True
         Ok(Pact(_, Some(_))) -> False
-        Ok(Pact(Some(Accepted(_, accepted_seq)), None)) ->
-          accepted_seq <= ref_seq
+        Ok(Pact(Some(Accepted(_, accepted_sequence_number)), None)) ->
+          accepted_sequence_number <= reference_sequence_number
         Ok(Pact(None, None)) -> True
       }
 
@@ -194,7 +195,7 @@ pub fn apply_set(
             Pact(accepted: accepted, pending: Some(Pending(value, signoffs)))
           let state = PactMapState(values: dict.insert(state.values, key, pact))
           let #(state, events) = case signoffs {
-            [] -> settle(state, key, seq)
+            [] -> settle(state, key, sequence_number)
             _ -> #(state, [WentPending(key)])
           }
           let reaction = case list.contains(signoffs, self_id) {
@@ -212,7 +213,7 @@ pub fn apply_accept(
   state: PactMapState,
   key: String,
   from_client: Int,
-  seq: Int,
+  sequence_number: Int,
 ) -> Result(#(PactMapState, List(PactMapEvent)), KernelError) {
   case dict.get(state.values, key) {
     Error(_) -> Ok(#(state, []))
@@ -234,7 +235,7 @@ pub fn apply_accept(
               Pact(accepted: accepted, pending: Some(Pending(value, signoffs))),
             ))
           case signoffs {
-            [] -> settle(state, key, seq) |> Ok
+            [] -> settle(state, key, sequence_number) |> Ok
             _ -> Ok(#(state, []))
           }
         }
@@ -246,7 +247,7 @@ pub fn apply_accept(
 pub fn remove_member(
   state: PactMapState,
   client_id: Int,
-  leave_seq: Int,
+  leave_sequence_number: Int,
 ) -> #(PactMapState, List(PactMapEvent)) {
   summary_entries(state)
   |> list.fold(#(state, []), fn(acc, entry) {
@@ -264,7 +265,8 @@ pub fn remove_member(
           ))
         case signoffs {
           [] -> {
-            let #(state, settle_events) = settle(state, key, leave_seq)
+            let #(state, settle_events) =
+              settle(state, key, leave_sequence_number)
             #(state, list.append(events, settle_events))
           }
           _ -> #(state, events)

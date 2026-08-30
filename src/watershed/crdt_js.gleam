@@ -3614,7 +3614,7 @@ fn format_json_decode_error(error: json.DecodeError) -> String {
   case error {
     json.UnexpectedEndOfInput -> "unexpected end of input"
     json.UnexpectedByte(byte) -> "unexpected byte: " <> byte
-    json.UnexpectedSequence(seq) -> "unexpected sequence: " <> seq
+    json.UnexpectedSequence(bytes) -> "unexpected sequence: " <> bytes
     json.UnableToDecode(errors) ->
       "unable to decode: "
       <> string.join(

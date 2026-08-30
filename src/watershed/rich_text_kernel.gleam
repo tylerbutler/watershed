@@ -35,7 +35,7 @@ pub type RichTextState {
 }
 
 pub type RichTextWireOperation {
-  RichTextWireOperation(ref_seq: Int, delta: rich_text.Delta)
+  RichTextWireOperation(reference_sequence_number: Int, delta: rich_text.Delta)
 }
 
 pub type RichTextEvent {
@@ -120,7 +120,7 @@ pub fn invert(
 pub fn submit(
   state: RichTextState,
   delta: rich_text.Delta,
-  ref_seq: Int,
+  reference_sequence_number: Int,
 ) -> Result(
   #(RichTextState, Option(RichTextWireOperation), List(RichTextEvent)),
   KernelError,
@@ -139,7 +139,7 @@ pub fn submit(
   ))
   Ok(#(
     RichTextState(..state, pending: pending),
-    option.map(to_send, RichTextWireOperation(ref_seq, _)),
+    option.map(to_send, RichTextWireOperation(reference_sequence_number, _)),
     events,
   ))
 }
@@ -151,14 +151,14 @@ pub fn submit(
 pub fn apply_remote(
   state: RichTextState,
   wire: RichTextWireOperation,
-  seq: Int,
-  msn: Int,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
   use head_delta <- result.try(
     ot_client.to_head_context(
       state.log,
-      wire.ref_seq,
-      seq,
+      wire.reference_sequence_number,
+      sequence_number,
       wire.delta,
       fn(current, entry) { transform(current, entry.operation, rich_text.Left) },
     ),
@@ -174,8 +174,8 @@ pub fn apply_remote(
   )
   let log =
     ot_client.gc_log(
-      list.append(state.log, [ot_client.LogEntry(seq, head_delta)]),
-      msn,
+      list.append(state.log, [ot_client.LogEntry(sequence_number, head_delta)]),
+      minimum_sequence_number,
     )
   let state =
     RichTextState(..state, sequenced: sequenced, log: log, pending: pending)
@@ -188,8 +188,8 @@ pub fn apply_remote(
 pub fn ack_local(
   state: RichTextState,
   _echoed_wire: RichTextWireOperation,
-  seq: Int,
-  msn: Int,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
   use in_flight <- result.try(
     ot_client.in_flight(state.pending)
@@ -198,11 +198,15 @@ pub fn ack_local(
   use sequenced <- result.try(apply_operation(state.sequenced, in_flight))
   let log =
     ot_client.gc_log(
-      list.append(state.log, [ot_client.LogEntry(seq, in_flight)]),
-      msn,
+      list.append(state.log, [ot_client.LogEntry(sequence_number, in_flight)]),
+      minimum_sequence_number,
     )
   let #(pending, outbound) =
-    ot_client.promote_buffer(state.pending, seq, RichTextWireOperation)
+    ot_client.promote_buffer(
+      state.pending,
+      sequence_number,
+      RichTextWireOperation,
+    )
   Ok(
     #(
       RichTextState(

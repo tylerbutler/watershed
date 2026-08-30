@@ -73,9 +73,9 @@ fn tampered_delta() -> Text {
 
 fn no_operation_meta() -> channel.SequencedMeta {
   channel.SequencedMeta(
-    seq: 1,
-    last_seen_sn: 0,
-    min_seq: 0,
+    sequence_number: 1,
+    last_seen_sequence_number: 0,
+    minimum_sequence_number: 0,
     author: 1,
     self: 1,
     quorum: [1],

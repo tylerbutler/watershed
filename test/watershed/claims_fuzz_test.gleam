@@ -9,7 +9,8 @@
 //// from `claims_model`'s independent oracle and is caught + shrunk here. The
 //// `>=`-vs-`==` acceptance mutation is observationally equivalent in this
 //// single-DDS model (see `claims_model`) and is instead pinned by the kernel
-//// unit test `write_once_operation_with_stale_high_ref_seq_is_rejected_test`.
+//// unit test
+//// `write_once_operation_with_stale_high_reference_sequence_number_is_rejected_test`.
 
 import watershed/fuzz/claims_model
 import watershed/fuzz/kernel_fuzz

@@ -176,7 +176,7 @@ pub fn step_info_reports_operation_sequence_and_author_test() -> Nil {
 
   watershed.set(watershed.root(doc_a), "k", json.int(1))
 
-  // Drain, collecting only the operation deliveries' (sn, author).
+  // Drain, collecting only the operation deliveries' (sequence_number, author).
   let operations = drain_operation_meta(sluice, [])
   // The two handshakes sequenced a join apiece (SN 1 and 2), already drained by
   // `settle`. The one operation is broadcast to both clients: two operation

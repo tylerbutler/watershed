@@ -115,7 +115,7 @@ fn apply_stashed_recording_meta(
   operation: Int,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(List(Int), Int) {
-  #(list.append(state, [meta.last_seen_seq]), operation)
+  #(list.append(state, [meta.last_seen_sequence_number]), operation)
 }
 
 /// H3: `apply_stashed` gets the submitting client's delivered cursor, same

@@ -232,9 +232,9 @@ pub type ChannelOperation {
   /// this submission. Unlike the other kernels, the id travels *in the
   /// operation*. A remote client needs the client-sequence identity of the
   /// author to run the stale-instance filter (D12) and the sibling order (D9).
-  /// The csn of the runtime counts the operations of every channel together,
-  /// and it would thus not equal the counter that the kernel keeps for each
-  /// directory.
+  /// The client_sequence_number of the runtime counts the operations of every
+  /// channel together, and it would thus not equal the counter that the kernel
+  /// keeps for each directory.
   DirectoryOperation(
     operation: directory_kernel.DirectoryOperation,
     message_id: Int,
@@ -348,13 +348,13 @@ pub type LocalOperationMeta {
 
 /// The metadata that the sequencer assigns to a sequenced operation. The map
 /// kernel and the counter kernel ignore it. A kernel that stores sequence
-/// numbers reads `seq`. Every path passes this value, so a new kernel of that
-/// kind needs no other change.
+/// numbers reads `sequence_number`. Every path passes this value, so a new
+/// kernel of that kind needs no other change.
 pub type SequencedMeta {
   SequencedMeta(
-    seq: Int,
-    last_seen_sn: Int,
-    min_seq: Int,
+    sequence_number: Int,
+    last_seen_sequence_number: Int,
+    minimum_sequence_number: Int,
     author: Int,
     self: Int,
     /// The set that a consensus proposal freezes its signoff list from. That
@@ -376,8 +376,8 @@ pub type SequencedMeta {
     /// The reference sequence number of the author of the operation, which is
     /// what that client had seen at submit time. The stale-instance filter of
     /// the directory kernel (D12) reads it. The other kernels ignore it.
-    /// `last_seen_sn` is the watermark of the *local* client, and you cannot
-    /// use it in place of this field.
+    /// `last_seen_sequence_number` is the watermark of the *local* client, and
+    /// you cannot use it in place of this field.
     reference_sequence_number: Int,
   )
 }
@@ -748,7 +748,11 @@ pub fn apply_remote(
     }
     RegisterCollectionState(kernel), RegisterCollectionOperation(operation) -> {
       let #(kernel, events) =
-        register_collection_kernel.apply_remote(kernel, operation, meta.seq)
+        register_collection_kernel.apply_remote(
+          kernel,
+          operation,
+          meta.sequence_number,
+        )
       Ok(
         #(
           RegisterCollectionState(kernel),
@@ -759,7 +763,7 @@ pub fn apply_remote(
     }
     ClaimsState(kernel), ClaimsOperation(operation) -> {
       let #(kernel, events) =
-        claims_kernel.apply_remote(kernel, operation, meta.seq)
+        claims_kernel.apply_remote(kernel, operation, meta.sequence_number)
       Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent), []))
     }
     TaskManagerState(kernel), TaskManagerOperation(operation) -> {
@@ -776,7 +780,12 @@ pub fn apply_remote(
       apply_pact_map(kernel, operation, meta)
     JsonOtState(kernel), JsonOtOperation(operation) ->
       case
-        json_ot_kernel.apply_remote(kernel, operation, meta.seq, meta.min_seq)
+        json_ot_kernel.apply_remote(
+          kernel,
+          operation,
+          meta.sequence_number,
+          meta.minimum_sequence_number,
+        )
       {
         Ok(#(kernel, events)) ->
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), []))
@@ -812,7 +821,12 @@ pub fn apply_remote(
     }
     RichTextState(kernel), RichTextOperation(operation) ->
       case
-        rich_text_kernel.apply_remote(kernel, operation, meta.seq, meta.min_seq)
+        rich_text_kernel.apply_remote(
+          kernel,
+          operation,
+          meta.sequence_number,
+          meta.minimum_sequence_number,
+        )
       {
         Ok(#(kernel, events)) ->
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), []))
@@ -866,7 +880,7 @@ fn apply_pact_map(
         pact_map_kernel.apply_set(
           kernel,
           operation,
-          meta.seq,
+          meta.sequence_number,
           meta.quorum,
           meta.self,
         )
@@ -877,7 +891,14 @@ fn apply_pact_map(
       ))
     }
     pact_map_kernel.Accept(key) ->
-      case pact_map_kernel.apply_accept(kernel, key, meta.author, meta.seq) {
+      case
+        pact_map_kernel.apply_accept(
+          kernel,
+          key,
+          meta.author,
+          meta.sequence_number,
+        )
+      {
         Ok(#(kernel, events)) ->
           Ok(#(PactMapState(kernel), list.map(events, PactMapEvent), []))
         Error(pact_map_kernel.UnexpectedAccept(_, _, detail)) ->
@@ -927,7 +948,7 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
 }
 
 /// Apply a sequenced membership leave to a channel. The named client left the
-/// collaboration session at `leave_seq`.
+/// collaboration session at `leave_sequence_number`.
 ///
 /// A consensus kernel or a queue kernel that tracks state for each client
 /// settles that state deterministically. PactMap removes the outstanding
@@ -939,12 +960,12 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
 pub fn on_leave(
   state: ChannelState,
   client_id: Int,
-  leave_seq: Int,
+  leave_sequence_number: Int,
 ) -> #(ChannelState, List(ChannelEvent)) {
   case state {
     PactMapState(kernel) -> {
       let #(kernel, events) =
-        pact_map_kernel.remove_member(kernel, client_id, leave_seq)
+        pact_map_kernel.remove_member(kernel, client_id, leave_sequence_number)
       #(PactMapState(kernel), list.map(events, PactMapEvent))
     }
     OrderedCollectionState(kernel) -> {
@@ -986,7 +1007,7 @@ fn directory_sequenced_meta(
 ) -> directory_kernel.SequencedMeta {
   directory_kernel.SequencedMeta(
     author: meta.author,
-    sequence_number: meta.seq,
+    sequence_number: meta.sequence_number,
     reference_sequence_number: meta.reference_sequence_number,
     client_sequence_number: message_id,
   )
@@ -1204,7 +1225,11 @@ pub fn ack_local(
       }
     RegisterCollectionState(kernel), RegisterCollectionOperation(operation) -> {
       let #(kernel, events, _is_winner) =
-        register_collection_kernel.ack_local(kernel, operation, meta.seq)
+        register_collection_kernel.ack_local(
+          kernel,
+          operation,
+          meta.sequence_number,
+        )
       Ok(#(
         RegisterCollectionState(kernel),
         list.map(events, RegisterCollectionEvent),
@@ -1212,7 +1237,7 @@ pub fn ack_local(
       ))
     }
     ClaimsState(kernel), ClaimsOperation(operation) ->
-      case claims_kernel.ack_local(kernel, operation, meta.seq) {
+      case claims_kernel.ack_local(kernel, operation, meta.sequence_number) {
         Ok(#(kernel, events, outcome)) ->
           Ok(#(
             ClaimsState(kernel),
@@ -1263,7 +1288,14 @@ pub fn ack_local(
           ))
       }
     JsonOtState(kernel), JsonOtOperation(operation) ->
-      case json_ot_kernel.ack_local(kernel, operation, meta.seq, meta.min_seq) {
+      case
+        json_ot_kernel.ack_local(
+          kernel,
+          operation,
+          meta.sequence_number,
+          meta.minimum_sequence_number,
+        )
+      {
         Ok(#(kernel, events)) ->
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), None))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
@@ -1346,7 +1378,12 @@ pub fn ack_local(
       }
     RichTextState(kernel), RichTextOperation(operation) ->
       case
-        rich_text_kernel.ack_local(kernel, operation, meta.seq, meta.min_seq)
+        rich_text_kernel.ack_local(
+          kernel,
+          operation,
+          meta.sequence_number,
+          meta.minimum_sequence_number,
+        )
       {
         Ok(#(kernel, events)) ->
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), None))
@@ -1652,9 +1689,9 @@ pub fn apply_p2p_remote(
 /// permits ignores it.
 fn zeroed_meta() -> SequencedMeta {
   SequencedMeta(
-    seq: 0,
-    last_seen_sn: 0,
-    min_seq: 0,
+    sequence_number: 0,
+    last_seen_sequence_number: 0,
+    minimum_sequence_number: 0,
     author: 0,
     self: 0,
     quorum: [],
@@ -1822,17 +1859,18 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
     RegisterCollectionOperation(ours), RegisterCollectionOperation(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
-      && ours.ref_seq == echoed.ref_seq
+      && ours.reference_sequence_number == echoed.reference_sequence_number
     ClaimsOperation(ours), ClaimsOperation(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
-      && ours.ref_seq == echoed.ref_seq
+      && ours.reference_sequence_number == echoed.reference_sequence_number
     TaskManagerOperation(ours), TaskManagerOperation(echoed) ->
       same_task_manager_shape(ours, echoed)
     PactMapOperation(ours), PactMapOperation(echoed) ->
       same_pact_map_shape(ours, echoed)
     JsonOtOperation(ours), JsonOtOperation(echoed) ->
-      ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
+      ours.reference_sequence_number == echoed.reference_sequence_number
+      && ours.components == echoed.components
     DirectoryOperation(ours, our_id), DirectoryOperation(echoed, echoed_id) ->
       our_id == echoed_id && same_directory_shape(ours, echoed)
     OrderedCollectionOperation(ours), OrderedCollectionOperation(echoed) ->
@@ -1840,7 +1878,8 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
     SequenceOperation(ours), SequenceOperation(echoed) ->
       same_sequence_shape(ours, echoed)
     RichTextOperation(ours), RichTextOperation(echoed) ->
-      ours.ref_seq == echoed.ref_seq && ours.delta == echoed.delta
+      ours.reference_sequence_number == echoed.reference_sequence_number
+      && ours.delta == echoed.delta
     TextOperation(ours), TextOperation(echoed) -> same_text_shape(ours, echoed)
     MapOperation(_), _
     | CounterOperation(_), _
@@ -2267,8 +2306,8 @@ fn encode_directory_summary(
 
 fn encode_create_info(create: directory_kernel.CreateInfo) -> Json {
   json.object([
-    #("seq", json.int(create.seq)),
-    #("clientSeq", json.int(create.client_seq)),
+    #("seq", json.int(create.sequence_number)),
+    #("clientSeq", json.int(create.client_sequence_number)),
   ])
 }
 
@@ -2355,9 +2394,12 @@ fn directory_subdir_decoder() -> Decoder(
 }
 
 fn create_info_decoder() -> Decoder(directory_kernel.CreateInfo) {
-  use seq <- decode.field("seq", decode.int)
-  use client_seq <- decode.field("clientSeq", decode.int)
-  decode.success(directory_kernel.CreateInfo(seq: seq, client_seq: client_seq))
+  use sequence_number <- decode.field("seq", decode.int)
+  use client_sequence_number <- decode.field("clientSeq", decode.int)
+  decode.success(directory_kernel.CreateInfo(
+    sequence_number: sequence_number,
+    client_sequence_number: client_sequence_number,
+  ))
 }
 
 fn encode_task_queues(queues: List(#(String, List(Int)))) -> Json {
@@ -2381,12 +2423,12 @@ fn same_pact_map_shape(
   echoed: pact_map_kernel.PactMapOperation,
 ) -> Bool {
   case ours, echoed {
-    pact_map_kernel.Set(our_key, our_value, our_ref),
-      pact_map_kernel.Set(echoed_key, echoed_value, echoed_ref)
+    pact_map_kernel.Set(our_key, our_value, our_reference),
+      pact_map_kernel.Set(echoed_key, echoed_value, echoed_reference)
     ->
       our_key == echoed_key
       && same_optional_json(our_value, echoed_value)
-      && our_ref == echoed_ref
+      && our_reference == echoed_reference
     pact_map_kernel.Accept(our_key), pact_map_kernel.Accept(echoed_key) ->
       our_key == echoed_key
     pact_map_kernel.Set(_, _, _), _ | pact_map_kernel.Accept(_), _ -> False
@@ -2434,10 +2476,10 @@ fn encode_pact(pact: pact_map_kernel.Pact) -> Json {
   let pact_map_kernel.Pact(accepted, pending) = pact
   json.object([
     #("accepted", case accepted {
-      Some(pact_map_kernel.Accepted(value, seq)) ->
+      Some(pact_map_kernel.Accepted(value, sequence_number)) ->
         json.object([
           #("value", encode_optional_value(value)),
-          #("sequenceNumber", json.int(seq)),
+          #("sequenceNumber", json.int(sequence_number)),
         ])
       None -> json.null()
     }),
@@ -2477,8 +2519,8 @@ fn pact_decoder() -> Decoder(pact_map_kernel.Pact) {
 
 fn accepted_decoder() -> Decoder(pact_map_kernel.Accepted) {
   use value <- decode.field("value", optional_value_decoder())
-  use seq <- decode.field("sequenceNumber", decode.int)
-  decode.success(pact_map_kernel.Accepted(value, seq))
+  use sequence_number <- decode.field("sequenceNumber", decode.int)
+  decode.success(pact_map_kernel.Accepted(value, sequence_number))
 }
 
 fn pending_decoder() -> Decoder(pact_map_kernel.Pending) {

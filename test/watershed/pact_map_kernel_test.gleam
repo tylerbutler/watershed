@@ -16,7 +16,7 @@ fn string_value(value: String) -> Json {
 fn apply_set(
   state: PactMapState,
   operation: pact_map_kernel.PactMapOperation,
-  seq: Int,
+  sequence_number: Int,
   connected: List(Int),
   self_id: Int,
 ) -> #(
@@ -24,7 +24,13 @@ fn apply_set(
   List(pact_map_kernel.PactMapEvent),
   pact_map_kernel.SetReaction,
 ) {
-  pact_map_kernel.apply_set(state, operation, seq, connected, self_id)
+  pact_map_kernel.apply_set(
+    state,
+    operation,
+    sequence_number,
+    connected,
+    self_id,
+  )
 }
 
 pub fn detached_set_accepts_immediately_test() -> Nil {

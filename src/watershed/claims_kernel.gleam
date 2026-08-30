@@ -10,20 +10,21 @@
 ////    `map_kernel`.
 //// 2. **The sequencing decides acceptance, in the same way for a local
 ////    operation and a remote operation** (`apply_sequenced`). The kernel
-////    accepts the operation when the key is unclaimed, or when the `ref_seq`
-////    of the operation equals the sequence number of the committed entry
-////    exactly. Every client applies the same rule to the same committed state,
-////    so the replicas converge by construction. The local path does one more
-////    thing only: it resolves the pending outcome for the caller.
+////    accepts the operation when the key is unclaimed, or when the
+////    `reference_sequence_number` of the operation equals the sequence number
+////    of the committed entry exactly. Every client applies the same rule to
+////    the same committed state, so the replicas converge by construction. The
+////    local path does one more thing only: it resolves the pending outcome for
+////    the caller.
 ////
 //// The new pattern here is the **deferred outcome**. The result of a local
 //// claim, which is whether that claim won, is unknowable until the operation
 //// returns from the server. The TypeScript class returns a `Promise`. This
 //// pure kernel returns a `ClaimOutcome` value from `ack_local`, `rollback`,
 //// and `abort_all`, and the runtime owns the asynchronous surface.
-//// `last_seen_seq` is a parameter, and not kernel state. The runtime actor
-//// owns the sequencing work, the same as for the map kernel, and it already
-//// tracks the last sequence number of the container.
+//// `last_seen_sequence_number` is a parameter, and not kernel state. The
+//// runtime actor owns the sequencing work, the same as for the map kernel, and
+//// it already tracks the last sequence number of the container.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -53,7 +54,7 @@ pub type ClaimEntry {
 /// (`claim_once`) and the compare-and-set path (`compare_and_set_claim`) both
 /// use this shape.
 pub type ClaimOperation {
-  Claim(key: String, value: Json, ref_seq: Int)
+  Claim(key: String, value: Json, reference_sequence_number: Int)
 }
 
 pub type ClaimEvent {
@@ -107,13 +108,13 @@ pub fn new() -> ClaimsState {
 
 /// Build a state that contains committed data only, from the stored summary
 /// triples `(key, value, sequence_number)`. The summary keeps the sequence
-/// numbers, so the `ref_seq` comparison of a compare-and-set continues to work
-/// after a load. A state that you load has no pending entry.
+/// numbers, so the `reference_sequence_number` comparison of a compare-and-set
+/// continues to work after a load. A state that you load has no pending entry.
 pub fn from_summary(entries: List(#(String, Json, Int))) -> ClaimsState {
   let claims =
     list.fold(entries, dict.new(), fn(acc, entry) {
-      let #(key, value, seq) = entry
-      dict.insert(acc, key, ClaimEntry(value, seq))
+      let #(key, value, sequence_number) = entry
+      dict.insert(acc, key, ClaimEntry(value, sequence_number))
     })
   ClaimsState(claims: claims, pending: dict.new())
 }
@@ -125,8 +126,8 @@ pub fn summary_entries(state: ClaimsState) -> List(#(String, Json, Int)) {
   dict.to_list(state.claims)
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
   |> list.map(fn(entry) {
-    let #(key, ClaimEntry(value, seq)) = entry
-    #(key, value, seq)
+    let #(key, ClaimEntry(value, sequence_number)) = entry
+    #(key, value, sequence_number)
   })
 }
 
@@ -150,7 +151,7 @@ pub fn has(state: ClaimsState, key: String) -> Bool {
 /// The write-once submit. If a committed entry exists, the function returns
 /// `AlreadyClaimed` at once and sends no operation. If none exists, the
 /// function behaves as a compare-and-set against the unclaimed key, and it
-/// records `ref_seq = last_seen_seq`.
+/// records `reference_sequence_number = last_seen_sequence_number`.
 ///
 /// The check of the committed state runs *before* the pending guard. A
 /// write-once claim on a committed key thus returns `AlreadyClaimed`, also
@@ -159,44 +160,44 @@ pub fn claim_once(
   state: ClaimsState,
   key: String,
   value: Json,
-  last_seen_seq: Int,
+  last_seen_sequence_number: Int,
 ) -> Result(SubmitResult, KernelError) {
   case dict.get(state.claims, key) {
     Ok(ClaimEntry(current, _)) -> Ok(AlreadyClaimed(current))
-    Error(_) -> submit_claim(state, key, value, last_seen_seq)
+    Error(_) -> submit_claim(state, key, value, last_seen_sequence_number)
   }
 }
 
 /// The compare-and-set submit. If the key is claimed, the function records
-/// `ref_seq` from the sequence number of the committed entry. If the key is
-/// unclaimed, it records `last_seen_seq`. The function always submits, and it
-/// never returns `AlreadyClaimed` at once. The sequencing of the operation
-/// decides the acceptance.
+/// `reference_sequence_number` from the sequence number of the committed entry.
+/// If the key is unclaimed, it records `last_seen_sequence_number`. The
+/// function always submits, and it never returns `AlreadyClaimed` at once. The
+/// sequencing of the operation decides the acceptance.
 pub fn compare_and_set_claim(
   state: ClaimsState,
   key: String,
   value: Json,
-  last_seen_seq: Int,
+  last_seen_sequence_number: Int,
 ) -> Result(SubmitResult, KernelError) {
-  let ref_seq = case dict.get(state.claims, key) {
-    Ok(ClaimEntry(_, seq)) -> seq
-    Error(_) -> last_seen_seq
+  let reference_sequence_number = case dict.get(state.claims, key) {
+    Ok(ClaimEntry(_, sequence_number)) -> sequence_number
+    Error(_) -> last_seen_sequence_number
   }
-  submit_claim(state, key, value, ref_seq)
+  submit_claim(state, key, value, reference_sequence_number)
 }
 
 fn submit_claim(
   state: ClaimsState,
   key: String,
   value: Json,
-  ref_seq: Int,
+  reference_sequence_number: Int,
 ) -> Result(SubmitResult, KernelError) {
   case dict.has_key(state.pending, key) {
     True -> Error(AlreadyPendingLocally(key))
     False -> {
       let state =
         ClaimsState(..state, pending: dict.insert(state.pending, key, value))
-      Ok(Submitted(state, Claim(key, value, ref_seq)))
+      Ok(Submitted(state, Claim(key, value, reference_sequence_number)))
     }
   }
 }
@@ -219,27 +220,32 @@ pub fn set_detached(
 
 /// The acceptance rule, which is S3 and S4. The function applies it in the
 /// same way to a local operation and to a remote operation. It accepts the
-/// operation if the key is unclaimed, or if the `ref_seq` of the operation
-/// equals the sequence number of the committed entry *exactly*. On an accept,
-/// it replaces the entry with the value of the operation and the sequence
-/// number of the operation. It returns whether it accepted the operation, so
-/// that a caller can emit an event or resolve an outcome.
+/// operation if the key is unclaimed, or if the `reference_sequence_number` of
+/// the operation equals the sequence number of the committed entry *exactly*.
+/// On an accept, it replaces the entry with the value of the operation and the
+/// sequence number of the operation. It returns whether it accepted the
+/// operation, so that a caller can emit an event or resolve an outcome.
 fn apply_sequenced(
   state: ClaimsState,
   operation: ClaimOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(ClaimsState, Bool) {
-  let Claim(key, value, ref_seq) = operation
+  let Claim(key, value, reference_sequence_number) = operation
   let accepted = case dict.get(state.claims, key) {
     Error(_) -> True
-    Ok(ClaimEntry(_, entry_seq)) -> ref_seq == entry_seq
+    Ok(ClaimEntry(_, entry_sequence_number)) ->
+      reference_sequence_number == entry_sequence_number
   }
   case accepted {
     False -> #(state, False)
     True -> #(
       ClaimsState(
         ..state,
-        claims: dict.insert(state.claims, key, ClaimEntry(value, seq)),
+        claims: dict.insert(
+          state.claims,
+          key,
+          ClaimEntry(value, sequence_number),
+        ),
       ),
       True,
     )
@@ -254,9 +260,9 @@ fn apply_sequenced(
 pub fn apply_remote(
   state: ClaimsState,
   operation: ClaimOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> #(ClaimsState, List(ClaimEvent)) {
-  let #(state, accepted) = apply_sequenced(state, operation, seq)
+  let #(state, accepted) = apply_sequenced(state, operation, sequence_number)
   case accepted {
     True -> #(state, [Claimed(operation.key, False)])
     False -> #(state, [])
@@ -276,7 +282,7 @@ pub fn apply_remote(
 pub fn ack_local(
   state: ClaimsState,
   operation: ClaimOperation,
-  seq: Int,
+  sequence_number: Int,
 ) -> Result(#(ClaimsState, List(ClaimEvent), ClaimOutcome), KernelError) {
   case dict.get(state.pending, operation.key) {
     Error(_) ->
@@ -285,7 +291,8 @@ pub fn ack_local(
         "no pending claim for key \"" <> operation.key <> "\"",
       ))
     Ok(pending_value) -> {
-      let #(state, accepted) = apply_sequenced(state, operation, seq)
+      let #(state, accepted) =
+        apply_sequenced(state, operation, sequence_number)
       let state =
         ClaimsState(..state, pending: dict.delete(state.pending, operation.key))
       case accepted {
@@ -321,8 +328,8 @@ pub fn rollback(
 
 /// Register a stashed operation as pending again, which guards the key. No
 /// caller waits on it. The function returns the operation without a change, for
-/// the resubmission, and it keeps the original `ref_seq`. It returns an error
-/// if the key is already pending.
+/// the resubmission, and it keeps the original `reference_sequence_number`. It
+/// returns an error if the key is already pending.
 pub fn apply_stashed_operation(
   state: ClaimsState,
   operation: ClaimOperation,

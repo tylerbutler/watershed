@@ -16,8 +16,9 @@
 //// The sequencer never transforms. It broadcasts an operation without a
 //// change, with the reference sequence number (RSN) that the author wrote it
 //// against. A receiver must thus transform that operation past every operation
-//// that sequenced in the window `(operation.ref_seq, operation.seq)`, because
-//// the author did not see those operations.
+//// that sequenced in the window `(operation.reference_sequence_number,
+//// operation.sequence_number)`, because the author did not see those
+//// operations.
 ////
 //// For the context to stay consistent, no earlier unacked operation of the
 //// same author can come before the incoming operation in that window. If one
@@ -66,32 +67,35 @@ import gleam/result
 
 /// A sequenced operation that the kernel keeps for the concurrency window. The
 /// kernel already transformed it into the context that it was applied in, which
-/// is the head context at its `seq`.
+/// is the head context at its `sequence_number`.
 pub type LogEntry(operation) {
-  LogEntry(seq: Int, operation: operation)
+  LogEntry(sequence_number: Int, operation: operation)
 }
 
 /// Fold an incoming operation past every logged entry that sequenced inside its
-/// `(ref_seq, seq)` window, in seq order. The function uses
-/// `transform_against` to advance the operation past each entry. The incoming
-/// operation has a larger sequence number than every entry in the window, so
-/// the closure of the kernel must give the incoming operation the side of the
-/// later operation.
+/// `(reference_sequence_number, sequence_number)` window, in sequence_number
+/// order. The function uses `transform_against` to advance the operation past
+/// each entry. The incoming operation has a larger sequence number than every
+/// entry in the window, so the closure of the kernel must give the incoming
+/// operation the side of the later operation.
 ///
 /// The one-operation-in-flight invariant means that no entry in the window has
 /// the author of the incoming operation. The window thus has no gap, and this
 /// function puts the operation into head context.
 pub fn to_head_context(
   log: List(LogEntry(operation)),
-  ref_seq: Int,
-  seq: Int,
+  reference_sequence_number: Int,
+  sequence_number: Int,
   operation: operation,
   transform_against: fn(operation, LogEntry(operation)) ->
     Result(operation, error),
 ) -> Result(operation, error) {
   log
-  |> list.filter(fn(e) { e.seq > ref_seq && e.seq < seq })
-  |> list.sort(fn(a, b) { int.compare(a.seq, b.seq) })
+  |> list.filter(fn(e) {
+    e.sequence_number > reference_sequence_number
+    && e.sequence_number < sequence_number
+  })
+  |> list.sort(fn(a, b) { int.compare(a.sequence_number, b.sequence_number) })
   |> list.try_fold(operation, transform_against)
 }
 
@@ -200,14 +204,14 @@ pub fn rebase_pending(
 // Concurrency-log GC
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Drop the log entries that no future window can contain. The `ref_seq` of an
-/// operation is the minimum sequence number (MSN) or more, so an entry at the
-/// MSN or below it is dead.
+/// Drop the log entries that no future window can contain. The
+/// `reference_sequence_number` of an operation is the minimum sequence number
+/// (MSN) or more, so an entry at the MSN or below it is dead.
 pub fn gc_log(
   log: List(LogEntry(operation)),
-  msn: Int,
+  minimum_sequence_number: Int,
 ) -> List(LogEntry(operation)) {
-  list.filter(log, fn(e) { e.seq > msn })
+  list.filter(log, fn(e) { e.sequence_number > minimum_sequence_number })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -216,9 +220,9 @@ pub fn gc_log(
 
 /// Retire the operation that the server acknowledged. A buffered edit becomes
 /// the next operation on the wire, and the function builds its wire envelope.
-/// The reference sequence of that envelope is the `seq` of the acknowledgement,
-/// because the buffer is written against `sequenced` with the acknowledged
-/// operation applied.
+/// The reference sequence of that envelope is the `sequence_number` of the
+/// acknowledgement, because the buffer is written against `sequenced` with the
+/// acknowledged operation applied.
 ///
 /// The second element of the result is `None` when there was no buffered edit.
 /// This is a plain function over a `Pending` value and a wire constructor, and
@@ -226,7 +230,7 @@ pub fn gc_log(
 /// its state record is.
 pub fn promote_buffer(
   pending: Pending(operation),
-  seq: Int,
+  sequence_number: Int,
   make_wire: fn(Int, operation) -> wire,
 ) -> #(Pending(operation), Option(wire)) {
   case pending {
@@ -234,7 +238,7 @@ pub fn promote_buffer(
     InFlight(_) -> #(Idle, None)
     InFlightAndBuffered(_, buffered) -> #(
       InFlight(buffered),
-      Some(make_wire(seq, buffered)),
+      Some(make_wire(sequence_number, buffered)),
     )
   }
 }

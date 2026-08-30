@@ -120,8 +120,8 @@ fn run_scenario(
                       case result {
                         Error(reason) ->
                           fail("A could not ensure went_well: " <> reason)
-                        Ok(seq_a) ->
-                          seed_then_resolve(doc_b, notes_a, votes_a, seq_a)
+                        Ok(sequence_a) ->
+                          seed_then_resolve(doc_b, notes_a, votes_a, sequence_a)
                       }
                     },
                   )
@@ -139,10 +139,16 @@ fn seed_then_resolve(
   doc_b: Document(doc_schema.BoardDoc),
   notes_a: OrMap,
   votes_a: OrMap,
-  seq_a: watershed.SharedSequence,
+  sequence_a: watershed.SharedSequence,
 ) -> Nil {
   log("smoke: seeding one card from A")
-  add_card(notes_a, seq_a, "note-seed", "user-a", "ship week went smoothly")
+  add_card(
+    notes_a,
+    sequence_a,
+    "note-seed",
+    "user-a",
+    "ship week went smoothly",
+  )
 
   use <- delay(2000)
   let root_b = watershed.root_typed(doc_b)
@@ -172,14 +178,14 @@ fn seed_then_resolve(
                       case result {
                         Error(reason) ->
                           fail("B could not resolve went_well: " <> reason)
-                        Ok(seq_b) ->
+                        Ok(sequence_b) ->
                           concurrent_phase(
                             notes_a,
                             votes_a,
-                            seq_a,
+                            sequence_a,
                             notes_b,
                             votes_b,
-                            seq_b,
+                            sequence_b,
                           )
                       }
                     },
@@ -197,15 +203,15 @@ fn seed_then_resolve(
 fn concurrent_phase(
   notes_a: OrMap,
   votes_a: OrMap,
-  seq_a: watershed.SharedSequence,
+  sequence_a: watershed.SharedSequence,
   notes_b: OrMap,
   votes_b: OrMap,
-  seq_b: watershed.SharedSequence,
+  sequence_b: watershed.SharedSequence,
 ) -> Nil {
   use <- delay(500)
   log("smoke: concurrent adds and votes from A and B")
-  add_card(notes_a, seq_a, "note-a", "user-a", "deploys got faster")
-  add_card(notes_b, seq_b, "note-b", "user-b", "standup stayed short")
+  add_card(notes_a, sequence_a, "note-a", "user-a", "deploys got faster")
+  add_card(notes_b, sequence_b, "note-b", "user-b", "standup stayed short")
   watershed.or_map_increment(votes_a, "note-seed", 1)
   watershed.or_map_increment(votes_b, "note-seed", 1)
 
@@ -221,7 +227,8 @@ fn concurrent_phase(
   let tally_b = tally(votes_b, "note-seed")
   let votes_summed = tally_a == 2 && tally_b == 2
   let order_agreed =
-    watershed.sequence_values(seq_a) == watershed.sequence_values(seq_b)
+    watershed.sequence_values(sequence_a)
+    == watershed.sequence_values(sequence_b)
 
   case both_adds_survived && converged && votes_summed && order_agreed {
     True -> {
