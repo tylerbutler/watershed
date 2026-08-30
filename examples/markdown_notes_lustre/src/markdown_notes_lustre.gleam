@@ -99,6 +99,15 @@ type RecoveryState {
   ReplacingLocalSnapshot
 }
 
+/// Whether the browser has exempted this origin's storage from eviction.
+/// `Unknown` until the browser answers the request; there is no bare `Bool`
+/// state to confuse with any other flag on `Model`.
+type Durability {
+  Unknown
+  Durable
+  Evictable
+}
+
 type SharedState {
   SharedState(
     root: Handle(OrMapChannel),
@@ -137,7 +146,7 @@ pub opaque type Model {
     local_snapshot: LocalSnapshot,
     save_state: SaveState,
     saved_digest: String,
-    durable: Option(Bool),
+    durable: Durability,
     note_names: List(String),
     open: Option(OpenNote),
     pending_open: Option(String),
@@ -218,7 +227,7 @@ pub fn init(room: String) -> #(Model, Effect(Msg)) {
       local_snapshot: OpeningLocalSnapshot,
       save_state: WaitingForDocument,
       saved_digest: "",
-      durable: None,
+      durable: Unknown,
       note_names: [],
       open: None,
       pending_open: None,
@@ -421,7 +430,10 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     StorageDurability(granted) -> #(
-      Model(..model, durable: Some(granted)),
+      Model(..model, durable: case granted {
+        True -> Durable
+        False -> Evictable
+      }),
       effect.none(),
     )
 
@@ -1794,8 +1806,8 @@ fn storage_lamp(model: Model) -> String {
     LocalSnapshotFailed(_) -> "lamp-armed"
     LoadedLocalSnapshot ->
       case model.durable {
-        Some(True) -> "lamp-safe"
-        Some(False) | None -> "lamp-live"
+        Durable -> "lamp-safe"
+        Evictable | Unknown -> "lamp-live"
       }
     OpeningLocalSnapshot | NoLocalSnapshot -> "lamp-live"
   }
@@ -1960,9 +1972,9 @@ fn storage_status(model: Model) -> String {
     LocalSnapshotFailed(detail) -> "storage · " <> detail
   }
   case model.durable {
-    None -> snapshot
-    Some(True) -> snapshot <> " · durable"
-    Some(False) -> snapshot <> " · evictable"
+    Unknown -> snapshot
+    Durable -> snapshot <> " · durable"
+    Evictable -> snapshot <> " · evictable"
   }
 }
 
