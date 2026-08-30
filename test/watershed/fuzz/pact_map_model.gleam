@@ -5,10 +5,10 @@
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
-import gleam/order
 import gleam/string
 import qcheck
 import watershed/fuzz/kernel_fuzz.{
@@ -275,7 +275,7 @@ fn oracle_set(
         Ok(Pact(accepted, _)) -> accepted
         Error(_) -> None
       }
-      let signoffs = connected |> list.sort(int_compare)
+      let signoffs = connected |> list.sort(int.compare)
       case signoffs {
         [] ->
           OracleState(values: dict.insert(
@@ -378,23 +378,12 @@ fn check_signoffs(state: ModelState) -> Result(Nil, String) {
     case pending {
       None -> Ok(Nil)
       Some(Pending(_, signoffs)) ->
-        case signoffs == list.sort(signoffs, int_compare) {
+        case signoffs == list.sort(signoffs, int.compare) {
           True -> Ok(Nil)
           False -> Error("signoffs not sorted for key " <> key)
         }
     }
   })
-}
-
-fn int_compare(a: Int, b: Int) -> order.Order {
-  case a < b {
-    True -> order.Lt
-    False ->
-      case a > b {
-        True -> order.Gt
-        False -> order.Eq
-      }
-  }
 }
 
 pub fn model() -> KernelModel(ModelState, PactCommand, List(#(String, Pact))) {
