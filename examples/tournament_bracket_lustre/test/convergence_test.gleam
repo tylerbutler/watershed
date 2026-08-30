@@ -7,7 +7,6 @@ import gleeunit/should
 
 import tournament_bracket_lustre/bracket
 import tournament_bracket_lustre/doc_schema
-import tournament_bracket_lustre/match_result
 import watershed.{type Document, type RegisterCollection}
 import watershed/register_collection_kernel.{Atomic}
 import watershed/sluice_js.{type Sluice}
@@ -46,7 +45,7 @@ fn report(
   watershed.register_write(
     matches,
     key,
-    match_result.to_json(bracket.MatchResult(winner:, score:)),
+    bracket.to_json(bracket.MatchResult(winner:, score:)),
   )
 }
 
@@ -55,7 +54,7 @@ fn official(
   key: String,
 ) -> option.Option(bracket.MatchResult) {
   case watershed.register_read(matches, key, Atomic) {
-    Ok(value) -> Some(match_result.from_json(value))
+    Ok(value) -> Some(bracket.from_json(value))
     Error(_) -> option.None
   }
 }
@@ -65,7 +64,7 @@ fn versions(
   key: String,
 ) -> List(bracket.MatchResult) {
   case watershed.register_versions(matches, key) {
-    Ok(values) -> list.map(values, match_result.from_json)
+    Ok(values) -> list.map(values, bracket.from_json)
     Error(_) -> []
   }
 }

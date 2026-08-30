@@ -11,7 +11,6 @@ import gleam/option.{Some}
 
 import tournament_bracket_lustre/bracket
 import tournament_bracket_lustre/doc_schema
-import tournament_bracket_lustre/match_result
 import watershed.{type Document, type RegisterCollection, WatershedConfig}
 import watershed/register_collection_kernel.{Atomic}
 
@@ -212,7 +211,7 @@ fn report_phase(
   watershed.register_write(
     matches_a,
     "r1m1",
-    match_result.to_json(bracket.MatchResult("Alaric", "3-1")),
+    bracket.to_json(bracket.MatchResult("Alaric", "3-1")),
   )
 
   use converged <- wait_until(wait_attempts, fn() {
@@ -257,7 +256,7 @@ fn official(
   key: String,
 ) -> option.Option(bracket.MatchResult) {
   case watershed.register_read(matches, key, Atomic) {
-    Ok(value) -> Some(match_result.from_json(value))
+    Ok(value) -> Some(bracket.from_json(value))
     Error(_) -> option.None
   }
 }

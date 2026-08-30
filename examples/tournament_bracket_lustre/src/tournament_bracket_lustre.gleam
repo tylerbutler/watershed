@@ -58,7 +58,6 @@ import tournament_bracket_lustre/bracket.{
   type MatchId, type MatchResult, type Slot, MatchResult,
 }
 import tournament_bracket_lustre/doc_schema
-import tournament_bracket_lustre/match_result
 
 // ── Dev config for `just integration-up` (levee/floodgate dev mode) ──────────
 
@@ -269,7 +268,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             dict.get(model.score_drafts, match_key)
             |> option.from_result
             |> option.unwrap("")
-          let value = match_result.to_json(MatchResult(winner:, score:))
+          let value = bracket.to_json(MatchResult(winner:, score:))
           watershed.register_write(matches, match_key, value)
           #(
             Model(..model, pending: set.insert(model.pending, match_key))
@@ -324,7 +323,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 fn apply_register_event(model: Model, event: RegisterEvent) -> Model {
   case event {
     AtomicChanged(key, value, _local) -> {
-      let result = match_result.from_json(value)
+      let result = bracket.from_json(value)
       Model(
         ..model,
         results: dict.insert(model.results, key, result),
@@ -333,7 +332,7 @@ fn apply_register_event(model: Model, event: RegisterEvent) -> Model {
       |> log_line(key <> " official result: " <> result.winner)
     }
     VersionChanged(key, value, _local) -> {
-      let result = match_result.from_json(value)
+      let result = bracket.from_json(value)
       let existing = dict.get(model.versions, key) |> option.from_result
       let updated = case existing {
         Some(existing_versions) -> list.append(existing_versions, [result])

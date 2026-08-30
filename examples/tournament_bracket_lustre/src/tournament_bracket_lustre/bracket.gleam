@@ -13,7 +13,9 @@
 //// nicety this demo does not need to earn its point about `RegisterCollection`.
 
 import gleam/dict.{type Dict}
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
+import gleam/json.{type Json}
 import gleam/list
 
 /// The 8 fixed seeds, in seed order. Display strings only — never written to
@@ -187,5 +189,44 @@ pub fn slot_label(slot: Slot) -> String {
     SeedSlot(name) -> name
     WinnerSlot(name) -> name
     Undecided -> "TBD"
+  }
+}
+
+// ── MatchResult codec ─────────────────────────────────────────────────────────
+//
+// A RegisterCollection holds arbitrary gleam/json values, so a match result
+// crosses the wire as one JSON object with both fields — never one field at a
+// time. The two fields must always change together in a single register_write,
+// so there is no window where a winner is recorded without a score or vice
+// versa:
+//
+//   { "winner": "Beatrix", "score": "3-1" }
+//
+// Decoding is fallible on purpose: a peer running an older build can leave a
+// value here that does not match. Callers render those as a visible placeholder
+// rather than crashing.
+
+/// Encode a `MatchResult` as a JSON value for a register write.
+pub fn to_json(result: MatchResult) -> Json {
+  json.object([
+    #("winner", json.string(result.winner)),
+    #("score", json.string(result.score)),
+  ])
+}
+
+/// Decoder for a `MatchResult` JSON object.
+pub fn decoder() -> Decoder(MatchResult) {
+  use winner <- decode.field("winner", decode.string)
+  use score <- decode.field("score", decode.string)
+  decode.success(MatchResult(winner:, score:))
+}
+
+/// Decode a raw register value.
+/// On failure, return a visible placeholder so one malformed result does not
+/// take the bracket down.
+pub fn from_json(value: Json) -> MatchResult {
+  case json.parse(json.to_string(value), decoder()) {
+    Ok(result) -> result
+    Error(_) -> MatchResult(winner: "?", score: "(unreadable result)")
   }
 }
