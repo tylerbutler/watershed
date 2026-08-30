@@ -4,7 +4,7 @@ import watershed/json_ot.{
 }
 
 fn parse(raw: String) -> JsonValue {
-  let assert Ok(value) = json_ot.from_json_string(raw)
+  let assert Ok(value) = json_ot.parse_json(raw)
   value
 }
 

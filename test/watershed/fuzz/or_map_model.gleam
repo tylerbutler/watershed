@@ -133,7 +133,7 @@ fn op_generator() -> qcheck.Generator(OrMapCommand) {
   |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
 }
 
-fn to_kernel_op(
+fn command_to_kernel_op(
   command: OrMapCommand,
   context: String,
 ) -> or_map_kernel.OrMapOp {
@@ -175,7 +175,10 @@ fn apply_remote(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(OrMapState, String) {
   case
-    or_map_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
+    or_map_kernel.apply_remote(
+      state,
+      command_to_kernel_op(command, "apply_remote"),
+    )
   {
     Ok(#(state, _events)) -> Ok(state)
     Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
@@ -191,7 +194,9 @@ fn ack_local(
   command: OrMapCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(OrMapState, String) {
-  case or_map_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
+  case
+    or_map_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+  {
     Ok(state) -> Ok(state)
     Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
     Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
@@ -208,7 +213,7 @@ fn rollback(state: OrMapState, command: OrMapCommand) -> OrMapState {
       case
         or_map_kernel.rollback(
           state,
-          to_kernel_op(command, "rollback"),
+          command_to_kernel_op(command, "rollback"),
           message_id,
         )
       {

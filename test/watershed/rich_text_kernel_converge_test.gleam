@@ -30,7 +30,7 @@ fn ids() -> List(Int) {
 
 fn initial_document() -> rich_text.Document {
   let assert Ok(document) =
-    rich_text.document_from_json_string(
+    rich_text.parse_document(
       "[{\"insert\":\"a😀\"},{\"insert\":{\"image\":\"seed\"}}]",
     )
   document

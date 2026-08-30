@@ -2471,10 +2471,7 @@ fn or_map_snapshot_decoder() -> Decoder(Snapshot) {
   let encoded = json.to_string(value)
   case json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string)) {
     Ok(spec) ->
-      case
-        or_map_kernel.mode_from_spec_string(spec),
-        or_map.from_json(encoded)
-      {
+      case or_map_kernel.spec_string_to_mode(spec), or_map.from_json(encoded) {
         Ok(mode), Ok(state) -> decode.success(OrMapSnapshot(mode, state))
         Error(_), _ -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
         _, Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")

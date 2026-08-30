@@ -231,17 +231,17 @@ fn concurrent_phase(
     False -> {
       log(
         "SMOKE FAIL: both_adds_survived="
-        <> bool_str(both_adds_survived)
+        <> bool_to_string(both_adds_survived)
         <> " converged="
-        <> bool_str(converged)
+        <> bool_to_string(converged)
         <> " votes_summed="
-        <> bool_str(votes_summed)
+        <> bool_to_string(votes_summed)
         <> " (A="
         <> int.to_string(tally_a)
         <> ", B="
         <> int.to_string(tally_b)
         <> ") order_agreed="
-        <> bool_str(order_agreed),
+        <> bool_to_string(order_agreed),
       )
       exit(1)
     }
@@ -287,7 +287,7 @@ fn fail(message: String) -> Nil {
   exit(1)
 }
 
-fn bool_str(b: Bool) -> String {
+fn bool_to_string(b: Bool) -> String {
   case b {
     True -> "true"
     False -> "false"

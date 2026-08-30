@@ -477,7 +477,8 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       }
 
     Push(client_id, event, payload, reply) -> {
-      let core = core.handle(state.core, client_id, event, to_dynamic(payload))
+      let core =
+        core.handle(state.core, client_id, event, json_to_dynamic(payload))
       process.send(reply, Nil)
       actor.continue(State(..state, core: core))
     }
@@ -543,7 +544,7 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 /// Serialize a queued `Json` push and parse it again as `Dynamic`. This mirrors
 /// the server side of a real socket, which decodes the client's push with the
 /// server's own `Dynamic`-based frame decoders (`sluice/core`, `frame`).
-fn to_dynamic(payload: Json) -> Dynamic {
+fn json_to_dynamic(payload: Json) -> Dynamic {
   // `json.to_string` always writes valid JSON, so the parse always succeeds.
   // The error arm reports a null value, because this module must not panic.
   case json.parse(json.to_string(payload), decode.dynamic) {

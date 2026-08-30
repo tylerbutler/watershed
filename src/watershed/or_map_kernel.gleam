@@ -104,7 +104,7 @@ pub fn mode_to_spec(mode: OrMapMode) -> crdt.CrdtSpec {
   }
 }
 
-pub fn mode_from_spec_string(spec: String) -> Result(OrMapMode, Nil) {
+pub fn spec_string_to_mode(spec: String) -> Result(OrMapMode, Nil) {
   case spec {
     "pn_counter" -> Ok(TallyMode)
     "lww_register" -> Ok(RegisterMode)
@@ -604,7 +604,7 @@ pub fn from_summary(
     decode.at(["state", "crdt_spec"], decode.string),
   ))
   use mode <- result.try(
-    mode_from_spec_string(spec)
+    spec_string_to_mode(spec)
     |> result.map_error(fn(_) { unsupported_spec_error(spec) }),
   )
   use parsed <- result.try(or_map.from_json(summary_json))

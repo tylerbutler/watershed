@@ -47,7 +47,7 @@ const reconnect_client_id = "default_dice_9"
 // Fixture builders
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn to_dynamic(value: Json) -> Dynamic {
+fn json_to_dynamic(value: Json) -> Dynamic {
   case json.parse(json.to_string(value), decode.dynamic) {
     Ok(dynamic_value) -> dynamic_value
     Error(_) -> panic as "fixture JSON failed to re-parse"
@@ -81,7 +81,7 @@ fn channel_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_map_envelope(address, op)),
+    contents: json_to_dynamic(wire_op.encode_map_envelope(address, op)),
   )
 }
 
@@ -97,7 +97,7 @@ fn attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(
+    contents: json_to_dynamic(wire_op.encode_attach(
       address,
       channel.MapSnapshot(snapshot),
     )),
@@ -113,7 +113,9 @@ fn join_message(
     sequence_number: sequence_number,
     client_sequence_number: -1,
     message_type: "join",
-    contents: to_dynamic(json.object([#("clientId", json.string(joining))])),
+    contents: json_to_dynamic(
+      json.object([#("clientId", json.string(joining))]),
+    ),
   )
 }
 
@@ -282,12 +284,12 @@ fn root_entries(core: Core) -> List(#(String, Json)) {
 }
 
 fn rich_text_document(raw: String) -> rich_text.Document {
-  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  let assert Ok(document) = rich_text.parse_document(raw)
   document
 }
 
 fn rich_text_delta(raw: String) -> rich_text.Delta {
-  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  let assert Ok(delta) = rich_text.parse_delta(raw)
   delta
 }
 
@@ -303,7 +305,7 @@ fn rich_text_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_channel_envelope(
+    contents: json_to_dynamic(wire_op.encode_channel_envelope(
       address,
       channel.RichTextOp(op),
     )),
@@ -976,7 +978,7 @@ pub fn unknown_address_ops_are_fatal_test() -> Nil {
       sequence_number: 2,
       client_sequence_number: 1,
       message_type: "op",
-      contents: to_dynamic(wire_op.encode_map_envelope(
+      contents: json_to_dynamic(wire_op.encode_map_envelope(
         "other-map",
         Set("die", json.int(4)),
       )),
@@ -997,7 +999,7 @@ pub fn undecodable_op_contents_are_fatal_test() -> Nil {
       sequence_number: 2,
       client_sequence_number: 1,
       message_type: "op",
-      contents: to_dynamic(json.object([#("bogus", json.bool(True))])),
+      contents: json_to_dynamic(json.object([#("bogus", json.bool(True))])),
     )
   runtime_core.handle_sequenced(core, garbage)
   |> expect_error(fn(core_error) {
@@ -2047,7 +2049,7 @@ fn counter_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_counter_envelope(address, op)),
+    contents: json_to_dynamic(wire_op.encode_counter_envelope(address, op)),
   )
 }
 
@@ -2063,7 +2065,7 @@ fn counter_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(
+    contents: json_to_dynamic(wire_op.encode_attach(
       address,
       channel.CounterSnapshot(value),
     )),
@@ -2289,7 +2291,7 @@ fn claim_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_claim_envelope(address, op)),
+    contents: json_to_dynamic(wire_op.encode_claim_envelope(address, op)),
   )
 }
 
@@ -2305,7 +2307,7 @@ fn claim_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(
+    contents: json_to_dynamic(wire_op.encode_attach(
       address,
       channel.ClaimsSnapshot(entries),
     )),
@@ -2471,7 +2473,7 @@ fn or_map_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_or_map_envelope(address, op)),
+    contents: json_to_dynamic(wire_op.encode_or_map_envelope(address, op)),
   )
 }
 
@@ -2487,7 +2489,7 @@ fn or_map_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(address, snapshot)),
+    contents: json_to_dynamic(wire_op.encode_attach(address, snapshot)),
   )
 }
 
@@ -2894,7 +2896,7 @@ fn register_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_register_collection_envelope(
+    contents: json_to_dynamic(wire_op.encode_register_collection_envelope(
       address,
       op,
     )),
@@ -2913,7 +2915,7 @@ fn register_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(
+    contents: json_to_dynamic(wire_op.encode_attach(
       address,
       channel.RegisterCollectionSnapshot(registers),
     )),
@@ -3248,7 +3250,7 @@ fn text_op_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_channel_envelope(
+    contents: json_to_dynamic(wire_op.encode_channel_envelope(
       address,
       channel.TextOp(op),
     )),
@@ -3267,7 +3269,7 @@ fn text_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: to_dynamic(wire_op.encode_attach(address, snapshot)),
+    contents: json_to_dynamic(wire_op.encode_attach(address, snapshot)),
   )
 }
 
@@ -3794,7 +3796,7 @@ fn summarize_message(
     sequence_number: sequence_number,
     client_sequence_number: -1,
     message_type: "summarize",
-    contents: to_dynamic(
+    contents: json_to_dynamic(
       json.object([
         #("handle", json.string("deadbeef")),
         #("message", json.string("watershed summary")),

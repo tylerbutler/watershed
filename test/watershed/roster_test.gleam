@@ -381,11 +381,11 @@ fn pact_set_message(
     ..system_message("op", None, sequence_number),
     client_id: Some(author),
     client_sequence_number: 1,
-    contents: to_dynamic(contents),
+    contents: json_to_dynamic(contents),
   )
 }
 
-fn to_dynamic(value: json.Json) -> Dynamic {
+fn json_to_dynamic(value: json.Json) -> Dynamic {
   case json.parse(json.to_string(value), decode.dynamic) {
     Ok(parsed) -> parsed
     Error(_) -> panic as "fixture JSON failed to re-parse"

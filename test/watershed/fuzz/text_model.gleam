@@ -158,7 +158,10 @@ fn op_generator() -> qcheck.Generator(TextCommand) {
   })
 }
 
-fn to_kernel_op(command: TextCommand, context: String) -> text_kernel.TextOp {
+fn command_to_kernel_op(
+  command: TextCommand,
+  context: String,
+) -> text_kernel.TextOp {
   case command {
     InsertCommand(index, value, Some(delta)) ->
       text_kernel.Insert(index, value, delta)
@@ -262,7 +265,10 @@ fn apply_remote(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(text_kernel.TextState, String) {
   let #(state, _events) =
-    text_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
+    text_kernel.apply_remote(
+      state,
+      command_to_kernel_op(command, "apply_remote"),
+    )
   Ok(state)
 }
 
@@ -271,7 +277,9 @@ fn ack_local(
   command: TextCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(text_kernel.TextState, String) {
-  case text_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
+  case
+    text_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+  {
     Ok(state) -> Ok(state)
     Error(text_kernel.UnexpectedAck(detail))
     | Error(text_kernel.UnexpectedRollback(detail)) -> Error(detail)
@@ -288,7 +296,7 @@ fn rollback(
       case
         text_kernel.rollback(
           state,
-          to_kernel_op(command, "rollback"),
+          command_to_kernel_op(command, "rollback"),
           message_id,
         )
       {
@@ -311,7 +319,7 @@ fn apply_stashed(
       let #(state, _events, _op, _message_id) =
         text_kernel.apply_stashed_op(
           state,
-          to_kernel_op(command, "apply_stashed"),
+          command_to_kernel_op(command, "apply_stashed"),
         )
       #(state, command)
     }

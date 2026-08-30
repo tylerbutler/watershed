@@ -194,11 +194,11 @@ fn run_scenario(
     False -> {
       log(
         "SMOKE FAIL: isolated="
-        <> bool_str(isolated)
+        <> bool_to_string(isolated)
         <> " converged_a="
-        <> bool_str(converged_a)
+        <> bool_to_string(converged_a)
         <> " converged_b="
-        <> bool_str(converged_b),
+        <> bool_to_string(converged_b),
       )
       exit(1)
     }
@@ -247,7 +247,7 @@ fn fail(reason: String) -> Nil {
   exit(1)
 }
 
-fn bool_str(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

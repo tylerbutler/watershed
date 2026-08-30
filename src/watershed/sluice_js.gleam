@@ -607,7 +607,7 @@ fn push(cell: Cell(State), token: String, event: String, payload: Json) -> Nil {
             state.core,
             conn.current,
             event,
-            to_dynamic(payload),
+            json_to_dynamic(payload),
           ),
         ),
       )
@@ -705,7 +705,7 @@ fn find_conn(
 /// Serialize a queued `Json` frame and parse it again as `Dynamic`, for
 /// `sluice/core.handle`, which decodes an inbound push the same way floodgate
 /// would off a real socket.
-fn to_dynamic(payload: Json) -> Dynamic {
+fn json_to_dynamic(payload: Json) -> Dynamic {
   // `json.to_string` always writes valid JSON, so the parse always succeeds.
   // The error arm reports a null value, because this module must not panic.
   case json.parse(json.to_string(payload), decode.dynamic) {

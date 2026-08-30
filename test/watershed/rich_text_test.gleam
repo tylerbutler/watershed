@@ -28,26 +28,26 @@ pub fn rich_text_fixture_tests() -> TestTree {
 
 pub fn normalization_and_malformed_input_test() -> Nil {
   let assert Ok(delta) =
-    rich_text.delta_from_json_string(
+    rich_text.parse_delta(
       "[{\"delete\":1},{\"insert\":\"a\"},{\"delete\":2},{\"retain\":3}]",
     )
   encoded_delta(delta) |> expect.to_equal("[{\"insert\":\"a\"},{\"delete\":3}]")
-  rich_text.delta_from_json_string("[{\"insert\":null}]")
+  rich_text.parse_delta("[{\"insert\":null}]")
   |> expect.to_equal(
     Error(rich_text.Malformed("operation 0", "null insert is invalid")),
   )
-  rich_text.delta_from_json_string("[{\"retain\":0}]")
+  rich_text.parse_delta("[{\"retain\":0}]")
   |> expect.to_equal(
     Error(rich_text.Malformed(
       "operation 0",
       "retain must be a positive integer",
     )),
   )
-  rich_text.delta_from_json_string("[{\"insert\":\"x\",\"delete\":1}]")
+  rich_text.parse_delta("[{\"insert\":\"x\",\"delete\":1}]")
   |> expect.to_equal(
     Error(rich_text.Malformed("operation 0", "must have exactly one action key")),
   )
-  rich_text.delta_from_json_string("[{\"insert\":\"x\",\"unknown\":true}]")
+  rich_text.parse_delta("[{\"insert\":\"x\",\"unknown\":true}]")
   |> expect.to_equal(
     Error(rich_text.Malformed("operation 0", "contains an unknown field")),
   )
@@ -55,38 +55,33 @@ pub fn normalization_and_malformed_input_test() -> Nil {
 
 pub fn compose_apply_invert_and_utf16_test() -> Nil {
   utf16.boundary("A😀B", 2) |> expect.to_equal(False)
-  let assert Ok(base) =
-    rich_text.document_from_json_string("[{\"insert\":\"A😀B\"}]")
+  let assert Ok(base) = rich_text.parse_document("[{\"insert\":\"A😀B\"}]")
   let assert Ok(delta) =
-    rich_text.delta_from_json_string(
-      "[{\"retain\":1},{\"insert\":\"x\"},{\"delete\":2}]",
-    )
+    rich_text.parse_delta("[{\"retain\":1},{\"insert\":\"x\"},{\"delete\":2}]")
   let assert Ok(applied) = rich_text.apply(base, delta)
   encoded_document(applied) |> expect.to_equal("[{\"insert\":\"AxB\"}]")
   let assert Ok(inverse) = rich_text.invert(delta, base)
   let assert Ok(restored) = rich_text.apply(applied, inverse)
   restored |> expect.to_equal(base)
-  rich_text.document_from_json_string("[{\"insert\":\"A😀B\"}]")
+  rich_text.parse_document("[{\"insert\":\"A😀B\"}]")
   |> expect.to_equal(Ok(base))
   let assert Ok(split) =
-    rich_text.delta_from_json_string("[{\"retain\":2},{\"delete\":1}]")
+    rich_text.parse_delta("[{\"retain\":2},{\"delete\":1}]")
   rich_text.apply(base, split)
   |> expect.to_equal(Error(rich_text.InvalidBoundary(2)))
 }
 
 pub fn direct_algebra_surrogate_boundaries_are_checked_test() -> Nil {
-  let assert Ok(emoji) =
-    rich_text.delta_from_json_string("[{\"insert\":\"😀\"}]")
+  let assert Ok(emoji) = rich_text.parse_delta("[{\"insert\":\"😀\"}]")
   let assert Ok(split) =
-    rich_text.delta_from_json_string("[{\"retain\":1},{\"delete\":1}]")
+    rich_text.parse_delta("[{\"retain\":1},{\"delete\":1}]")
 
   // Compose must split the left insert at this boundary, so it reports the
   // UTF-16 offset rather than leaking the iterator's old pattern-match panic.
   rich_text.compose(emoji, split)
   |> expect.to_equal(Error(rich_text.InvalidBoundary(1)))
 
-  let assert Ok(base) =
-    rich_text.document_from_json_string("[{\"insert\":\"😀\"}]")
+  let assert Ok(base) = rich_text.parse_document("[{\"insert\":\"😀\"}]")
   rich_text.invert(split, base)
   |> expect.to_equal(Error(rich_text.InvalidBoundary(1)))
 
@@ -104,7 +99,7 @@ pub fn delete_then_insert_cursor_and_selection_test() -> Nil {
   // operation order. The delete must leave `offset` unchanged so the cursor
   // and range collapse before later operations are considered.
   let assert Ok(delta) =
-    rich_text.delta_from_json_string(
+    rich_text.parse_delta(
       "[{\"delete\":5},{\"retain\":1},{\"insert\":\"abc\"}]",
     )
 
@@ -121,8 +116,8 @@ pub fn delete_then_insert_cursor_and_selection_test() -> Nil {
 }
 
 pub fn same_position_side_and_selection_test() -> Nil {
-  let assert Ok(a) = rich_text.delta_from_json_string("[{\"insert\":\"A\"}]")
-  let assert Ok(b) = rich_text.delta_from_json_string("[{\"insert\":\"B\"}]")
+  let assert Ok(a) = rich_text.parse_delta("[{\"insert\":\"A\"}]")
+  let assert Ok(b) = rich_text.parse_delta("[{\"insert\":\"B\"}]")
   let assert Ok(left) = rich_text.transform(a, b, rich_text.Left)
   left
   |> encoded_delta
@@ -140,7 +135,7 @@ pub fn same_position_side_and_selection_test() -> Nil {
 
 fn replay_fixture(file: String) -> Nil {
   let assert Ok(raw) = simplifile.read(fixture_dir <> "/" <> file)
-  let assert Ok(VObject(root)) = json_ot.from_json_string(raw)
+  let assert Ok(VObject(root)) = json_ot.parse_json(raw)
   let base_json = required(root, "base")
   let deltas = object(required(root, "deltas"))
   let a_json = required(deltas, "a")

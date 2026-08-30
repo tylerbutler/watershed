@@ -33,7 +33,7 @@ const ordered_address = "oc-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-fn to_dynamic(value: Json) -> Dynamic {
+fn json_to_dynamic(value: Json) -> Dynamic {
   case json.parse(json.to_string(value), decode.dynamic) {
     Ok(dynamic_value) -> dynamic_value
     Error(_) -> panic as "fixture JSON failed to re-parse"
@@ -94,7 +94,7 @@ fn sequenced_message(
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
     message_type: out.op_type,
-    contents: to_dynamic(out.contents),
+    contents: json_to_dynamic(out.contents),
     metadata: None,
     server_metadata: None,
     origin: None,
@@ -415,7 +415,7 @@ fn leave_msg(
     client_sequence_number: -1,
     reference_sequence_number: sequence_number - 1,
     message_type: "leave",
-    contents: to_dynamic(json.null()),
+    contents: json_to_dynamic(json.null()),
     metadata: None,
     server_metadata: None,
     origin: None,

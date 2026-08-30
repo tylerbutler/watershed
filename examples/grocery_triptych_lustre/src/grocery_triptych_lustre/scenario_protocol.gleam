@@ -52,7 +52,7 @@ pub fn encode(message: Message) -> Json {
         #("phase", json.string("status")),
         #("run_id", json.string(run_id)),
         #("target_peer", json.string(target_peer)),
-        #("status", json.string(status_text(status))),
+        #("status", json.string(status_to_string(status))),
       ])
   }
 }
@@ -189,7 +189,7 @@ pub fn should_accept_status(
   }
 }
 
-pub fn status_text(status: Status) -> String {
+pub fn status_to_string(status: Status) -> String {
   case status {
     PeerAppliedAdd -> "peer-applied-add"
     VerifiedExpectedOutcome -> "verified-expected-outcome"

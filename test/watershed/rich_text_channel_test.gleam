@@ -28,12 +28,12 @@ import watershed/wire
 import watershed/wire/op as wire_op
 
 fn document(raw: String) -> rich_text.Document {
-  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  let assert Ok(document) = rich_text.parse_document(raw)
   document
 }
 
 fn delta(raw: String) -> rich_text.Delta {
-  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  let assert Ok(delta) = rich_text.parse_delta(raw)
   delta
 }
 
@@ -361,7 +361,7 @@ pub fn rich_text_wrong_channel_type_errors_test() -> Nil {
 
 fn handle_value(address: String) -> json_ot.JsonValue {
   let assert Ok(value) =
-    json_ot.from_json_string(json.to_string(handle.encode_handle(address)))
+    json_ot.parse_json(json.to_string(handle.encode_handle(address)))
   value
 }
 

@@ -198,19 +198,19 @@ fn toggle_scenario(
     False -> {
       log(
         "SMOKE FAIL: seeded="
-        <> bool_str(seeded)
+        <> bool_to_string(seeded)
         <> " converged="
-        <> bool_str(converged)
+        <> bool_to_string(converged)
         <> " add_won="
-        <> bool_str(add_won)
+        <> bool_to_string(add_won)
         <> " toggle_on="
-        <> bool_str(on)
+        <> bool_to_string(on)
         <> " toggle_off="
-        <> bool_str(off)
+        <> bool_to_string(off)
         <> " survived_reconnect="
-        <> bool_str(survived_reconnect)
+        <> bool_to_string(survived_reconnect)
         <> " summarized="
-        <> bool_str(summarized)
+        <> bool_to_string(summarized)
         <> " (A="
         <> string.join(steps(kick_a), ",")
         <> " B="
@@ -227,7 +227,7 @@ fn steps(set: OrSet) -> List(String) {
   watershed.or_set_values(set) |> list.sort(string.compare)
 }
 
-fn bool_str(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

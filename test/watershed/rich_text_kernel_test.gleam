@@ -5,12 +5,12 @@ import watershed/rich_text
 import watershed/rich_text_kernel.{RichTextChanged, RichTextWireOp} as kernel
 
 fn document(raw: String) -> rich_text.Document {
-  let assert Ok(document) = rich_text.document_from_json_string(raw)
+  let assert Ok(document) = rich_text.parse_document(raw)
   document
 }
 
 fn delta(raw: String) -> rich_text.Delta {
-  let assert Ok(delta) = rich_text.delta_from_json_string(raw)
+  let assert Ok(delta) = rich_text.parse_delta(raw)
   delta
 }
 

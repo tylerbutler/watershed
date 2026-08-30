@@ -36,14 +36,14 @@ fn new_state() -> ModelState {
   ModelState(kernel: pact_map_kernel.new(), last_reaction: None)
 }
 
-fn to_kernel_op(command: PactCommand) -> pact_map_kernel.PactMapOp {
+fn command_to_kernel_op(command: PactCommand) -> pact_map_kernel.PactMapOp {
   case command {
     CommandSet(key, value, ref_seq) -> Set(key, value, ref_seq)
     CommandAccept(key) -> Accept(key)
   }
 }
 
-fn from_kernel_op(op: pact_map_kernel.PactMapOp) -> PactCommand {
+fn kernel_op_to_command(op: pact_map_kernel.PactMapOp) -> PactCommand {
   case op {
     Set(key, value, ref_seq) -> CommandSet(key, value, ref_seq)
     Accept(key) -> CommandAccept(key)
@@ -129,14 +129,14 @@ fn submit(
     CommandAccept(_) -> #(state, None)
     CommandSet(key, None, _) ->
       case pact_map_kernel.delete(state.kernel, key, meta.last_seen_seq) {
-        Ok(op) -> #(state, Some(from_kernel_op(op)))
+        Ok(op) -> #(state, Some(kernel_op_to_command(op)))
         Error(_) -> #(state, None)
       }
     CommandSet(key, Some(value), _) ->
       case
         pact_map_kernel.set(state.kernel, key, Some(value), meta.last_seen_seq)
       {
-        Ok(op) -> #(state, Some(from_kernel_op(op)))
+        Ok(op) -> #(state, Some(kernel_op_to_command(op)))
         Error(_) -> #(state, None)
       }
   }
@@ -153,13 +153,13 @@ fn apply_set_for_client(
       let #(kernel, _events, reaction) =
         pact_map_kernel.apply_set(
           state.kernel,
-          to_kernel_op(command),
+          command_to_kernel_op(command),
           meta.sequence_number,
           meta.connected_clients,
           self_id,
         )
       let last_reaction = case reaction {
-        OweAccept(op) -> Some(from_kernel_op(op))
+        OweAccept(op) -> Some(kernel_op_to_command(op))
         NoReaction -> None
       }
       ModelState(kernel:, last_reaction:)

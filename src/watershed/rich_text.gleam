@@ -346,14 +346,14 @@ pub fn delta_from_json(value: JsonValue) -> Result(Delta, Error) {
   |> result.try(delta_operations)
 }
 
-pub fn document_from_json_string(raw: String) -> Result(Document, Error) {
-  json_ot.from_json_string(raw)
+pub fn parse_document(raw: String) -> Result(Document, Error) {
+  json_ot.parse_json(raw)
   |> result.map_error(fn(_) { Malformed("document", "invalid JSON") })
   |> result.try(document_from_json)
 }
 
-pub fn delta_from_json_string(raw: String) -> Result(Delta, Error) {
-  json_ot.from_json_string(raw)
+pub fn parse_delta(raw: String) -> Result(Delta, Error) {
+  json_ot.parse_json(raw)
   |> result.map_error(fn(_) { Malformed("delta", "invalid JSON") })
   |> result.try(delta_from_json)
 }

@@ -96,7 +96,7 @@ fn op_generator() -> qcheck.Generator(PnCommand) {
 
 /// A routed op must carry the delta `submit`/`apply_stashed` filled in; a
 /// `None` here is a model wiring bug, not a kernel bug — fail loudly.
-fn to_kernel_op(
+fn command_to_kernel_op(
   command: PnCommand,
   context: String,
 ) -> pn_counter_kernel.PnCounterOp {
@@ -129,7 +129,10 @@ fn apply_remote(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(PnCounterState, String) {
   let #(state, _events) =
-    pn_counter_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
+    pn_counter_kernel.apply_remote(
+      state,
+      command_to_kernel_op(command, "apply_remote"),
+    )
   Ok(state)
 }
 
@@ -138,7 +141,12 @@ fn ack_local(
   command: PnCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(PnCounterState, String) {
-  case pn_counter_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
+  case
+    pn_counter_kernel.ack_local(
+      state,
+      command_to_kernel_op(command, "ack_local"),
+    )
+  {
     Ok(state) -> Ok(state)
     Error(pn_counter_kernel.UnexpectedAck(_, detail)) -> Error(detail)
     Error(pn_counter_kernel.UnexpectedRollback(_, detail)) -> Error(detail)
@@ -164,7 +172,7 @@ fn rollback(state: PnCounterState, command: PnCommand) -> PnCounterState {
       case
         pn_counter_kernel.rollback(
           state,
-          to_kernel_op(command, "rollback"),
+          command_to_kernel_op(command, "rollback"),
           message_id,
         )
       {

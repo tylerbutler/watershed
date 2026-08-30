@@ -1903,11 +1903,10 @@ fn run_rich_text_converge_test() -> Nil {
   let rt_b = resolve_rich_text_key_or_panic(doc_b, map_b, "doc")
 
   // Seed plain text and wait for both sides to see it before diverging.
-  let assert Ok(seed) =
-    rich_text.delta_from_json_string("[{\"insert\":\"Hello World\"}]")
+  let assert Ok(seed) = rich_text.parse_delta("[{\"insert\":\"Hello World\"}]")
   watershed_beam.submit_rich_text(rt_a, seed)
   let assert Ok(seeded) =
-    rich_text.document_from_json_string("[{\"insert\":\"Hello World\"}]")
+    rich_text.parse_document("[{\"insert\":\"Hello World\"}]")
   wait_until(50, fn() { watershed_beam.rich_text_view(rt_b) == Ok(seeded) })
   |> expect.to_be_true()
 
@@ -1934,7 +1933,7 @@ fn run_rich_text_converge_test() -> Nil {
   watershed_beam.submit_rich_text(rt_b, b_edit)
 
   let assert Ok(expected) =
-    rich_text.document_from_json_string(
+    rich_text.parse_document(
       "[{\"insert\":\"Hello\",\"attributes\":{\"bold\":true}},{\"insert\":\" World 😀\"}]",
     )
   wait_until(50, fn() {

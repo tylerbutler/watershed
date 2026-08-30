@@ -201,19 +201,19 @@ fn paint_scenario(
     False -> {
       log(
         "SMOKE FAIL: seeded="
-        <> bool_str(seeded)
+        <> bool_to_string(seeded)
         <> " disjoint="
-        <> bool_str(disjoint)
+        <> bool_to_string(disjoint)
         <> " erased="
-        <> bool_str(erased)
+        <> bool_to_string(erased)
         <> " held="
-        <> bool_str(held)
+        <> bool_to_string(held)
         <> " isolated="
-        <> bool_str(isolated)
+        <> bool_to_string(isolated)
         <> " flushed="
-        <> bool_str(flushed)
+        <> bool_to_string(flushed)
         <> " caught_up="
-        <> bool_str(caught_up)
+        <> bool_to_string(caught_up)
         <> " (A="
         <> summarise(a)
         <> " B="
@@ -260,7 +260,7 @@ fn diagnostic_line(doc: Document(doc_schema.CanvasDoc)) -> String {
   <> " resubmit="
   <> option_int(diagnostics.resubmit_checkpoint)
   <> " synced="
-  <> bool_str(diagnostics.synced)
+  <> bool_to_string(diagnostics.synced)
 }
 
 fn option_int(value: Option(Int)) -> String {
@@ -270,7 +270,7 @@ fn option_int(value: Option(Int)) -> String {
   }
 }
 
-fn bool_str(b: Bool) -> String {
+fn bool_to_string(b: Bool) -> String {
   case b {
     True -> "true"
     False -> "false"

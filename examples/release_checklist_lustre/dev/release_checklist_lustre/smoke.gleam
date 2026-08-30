@@ -229,19 +229,19 @@ fn run_scenario(a: Handles, b: Handles, c: Handles) -> Nil {
     False -> {
       log(
         "SMOKE FAIL: checks_complete="
-        <> bool_str(checks_complete)
+        <> bool_to_string(checks_complete)
         <> " captain_on_b="
-        <> bool_str(captain_settled_on_b)
+        <> bool_to_string(captain_settled_on_b)
         <> " captain_on_c="
-        <> bool_str(captain_settled_on_c)
+        <> bool_to_string(captain_settled_on_c)
         <> " accepted_on_a="
-        <> bool_str(accepted_on_a)
+        <> bool_to_string(accepted_on_a)
         <> " accepted_on_b="
-        <> bool_str(accepted_on_b)
+        <> bool_to_string(accepted_on_b)
         <> " accepted_on_c="
-        <> bool_str(accepted_on_c)
+        <> bool_to_string(accepted_on_c)
         <> " settled="
-        <> bool_str(settled),
+        <> bool_to_string(settled),
       )
       exit(1)
     }
@@ -274,7 +274,7 @@ fn decode_string(value: json.Json) -> Result(String, Nil) {
   }
 }
 
-fn bool_str(b: Bool) -> String {
+fn bool_to_string(b: Bool) -> String {
   case b {
     True -> "true"
     False -> "false"

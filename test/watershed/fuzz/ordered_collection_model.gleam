@@ -66,7 +66,7 @@ fn concrete_value(raw_value: Int, client_id: Int) -> Int {
   client_id * 1000 + raw_value
 }
 
-fn to_kernel_op(
+fn command_to_kernel_op(
   command: OrderedCommand,
 ) -> ordered_collection_kernel.OrderedOp {
   case command {
@@ -252,7 +252,7 @@ fn apply_op(
         True ->
           ordered_collection_kernel.ack_local(
             state.kernel,
-            to_kernel_op(command),
+            command_to_kernel_op(command),
             author,
           )
           |> fn(result) {
@@ -262,7 +262,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            to_kernel_op(command),
+            command_to_kernel_op(command),
             author,
           )
       }
@@ -301,7 +301,7 @@ fn apply_op(
           let #(kernel, events, _) =
             ordered_collection_kernel.ack_local(
               state.kernel,
-              to_kernel_op(command),
+              command_to_kernel_op(command),
               author,
             )
           #(kernel, events)
@@ -309,7 +309,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            to_kernel_op(command),
+            command_to_kernel_op(command),
             author,
           )
       }

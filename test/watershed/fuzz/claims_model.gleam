@@ -48,7 +48,7 @@ pub type ClaimCommand {
   ClaimCommand(kind: ClaimKind, key: String, value: Json, ref_seq: Int)
 }
 
-fn to_claim(command: ClaimCommand) -> claims_kernel.ClaimOp {
+fn command_to_claim(command: ClaimCommand) -> claims_kernel.ClaimOp {
   Claim(command.key, command.value, command.ref_seq)
 }
 
@@ -145,7 +145,11 @@ fn apply_remote(
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ClaimsState, String) {
   let #(state, _events) =
-    claims_kernel.apply_remote(state, to_claim(command), meta.sequence_number)
+    claims_kernel.apply_remote(
+      state,
+      command_to_claim(command),
+      meta.sequence_number,
+    )
   Ok(state)
 }
 
@@ -154,7 +158,13 @@ fn ack_local(
   command: ClaimCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ClaimsState, String) {
-  case claims_kernel.ack_local(state, to_claim(command), meta.sequence_number) {
+  case
+    claims_kernel.ack_local(
+      state,
+      command_to_claim(command),
+      meta.sequence_number,
+    )
+  {
     Ok(#(state, _events, _outcome)) -> Ok(state)
     Error(claims_kernel.UnexpectedAck(_, detail)) -> Error(detail)
     Error(claims_kernel.UnexpectedRollback(_, detail)) -> Error(detail)

@@ -24,7 +24,7 @@ import watershed/wire/socket
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn to_dynamic(value: json.Json) -> decode.Dynamic {
+fn json_to_dynamic(value: json.Json) -> decode.Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(value), decode.dynamic)
   dynamic
 }
@@ -66,7 +66,7 @@ fn connect(sluice: Sluice, last_seen: option.Option(Int)) -> #(Sluice, String) {
   let #(sluice, client_id) = core.register(sluice)
   let payload = socket.encode_connect_document(connect_message(), last_seen)
   let sluice =
-    core.handle(sluice, client_id, "connect_document", to_dynamic(payload))
+    core.handle(sluice, client_id, "connect_document", json_to_dynamic(payload))
   #(sluice, client_id)
 }
 
@@ -86,7 +86,7 @@ fn submit(
       metadata: None,
     )
   let payload = socket.encode_submit_op(client_id, [[op]])
-  core.handle(sluice, client_id, "submitOp", to_dynamic(payload))
+  core.handle(sluice, client_id, "submitOp", json_to_dynamic(payload))
 }
 
 /// Drain every deliverable frame, oldest first.
@@ -295,7 +295,7 @@ pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() -> Nil {
       sluice,
       c2,
       "requestOps",
-      to_dynamic(socket.encode_request_ops(from: 2)),
+      json_to_dynamic(socket.encode_request_ops(from: 2)),
     )
   let #(_hub, frames) = drain(sluice)
   let assert [frame] = of_event(frames, "op")
@@ -320,7 +320,7 @@ pub fn signal_fan_out_excludes_author_and_strips_type_test() -> Nil {
       ripple_type: "presence",
       content: json.object([#("kind", json.string("presence"))]),
     )
-  let sluice = core.handle(sluice, c1, "submitSignal", to_dynamic(signal))
+  let sluice = core.handle(sluice, c1, "submitSignal", json_to_dynamic(signal))
   let #(_hub, frames) = drain(sluice)
 
   let signals = of_event(frames, "signal")
@@ -414,7 +414,7 @@ fn presence_push(
   event: String,
   payload: json.Json,
 ) -> Sluice {
-  core.handle(sluice, client_id, event, to_dynamic(payload))
+  core.handle(sluice, client_id, event, json_to_dynamic(payload))
 }
 
 fn state_of(frame: Outbound) -> List(presence.PresenceEntry(Panel)) {

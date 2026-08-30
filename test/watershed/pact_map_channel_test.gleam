@@ -40,7 +40,7 @@ const pact_map_address = "pm-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-fn to_dynamic(value: Json) -> Dynamic {
+fn json_to_dynamic(value: Json) -> Dynamic {
   case json.parse(json.to_string(value), decode.dynamic) {
     Ok(dynamic_value) -> dynamic_value
     Error(_) -> panic as "fixture JSON failed to re-parse"
@@ -101,7 +101,7 @@ fn sequenced_message(
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
     message_type: out.op_type,
-    contents: to_dynamic(out.contents),
+    contents: json_to_dynamic(out.contents),
     metadata: None,
     server_metadata: None,
     origin: None,

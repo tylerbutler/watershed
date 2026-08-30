@@ -185,19 +185,19 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
     False -> {
       log(
         "SMOKE FAIL: seeded="
-        <> bool_str(seeded_ok)
+        <> bool_to_string(seeded_ok)
         <> " converged="
-        <> bool_str(converged)
+        <> bool_to_string(converged)
         <> " move_ok="
-        <> bool_str(move_ok)
+        <> bool_to_string(move_ok)
         <> " replace_ok="
-        <> bool_str(replace_ok)
+        <> bool_to_string(replace_ok)
         <> " out_of_bounds_rejected="
-        <> bool_str(rejected_ok)
+        <> bool_to_string(rejected_ok)
         <> " replace_survived="
-        <> bool_str(replace_survived)
+        <> bool_to_string(replace_survived)
         <> " no_duplicates="
-        <> bool_str(no_duplicates),
+        <> bool_to_string(no_duplicates),
       )
       exit(1)
     }
@@ -227,7 +227,7 @@ fn titles(sequence: SharedSequence) -> List(String) {
   |> list.map(fn(value: Json) { track.from_json(value).title })
 }
 
-fn bool_str(b: Bool) -> String {
+fn bool_to_string(b: Bool) -> String {
   case b {
     True -> "true"
     False -> "false"

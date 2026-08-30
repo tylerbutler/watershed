@@ -1731,7 +1731,7 @@ fn dict_to_sorted_list(
 
 /// Parse a JSON string into a `JsonValue`. The tests and the summaries use
 /// this function.
-pub fn from_json_string(raw: String) -> Result(JsonValue, Nil) {
+pub fn parse_json(raw: String) -> Result(JsonValue, Nil) {
   case json.parse(raw, decoder()) {
     Ok(value) -> Ok(value)
     Error(_) -> Error(Nil)

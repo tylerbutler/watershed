@@ -27,7 +27,7 @@ import watershed/wire/socket
 
 /// Serialize a `Json` value and re-parse it as a `Dynamic`, the same trip a
 /// pushed frame takes over the wire before the sluice decodes it.
-fn to_dynamic(value: json.Json) -> decode.Dynamic {
+fn json_to_dynamic(value: json.Json) -> decode.Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(value), decode.dynamic)
   dynamic
 }
@@ -110,7 +110,8 @@ fn a_system_message(
 
 pub fn decode_connect_document_round_trip_test() -> Nil {
   let encoded = socket.encode_connect_document(test_connect_message(), Some(42))
-  let assert Ok(request) = frame.decode_connect_document(to_dynamic(encoded))
+  let assert Ok(request) =
+    frame.decode_connect_document(json_to_dynamic(encoded))
 
   request.tenant_id |> expect.to_equal("default")
   request.document_id |> expect.to_equal("dice")
@@ -120,7 +121,8 @@ pub fn decode_connect_document_round_trip_test() -> Nil {
 
 pub fn decode_connect_document_without_last_seen_test() -> Nil {
   let encoded = socket.encode_connect_document(test_connect_message(), None)
-  let assert Ok(request) = frame.decode_connect_document(to_dynamic(encoded))
+  let assert Ok(request) =
+    frame.decode_connect_document(json_to_dynamic(encoded))
   request.last_seen_sequence_number |> expect.to_equal(None)
 }
 
@@ -134,7 +136,7 @@ pub fn decode_submit_op_round_trip_test() -> Nil {
       metadata: None,
     )
   let encoded = socket.encode_submit_op("sluice-client-1", [[op]])
-  let assert Ok(submit) = frame.decode_submit_op(to_dynamic(encoded))
+  let assert Ok(submit) = frame.decode_submit_op(json_to_dynamic(encoded))
 
   submit.client_id |> expect.to_equal("sluice-client-1")
   let assert [[decoded]] = submit.batches
@@ -148,13 +150,13 @@ pub fn decode_submit_op_round_trip_test() -> Nil {
 
 pub fn decode_request_ops_round_trip_test() -> Nil {
   let encoded = socket.encode_request_ops(from: 10)
-  frame.decode_request_ops(to_dynamic(encoded)) |> expect.to_equal(Ok(10))
+  frame.decode_request_ops(json_to_dynamic(encoded)) |> expect.to_equal(Ok(10))
 }
 
 pub fn decode_noop_round_trip_test() -> Nil {
   let encoded =
     socket.encode_noop("sluice-client-1", reference_sequence_number: 12)
-  frame.decode_noop(to_dynamic(encoded))
+  frame.decode_noop(json_to_dynamic(encoded))
   |> expect.to_equal(Ok(#("sluice-client-1", 12)))
 }
 
@@ -165,7 +167,7 @@ pub fn decode_submit_signal_round_trip_test() -> Nil {
       ripple_type: "presence",
       content: json.object([#("selectedCell", json.string("r3c4"))]),
     )
-  let assert Ok(signal) = frame.decode_submit_signal(to_dynamic(encoded))
+  let assert Ok(signal) = frame.decode_submit_signal(json_to_dynamic(encoded))
   signal.client_id |> expect.to_equal("sluice-client-2")
   signal.signal_type |> expect.to_equal(Some("presence"))
   json.to_string(signal.content)

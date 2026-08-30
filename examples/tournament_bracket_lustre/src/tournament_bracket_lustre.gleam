@@ -373,7 +373,9 @@ fn view(model: Model) -> Element(Msg) {
   html.div([attribute.class("wrap")], [
     html.div([attribute.class("bracket-header")], [
       html.h1([], [html.text("Tournament bracket")]),
-      html.p([attribute.class("status")], [html.text(status_text(model.status))]),
+      html.p([attribute.class("status")], [
+        html.text(status_to_string(model.status)),
+      ]),
       roster_view(model),
     ]),
     error_view(model),
@@ -396,7 +398,7 @@ fn view(model: Model) -> Element(Msg) {
   ])
 }
 
-fn status_text(status: Status) -> String {
+fn status_to_string(status: Status) -> String {
   case status {
     Connecting -> "connecting…"
     Ready -> "connected"

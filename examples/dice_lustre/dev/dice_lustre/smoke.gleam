@@ -143,19 +143,19 @@ fn run_scenario(
     False -> {
       log(
         "SMOKE FAIL: converged="
-        <> bool_str(converged)
+        <> bool_to_string(converged)
         <> " die_deleted="
-        <> bool_str(die_deleted)
+        <> bool_to_string(die_deleted)
         <> " color_ok="
-        <> bool_str(color_ok)
+        <> bool_to_string(color_ok)
         <> " after_ok="
-        <> bool_str(after_ok)
+        <> bool_to_string(after_ok)
         <> " lww_ok="
-        <> bool_str(lww_ok)
+        <> bool_to_string(lww_ok)
         <> " local_event_read_ok="
-        <> bool_str(transport_js.get_cell(local_probe))
+        <> bool_to_string(transport_js.get_cell(local_probe))
         <> " remote_event_read_ok="
-        <> bool_str(transport_js.get_cell(remote_probe)),
+        <> bool_to_string(transport_js.get_cell(remote_probe)),
       )
       exit(1)
     }
@@ -168,7 +168,7 @@ fn inspect_entries(entries: List(#(String, Json))) -> String {
   |> string.join(", ")
 }
 
-fn bool_str(b: Bool) -> String {
+fn bool_to_string(b: Bool) -> String {
   case b {
     True -> "true"
     False -> "false"

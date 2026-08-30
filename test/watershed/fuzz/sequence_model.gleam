@@ -135,7 +135,7 @@ fn command_value(value: String, context: String) -> Json {
   }
 }
 
-fn to_kernel_op(
+fn command_to_kernel_op(
   command: SequenceCommand,
   context: String,
 ) -> sequence_kernel.SequenceOp {
@@ -226,7 +226,10 @@ fn apply_remote(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(sequence_kernel.SequenceState, String) {
   let #(state, _) =
-    sequence_kernel.apply_remote(state, to_kernel_op(command, "apply_remote"))
+    sequence_kernel.apply_remote(
+      state,
+      command_to_kernel_op(command, "apply_remote"),
+    )
   Ok(state)
 }
 
@@ -235,7 +238,9 @@ fn ack_local(
   command: SequenceCommand,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(sequence_kernel.SequenceState, String) {
-  case sequence_kernel.ack_local(state, to_kernel_op(command, "ack_local")) {
+  case
+    sequence_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+  {
     Ok(state) -> Ok(state)
     Error(sequence_kernel.UnexpectedAck(detail))
     | Error(sequence_kernel.UnexpectedRollback(detail)) -> Error(detail)
@@ -252,7 +257,7 @@ fn rollback(
       case
         sequence_kernel.rollback(
           state,
-          to_kernel_op(command, "rollback"),
+          command_to_kernel_op(command, "rollback"),
           message_id,
         )
       {
@@ -275,7 +280,7 @@ fn apply_stashed(
       let #(state, _, _, _) =
         sequence_kernel.apply_stashed_op(
           state,
-          to_kernel_op(command, "apply_stashed"),
+          command_to_kernel_op(command, "apply_stashed"),
         )
       #(state, command)
     }

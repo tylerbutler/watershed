@@ -473,8 +473,8 @@ fn wait_until_polling(
 }
 
 fn log_snapshots(label: String, client_a: Client, client_b: Client) -> Nil {
-  log("  " <> label <> " A " <> snapshot_string(snapshot(client_a)))
-  log("  " <> label <> " B " <> snapshot_string(snapshot(client_b)))
+  log("  " <> label <> " A " <> snapshot_to_string(snapshot(client_a)))
+  log("  " <> label <> " B " <> snapshot_to_string(snapshot(client_b)))
 }
 
 fn fail_expected(
@@ -490,17 +490,17 @@ fn fail_expected(
     "SMOKE FAIL: "
     <> reason
     <> " a_matches="
-    <> bool_str(actual_a == wanted)
+    <> bool_to_string(actual_a == wanted)
     <> " b_matches="
-    <> bool_str(actual_b == wanted)
+    <> bool_to_string(actual_b == wanted)
     <> " converged="
-    <> bool_str(actual_a == actual_b)
+    <> bool_to_string(actual_a == actual_b)
     <> " expected="
-    <> snapshot_string(wanted)
+    <> snapshot_to_string(wanted)
     <> " A="
-    <> snapshot_string(actual_a)
+    <> snapshot_to_string(actual_a)
     <> " B="
-    <> snapshot_string(actual_b),
+    <> snapshot_to_string(actual_b),
   )
   exit(1)
 }
@@ -510,7 +510,7 @@ fn fail(reason: String) -> Nil {
   exit(1)
 }
 
-fn snapshot_string(snapshot: Snapshot) -> String {
+fn snapshot_to_string(snapshot: Snapshot) -> String {
   "G=["
   <> string.join(snapshot.grow_only, ",")
   <> "] TwoP=["
@@ -520,7 +520,7 @@ fn snapshot_string(snapshot: Snapshot) -> String {
   <> "]"
 }
 
-fn bool_str(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"
