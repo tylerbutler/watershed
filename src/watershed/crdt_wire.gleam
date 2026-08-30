@@ -185,7 +185,7 @@ pub fn address_creator(address: String) -> Result(String, Nil) {
         [replica, counter] ->
           case valid_replica_id(replica), positive_counter(counter) {
             True, True -> Ok(replica)
-            _, _ -> Error(Nil)
+            True, False | False, True | False, False -> Error(Nil)
           }
         _ -> Error(Nil)
       }

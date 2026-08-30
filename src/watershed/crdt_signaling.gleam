@@ -408,7 +408,7 @@ fn valid_id(value: String, what: String) -> Result(Nil, Refusal) {
       Error(InvalidId(
         what <> " id is longer than " <> int.to_string(max_id_bytes) <> " bytes",
       ))
-    _, _ -> Ok(Nil)
+    False, False -> Ok(Nil)
   }
 }
 

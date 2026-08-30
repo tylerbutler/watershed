@@ -2688,7 +2688,7 @@ fn refresh_sync(cell: Cell(State)) -> Nil {
   case should_sync(state), state.sync_armed {
     True, False -> arm_sync(cell)
     False, True -> cancel_sync(cell)
-    _, _ -> Nil
+    True, True | False, False -> Nil
   }
 }
 

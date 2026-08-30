@@ -342,7 +342,13 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           Model(..model, claim: PendingClaim),
           watershed_lustre.ordered_acquire(shared.queue, ClaimSettled),
         )
-        _, _ -> #(model, effect.none())
+        Some(_), PendingClaim
+        | Some(_), Working(_, _)
+        | None, Idle
+        | None, PendingClaim
+        | None, Working(_, _)
+        | None, Missed
+        -> #(model, effect.none())
       }
 
     ClaimSettled(ordered_collection_kernel.AcquiredItem(acquire_id, value)) -> {
@@ -380,7 +386,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           watershed.ordered_complete(shared.queue, acquire_id)
           #(model, effect.none())
         }
-        _, _ -> #(model, effect.none())
+        Some(_), Working(_, _)
+        | Some(_), Idle
+        | Some(_), PendingClaim
+        | Some(_), Missed
+        | None, Idle
+        | None, PendingClaim
+        | None, Working(_, _)
+        | None, Missed
+        -> #(model, effect.none())
       }
 
     ReleaseClicked ->
@@ -389,7 +403,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           watershed.ordered_release(shared.queue, acquire_id)
           #(snapshot(Model(..model, claim: Idle)), effect.none())
         }
-        _, _ -> #(model, effect.none())
+        Some(_), Idle
+        | Some(_), PendingClaim
+        | Some(_), Missed
+        | None, Idle
+        | None, PendingClaim
+        | None, Working(_, _)
+        | None, Missed
+        -> #(model, effect.none())
       }
   }
 }

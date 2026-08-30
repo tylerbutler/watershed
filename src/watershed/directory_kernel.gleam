@@ -656,7 +656,7 @@ fn compare_create_info(a: CreateInfo, b: CreateInfo) -> Order {
   case a_acknowledged, b_acknowledged {
     True, False -> order.Lt
     False, True -> order.Gt
-    _, _ ->
+    True, True | False, False ->
       case a.seq == b.seq {
         True -> int.compare(a.client_seq, b.client_seq)
         False -> int.compare(a.seq, b.seq)

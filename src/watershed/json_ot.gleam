@@ -867,7 +867,8 @@ fn transform_other_subtype(
             False -> Ok([Component(..c, subtype: Some(#(oname, res)))])
           }
         }
-        _ -> Ok([c])
+        Some(#(_, _)) -> Ok([c])
+        None -> Ok([c])
       }
   }
 }
